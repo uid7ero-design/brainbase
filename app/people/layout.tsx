@@ -59,7 +59,7 @@ export default async function PeopleLayout({ children }: { children: React.React
         background: 'var(--bg-base)',
         fontFamily: 'var(--font-inter), Inter, sans-serif',
         color: 'var(--text-primary)',
-        padding: '36px 40px',
+        padding: 'clamp(20px, 4vw, 36px) clamp(16px, 4vw, 40px)',
       }}
     >
       {children}

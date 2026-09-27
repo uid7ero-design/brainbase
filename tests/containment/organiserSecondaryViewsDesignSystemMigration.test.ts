@@ -20,15 +20,20 @@ const calendar = block('function CalendarView(', '// ── BOARD ACTIVITY')
 const boardActivity = block('function BoardActivity(', '// ── ITEM DETAIL DRAWER')
 const itemActivity = block('function ItemActivity(', 'function ItemDrawer(')
 
+const organiserCss = fs.readFileSync(path.resolve(__dirname, '../../components/organiser/Organiser.module.css'), 'utf-8')
+
 describe('C.5 Organiser Kanban, Calendar, and Activity chrome migration', () => {
   it('migrates Kanban surfaces, text hierarchy, controls, and spacing to canonical tokens', () => {
-    for (const token of [
-      '--bb-canvas', '--bb-space-5', '--bb-space-7', '--bb-text-secondary',
-      '--bb-text-muted', '--bb-surface-1', '--bb-border-subtle', '--bb-shadow-sm',
-      '--bb-text-primary', '--bb-text-tertiary', '--bb-surface-soft',
-      '--bb-border-default', '--bb-radius-lg', '--bb-radius-sm',
-    ]) expect(kanban).toContain(token)
+    // Integration note (main + app visual convergence): main's C.x rollout pinned its own
+    // inline --bb-* styling. The reviewed Phase D3 implementation supersedes that presentation
+    // (CSS module on the Phase A app tokens, shared primitives, dialog semantics), so this
+    // assertion now pins the D3 equivalent. Every behavioural assertion in this file is unchanged.
+    expect(kanban).toContain('className={styles.')
     expect(kanban).not.toContain('useOpsTheme')
+    expect(kanban).not.toMatch(/#[0-9a-fA-F]{6}\b|rgba\(255, ?255, ?255/)
+    for (const token of ['var(--bg-surface)', 'var(--border)', 'var(--text-primary)', 'var(--text-muted)'])
+      expect(organiserCss).toContain(token)
+
   })
 
   it('preserves Kanban status grouping and status mutation behavior', () => {
@@ -42,14 +47,16 @@ describe('C.5 Organiser Kanban, Calendar, and Activity chrome migration', () => 
   })
 
   it('migrates Calendar navigation, cells, labels, and today treatment to canonical tokens', () => {
-    for (const token of [
-      '--bb-canvas', '--bb-radius-md', '--bb-surface-soft',
-      '--bb-text-primary', '--bb-type-micro-size',
-      '--bb-type-micro-tracking', '--bb-text-muted', '--bb-border-focus',
-      '--bb-border-subtle', '--bb-accent-300', '--bb-text-tertiary',
-    ]) expect(calendar).toContain(token)
+    // Integration note (main + app visual convergence): main's C.x rollout pinned its own
+    // inline --bb-* styling. The reviewed Phase D3 implementation supersedes that presentation
+    // (CSS module on the Phase A app tokens, shared primitives, dialog semantics), so this
+    // assertion now pins the D3 equivalent. Every behavioural assertion in this file is unchanged.
+    expect(calendar).toContain('className={styles.')
     expect(calendar).not.toContain('useOpsTheme')
-    expect(calendar).not.toContain('navBtnStyle(t)')
+    expect(calendar).not.toMatch(/#[0-9a-fA-F]{6}\b|rgba\(255, ?255, ?255/)
+    for (const token of ['var(--bg-surface)', 'var(--border)', 'var(--text-primary)', 'var(--text-muted)'])
+      expect(organiserCss).toContain(token)
+
   })
 
   it('preserves Calendar month navigation, Today action, due-date grouping, limits, and item opening', () => {
@@ -65,12 +72,16 @@ describe('C.5 Organiser Kanban, Calendar, and Activity chrome migration', () => 
   })
 
   it('migrates Board Activity loading/error/empty/event/diff chrome to canonical tokens', () => {
-    for (const token of [
-      '--bb-canvas', '--bb-text-tertiary', '--bb-danger', '--bb-text-muted',
-      '--bb-radius-md', '--bb-surface-1', '--bb-border-subtle',
-      '--bb-text-primary', '--bb-text-secondary',
-    ]) expect(boardActivity).toContain(token)
+    // Integration note (main + app visual convergence): main's C.x rollout pinned its own
+    // inline --bb-* styling. The reviewed Phase D3 implementation supersedes that presentation
+    // (CSS module on the Phase A app tokens, shared primitives, dialog semantics), so this
+    // assertion now pins the D3 equivalent. Every behavioural assertion in this file is unchanged.
+    expect(boardActivity).toContain('className={styles.')
     expect(boardActivity).not.toContain('useOpsTheme')
+    expect(boardActivity).not.toMatch(/#[0-9a-fA-F]{6}\b|rgba\(255, ?255, ?255/)
+    for (const token of ['var(--bg-surface)', 'var(--border)', 'var(--text-primary)', 'var(--text-muted)'])
+      expect(organiserCss).toContain(token)
+
   })
 
   it('preserves Board Activity fetch, cancellation, pagination, live-item click-through, and refresh semantics', () => {
@@ -87,11 +98,16 @@ describe('C.5 Organiser Kanban, Calendar, and Activity chrome migration', () => 
   })
 
   it('uses the same token-backed activity treatment for Item Activity without changing its data behavior', () => {
-    for (const token of [
-      '--bb-text-muted', '--bb-danger', '--bb-radius-md', '--bb-surface-soft',
-      '--bb-border-subtle', '--bb-text-primary', '--bb-text-secondary',
-    ]) expect(itemActivity).toContain(token)
+    // Integration note (main + app visual convergence): main's C.x rollout pinned its own
+    // inline --bb-* styling. The reviewed Phase D3 implementation supersedes that presentation
+    // (CSS module on the Phase A app tokens, shared primitives, dialog semantics), so this
+    // assertion now pins the D3 equivalent; main's behavioural assertions below are kept verbatim.
+    expect(itemActivity).toContain('className={styles.')
     expect(itemActivity).not.toContain('useOpsTheme')
+    expect(itemActivity).not.toMatch(/#[0-9a-fA-F]{6}\b|rgba\(255, ?255, ?255/)
+    for (const token of ['var(--bg-surface)', 'var(--border)', 'var(--text-primary)', 'var(--text-muted)'])
+      expect(organiserCss).toContain(token)
+    // Main's Item Activity data-behaviour assertions (restored verbatim).
     expect(itemActivity).toContain('fetch(`/api/organiser/activity?itemId=${encodeURIComponent(itemId)}`')
     expect(itemActivity).toContain('}, [itemId, updatedAt])')
     expect(itemActivity).toContain('if (!nextCursor || loadingMore) return')
@@ -100,13 +116,15 @@ describe('C.5 Organiser Kanban, Calendar, and Activity chrome migration', () => 
   })
 
   it('uses a token-backed secondary action style for Calendar and Activity pagination controls', () => {
-    const helper = block('function viewButtonStyle()', 'function CalendarView(')
-    for (const token of [
-      '--bb-radius-md', '--bb-surface-soft', '--bb-border-default', '--bb-text-secondary',
-    ]) expect(helper).toContain(token)
-    expect(calendar).toContain('viewButtonStyle()')
-    expect(boardActivity).toContain('style={viewButtonStyle()}')
-    expect(itemActivity).toContain('style={viewButtonStyle()}')
+    // Integration note (main + app visual convergence): main's C.x rollout pinned its own
+    // inline --bb-* styling. The reviewed Phase D3 implementation supersedes that presentation
+    // (CSS module on the Phase A app tokens, shared primitives, dialog semantics), so this
+    // assertion now pins the D3 equivalent. Every behavioural assertion in this file is unchanged.
+    expect(calendar).toContain('buttonProps(')
+    expect(boardActivity).toContain('<button type="button" onClick={loadMore} disabled={loadingMore} {...buttonProps("secondary", "sm")}>')
+    expect(itemActivity).toContain('<button type="button" onClick={loadMore} disabled={loadingMore} {...buttonProps("secondary", "sm")}>')
+    expect(calendar).not.toContain('navBtnStyle(t)')
+
   })
 
   it('removes the targeted legacy chrome literals from all three views', () => {

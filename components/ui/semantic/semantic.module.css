@@ -6,7 +6,9 @@
   --dot: var(--bb-inactive-dot);
   --soft: var(--bb-inactive-soft);
   --line: var(--bb-inactive-border);
-  font-family: var(--bb-font-sans);
+  /* Inherit the surrounding typeface: Geist on the public site, Inter in
+     the signed-in app. Badge keeps its own mono face below. */
+  font-family: inherit;
 }
 
 .stateful[data-state='success'] { --fg: var(--bb-success-fg); --dot: var(--bb-success-dot); --soft: var(--bb-success-soft); --line: var(--bb-success-border); }
@@ -67,22 +69,37 @@
   color: var(--bb-text);
 }
 
-/* ─── Badge ─── */
+/* ─── Badge ───
+   One badge, two contexts (Phase D1 decision):
+   - signed-in app (default): a compact 4px tag in the surrounding face —
+     it sits in dense tables and lists, where a rounded mono pill read as
+     decorative and repeated pills competed with the data.
+   - public site (.bb-public): the original rounded mono pill, unchanged.
+   Same states, colours, dot shapes, text and API in both. */
 .badge {
   display: inline-flex;
   align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--soft);
+  color: var(--fg);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+:global(.bb-public) .badge {
   gap: 6px;
   height: 22px;
   padding: 0 8px;
-  border: 1px solid var(--line);
   border-radius: 999px;
-  background: var(--soft);
-  color: var(--fg);
   font-family: var(--bb-font-mono);
-  font-size: 0.6875rem;
   font-weight: 500;
   letter-spacing: 0.04em;
-  white-space: nowrap;
 }
 
 /* ─── Banner / Alert ─── */

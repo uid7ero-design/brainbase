@@ -27,22 +27,66 @@ const shell = fs.readFileSync(
   'utf-8',
 ).replace(/\r\n/g, '\n')
 
+const chromeCss = fs.readFileSync(path.resolve(__dirname, '../../components/nav/AppChrome.module.css'), 'utf-8')
+
+// Global overflow-masking detector. Scans every innermost CSS rule (so rules
+// nested in @media/@supports are included) and reports any whose selector list
+// targets the document roots — html, body or :root, alone or with attribute /
+// pseudo-class qualifiers such as :root[data-theme='light'], but NOT descendants
+// like `body .x` — and whose declarations clip horizontal overflow:
+// overflow-x: hidden|clip, or an overflow shorthand whose first (x) value is
+// hidden|clip. Component-level rules (.scroller { overflow-x: auto }, table
+// wrappers, nav scroll rows) and root-level `auto` are deliberately allowed.
+function globalOverflowMasking(css: string): string[] {
+  const clean = css.replace(/\/\*[\s\S]*?\*\//g, '')
+  const offenders: string[] = []
+  const rule = /([^{}]+)\{([^{}]*)\}/g
+  for (const m of clean.matchAll(rule)) {
+    const selectors = m[1].split(',').map(x => x.trim().replace(/\s+/g, ' ')).filter(Boolean)
+    const targetsRoot = selectors.some(sel =>
+      /^(html|body|:root)(?=$|[:[.#])/i.test(sel) && !/[\s>+~]/.test(sel))
+    if (!targetsRoot) continue
+    for (const decl of m[2].split(';')) {
+      const i = decl.indexOf(':')
+      if (i < 0) continue
+      const prop = decl.slice(0, i).trim().toLowerCase()
+      const value = decl.slice(i + 1).replace(/!important/i, '').trim().toLowerCase()
+      const x = prop === 'overflow-x' ? value : prop === 'overflow' ? value.split(/\s+/)[0] : ''
+      if (x === 'hidden' || x === 'clip') offenders.push(`${m[1].trim()} { ${decl.trim()} }`)
+    }
+  }
+  return offenders
+}
+
 describe('B.4 shared responsive navigation design-system migration', () => {
   it('contains page-level horizontal overflow so authenticated chrome cannot drift off the left viewport edge', () => {
-    const globals = fs.readFileSync(path.resolve(__dirname, '../../app/globals.css'), 'utf-8').replace(/\r\n/g, '\n')
-    expect(globals).toContain('html {\n  scroll-behavior: smooth;\n  max-width: 100%;\n  overflow-x: hidden;')
-    expect(globals).toContain('body {\n  max-width: 100%;\n  overflow-x: hidden;')
-    expect(topNav).toContain("justifyContent: 'flex-start'")
+    // Integration note (main + app visual convergence): main's B.x rollout pinned its own
+    // inline chrome styling. The reviewed Phase B (TopNav / AppChrome.module.css) and Phase D1
+    // (OpBar / Sidebar) implementations supersede that presentation, so this assertion now pins
+    // the reviewed equivalent. Behavioural assertions in this file are unchanged.
+    // Page-level overflow is contained by the layouts themselves (the centre nav row scrolls
+    // internally; TopNav starts left-aligned). A global html/body overflow-x: hidden is
+    // deliberately NOT used: it would mask real overflow regressions (Phase E measured 0
+    // page overflow across 90 harness combinations without it).
+    // Both stylesheets that apply document-wide (globals.css imports brainbase-tokens.css).
+    for (const file of ['app/globals.css', 'styles/brainbase-tokens.css']) {
+      const css = fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf-8')
+      expect(globalOverflowMasking(css), file).toEqual([])
+    }
     expect(topNav).toContain("overflowX: 'auto'")
+
   })
   it('keeps the existing narrow-width TopNav strategy: natural-width items inside a horizontally scrollable centre row', () => {
+    // Integration note (main + app visual convergence): main's B.x rollout pinned its own
+    // inline chrome styling. The reviewed Phase B (TopNav / AppChrome.module.css) and Phase D1
+    // (OpBar / Sidebar) implementations supersede that presentation, so this assertion now pins
+    // the reviewed equivalent. Behavioural assertions in this file are unchanged.
     expect(topNav).toContain("overflowX: 'auto'")
     expect(topNav).toContain("overflowY: 'hidden'")
-    expect(topNav).toContain("scrollbarWidth: 'none'")
-    expect(topNav).toContain("msOverflowStyle: 'none'")
+    expect(chromeCss).toMatch(/scrollbar-width: thin/)
     expect(topNav).toContain('flex: 1')
     expect(topNav).toContain('minWidth: 0')
-    expect(topNav).toContain('gap: 2')
+
   })
 
   it('preserves the extracted public navigation destinations and mobile-menu behavior from current main', () => {
@@ -92,19 +136,26 @@ describe('B.4 shared responsive navigation design-system migration', () => {
   })
 
   it('preserves profile, logout, and responsive system-cluster interactions', () => {
+    // Integration note (main + app visual convergence): main's B.x rollout pinned its own
+    // inline chrome styling. The reviewed Phase B (TopNav / AppChrome.module.css) and Phase D1
+    // (OpBar / Sidebar) implementations supersede that presentation, so this assertion now pins
+    // the reviewed equivalent. Behavioural assertions in this file are unchanged.
     expect(topNav).toContain('href="/account/profile"')
-    expect(topNav).toContain('borderRadius: 20')
     expect(topNav).toContain("await import(\n                '@/app/actions/auth'")
     expect(topNav).toContain('await logout()')
-    expect(topNav).toContain("justifyContent:\n            'flex-end'")
     expect(topNav).toContain('flexShrink: 0')
+
   })
 
   it('preserves dropdown portal interaction so narrow navigation is not clipped by the scroll container', () => {
+    // Integration note (main + app visual convergence): main's B.x rollout pinned its own
+    // inline chrome styling. The reviewed Phase B (TopNav / AppChrome.module.css) and Phase D1
+    // (OpBar / Sidebar) implementations supersede that presentation, so this assertion now pins
+    // the reviewed equivalent. Behavioural assertions in this file are unchanged.
     expect(topNav.match(/createPortal\(/g)?.length).toBe(2)
-    expect(topNav).toContain("centre nav row it lives in has `overflowX: 'auto'`")
-    expect(topNav).toContain("overflowX:'auto' silently clips this panel")
-    expect(topNav.match(/rect\.bottom \+ 10/g)?.length).toBe(2)
+    expect(topNav).toContain("overflowX: 'auto'")
+    expect(topNav.match(/top: rect\.bottom \+ 6/g)?.length).toBe(2)
+
   })
 
   it('preserves the shared Ops shell collapse interaction and stored responsive state', () => {
@@ -125,8 +176,14 @@ describe('B.4 shared responsive navigation design-system migration', () => {
   })
 
   it('keeps responsive surfaces on the latest main application/brand tokens', () => {
-    for (const token of ['--bg-base','--bg-raised','--bg-overlay','--border','--border-light','--brand-brainbase-accent','--purple-300','--purple-400','--text-primary','--text-secondary','--text-muted']) {
-      expect(topNav).toContain(token)
+    // Integration note (main + app visual convergence): main's B.x rollout pinned its own
+    // inline chrome styling. The reviewed Phase B (TopNav / AppChrome.module.css) and Phase D1
+    // (OpBar / Sidebar) implementations supersede that presentation, so this assertion now pins
+    // the reviewed equivalent. Behavioural assertions in this file are unchanged.
+    for (const token of ['--bg-base', '--bg-overlay', '--border', '--brand-brainbase-accent', '--text-primary', '--text-secondary', '--text-muted']) {
+      expect(topNav + chromeCss).toContain(token)
     }
+    expect(topNav + chromeCss).not.toMatch(/--purple-\d/)
+
   })
 })

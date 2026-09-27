@@ -5,9 +5,17 @@ import { useSearchParams } from 'next/navigation';
 import SlidePanel from '../_components/SlidePanel';
 import ContactForm from '../_components/ContactForm';
 import ClassificationBadge from '../_components/ClassificationBadge';
+import {
+  Button,
+  PageHeader,
+  TableContainer,
+  TableStateRow,
+  ToolbarSearch,
+  WorkToolbar,
+  tableStyles,
+  toolbarControlClassName,
+} from '@/components/ui/app';
 import { CRM_CONTACT_CLASSIFICATIONS, CRM_CONTACT_CLASSIFICATION_LABELS, type CrmContactClassification } from '@/lib/crm/classification';
-
-const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
 
 type Contact = {
   id: string; first_name: string; last_name: string; email: string | null; phone: string | null;
@@ -57,65 +65,68 @@ export default function ContactsPage() {
 
   return (
     <div style={{ maxWidth: 1000 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>Contacts</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '4px 0 0' }}>{contacts.length} total</p>
-        </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <select
-            value={classificationFilter}
-            onChange={e => setClassificationFilter(e.target.value as FilterValue)}
-            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}
-          >
-            <option value="ALL">All</option>
-            <option value="UNCLASSIFIED">Unclassified</option>
-            {CRM_CONTACT_CLASSIFICATIONS.map(value => (
-              <option key={value} value={value}>{CRM_CONTACT_CLASSIFICATION_LABELS[value]}</option>
-            ))}
-          </select>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
-            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none', width: 200 }} />
-          <button onClick={() => setShowAdd(true)} style={btn('var(--purple-600)')}>+ Add Contact</button>
-        </div>
-      </div>
+      <PageHeader
+        title="Contacts"
+        description={`${contacts.length} total`}
+        actions={<Button variant="primary" onClick={() => setShowAdd(true)}>+ Add Contact</Button>}
+      />
 
-      <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <WorkToolbar count={search && !loading ? `${filtered.length} of ${contacts.length}` : undefined}>
+        <select
+          aria-label="Filter by classification"
+          className={toolbarControlClassName}
+          value={classificationFilter}
+          onChange={e => setClassificationFilter(e.target.value as FilterValue)}
+        >
+          <option value="ALL">All</option>
+          <option value="UNCLASSIFIED">Unclassified</option>
+          {CRM_CONTACT_CLASSIFICATIONS.map(value => (
+            <option key={value} value={value}>{CRM_CONTACT_CLASSIFICATION_LABELS[value]}</option>
+          ))}
+        </select>
+        <ToolbarSearch
+          label="Search contacts"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+      </WorkToolbar>
+
+      <TableContainer label="Contacts" minWidth={780}>
+        <table className={tableStyles.table}>
           <thead>
-            <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-              {['Name', 'Classification', 'Company', 'Job Title', 'Email', 'Activities', ''].map(h => (
-                <th key={h} style={th}>{h}</th>
-              ))}
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Classification</th>
+              <th scope="col">Company</th>
+              <th scope="col">Job Title</th>
+              <th scope="col">Email</th>
+              <th scope="col" className={tableStyles.num}>Activities</th>
+              <th scope="col" className={tableStyles.actions}><span className="bb-visually-hidden">Actions</span></th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={7} style={empty}>Loading…</td></tr>}
-            {!loading && filtered.length === 0 && <tr><td colSpan={7} style={empty}>No contacts yet.</td></tr>}
-            {filtered.map((c, i) => (
-              <tr key={c.id} style={{ borderBottom: i < filtered.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
-                <td style={{ padding: '13px 16px' }}>
-                  <Link href={`/crm/contacts/${c.id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none', fontWeight: 500, fontSize: 14 }}>
+            {loading && <TableStateRow colSpan={7} kind="loading">Loading…</TableStateRow>}
+            {!loading && filtered.length === 0 && <TableStateRow colSpan={7} kind="empty">No contacts yet.</TableStateRow>}
+            {filtered.map(c => (
+              <tr key={c.id}>
+                <td className={tableStyles.primary}>
+                  <Link href={`/crm/contacts/${c.id}`}>
                     {c.first_name} {c.last_name}
                   </Link>
                 </td>
-                <td style={td}><ClassificationBadge classification={c.classification} /></td>
-                <td style={td}>
-                  {c.company_name
-                    ? <span style={{ color: 'var(--text-secondary)' }}>{c.company_name}</span>
-                    : <span style={{ color: 'var(--text-muted)' }}>—</span>}
-                </td>
-                <td style={td}>{c.job_title ?? <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
-                <td style={{ ...td, fontSize: 12 }}>{c.email ?? <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
-                <td style={td}>{c.activity_count}</td>
-                <td style={{ padding: '13px 16px' }}>
-                  <Link href={`/crm/contacts/${c.id}`} style={{ fontSize: 12, color: 'var(--text-secondary)', textDecoration: 'none' }}>View →</Link>
+                <td><ClassificationBadge classification={c.classification} /></td>
+                <td>{c.company_name ?? <span className={tableStyles.muted}>—</span>}</td>
+                <td>{c.job_title ?? <span className={tableStyles.muted}>—</span>}</td>
+                <td>{c.email ?? <span className={tableStyles.muted}>—</span>}</td>
+                <td className={tableStyles.num}>{c.activity_count}</td>
+                <td className={tableStyles.actions}>
+                  <Link href={`/crm/contacts/${c.id}`} className={tableStyles.link} aria-label={`View ${c.first_name} ${c.last_name}`}>View →</Link>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
+      </TableContainer>
 
       <SlidePanel open={showAdd} onClose={() => setShowAdd(false)} title="Add Contact">
         <ContactForm onSaved={() => { setShowAdd(false); load(classificationFilter); }} />
@@ -123,8 +134,3 @@ export default function ContactsPage() {
     </div>
   );
 }
-
-const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: 'var(--text-secondary)' };
-const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 };
-function btn(bg: string): React.CSSProperties { return { padding: '8px 16px', background: bg, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }; }

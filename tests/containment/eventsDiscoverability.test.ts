@@ -72,7 +72,7 @@ describe('TopNav — Events is a first-class, always-visible entry in BOTH AppNa
 
   it('an always-visible Events NavItem, gated by enabledCapabilities (via the hasEvents variable), also exists in the shared generic-client + internal-staff branch — not only inside the Operations dropdown', () => {
     const clientBranchEnd = code.indexOf(') : (')
-    const nonClientBranchEnd = code.indexOf('width: 185,', clientBranchEnd)
+    const nonClientBranchEnd = code.indexOf('className={styles.rightCluster}', clientBranchEnd)
     const region = code.slice(clientBranchEnd, nonClientBranchEnd)
     // hasEvents is declared once, above AppNav's return, as exactly
     // enabledCapabilities.includes('events') — asserted separately below —
@@ -107,7 +107,7 @@ describe('TopNav — Events is a first-class, always-visible entry in BOTH AppNa
     const clientRegion = code.slice(clientBranchStart, clientBranchStart + code.indexOf('label="Events"', clientBranchStart) - clientBranchStart + 40)
     expect(clientRegion).not.toMatch(/ld-tennis|LD Tennis|ld_tennis/i)
 
-    const nonClientBranchEnd = code.indexOf('width: 185,', clientBranchEnd)
+    const nonClientBranchEnd = code.indexOf('className={styles.rightCluster}', clientBranchEnd)
     const eventsIdxNonClient = code.indexOf('label="Events & Ticketing"', clientBranchEnd)
     expect(eventsIdxNonClient).toBeGreaterThan(-1)
     expect(eventsIdxNonClient).toBeLessThan(nonClientBranchEnd)

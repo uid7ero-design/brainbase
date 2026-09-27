@@ -3,10 +3,14 @@ import fs from 'fs'
 import path from 'path'
 
 const source = fs.readFileSync(path.resolve(__dirname, '../../components/nav/TopNav.tsx'),'utf-8').replace(/\r\n/g,'\n')
+const chromeCss = fs.readFileSync(path.resolve(__dirname, '../../components/nav/AppChrome.module.css'),'utf-8')
 
 describe('B.1 TopNav design-system migration after main convergence', () => {
   it('uses the latest main application/brand tokens', () => {
-    for (const token of ['--bg-base','--bg-overlay','--bg-raised','--border','--border-light','--brand-brainbase-accent','--purple-300','--purple-400','--purple-600','--text-primary','--text-secondary','--text-muted']) expect(source).toContain(token)
+    // Integration note: the reviewed Phase B chrome keeps its treatment in AppChrome.module.css on the
+    // Phase A app tokens; the retired --purple-* ramp is intentionally no longer used.
+    for (const token of ['--bg-base','--bg-overlay','--border','--brand-brainbase-accent','--text-primary','--text-secondary','--text-muted']) expect(source + chromeCss).toContain(token)
+    expect(source + chromeCss).not.toMatch(/--purple-\d/)
   })
   it('preserves routing and capability visibility', () => {
     for (const text of ["const hasOrganiser =","const hasCrm =","const hasPeople =","const hasCommercial =",'href="/organiser"','href="/commercial"','href="/people"','href="/data-hub/import"','href="/reports"','href="/data"']) expect(source).toContain(text)

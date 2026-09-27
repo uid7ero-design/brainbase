@@ -185,7 +185,10 @@ describe("T11-T15: every OTHER history status label/caption is byte-for-byte unc
 describe("T11: IMPORTED still renders 'Imported' via the untouched ImportSuccess.tsx (worksheet-level, not a batch history-list concern)", () => {
   it("ImportSuccess.tsx was not touched by this remediation and still uses its own success-green heading", () => {
     const code = read("app/data-hub/import/_components/ImportSuccess.tsx");
-    expect(code).toMatch(/color:\s*"#4ADE80"/);
+    // Phase D4 (visual convergence): the success heading now uses the theme's
+    // success token instead of the dark-only #4ADE80 literal (1.9:1 on the
+    // light surface). Same meaning — "its own success-green heading".
+    expect(code).toMatch(/color:\s*"var\(--status-success\)"/);
   });
 });
 

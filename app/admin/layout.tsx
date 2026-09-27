@@ -7,7 +7,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!session || session.role !== 'super_admin') redirect('/');
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: '#07080B', fontFamily: 'var(--font-inter), Inter, sans-serif', color: '#f9fafb' }}>
+    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)', fontFamily: 'var(--font-inter), Inter, sans-serif', color: 'var(--text-primary)' }}>
       <AdminAside name={session.name} />
       <main style={{ flex: 1, padding: '40px 40px', overflow: 'auto' }}>
         {children}

@@ -7,6 +7,7 @@ import {
   FONT, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, VIOLET_SOFT, GREEN, RED, YELLOW,
   Panel, SectionHeader, primaryBtnStyle, secondaryBtnStyle, EventsSharedStyles,
 } from '../_components/ui';
+import { PageHeader } from '@/components/ui/app';
 
 type ConnectStatusResponse = {
   status: 'NOT_CONNECTED' | 'ONBOARDING' | 'ACTION_REQUIRED' | 'CONNECTED' | 'RESTRICTED';
@@ -87,16 +88,17 @@ export default function PaymentsClient() {
     <div style={{ padding: 32, fontFamily: FONT, color: TEXT_PRIMARY, maxWidth: 760, margin: '0 auto' }}>
       <EventsSharedStyles />
 
-      <Link href="/events" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: VIOLET_SOFT, fontSize: 12.5, textDecoration: 'none', marginBottom: 16, fontWeight: 600 }}>
-        <ArrowLeft size={13} /> Back to Events
-      </Link>
+      <PageHeader
+        eyebrow={
+          <Link href="/events" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: VIOLET_SOFT, fontSize: 12.5, textDecoration: 'none', fontWeight: 600 }}>
+            <ArrowLeft size={13} /> Back to Events
+          </Link>
+        }
+        title="Payments"
+        description="Connect Stripe to sell paid tickets. Ticket revenue is paid directly to your own bank account by Stripe."
+      />
 
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: '-.01em' }}>Payments</h1>
-        <p style={{ fontSize: 13, color: TEXT_MUTED, margin: '5px 0 0' }}>Connect Stripe to sell paid tickets. Ticket revenue is paid directly to your own bank account by Stripe.</p>
-      </div>
-
-      {error && <div role="alert" style={{ color: '#FCA5A5', fontSize: 13, marginBottom: 16 }}>{error}</div>}
+      {error && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 13, marginBottom: 16 }}>{error}</div>}
 
       <Panel>
         <SectionHeader title="Stripe" />

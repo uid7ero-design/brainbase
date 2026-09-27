@@ -1,0 +1,729 @@
+/* Command Centre (Phase D2). Same surfaces, borders, type, focus, buttons,
+   semantic colours and accent as the rest of the app — denser, not a
+   separate design system. Tokens only: no blur, glow, gradients or
+   decorative animation. */
+
+/* ── Workspace toolbar ─────────────────────────────────────────────── */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-height: 36px;
+  padding: 4px 20px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+  font-size: 0.75rem;
+}
+
+.crumbLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.crumbLink:hover {
+  color: var(--text-primary);
+}
+
+.crumbs {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+}
+.crumbSep {
+  color: var(--text-subtle);
+}
+.crumbCurrent {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.demoTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border: 1px solid var(--status-warning-border);
+  border-radius: var(--radius-sm);
+  background: var(--status-warning-muted);
+  color: var(--status-warning);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.toolbarSpacer {
+  flex: 1;
+}
+
+.toolbarDivider {
+  width: 1px;
+  height: 12px;
+  background: var(--border);
+}
+
+.liveAgo {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── Tabs ─────────────────────────────────────────────────────────── */
+
+.tabs {
+  display: flex;
+  align-items: stretch;
+  height: 40px;
+  padding: 0 12px;
+  flex-shrink: 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.tab {
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tab:hover {
+  color: var(--text-primary);
+}
+.tab[aria-selected='true'] {
+  border-bottom-color: var(--brand-brainbase-accent);
+  color: var(--text-primary);
+}
+.tab:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: -2px;
+}
+
+/* ── Canvas ───────────────────────────────────────────────────────── */
+
+.canvas {
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: auto;
+  padding: 12px 16px 64px;
+}
+
+.tabPanel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+}
+.tabPanel:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: -2px;
+}
+
+/* ── Panels (every widget shares one surface) ─────────────────────── */
+
+.panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 14px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.panelTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.panelMeta {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.panelMeta[data-tone='danger'] {
+  color: var(--status-danger);
+  font-weight: 600;
+}
+
+.panelBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.sectionLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.divider {
+  height: 1px;
+  margin: 12px 0;
+  background: var(--border);
+}
+
+/* KPI strip inside its grid cell: the strip IS the panel. */
+.kpiStrip {
+  height: 100%;
+}
+
+/* ── Status ribbon ────────────────────────────────────────────────── */
+
+.ribbon {
+  height: 100%;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.ribbonCell {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ribbonCell:last-child {
+  border-right: 0;
+}
+.ribbonCell:hover {
+  background: var(--bg-sunken);
+}
+.ribbonCell[aria-expanded='true'] {
+  background: var(--bg-sunken);
+}
+.ribbonCell:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: -2px;
+}
+
+.ribbonText {
+  flex: 1;
+  min-width: 0;
+}
+.ribbonLabel {
+  display: block;
+  overflow: hidden;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ribbonNote {
+  display: block;
+  margin-top: 1px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.ribbonDetail {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  white-space: normal;
+}
+.chevron {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--text-subtle);
+  transition: transform 0.15s;
+}
+.ribbonCell[aria-expanded='true'] .chevron {
+  transform: rotate(180deg);
+}
+
+/* Status colour — always paired with a written state. Add `.tone` with a
+   data-status attribute; descendants read --status-colour. */
+.tone[data-status='danger'] { --status-colour: var(--status-danger); }
+.tone[data-status='warning'] { --status-colour: var(--status-warning); }
+.tone[data-status='success'] { --status-colour: var(--status-success); }
+.tone[data-status='info'] { --status-colour: var(--status-info); }
+
+.statusText {
+  color: var(--status-colour, var(--text-secondary));
+}
+
+.dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--status-colour, var(--text-subtle));
+}
+
+/* ── Alert cards ──────────────────────────────────────────────────── */
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 8px;
+}
+
+.alertCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start; /* badges and actions keep their own width */
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--status-colour, var(--border-strong));
+  border-radius: var(--radius-md);
+  background: var(--bg-base);
+  cursor: pointer;
+}
+.alertCard:hover {
+  border-color: var(--border-strong);
+  border-left-color: var(--status-colour, var(--border-strong));
+}
+
+.alertOpen {
+  align-self: stretch;
+  display: grid;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.alertOpen:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 2px;
+}
+
+.alertTitle {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text-primary);
+}
+
+.alertMetric {
+  font-size: 1.375rem;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--status-colour, var(--text-primary));
+}
+
+.alertMetricLabel {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.alertDescription {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.alertAction {
+  margin-top: auto;
+  align-self: flex-start;
+}
+
+/* ── Actions ──────────────────────────────────────────────────────── */
+
+.actionList {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.actionRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.actionRow:hover {
+  border-color: var(--border-strong);
+}
+.actionRow:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 2px;
+}
+.actionRow > svg:first-child {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.actionRow > span {
+  flex: 1;
+}
+.actionRow > svg:last-child {
+  flex-shrink: 0;
+  color: var(--text-subtle);
+}
+.actionRow[data-secondary] {
+  color: var(--text-secondary);
+}
+
+/* ── Changes ──────────────────────────────────────────────────────── */
+
+.changeList {
+  margin: 0;
+  padding: 0 2px;
+  list-style: none;
+}
+.changeRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8125rem;
+}
+.changeRow:last-child {
+  border-bottom: 0;
+}
+.changeLabel {
+  flex: 1;
+  color: var(--text-secondary);
+}
+.changeDelta {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--status-colour, var(--text-primary));
+}
+
+/* ── Assistant ────────────────────────────────────────────────────── */
+
+.chatLog {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.msg {
+  display: flex;
+}
+.msg[data-role='user'] {
+  justify-content: flex-end;
+}
+.bubble {
+  max-width: 85%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+.msg[data-role='user'] .bubble {
+  border-color: var(--brand-brainbase-accent-border);
+  background: var(--brand-brainbase-accent-muted);
+}
+
+/* Functional "thinking" state (busy) — retained, token-coloured. */
+.typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-sunken);
+}
+.typing > span[aria-hidden] {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: typing 0.9s ease-in-out infinite alternate;
+}
+.typing > span[aria-hidden]:nth-child(2) { animation-delay: 0.15s; }
+.typing > span[aria-hidden]:nth-child(3) { animation-delay: 0.3s; }
+@keyframes typing {
+  from { opacity: 0.35; transform: translateY(0); }
+  to { opacity: 1; transform: translateY(-3px); }
+}
+
+.suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 12px 8px;
+  flex-shrink: 0;
+}
+.suggestion {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.suggestion:hover {
+  border-color: var(--brand-brainbase-accent-border);
+  color: var(--text-primary);
+}
+.suggestion:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 2px;
+}
+
+.composer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+}
+.composer input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Analytics tabs ───────────────────────────────────────────────── */
+
+.tabBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 22px;
+  overflow-y: auto;
+}
+
+.tabTitle {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.subTitle {
+  margin: 0 0 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing > span[aria-hidden],
+  .chevron {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* ── Financial tab ────────────────────────────────────────────────── */
+
+.finHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.finMeta {
+  margin-top: 3px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.subTabs {
+  display: flex;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+}
+.subTabs .tab {
+  height: 36px;
+}
+
+.settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.setting {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.settingLabel {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.settingValue {
+  color: var(--brand-brainbase-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.range {
+  width: 100%;
+  accent-color: var(--brand-brainbase-accent);
+  cursor: pointer;
+}
+
+.rangeScale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+/* Click-to-edit numeric cell: a real button, so it is reachable and
+   operable from the keyboard. */
+.editButton {
+  width: 100%;
+  padding: 2px 4px;
+  border: 0;
+  border-bottom: 1px dashed var(--border-strong);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  cursor: text;
+}
+.editButton:hover {
+  background: var(--brand-brainbase-accent-muted);
+}
+.editButton:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 1px;
+}
+
+.editInput {
+  width: 100%;
+  min-width: 90px;
+  padding: 3px 6px;
+  border: 1px solid var(--border-focus);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.editInput:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 1px;
+}
+
+.override {
+  color: var(--brand-brainbase-accent);
+}
+
+.variance[data-sign='pos'] {
+  color: var(--status-success);
+}
+.variance[data-sign='neg'] {
+  color: var(--status-danger);
+}
+.variance[data-sign='zero'] {
+  color: var(--text-muted);
+}
+
+.totalRow td {
+  font-weight: 700;
+  background: var(--bg-sunken);
+}

@@ -1,14 +1,18 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useId } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
+import { BrokenOrbitMark } from '@/components/brand/BrokenOrbitMark';
 import { CapabilityIcon } from '@/components/brand/CapabilityIcon';
+import { useTheme } from '@/components/theme/ThemeProvider';
 import { resolvePublicEventTheme } from '@/lib/events/publicEventTheme';
 import { TOP_NAV_HEIGHT_PX } from '@/lib/layout/headerOffset';
 import { PublicNav } from '@/components/public/PublicNav';
+import styles from './AppChrome.module.css';
 
 type Session = {
   role: string;
@@ -21,6 +25,10 @@ type Session = {
 
 const FONT =
   'var(--font-inter), "Inter", -apple-system, sans-serif';
+
+// Visual treatment for every chrome control lives in AppChrome.module.css
+// (semantic app tokens, one hover/active/focus language for both themes).
+// Inline styles below are layout only.
 
 // ─── Shared pill nav item ────────────────────────────────────────────────────
 
@@ -45,49 +53,10 @@ function NavItem({
   return (
     <Link
       href={href}
+      className={styles.item}
+      aria-current={active ? 'page' : undefined}
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 6,
-        fontSize: 13,
-        fontWeight: 500,
-        letterSpacing: '-0.01em',
-        padding: '5px 10px',
-        borderRadius: 7,
-        textDecoration: 'none',
-        color: active
-          ? 'var(--purple-300)'
-          : 'var(--text-secondary)',
-        background: active
-          ? 'rgba(155,123,255,.10)'
-          : 'transparent',
-        border: `1px solid ${
-          active
-            ? 'rgba(155,123,255,.24)'
-            : 'transparent'
-        }`,
-        transition:
-          'color .14s, background .14s, border-color .14s',
-        whiteSpace: 'nowrap',
         flexShrink: 0,
-      }}
-      onMouseEnter={e => {
-        if (active) return;
-
-        e.currentTarget.style.color =
-          'var(--text-primary)';
-
-        e.currentTarget.style.background =
-          'var(--bg-raised)';
-      }}
-      onMouseLeave={e => {
-        if (active) return;
-
-        e.currentTarget.style.color =
-          'var(--text-secondary)';
-
-        e.currentTarget.style.background =
-          'transparent';
       }}
     >
       {capability && (
@@ -115,35 +84,146 @@ function HlnaItem({
   return (
     <Link
       href={href}
+      className={`${styles.item} ${styles.hlna}`}
+      aria-current={active ? 'page' : undefined}
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        padding: '5px 10px',
-        borderRadius: 6,
-        textDecoration: 'none',
-        color: active
-          ? 'var(--purple-300)'
-          : 'var(--text-secondary)',
-        background: active
-          ? 'rgba(155,123,255,.10)'
-          : 'transparent',
-        border: `1px solid ${
-          active
-            ? 'rgba(155,123,255,.24)'
-            : 'transparent'
-        }`,
-        transition:
-          'color .14s, background .14s, border-color .14s',
         flexShrink: 0,
-        fontFamily:
-          'var(--font-geist-mono), ui-monospace, monospace',
-        fontSize: 11,
-        fontWeight: 600,
-        letterSpacing: '.12em',
       }}
     >
       HLNA
     </Link>
+  );
+}
+
+// ─── Shared menu behaviour (Operations + Admin) ──────────────────────────────
+//
+// Both chrome menus are disclosure buttons that reveal a list of links:
+// pointer hover still opens them (as before), and they now also open on
+// click / Enter / Space / ArrowDown, close on Escape (focus returns to the
+// trigger), outside press, focus leaving, scroll or resize, and expose
+// aria-expanded. The positioning code stays inside each dropdown (see
+// tests/containment/dropdownPanelPortal.test.ts); only dismissal and
+// keyboard movement are shared here.
+
+const MENU_WIDTH = 264;
+
+function clampMenuLeft(left: number): number {
+  if (typeof window === 'undefined') return left;
+  return Math.max(8, Math.min(left, window.innerWidth - MENU_WIDTH - 8));
+}
+
+function menuLinks(panel: HTMLElement | null): HTMLElement[] {
+  return panel ? Array.from(panel.querySelectorAll<HTMLElement>('a[href]')) : [];
+}
+
+function useMenuDismissal({
+  open,
+  setOpen,
+  timerRef,
+  wrapperRef,
+  panelRef,
+  triggerRef,
+}: {
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  timerRef: RefObject<ReturnType<typeof setTimeout> | null>;
+  wrapperRef: RefObject<HTMLDivElement | null>;
+  panelRef: RefObject<HTMLDivElement | null>;
+  triggerRef: RefObject<HTMLButtonElement | null>;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const close = () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      setOpen(false);
+    };
+    const inside = (target: EventTarget | null) =>
+      target instanceof Node &&
+      (!!wrapperRef.current?.contains(target) || !!panelRef.current?.contains(target));
+    const onPointerDown = (e: PointerEvent) => {
+      if (!inside(e.target)) close();
+    };
+    const onFocusIn = (e: FocusEvent) => {
+      if (!inside(e.target)) close();
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const hadFocus = inside(document.activeElement);
+      close();
+      if (hadFocus) triggerRef.current?.focus();
+    };
+    const onViewportChange = (e: Event) => {
+      // Scrolling inside the menu itself is not a reason to close it.
+      if (e.type === 'scroll' && inside(e.target)) return;
+      // The fixed panel would be left at stale coordinates. Close it, and
+      // never strand keyboard focus on <body> when it was inside the menu.
+      const focusInPanel = !!panelRef.current?.contains(document.activeElement);
+      close();
+      if (focusInPanel) triggerRef.current?.focus();
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('focusin', onFocusIn);
+    document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', onViewportChange);
+    window.addEventListener('scroll', onViewportChange, true);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('focusin', onFocusIn);
+      document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', onViewportChange);
+      window.removeEventListener('scroll', onViewportChange, true);
+    };
+  }, [open, setOpen, timerRef, wrapperRef, panelRef, triggerRef]);
+}
+
+/** Arrow / Home / End movement inside an open menu; Tab leaves it in page order. */
+function handleMenuKeyDown(
+  e: ReactKeyboardEvent<HTMLDivElement>,
+  panel: HTMLDivElement | null,
+  trigger: HTMLButtonElement | null,
+) {
+  const links = menuLinks(panel);
+  if (links.length === 0) return;
+  const index = links.indexOf(document.activeElement as HTMLElement);
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const step = e.key === 'ArrowDown' ? 1 : -1;
+    links[(index + step + links.length) % links.length].focus();
+  } else if (e.key === 'Home' || e.key === 'End') {
+    e.preventDefault();
+    links[e.key === 'Home' ? 0 : links.length - 1].focus();
+  } else if (e.key === 'Tab') {
+    // The panel is portaled to the end of <body>, so native Tab order
+    // would leave the page. Hand focus back to the trigger: Shift+Tab
+    // stops there, Tab continues to whatever follows the trigger.
+    if (e.shiftKey && index <= 0) {
+      e.preventDefault();
+      trigger?.focus();
+    } else if (!e.shiftKey && index === links.length - 1) {
+      trigger?.focus();
+    }
+  }
+}
+
+function Chevron() {
+  return (
+    <svg
+      className={styles.chevron}
+      width="10"
+      height="6"
+      viewBox="0 0 10 6"
+      fill="none"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d="M1 1L5 5L9 1"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
@@ -186,7 +266,6 @@ function OpsDropdown({
 }) {
   const [open, setOpen] =
     useState(false);
-
   // The panel is portaled to document.body (see below) so its own
   // position must be computed in viewport coordinates rather than
   // relying on CSS `position: absolute` against this wrapper — the
@@ -194,26 +273,29 @@ function OpsDropdown({
   // horizontal scroll on a crowded nav), and ANY ancestor with overflow
   // other than 'visible' clips ALL descendants that paint outside its
   // box — including absolutely-positioned ones — regardless of what
-  // element establishes their own containing block. That silently
-  // clipped this panel to invisible (confirmed in a real browser: the
-  // panel existed in the DOM with correct computed styles, but was
-  // rendered with zero visible pixels) even though `open` and the item
-  // list were both completely correct. A portal is the only fix that
-  // is actually robust to this — position:fixed alone does not reliably
-  // escape an ancestor's overflow clip while the element remains a DOM
-  // descendant of that ancestor.
+  // element establishes their own containing block. A portal is the
+  // only fix that is actually robust to this.
   const wrapperRef =
     useRef<HTMLDivElement>(null);
-
+  const triggerRef =
+    useRef<HTMLButtonElement>(null);
+  const panelRef =
+    useRef<HTMLDivElement>(null);
+  const focusOnOpen =
+    useRef<'first' | 'last' | null>(null);
+  // 'hover' menus close when the pointer leaves; a click or key press
+  // pins the menu open until Escape, a second click, or a press outside.
+  const openedBy =
+    useRef<'hover' | 'press' | null>(null);
   const [coords, setCoords] =
     useState<{ top: number; left: number } | null>(
       null,
     );
-
   const timerRef =
     useRef<ReturnType<typeof setTimeout> | null>(
       null,
     );
+  const panelId = useId();
 
   // Items without a capabilityKey are always shown (Waste/Fleet/Social
   // predate the capability system and aren't gated by it); an item with
@@ -236,26 +318,70 @@ function OpsDropdown({
     if (timerRef.current) {
       clearTimeout(timerRef.current);
     }
-
     const rect =
       wrapperRef.current?.getBoundingClientRect();
-
     if (rect) {
       setCoords({
-        top: rect.bottom + 10,
-        left: rect.left,
+        top: rect.bottom + 6,
+        left: clampMenuLeft(rect.left),
       });
     }
-
     setOpen(true);
   }
 
   function handleLeave() {
+    if (openedBy.current === 'press') return;
     timerRef.current = setTimeout(
       () => setOpen(false),
       140,
     );
   }
+
+  function close() {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+    }
+    setOpen(false);
+  }
+
+  function handleTriggerClick(e: ReactMouseEvent<HTMLButtonElement>) {
+    if (open && openedBy.current === 'press') {
+      close();
+      return;
+    }
+    // detail === 0: activated from the keyboard (Enter / Space).
+    if (e.detail === 0) focusOnOpen.current = 'first';
+    openedBy.current = 'press';
+    handleEnter();
+  }
+
+  function handleTriggerKeyDown(e: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      focusOnOpen.current = e.key === 'ArrowDown' ? 'first' : 'last';
+      if (open) {
+        const links = menuLinks(panelRef.current);
+        links[e.key === 'ArrowDown' ? 0 : links.length - 1]?.focus();
+        focusOnOpen.current = null;
+      } else {
+        openedBy.current = 'press';
+        handleEnter();
+      }
+    }
+  }
+
+  useMenuDismissal({ open, setOpen, timerRef, wrapperRef, panelRef, triggerRef });
+
+  useEffect(() => {
+    if (!open || !focusOnOpen.current) return;
+    const links = menuLinks(panelRef.current);
+    links[focusOnOpen.current === 'first' ? 0 : links.length - 1]?.focus();
+    focusOnOpen.current = null;
+  }, [open, coords]);
+
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
 
   return (
     <div
@@ -264,69 +390,30 @@ function OpsDropdown({
         position: 'relative',
         flexShrink: 0,
       }}
-      onMouseEnter={handleEnter}
-      onMouseLeave={handleLeave}
+      onPointerEnter={e => {
+        if (e.pointerType !== 'mouse') return;
+        if (!open) openedBy.current = 'hover';
+        handleEnter();
+      }}
+      onPointerLeave={e => {
+        if (e.pointerType === 'mouse') handleLeave();
+      }}
     >
       <button
+        ref={triggerRef}
+        type="button"
+        className={styles.item}
+        data-active={isActive ? 'true' : undefined}
+        aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
+        onClick={handleTriggerClick}
+        onKeyDown={handleTriggerKeyDown}
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 5,
-          fontSize: 13,
-          fontWeight: 500,
-          letterSpacing: '-0.01em',
-          padding: '5px 10px',
-          borderRadius: 7,
-
-          color: isActive
-            ? 'var(--brand-brainbase-accent)'
-            : open
-              ? 'var(--text-primary)'
-              : 'var(--text-secondary)',
-
-          background: isActive
-            ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)'
-            : open
-              ? 'var(--bg-raised)'
-              : 'transparent',
-
-          border: `1px solid ${
-            isActive
-              ? 'color-mix(in srgb, var(--brand-brainbase-accent) 24%, transparent)'
-              : 'transparent'
-          }`,
-
-          cursor: 'pointer',
           fontFamily: FONT,
-          transition:
-            'color .14s, background .14s',
-          whiteSpace: 'nowrap',
         }}
       >
         Operations
-
-        <svg
-          width="10"
-          height="6"
-          viewBox="0 0 10 6"
-          fill="none"
-          style={{
-            opacity: 0.45,
-            transform: open
-              ? 'rotate(180deg)'
-              : 'rotate(0deg)',
-            transition:
-              'transform .18s',
-          }}
-        >
-          <path
-            d="M1 1L5 5L9 1"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        <Chevron />
       </button>
 
       {open &&
@@ -337,165 +424,55 @@ function OpsDropdown({
         <div
           onMouseEnter={handleEnter}
           onMouseLeave={handleLeave}
+          ref={panelRef}
+          id={panelId}
+          className={styles.menu}
+          onKeyDown={e => handleMenuKeyDown(e, panelRef.current, triggerRef.current)}
           style={{
             position: 'fixed',
             top: coords.top,
             left: coords.left,
-            background:
-              'var(--bg-overlay)',
-            border:
-              '1px solid var(--border)',
-            borderRadius: 11,
-            padding: 5,
+            width: MENU_WIDTH,
             minWidth: 220,
-            boxShadow:
-              '0 12px 40px rgba(0,0,0,.28), 0 0 0 1px var(--border-light)',
             zIndex: 200,
           }}
         >
-          <div
-            style={{
-              position: 'absolute',
-              top: -5,
-              left: 18,
-              width: 8,
-              height: 8,
-              background:
-                'var(--bg-overlay)',
-              border:
-                '1px solid var(--border)',
-              borderRight: 'none',
-              borderBottom: 'none',
-              transform:
-                'rotate(45deg)',
-            }}
-          />
-
-          {items.map(item => {
-            const itemActive =
-              pathname.startsWith(
-                item.href,
-              );
-
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                style={{
-                  display: 'flex',
-                  flexDirection:
-                    'column',
-                  gap: 2,
-                  padding:
-                    '9px 13px',
-                  borderRadius: 8,
-                  textDecoration:
-                    'none',
-                  background:
-                    itemActive
-                      ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)'
-                      : 'transparent',
-                  transition:
-                    'background .12s',
-                }}
-                onMouseEnter={e => {
-                  if (!itemActive) {
-                    e.currentTarget.style.background =
-                      'var(--bg-raised)';
-                  }
-                }}
-                onMouseLeave={e => {
-                  if (!itemActive) {
-                    e.currentTarget.style.background =
-                      'transparent';
-                  }
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 500,
-                    letterSpacing:
-                      '-0.01em',
-                    color:
-                      itemActive
-                        ? 'var(--brand-brainbase-accent)'
-                        : 'var(--text-primary)',
-                  }}
-                >
-                  {item.label}
-                </span>
-
-                <span
-                  style={{
-                    fontSize: 11,
-                    color:
-                      'var(--text-muted)',
-                    lineHeight: 1.4,
-                  }}
-                >
-                  {item.description}
-                </span>
-              </Link>
-            );
-          })}
-
-          <div
-            style={{
-              height: 1,
-              background:
-                'var(--border)',
-              margin:
-                '4px 4px 3px',
-            }}
-          />
-
-          <Link
-            href="/dashboards"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent:
-                'space-between',
-              padding:
-                '8px 13px',
-              borderRadius: 8,
-              textDecoration: 'none',
-              transition:
-                'background .12s',
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.background =
-                'var(--bg-raised)';
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.background =
-                'transparent';
-            }}
-          >
-            <span
-              style={{
-                fontSize: 12,
-                fontWeight: 500,
-                color:
-                  'var(--text-secondary)',
-                letterSpacing:
-                  '-0.01em',
-              }}
+          <nav aria-label="Operations">
+            <ul className={styles.menuList}>
+              {items.map(item => {
+                const itemActive =
+                  pathname.startsWith(
+                    item.href,
+                  );
+                return (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      className={styles.menuItem}
+                      aria-current={itemActive ? 'page' : undefined}
+                      onClick={close}
+                    >
+                      <span className={styles.menuLabel}>
+                        {item.label}
+                      </span>
+                      <span className={styles.menuDescription}>
+                        {item.description}
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className={styles.menuSeparator} aria-hidden="true" />
+            <Link
+              href="/dashboards"
+              className={styles.menuFooter}
+              onClick={close}
             >
-              All dashboards
-            </span>
-
-            <span
-              style={{
-                fontSize: 11,
-                color:
-                  'var(--text-muted)',
-              }}
-            >
-              →
-            </span>
-          </Link>
+              <span>All dashboards</span>
+              <span aria-hidden="true">→</span>
+            </Link>
+          </nav>
         </div>,
         document.body,
       )}
@@ -545,56 +522,102 @@ function AdminDropdown({
 }) {
   const [open, setOpen] =
     useState(false);
-
-  // Portaled to document.body for the same reason OpsDropdown's panel
-  // is — see that component's own comment. The centre nav row's
-  // overflowX:'auto' silently clips this panel to invisible otherwise,
-  // even though `open` and ADMIN_ITEMS are both completely correct.
+  // Portaled to document.body — see OpsDropdown above for why a portal
+  // (not position: fixed alone) is required to escape the scrolling row.
   const wrapperRef =
     useRef<HTMLDivElement>(null);
-
+  const triggerRef =
+    useRef<HTMLButtonElement>(null);
+  const panelRef =
+    useRef<HTMLDivElement>(null);
+  const focusOnOpen =
+    useRef<'first' | 'last' | null>(null);
+  // 'hover' menus close when the pointer leaves; a click or key press
+  // pins the menu open until Escape, a second click, or a press outside.
+  const openedBy =
+    useRef<'hover' | 'press' | null>(null);
   const [coords, setCoords] =
     useState<{ top: number; left: number } | null>(
       null,
     );
-
   const timerRef =
     useRef<ReturnType<typeof setTimeout> | null>(
       null,
     );
+  const panelId = useId();
 
-  const isActive = ADMIN_ITEMS.some(
-    item =>
-      pathname.startsWith(
-        item.href,
-      ),
+  const isActive = ADMIN_ITEMS.some(item =>
+    pathname.startsWith(item.href),
   );
 
   function handleEnter() {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
     }
-
     const rect =
       wrapperRef.current?.getBoundingClientRect();
-
     if (rect) {
       setCoords({
-        top: rect.bottom + 10,
-        left: rect.left,
+        top: rect.bottom + 6,
+        left: clampMenuLeft(rect.left),
       });
     }
-
     setOpen(true);
   }
 
   function handleLeave() {
-    timerRef.current =
-      setTimeout(
-        () => setOpen(false),
-        140,
-      );
+    if (openedBy.current === 'press') return;
+    timerRef.current = setTimeout(
+      () => setOpen(false),
+      140,
+    );
   }
+
+  function close() {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+    }
+    setOpen(false);
+  }
+
+  function handleTriggerClick(e: ReactMouseEvent<HTMLButtonElement>) {
+    if (open && openedBy.current === 'press') {
+      close();
+      return;
+    }
+    // detail === 0: activated from the keyboard (Enter / Space).
+    if (e.detail === 0) focusOnOpen.current = 'first';
+    openedBy.current = 'press';
+    handleEnter();
+  }
+
+  function handleTriggerKeyDown(e: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      focusOnOpen.current = e.key === 'ArrowDown' ? 'first' : 'last';
+      if (open) {
+        const links = menuLinks(panelRef.current);
+        links[e.key === 'ArrowDown' ? 0 : links.length - 1]?.focus();
+        focusOnOpen.current = null;
+      } else {
+        openedBy.current = 'press';
+        handleEnter();
+      }
+    }
+  }
+
+  useMenuDismissal({ open, setOpen, timerRef, wrapperRef, panelRef, triggerRef });
+
+  useEffect(() => {
+    if (!open || !focusOnOpen.current) return;
+    const links = menuLinks(panelRef.current);
+    links[focusOnOpen.current === 'first' ? 0 : links.length - 1]?.focus();
+    focusOnOpen.current = null;
+  }, [open, coords]);
+
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
 
   return (
     <div
@@ -603,69 +626,30 @@ function AdminDropdown({
         position: 'relative',
         flexShrink: 0,
       }}
-      onMouseEnter={handleEnter}
-      onMouseLeave={handleLeave}
+      onPointerEnter={e => {
+        if (e.pointerType !== 'mouse') return;
+        if (!open) openedBy.current = 'hover';
+        handleEnter();
+      }}
+      onPointerLeave={e => {
+        if (e.pointerType === 'mouse') handleLeave();
+      }}
     >
       <button
+        ref={triggerRef}
+        type="button"
+        className={styles.item}
+        data-active={isActive ? 'true' : undefined}
+        aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
+        onClick={handleTriggerClick}
+        onKeyDown={handleTriggerKeyDown}
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 5,
-          fontSize: 13,
-          fontWeight: 500,
-          letterSpacing: '-0.01em',
-          padding: '5px 10px',
-          borderRadius: 7,
-
-          color: isActive
-            ? 'var(--brand-brainbase-accent)'
-            : open
-              ? 'var(--text-primary)'
-              : 'var(--text-secondary)',
-
-          background: isActive
-            ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)'
-            : open
-              ? 'var(--bg-raised)'
-              : 'transparent',
-
-          border: `1px solid ${
-            isActive
-              ? 'color-mix(in srgb, var(--brand-brainbase-accent) 24%, transparent)'
-              : 'transparent'
-          }`,
-
-          cursor: 'pointer',
           fontFamily: FONT,
-          transition:
-            'color .14s, background .14s',
-          whiteSpace: 'nowrap',
         }}
       >
         Admin
-
-        <svg
-          width="10"
-          height="6"
-          viewBox="0 0 10 6"
-          fill="none"
-          style={{
-            opacity: 0.45,
-            transform: open
-              ? 'rotate(180deg)'
-              : 'rotate(0deg)',
-            transition:
-              'transform .18s',
-          }}
-        >
-          <path
-            d="M1 1L5 5L9 1"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        <Chevron />
       </button>
 
       {open &&
@@ -676,108 +660,46 @@ function AdminDropdown({
         <div
           onMouseEnter={handleEnter}
           onMouseLeave={handleLeave}
+          ref={panelRef}
+          id={panelId}
+          className={styles.menu}
+          onKeyDown={e => handleMenuKeyDown(e, panelRef.current, triggerRef.current)}
           style={{
             position: 'fixed',
             top: coords.top,
             left: coords.left,
-            background:
-              'var(--bg-overlay)',
-            border:
-              '1px solid var(--border)',
-            borderRadius: 11,
-            padding: 5,
+            width: MENU_WIDTH,
             minWidth: 220,
-            boxShadow:
-              '0 12px 40px rgba(0,0,0,.28), 0 0 0 1px var(--border-light)',
             zIndex: 200,
           }}
         >
-          <div
-            style={{
-              position: 'absolute',
-              top: -5,
-              left: 18,
-              width: 8,
-              height: 8,
-              background:
-                'var(--bg-overlay)',
-              border:
-                '1px solid var(--border)',
-              borderRight: 'none',
-              borderBottom: 'none',
-              transform:
-                'rotate(45deg)',
-            }}
-          />
-
-          {ADMIN_ITEMS.map(item => {
-            const itemActive =
-              pathname.startsWith(
-                item.href,
-              );
-
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                style={{
-                  display: 'flex',
-                  flexDirection:
-                    'column',
-                  gap: 2,
-                  padding:
-                    '9px 13px',
-                  borderRadius: 8,
-                  textDecoration:
-                    'none',
-                  background:
-                    itemActive
-                      ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)'
-                      : 'transparent',
-                  transition:
-                    'background .12s',
-                }}
-                onMouseEnter={e => {
-                  if (!itemActive) {
-                    e.currentTarget.style.background =
-                      'var(--bg-raised)';
-                  }
-                }}
-                onMouseLeave={e => {
-                  if (!itemActive) {
-                    e.currentTarget.style.background =
-                      'transparent';
-                  }
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 500,
-                    letterSpacing:
-                      '-0.01em',
-                    color:
-                      itemActive
-                        ? 'var(--brand-brainbase-accent)'
-                        : 'var(--text-primary)',
-                  }}
-                >
-                  {item.label}
-                </span>
-
-                <span
-                  style={{
-                    fontSize: 11,
-                    color:
-                      'var(--text-muted)',
-                    lineHeight: 1.4,
-                  }}
-                >
-                  {item.description}
-                </span>
-              </Link>
-            );
-          })}
+          <nav aria-label="Admin">
+            <ul className={styles.menuList}>
+              {ADMIN_ITEMS.map(item => {
+                const itemActive =
+                  pathname.startsWith(
+                    item.href,
+                  );
+                return (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      className={styles.menuItem}
+                      aria-current={itemActive ? 'page' : undefined}
+                      onClick={close}
+                    >
+                      <span className={styles.menuLabel}>
+                        {item.label}
+                      </span>
+                      <span className={styles.menuDescription}>
+                        {item.description}
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
         </div>,
         document.body,
       )}
@@ -787,30 +709,24 @@ function AdminDropdown({
 
 // ─── BRΛINBΛSE logo ──────────────────────────────────────────────────────────
 
-function Logo({
-  compact = false,
-}: {
-  compact?: boolean;
-}) {
-  const visualWidth =
-    compact ? 170 : 180;
-
+function Logo() {
+  // Full lockup on wide screens, the broken-orbit mark alone on narrow
+  // ones (AppChrome.module.css swaps them). Both are the approved,
+  // theme-aware product geometry; the link carries the accessible name.
   return (
     <Link
       href="/"
-      aria-label="BRΛINBΛSE home"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        textDecoration: 'none',
-        flexShrink: 0,
-        overflow: 'visible',
-      }}
+      aria-label="BrainBase home"
+      className={styles.brand}
     >
-      <BrainBaseWordmark
-        width={visualWidth}
-      />
+      <span className={styles.brandFull} aria-hidden="true">
+        <BrainBaseWordmark
+          width={136}
+        />
+      </span>
+      <span className={styles.brandMark} aria-hidden="true">
+        <BrokenOrbitMark size={24} context="brainbase" />
+      </span>
     </Link>
   );
 }
@@ -825,29 +741,9 @@ function SquadItem({
   return (
     <Link
       href="/dashboard/contacts"
+      className={styles.item}
+      aria-current={active ? 'page' : undefined}
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        fontSize: 13,
-        fontWeight: 500,
-        letterSpacing: '-0.01em',
-        padding: '5px 10px',
-        borderRadius: 6,
-        textDecoration: 'none',
-        color: active
-          ? 'var(--purple-300)'
-          : 'var(--text-secondary)',
-        background: active
-          ? 'rgba(155,123,255,.10)'
-          : 'transparent',
-        border: `1px solid ${
-          active
-            ? 'rgba(155,123,255,.24)'
-            : 'transparent'
-        }`,
-        transition:
-          'color .14s, background .14s, border-color .14s',
-        whiteSpace: 'nowrap',
         flexShrink: 0,
       }}
     >
@@ -858,16 +754,11 @@ function SquadItem({
 
 // ─── Divider ─────────────────────────────────────────────────────────────────
 
-function Divider() {
+function Divider({ className }: { className?: string }) {
   return (
     <div
-      style={{
-        width: 1,
-        height: 16,
-        background:
-          'var(--border)',
-        flexShrink: 0,
-      }}
+      aria-hidden="true"
+      className={className ? `${styles.divider} ${className}` : styles.divider}
     />
   );
 }
@@ -877,7 +768,6 @@ function Divider() {
 function Clock() {
   const [time, setTime] =
     useState('');
-
   const [date, setDate] =
     useState('');
 
@@ -920,41 +810,73 @@ function Clock() {
 
   if (!time) return null;
 
+  // Ticking every second: kept out of the accessibility tree so screen
+  // readers are not handed a constantly changing string.
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 7,
-        fontFamily:
-          'var(--font-geist-mono,"Geist Mono",monospace)',
-        flexShrink: 0,
-      }}
-    >
-      <span
-        style={{
-          fontSize: 12,
-          fontWeight: 600,
-          color:
-            'var(--text-secondary)',
-          letterSpacing: '.04em',
-        }}
-      >
+    <div className={styles.clock} aria-hidden="true">
+      <span className={styles.clockTime}>
         {time}
       </span>
-
-      <span
-        style={{
-          fontSize: 10,
-          color:
-            'rgba(255,255,255,.22)',
-          letterSpacing: '.04em',
-        }}
-      >
+      <span className={styles.clockDate}>
         {date}
       </span>
     </div>
   );
+}
+
+// ─── Theme control ───────────────────────────────────────────────────────────
+
+function ThemeControl() {
+  // Same ThemeProvider as the public ThemeToggle (bb-theme persistence and
+  // the layout's pre-paint script are unchanged). The icon is chosen by CSS
+  // from <html data-theme>, so it is right on first paint.
+  const { theme, toggleTheme } = useTheme();
+  const next = theme === 'dark' ? 'light' : 'dark';
+  return (
+    <button
+      type="button"
+      className={styles.iconButton}
+      onClick={toggleTheme}
+      aria-label={`Switch to ${next} theme`}
+      title={`Switch to ${next} theme`}
+    >
+      <svg
+        className={styles.onlyDark}
+        viewBox="0 0 16 16"
+        width="15"
+        height="15"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <path d="M13.2 9.6A5.6 5.6 0 0 1 6.4 2.8a5.6 5.6 0 1 0 6.8 6.8Z" />
+      </svg>
+      <svg
+        className={styles.onlyLight}
+        viewBox="0 0 16 16"
+        width="15"
+        height="15"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <circle cx="8" cy="8" r="3" />
+        <path d="M8 1.5v1.3M8 13.2v1.3M1.5 8h1.3M13.2 8h1.3M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9" />
+      </svg>
+    </button>
+  );
+}
+
+function formatRole(role: string): string {
+  const text = role.replace(/_/g, ' ');
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 // ─── Public navigation ───────────────────────────────────────────────────────
@@ -1101,41 +1023,31 @@ function AppNav({
 
   return (
     <nav
+      aria-label="Primary"
+      className={styles.nav}
       style={{
         height: TOP_NAV_HEIGHT_PX,
         display: 'flex',
         alignItems: 'center',
-        padding: '0 20px',
-        borderBottom:
-          '1px solid var(--border)',
-        background:
-          'var(--bg-base)',
         position: 'sticky',
         top: 0,
         zIndex: 100,
         fontFamily: FONT,
         flexShrink: 0,
-        gap: 16,
       }}
     >
-      {/* Left balance spacer */}
-      <div
-        aria-hidden="true"
-        style={{
-          width: 150,
-          flexShrink: 0,
-        }}
-      />
+      {/* Product lockup — leads the bar, compact, never the loudest element. */}
+      <Logo />
 
       {/* Centre navigation — overflowX auto + flexShrink:0 on every item
           (see each item's own style below) is the smallest fix for a
           crowded/narrow nav: items keep their natural, legible width and
           the row scrolls horizontally instead of squeezing/clipping pill
-          text unreadable. scrollbarWidth/msOverflowStyle hide the
-          scrollbar chrome (Firefox/older Edge) without needing a
-          stylesheet; WebKit browsers show a slim default scrollbar, which
-          is an acceptable, non-blocking affordance here. */}
+          text unreadable. Phase B: the scrollbar is now a thin, themed
+          one (styles.navRow) rather than hidden, so overflow is
+          discoverable when a persona's item set exceeds the width. */}
       <div
+        className={styles.navRow}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -1145,8 +1057,6 @@ function AppNav({
           minWidth: 0,
           overflowX: 'auto',
           overflowY: 'hidden',
-          scrollbarWidth: 'none',
-          msOverflowStyle: 'none',
         }}
       >
         {isLdTennis ? (
@@ -1552,142 +1462,46 @@ function AppNav({
       </div>
 
       {/* Far-right system cluster */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent:
-            'flex-end',
-          gap: 10,
-          flexShrink: 0,
-        }}
-      >
-        {/* Larger BRΛINBΛSE mark */}
-        <div
-          style={{
-            width: 185,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            overflow: 'visible',
-          }}
-        >
-          <Logo compact />
-        </div>
-
-        <Divider />
+      <div className={styles.rightCluster}>
+        <Divider className={styles.clockDivider} />
 
         <Clock />
+
+        <Divider className={styles.clockDivider} />
+
+        <ThemeControl />
 
         <Divider />
 
         <Link
           href="/account/profile"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 7,
-            textDecoration: 'none',
-            padding:
-              '4px 8px 4px 5px',
-            borderRadius: 20,
-            transition: 'all .15s',
-            background:
-              pathname.startsWith(
-                '/account/profile',
-              )
-                ? 'rgba(167,139,250,.10)'
-                : 'transparent',
-
-            border: `1px solid ${
-              pathname.startsWith(
-                '/account/profile',
-              )
-                ? 'rgba(167,139,250,.22)'
-                : 'transparent'
-            }`,
-          }}
-          onMouseEnter={e => {
-            if (
-              pathname.startsWith(
-                '/account/profile',
-              )
-            ) {
-              return;
-            }
-
-            e.currentTarget.style.background =
-              'var(--bg-raised)';
-
-            e.currentTarget.style.borderColor =
-              'var(--border)';
-          }}
-          onMouseLeave={e => {
-            if (
-              pathname.startsWith(
-                '/account/profile',
-              )
-            ) {
-              return;
-            }
-
-            e.currentTarget.style.background =
-              'transparent';
-
-            e.currentTarget.style.borderColor =
-              'transparent';
-          }}
+          className={styles.profile}
+          aria-current={
+            pathname.startsWith(
+              '/account/profile',
+            )
+              ? 'page'
+              : undefined
+          }
         >
-          <div
-            style={{
-              width: 24,
-              height: 24,
-              borderRadius: '50%',
-              flexShrink: 0,
-
-              background:
-                avatarUrl
-                  ? 'transparent'
-                  : 'var(--purple-600)',
-
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent:
-                'center',
-
-              fontSize: 10,
-              fontWeight: 700,
-              color: '#fff',
-              overflow: 'hidden',
-              letterSpacing: '.02em',
-            }}
-          >
+          <span className={styles.avatar} aria-hidden="true">
             {avatarUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
+              // eslint-disable-next-line @next/next/no-img-element -- arbitrary user-supplied avatar URL, decorative beside the visible name
               <img
                 src={avatarUrl}
-                alt="avatar"
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                }}
+                alt=""
               />
             ) : (
               initials
             )}
-          </div>
-
-          <span
-            style={{
-              fontSize: 13,
-              fontWeight: 500,
-              color:
-                'var(--text-secondary)',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {name.split(' ')[0]}
+          </span>
+          <span className={styles.identity}>
+            <span className={styles.identityName}>
+              {name.split(' ')[0]}
+            </span>
+            <span className={styles.identityRole}>
+              {formatRole(role)}
+            </span>
           </span>
         </Link>
 
@@ -1700,27 +1514,18 @@ function AppNav({
             'server-only' import and cannot be imported into this
             client component. */}
         {(role === 'admin' || role === 'super_admin') && (
-          <>
-            <Divider />
-            <Link
-              href="/settings/branding"
-              style={{
-                fontSize: 13,
-                fontWeight: 500,
-                textDecoration: 'none',
-                padding: '5px 8px',
-                borderRadius: 7,
-                color: pathname.startsWith('/settings/branding') ? 'var(--purple-400)' : 'var(--text-secondary)',
-              }}
-            >
-              Branding
-            </Link>
-          </>
+          <Link
+            href="/settings/branding"
+            className={`${styles.item} ${styles.brandingLink}`}
+            aria-current={pathname.startsWith('/settings/branding') ? 'page' : undefined}
+          >
+            Branding
+          </Link>
         )}
 
-        <Divider />
-
         <button
+          type="button"
+          className={`${styles.item} ${styles.signOut}`}
           onClick={async () => {
             const { logout } =
               await import(
@@ -1730,26 +1535,7 @@ function AppNav({
             await logout();
           }}
           style={{
-            background: 'none',
-            border: 'none',
-            fontSize: 13,
-            fontWeight: 500,
-            color:
-              'var(--text-secondary)',
-            cursor: 'pointer',
             fontFamily: FONT,
-            padding: '5px 8px',
-            borderRadius: 7,
-            transition:
-              'color .14s',
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.color =
-              'var(--text-primary)';
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.color =
-              'var(--text-secondary)';
           }}
         >
           Sign out

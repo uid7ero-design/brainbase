@@ -14,17 +14,22 @@ const fieldStart = source.indexOf('function Field(', drawerEnd)
 const fieldEnd = source.indexOf('\n// ── PAGE', fieldStart)
 const field = source.slice(fieldStart, fieldEnd)
 
+const organiserCss = fs.readFileSync(path.resolve(__dirname, '../../components/organiser/Organiser.module.css'), 'utf-8')
+
 describe('C.4 Organiser drawer chrome design-system migration', () => {
   it('uses canonical drawer, scrim, surface, border, shadow, radius, motion, and text tokens', () => {
-    for (const token of [
-      '--bb-z-drawer', '--bb-scrim', '--bb-surface-1', '--bb-surface-soft',
-      '--bb-border-default', '--bb-border-subtle', '--bb-shadow-modal',
-      '--bb-radius-sm', '--bb-radius-md', '--bb-duration-base', '--bb-ease-standard',
-      '--bb-text-primary', '--bb-text-secondary', '--bb-text-tertiary', '--bb-text-muted',
-      '--bb-accent-400', '--bb-danger', '--bb-space-6', '--bb-space-7',
-    ]) {
-      expect(drawer).toContain(token)
-    }
+    // Integration note (main + app visual convergence): main's C.x rollout pinned its own
+    // inline --bb-* styling. The reviewed Phase D3 implementation supersedes that presentation
+    // (CSS module on the Phase A app tokens, shared primitives, dialog semantics), so this
+    // assertion now pins the D3 equivalent. Every behavioural assertion in this file is unchanged.
+    expect(drawer).toContain('role="dialog"')
+    expect(drawer).toContain('aria-modal="true"')
+    expect(drawer).toContain('useDialogFocus(true, onClose, drawerPanelRef)')
+    expect(drawer).toContain('zIndex: "var(--bb-z-drawer)"')
+    expect(drawer).toContain('animation: "drawer-in var(--bb-duration-base) var(--bb-ease-standard)"')
+    for (const token of ['var(--scrim)', 'var(--shadow-dialog)', 'var(--bg-surface)', 'var(--border)', 'var(--text-primary)', 'var(--text-muted)'])
+      expect(organiserCss).toContain(token)
+
   })
 
   it('preserves the portal mounting and close-overlay behavior', () => {
@@ -80,11 +85,16 @@ describe('C.4 Organiser drawer chrome design-system migration', () => {
   })
 
   it('tokenises the shared drawer Field label without changing save-status composition', () => {
-    expect(field).toContain('fontSize: "var(--bb-type-micro-size)"')
-    expect(field).toContain('letterSpacing: "var(--bb-type-micro-tracking)"')
-    expect(field).toContain('color: "var(--bb-text-muted)"')
+    // Integration note (main + app visual convergence): main's C.x rollout pinned its own
+    // inline --bb-* styling. The reviewed Phase D3 implementation supersedes that presentation
+    // (CSS module on the Phase A app tokens, shared primitives, dialog semantics), so this
+    // assertion now pins the D3 equivalent. Every behavioural assertion in this file is unchanged.
+    expect(field).toContain('<span className={styles.fieldLabel}>')
+    expect(field).toContain('role="group" aria-labelledby={labelId}')
     expect(field).toContain('<SaveStatusText status={status} />')
     expect(field).not.toContain('useOpsTheme')
+    expect(organiserCss).toMatch(/\.fieldLabel \{[^}]*var\(--text-muted\)/)
+
   })
 
   it('removes the targeted legacy drawer chrome literals', () => {

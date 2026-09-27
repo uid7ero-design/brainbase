@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { Button, Field as AppField, FormActions, FormError, fieldControlClassName } from '@/components/ui/app';
 
 type Customer = {
   id?: string; name?: string; billingEmail?: string | null; billingPhone?: string | null;
@@ -29,31 +30,35 @@ export default function CustomerForm({ initial, onSaved }: { initial?: Customer;
 
   return (
     <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <Field label="Customer Name *" value={form.name ?? ''} onChange={set('name')} required />
+      <Field label="Customer Name" value={form.name ?? ''} onChange={set('name')} required />
       <Field label="Billing Email" value={form.billingEmail ?? ''} onChange={set('billingEmail')} placeholder="billing@customer.com" />
       <Field label="Billing Phone" value={form.billingPhone ?? ''} onChange={set('billingPhone')} />
       <Field label="Billing Address" value={form.billingAddress ?? ''} onChange={set('billingAddress')} />
       <Field label="Tax / Business Number" value={form.taxBusinessNumber ?? ''} onChange={set('taxBusinessNumber')} placeholder="ABN, GST number, ..." />
-      {error && <p style={{ color: '#f87171', fontSize: 13, margin: 0 }}>{error}</p>}
-      <button type="submit" disabled={saving} style={{ padding: '10px 0', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
-        {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Customer'}
-      </button>
+      {error && <FormError>{error}</FormError>}
+      <FormActions align="stretch">
+        <Button type="submit" variant="primary" disabled={saving}>
+          {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Customer'}
+        </Button>
+      </FormActions>
     </form>
   );
 }
 
+/**
+ * Labelled single-line text input on the shared Field contract. Kept as a
+ * named export because the other Commercial forms reuse it.
+ */
 export function Field({ label, value, onChange, required, placeholder, type }: {
   label: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   required?: boolean; placeholder?: string; type?: string;
 }) {
   return (
-    <div>
-      <label style={lbl}>{label}</label>
-      <input type={type} value={value} onChange={onChange} required={required} placeholder={placeholder}
-        style={{ width: '100%', padding: '9px 12px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
-    </div>
+    <AppField label={label} required={required}>
+      {control => (
+        <input {...control} type={type} value={value} onChange={onChange} required={required} placeholder={placeholder}
+          className={fieldControlClassName} />
+      )}
+    </AppField>
   );
 }
-
-export const lbl: React.CSSProperties = { display: 'block', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
-export const sel: React.CSSProperties = { width: '100%', padding: '9px 12px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' };

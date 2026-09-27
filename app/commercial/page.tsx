@@ -2,8 +2,11 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { resolveResourceCount, type ResourceCountState } from '@/lib/commercial/overviewCounts';
+import { PageHeader, buttonProps } from '@/components/ui/app';
 
-const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
+// Precomputed so the JSX below stays free of call expressions.
+const primaryLink = buttonProps('primary');
+const secondaryLink = buttonProps('secondary');
 
 type Counts = {
   customers: ResourceCountState;
@@ -105,7 +108,7 @@ export default function CommercialOverviewPage() {
 
   return (
     <div style={{ maxWidth: 1000 }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: '0 0 24px' }}>Commercial</h1>
+      <PageHeader title="Commercial" />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 32 }}>
         {(hasQuotes || hasInvoicing) && <StatCard label="Customers" value={loading ? undefined : counts.customers} href="/commercial/customers" />}
@@ -116,16 +119,16 @@ export default function CommercialOverviewPage() {
         {hasInvoicing && <StatCard label="Draft Invoices" value={loading ? undefined : counts.draftInvoices} href="/commercial/invoices?status=DRAFT" />}
       </div>
 
-      <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px' }}>
-        <h2 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 10px' }}>Get started</h2>
+      <section aria-labelledby="commercial-get-started" style={{ borderTop: '1px solid var(--border)', paddingTop: 20 }}>
+        <h2 id="commercial-get-started" style={{ fontSize: 15, fontWeight: 600, margin: '0 0 10px', color: 'var(--text-primary)' }}>Get started</h2>
         {hasQuotes && (
           <>
             <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 14px', lineHeight: 1.6 }}>
               Add a customer and a product or service, then create your first quote.
             </p>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              <Link href="/commercial/customers" style={linkBtn}>Manage Customers →</Link>
-              <Link href="/commercial/quotes/new" style={linkBtn}>New Quote →</Link>
+              <Link href="/commercial/customers" {...secondaryLink}>Manage Customers →</Link>
+              <Link href="/commercial/quotes/new" {...primaryLink}>New Quote →</Link>
             </div>
           </>
         )}
@@ -135,12 +138,12 @@ export default function CommercialOverviewPage() {
               Add a customer and a product or service, then create your first invoice.
             </p>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              <Link href="/commercial/customers" style={linkBtn}>Manage Customers →</Link>
-              <Link href="/commercial/invoices/new" style={linkBtn}>New Invoice →</Link>
+              <Link href="/commercial/customers" {...secondaryLink}>Manage Customers →</Link>
+              <Link href="/commercial/invoices/new" {...primaryLink}>New Invoice →</Link>
             </div>
           </>
         )}
-      </div>
+      </section>
     </div>
   );
 }
@@ -152,13 +155,9 @@ function StatCard({ label, value, href }: { label: string; value: ResourceCountS
   // zero count.
   const display = value === undefined || value === 'unavailable' ? '—' : value === 'error' ? 'Error' : value;
   return (
-    <Link href={href} style={{ textDecoration: 'none' }}>
-      <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '18px 20px' }}>
-        <div style={{ fontSize: 26, fontWeight: 700, color: value === 'error' ? '#f87171' : 'var(--text-primary)' }}>{display}</div>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>{label}</div>
-      </div>
+    <Link href={href} style={{ textDecoration: 'none', display: 'block', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '16px 18px' }}>
+      <div style={{ fontSize: 24, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: value === 'error' ? 'var(--status-danger)' : 'var(--text-primary)' }}>{display}</div>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>{label}</div>
     </Link>
   );
 }
-
-const linkBtn: React.CSSProperties = { padding: '8px 14px', background: 'var(--purple-600)', color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 600, textDecoration: 'none' };

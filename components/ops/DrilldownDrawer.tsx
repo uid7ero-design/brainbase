@@ -1,5 +1,6 @@
 'use client';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { useDialogFocus } from '@/components/ui/app/useDialogFocus';
 
 const FONT = 'var(--font-inter),"Inter",-apple-system,sans-serif';
 
@@ -38,12 +39,12 @@ const WC: Record<WorkflowState, { label: string; color: string; bg: string }> = 
   escalated:     { label: 'Escalated',     color: '#F97316', bg: 'rgba(249,115,22,.15)'   },
   monitoring:    { label: 'Monitoring',    color: '#A78BFA', bg: 'rgba(167,139,250,.15)'  },
   resolved:      { label: 'Resolved',      color: '#22C55E', bg: 'rgba(34,197,94,.15)'    },
-  closed:        { label: 'Closed',        color: 'rgba(255,255,255,.30)', bg: 'rgba(255,255,255,.06)' },
+  closed:        { label: 'Closed',        color: '#8A8580', bg: 'rgba(138,133,128,.14)' },
 };
 
 const RISK_COLORS = { critical: '#EF4444', high: '#F97316', medium: '#F59E0B', low: '#22C55E' };
 const TL_COLORS: Record<string, string> = {
-  alert: '#EF4444', ai: '#A78BFA', action: '#60A5FA', system: 'rgba(255,255,255,.30)', weather: '#60A5FA',
+  alert: '#EF4444', ai: '#A78BFA', action: '#60A5FA', system: '#8A8580', weather: '#60A5FA',
 };
 
 // ── Operational intelligence per alert ────────────────────────────────────────
@@ -213,6 +214,8 @@ export default function DrilldownDrawer({ alert, onClose, onAction }: Props) {
   const [noteInput, setNoteInput]       = useState('');
   const [assignedTo, setAssignedTo]     = useState('');
   const [assignedDue, setAssignedDue]   = useState('');
+  const panelRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(true, onClose, panelRef);
   const [selPriority, setSelPriority]   = useState(alert.status === 'critical' ? 'URGENT' : alert.status === 'warning' ? 'HIGH' : 'MEDIUM');
   const [actionBusy, setActionBusy]     = useState<string | null>(null);
 
@@ -242,9 +245,9 @@ export default function DrilldownDrawer({ alert, onClose, onAction }: Props) {
     return (
       <button onClick={() => setTab(id)} style={{
         flex: 1, padding: '10px 4px', fontSize: 10.5, fontWeight: 600,
-        color: tab === id ? '#A78BFA' : 'rgba(255,255,255,.28)',
+        color: tab === id ? 'var(--brand-brainbase-accent)' : 'var(--text-subtle)',
         background: 'none', border: 'none',
-        borderBottom: tab === id ? '2px solid #7C3AED' : '2px solid transparent',
+        borderBottom: tab === id ? '2px solid var(--brand-brainbase-accent)' : '2px solid transparent',
         cursor: 'pointer', fontFamily: FONT, letterSpacing: '.06em', textTransform: 'uppercase',
         transition: 'color .14s', marginBottom: -1,
       }}>
@@ -262,19 +265,19 @@ export default function DrilldownDrawer({ alert, onClose, onAction }: Props) {
       `}} />
 
       {/* Backdrop */}
-      <div onClick={onClose} style={{
+      <div onClick={onClose} aria-hidden="true" style={{
         position: 'fixed', inset: 0, zIndex: 200,
-        background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(2px)',
+        background: 'var(--scrim)',
         animation: 'dd-fade .2s ease',
       }} />
 
       {/* Panel */}
-      <div style={{
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-label={`Alert: ${alert.title}`} tabIndex={-1} style={{
         position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 201,
-        width: 480, display: 'flex', flexDirection: 'column',
-        background: 'rgba(4,5,9,.98)',
-        borderLeft: '1px solid rgba(255,255,255,.08)',
-        boxShadow: '-24px 0 80px rgba(0,0,0,.60)',
+        width: 480, maxWidth: '100vw', display: 'flex', flexDirection: 'column',
+        background: 'var(--bg-surface)',
+        borderLeft: '1px solid var(--border)',
+        boxShadow: 'var(--shadow-dialog)',
         fontFamily: FONT,
         animation: 'dd-in .22s cubic-bezier(.16,.84,.44,1)',
       }}>
@@ -282,41 +285,41 @@ export default function DrilldownDrawer({ alert, onClose, onAction }: Props) {
         {/* ── Header ────────────────────────────────────────────────────────── */}
         <div style={{
           padding: '16px 20px', flexShrink: 0,
-          borderBottom: '1px solid rgba(255,255,255,.07)',
-          background: 'rgba(255,255,255,.015)',
+          borderBottom: '1px solid var(--border)',
+          background: 'var(--bg-surface)',
         }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6, flexWrap: 'wrap' }}>
-                <div style={{ width: 7, height: 7, borderRadius: '50%', background: sc.dot, boxShadow: `0 0 7px ${sc.dot}`, flexShrink: 0 }} />
+                <div style={{ width: 7, height: 7, borderRadius: '50%', background: sc.dot, flexShrink: 0 }} />
                 <span style={{ fontSize: 9.5, fontWeight: 700, color: sc.text, letterSpacing: '.10em', textTransform: 'uppercase' }}>{sc.label}</span>
                 <div style={{ padding: '2px 8px', borderRadius: 20, background: wc.bg, fontSize: 9, fontWeight: 700, color: wc.color, letterSpacing: '.06em', textTransform: 'uppercase' }}>
                   {wc.label}
                 </div>
               </div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: '#F5F7FA', lineHeight: 1.3 }}>{alert.title}</div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,.32)', marginTop: 4 }}>{alert.metric} &middot; {alert.metricLabel}</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3 }}>{alert.title}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{alert.metric} &middot; {alert.metricLabel}</div>
             </div>
-            <button onClick={onClose} style={{
+            <button type="button" aria-label="Close alert details" onClick={onClose} style={{
               width: 28, height: 28, borderRadius: 7, flexShrink: 0,
-              background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.10)',
+              background: 'var(--bg-sunken)', border: '1px solid var(--border)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              cursor: 'pointer', color: 'rgba(255,255,255,.45)', fontSize: 16, fontFamily: FONT,
+              cursor: 'pointer', color: 'var(--text-muted)', fontSize: 16, fontFamily: FONT,
             }}>×</button>
           </div>
 
           {/* HLNA confidence */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(167,139,250,.50)', letterSpacing: '.08em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>HLNA confidence</span>
-            <div style={{ flex: 1, height: 3, background: 'rgba(255,255,255,.07)', borderRadius: 2, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${intel.confidence}%`, background: 'linear-gradient(90deg,rgba(167,139,250,.5),rgba(139,92,246,.85))', borderRadius: 2 }} />
+            <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--brand-brainbase-accent)', letterSpacing: '.08em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>HLNA confidence</span>
+            <div style={{ flex: 1, height: 3, background: 'var(--bg-sunken)', borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${intel.confidence}%`, background: 'var(--brand-brainbase-accent)', borderRadius: 2 }} />
             </div>
-            <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(167,139,250,.70)' }}>{intel.confidence}%</span>
+            <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--brand-brainbase-accent)' }}>{intel.confidence}%</span>
           </div>
         </div>
 
         {/* ── Tab bar ───────────────────────────────────────────────────────── */}
-        <div style={{ display: 'flex', flexShrink: 0, borderBottom: '1px solid rgba(255,255,255,.06)', background: 'rgba(0,0,0,.18)' }}>
+        <div style={{ display: 'flex', flexShrink: 0, borderBottom: '1px solid var(--border)', background: 'rgba(0,0,0,.18)' }}>
           <TabBtn id="overview"   label="Overview"   />
           <TabBtn id="timeline"   label="Timeline"   />
           <TabBtn id="actions"    label="Actions"    />
@@ -324,7 +327,7 @@ export default function DrilldownDrawer({ alert, onClose, onAction }: Props) {
         </div>
 
         {/* ── Content ───────────────────────────────────────────────────────── */}
-        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+        <div data-dialog-body="" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
 
           {/* ── OVERVIEW ── */}
           {tab === 'overview' && (
@@ -334,23 +337,23 @@ export default function DrilldownDrawer({ alert, onClose, onAction }: Props) {
               <section>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#A78BFA" strokeWidth="2" strokeLinecap="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-                  <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.12em', color: 'rgba(167,139,250,.55)', textTransform: 'uppercase' }}>HLNA Intelligence Summary</span>
+                  <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.12em', color: 'var(--brand-brainbase-accent)', textTransform: 'uppercase' }}>HLNA Intelligence Summary</span>
                 </div>
-                <p style={{ margin: 0, fontSize: 12.5, color: 'rgba(230,237,243,.68)', lineHeight: 1.65, padding: '12px 14px', background: 'rgba(139,92,246,.06)', border: '1px solid rgba(139,92,246,.14)', borderRadius: 9 }}>
+                <p style={{ margin: 0, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.65, padding: '12px 14px', background: 'var(--brand-brainbase-accent-muted)', border: '1px solid var(--brand-brainbase-accent-border)', borderRadius: 9 }}>
                   {intel.summary}
                 </p>
               </section>
 
               {/* What changed */}
               <section>
-                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.12em', color: 'rgba(255,255,255,.22)', textTransform: 'uppercase', marginBottom: 8 }}>What Changed</div>
+                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.12em', color: 'var(--text-subtle)', textTransform: 'uppercase', marginBottom: 8 }}>What Changed</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                   {intel.changes.map((c, i) => {
                     const col = c.bad ? (c.dir === 'up' ? '#EF4444' : '#F59E0B') : '#22C55E';
                     return (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.05)' }}>
-                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,.55)', flex: 1 }}>{c.label}</span>
-                        <span style={{ fontSize: 10, color: 'rgba(255,255,255,.22)' }}>{c.baseline}</span>
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, background: 'var(--bg-surface)', border: '1px solid var(--border-light)' }}>
+                        <span style={{ fontSize: 11, color: 'var(--text-secondary)', flex: 1 }}>{c.label}</span>
+                        <span style={{ fontSize: 10, color: 'var(--text-subtle)' }}>{c.baseline}</span>
                         <span style={{ fontSize: 11.5, color: col, fontWeight: 700 }}>{c.dir === 'up' ? '↑' : '↓'} {c.current}</span>
                       </div>
                     );
@@ -360,25 +363,25 @@ export default function DrilldownDrawer({ alert, onClose, onAction }: Props) {
 
               {/* Causal analysis */}
               <section>
-                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.12em', color: 'rgba(255,255,255,.22)', textTransform: 'uppercase', marginBottom: 8 }}>Causal Analysis</div>
-                <p style={{ margin: 0, fontSize: 12, color: 'rgba(230,237,243,.55)', lineHeight: 1.65, padding: '12px 14px', background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.05)', borderRadius: 9 }}>
+                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.12em', color: 'var(--text-subtle)', textTransform: 'uppercase', marginBottom: 8 }}>Causal Analysis</div>
+                <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.65, padding: '12px 14px', background: 'var(--bg-surface)', border: '1px solid var(--border-light)', borderRadius: 9 }}>
                   {intel.reasoning}
                 </p>
               </section>
 
               {/* Risk + Affected */}
               <section style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div style={{ padding: '12px 14px', borderRadius: 9, background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.05)' }}>
-                  <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: 'rgba(255,255,255,.20)', textTransform: 'uppercase', marginBottom: 8 }}>Risk Level</div>
+                <div style={{ padding: '12px 14px', borderRadius: 9, background: 'var(--bg-surface)', border: '1px solid var(--border-light)' }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: 'var(--text-subtle)', textTransform: 'uppercase', marginBottom: 8 }}>Risk Level</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                    <div style={{ width: 10, height: 10, borderRadius: '50%', background: RISK_COLORS[intel.risk], boxShadow: `0 0 8px ${RISK_COLORS[intel.risk]}` }} />
+                    <div style={{ width: 10, height: 10, borderRadius: '50%', background: RISK_COLORS[intel.risk] }} />
                     <span style={{ fontSize: 14, fontWeight: 700, color: RISK_COLORS[intel.risk], textTransform: 'capitalize' }}>{intel.risk}</span>
                   </div>
                 </div>
-                <div style={{ padding: '12px 14px', borderRadius: 9, background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.05)' }}>
-                  <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: 'rgba(255,255,255,.20)', textTransform: 'uppercase', marginBottom: 8 }}>Affected Ops</div>
+                <div style={{ padding: '12px 14px', borderRadius: 9, background: 'var(--bg-surface)', border: '1px solid var(--border-light)' }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: 'var(--text-subtle)', textTransform: 'uppercase', marginBottom: 8 }}>Affected Ops</div>
                   {intel.affectedOps.map(op => (
-                    <div key={op} style={{ fontSize: 10.5, color: 'rgba(255,255,255,.48)', marginBottom: 2 }}>· {op}</div>
+                    <div key={op} style={{ fontSize: 10.5, color: 'var(--text-muted)', marginBottom: 2 }}>· {op}</div>
                   ))}
                 </div>
               </section>
@@ -389,35 +392,35 @@ export default function DrilldownDrawer({ alert, onClose, onAction }: Props) {
           {/* ── TIMELINE ── */}
           {tab === 'timeline' && (
             <div style={{ padding: '16px 20px', animation: 'dd-tab .18s ease' }}>
-              <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.12em', color: 'rgba(255,255,255,.22)', textTransform: 'uppercase', marginBottom: 14 }}>Event Timeline</div>
+              <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.12em', color: 'var(--text-subtle)', textTransform: 'uppercase', marginBottom: 14 }}>Event Timeline</div>
 
               {intel.timeline.map((ev, i) => (
                 <div key={i} style={{ display: 'flex', gap: 12, marginBottom: 16, position: 'relative' }}>
                   {i < intel.timeline.length - 1 && (
-                    <div style={{ position: 'absolute', left: 6, top: 14, bottom: -10, width: 1, background: 'rgba(255,255,255,.06)' }} />
+                    <div style={{ position: 'absolute', left: 6, top: 14, bottom: -10, width: 1, background: 'var(--bg-sunken)' }} />
                   )}
-                  <div style={{ width: 13, height: 13, borderRadius: '50%', flexShrink: 0, marginTop: 1, background: TL_COLORS[ev.type] ?? 'rgba(255,255,255,.30)', boxShadow: `0 0 5px ${TL_COLORS[ev.type] ?? 'transparent'}60` }} />
+                  <div style={{ width: 13, height: 13, borderRadius: '50%', flexShrink: 0, marginTop: 1, background: TL_COLORS[ev.type] ?? 'var(--bg-sunken)' }} />
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                      <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.28)', fontVariantNumeric: 'tabular-nums' }}>{ev.time}</span>
-                      <span style={{ fontSize: 9, color: TL_COLORS[ev.type] ?? 'rgba(255,255,255,.28)', fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase' }}>{ev.type}</span>
-                      <span style={{ fontSize: 9, color: 'rgba(255,255,255,.20)' }}>{ev.actor}</span>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums' }}>{ev.time}</span>
+                      <span style={{ fontSize: 9, color: TL_COLORS[ev.type] ?? 'var(--text-subtle)', fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase' }}>{ev.type}</span>
+                      <span style={{ fontSize: 9, color: 'var(--text-subtle)' }}>{ev.actor}</span>
                     </div>
-                    <div style={{ fontSize: 12, color: 'rgba(230,237,243,.60)', lineHeight: 1.5 }}>{ev.text}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{ev.text}</div>
                   </div>
                 </div>
               ))}
 
               {notes.map(n => (
                 <div key={n.id} style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-                  <div style={{ width: 13, height: 13, borderRadius: '50%', background: '#60A5FA', flexShrink: 0, marginTop: 1, boxShadow: '0 0 5px rgba(96,165,250,.45)' }} />
+                  <div style={{ width: 13, height: 13, borderRadius: '50%', background: '#60A5FA', flexShrink: 0, marginTop: 1 }} />
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', gap: 8, marginBottom: 3 }}>
-                      <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.28)' }}>{n.time}</span>
-                      <span style={{ fontSize: 9, color: '#60A5FA', fontWeight: 700, textTransform: 'uppercase' }}>NOTE</span>
-                      <span style={{ fontSize: 9, color: 'rgba(255,255,255,.20)' }}>You</span>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-subtle)' }}>{n.time}</span>
+                      <span style={{ fontSize: 9, color: 'var(--status-info)', fontWeight: 700, textTransform: 'uppercase' }}>NOTE</span>
+                      <span style={{ fontSize: 9, color: 'var(--text-subtle)' }}>You</span>
                     </div>
-                    <div style={{ fontSize: 12, color: 'rgba(230,237,243,.60)', lineHeight: 1.5 }}>{n.text}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{n.text}</div>
                   </div>
                 </div>
               ))}
@@ -436,7 +439,7 @@ export default function DrilldownDrawer({ alert, onClose, onAction }: Props) {
 
               {/* Workflow buttons */}
               <div>
-                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.12em', color: 'rgba(255,255,255,.22)', textTransform: 'uppercase', marginBottom: 10 }}>Workflow Actions</div>
+                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.12em', color: 'var(--text-subtle)', textTransform: 'uppercase', marginBottom: 10 }}>Workflow Actions</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {WORKFLOW_STEPS.map(ws => {
                     const avail  = ws.available.includes(wfState);
@@ -450,15 +453,15 @@ export default function DrilldownDrawer({ alert, onClose, onAction }: Props) {
                         style={{
                           display: 'flex', alignItems: 'center', gap: 10, width: '100%',
                           padding: '10px 14px', borderRadius: 8, cursor: avail && !active ? 'pointer' : 'default',
-                          background: active ? `${c.color}14` : avail ? 'rgba(255,255,255,.04)' : 'transparent',
-                          border: `1px solid ${active ? c.color + '38' : avail ? 'rgba(255,255,255,.08)' : 'rgba(255,255,255,.04)'}`,
+                          background: active ? `${c.color}14` : avail ? 'var(--bg-sunken)' : 'transparent',
+                          border: `1px solid ${active ? c.color + '38' : avail ? 'var(--border)' : 'var(--border-light)'}`,
                           opacity: avail || active ? 1 : 0.30, fontFamily: FONT, transition: 'all .14s',
                         }}
                         onMouseEnter={e => { if (avail && !active) { e.currentTarget.style.background = `${c.color}10`; e.currentTarget.style.borderColor = `${c.color}28`; }}}
-                        onMouseLeave={e => { if (avail && !active) { e.currentTarget.style.background = 'rgba(255,255,255,.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; }}}
+                        onMouseLeave={e => { if (avail && !active) { e.currentTarget.style.background = 'var(--bg-sunken)'; e.currentTarget.style.borderColor = 'var(--border)'; }}}
                       >
                         <div style={{ width: 7, height: 7, borderRadius: '50%', background: c.color, flexShrink: 0 }} />
-                        <span style={{ fontSize: 11.5, fontWeight: 600, flex: 1, textAlign: 'left', color: active ? c.color : avail ? 'rgba(255,255,255,.65)' : 'rgba(255,255,255,.22)' }}>
+                        <span style={{ fontSize: 11.5, fontWeight: 600, flex: 1, textAlign: 'left', color: active ? c.color : avail ? 'var(--text-secondary)' : 'var(--text-subtle)' }}>
                           {busy ? 'Applying…' : active ? `${ws.label} ✓` : ws.label}
                         </span>
                         {active && <span style={{ fontSize: 9, fontWeight: 700, color: c.color, textTransform: 'uppercase', letterSpacing: '.06em' }}>Active</span>}
@@ -470,19 +473,19 @@ export default function DrilldownDrawer({ alert, onClose, onAction }: Props) {
 
               {/* Note input */}
               <div>
-                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.12em', color: 'rgba(255,255,255,.22)', textTransform: 'uppercase', marginBottom: 10 }}>Operational Note</div>
+                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.12em', color: 'var(--text-subtle)', textTransform: 'uppercase', marginBottom: 10 }}>Operational Note</div>
                 <textarea value={noteInput} onChange={e => setNoteInput(e.target.value)}
                   placeholder="Enter operational note, context, or update…"
                   rows={3}
-                  style={{ width: '100%', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 8, padding: '9px 12px', fontSize: 12, color: '#F5F7FA', fontFamily: FONT, resize: 'vertical', outline: 'none', transition: 'border-color .14s', boxSizing: 'border-box' }}
-                  onFocus={e => (e.currentTarget.style.borderColor = 'rgba(139,92,246,.45)')}
-                  onBlur={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)')}
+                  style={{ width: '100%', background: 'var(--bg-sunken)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontSize: 12, color: 'var(--text-primary)', fontFamily: FONT, resize: 'vertical', transition: 'border-color .14s', boxSizing: 'border-box' }}
+                  onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
+                  onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
                 />
                 <button onClick={addNote} disabled={!noteInput.trim()} style={{
                   marginTop: 8, padding: '7px 16px', borderRadius: 7, fontSize: 11.5, fontWeight: 600,
-                  background: noteInput.trim() ? 'rgba(139,92,246,.22)' : 'rgba(255,255,255,.04)',
-                  border: `1px solid ${noteInput.trim() ? 'rgba(139,92,246,.38)' : 'rgba(255,255,255,.07)'}`,
-                  color: noteInput.trim() ? '#C4B5FD' : 'rgba(255,255,255,.18)',
+                  background: noteInput.trim() ? 'var(--brand-brainbase-accent-muted)' : 'var(--bg-sunken)',
+                  border: `1px solid ${noteInput.trim() ? 'var(--brand-brainbase-accent-border)' : 'var(--border)'}`,
+                  color: noteInput.trim() ? 'var(--brand-brainbase-accent)' : 'var(--text-subtle)',
                   cursor: noteInput.trim() ? 'pointer' : 'default', fontFamily: FONT, transition: 'all .14s',
                 }}>
                   Add Note
@@ -491,9 +494,9 @@ export default function DrilldownDrawer({ alert, onClose, onAction }: Props) {
                 {notes.length > 0 && (
                   <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {notes.map(n => (
-                      <div key={n.id} style={{ padding: '8px 12px', borderRadius: 7, background: 'rgba(96,165,250,.07)', border: '1px solid rgba(96,165,250,.14)' }}>
-                        <div style={{ fontSize: 9, color: 'rgba(255,255,255,.28)', marginBottom: 3 }}>{n.time} — You</div>
-                        <div style={{ fontSize: 11.5, color: 'rgba(230,237,243,.62)' }}>{n.text}</div>
+                      <div key={n.id} style={{ padding: '8px 12px', borderRadius: 7, background: 'var(--status-info-muted)', border: '1px solid var(--status-info-border)' }}>
+                        <div style={{ fontSize: 9, color: 'var(--text-subtle)', marginBottom: 3 }}>{n.time} — You</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>{n.text}</div>
                       </div>
                     ))}
                   </div>
@@ -507,14 +510,14 @@ export default function DrilldownDrawer({ alert, onClose, onAction }: Props) {
             <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16, animation: 'dd-tab .18s ease' }}>
 
               {/* Current */}
-              <div style={{ padding: '12px 14px', borderRadius: 9, background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)' }}>
-                <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: 'rgba(255,255,255,.20)', textTransform: 'uppercase', marginBottom: 6 }}>Current Assignment</div>
+              <div style={{ padding: '12px 14px', borderRadius: 9, background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: 'var(--text-subtle)', textTransform: 'uppercase', marginBottom: 6 }}>Current Assignment</div>
                 {assignedTo
-                  ? <div style={{ fontSize: 13, fontWeight: 600, color: '#60A5FA' }}>{assignedTo}</div>
-                  : <div style={{ fontSize: 12, color: 'rgba(255,255,255,.25)' }}>Unassigned</div>
+                  ? <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--status-info)' }}>{assignedTo}</div>
+                  : <div style={{ fontSize: 12, color: 'var(--text-subtle)' }}>Unassigned</div>
                 }
                 {assignedDue && (
-                  <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,.30)', marginTop: 3 }}>
+                  <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 3 }}>
                     Due {new Date(assignedDue).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
                   </div>
                 )}
@@ -522,7 +525,7 @@ export default function DrilldownDrawer({ alert, onClose, onAction }: Props) {
 
               {/* Operator list */}
               <div>
-                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.12em', color: 'rgba(255,255,255,.22)', textTransform: 'uppercase', marginBottom: 10 }}>Assign to Operator</div>
+                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.12em', color: 'var(--text-subtle)', textTransform: 'uppercase', marginBottom: 10 }}>Assign to Operator</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                   {OPERATORS.map(op => {
                     const active = assignedTo === op;
@@ -532,18 +535,18 @@ export default function DrilldownDrawer({ alert, onClose, onAction }: Props) {
                         style={{
                           display: 'flex', alignItems: 'center', gap: 10, width: '100%',
                           padding: '9px 12px', borderRadius: 8, cursor: 'pointer',
-                          background: active ? 'rgba(96,165,250,.10)' : 'rgba(255,255,255,.03)',
-                          border: `1px solid ${active ? 'rgba(96,165,250,.26)' : 'rgba(255,255,255,.06)'}`,
+                          background: active ? 'var(--status-info-muted)' : 'var(--bg-surface)',
+                          border: `1px solid ${active ? 'var(--status-info-border)' : 'var(--border)'}`,
                           fontFamily: FONT, transition: 'all .14s', textAlign: 'left',
                         }}
                         onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(96,165,250,.05)'; }}
-                        onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,.03)'; }}
+                        onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'var(--bg-surface)'; }}
                       >
-                        <div style={{ width: 26, height: 26, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, fontWeight: 700, background: active ? 'rgba(96,165,250,.18)' : 'rgba(255,255,255,.07)', color: active ? '#60A5FA' : 'rgba(255,255,255,.40)' }}>
+                        <div style={{ width: 26, height: 26, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, fontWeight: 700, background: active ? 'var(--status-info-muted)' : 'var(--bg-sunken)', color: active ? 'var(--status-info)' : 'var(--text-muted)' }}>
                           {op.split(' ').map(w => w[0]).join('')}
                         </div>
-                        <span style={{ fontSize: 12, fontWeight: active ? 600 : 400, color: active ? '#60A5FA' : 'rgba(255,255,255,.55)', flex: 1 }}>{op}</span>
-                        {active && <span style={{ fontSize: 9, color: '#60A5FA', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em' }}>Assigned</span>}
+                        <span style={{ fontSize: 12, fontWeight: active ? 600 : 400, color: active ? 'var(--status-info)' : 'var(--text-secondary)', flex: 1 }}>{op}</span>
+                        {active && <span style={{ fontSize: 9, color: 'var(--status-info)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em' }}>Assigned</span>}
                       </button>
                     );
                   })}
@@ -552,17 +555,17 @@ export default function DrilldownDrawer({ alert, onClose, onAction }: Props) {
 
               {/* Due date */}
               <div>
-                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.12em', color: 'rgba(255,255,255,.22)', textTransform: 'uppercase', marginBottom: 10 }}>Due Date</div>
+                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.12em', color: 'var(--text-subtle)', textTransform: 'uppercase', marginBottom: 10 }}>Due Date</div>
                 <input type="date" value={assignedDue} onChange={e => setAssignedDue(e.target.value)}
-                  style={{ width: '100%', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 8, padding: '9px 12px', fontSize: 12, color: '#F5F7FA', fontFamily: FONT, outline: 'none', transition: 'border-color .14s', boxSizing: 'border-box', colorScheme: 'dark' }}
-                  onFocus={e => (e.currentTarget.style.borderColor = 'rgba(139,92,246,.45)')}
-                  onBlur={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)')}
+                  style={{ width: '100%', background: 'var(--bg-sunken)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontSize: 12, color: 'var(--text-primary)', fontFamily: FONT, transition: 'border-color .14s', boxSizing: 'border-box' }}
+                  onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
+                  onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
                 />
               </div>
 
               {/* Priority */}
               <div>
-                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.12em', color: 'rgba(255,255,255,.22)', textTransform: 'uppercase', marginBottom: 10 }}>Escalation Priority</div>
+                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.12em', color: 'var(--text-subtle)', textTransform: 'uppercase', marginBottom: 10 }}>Escalation Priority</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 6 }}>
                   {[
                     { key: 'URGENT', color: '#EF4444' },
@@ -573,9 +576,9 @@ export default function DrilldownDrawer({ alert, onClose, onAction }: Props) {
                     <button key={p.key} onClick={() => setSelPriority(p.key)} style={{
                       padding: '8px 4px', borderRadius: 7, fontSize: 9.5, fontWeight: 700,
                       letterSpacing: '.06em', textTransform: 'uppercase', cursor: 'pointer',
-                      background: selPriority === p.key ? `${p.color}16` : 'rgba(255,255,255,.03)',
-                      border: `1px solid ${selPriority === p.key ? p.color + '38' : 'rgba(255,255,255,.06)'}`,
-                      color: selPriority === p.key ? p.color : 'rgba(255,255,255,.28)',
+                      background: selPriority === p.key ? `${p.color}16` : 'var(--bg-surface)',
+                      border: `1px solid ${selPriority === p.key ? p.color + '38' : 'var(--border)'}`,
+                      color: selPriority === p.key ? p.color : 'var(--text-subtle)',
                       fontFamily: FONT, transition: 'all .14s',
                     }}>
                       {p.key}
@@ -592,16 +595,16 @@ export default function DrilldownDrawer({ alert, onClose, onAction }: Props) {
         {/* ── Footer ────────────────────────────────────────────────────────── */}
         <div style={{
           padding: '10px 20px', flexShrink: 0,
-          borderTop: '1px solid rgba(255,255,255,.06)',
+          borderTop: '1px solid var(--border)',
           background: 'rgba(0,0,0,.18)',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
-          <span style={{ fontSize: 9, color: 'rgba(255,255,255,.16)', letterSpacing: '.04em' }}>
+          <span style={{ fontSize: 9, color: 'var(--text-subtle)', letterSpacing: '.04em' }}>
             Alert · {alert.id}
           </span>
           <button onClick={onClose} style={{
-            padding: '5px 14px', borderRadius: 6, background: 'rgba(255,255,255,.05)',
-            border: '1px solid rgba(255,255,255,.10)', color: 'rgba(255,255,255,.38)',
+            padding: '5px 14px', borderRadius: 6, background: 'var(--bg-sunken)',
+            border: '1px solid var(--border)', color: 'var(--text-muted)',
             fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: FONT,
           }}>
             Close

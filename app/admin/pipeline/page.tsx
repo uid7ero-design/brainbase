@@ -21,16 +21,16 @@ type PipelineRequest = {
 }
 
 const STATUS_STYLE: Record<string, { bg: string; color: string; border: string; label: string }> = {
-  new:             { bg: 'rgba(99,102,241,.12)',  color: '#a5b4fc', border: 'rgba(99,102,241,.28)', label: 'New' },
-  in_progress:     { bg: 'rgba(251,191,36,.10)',  color: '#fbbf24', border: 'rgba(251,191,36,.25)', label: 'In progress' },
-  awaiting_client: { bg: 'rgba(251,146,60,.10)',  color: '#fb923c', border: 'rgba(251,146,60,.25)', label: 'Awaiting client' },
-  resolved:        { bg: 'rgba(34,197,94,.10)',   color: '#4ade80', border: 'rgba(34,197,94,.25)',  label: 'Resolved' },
+  new:             { bg: 'var(--status-info-muted)',  color: 'var(--status-info)', border: 'var(--status-info-border)', label: 'New' },
+  in_progress:     { bg: 'var(--status-warning-muted)',  color: 'var(--status-warning)', border: 'var(--status-warning-border)', label: 'In progress' },
+  awaiting_client: { bg: 'var(--status-warning-muted)',  color: 'var(--status-warning)', border: 'var(--status-warning-border)', label: 'Awaiting client' },
+  resolved:        { bg: 'var(--status-success-muted)',   color: 'var(--status-success)', border: 'var(--status-success-border)',  label: 'Resolved' },
 }
 
 const PRIORITY_STYLE: Record<string, { color: string }> = {
-  low:    { color: '#71717a' },
-  medium: { color: '#fbbf24' },
-  high:   { color: '#f87171' },
+  low:    { color: 'var(--text-muted)' },
+  medium: { color: 'var(--status-warning)' },
+  high:   { color: 'var(--status-danger)' },
 }
 
 const TYPE_ICON: Record<string, string> = {
@@ -40,10 +40,10 @@ const TYPE_ICON: Record<string, string> = {
 }
 
 const BOOKING_STATUS: Record<string, { label: string; color: string; bg: string; border: string }> = {
-  pending_confirmation: { label: 'Awaiting client confirmation', color: '#fb923c', bg: 'rgba(251,146,60,.10)', border: 'rgba(251,146,60,.30)' },
-  confirmed:            { label: '✅ Confirmed',                  color: '#4ade80', bg: 'rgba(34,197,94,.10)',  border: 'rgba(34,197,94,.30)'  },
-  reschedule_requested: { label: '🔁 Client requested new time', color: '#f87171', bg: 'rgba(239,68,68,.10)',  border: 'rgba(239,68,68,.30)'  },
-  cancelled:            { label: 'Cancelled',                    color: '#71717a', bg: 'rgba(113,113,122,.10)',border: 'rgba(113,113,122,.25)' },
+  pending_confirmation: { label: 'Awaiting client confirmation', color: 'var(--status-warning)', bg: 'var(--status-warning-muted)', border: 'var(--status-warning-border)' },
+  confirmed:            { label: '✅ Confirmed',                  color: 'var(--status-success)', bg: 'var(--status-success-muted)',  border: 'var(--status-success-border)'  },
+  reschedule_requested: { label: '🔁 Client requested new time', color: 'var(--status-danger)', bg: 'var(--status-danger-muted)',  border: 'var(--status-danger-border)'  },
+  cancelled:            { label: 'Cancelled',                    color: 'var(--text-muted)', bg: 'var(--status-inactive-muted)',border: 'var(--border)' },
 }
 
 function fmtDate(d: string) {
@@ -58,9 +58,9 @@ function ago(ts: string) {
 }
 
 const inp: React.CSSProperties = {
-  width: '100%', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.09)',
-  borderRadius: 8, padding: '8px 11px', fontSize: 12, color: '#F5F7FA',
-  outline: 'none', fontFamily: FONT, boxSizing: 'border-box',
+  width: '100%', background: 'var(--bg-sunken)', border: '1px solid var(--border)',
+  borderRadius: 8, padding: '8px 11px', fontSize: 12, color: 'var(--text-primary)',
+  fontFamily: FONT, boxSizing: 'border-box',
 }
 
 function RequestCard({ req, onUpdate }: { req: PipelineRequest; onUpdate: (updated: Partial<PipelineRequest>) => void }) {
@@ -112,27 +112,29 @@ function RequestCard({ req, onUpdate }: { req: PipelineRequest; onUpdate: (updat
   return (
     <>
       <div style={{
-        background: needsReschedule ? 'rgba(239,68,68,.03)' : 'rgba(255,255,255,.025)',
-        border: `1px solid ${needsReschedule ? 'rgba(239,68,68,.25)' : req.status === 'new' ? 'rgba(99,102,241,.20)' : 'rgba(255,255,255,.07)'}`,
+        background: needsReschedule ? 'var(--status-danger-muted)' : 'var(--bg-surface)',
+        border: `1px solid ${needsReschedule ? 'var(--status-danger-border)' : req.status === 'new' ? 'var(--status-info-border)' : 'var(--border)'}`,
         borderRadius: 14, overflow: 'hidden',
       }}>
         {/* Summary row */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', cursor: 'pointer' }}
-          onClick={() => setExpanded(e => !e)}>
-          <span style={{ fontSize: 16, color: 'rgba(255,255,255,.35)', flexShrink: 0 }}>
+          role="button" tabIndex={0} aria-expanded={expanded}
+          onClick={() => setExpanded(e => !e)}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(v => !v); } }}>
+          <span style={{ fontSize: 16, color: 'var(--text-muted)', flexShrink: 0 }}>
             {TYPE_ICON[req.type] ?? '✦'}
           </span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F7FA', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {req.title}
             </div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,.30)', marginTop: 2 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
               {req.org_name ?? 'Unknown org'}{req.submitted_by_name ? ` · ${req.submitted_by_name}` : ''} · {ago(req.created_at)}
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
             {needsReschedule && (
-              <span style={{ fontSize: 9, fontWeight: 700, color: '#f87171', background: 'rgba(239,68,68,.12)', border: '1px solid rgba(239,68,68,.30)', padding: '2px 8px', borderRadius: 20 }}>
+              <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--status-danger)', background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', padding: '2px 8px', borderRadius: 20 }}>
                 🔁 Reschedule
               </span>
             )}
@@ -141,33 +143,33 @@ function RequestCard({ req, onUpdate }: { req: PipelineRequest; onUpdate: (updat
               fontSize: 10, fontWeight: 600, padding: '2px 9px', borderRadius: 20,
               background: st.bg, color: st.color, border: `1px solid ${st.border}`,
             }}>{st.label}</span>
-            <span style={{ fontSize: 11, color: 'rgba(255,255,255,.20)' }}>{expanded ? '▲' : '▼'}</span>
+            <span style={{ fontSize: 11, color: 'var(--text-subtle)' }}>{expanded ? '▲' : '▼'}</span>
           </div>
         </div>
 
         {expanded && (
           <div style={{
-            borderTop: '1px solid rgba(255,255,255,.06)',
+            borderTop: '1px solid var(--border)',
             padding: '16px 18px',
             display: 'flex', flexDirection: 'column', gap: 14,
           }}>
             {req.description && (
-              <p style={{ fontSize: 13, color: 'rgba(255,255,255,.50)', margin: 0, lineHeight: 1.65 }}>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.65 }}>
                 {req.description}
               </p>
             )}
 
             {/* Status buttons */}
             <div>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.10em', textTransform: 'uppercase', color: 'rgba(255,255,255,.25)', marginBottom: 8 }}>Status</div>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.10em', textTransform: 'uppercase', color: 'var(--text-subtle)', marginBottom: 8 }}>Status</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {Object.entries(STATUS_STYLE).map(([key, sty]) => (
                   <button key={key} onClick={() => update({ status: key })} disabled={saving || req.status === key}
                     style={{
                       fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20, cursor: req.status === key ? 'default' : 'pointer',
-                      background: req.status === key ? sty.bg : 'rgba(255,255,255,.04)',
-                      border: `1px solid ${req.status === key ? sty.border : 'rgba(255,255,255,.09)'}`,
-                      color: req.status === key ? sty.color : 'rgba(255,255,255,.35)',
+                      background: req.status === key ? sty.bg : 'var(--bg-sunken)',
+                      border: `1px solid ${req.status === key ? sty.border : 'var(--border)'}`,
+                      color: req.status === key ? sty.color : 'var(--text-muted)',
                       fontFamily: FONT, opacity: saving ? .6 : 1,
                     }}>
                     {sty.label}
@@ -178,15 +180,15 @@ function RequestCard({ req, onUpdate }: { req: PipelineRequest; onUpdate: (updat
 
             {/* Priority buttons */}
             <div>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.10em', textTransform: 'uppercase', color: 'rgba(255,255,255,.25)', marginBottom: 8 }}>Priority</div>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.10em', textTransform: 'uppercase', color: 'var(--text-subtle)', marginBottom: 8 }}>Priority</div>
               <div style={{ display: 'flex', gap: 6 }}>
                 {Object.entries(PRIORITY_STYLE).map(([key, sty]) => (
                   <button key={key} onClick={() => update({ priority: key })} disabled={saving || req.priority === key}
                     style={{
                       fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20, cursor: req.priority === key ? 'default' : 'pointer',
-                      background: req.priority === key ? `${sty.color}20` : 'rgba(255,255,255,.04)',
-                      border: `1px solid ${req.priority === key ? `${sty.color}55` : 'rgba(255,255,255,.09)'}`,
-                      color: req.priority === key ? sty.color : 'rgba(255,255,255,.35)',
+                      background: req.priority === key ? `${sty.color}20` : 'var(--bg-sunken)',
+                      border: `1px solid ${req.priority === key ? `${sty.color}55` : 'var(--border)'}`,
+                      color: req.priority === key ? sty.color : 'var(--text-muted)',
                       fontFamily: FONT, opacity: saving ? .6 : 1,
                     }}>
                     {key.charAt(0).toUpperCase() + key.slice(1)}
@@ -200,21 +202,21 @@ function RequestCard({ req, onUpdate }: { req: PipelineRequest; onUpdate: (updat
                 see Phase_0_5_Path_B1_Production_Release_Plan.md. */}
             {booking && (
               <div>
-                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.10em', textTransform: 'uppercase', color: 'rgba(255,255,255,.25)', marginBottom: 8 }}>Session</div>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.10em', textTransform: 'uppercase', color: 'var(--text-subtle)', marginBottom: 8 }}>Session</div>
                 <div style={{
-                  background: BOOKING_STATUS[booking.status]?.bg ?? 'rgba(255,255,255,.04)',
-                  border: `1px solid ${BOOKING_STATUS[booking.status]?.border ?? 'rgba(255,255,255,.09)'}`,
+                  background: BOOKING_STATUS[booking.status]?.bg ?? 'var(--bg-sunken)',
+                  border: `1px solid ${BOOKING_STATUS[booking.status]?.border ?? 'var(--border)'}`,
                   borderRadius: 10, padding: '12px 14px',
                 }}>
                   {/* Reschedule alert */}
                   {needsReschedule && (
                     <div style={{
                       display: 'flex', alignItems: 'center', gap: 8,
-                      background: 'rgba(239,68,68,.10)', border: '1px solid rgba(239,68,68,.25)',
+                      background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)',
                       borderRadius: 8, padding: '8px 10px', marginBottom: 12,
                     }}>
                       <span style={{ fontSize: 14 }}>🔁</span>
-                      <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#f87171' }}>
+                      <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: 'var(--status-danger)' }}>
                         Client requested a new time
                       </p>
                     </div>
@@ -222,8 +224,8 @@ function RequestCard({ req, onUpdate }: { req: PipelineRequest; onUpdate: (updat
 
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#F5F7FA' }}>{fmtDate(booking.date)}</div>
-                      <div style={{ fontSize: 12, color: 'rgba(255,255,255,.45)', marginTop: 2 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{fmtDate(booking.date)}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
                         {booking.time} · {booking.session_type}
                       </div>
                     </div>
@@ -242,12 +244,12 @@ function RequestCard({ req, onUpdate }: { req: PipelineRequest; onUpdate: (updat
 
             {/* Message thread */}
             <div>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.10em', textTransform: 'uppercase', color: 'rgba(255,255,255,.25)', marginBottom: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.10em', textTransform: 'uppercase', color: 'var(--text-subtle)', marginBottom: 10 }}>
                 Thread ({msgs.length})
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
                 {msgs.length === 0 ? (
-                  <p style={{ fontSize: 12, color: 'rgba(255,255,255,.22)', margin: 0 }}>No messages yet.</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-subtle)', margin: 0 }}>No messages yet.</p>
                 ) : msgs.map(m => (
                   <div key={m.id} style={{
                     display: 'flex', flexDirection: 'column',
@@ -255,11 +257,11 @@ function RequestCard({ req, onUpdate }: { req: PipelineRequest; onUpdate: (updat
                   }}>
                     <div style={{
                       maxWidth: '85%', padding: '9px 13px', borderRadius: 10,
-                      background: m.author_type === 'founder' ? 'rgba(99,102,241,.18)' : 'rgba(255,255,255,.06)',
-                      border: `1px solid ${m.author_type === 'founder' ? 'rgba(99,102,241,.30)' : 'rgba(255,255,255,.08)'}`,
+                      background: m.author_type === 'founder' ? 'var(--brand-brainbase-accent-muted)' : 'var(--bg-sunken)',
+                      border: `1px solid ${m.author_type === 'founder' ? 'var(--brand-brainbase-accent-border)' : 'var(--border)'}`,
                     }}>
-                      <p style={{ margin: 0, fontSize: 12, color: '#e4e4e7', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{m.body}</p>
-                      <p style={{ margin: '5px 0 0', fontSize: 10, color: 'rgba(255,255,255,.25)' }}>
+                      <p style={{ margin: 0, fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{m.body}</p>
+                      <p style={{ margin: '5px 0 0', fontSize: 10, color: 'var(--text-subtle)' }}>
                         {m.author_type === 'founder' ? 'You' : (req.org_name ?? 'Client')} · {new Date(m.created_at).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}
                       </p>
                     </div>
@@ -269,12 +271,12 @@ function RequestCard({ req, onUpdate }: { req: PipelineRequest; onUpdate: (updat
               <textarea style={{ ...inp, resize: 'vertical', lineHeight: 1.6 }} rows={2}
                 value={reply} onChange={e => setReply(e.target.value)}
                 placeholder="Reply to client…" />
-              {sendErr && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#f87171' }}>{sendErr}</p>}
+              {sendErr && <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--status-danger)' }}>{sendErr}</p>}
               <button onClick={sendMessage} disabled={!reply.trim() || sending}
                 style={{
                   marginTop: 8, fontSize: 12, fontWeight: 600, padding: '6px 16px', borderRadius: 8, cursor: 'pointer',
-                  background: 'rgba(99,102,241,.18)', border: '1px solid rgba(99,102,241,.35)',
-                  color: '#a5b4fc', fontFamily: FONT,
+                  background: 'var(--brand-brainbase-accent-muted)', border: '1px solid var(--brand-brainbase-accent-border)',
+                  color: 'var(--brand-brainbase-accent)', fontFamily: FONT,
                   opacity: !reply.trim() || sending ? .45 : 1,
                 }}>
                 {sending ? 'Sending…' : 'Send'}
@@ -312,13 +314,13 @@ export default function AdminPipelinePage() {
     <div style={{ maxWidth: 800, margin: '0 auto', padding: '36px 24px 80px', fontFamily: FONT }}>
       <div style={{ marginBottom: 28 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4, flexWrap: 'wrap' }}>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#F5F7FA', margin: 0, letterSpacing: '-.02em' }}>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', margin: 0, letterSpacing: '-.02em' }}>
             Client Pipeline
           </h1>
           {newCount > 0 && (
             <span style={{
               fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-              background: 'rgba(239,68,68,.15)', color: '#f87171', border: '1px solid rgba(239,68,68,.30)',
+              background: 'var(--status-danger-muted)', color: 'var(--status-danger)', border: '1px solid var(--status-danger-border)',
             }}>
               {newCount} new
             </span>
@@ -326,7 +328,7 @@ export default function AdminPipelinePage() {
           {awaitingCount > 0 && (
             <span style={{
               fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-              background: 'rgba(251,146,60,.12)', color: '#fb923c', border: '1px solid rgba(251,146,60,.30)',
+              background: 'var(--status-warning-muted)', color: 'var(--status-warning)', border: '1px solid var(--status-warning-border)',
             }}>
               {awaitingCount} awaiting client
             </span>
@@ -334,25 +336,25 @@ export default function AdminPipelinePage() {
           {rescheduleCount > 0 && (
             <span style={{
               fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-              background: 'rgba(239,68,68,.12)', color: '#f87171', border: '1px solid rgba(239,68,68,.30)',
+              background: 'var(--status-danger-muted)', color: 'var(--status-danger)', border: '1px solid var(--status-danger-border)',
             }}>
               🔁 {rescheduleCount} reschedule{rescheduleCount > 1 ? 's' : ''} requested
             </span>
           )}
         </div>
-        <p style={{ fontSize: 12, color: 'rgba(255,255,255,.28)', margin: 0 }}>
+        <p style={{ fontSize: 12, color: 'var(--text-subtle)', margin: 0 }}>
           Requests and issues submitted by your clients.
         </p>
       </div>
 
       {/* Filter tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 10, padding: 4, width: 'fit-content' }}>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 4, width: 'fit-content' }}>
         {(['all', 'new', 'awaiting_client', 'in_progress', 'resolved'] as const).map(f => (
           <button key={f} onClick={() => setFilter(f)}
             style={{
               fontSize: 11, fontWeight: 600, padding: '5px 14px', borderRadius: 7, cursor: 'pointer',
-              background: filter === f ? 'rgba(99,102,241,.20)' : 'transparent',
-              border: 'none', color: filter === f ? '#a5b4fc' : 'rgba(255,255,255,.35)',
+              background: filter === f ? 'var(--brand-brainbase-accent-muted)' : 'transparent',
+              border: 'none', color: filter === f ? 'var(--brand-brainbase-accent)' : 'var(--text-muted)',
               fontFamily: FONT,
             }}>
             {f === 'all' ? 'All' : STATUS_STYLE[f]?.label ?? f}
@@ -361,9 +363,9 @@ export default function AdminPipelinePage() {
       </div>
 
       {loading ? (
-        <div style={{ color: 'rgba(255,255,255,.25)', fontSize: 13 }}>Loading…</div>
+        <div style={{ color: 'var(--text-subtle)', fontSize: 13 }}>Loading…</div>
       ) : filtered.length === 0 ? (
-        <div style={{ border: '1px dashed rgba(255,255,255,.08)', borderRadius: 14, padding: '48px 24px', textAlign: 'center', color: 'rgba(255,255,255,.22)', fontSize: 13 }}>
+        <div style={{ border: '1px dashed var(--border)', borderRadius: 14, padding: '48px 24px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: 13 }}>
           {filter === 'all' ? 'No requests yet.' : `No ${filter.replace('_', ' ')} requests.`}
         </div>
       ) : (

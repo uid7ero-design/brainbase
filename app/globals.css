@@ -4,8 +4,27 @@
 /* ─── BrainBase Design Tokens ────────────────────────── */
 :root {
   color-scheme: dark;
-  /* Shared app header offset — existing layout contract. */
+  /* Phase D.4.5C-W2 — shared app header offset. Defaults to TopNav's
+     own exact height (52px — see lib/layout/headerOffset.ts's
+     TOP_NAV_HEIGHT_PX, the single source of truth for that number),
+     correct for every non-super_admin session and for the very first
+     paint before any client JS runs. Corrected upward at runtime, only
+     for a resolved super_admin session, by OrgSwitcher's own effect
+     once its real rendered height above TopNav is known. Every fixed/
+     sticky consumer that needs to sit immediately below the app's
+     header stack should read var(--app-header-offset) — never a bare
+     `top: 52` literal. */
   --app-header-offset: 52px;
+
+  /* ── Canonical --bb-* application taxonomy (main A.2A) ──────────────
+     Additive semantic names from main's design-token rollout. Where a
+     role overlaps the reviewed Phase A contract below, the value is the
+     Phase A value (or an alias of it) so the app has one source of truth:
+     text tiers keep the AA muted contrast, focus is the product accent,
+     and the status soft fills that components/ui/semantic consumes stay on
+     the validated values from styles/brainbase-tokens.css. Glow / blur /
+     gradient tokens are retained for main's consumers but are not used by
+     the converged authenticated UI. */
 
   /* Semantic surfaces */
   --bb-canvas: #0B0B0C;
@@ -19,21 +38,21 @@
   --bb-shell-sidebar: #101012;
   --bb-shell-header: #0B0B0C;
 
-  /* Semantic text */
+  /* Semantic text — tiers mapped onto the Phase A AA values. */
   --bb-text-primary: #F3EEE6;
-  --bb-text-secondary: #A1A1AA;
-  --bb-text-tertiary: #77736E;
-  --bb-text-muted: #52525B;
+  --bb-text-secondary: #AAA6A0;
+  --bb-text-tertiary: #8A8580;
+  --bb-text-muted: #aaa6a0;   /* collides with the public token; pinned to the validated value */
   --bb-text-disabled: #3F3F46;
   --bb-text-on-accent: #FFFFFF;
 
   /* Semantic borders */
-  --bb-border-subtle: rgba(255, 255, 255, 0.050);
-  --bb-border-default: rgba(255, 255, 255, 0.075);
-  --bb-border-strong: rgba(255, 255, 255, 0.12);
+  --bb-border-subtle: rgba(243, 238, 230, 0.045);
+  --bb-border-default: rgba(243, 238, 230, 0.08);
+  --bb-border-strong: #3a3835;   /* collides with the public token; pinned to the validated value */
   --bb-border-hover: rgba(255, 255, 255, 0.16);
-  --bb-border-focus: rgba(138, 77, 255, 0.58);
-  --bb-border-accent: rgba(138, 77, 255, 0.30);
+  --bb-border-focus: #9B7BFF;
+  --bb-border-accent: rgba(155, 123, 255, 0.30);
 
   /* Brand / accent */
   --bb-accent-700: #5E3FC4;
@@ -54,10 +73,10 @@
   --bb-warning: #F59E0B;
   --bb-danger: #EF4444;
   --bb-info: #38BDF8;
-  --bb-success-soft: rgba(34, 197, 94, 0.12);
-  --bb-warning-soft: rgba(245, 158, 11, 0.12);
+  --bb-success-soft: rgba(63, 191, 127, 0.1);   /* validated semantic value */
+  --bb-warning-soft: rgba(234, 165, 58, 0.1);   /* validated semantic value */
   --bb-danger-soft: rgba(239, 68, 68, 0.12);
-  --bb-info-soft: rgba(56, 189, 248, 0.12);
+  --bb-info-soft: rgba(34, 199, 232, 0.08);     /* validated semantic value */
 
   /* Typography */
   --bb-font-sans: var(--font-inter), Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -176,65 +195,128 @@
   --bb-chart-5: #38BDF8;
   --bb-chart-6: #B09AFF;
 
-  /*
-   * Legacy aliases — compatibility only.
-   * New components must consume --bb-* semantic tokens directly.
-   * Remove only after full migration audit.
-   */
+  /* ── Authenticated application semantic tokens (Phase A) ──────────
+     This block and its light counterpart are the single authoritative
+     token layer for the signed-in app. Consumers should use these
+     semantic names; the raw palettes below (--purple-*, --green etc.)
+     are legacy and are migrated module by module in later phases.
+     Ratios in comments are WCAG contrast against --bg-base. See
+     docs/design/AUTHENTICATED_UI_AUDIT.md "Phase A implementation note". */
+
+  /* Surfaces */
   --bg-base:    #0B0B0C;
   --bg-surface: #111113;
   --bg-raised:  #151517;
-  --bg-overlay: #1B1B1E;
-  --border: var(--bb-border-default);
-  --border-light: var(--bb-border-subtle);
-  --border-focus: var(--bb-border-focus);
+  --bg-sunken:  #080809;   /* table headers, input wells */
+  --bg-overlay: #1B1B1E;   /* floating: menus, popovers, dialogs */
+
+  /* Borders — --border / --border-light are decorative separators;
+     --border-strong meets 3:1 for control and drop-zone boundaries. */
+  --border:        rgba(243, 238, 230, 0.08);
+  --border-light:  rgba(243, 238, 230, 0.045);
+  --border-strong: #6F6B66;                        /* 3.72:1 */
+  --border-focus:  var(--brand-brainbase-accent);  /* focused control edge */
+
+  /* Purple palette */
   --purple-600:  #6D4CD6;
   --purple-500:  #7A59E6;
   --purple-400:  #9B7BFF;
   --purple-300:  #B09AFF;
-  --purple-200: var(--bb-accent-300);
-  --purple-glow: var(--bb-accent-glow);
-  --text-primary:   #F3EEE6;
-  --text-secondary: #A1A1AA;
-  --text-muted:     #52525B;
-  --green: var(--bb-success);
-  --yellow: var(--bb-warning);
-  --red: var(--bb-danger);
-  --cyan: var(--bb-info);
+  --purple-200:  #C6B8FF;
+  --purple-glow: rgba(155, 123, 255, 0.10);
+
+  /* Text — primary/secondary/muted meet 4.5:1 for normal text on every
+     dark surface (base, surface, raised, sunken, overlay).
+     --text-subtle is for disabled / placeholder / decorative text only. */
+  --text-primary:   #F3EEE6;   /* 17.04:1 */
+  --text-secondary: #AAA6A0;   /* 8.12:1 (was #A1A1AA cool zinc) */
+  --text-muted:     #8A8580;   /* 5.38:1, ≥4.70 on overlay (was #52525B, 2.55:1) */
+  --text-subtle:    #6F6B66;   /* 3.72:1 — non-essential text only */
+
+  /* Status */
+  --green:  #22C55E;
+  --yellow: #F59E0B;
+  --red:    #EF4444;
+  --cyan:   #06B6D4;
 
   --brand-line: #F3EEE6;
   --brand-brainbase-accent: #9B7BFF;
   --brand-hlna-accent: #E06C23;
-  --background: var(--bb-canvas);
-  --foreground: var(--bb-text-primary);
+
+  /* Product accent — selective: active, selected, primary action, focus,
+     key highlight, product identity. Never a large surface. */
+  --brand-brainbase-accent-hover:  #B09AFF;                   /* 8.35:1 */
+  --brand-brainbase-accent-muted:  rgba(155, 123, 255, 0.10); /* active/selected fill */
+  --brand-brainbase-accent-border: rgba(155, 123, 255, 0.30);
+  --brand-brainbase-on-accent:     #0B0B0C;                   /* 6.25:1 on accent */
+
+  /* Semantic status — bridged to the --bb-* state tokens in
+     styles/brainbase-tokens.css, so components/ui/semantic and the app
+     share one validated source (every -fg meets 4.5:1 in both themes).
+     info also covers sync (cyan); neither is ever product purple. */
+  --status-success:        var(--bb-success-fg);
+  --status-success-muted:  var(--bb-success-soft);
+  --status-success-border: var(--bb-success-border);
+  --status-warning:        var(--bb-warning-fg);
+  --status-warning-muted:  var(--bb-warning-soft);
+  --status-warning-border: var(--bb-warning-border);
+  --status-danger:         var(--bb-error-fg);
+  --status-danger-muted:   var(--bb-error-soft);
+  --status-danger-border:  var(--bb-error-border);
+  --status-info:           var(--bb-info-fg);
+  --status-info-muted:     var(--bb-info-soft);
+  --status-info-border:    var(--bb-info-border);
+  --status-inactive:       var(--bb-inactive-fg);
+  --status-inactive-muted: var(--bb-inactive-soft);
+
+  /* Focus — one keyboard-focus cue for the whole app. */
+  --focus-ring-color:  var(--brand-brainbase-accent);  /* 6.25:1 dark, 5.18:1 light */
+  --focus-ring-width:  2px;
+  --focus-ring-offset: 2px;
+
+  /* Radius — restrained scale. */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  /* Elevation — floating surfaces only; no decorative card shadows. */
+  --shadow-menu:    0 4px 12px rgba(0, 0, 0, 0.40), 0 0 0 1px rgba(243, 238, 230, 0.06);
+  --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(243, 238, 230, 0.06);
+  --shadow-dialog:  0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(243, 238, 230, 0.06);
+  --scrim:          rgba(0, 0, 0, 0.56);
+
+  /* Legacy compat */
+  --background: var(--bg-base);
+  --foreground: var(--text-primary);
 }
 
 :root[data-theme='light'] {
   color-scheme: light;
+  /* Canonical --bb-* taxonomy, light (main A.2A; roles mapped onto Phase A). */
   --bb-canvas: #F5F3EE;
   --bb-surface-1: #FFFFFF;
   --bb-surface-2: #FAF8F3;
   --bb-surface-3: #FFFFFF;
   --bb-surface-soft: rgba(15, 17, 23, 0.025);
   --bb-surface-hover: rgba(15, 17, 23, 0.045);
-  --bb-surface-selected: rgba(106, 61, 255, 0.075);
+  --bb-surface-selected: rgba(109, 76, 214, 0.08);
   --bb-scrim: rgba(15, 17, 23, 0.36);
   --bb-shell-sidebar: rgba(255, 255, 255, 0.98);
   --bb-shell-header: rgba(255, 255, 255, 0.96);
 
   --bb-text-primary: #15171B;
-  --bb-text-secondary: #52525B;
-  --bb-text-tertiary: #71717A;
-  --bb-text-muted: #8B8D98;
+  --bb-text-secondary: #5F5B55;
+  --bb-text-tertiary: #67625C;
+  --bb-text-muted: #66625d;   /* collides with the public token; pinned to the validated value */
   --bb-text-disabled: #B8B4AC;
   --bb-text-on-accent: #FFFFFF;
 
-  --bb-border-subtle: rgba(15, 17, 23, 0.055);
-  --bb-border-default: rgba(15, 17, 23, 0.095);
-  --bb-border-strong: rgba(15, 17, 23, 0.15);
+  --bb-border-subtle: rgba(21, 23, 27, 0.06);
+  --bb-border-default: rgba(21, 23, 27, 0.10);
+  --bb-border-strong: #c9c3b8;   /* collides with the public token; pinned to the validated value */
   --bb-border-hover: rgba(15, 17, 23, 0.20);
-  --bb-border-focus: rgba(106, 61, 255, 0.52);
-  --bb-border-accent: rgba(106, 61, 255, 0.25);
+  --bb-border-focus: #6D4CD6;
+  --bb-border-accent: rgba(109, 76, 214, 0.28);
 
   --bb-accent-700: #5E3FC4;
   --bb-accent-600: #6D4CD6;
@@ -243,33 +325,49 @@
   --bb-accent-300: #9B7BFF;
   --bb-accent-blue: #5677FF;
   --bb-accent-cyan: #00D4FF;
-  --bb-accent-soft: rgba(106, 61, 255, 0.10);
-  --bb-accent-softer: rgba(106, 61, 255, 0.05);
-  --bb-accent-glow: rgba(106, 61, 255, 0.14);
+  --bb-accent-soft: rgba(109, 76, 214, 0.08);
+  --bb-accent-softer: rgba(109, 76, 214, 0.05);
+  --bb-accent-glow: rgba(109, 76, 214, 0.14);
 
   --bb-success: #16A34A;
   --bb-warning: #D97706;
   --bb-danger: #DC2626;
   --bb-info: #0284C7;
-  --bb-success-soft: rgba(22, 163, 74, 0.10);
-  --bb-warning-soft: rgba(217, 119, 6, 0.10);
+  --bb-success-soft: #edf8f1;          /* validated semantic value */
+  --bb-warning-soft: #fdf6e7;          /* validated semantic value */
   --bb-danger-soft: rgba(220, 38, 38, 0.10);
-  --bb-info-soft: rgba(2, 132, 199, 0.10);
+  --bb-info-soft: var(--bb-cyan-50);   /* validated semantic value */
 
-  /* Compatibility aliases mirror the latest-main light application palette. */
+  /* Surfaces. --bg-raised stays #FFFFFF for now: 26 files use it as the
+     input-field background, so changing it is a later-phase decision. */
   --bg-base:    #F5F3EE;
   --bg-surface: #FFFFFF;
   --bg-raised:  #FFFFFF;
-  --bg-overlay: #EFEBE4;
-  --text-primary:   #15171B;
-  --text-secondary: #52525B;
-  --text-muted:     #8B8D98;
+  --bg-sunken:  #EFEBE4;   /* table headers, input wells */
+  --bg-overlay: #FFFFFF;   /* floating: menus, popovers, dialogs (was #EFEBE4; no consumers) */
+
+  /* Borders */
+  --border:        rgba(21, 23, 27, 0.10);
+  --border-light:  rgba(21, 23, 27, 0.06);
+  --border-strong: #8A8580;                        /* 3.29:1, 3.65:1 on white */
+  --border-focus:  var(--brand-brainbase-accent);
+
+  /* Purple palette — brand colour, unchanged across themes */
   --purple-600:  #6D4CD6;
   --purple-500:  #7A59E6;
   --purple-400:  #9B7BFF;
   --purple-300:  #6D4CD6;
   --purple-200:  #6D4CD6;
   --purple-glow: rgba(109, 76, 214, 0.08);
+
+  /* Text — primary/secondary/muted meet 4.5:1 for normal text on every
+     light surface (base, surface, sunken). */
+  --text-primary:   #15171B;   /* 16.18:1 */
+  --text-secondary: #5F5B55;   /* 6.08:1 (was #52525B cool zinc) */
+  --text-muted:     #67625C;   /* 5.44:1, ≥5.08 on sunken (was #8B8D98, 2.98:1) */
+  --text-subtle:    #8A8580;   /* 3.29:1 — non-essential text only */
+
+  /* Status — kept vivid in both themes */
   --green:  #16A34A;
   --yellow: #D97706;
   --red:    #DC2626;
@@ -278,8 +376,19 @@
   --brand-line: #15171B;
   --brand-brainbase-accent: #6D4CD6;
   --brand-hlna-accent: #C85B18;
-  --background: var(--bg-base);
-  --foreground: var(--text-primary);
+
+  --brand-brainbase-accent-hover:  #5E3FC4;                   /* 6.35:1 */
+  --brand-brainbase-accent-muted:  rgba(109, 76, 214, 0.08);
+  --brand-brainbase-accent-border: rgba(109, 76, 214, 0.28);
+  --brand-brainbase-on-accent:     #FFFFFF;                   /* 5.75:1 on accent */
+
+  /* --status-* and --focus-ring-* resolve through the light --bb-* and
+     accent values automatically; radius is theme-independent. */
+
+  --shadow-menu:    0 4px 12px rgba(21, 23, 27, 0.08), 0 1px 2px rgba(21, 23, 27, 0.06);
+  --shadow-popover: 0 8px 24px rgba(21, 23, 27, 0.10), 0 1px 3px rgba(21, 23, 27, 0.06);
+  --shadow-dialog:  0 16px 48px rgba(21, 23, 27, 0.16), 0 2px 6px rgba(21, 23, 27, 0.06);
+  --scrim:          rgba(21, 23, 27, 0.32);
 }
 
 /* ─── End BrainBase Design Tokens ────────────────────── */
@@ -292,20 +401,26 @@
 }
 
 /* ─── Base ───────────────────────────────────────────── */
-html {
-  scroll-behavior: smooth;
-  max-width: 100%;
-  overflow-x: hidden;
-}
+html { scroll-behavior: smooth; }
 
 body {
-  max-width: 100%;
-  overflow-x: hidden;
   background: var(--bg-base);
   color: var(--text-primary);
   font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Keyboard focus (Phase A) ───────────────────────────
+   One visible, product-purple focus cue for the signed-in app in both
+   themes. :focus-visible only, so mouse clicks on buttons and links do
+   not draw rings. :where() gives it zero specificity: any component that
+   styles its own focus (including the public .bb-public rule) still wins.
+   Inline `outline: none` also still wins — those call sites are listed in
+   docs/design/AUTHENTICATED_UI_AUDIT.md for migration in later phases. */
+:where(:focus-visible) {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
 }
 
 /* ─── Scrollbars ─────────────────────────────────────── */

@@ -12,18 +12,22 @@ const shell = fs.readFileSync(
   'utf-8',
 )
 
+const organiserCss = fs.readFileSync(path.resolve(__dirname, '../../components/organiser/Organiser.module.css'), 'utf-8')
+
 describe('C.2 Organiser overview design-system migration', () => {
   it('uses the shared Surface primitive and canonical overview tokens', () => {
-    expect(page).toContain('import { Surface } from "@/components/ui"')
-    expect(page).toContain("const FONT = 'var(--bb-font-sans)'")
-    expect(page).toContain('<Surface variant="soft" radius="xl"')
-    expect(page).toContain('<Surface variant="selected" radius="md"')
-    expect(page).toContain('background: "var(--bb-surface-1)"')
-    expect(page).toContain('background: "var(--bb-canvas)"')
-    expect(page).toContain('borderBottom: "1px solid var(--bb-border-subtle)"')
-    expect(page).toContain('background: view === v ? "var(--bb-surface-selected)" : "transparent"')
-    expect(page).toContain('color: view === v ? "var(--bb-accent-300)" : "var(--bb-text-tertiary)"')
-    expect(page).toContain('background: "var(--bb-danger-soft)"')
+    // Integration note (main + app visual convergence): main's C.x rollout pinned its own
+    // inline --bb-* styling. The reviewed Phase D3 implementation supersedes that presentation
+    // (CSS module on the Phase A app tokens, shared primitives, dialog semantics), so this
+    // assertion now pins the D3 equivalent. Every behavioural assertion in this file is unchanged.
+    expect(page).toMatch(/from "@\/components\/ui\/app"/)
+    expect(page).toContain('import styles from "@/components/organiser/Organiser.module.css"')
+    expect(page).toContain('<PageHeader')
+    expect(page).toContain('<StateMessage')
+    expect(page).toContain('aria-pressed={view === v}')
+    for (const token of ['var(--bg-surface)', 'var(--border)', 'var(--text-primary)', 'var(--brand-brainbase-accent)', 'var(--status-danger)'])
+      expect(organiserCss).toContain(token)
+
   })
 
   it('moves the Organiser shell onto canonical canvas/font/z-index tokens without changing its layout contract', () => {
@@ -108,10 +112,16 @@ describe('C.2 Organiser overview design-system migration', () => {
   })
 
   it('tokenises overview save/error status colours without changing status semantics', () => {
-    expect(page).toContain('status.state === "saving" ? "var(--bb-accent-500)"')
-    expect(page).toContain('status.state === "saved" ? "var(--bb-success)" : "var(--bb-danger)"')
-    expect(page).toContain('status.state === "saving" ? "Saving…" : "Saved"')
+    // Integration note (main + app visual convergence): main's C.x rollout pinned its own
+    // inline --bb-* styling. The reviewed Phase D3 implementation supersedes that presentation
+    // (CSS module on the Phase A app tokens, shared primitives, dialog semantics), so this
+    // assertion now pins the D3 equivalent. Every behavioural assertion in this file is unchanged.
+    expect(page).toContain('if (status.state === "saving") return <span className={styles.saveText} data-state="saving">Saving…</span>')
+    expect(page).toContain('if (status.state === "saved") return <span className={styles.saveText} data-state="saved">Saved</span>')
     expect(page).toContain('{status.message ?? "Couldn\'t save"}')
+    expect(organiserCss).toMatch(/\.saveText\[data-state='saved'\][^}]*var\(--status-success\)/)
+    expect(organiserCss).toMatch(/\.saveText\[data-state='error'\][^}]*var\(--status-danger\)/)
+
   })
 
   it('does not change capability, auth, database, schema, or routing ownership', () => {

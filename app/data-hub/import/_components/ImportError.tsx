@@ -27,9 +27,9 @@ export default function ImportError({
       aria-live="assertive"
       data-error-code={code}
       style={{
-        border: "1px solid rgba(239,68,68,.25)",
-        background: "rgba(239,68,68,.06)",
-        borderRadius: 10,
+        border: "1px solid var(--status-danger-border)",
+        background: "var(--status-danger-muted)",
+        borderRadius: "var(--radius-lg)",
         padding: "18px 20px",
         color: "var(--text-primary)",
       }}

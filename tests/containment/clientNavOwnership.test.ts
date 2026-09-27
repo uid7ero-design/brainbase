@@ -52,7 +52,7 @@ describe('TopNav — LD-Tennis-specific nav items are gated on dashboardVariant,
   const clientBranchStart = topNavSource.indexOf('isLdTennis ? (')
   const clientBranchEnd = topNavSource.indexOf(') : (', clientBranchStart)
   const clientRegion = topNavSource.slice(clientBranchStart, clientBranchEnd)
-  const sharedBranchEnd = topNavSource.indexOf('width: 185,', clientBranchEnd)
+  const sharedBranchEnd = topNavSource.indexOf('className={styles.rightCluster}', clientBranchEnd)
   const sharedRegion = topNavSource.slice(clientBranchEnd, sharedBranchEnd)
 
   it('Leads, Squad (Contacts), and Sessions are rendered inside the isLdTennis-true branch', () => {
@@ -156,7 +156,7 @@ describe('TopNav — CRM nav item is capability-driven, reachable by any client 
   const clientBranchStart = topNavSource.indexOf('isLdTennis ? (')
   const clientBranchEnd = topNavSource.indexOf(') : (', clientBranchStart)
   const clientRegion = topNavSource.slice(clientBranchStart, clientBranchEnd)
-  const sharedBranchEnd = topNavSource.indexOf('width: 185,', clientBranchEnd)
+  const sharedBranchEnd = topNavSource.indexOf('className={styles.rightCluster}', clientBranchEnd)
   const sharedRegion = topNavSource.slice(clientBranchEnd, sharedBranchEnd)
 
   it('hasCrm is derived from enabledCapabilities, not hardcoded to any organisation', () => {
@@ -205,7 +205,7 @@ describe('TopNav — CRM/Events capability icons match ModuleAccessCard\'s ident
   const clientBranchStart = topNavSource.indexOf('isLdTennis ? (')
   const clientBranchEnd = topNavSource.indexOf(') : (', clientBranchStart)
   const clientRegion = topNavSource.slice(clientBranchStart, clientBranchEnd)
-  const sharedBranchEnd = topNavSource.indexOf('width: 185,', clientBranchEnd)
+  const sharedBranchEnd = topNavSource.indexOf('className={styles.rightCluster}', clientBranchEnd)
   const sharedRegion = topNavSource.slice(clientBranchEnd, sharedBranchEnd)
   const moduleAccessCard = read('components/dashboard/ModuleAccessCard.tsx')
   const capabilityIcon = read('components/brand/CapabilityIcon.tsx')
@@ -257,7 +257,7 @@ describe('TopNav — Organiser nav item is capability-driven, reachable by any c
   const clientBranchStart = topNavSource.indexOf('isLdTennis ? (')
   const clientBranchEnd = topNavSource.indexOf(') : (', clientBranchStart)
   const clientRegion = topNavSource.slice(clientBranchStart, clientBranchEnd)
-  const sharedBranchEnd = topNavSource.indexOf('width: 185,', clientBranchEnd)
+  const sharedBranchEnd = topNavSource.indexOf('className={styles.rightCluster}', clientBranchEnd)
   const sharedRegion = topNavSource.slice(clientBranchEnd, sharedBranchEnd)
 
   it('hasOrganiser is derived from enabledCapabilities, not hardcoded to any organisation', () => {

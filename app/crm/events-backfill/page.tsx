@@ -1,8 +1,15 @@
 'use client';
 import { useState } from 'react';
-
-const CARD = 'var(--bg-surface)';
-const BORDER = 'var(--border)';
+import {
+  Badge,
+  Metric,
+  MetricStrip,
+  PageHeader,
+  StateMessage,
+  TableContainer,
+  buttonProps,
+  tableStyles,
+} from '@/components/ui/app';
 
 type ClassificationPreviewRow = {
   contactId: string;
@@ -66,11 +73,8 @@ type ExecutionResult = {
   results: Array<{ orderId: string; outcome: string; contactId: string | null; error?: string }>;
 };
 
-function btn(bg: string, disabled?: boolean): React.CSSProperties {
-  return { padding: '9px 18px', background: bg, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13.5, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 };
-}
-const th: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '10px 14px', fontSize: 13, color: '#e5e7eb' };
+const ERROR_TEXT: React.CSSProperties = { color: 'var(--status-danger)', fontSize: 13, margin: '0 0 16px' };
+const ACTIONS_ROW: React.CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 20 };
 
 // Phase 6.2 — "Backfill Event Contacts". Strictly preview-first (§5,
 // §8): the ONLY way to reach POST (a real write) is by clicking
@@ -162,31 +166,31 @@ export default function EventsBackfillPage() {
 
   return (
     <div style={{ maxWidth: 900 }}>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>Backfill Event Contacts</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '4px 0 0', maxWidth: 620 }}>
-          Links historical event registrations that predate CRM sync (or were created while CRM was disabled) to a
-          CRM contact — reusing an existing contact by email or phone where a safe, unambiguous match exists, or
-          creating a new one. Only purchaser name/email/phone are ever read or written; registration answers and
-          internal notes are never touched. Nothing is changed until you review a preview and explicitly confirm.
-        </p>
-      </div>
+      <PageHeader
+        title="Backfill Event Contacts"
+        description={
+          <span style={{ display: 'block', maxWidth: 620 }}>
+            Links historical event registrations that predate CRM sync (or were created while CRM was disabled) to a
+            CRM contact — reusing an existing contact by email or phone where a safe, unambiguous match exists, or
+            creating a new one. Only purchaser name/email/phone are ever read or written; registration answers and
+            internal notes are never touched. Nothing is changed until you review a preview and explicitly confirm.
+          </span>
+        }
+      />
 
       {forbidden && (
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, color: 'var(--text-secondary)', fontSize: 14 }}>
-          This action requires an admin role and both the Events and CRM capabilities enabled for your organisation.
-        </div>
+        <StateMessage kind="empty" title="This action requires an admin role and both the Events and CRM capabilities enabled for your organisation." />
       )}
 
-      {error && <div role="alert" style={{ color: '#f87171', fontSize: 13, marginBottom: 16 }}>{error}</div>}
+      {error && <p role="alert" style={ERROR_TEXT}>{error}</p>}
 
       {!forbidden && (
-        <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
-          <button onClick={runPreview} disabled={loading} style={btn('var(--purple-600)', loading)}>
+        <div style={ACTIONS_ROW}>
+          <button type="button" onClick={runPreview} disabled={loading} {...buttonProps('secondary')}>
             {loading ? 'Loading preview…' : preview ? 'Refresh preview' : 'Preview'}
           </button>
           {preview && preview.crmEnabled && (preview.wouldLinkExisting + preview.wouldCreateNew > 0) && (
-            <button onClick={runExecute} disabled={executing} style={btn('#16a34a', executing)}>
+            <button type="button" onClick={runExecute} disabled={executing} {...buttonProps('primary')}>
               {executing ? 'Running…' : `Execute (${preview.wouldLinkExisting + preview.wouldCreateNew} order(s))`}
             </button>
           )}
@@ -194,9 +198,7 @@ export default function EventsBackfillPage() {
       )}
 
       {preview && !preview.crmEnabled && (
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, color: 'var(--text-secondary)', fontSize: 14 }}>
-          CRM isn&apos;t enabled for your organisation.
-        </div>
+        <StateMessage kind="empty" title="CRM isn't enabled for your organisation." />
       )}
 
       {preview && preview.crmEnabled && (
@@ -213,24 +215,26 @@ export default function EventsBackfillPage() {
           />
 
           {preview.rows.length > 0 && (
-            <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden', marginTop: 20 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-                    {['Purchaser', 'Email', 'Phone', 'Result'].map(h => <th key={h} style={th}>{h}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.rows.map((r, i) => (
-                    <tr key={r.orderId} style={{ borderBottom: i < preview.rows.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
-                      <td style={td}>{r.purchaserName}</td>
-                      <td style={td}>{r.purchaserEmail ?? '—'}</td>
-                      <td style={td}>{r.purchaserPhone ?? '—'}</td>
-                      <td style={td}><ClassificationBadge classification={r.classification} matchCount={r.matchCount} /></td>
+            <div style={{ marginTop: 20 }}>
+              <TableContainer label="Order-linking preview">
+                <table className={tableStyles.table}>
+                  <thead>
+                    <tr>
+                      {['Purchaser', 'Email', 'Phone', 'Result'].map(h => <th key={h} scope="col">{h}</th>)}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {preview.rows.map(r => (
+                      <tr key={r.orderId}>
+                        <td className={tableStyles.primary}>{r.purchaserName}</td>
+                        <td>{r.purchaserEmail ?? <span className={tableStyles.muted}>—</span>}</td>
+                        <td>{r.purchaserPhone ?? <span className={tableStyles.muted}>—</span>}</td>
+                        <td><ClassificationBadge classification={r.classification} matchCount={r.matchCount} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableContainer>
             </div>
           )}
         </>
@@ -249,56 +253,57 @@ export default function EventsBackfillPage() {
             ]}
           />
           {execution.failed > 0 && (
-            <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden', marginTop: 20 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-                    {['Order', 'Outcome', 'Error'].map(h => <th key={h} style={th}>{h}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {execution.results.filter(r => r.outcome === 'failed').map((r, i, arr) => (
-                    <tr key={r.orderId} style={{ borderBottom: i < arr.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
-                      <td style={td}>{r.orderId}</td>
-                      <td style={td}>{r.outcome}</td>
-                      <td style={{ ...td, color: '#f87171' }}>{r.error ?? '—'}</td>
+            <div style={{ marginTop: 20 }}>
+              <TableContainer label="Failed orders">
+                <table className={tableStyles.table}>
+                  <thead>
+                    <tr>
+                      {['Order', 'Outcome', 'Error'].map(h => <th key={h} scope="col">{h}</th>)}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {execution.results.filter(r => r.outcome === 'failed').map(r => (
+                      <tr key={r.orderId}>
+                        <td className={tableStyles.primary}>{r.orderId}</td>
+                        <td><Badge state="error">{r.outcome}</Badge></td>
+                        <td style={{ color: 'var(--status-danger)' }}>{r.error ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableContainer>
             </div>
           )}
         </div>
       )}
 
-      <div style={{ marginTop: 40, paddingTop: 32, borderTop: `1px solid ${BORDER}` }}>
-        <h2 style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em', margin: 0 }}>Classify existing Events contacts</h2>
+      <section aria-labelledby="classify-heading" style={{ marginTop: 40, paddingTop: 32, borderTop: '1px solid var(--border)' }}>
+        <h2 id="classify-heading" style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em', margin: 0, color: 'var(--text-primary)' }}>Classify existing Events contacts</h2>
         <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '4px 0 14px', maxWidth: 620 }}>
           Finds existing CRM contacts with Events evidence (an intact &quot;Events / …&quot; note and a live linked
           order) that are still unclassified, so they can be reviewed before being marked as Event Contacts.
-          <strong style={{ color: 'var(--text-secondary)' }}> This preview makes no changes</strong> — nothing is classified until
+          <strong style={{ color: 'var(--text-primary)' }}> This preview makes no changes</strong> — nothing is classified until
           you explicitly confirm the action below.
         </p>
 
         {classificationForbidden && (
-          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, color: 'var(--text-secondary)', fontSize: 14 }}>
-            This action requires an admin role and both the Events and CRM capabilities enabled for your organisation.
-          </div>
+          <StateMessage kind="empty" title="This action requires an admin role and both the Events and CRM capabilities enabled for your organisation." />
         )}
 
-        {classificationError && <div role="alert" style={{ color: '#f87171', fontSize: 13, marginBottom: 16 }}>{classificationError}</div>}
+        {classificationError && <p role="alert" style={ERROR_TEXT}>{classificationError}</p>}
 
         {!classificationForbidden && (
-          <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+          <div style={ACTIONS_ROW}>
             <button
+              type="button"
               onClick={() => { setClassificationExecution(null); runClassificationPreview(); }}
               disabled={classificationLoading}
-              style={btn('var(--purple-600)', classificationLoading)}
+              {...buttonProps('secondary')}
             >
               {classificationLoading ? 'Loading preview…' : classificationPreview ? 'Refresh preview' : 'Preview'}
             </button>
             {classificationPreview && classificationPreview.crmEnabled && classificationPreview.eligibleCount > 0 && (
-              <button onClick={runClassificationExecute} disabled={classificationExecuting} style={btn('#16a34a', classificationExecuting)}>
+              <button type="button" onClick={runClassificationExecute} disabled={classificationExecuting} {...buttonProps('primary')}>
                 {classificationExecuting ? 'Classifying…' : `Classify as Event Contact (${classificationPreview.eligibleCount})`}
               </button>
             )}
@@ -315,32 +320,32 @@ export default function EventsBackfillPage() {
               ]}
             />
             {classificationExecution.skipped.some(r => r.outcome === 'failed') && (
-              <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden', marginTop: 20 }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-                      {['Contact', 'Outcome', 'Error'].map(h => <th key={h} style={th}>{h}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {classificationExecution.skipped.filter(r => r.outcome === 'failed').map((r, i, arr) => (
-                      <tr key={r.contactId} style={{ borderBottom: i < arr.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
-                        <td style={td}>{r.name}</td>
-                        <td style={td}>{r.outcome}</td>
-                        <td style={{ ...td, color: '#f87171' }}>{r.error ?? '—'}</td>
+              <div style={{ marginTop: 20 }}>
+                <TableContainer label="Failed classifications">
+                  <table className={tableStyles.table}>
+                    <thead>
+                      <tr>
+                        {['Contact', 'Outcome', 'Error'].map(h => <th key={h} scope="col">{h}</th>)}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {classificationExecution.skipped.filter(r => r.outcome === 'failed').map(r => (
+                        <tr key={r.contactId}>
+                          <td className={tableStyles.primary}>{r.name}</td>
+                          <td><Badge state="error">{r.outcome}</Badge></td>
+                          <td style={{ color: 'var(--status-danger)' }}>{r.error ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </TableContainer>
               </div>
             )}
           </div>
         )}
 
         {classificationPreview && !classificationPreview.crmEnabled && (
-          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, color: 'var(--text-secondary)', fontSize: 14 }}>
-            CRM isn&apos;t enabled for your organisation.
-          </div>
+          <StateMessage kind="empty" title="CRM isn't enabled for your organisation." />
         )}
 
         {classificationPreview && classificationPreview.crmEnabled && (
@@ -354,63 +359,62 @@ export default function EventsBackfillPage() {
             />
 
             {classificationPreview.rows.length > 0 && (
-              <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden', marginTop: 20 }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-                      {['Contact', 'Email', 'Current classification', 'Events evidence', 'Linked orders', 'Activities', 'Status'].map(h => (
-                        <th key={h} style={th}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {classificationPreview.rows.map((r, i) => (
-                      <tr key={r.contactId} style={{ borderBottom: i < classificationPreview.rows.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
-                        <td style={td}>{r.name}</td>
-                        <td style={td}>{r.email ?? '—'}</td>
-                        <td style={td}>{r.currentClassification ?? '—'}</td>
-                        <td style={td}>{r.notesMarker ?? '—'}</td>
-                        <td style={td}>{r.linkedEventOrderCount}</td>
-                        <td style={td}>{r.eventActivityCount}</td>
-                        <td style={td}><ClassificationStatusBadge eligible={r.eligible} skipReason={r.skipReason} /></td>
+              <div style={{ marginTop: 20 }}>
+                <TableContainer label="Classification preview" minWidth={860}>
+                  <table className={tableStyles.table}>
+                    <thead>
+                      <tr>
+                        {['Contact', 'Email', 'Current classification', 'Events evidence', 'Linked orders', 'Activities', 'Status'].map(h => (
+                          <th key={h} scope="col" className={h === 'Linked orders' || h === 'Activities' ? tableStyles.num : undefined}>{h}</th>
+                        ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {classificationPreview.rows.map(r => (
+                        <tr key={r.contactId}>
+                          <td className={tableStyles.primary}>{r.name}</td>
+                          <td>{r.email ?? <span className={tableStyles.muted}>—</span>}</td>
+                          <td>{r.currentClassification ?? <span className={tableStyles.muted}>—</span>}</td>
+                          <td>{r.notesMarker ?? <span className={tableStyles.muted}>—</span>}</td>
+                          <td className={tableStyles.num}>{r.linkedEventOrderCount}</td>
+                          <td className={tableStyles.num}>{r.eventActivityCount}</td>
+                          <td><ClassificationStatusBadge eligible={r.eligible} skipReason={r.skipReason} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </TableContainer>
               </div>
             )}
           </>
         )}
-      </div>
+      </section>
     </div>
   );
 }
 
 function SummaryGrid({ items }: { items: Array<[string, number]> }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+    <MetricStrip>
       {items.map(([label, value]) => (
-        <div key={label} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 10, padding: '14px 16px' }}>
-          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>{value}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{label}</div>
-        </div>
+        <Metric key={label} label={label} value={value} />
       ))}
-    </div>
+    </MetricStrip>
   );
 }
 
 function ClassificationBadge({ classification, matchCount }: { classification: string; matchCount: number }) {
-  const map: Record<string, { label: string; color: string }> = {
-    would_link_existing: { label: 'Link to existing', color: '#4ade80' },
-    would_create_new: { label: 'Create new', color: '#60a5fa' },
-    skipped_insufficient_identity: { label: 'No email/phone', color: 'var(--text-secondary)' },
-    ambiguous: { label: `Ambiguous (${matchCount} matches)`, color: '#fbbf24' },
+  const map: Record<string, { label: string; state: 'success' | 'info' | 'inactive' | 'warning' }> = {
+    would_link_existing: { label: 'Link to existing', state: 'success' },
+    would_create_new: { label: 'Create new', state: 'info' },
+    skipped_insufficient_identity: { label: 'No email/phone', state: 'inactive' },
+    ambiguous: { label: `Ambiguous (${matchCount} matches)`, state: 'warning' },
   };
-  const m = map[classification] ?? { label: classification, color: 'var(--text-secondary)' };
-  return <span style={{ color: m.color, fontSize: 12.5, fontWeight: 600 }}>{m.label}</span>;
+  const m = map[classification] ?? { label: classification, state: 'inactive' as const };
+  return <Badge state={m.state}>{m.label}</Badge>;
 }
 
 function ClassificationStatusBadge({ eligible, skipReason }: { eligible: boolean; skipReason: string | null }) {
-  if (eligible) return <span style={{ color: '#4ade80', fontSize: 12.5, fontWeight: 600 }}>Eligible</span>;
+  if (eligible) return <Badge state="success">Eligible</Badge>;
   return <span style={{ color: 'var(--text-secondary)', fontSize: 12.5 }}>{skipReason ?? 'Not eligible'}</span>;
 }

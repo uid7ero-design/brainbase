@@ -39,14 +39,14 @@ const ATTENDANCE_CYCLE: Record<string, string> = {
 }
 
 const ATTENDANCE_STYLE: Record<string, { label: string; color: string; bg: string; border: string }> = {
-  attending: { label: '✓ Here',   color: '#4ade80', bg: 'rgba(34,197,94,.12)',  border: 'rgba(34,197,94,.30)'  },
-  absent:    { label: '✗ Absent', color: '#f87171', bg: 'rgba(239,68,68,.12)',  border: 'rgba(239,68,68,.30)'  },
+  attending: { label: '✓ Here',   color: 'var(--status-success)', bg: 'var(--status-success-muted)',  border: 'var(--status-success-border)'  },
+  absent:    { label: '✗ Absent', color: 'var(--status-danger)', bg: 'var(--status-danger-muted)',  border: 'var(--status-danger-border)'  },
 }
 
 const inp: React.CSSProperties = {
-  width: '100%', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.10)',
-  borderRadius: 8, padding: '8px 11px', fontSize: 13, color: '#F5F7FA',
-  outline: 'none', fontFamily: FONT, boxSizing: 'border-box',
+  width: '100%', background: 'var(--bg-sunken)', border: '1px solid var(--border)',
+  borderRadius: 8, padding: '8px 11px', fontSize: 13, color: 'var(--text-primary)',
+  fontFamily: FONT, boxSizing: 'border-box',
 }
 
 function endTime(start: string, dur: number): string {
@@ -56,9 +56,9 @@ function endTime(start: string, dur: number): string {
 }
 
 function capacityColor(enrolled: number, max: number) {
-  if (enrolled >= max)        return '#f87171'
-  if (enrolled >= max * 0.75) return '#fbbf24'
-  return '#4ade80'
+  if (enrolled >= max)        return 'var(--status-danger)'
+  if (enrolled >= max * 0.75) return 'var(--status-warning)'
+  return 'var(--status-success)'
 }
 
 function fmtDate(d: string) {
@@ -108,20 +108,20 @@ function CreateModal({ onClose, onCreate }: {
 
   const labelStyle: React.CSSProperties = {
     display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.08em',
-    textTransform: 'uppercase', color: 'rgba(255,255,255,.35)', marginBottom: 5,
+    textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 5,
   }
 
   return (
     <>
       <style>{`@keyframes cm-fade{from{opacity:0}to{opacity:1}}@keyframes cm-in{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}`}</style>
       <div
-        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.70)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'cm-fade .15s ease' }}
+        style={{ position: 'fixed', inset: 0, background: 'var(--scrim)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'cm-fade .15s ease' }}
         onClick={e => { if (e.target === e.currentTarget) onClose() }}
       >
-        <div style={{ background: '#111215', border: '1px solid rgba(255,255,255,.10)', borderRadius: 16, padding: '26px 28px', width: '100%', maxWidth: 460, fontFamily: FONT, animation: 'cm-in .18s ease' }}>
+        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '26px 28px', width: '100%', maxWidth: 460, fontFamily: FONT, animation: 'cm-in .18s ease' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.02em' }}>New Session</div>
-            <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.35)', cursor: 'pointer', fontSize: 18 }}>✕</button>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-.02em' }}>New Session</div>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18 }}>✕</button>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -142,9 +142,9 @@ function CreateModal({ onClose, onCreate }: {
                   <button key={d} onClick={() => set('day_of_week', d)}
                     style={{
                       fontSize: 11, fontWeight: 700, padding: '5px 12px', borderRadius: 20, cursor: 'pointer',
-                      background: form.day_of_week === d ? 'rgba(99,102,241,.25)' : 'rgba(255,255,255,.04)',
-                      border: `1px solid ${form.day_of_week === d ? 'rgba(99,102,241,.45)' : 'rgba(255,255,255,.10)'}`,
-                      color: form.day_of_week === d ? '#a5b4fc' : 'rgba(255,255,255,.40)', fontFamily: FONT,
+                      background: form.day_of_week === d ? 'var(--brand-brainbase-accent-muted)' : 'var(--bg-sunken)',
+                      border: `1px solid ${form.day_of_week === d ? 'var(--brand-brainbase-accent-border)' : 'var(--border)'}`,
+                      color: form.day_of_week === d ? 'var(--brand-brainbase-accent)' : 'var(--text-muted)', fontFamily: FONT,
                     }}
                   >
                     {DAY_LABEL[d]}
@@ -156,7 +156,7 @@ function CreateModal({ onClose, onCreate }: {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
               <div>
                 <label style={labelStyle}>Start Time</label>
-                <input style={{ ...inp, colorScheme: 'dark' }} type="time" value={form.start_time} onChange={e => set('start_time', e.target.value)} />
+                <input style={inp} type="time" value={form.start_time} onChange={e => set('start_time', e.target.value)} />
               </div>
               <div>
                 <label style={labelStyle}>Duration (min)</label>
@@ -175,19 +175,19 @@ function CreateModal({ onClose, onCreate }: {
 
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
               <input type="checkbox" checked={form.recurring} onChange={e => set('recurring', e.target.checked)}
-                style={{ width: 16, height: 16, accentColor: '#6366f1' }} />
-              <span style={{ fontSize: 13, color: 'rgba(255,255,255,.55)' }}>Recurring weekly</span>
+                style={{ width: 16, height: 16, accentColor: 'var(--brand-brainbase-accent)' }} />
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Recurring weekly</span>
             </label>
           </div>
 
-          {err && <p style={{ margin: '12px 0 0', fontSize: 12, color: '#f87171' }}>{err}</p>}
+          {err && <p style={{ margin: '12px 0 0', fontSize: 12, color: 'var(--status-danger)' }}>{err}</p>}
 
           <div style={{ display: 'flex', gap: 8, marginTop: 22 }}>
-            <button onClick={onClose} style={{ flex: 1, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.09)', color: 'rgba(255,255,255,.40)', fontFamily: FONT }}>
+            <button onClick={onClose} style={{ flex: 1, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'var(--bg-sunken)', border: '1px solid var(--border)', color: 'var(--text-muted)', fontFamily: FONT }}>
               Cancel
             </button>
             <button onClick={submit} disabled={!form.name.trim() || !form.session_type.trim() || saving}
-              style={{ flex: 2, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(99,102,241,.22)', border: '1px solid rgba(99,102,241,.40)', color: '#a5b4fc', fontFamily: FONT, opacity: !form.name.trim() || !form.session_type.trim() || saving ? .45 : 1 }}>
+              style={{ flex: 2, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'var(--brand-brainbase-accent-muted)', border: '1px solid var(--brand-brainbase-accent-border)', color: 'var(--brand-brainbase-accent)', fontFamily: FONT, opacity: !form.name.trim() || !form.session_type.trim() || saving ? .45 : 1 }}>
               {saving ? 'Creating…' : 'Create Session'}
             </button>
           </div>
@@ -207,19 +207,21 @@ function SessionCard({ session, selected, onClick }: {
   const end    = endTime(session.start_time, session.duration_minutes)
 
   return (
-    <div onClick={onClick} style={{
-      background:   selected ? 'rgba(99,102,241,.14)' : 'rgba(255,255,255,.04)',
-      border:       `1px solid ${selected ? 'rgba(99,102,241,.35)' : full ? 'rgba(239,68,68,.25)' : 'rgba(255,255,255,.09)'}`,
+    <div role="button" tabIndex={0} aria-pressed={selected} onClick={onClick}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
+      style={{
+      background:   selected ? 'var(--brand-brainbase-accent-muted)' : 'var(--bg-sunken)',
+      border:       `1px solid ${selected ? 'var(--brand-brainbase-accent-border)' : full ? 'var(--status-danger-border)' : 'var(--border)'}`,
       borderRadius: 10, padding: '10px 12px', cursor: 'pointer', transition: 'border-color .12s',
     }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: '#F5F7FA', marginBottom: 2, lineHeight: 1.3 }}>{session.name}</div>
-      <div style={{ fontSize: 11, color: 'rgba(255,255,255,.35)', marginBottom: 8 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 2, lineHeight: 1.3 }}>{session.name}</div>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
         {session.start_time}–{end}
-        {session.resource_id && <span style={{ marginLeft: 5, color: 'rgba(255,255,255,.22)' }}>· {session.resource_id}</span>}
+        {session.resource_id && <span style={{ marginLeft: 5, color: 'var(--text-subtle)' }}>· {session.resource_id}</span>}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ fontSize: 12, fontWeight: 800, color: capClr }}>{session.enrolled_count}/{session.max_capacity}</span>
-        {full && <span style={{ fontSize: 10, fontWeight: 700, color: '#f87171', background: 'rgba(239,68,68,.12)', border: '1px solid rgba(239,68,68,.28)', borderRadius: 20, padding: '1px 7px' }}>Full</span>}
+        {full && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--status-danger)', background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', borderRadius: 20, padding: '1px 7px' }}>Full</span>}
       </div>
     </div>
   )
@@ -233,7 +235,7 @@ function WeekView({ instances, onSelectInstance }: {
 }) {
   if (instances.length === 0) {
     return (
-      <div style={{ marginBottom: 28, padding: '18px 20px', background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)', borderRadius: 12, fontSize: 13, color: 'rgba(255,255,255,.22)' }}>
+      <div style={{ marginBottom: 28, padding: '18px 20px', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 12, fontSize: 13, color: 'var(--text-subtle)' }}>
         No sessions scheduled for the next 2 weeks.
       </div>
     )
@@ -251,16 +253,16 @@ function WeekView({ instances, onSelectInstance }: {
     return (
       <div
         onClick={() => onSelectInstance(inst.session_id, inst.id)}
-        style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', borderRadius: 10, cursor: 'pointer', background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)', transition: 'background .12s' }}
-        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,.06)')}
-        onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,.03)')}
+        style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', borderRadius: 10, cursor: 'pointer', background: 'var(--bg-surface)', border: '1px solid var(--border)', transition: 'background .12s' }}
+        onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-sunken)')}
+        onMouseLeave={e => (e.currentTarget.style.background = 'var(--bg-surface)')}
       >
-        <div style={{ minWidth: 72, fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,.40)' }}>
+        <div style={{ minWidth: 72, fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>
           {fmtDate(inst.date)}
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F7FA', marginBottom: 1 }}>{inst.session_name}</div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,.30)' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 1 }}>{inst.session_name}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
             {inst.start_time}–{end}
             {inst.resource_id && ` · ${inst.resource_id}`}
             {' · '}{inst.session_type}
@@ -269,11 +271,11 @@ function WeekView({ instances, onSelectInstance }: {
         {/* Capacity bar */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, minWidth: 80 }}>
           <span style={{ fontSize: 12, fontWeight: 800, color: capClr }}>{inst.enrolled_count}/{inst.max_capacity}</span>
-          <div style={{ width: 60, height: 4, background: 'rgba(255,255,255,.08)', borderRadius: 4, overflow: 'hidden' }}>
+          <div style={{ width: 60, height: 4, background: 'var(--bg-sunken)', borderRadius: 4, overflow: 'hidden' }}>
             <div style={{ width: `${pct * 100}%`, height: '100%', background: capClr, borderRadius: 4, transition: 'width .3s' }} />
           </div>
         </div>
-        {full && <span style={{ fontSize: 10, fontWeight: 700, color: '#f87171', background: 'rgba(239,68,68,.12)', border: '1px solid rgba(239,68,68,.28)', borderRadius: 20, padding: '2px 8px' }}>Full</span>}
+        {full && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--status-danger)', background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', borderRadius: 20, padding: '2px 8px' }}>Full</span>}
       </div>
     )
   }
@@ -282,7 +284,7 @@ function WeekView({ instances, onSelectInstance }: {
     <div style={{ marginBottom: 32 }}>
       {today.length > 0 && (
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,.30)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 8 }}>Today</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 8 }}>Today</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {today.map(i => <InstanceRow key={i.id} inst={i} />)}
           </div>
@@ -290,7 +292,7 @@ function WeekView({ instances, onSelectInstance }: {
       )}
       {upcoming.length > 0 && (
         <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,.30)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 8 }}>Upcoming (2 weeks)</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 8 }}>Upcoming (2 weeks)</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {upcoming.map(i => <InstanceRow key={i.id} inst={i} />)}
           </div>
@@ -314,30 +316,30 @@ function InstancesPanel({ session, instances, selectedInstanceId, instancesLoadi
   const end = endTime(session.start_time, session.duration_minutes)
 
   return (
-    <div style={{ marginTop: 24, background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 14, overflow: 'hidden' }}>
-      <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+    <div style={{ marginTop: 24, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden' }}>
+      <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.01em' }}>{session.name}</div>
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,.35)', marginTop: 2 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-.01em' }}>{session.name}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
             {DAY_FULL[session.day_of_week]} · {session.start_time}–{end} · {session.session_type}
             {session.resource_id && ` · ${session.resource_id}`}
           </div>
         </div>
         <button onClick={onGenerate} disabled={generating} style={{
           fontSize: 12, fontWeight: 600, padding: '6px 14px', borderRadius: 20, cursor: generating ? 'not-allowed' : 'pointer',
-          background: 'rgba(99,102,241,.15)', border: '1px solid rgba(99,102,241,.35)',
-          color: '#a5b4fc', fontFamily: FONT, opacity: generating ? .5 : 1, flexShrink: 0,
+          background: 'var(--brand-brainbase-accent-muted)', border: '1px solid var(--brand-brainbase-accent-border)',
+          color: 'var(--brand-brainbase-accent)', fontFamily: FONT, opacity: generating ? .5 : 1, flexShrink: 0,
         }}>
           {generating ? 'Generating…' : '↻ Generate 6 weeks'}
         </button>
       </div>
 
       {instancesLoading ? (
-        <div style={{ padding: '32px 20px', textAlign: 'center', color: 'rgba(255,255,255,.25)', fontSize: 13 }}>Loading instances…</div>
+        <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: 13 }}>Loading instances…</div>
       ) : instances.length === 0 ? (
-        <div style={{ padding: '32px 20px', textAlign: 'center', color: 'rgba(255,255,255,.25)', fontSize: 13 }}>
+        <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: 13 }}>
           No instances yet.{' '}
-          <button onClick={onGenerate} style={{ background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 13, fontFamily: FONT, padding: 0 }}>
+          <button onClick={onGenerate} style={{ background: 'none', border: 'none', color: 'var(--brand-brainbase-accent)', cursor: 'pointer', fontSize: 13, fontFamily: FONT, padding: 0 }}>
             Generate →
           </button>
         </div>
@@ -356,23 +358,23 @@ function InstancesPanel({ session, instances, selectedInstanceId, instancesLoadi
                 onClick={() => onSelectInstance(inst.id)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 10, cursor: 'pointer',
-                  background: sel ? 'rgba(99,102,241,.12)' : today_ ? 'rgba(255,255,255,.05)' : 'rgba(255,255,255,.03)',
-                  border: `1px solid ${sel ? 'rgba(99,102,241,.35)' : today_ ? 'rgba(255,255,255,.14)' : 'rgba(255,255,255,.07)'}`,
+                  background: sel ? 'var(--brand-brainbase-accent-muted)' : today_ ? 'var(--bg-sunken)' : 'var(--bg-surface)',
+                  border: `1px solid ${sel ? 'var(--brand-brainbase-accent-border)' : today_ ? 'var(--border)' : 'var(--border)'}`,
                   transition: 'background .12s',
                 }}
               >
-                <div style={{ minWidth: 90, fontSize: 12, fontWeight: today_ ? 700 : 500, color: today_ ? '#F5F7FA' : 'rgba(255,255,255,.45)' }}>
+                <div style={{ minWidth: 90, fontSize: 12, fontWeight: today_ ? 700 : 500, color: today_ ? 'var(--text-primary)' : 'var(--text-muted)' }}>
                   {fmtDate(inst.date)}
-                  {today_ && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#a5b4fc', background: 'rgba(99,102,241,.20)', border: '1px solid rgba(99,102,241,.35)', borderRadius: 20, padding: '1px 6px' }}>Today</span>}
+                  {today_ && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: 'var(--brand-brainbase-accent)', background: 'var(--brand-brainbase-accent-muted)', border: '1px solid var(--brand-brainbase-accent-border)', borderRadius: 20, padding: '1px 6px' }}>Today</span>}
                 </div>
                 <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 80, height: 5, background: 'rgba(255,255,255,.08)', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{ width: 80, height: 5, background: 'var(--bg-sunken)', borderRadius: 4, overflow: 'hidden' }}>
                     <div style={{ width: `${pct * 100}%`, height: '100%', background: capClr, borderRadius: 4 }} />
                   </div>
                   <span style={{ fontSize: 12, fontWeight: 700, color: capClr }}>{inst.enrolled_count}/{inst.max_capacity}</span>
-                  {full && <span style={{ fontSize: 10, fontWeight: 700, color: '#f87171', background: 'rgba(239,68,68,.12)', border: '1px solid rgba(239,68,68,.28)', borderRadius: 20, padding: '1px 7px' }}>Full</span>}
+                  {full && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--status-danger)', background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', borderRadius: 20, padding: '1px 7px' }}>Full</span>}
                 </div>
-                <span style={{ fontSize: 11, color: 'rgba(255,255,255,.25)' }}>View roster →</span>
+                <span style={{ fontSize: 11, color: 'var(--text-subtle)' }}>View roster →</span>
               </div>
             )
           })}
@@ -413,39 +415,39 @@ function InstanceRoster({ detail, onBookingUpdate }: {
   const capClr = capacityColor(bookings.length, instance.max_capacity)
 
   return (
-    <div style={{ marginTop: 12, background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 12, overflow: 'hidden' }}>
-      <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#F5F7FA' }}>
+    <div style={{ marginTop: 12, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
           {fmtDate(instance.date)} · {instance.start_time}–{end}
         </div>
-        <div style={{ display: 'flex', gap: 14, fontSize: 12, color: 'rgba(255,255,255,.40)' }}>
+        <div style={{ display: 'flex', gap: 14, fontSize: 12, color: 'var(--text-muted)' }}>
           <span style={{ fontWeight: 700, color: capClr }}>{bookings.length}/{instance.max_capacity} enrolled</span>
           <span>{paid}/{bookings.length} paid</span>
         </div>
       </div>
 
       {bookings.length === 0 ? (
-        <div style={{ padding: '28px 20px', textAlign: 'center', color: 'rgba(255,255,255,.22)', fontSize: 13 }}>No clients enrolled for this session.</div>
+        <div style={{ padding: '28px 20px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: 13 }}>No clients enrolled for this session.</div>
       ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+            <tr style={{ borderBottom: '1px solid var(--border-light)' }}>
               {['Client', 'Email', 'Payment', 'Attendance'].map(h => (
-                <th key={h} style={{ padding: '10px 20px', fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,.28)', textAlign: 'left' }}>{h}</th>
+                <th key={h} style={{ padding: '10px 20px', fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-subtle)', textAlign: 'left' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {bookings.map((b, i) => (
-              <tr key={b.id} style={{ borderBottom: i < bookings.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none' }}>
-                <td style={{ padding: '12px 20px', fontSize: 13, fontWeight: 600, color: '#F5F7FA' }}>{b.client_name}</td>
-                <td style={{ padding: '12px 20px', fontSize: 12, color: 'rgba(255,255,255,.40)' }}>{b.client_email ?? '—'}</td>
+              <tr key={b.id} style={{ borderBottom: i < bookings.length - 1 ? '1px solid var(--border-light)' : 'none' }}>
+                <td style={{ padding: '12px 20px', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{b.client_name}</td>
+                <td style={{ padding: '12px 20px', fontSize: 12, color: 'var(--text-muted)' }}>{b.client_email ?? '—'}</td>
                 <td style={{ padding: '12px 20px' }}>
                   <button onClick={() => togglePaid(b)} style={{
                     fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT,
-                    background: b.paid ? 'rgba(34,197,94,.12)' : 'rgba(255,255,255,.04)',
-                    border: `1px solid ${b.paid ? 'rgba(34,197,94,.35)' : 'rgba(255,255,255,.12)'}`,
-                    color: b.paid ? '#4ade80' : 'rgba(255,255,255,.35)',
+                    background: b.paid ? 'var(--status-success-muted)' : 'var(--bg-sunken)',
+                    border: `1px solid ${b.paid ? 'var(--status-success-border)' : 'var(--border)'}`,
+                    color: b.paid ? 'var(--status-success)' : 'var(--text-muted)',
                   }}>
                     {b.paid ? '✓ Paid' : 'Unpaid'}
                   </button>
@@ -463,8 +465,8 @@ function InstanceRoster({ detail, onBookingUpdate }: {
                   ) : (
                     <button onClick={() => cycleAttendance(b)} style={{
                       fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT,
-                      background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.09)',
-                      color: 'rgba(255,255,255,.28)',
+                      background: 'var(--bg-sunken)', border: '1px solid var(--border)',
+                      color: 'var(--text-subtle)',
                     }}>
                       Mark
                     </button>
@@ -598,15 +600,15 @@ export default function SessionsPage() {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28, gap: 16 }}>
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#F5F7FA', margin: 0, letterSpacing: '-.02em' }}>Session Planner</h1>
-          <p style={{ fontSize: 12, color: 'rgba(255,255,255,.28)', margin: '4px 0 0' }}>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', margin: 0, letterSpacing: '-.02em' }}>Session Planner</h1>
+          <p style={{ fontSize: 12, color: 'var(--text-subtle)', margin: '4px 0 0' }}>
             {totalSessions} session template{totalSessions !== 1 ? 's' : ''} · click a session to view scheduled dates
           </p>
         </div>
         <button onClick={() => setShowCreate(true)} style={{
           fontSize: 13, fontWeight: 600, padding: '8px 18px', borderRadius: 20, cursor: 'pointer',
-          background: 'rgba(99,102,241,.20)', border: '1px solid rgba(99,102,241,.40)',
-          color: '#a5b4fc', fontFamily: FONT, flexShrink: 0,
+          background: 'var(--brand-brainbase-accent-muted)', border: '1px solid var(--brand-brainbase-accent-border)',
+          color: 'var(--brand-brainbase-accent)', fontFamily: FONT, flexShrink: 0,
         }}>
           + New Session
         </button>
@@ -621,24 +623,24 @@ export default function SessionsPage() {
       )}
 
       {/* Weekly grid */}
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,.30)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 10 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 10 }}>
         Session Templates
       </div>
 
       {loading ? (
-        <div style={{ color: 'rgba(255,255,255,.25)', fontSize: 13 }}>Loading…</div>
+        <div style={{ color: 'var(--text-subtle)', fontSize: 13 }}>Loading…</div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 10, minWidth: 0 }}>
           {DAYS_ORDER.map(day => {
             const daySessions = sessions.filter(s => s.day_of_week === day)
             return (
               <div key={day}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,.30)', letterSpacing: '.08em', textTransform: 'uppercase', textAlign: 'center', marginBottom: 10, paddingBottom: 8, borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '.08em', textTransform: 'uppercase', textAlign: 'center', marginBottom: 10, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
                   {DAY_LABEL[day]}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {daySessions.length === 0 ? (
-                    <div style={{ height: 52, border: '1px dashed rgba(255,255,255,.06)', borderRadius: 10 }} />
+                    <div style={{ height: 52, border: '1px dashed var(--border)', borderRadius: 10 }} />
                   ) : daySessions.map(s => (
                     <SessionCard
                       key={s.id}
@@ -655,9 +657,9 @@ export default function SessionsPage() {
       )}
 
       {!loading && sessions.length === 0 && (
-        <div style={{ marginTop: 20, border: '1px dashed rgba(255,255,255,.08)', borderRadius: 14, padding: '48px 24px', textAlign: 'center', color: 'rgba(255,255,255,.22)', fontSize: 13 }}>
+        <div style={{ marginTop: 20, border: '1px dashed var(--border)', borderRadius: 14, padding: '48px 24px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: 13 }}>
           No sessions yet.{' '}
-          <button onClick={() => setShowCreate(true)} style={{ background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 13, fontFamily: FONT, padding: 0 }}>
+          <button onClick={() => setShowCreate(true)} style={{ background: 'none', border: 'none', color: 'var(--brand-brainbase-accent)', cursor: 'pointer', fontSize: 13, fontFamily: FONT, padding: 0 }}>
             Create your first session →
           </button>
         </div>
@@ -679,7 +681,7 @@ export default function SessionsPage() {
       {/* Level 3: Roster */}
       {selectedInstanceId && (
         rosterLoading ? (
-          <div style={{ marginTop: 16, paddingLeft: 4, color: 'rgba(255,255,255,.25)', fontSize: 13 }}>Loading roster…</div>
+          <div style={{ marginTop: 16, paddingLeft: 4, color: 'var(--text-subtle)', fontSize: 13 }}>Loading roster…</div>
         ) : instanceDetail ? (
           <InstanceRoster detail={instanceDetail} onBookingUpdate={handleBookingUpdate} />
         ) : null

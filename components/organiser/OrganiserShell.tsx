@@ -17,6 +17,9 @@ interface OrganiserShellProps {
   children: React.ReactNode;
 }
 
+// Phase D3 — surfaces come from the app theme tokens (was the ops JS
+// palette's pageBg), so Organiser sits on the same base as the rest of the
+// signed-in app in both themes.
 export default function OrganiserShell({ rail, children }: OrganiserShellProps) {
   return (
     <>
@@ -35,6 +38,7 @@ export default function OrganiserShell({ rail, children }: OrganiserShellProps) 
         position: 'fixed', top: APP_HEADER_OFFSET_VAR, left: 0, right: 0, bottom: 0,
         display: 'flex',
         background: 'var(--bb-canvas)',
+        color: 'var(--text-primary)',
         fontFamily: 'var(--bb-font-sans)',
         overflow: 'hidden',
         zIndex: 'var(--bb-z-header)',

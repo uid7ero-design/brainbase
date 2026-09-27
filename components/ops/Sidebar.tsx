@@ -1,6 +1,8 @@
 'use client';
 import Link from 'next/link';
 import { useOpsTheme } from '@/components/ops/theme';
+import { BrokenOrbitMark } from '@/components/brand/BrokenOrbitMark';
+import styles from './OpsSidebar.module.css';
 
 const FONT = 'var(--bb-font-sans)';
 
@@ -68,7 +70,7 @@ const SECTIONS = [
 // ── Alert badge colours ───────────────────────────────────────────────────────
 
 const ALERT_COLORS: Record<string, string> = {
-  '/command/alerts': 'var(--bb-danger)',
+  '/command/alerts': 'var(--status-danger)',
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -89,56 +91,28 @@ function NavItem({
 }) {
   const active = exact ? pathname === href : pathname.startsWith(href);
 
+  // Phase D1 — shared active language (accent text, weight, inset rule,
+  // aria-current) via OpsSidebar.module.css; hover is CSS, not JS.
   return (
     <Link
       href={href}
       title={collapsed ? label : undefined}
-      style={{
-        display: 'flex', alignItems: 'center',
-        gap: collapsed ? 0 : 10,
-        padding: collapsed ? '10px 0' : '8px 12px',
-        justifyContent: collapsed ? 'center' : 'flex-start',
-        borderRadius: 'var(--bb-radius-md)',
-        textDecoration: 'none',
-        color: active ? 'var(--bb-accent-300)' : 'var(--bb-text-tertiary)',
-        background: active ? 'var(--bb-surface-selected)' : 'transparent',
-        borderLeft: `2px solid ${active ? 'var(--bb-accent-500)' : 'transparent'}`,
-        marginLeft: collapsed ? 0 : -2,
-        transition: 'all var(--bb-duration-fast) var(--bb-ease-standard)',
-        position: 'relative',
-        whiteSpace: 'nowrap',
-        overflow: 'hidden',
-        flexShrink: 0,
-      }}
-      onMouseEnter={e => {
-        if (active) return;
-        e.currentTarget.style.color = 'var(--bb-text-secondary)';
-        e.currentTarget.style.background = 'var(--bb-surface-hover)';
-      }}
-      onMouseLeave={e => {
-        if (active) return;
-        e.currentTarget.style.color = 'var(--bb-text-tertiary)';
-        e.currentTarget.style.background = 'transparent';
-      }}
+      aria-label={collapsed ? label : undefined}
+      aria-current={active ? 'page' : undefined}
+      className={styles.item}
+      data-collapsed={collapsed ? 'true' : undefined}
+      style={{ marginLeft: collapsed ? 0 : -2 }}
     >
-      <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 18 }}>
+      <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 18 }} aria-hidden="true">
         {icon}
       </span>
-      {!collapsed && (
-        <span style={{
-          fontSize: 12.5, fontWeight: active ? 600 : 500, letterSpacing: '-.01em',
-          opacity: collapsed ? 0 : 1, transition: 'opacity var(--bb-duration-fast)',
-        }}>
-          {label}
-        </span>
-      )}
-      {/* Alert dot */}
+      {!collapsed && <span className={styles.itemLabel}>{label}</span>}
+      {/* Alert indicator: colour plus hidden text, not colour alone */}
       {alertColor && !collapsed && (
-        <span style={{
-          marginLeft: 'auto', width: 6, height: 6, borderRadius: '50%',
-          background: alertColor, boxShadow: `0 0 5px ${alertColor}`, flexShrink: 0,
-          animation: 'sb-blink 2.4s ease-in-out infinite',
-        }} />
+        <>
+          <span className={styles.alertDot} style={{ background: alertColor }} aria-hidden="true" />
+          <span className={styles.visuallyHidden}>(active alerts)</span>
+        </>
       )}
     </Link>
   );
@@ -149,88 +123,65 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
 
   return (
     <>
-      <style dangerouslySetInnerHTML={{ __html: `
-        @keyframes sb-blink { 0%,100%{opacity:1} 50%{opacity:.3} }
-        @keyframes sb-fade { from{opacity:0;transform:translateX(-4px)} to{opacity:1;transform:none} }
-      ` }} />
-
-      <aside style={{
+      <aside className={styles.aside} style={{
         width: collapsed ? 56 : 220,
         minWidth: collapsed ? 56 : 220,
         height: '100%',
         display: 'flex', flexDirection: 'column',
-        background: 'var(--bb-shell-sidebar)',
-        borderRight: '1px solid var(--bb-border-default)',
-        transition: 'width var(--bb-duration-slow) var(--bb-ease-standard), min-width var(--bb-duration-slow) var(--bb-ease-standard), background var(--bb-duration-base) var(--bb-ease-standard)',
+        transition: 'width .22s cubic-bezier(.4,0,.2,1), min-width .22s cubic-bezier(.4,0,.2,1), background .2s ease',
         overflow: 'hidden',
         flexShrink: 0,
         position: 'relative',
-        zIndex: 'var(--bb-z-raised)',
+        zIndex: 10,
         fontFamily: FONT,
       }}>
 
         {/* ── Header ── */}
-        <div style={{
+        <div className={styles.header} style={{
           height: 52, display: 'flex', alignItems: 'center',
           padding: collapsed ? '0 12px' : '0 14px',
-          borderBottom: '1px solid var(--bb-border-subtle)',
           justifyContent: collapsed ? 'center' : 'space-between',
           flexShrink: 0,
         }}>
           {!collapsed && (
-            <Link href="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 8, animation: 'sb-fade var(--bb-duration-base) var(--bb-ease-standard)', textDecoration: 'none' }}>
-              {/* Tactical logo mark */}
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"
-                  fill="var(--bb-accent-soft)" stroke="var(--bb-accent-500)" strokeWidth="1.5" strokeLinejoin="round"/>
-              </svg>
-              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.18em', color: 'var(--bb-text-primary)', textTransform: 'uppercase' }}>
-                Brainbase
-              </span>
+            <Link href="/dashboard" className={styles.brand}>
+              {/* Phase D1 — the approved broken-orbit product mark replaces
+                  the old "tactical" bolt polygon (a second logo system). */}
+              <BrokenOrbitMark size={20} context="brainbase" />
+              <span className={styles.brandText}>Brainbase</span>
             </Link>
           )}
           {collapsed && (
-            <Link href="/dashboard" title="Back to dashboard" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"
-                  fill="var(--bb-accent-soft)" stroke="var(--bb-accent-500)" strokeWidth="1.5" strokeLinejoin="round"/>
-              </svg>
+            <Link href="/dashboard" title="Back to dashboard" aria-label="Back to dashboard" className={styles.brand} style={{ justifyContent: 'center' }}>
+              <BrokenOrbitMark size={18} context="brainbase" />
             </Link>
           )}
 
           {/* Toggle */}
-          <button onClick={onToggle} style={{
-            width: 26, height: 26, borderRadius: 'var(--bb-radius-md)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'var(--bb-surface-soft)', border: '1px solid var(--bb-border-default)',
-            cursor: 'pointer', color: 'var(--bb-text-tertiary)',
-            transition: 'all var(--bb-duration-fast) var(--bb-ease-standard)', flexShrink: 0,
-            transform: collapsed ? 'rotate(180deg)' : 'none',
-          }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bb-surface-hover)'; e.currentTarget.style.color = 'var(--bb-text-secondary)'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'var(--bb-surface-soft)'; e.currentTarget.style.color = 'var(--bb-text-tertiary)'; }}
+          <button
+            type="button"
+            onClick={onToggle}
+            className={styles.iconButton}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!collapsed}
+            style={{ transform: collapsed ? 'rotate(180deg)' : 'none' }}
           >
             {I.collapse}
           </button>
         </div>
 
         {/* ── Nav sections ── */}
-        <nav style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: collapsed ? '10px 6px' : '10px 10px' }}>
+        <nav aria-label="Operations workspace" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: collapsed ? '10px 6px' : '10px 10px' }}>
           {SECTIONS.map((section, si) => (
             <div key={section.label} style={{ marginBottom: si < SECTIONS.length - 1 ? 18 : 0 }}>
               {/* Section label */}
               {!collapsed && (
-                <div style={{
-                  fontSize: 9, fontWeight: 700, letterSpacing: '.16em',
-                  color: 'var(--bb-text-muted)', textTransform: 'uppercase',
-                  padding: '0 12px', marginBottom: 4,
-                  animation: 'sb-fade var(--bb-duration-base) var(--bb-ease-standard)',
-                }}>
+                <div className={styles.section}>
                   {section.label}
                 </div>
               )}
               {collapsed && si > 0 && (
-                <div style={{ height: 1, background: 'var(--bb-border-default)', margin: '6px 0' }} />
+                <div className={styles.sectionRule} aria-hidden="true" />
               )}
 
               {section.items.map(item => (
@@ -250,42 +201,30 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
         </nav>
 
         {/* ── Footer status + theme toggle ── */}
-        <div style={{
+        <div className={styles.footer} style={{
           padding: collapsed ? '10px 6px' : '10px 12px',
-          borderTop: '1px solid var(--bb-border-subtle)',
           flexShrink: 0,
           display: 'flex', flexDirection: collapsed ? 'column' : 'row', alignItems: 'center', gap: 6,
         }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', flex: collapsed ? undefined : 1, minWidth: 0,
-            gap: 8, padding: collapsed ? '6px 0' : '8px 10px',
-            borderRadius: 'var(--bb-radius-md)', background: 'var(--bb-success-soft)',
-            border: '1px solid color-mix(in srgb, var(--bb-success) 22%, transparent)',
+          <div className={styles.status} style={{
+            flex: collapsed ? undefined : 1,
+            padding: collapsed ? '6px 0' : '7px 10px',
             justifyContent: collapsed ? 'center' : 'flex-start',
           }}>
-            <div style={{
-              width: 6, height: 6, borderRadius: '50%',
-              background: 'var(--bb-success)', boxShadow: 'var(--bb-glow-success)',
-              flexShrink: 0, animation: 'sb-blink 2.8s ease-in-out infinite',
-            }} />
+            <div className={styles.statusDot} aria-hidden="true" />
             {!collapsed && (
-              <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--bb-success)', letterSpacing: '.06em', animation: 'sb-fade var(--bb-duration-base) var(--bb-ease-standard)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span className={styles.statusText}>
                 Systems Live
               </span>
             )}
           </div>
 
           <button
+            type="button"
             onClick={t.toggleTheme}
             title={t.isDark ? 'Switch to light theme' : 'Switch to dark theme'}
-            style={{
-              width: 26, height: 26, borderRadius: 'var(--bb-radius-md)', flexShrink: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: 'var(--bb-surface-soft)', border: '1px solid var(--bb-border-default)',
-              cursor: 'pointer', color: 'var(--bb-text-tertiary)', transition: 'all var(--bb-duration-fast) var(--bb-ease-standard)',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bb-surface-hover)'; e.currentTarget.style.color = 'var(--bb-text-primary)'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'var(--bb-surface-soft)'; e.currentTarget.style.color = 'var(--bb-text-tertiary)'; }}
+            aria-label={t.isDark ? 'Switch to light theme' : 'Switch to dark theme'}
+            className={styles.iconButton}
           >
             {t.isDark ? I.sun : I.moon}
           </button>

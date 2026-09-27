@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { Button, Field, FormActions, FormError, fieldControlClassName } from '@/components/ui/app';
 
 const STAGES = [
   { value: 'lead',        label: 'Lead' },
@@ -55,73 +56,71 @@ export default function DealForm({ initial, onSaved, onDelete }: { initial?: Dea
 
   return (
     <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <Field label="Deal Title *" value={form.title ?? ''} onChange={set('title')} required />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <div>
-          <label style={lbl}>Value ($)</label>
-          <input type="number" min="0" step="0.01" value={form.value ?? ''} onChange={set('value')}
-            style={inp} placeholder="0" />
-        </div>
-        <div>
-          <label style={lbl}>Probability (%)</label>
-          <input type="number" min="0" max="100" value={form.probability ?? 0} onChange={set('probability')}
-            style={inp} />
-        </div>
+      <Field label="Deal Title" required>
+        {control => (
+          <input {...control} value={form.title ?? ''} onChange={set('title')} required className={fieldControlClassName} />
+        )}
+      </Field>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+        <Field label="Value ($)">
+          {control => (
+            <input {...control} type="number" min="0" step="0.01" value={form.value ?? ''} onChange={set('value')}
+              className={fieldControlClassName} placeholder="0" style={{ fontVariantNumeric: 'tabular-nums' }} />
+          )}
+        </Field>
+        <Field label="Probability (%)">
+          {control => (
+            <input {...control} type="number" min="0" max="100" value={form.probability ?? 0} onChange={set('probability')}
+              className={fieldControlClassName} style={{ fontVariantNumeric: 'tabular-nums' }} />
+          )}
+        </Field>
       </div>
-      <div>
-        <label style={lbl}>Stage</label>
-        <select value={form.stage ?? 'lead'} onChange={set('stage')} style={sel}>
-          {STAGES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-        </select>
-      </div>
-      <div>
-        <label style={lbl}>Expected Close</label>
-        <input type="date" value={form.expected_close ?? ''} onChange={set('expected_close')} style={inp} />
-      </div>
-      <div>
-        <label style={lbl}>Company</label>
-        <select value={form.company_id ?? ''} onChange={set('company_id')} style={sel}>
-          <option value="">— None —</option>
-          {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-      </div>
-      <div>
-        <label style={lbl}>Contact</label>
-        <select value={form.contact_id ?? ''} onChange={set('contact_id')} style={sel}>
-          <option value="">— None —</option>
-          {contacts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-      </div>
-      <div>
-        <label style={lbl}>Notes</label>
-        <textarea value={form.notes ?? ''} onChange={set('notes')} rows={3}
-          style={{ ...sel, resize: 'vertical', lineHeight: 1.5 }} />
-      </div>
-      {error && <p style={{ color: '#f87171', fontSize: 13, margin: 0 }}>{error}</p>}
-      <button type="submit" disabled={saving}
-        style={{ padding: '10px 0', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
-        {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Deal'}
-      </button>
+      <Field label="Stage">
+        {control => (
+          <select {...control} value={form.stage ?? 'lead'} onChange={set('stage')} className={fieldControlClassName}>
+            {STAGES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        )}
+      </Field>
+      <Field label="Expected Close">
+        {control => (
+          <input {...control} type="date" value={form.expected_close ?? ''} onChange={set('expected_close')} className={fieldControlClassName} />
+        )}
+      </Field>
+      <Field label="Company">
+        {control => (
+          <select {...control} value={form.company_id ?? ''} onChange={set('company_id')} className={fieldControlClassName}>
+            <option value="">— None —</option>
+            {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        )}
+      </Field>
+      <Field label="Contact">
+        {control => (
+          <select {...control} value={form.contact_id ?? ''} onChange={set('contact_id')} className={fieldControlClassName}>
+            <option value="">— None —</option>
+            {contacts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        )}
+      </Field>
+      <Field label="Notes">
+        {control => (
+          <textarea {...control} value={form.notes ?? ''} onChange={set('notes')} rows={3} className={fieldControlClassName} />
+        )}
+      </Field>
+      {error && <FormError>{error}</FormError>}
+      <FormActions align="stretch">
+        <Button type="submit" variant="primary" disabled={saving}>
+          {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Deal'}
+        </Button>
+      </FormActions>
       {initial?.id && onDelete && (
-        <button type="button" onClick={handleDelete} disabled={deleting}
-          style={{ padding: '8px 0', background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, fontSize: 13, cursor: deleting ? 'default' : 'pointer' }}>
-          {deleting ? 'Deleting…' : 'Delete deal'}
-        </button>
+        <FormActions align="stretch">
+          <Button type="button" variant="danger" onClick={handleDelete} disabled={deleting}>
+            {deleting ? 'Deleting…' : 'Delete deal'}
+          </Button>
+        </FormActions>
       )}
     </form>
   );
 }
-
-function Field({ label, value, onChange, required }: { label: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; required?: boolean }) {
-  return (
-    <div>
-      <label style={lbl}>{label}</label>
-      <input value={value} onChange={onChange} required={required}
-        style={{ width: '100%', padding: '9px 12px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
-    </div>
-  );
-}
-
-const lbl: React.CSSProperties = { display: 'block', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const inp: React.CSSProperties = { width: '100%', padding: '9px 12px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none', boxSizing: 'border-box' };
-const sel: React.CSSProperties = { width: '100%', padding: '9px 12px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14 };

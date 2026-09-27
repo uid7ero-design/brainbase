@@ -220,7 +220,7 @@ export default function CheckInClient({ eventId }: { eventId: string }) {
 
       {mode === 'scan' && result.kind !== 'preview' && result.kind !== 'confirmed' && (
         <Panel style={{ marginBottom: 16 }}>
-          <div style={{ position: 'relative', width: '100%', aspectRatio: '1 / 1', borderRadius: 12, overflow: 'hidden', background: '#000' }}>
+          <div style={{ position: 'relative', width: '100%', aspectRatio: '1 / 1', borderRadius: 12, overflow: 'hidden', background: 'var(--bg-base)' }}>
             <video ref={videoRef} playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', display: scanning ? 'block' : 'none' }} />
             <canvas ref={canvasRef} style={{ display: 'none' }} />
             {!scanning && (
@@ -231,7 +231,7 @@ export default function CheckInClient({ eventId }: { eventId: string }) {
               </div>
             )}
           </div>
-          {cameraError && <div role="alert" style={{ color: '#FCA5A5', fontSize: 13, marginTop: 10 }}>{cameraError}</div>}
+          {cameraError && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 13, marginTop: 10 }}>{cameraError}</div>}
           {scanning && (
             <div style={{ marginTop: 10, textAlign: 'center' }}>
               <button onClick={stopScanning} style={{ ...secondaryBtnStyle, minHeight: 40 }}>Stop camera</button>
@@ -253,13 +253,13 @@ export default function CheckInClient({ eventId }: { eventId: string }) {
               <div style={{ fontSize: 13, color: TEXT_MUTED }}>No attendees match &ldquo;{query}&rdquo;.</div>
             )}
             {searchResults?.map(a => (
-              <div key={a.id} className="bb-evt-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '12px 14px', background: 'rgba(255,255,255,.02)', border: `1px solid ${BORDER}`, borderRadius: 10 }}>
+              <div key={a.id} className="bb-evt-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '12px 14px', background: 'var(--bg-surface)', border: `1px solid ${BORDER}`, borderRadius: 10 }}>
                 <button
                   onClick={() => void doResolve({ attendee_id: a.id })}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', flex: 1, minHeight: 44, color: TEXT_PRIMARY, fontFamily: FONT }}
                 >
                   <div style={{ fontSize: 14, fontWeight: 600 }}>{a.attendee_name}</div>
-                  <div style={{ fontSize: 12, color: a.checked_in_at ? '#4ADE80' : TEXT_MUTED, marginTop: 2 }}>
+                  <div style={{ fontSize: 12, color: a.checked_in_at ? 'var(--status-success)' : TEXT_MUTED, marginTop: 2 }}>
                     {a.checked_in_at ? `Checked in · ${new Date(a.checked_in_at).toLocaleTimeString()}` : 'Not checked in'}
                   </div>
                 </button>
@@ -330,8 +330,8 @@ export default function CheckInClient({ eventId }: { eventId: string }) {
 }
 
 function ResultBanner({ tone, icon, title }: { tone: 'success' | 'warning' | 'danger'; icon: React.ReactNode; title: string }) {
-  const color = tone === 'success' ? '#4ADE80' : tone === 'warning' ? '#FBBF24' : '#F87171';
-  const bg = tone === 'success' ? 'rgba(74,222,128,.12)' : tone === 'warning' ? 'rgba(251,191,36,.12)' : 'rgba(248,113,113,.12)';
+  const color = tone === 'success' ? 'var(--status-success)' : tone === 'warning' ? 'var(--status-warning)' : 'var(--status-danger)';
+  const bg = tone === 'success' ? 'var(--status-success-muted)' : tone === 'warning' ? 'var(--status-warning-muted)' : 'var(--status-danger-muted)';
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginBottom: 6 }}>
       <div style={{ width: 72, height: 72, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: bg, color }}>

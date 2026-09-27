@@ -8,8 +8,20 @@ import { formatCommercialDate } from '@/lib/commercial/dates';
 import { buildInvoicePdf, type InvoicePdfSupplier } from '@/lib/commercial/invoicePdf';
 import { PAYMENT_METHODS, type PaymentMethod } from '@/lib/commercial/paymentMethods';
 import SlidePanel from '../../_components/SlidePanel';
-
-const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
+import {
+  Badge,
+  Field as AppField,
+  FormActions,
+  FormError,
+  PageHeader,
+  StateMessage,
+  TableContainer,
+  TableStateRow,
+  buttonProps,
+  fieldControlClassName,
+  tableStyles,
+  type SemanticState,
+} from '@/components/ui/app';
 
 type Invoice = {
   id: string; organisation_id: string; customer_id: string; source_quote_id: string | null;
@@ -349,182 +361,216 @@ export default function InvoiceDetailPage() {
     load();
   }
 
-  if (loading) return <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Loading…</div>;
-  if (!invoice) return <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Invoice not found.</div>;
+  if (loading) return <StateMessage kind="loading" title="Loading invoice…" size="page" />;
+  if (!invoice) {
+    return (
+      <StateMessage
+        kind="empty"
+        size="page"
+        title="Invoice not found."
+        action={<Link href="/commercial/invoices">Back to invoices</Link>}
+      />
+    );
+  }
 
   return (
     <div style={{ maxWidth: 820 }}>
-      <Link href="/commercial/invoices" style={{ color: 'var(--text-secondary)', fontSize: 13, textDecoration: 'none' }}>← Invoices</Link>
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '16px 0 8px', flexWrap: 'wrap', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>
-            {invoice.invoice_number ?? 'Draft — number pending'}
-          </h1>
-          <StatusBadge status={invoice.status} />
-          {overdue && <OverdueBadge />}
-        </div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          {!isDraft && <button onClick={downloadPdf} disabled={busy} style={btn('#1f2937')}>Download PDF</button>}
-          {isIssued && invoice.email_snapshot && (
-            <button onClick={sendEmail} disabled={busy} style={btn('#1f2937')}>
-              {deliveries.length === 0 ? 'Send Email' : 'Resend Email'}
-            </button>
-          )}
-          {isDraft && <button onClick={deleteDraft} disabled={busy} style={btn('rgba(239,68,68,0.15)', '#f87171')}>Delete Draft</button>}
-          {isDraft && !confirmingIssue && (
-            <button onClick={() => setConfirmingIssue(true)} disabled={busy || !dueDate} style={btn('var(--purple-600)')}>Issue Invoice</button>
-          )}
-          {isIssued && outstandingBalanceCents > 0 && (
-            <button onClick={() => setShowRecordPayment(true)} disabled={busy} style={btn('var(--purple-600)')}>Record Payment</button>
-          )}
-          {isIssued && isAdmin && !confirmingVoid && (
-            <button
-              onClick={() => setConfirmingVoid(true)}
-              disabled={busy || amountPaidCents > 0}
-              title={amountPaidCents > 0 ? 'Reverse all recorded payments before voiding this invoice.' : undefined}
-              style={btn('rgba(239,68,68,0.15)', '#f87171')}
-            >
-              Void Invoice
-            </button>
-          )}
-        </div>
-      </div>
-      {actionError && <p style={{ color: '#f87171', fontSize: 13, margin: '0 0 16px' }}>{actionError}</p>}
-      {sendResult && <p style={{ color: '#4ade80', fontSize: 13, margin: '0 0 16px' }}>{sendResult}</p>}
+      <PageHeader
+        eyebrow={<Link href="/commercial/invoices">← Invoices</Link>}
+        title={invoice.invoice_number ?? 'Draft — number pending'}
+        meta={
+          <>
+            <StatusBadge status={invoice.status} />
+            {overdue && <OverdueBadge />}
+          </>
+        }
+        actions={
+          <>
+            {!isDraft && <button type="button" onClick={downloadPdf} disabled={busy} {...buttonProps('secondary')}>Download PDF</button>}
+            {isIssued && invoice.email_snapshot && (
+              <button type="button" onClick={sendEmail} disabled={busy} {...buttonProps('secondary')}>
+                {deliveries.length === 0 ? 'Send Email' : 'Resend Email'}
+              </button>
+            )}
+            {isDraft && <button type="button" onClick={deleteDraft} disabled={busy} {...buttonProps('danger')}>Delete Draft</button>}
+            {isDraft && !confirmingIssue && (
+              <button type="button" onClick={() => setConfirmingIssue(true)} disabled={busy || !dueDate} {...buttonProps('primary')}>Issue Invoice</button>
+            )}
+            {isIssued && outstandingBalanceCents > 0 && (
+              <button type="button" onClick={() => setShowRecordPayment(true)} disabled={busy} {...buttonProps('primary')}>Record Payment</button>
+            )}
+            {isIssued && isAdmin && !confirmingVoid && (
+              <button
+                type="button"
+                onClick={() => setConfirmingVoid(true)}
+                disabled={busy || amountPaidCents > 0}
+                title={amountPaidCents > 0 ? 'Reverse all recorded payments before voiding this invoice.' : undefined}
+                {...buttonProps('danger')}
+              >
+                Void Invoice
+              </button>
+            )}
+          </>
+        }
+      />
+      {actionError && <div style={{ marginBottom: 16 }}><FormError>{actionError}</FormError></div>}
+      {sendResult && <p role="status" style={{ color: 'var(--status-success)', fontSize: 13, margin: '0 0 16px' }}>{sendResult}</p>}
       {isDraft && !dueDate && (
-        <p style={{ color: '#fbbf24', fontSize: 13, margin: '0 0 16px' }}>Set a due date before this invoice can be issued.</p>
+        <p style={{ color: 'var(--status-warning)', fontSize: 13, margin: '0 0 16px' }}>Set a due date before this invoice can be issued.</p>
       )}
       {isIssued && isAdmin && amountPaidCents > 0 && (
-        <p style={{ color: '#fbbf24', fontSize: 13, margin: '0 0 16px' }}>
+        <p style={{ color: 'var(--status-warning)', fontSize: 13, margin: '0 0 16px' }}>
           This invoice has recorded payments and cannot be voided. Reverse the payment(s) below first.
         </p>
       )}
 
       {confirmingIssue && (
-        <div style={{ background: 'rgba(26,106,255,0.08)', border: '1px solid rgba(26,106,255,0.3)', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
+        <div role="group" aria-label="Confirm issue" style={{ ...SECTION, padding: '16px 20px', marginBottom: 20 }}>
           <p style={{ fontSize: 13, color: 'var(--text-primary)', margin: '0 0 12px' }}>
             Issuing allocates a permanent invoice number and locks this document — the customer, lines, and totals
             can no longer be edited afterward. Continue?
           </p>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={issueInvoice} disabled={busy} style={btn('var(--purple-600)')}>Yes, Issue Invoice</button>
-            <button onClick={() => setConfirmingIssue(false)} disabled={busy} style={btn('#1f2937')}>Cancel</button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" onClick={issueInvoice} disabled={busy} {...buttonProps('primary')}>Yes, Issue Invoice</button>
+            <button type="button" onClick={() => setConfirmingIssue(false)} disabled={busy} {...buttonProps('secondary')}>Cancel</button>
           </div>
         </div>
       )}
 
       {confirmingVoid && (
-        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
+        <div role="group" aria-label="Confirm void" style={{ background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', borderRadius: 'var(--radius-lg)', padding: '16px 20px', marginBottom: 20 }}>
           <p style={{ fontSize: 13, color: 'var(--text-primary)', margin: '0 0 4px' }}>
             Voiding this invoice changes its BrainBase document state only. Payment/refund handling is not part of this phase.
           </p>
           <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 12px' }}>The invoice number and totals are retained for the record.</p>
-          <label style={lbl}>Reason (required)</label>
-          <textarea value={voidReason} onChange={e => setVoidReason(e.target.value)} rows={2} style={{ ...sel, resize: 'vertical', marginBottom: 12 }} placeholder="Why is this invoice being voided?" />
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={voidInvoiceAction} disabled={busy || !voidReason.trim()} style={btn('#f87171', '#1a0505')}>Confirm Void</button>
-            <button onClick={() => { setConfirmingVoid(false); setVoidReason(''); }} disabled={busy} style={btn('#1f2937')}>Cancel</button>
+          <AppField label="Reason" required>
+            {control => (
+              <textarea {...control} value={voidReason} onChange={e => setVoidReason(e.target.value)} rows={2} className={fieldControlClassName} placeholder="Why is this invoice being voided?" />
+            )}
+          </AppField>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+            <button type="button" onClick={voidInvoiceAction} disabled={busy || !voidReason.trim()} {...buttonProps('danger')}>Confirm Void</button>
+            <button type="button" onClick={() => { setConfirmingVoid(false); setVoidReason(''); }} disabled={busy} {...buttonProps('secondary')}>Cancel</button>
           </div>
         </div>
       )}
 
       {isVoid && invoice.void_reason && (
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '16px 24px', marginBottom: 20 }}>
+        <div style={{ ...SECTION, marginBottom: 20 }}>
           <div style={miniLbl}>Void Reason</div>
           <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '4px 0 8px', whiteSpace: 'pre-wrap' }}>{invoice.void_reason}</p>
           {invoice.voided_at && <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Voided {formatCommercialDate(invoice.voided_at)}</div>}
         </div>
       )}
 
-      <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px', marginBottom: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div style={{ ...SECTION, marginBottom: 20, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
         <div>
           <div style={miniLbl}>Customer</div>
-          <div style={{ fontSize: 14 }}>
+          <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>
             {isDraft ? (
-              <Link href={`/commercial/customers/${invoice.customer_id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>{customer?.name ?? '—'}</Link>
+              <Link href={`/commercial/customers/${invoice.customer_id}`} style={{ color: 'var(--text-primary)' }}>{customer?.name ?? '—'}</Link>
             ) : (invoice.customer_name_snapshot ?? customer?.name ?? '—')}
           </div>
           {!isDraft && invoice.billing_address_snapshot && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{invoice.billing_address_snapshot}</div>}
         </div>
         <div>
           <div style={miniLbl}>Source Quote</div>
-          <div style={{ fontSize: 14 }}>
+          <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>
             {invoice.source_quote_id ? (
-              <Link href={`/commercial/quotes/${invoice.source_quote_id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>{sourceQuoteNumber ?? 'View quote →'}</Link>
+              <Link href={`/commercial/quotes/${invoice.source_quote_id}`} style={{ color: 'var(--text-primary)' }}>{sourceQuoteNumber ?? 'View quote →'}</Link>
             ) : <span style={{ color: 'var(--text-muted)' }}>Standalone (no source quote)</span>}
           </div>
         </div>
         <div>
           <div style={miniLbl}>Issue Date</div>
-          <div style={{ fontSize: 14 }}>{invoice.issue_date ? formatCommercialDate(invoice.issue_date) : <span style={{ color: 'var(--text-muted)' }}>Not yet issued</span>}</div>
+          <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>{invoice.issue_date ? formatCommercialDate(invoice.issue_date) : <span style={{ color: 'var(--text-muted)' }}>Not yet issued</span>}</div>
         </div>
         <div>
-          <div style={miniLbl}>Due Date</div>
           {isDraft ? (
-            <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} onBlur={saveDraftFields} style={sel} />
+            <AppField label="Due Date">
+              {control => <input {...control} type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} onBlur={saveDraftFields} className={fieldControlClassName} />}
+            </AppField>
           ) : (
-            <div style={{ fontSize: 14 }}>{invoice.due_date ? formatCommercialDate(invoice.due_date) : '—'}</div>
+            <>
+              <div style={miniLbl}>Due Date</div>
+              <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>{invoice.due_date ? formatCommercialDate(invoice.due_date) : '—'}</div>
+            </>
           )}
         </div>
       </div>
 
-      <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-              {['Description', 'Qty', 'Unit Price', 'Tax', 'Total', ''].map(h => <th key={h} style={th}>{h}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {lines.length === 0 && <tr><td colSpan={6} style={empty}>No line items yet.</td></tr>}
-            {lines.map((l, i) => (
-              <tr key={l.id} style={{ borderBottom: i < lines.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
-                <td style={{ padding: '12px 16px', fontSize: 13, color: 'var(--text-primary)' }}>
-                  {l.description_snapshot}
-                  {l.sku_snapshot && <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>({l.sku_snapshot})</span>}
-                </td>
-                <td style={td}>{l.quantity}{l.unit_snapshot ? ` ${l.unit_snapshot}` : ''}</td>
-                <td style={td}>{formatMoneyCents(l.unit_price_cents, invoice.currency)}</td>
-                <td style={td}>{l.tax_code_snapshot ? `${l.tax_code_snapshot} (${l.tax_rate_snapshot}%)` : '—'}</td>
-                <td style={td}>{formatMoneyCents(l.line_total_cents, invoice.currency)}</td>
-                <td style={{ padding: '12px 16px' }}>
-                  {isDraft && <button onClick={() => removeLine(l.id)} disabled={busy} style={{ background: 'none', border: 'none', color: '#f87171', fontSize: 12, cursor: 'pointer', padding: 0 }}>Remove</button>}
-                </td>
+      <div style={{ marginBottom: 20 }}>
+        <TableContainer label="Invoice line items" minWidth={620}>
+          <table className={tableStyles.table}>
+            <thead>
+              <tr>
+                <th scope="col">Description</th>
+                <th scope="col" className={tableStyles.num}>Qty</th>
+                <th scope="col" className={tableStyles.num}>Unit Price</th>
+                <th scope="col">Tax</th>
+                <th scope="col" className={tableStyles.num}>Total</th>
+                <th scope="col" className={tableStyles.actions}><span className="bb-visually-hidden">Actions</span></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {lines.length === 0 && <TableStateRow colSpan={6} kind="empty">No line items yet.</TableStateRow>}
+              {lines.map(l => (
+                <tr key={l.id}>
+                  <td style={{ color: 'var(--text-primary)' }}>
+                    {l.description_snapshot}
+                    {l.sku_snapshot && <span className={tableStyles.muted} style={{ marginLeft: 6 }}>({l.sku_snapshot})</span>}
+                  </td>
+                  <td className={tableStyles.num}>{l.quantity}{l.unit_snapshot ? ` ${l.unit_snapshot}` : ''}</td>
+                  <td className={tableStyles.num}>{formatMoneyCents(l.unit_price_cents, invoice.currency)}</td>
+                  <td>{l.tax_code_snapshot ? `${l.tax_code_snapshot} (${l.tax_rate_snapshot}%)` : '—'}</td>
+                  <td className={tableStyles.num}>{formatMoneyCents(l.line_total_cents, invoice.currency)}</td>
+                  <td className={tableStyles.actions}>
+                    {isDraft && <button type="button" onClick={() => removeLine(l.id)} disabled={busy} className={tableStyles.link} style={{ color: 'var(--status-danger)' }} aria-label={`Remove line ${l.description_snapshot}`}>Remove</button>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableContainer>
 
         {isDraft && (
-          <form onSubmit={addLine} style={{ padding: '16px', borderTop: `1px solid ${BORDER}`, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <form onSubmit={addLine} aria-label="Add line item" style={{ ...SECTION, padding: 16, marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <div style={{ flex: '2 1 180px' }}>
-              <div style={miniLbl}>Product / Service</div>
-              <select value={newProductId} onChange={e => applyProductDefaults(e.target.value)} style={sel}>
-                <option value="">— Freeform line —</option>
-                {products.filter(p => p.active).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+              <AppField label="Product / Service">
+                {control => (
+                  <select {...control} value={newProductId} onChange={e => applyProductDefaults(e.target.value)} className={fieldControlClassName}>
+                    <option value="">— Freeform line —</option>
+                    {products.filter(p => p.active).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                )}
+              </AppField>
             </div>
             <div style={{ flex: '2 1 180px' }}>
-              <div style={miniLbl}>Description</div>
-              <input value={newDescription} onChange={e => setNewDescription(e.target.value)} style={sel} placeholder="Line description" />
+              <AppField label="Description">
+                {control => <input {...control} value={newDescription} onChange={e => setNewDescription(e.target.value)} className={fieldControlClassName} placeholder="Line description" />}
+              </AppField>
             </div>
             <div style={{ width: 70 }}>
-              <div style={miniLbl}>Qty</div>
-              <input value={newQuantity} onChange={e => setNewQuantity(e.target.value)} style={sel} inputMode="numeric" />
+              <AppField label="Qty">
+                {control => <input {...control} value={newQuantity} onChange={e => setNewQuantity(e.target.value)} className={fieldControlClassName} inputMode="numeric" />}
+              </AppField>
             </div>
             <div style={{ width: 100 }}>
-              <div style={miniLbl}>Unit Price</div>
-              <input value={newPrice} onChange={e => setNewPrice(e.target.value)} style={sel} placeholder="0.00" inputMode="decimal" />
+              <AppField label="Unit Price">
+                {control => <input {...control} value={newPrice} onChange={e => setNewPrice(e.target.value)} className={fieldControlClassName} placeholder="0.00" inputMode="decimal" />}
+              </AppField>
             </div>
             <div style={{ flex: '1 1 140px' }}>
-              <div style={miniLbl}>Tax Code</div>
-              <select value={newTaxCodeId} onChange={e => setNewTaxCodeId(e.target.value)} style={sel}>
-                <option value="">— No tax —</option>
-                {taxCodes.map(t => <option key={t.id} value={t.id}>{t.code} ({t.rate}%)</option>)}
-              </select>
+              <AppField label="Tax Code">
+                {control => (
+                  <select {...control} value={newTaxCodeId} onChange={e => setNewTaxCodeId(e.target.value)} className={fieldControlClassName}>
+                    <option value="">— No tax —</option>
+                    {taxCodes.map(t => <option key={t.id} value={t.id}>{t.code} ({t.rate}%)</option>)}
+                  </select>
+                )}
+              </AppField>
             </div>
-            <button type="submit" disabled={busy} style={{ padding: '9px 16px', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            <button type="submit" disabled={busy} {...buttonProps('primary')}>
               Add Line
             </button>
           </form>
@@ -532,13 +578,13 @@ export default function InvoiceDetailPage() {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 20 }}>
-        <div style={{ width: 280, background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '16px 20px' }}>
+        <div style={{ width: 280, maxWidth: '100%', ...SECTION, padding: '16px 20px' }}>
           <TotalRow label="Subtotal" value={formatMoneyCents(invoice.subtotal_cents, invoice.currency)} />
           <TotalRow label="GST / Tax" value={formatMoneyCents(invoice.tax_cents, invoice.currency)} />
           <TotalRow label="Total" value={formatMoneyCents(invoice.total_cents, invoice.currency)} bold />
           {!isDraft && (
             <>
-              <div style={{ borderTop: `1px solid ${BORDER}`, margin: '8px 0' }} />
+              <div style={{ borderTop: '1px solid var(--border)', margin: '8px 0' }} />
               <TotalRow label="Amount Paid" value={formatMoneyCents(amountPaidCents, invoice.currency)} />
               <TotalRow label="Balance Due" value={formatMoneyCents(outstandingBalanceCents, invoice.currency)} bold />
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
@@ -550,105 +596,115 @@ export default function InvoiceDetailPage() {
       </div>
 
       {!isDraft && (
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
-          <div style={{ padding: '14px 16px', borderBottom: `1px solid ${BORDER}`, fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Payment History</div>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-                {['Received', 'Amount', 'Method', 'Reference', 'Status', ''].map(h => <th key={h} style={th}>{h}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {payments.length === 0 && <tr><td colSpan={6} style={empty}>No payments recorded yet.</td></tr>}
-              {payments.map((p, i) => (
-                <Fragment key={p.id}>
-                  <tr style={{ borderBottom: (reversingPaymentId === p.id || i < payments.length - 1) ? `1px solid ${BORDER}` : 'none' }}>
-                    <td style={td}>{formatCommercialDate(p.received_at)}</td>
-                    <td style={td}>{formatMoneyCents(p.amount_cents, p.currency)}</td>
-                    <td style={td}>{p.method.replaceAll('_', ' ')}</td>
-                    <td style={td}>{p.reference ?? '—'}</td>
-                    <td style={td}>
-                      {p.status === 'RECORDED'
-                        ? <span style={{ color: '#4ade80' }}>Recorded</span>
-                        : <span style={{ color: '#f87171' }}>Reversed{p.reversal_reason ? `: ${p.reversal_reason}` : ''}</span>}
-                    </td>
-                    <td style={{ padding: '12px 16px' }}>
-                      {p.status === 'RECORDED' && isAdmin && reversingPaymentId !== p.id && (
-                        <button onClick={() => { setReversingPaymentId(p.id); setReversalReason(''); setActionError(''); }} disabled={busy} style={{ background: 'none', border: 'none', color: '#f87171', fontSize: 12, cursor: 'pointer', padding: 0 }}>Reverse Payment</button>
-                      )}
-                    </td>
-                  </tr>
-                  {reversingPaymentId === p.id && (
-                    <tr style={{ borderBottom: i < payments.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
-                      <td colSpan={6} style={{ padding: '12px 16px', background: 'rgba(239,68,68,0.06)' }}>
-                        <label style={lbl}>Reason (required)</label>
-                        <textarea value={reversalReason} onChange={e => setReversalReason(e.target.value)} rows={2} style={{ ...sel, resize: 'vertical', marginBottom: 10 }} placeholder="Why is this payment being reversed?" />
-                        <div style={{ display: 'flex', gap: 8 }}>
-                          <button onClick={() => reversePayment(p.id)} disabled={busy || !reversalReason.trim()} style={btn('#f87171', '#1a0505')}>Confirm Reversal</button>
-                          <button onClick={() => { setReversingPaymentId(null); setReversalReason(''); }} disabled={busy} style={btn('#1f2937')}>Cancel</button>
-                        </div>
+        <section aria-labelledby="invoice-payment-history" style={{ marginBottom: 20 }}>
+          <h2 id="invoice-payment-history" style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 8px' }}>Payment History</h2>
+          <TableContainer label="Payment history" minWidth={620}>
+            <table className={tableStyles.table}>
+              <thead>
+                <tr>
+                  <th scope="col">Received</th>
+                  <th scope="col" className={tableStyles.num}>Amount</th>
+                  <th scope="col">Method</th>
+                  <th scope="col">Reference</th>
+                  <th scope="col">Status</th>
+                  <th scope="col" className={tableStyles.actions}><span className="bb-visually-hidden">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {payments.length === 0 && <TableStateRow colSpan={6} kind="empty">No payments recorded yet.</TableStateRow>}
+                {payments.map(p => (
+                  <Fragment key={p.id}>
+                    <tr>
+                      <td>{formatCommercialDate(p.received_at)}</td>
+                      <td className={tableStyles.num}>{formatMoneyCents(p.amount_cents, p.currency)}</td>
+                      <td>{p.method.replaceAll('_', ' ')}</td>
+                      <td>{p.reference ?? '—'}</td>
+                      <td>
+                        {p.status === 'RECORDED'
+                          ? <span style={{ color: 'var(--status-success)' }}>Recorded</span>
+                          : <span style={{ color: 'var(--status-danger)' }}>Reversed{p.reversal_reason ? `: ${p.reversal_reason}` : ''}</span>}
+                      </td>
+                      <td className={tableStyles.actions}>
+                        {p.status === 'RECORDED' && isAdmin && reversingPaymentId !== p.id && (
+                          <button type="button" onClick={() => { setReversingPaymentId(p.id); setReversalReason(''); setActionError(''); }} disabled={busy} className={tableStyles.link} style={{ color: 'var(--status-danger)' }}>Reverse Payment</button>
+                        )}
                       </td>
                     </tr>
-                  )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                    {reversingPaymentId === p.id && (
+                      <tr>
+                        <td colSpan={6} style={{ background: 'var(--status-danger-muted)' }}>
+                          <AppField label="Reason" required>
+                            {control => (
+                              <textarea {...control} value={reversalReason} onChange={e => setReversalReason(e.target.value)} rows={2} className={fieldControlClassName} placeholder="Why is this payment being reversed?" />
+                            )}
+                          </AppField>
+                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                            <button type="button" onClick={() => reversePayment(p.id)} disabled={busy || !reversalReason.trim()} {...buttonProps('danger', 'sm')}>Confirm Reversal</button>
+                            <button type="button" onClick={() => { setReversingPaymentId(null); setReversalReason(''); }} disabled={busy} {...buttonProps('secondary', 'sm')}>Cancel</button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </TableContainer>
+        </section>
       )}
 
       <SlidePanel open={showRecordPayment} onClose={() => setShowRecordPayment(false)} title="Record Payment">
         <form onSubmit={recordPayment} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div>
-            <label style={lbl}>Amount</label>
-            <input
-              value={paymentAmount}
-              onChange={e => setPaymentAmount(e.target.value)}
-              style={sel}
-              placeholder={(outstandingBalanceCents / 100).toFixed(2)}
-              inputMode="decimal"
-            />
-          </div>
-          <div>
-            <label style={lbl}>Payment Method</label>
-            <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value as PaymentMethod)} style={sel}>
-              <option value="">— Select —</option>
-              {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m.replaceAll('_', ' ')}</option>)}
-            </select>
-          </div>
-          <div>
-            <label style={lbl}>Reference</label>
-            <input value={paymentReference} onChange={e => setPaymentReference(e.target.value)} style={sel} placeholder="e.g. bank reference, receipt no." />
-          </div>
-          <div>
-            <label style={lbl}>Received Date</label>
-            <input type="date" value={paymentReceivedDate} onChange={e => setPaymentReceivedDate(e.target.value)} style={sel} />
-          </div>
-          <button type="submit" disabled={busy} style={{ padding: '10px 16px', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            Record Payment
-          </button>
+          <AppField label="Amount">
+            {control => (
+              <input
+                {...control}
+                value={paymentAmount}
+                onChange={e => setPaymentAmount(e.target.value)}
+                className={fieldControlClassName}
+                placeholder={(outstandingBalanceCents / 100).toFixed(2)}
+                inputMode="decimal"
+              />
+            )}
+          </AppField>
+          <AppField label="Payment Method">
+            {control => (
+              <select {...control} value={paymentMethod} onChange={e => setPaymentMethod(e.target.value as PaymentMethod)} className={fieldControlClassName}>
+                <option value="">— Select —</option>
+                {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m.replaceAll('_', ' ')}</option>)}
+              </select>
+            )}
+          </AppField>
+          <AppField label="Reference">
+            {control => <input {...control} value={paymentReference} onChange={e => setPaymentReference(e.target.value)} className={fieldControlClassName} placeholder="e.g. bank reference, receipt no." />}
+          </AppField>
+          <AppField label="Received Date">
+            {control => <input {...control} type="date" value={paymentReceivedDate} onChange={e => setPaymentReceivedDate(e.target.value)} className={fieldControlClassName} />}
+          </AppField>
+          <FormActions align="stretch">
+            <button type="submit" disabled={busy} {...buttonProps('primary')}>
+              Record Payment
+            </button>
+          </FormActions>
         </form>
       </SlidePanel>
 
       {isDraft ? (
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <div style={{ flex: 1 }}>
-              <label style={lbl}>Payment Terms (days)</label>
-              <input value={paymentTermsDays} onChange={e => setPaymentTermsDays(e.target.value)} onBlur={saveDraftFields} style={sel} placeholder="e.g. 14" inputMode="numeric" />
-            </div>
+        <div style={{ ...SECTION, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ maxWidth: 240 }}>
+            <AppField label="Payment Terms (days)">
+              {control => <input {...control} value={paymentTermsDays} onChange={e => setPaymentTermsDays(e.target.value)} onBlur={saveDraftFields} className={fieldControlClassName} placeholder="e.g. 14" inputMode="numeric" />}
+            </AppField>
           </div>
-          <div>
-            <label style={lbl}>Notes (internal)</label>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} onBlur={saveDraftFields} rows={2} style={{ ...sel, resize: 'vertical', lineHeight: 1.5 }} />
-          </div>
-          <div>
-            <label style={lbl}>Terms (shown on the invoice)</label>
-            <textarea value={terms} onChange={e => setTerms(e.target.value)} onBlur={saveDraftFields} rows={3} style={{ ...sel, resize: 'vertical', lineHeight: 1.5 }} />
-          </div>
+          <AppField label="Notes (internal)">
+            {control => <textarea {...control} value={notes} onChange={e => setNotes(e.target.value)} onBlur={saveDraftFields} rows={2} className={fieldControlClassName} />}
+          </AppField>
+          <AppField label="Terms (shown on the invoice)">
+            {control => <textarea {...control} value={terms} onChange={e => setTerms(e.target.value)} onBlur={saveDraftFields} rows={3} className={fieldControlClassName} />}
+          </AppField>
         </div>
       ) : (invoice.notes || invoice.terms) && (
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px' }}>
+        <div style={SECTION}>
           {invoice.notes && <><div style={miniLbl}>Notes</div><p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '4px 0 16px', whiteSpace: 'pre-wrap' }}>{invoice.notes}</p></>}
           {invoice.terms && <><div style={miniLbl}>Terms</div><p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{invoice.terms}</p></>}
         </div>
@@ -660,33 +716,25 @@ export default function InvoiceDetailPage() {
 function TotalRow({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: bold ? 15 : 13, fontWeight: bold ? 700 : 400, color: bold ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-      <span>{label}</span><span>{value}</span>
+      <span>{label}</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{value}</span>
     </div>
   );
 }
 
 // Phase C5.2 — a purely display label for the derived payment_state
 // value the API returns. Never persisted, never part of InvoiceStatus.
+// Phase C (work surfaces): canonical semantic Badge; the payment word
+// stays the visible label.
+const PAYMENT_STATE: Record<string, { state: SemanticState; label: string }> = {
+  UNPAID: { state: 'inactive', label: 'Unpaid' },
+  PARTIALLY_PAID: { state: 'warning', label: 'Partially Paid' },
+  PAID: { state: 'success', label: 'Paid' },
+};
+
 function PaymentStateBadge({ state }: { state: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID' }) {
-  const styles: Record<string, { bg: string; color: string; label: string }> = {
-    UNPAID: { bg: 'rgba(107,114,128,0.15)', color: 'var(--text-secondary)', label: 'Unpaid' },
-    PARTIALLY_PAID: { bg: 'rgba(251,191,36,0.15)', color: '#fbbf24', label: 'Partially Paid' },
-    PAID: { bg: 'rgba(74,222,128,0.15)', color: '#4ade80', label: 'Paid' },
-  };
-  const s = styles[state] ?? styles.UNPAID;
-  return (
-    <span style={{ background: s.bg, color: s.color, padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-      {s.label}
-    </span>
-  );
+  const s = PAYMENT_STATE[state] ?? PAYMENT_STATE.UNPAID;
+  return <Badge state={s.state}>{s.label}</Badge>;
 }
 
-const lbl: React.CSSProperties = { display: 'block', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const SECTION: React.CSSProperties = { background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px 24px' };
 const miniLbl: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 };
-const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '12px 16px', fontSize: 13, color: 'var(--text-secondary)' };
-const empty: React.CSSProperties = { padding: '28px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 };
-const sel: React.CSSProperties = { width: '100%', padding: '8px 10px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, boxSizing: 'border-box' };
-function btn(bg: string, color = '#fff'): React.CSSProperties {
-  return { padding: '8px 16px', background: bg, color, border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' };
-}
