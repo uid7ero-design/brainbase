@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canAcknowledgeEmployeeDocument,
   canManageEmployeeDocument,
+  canVerifyEmployeeDocument,
   canViewEmployeeDocument,
   type EmployeeDocumentActorContext,
   type EmployeeDocumentAccessTarget,
@@ -59,5 +61,56 @@ describe('HR-7D employee document authorization', () => {
   it('does not grant management authority to employee or manager actors', () => {
     expect(canManageEmployeeDocument(actor(), target())).toBe(false);
     expect(canManageEmployeeDocument(actor({ userId: 'manager-user' }), target())).toBe(false);
+  });
+});
+
+describe('HR-7E2 employee document assurance authorization', () => {
+  it('allows only the linked employee to acknowledge their document', () => {
+    expect(canAcknowledgeEmployeeDocument(actor(), target())).toBe(true);
+    expect(canAcknowledgeEmployeeDocument(
+      actor({ userId: 'manager-user' }),
+      target(),
+    )).toBe(false);
+    expect(canAcknowledgeEmployeeDocument(
+      actor({ userId: 'unrelated-user' }),
+      target(),
+    )).toBe(false);
+  });
+
+  it('does not let HR administration acknowledge on behalf of another employee', () => {
+    expect(canAcknowledgeEmployeeDocument(
+      actor({ userId: 'hr-user', isHrAdministrator: true }),
+      target(),
+    )).toBe(false);
+  });
+
+  it('fails acknowledgement closed for unlinked and cross-org targets', () => {
+    expect(canAcknowledgeEmployeeDocument(
+      actor(),
+      target({ personLinkedUserId: null }),
+    )).toBe(false);
+    expect(canAcknowledgeEmployeeDocument(
+      actor(),
+      target({ organisationId: 'org-b' }),
+    )).toBe(false);
+  });
+
+  it('allows only active same-org HR administration to verify', () => {
+    expect(canVerifyEmployeeDocument(
+      actor({ userId: 'hr-user', isHrAdministrator: true }),
+      target(),
+    )).toBe(true);
+    expect(canVerifyEmployeeDocument(actor(), target())).toBe(false);
+    expect(canVerifyEmployeeDocument(
+      actor({ userId: 'manager-user' }),
+      target(),
+    )).toBe(false);
+  });
+
+  it('denies cross-org verification even for HR administration', () => {
+    expect(canVerifyEmployeeDocument(
+      actor({ userId: 'hr-user', isHrAdministrator: true }),
+      { organisationId: 'org-b' },
+    )).toBe(false);
   });
 });

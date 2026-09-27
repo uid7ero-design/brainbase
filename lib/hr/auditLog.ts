@@ -193,6 +193,33 @@ const HR_EMPLOYEE_DOCUMENT_VERSION_AUDIT_POLICY: AuditFieldPolicy = {
   redacted: new Set(['original_filename']),
   omitted: new Set(['id', 'organisation_id', 'storage_key', 'created_at']),
 };
+const HR_EMPLOYEE_DOCUMENT_ACKNOWLEDGEMENT_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set(['acknowledged_at']),
+  idOnly: new Set(['document_version_id', 'acknowledged_by']),
+  redacted: new Set(),
+  omitted: new Set(['id', 'organisation_id', 'created_at']),
+};
+
+const HR_EMPLOYEE_DOCUMENT_VERIFICATION_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set(['decision', 'verified_at']),
+  idOnly: new Set(['document_version_id', 'verified_by']),
+  redacted: new Set(['comment']),
+  omitted: new Set(['id', 'organisation_id', 'created_at']),
+};
+
+const HR_EMPLOYEE_DOCUMENT_REMINDER_DELIVERY_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set([
+    'reminder_type',
+    'scheduled_for',
+    'delivery_status',
+    'claimed_at',
+    'sent_at',
+    'failed_at',
+  ]),
+  idOnly: new Set(['document_version_id', 'recipient_user_id']),
+  redacted: new Set(['failure_code']),
+  omitted: new Set(['id', 'organisation_id', 'created_at', 'updated_at']),
+};
 
 const RESTRICTED_HR_READ_EVENTS = new Set([
   'hr_restricted_case:hr_restricted_case.read',
@@ -271,6 +298,9 @@ function policyForResource(resourceType: string): AuditFieldPolicy | null {
   if (resourceType === 'hr_lifecycle_task_approval') return HR_LIFECYCLE_TASK_APPROVAL_AUDIT_POLICY;
   if (resourceType === 'hr_employee_document') return HR_EMPLOYEE_DOCUMENT_AUDIT_POLICY;
   if (resourceType === 'hr_employee_document_version') return HR_EMPLOYEE_DOCUMENT_VERSION_AUDIT_POLICY;
+  if (resourceType === 'hr_employee_document_acknowledgement') return HR_EMPLOYEE_DOCUMENT_ACKNOWLEDGEMENT_AUDIT_POLICY;
+  if (resourceType === 'hr_employee_document_verification') return HR_EMPLOYEE_DOCUMENT_VERIFICATION_AUDIT_POLICY;
+  if (resourceType === 'hr_employee_document_reminder_delivery') return HR_EMPLOYEE_DOCUMENT_REMINDER_DELIVERY_AUDIT_POLICY;
   return null;
 }
 
