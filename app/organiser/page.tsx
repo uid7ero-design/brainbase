@@ -2707,10 +2707,12 @@ function OrganiserPageContent() {
                       style={{
                         height: draggingGroupId ? 14 : 0,
                         marginBottom: draggingGroupId ? 12 : 0,
-                        borderRadius: 6,
-                        border: draggingGroupId ? "1px dashed rgba(139,92,246,.45)" : "none",
-                        background: draggingGroupId ? "rgba(139,92,246,.08)" : "transparent",
-                        transition: "height .12s, margin-bottom .12s",
+                        borderRadius: "var(--bb-radius-sm)",
+                        border: draggingGroupId ? "1px dashed var(--bb-border-strong)" : "none",
+                        background: draggingGroupId ? "var(--bb-surface-soft)" : "transparent",
+                        transition:
+                          "height var(--bb-duration-fast) var(--bb-ease-standard), " +
+                          "margin-bottom var(--bb-duration-fast) var(--bb-ease-standard)",
                         pointerEvents: draggingGroupId ? "auto" : "none",
                       }}
                     />
