@@ -486,8 +486,16 @@ describe('6.2D3A — no runtime consumer; XLSX mapping/confirm/import remain dis
     // every OTHER file.
     const D4B_ELIGIBILITY_SERVICE = path.join('lib', 'data-hub', 'staging', 'eligibility.ts')
     const D4B_STAGING_RUN_SERVICE = path.join('lib', 'data-hub', 'staging', 'dataHubRawStagingRun.ts')
+    // 6.2D4C-A — one further authorized consumer: the governed
+    // transformation-profile document contract/parser. It never imports
+    // Prisma and never touches the DB at all; it is flagged here purely
+    // because its own doc comments name profile_document/
+    // WorksheetMappingProfileVersion/SourceSchemaColumn to explain the
+    // governed identity its column rules target and why v1 documents must
+    // remain valid forever — legitimate prose, not a new runtime consumer.
+    const D4C_A_PROFILE_DOCUMENT_CONTRACT = path.join('lib', 'data-hub', 'schemaProfiles', 'profileDocument.ts')
     const offenders = runtimeFiles.filter(f => forbidden.test(fs.readFileSync(f, 'utf-8'))).map(f => path.relative(REPO_ROOT, f))
-    expect(offenders.sort()).toEqual([D3D_LINEAGE_PIN_SERVICE, D4B_STAGING_RUN_SERVICE, D4B_ELIGIBILITY_SERVICE, D3C_READ_ONLY_LOADER].sort())
+    expect(offenders.sort()).toEqual([D3D_LINEAGE_PIN_SERVICE, D4B_STAGING_RUN_SERVICE, D4B_ELIGIBILITY_SERVICE, D3C_READ_ONLY_LOADER, D4C_A_PROFILE_DOCUMENT_CONTRACT].sort())
     const loader = readSource(D3C_READ_ONLY_LOADER)
     expect(loader).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\$transaction|\$executeRaw|\$queryRaw/)
     expect([...loader.matchAll(/prisma\.(\w+)\.(\w+)\(/g)].map(m => `${m[1]}.${m[2]}`)).toEqual([
