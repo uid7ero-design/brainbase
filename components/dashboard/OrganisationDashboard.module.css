@@ -1,0 +1,43 @@
+/* Generic organisation dashboard (Phase D2). Tokens only. */
+
+.page {
+  min-height: 100vh;
+  padding: 24px 24px 80px;
+  font-family: var(--font-inter), -apple-system, sans-serif;
+}
+
+.section {
+  margin-top: 20px;
+}
+
+.sectionTitle {
+  margin: 0 0 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.exceptions {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.exception {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 16px 16px 64px;
+  }
+}

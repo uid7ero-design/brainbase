@@ -76,7 +76,7 @@ const ldTennisRegion = topNavSource.slice(ldTennisBranchStart, ldTennisBranchEnd
 // The shared branch: rendered for every session that is not LD Tennis —
 // generic clients AND Brainbase HQ staff together, distinguished only by
 // per-item gates within it.
-const sharedRegion = topNavSource.slice(ldTennisBranchEnd, topNavSource.indexOf('width: 185,', ldTennisBranchEnd))
+const sharedRegion = topNavSource.slice(ldTennisBranchEnd, topNavSource.indexOf('className={styles.rightCluster}', ldTennisBranchEnd))
 
 describe('Persona 1 — Founder / super_admin: Operations and Admin dropdowns are populated, independent of enabledModules', () => {
   it('OpsDropdown is rendered for isBrainbaseHQ (narrower than the old isManager check — implies super_admin at the Brainbase org specifically) — only in the shared branch, never in the LD Tennis branch', () => {

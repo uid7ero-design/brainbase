@@ -1,21 +1,10 @@
 'use client';
 
-export default function SlidePanel({ open, onClose, title, children }: {
-  open: boolean; onClose: () => void; title: string; children: React.ReactNode;
-}) {
-  if (!open) return null;
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex' }}>
-      <div onClick={onClose} style={{ flex: 1, background: 'rgba(0,0,0,0.6)' }} />
-      <div style={{ width: 440, background: 'var(--bg-surface)', borderLeft: '1px solid #1a1d24', display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '24px 28px', borderBottom: '1px solid #1a1d24', flexShrink: 0 }}>
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>{title}</h2>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
-        </div>
-        <div style={{ flex: 1, overflow: 'auto', padding: '24px 28px' }}>
-          {children}
-        </div>
-      </div>
-    </div>
-  );
-}
+// CRM slide panel. Phase C: CRM, People and Commercial each kept a
+// byte-identical private copy of this shell (same API, same close
+// behaviour). The shell now lives in the shared, module-neutral
+// components/ui/app/SlidePanel so its visual treatment and dialog
+// semantics are defined once. This file stays as the module's own import
+// point — call sites (`import SlidePanel from '../_components/SlidePanel'`)
+// are unchanged, and no module imports another module's _components.
+export { SlidePanel as default } from '@/components/ui/app/SlidePanel';

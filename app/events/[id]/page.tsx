@@ -15,9 +15,9 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
   const capability = await checkCapability(session.organisationId, 'events');
   if (!capability.allowed) {
     return (
-      <div style={{ padding: 48, fontFamily: 'var(--font-inter),-apple-system,sans-serif', color: '#e5e7eb' }}>
+      <div style={{ padding: 48, fontFamily: 'var(--font-inter),-apple-system,sans-serif', color: 'var(--text-primary)' }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Events &amp; Ticketing</h1>
-        <p style={{ fontSize: 14, color: '#9ca3af' }}>
+        <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
           The Events module is not enabled for your organisation. Contact a BrainBase administrator to request access.
         </p>
       </div>

@@ -376,7 +376,10 @@ describe('Scope boundaries — no unrelated system was touched by this slice', (
 
   it('AdminAside gained exactly one new nav entry, nothing else changed', () => {
     const nav = fs.readFileSync(path.resolve(__dirname, '../../components/admin/AdminAside.tsx'), 'utf-8')
-    expect(nav).toContain("<Link href=\"/admin/implementations\" style={link('/admin/implementations')}>Client Implementations</Link>")
+    // Phase D1: the item now takes the shared module-nav props
+    // ({...link(href)} → className + aria-current) instead of an inline
+    // style object; the entry, its <Link>, href and label are unchanged.
+    expect(nav).toContain("<Link href=\"/admin/implementations\" {...link('/admin/implementations')}>Client Implementations</Link>")
     // Every pre-existing nav link is still present, unchanged.
     for (const href of ['/admin/founder', '/admin/web-services', '/admin/deployments', '/admin/pipeline', '/admin/sessions', '/admin/orgs', '/admin/users', '/admin/agent-runs', '/admin/agent-test']) {
       expect(nav).toContain(`href="${href}"`)

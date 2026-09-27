@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { Button, Field as AppField, FormActions, FormError, fieldControlClassName } from '@/components/ui/app';
 
 const WORKER_TYPES = [
   { value: 'employee', label: 'Employee' },
@@ -158,30 +159,32 @@ export default function PersonForm({ initial, onSaved, canManage }: { initial?: 
 
   return (
     <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <Field label="First Name *" value={form.first_name ?? ''} onChange={set('first_name')} required />
-        <Field label="Last Name *" value={form.last_name ?? ''} onChange={set('last_name')} required />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+        <Field label="First Name" value={form.first_name ?? ''} onChange={set('first_name')} required />
+        <Field label="Last Name" value={form.last_name ?? ''} onChange={set('last_name')} required />
       </div>
       <Field label="Preferred Name" value={form.preferred_name ?? ''} onChange={set('preferred_name')} />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
         <Field label="Work Email" value={form.work_email ?? ''} onChange={set('work_email')} />
         <Field label="Work Phone" value={form.work_phone ?? ''} onChange={set('work_phone')} />
       </div>
       <Field label="Job Title" value={form.job_title ?? ''} onChange={set('job_title')} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <div>
-          <label style={lbl}>Worker Type</label>
-          <select value={form.worker_type ?? 'employee'} onChange={set('worker_type')} style={sel}>
-            {WORKER_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={lbl}>Employment Status</label>
-          <select value={form.employment_status ?? 'active'} onChange={set('employment_status')} style={sel}>
-            {EMPLOYMENT_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-          </select>
-        </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+        <AppField label="Worker Type">
+          {control => (
+            <select {...control} value={form.worker_type ?? 'employee'} onChange={set('worker_type')} className={fieldControlClassName}>
+              {WORKER_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          )}
+        </AppField>
+        <AppField label="Employment Status">
+          {control => (
+            <select {...control} value={form.employment_status ?? 'active'} onChange={set('employment_status')} className={fieldControlClassName}>
+              {EMPLOYMENT_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+          )}
+        </AppField>
       </div>
 
       {/* HR-2 Step 1D2 — POST /api/hr/people accepts start_date but not
@@ -196,7 +199,7 @@ export default function PersonForm({ initial, onSaved, canManage }: { initial?: 
           dates all surface through the existing generic error
           rendering below, unchanged. */}
       {initial?.id ? (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
           <Field label="Start Date" type="date" value={form.start_date ?? ''} onChange={setDate('start_date')} />
           <Field label="End Date" type="date" value={form.end_date ?? ''} onChange={setDate('end_date')} />
         </div>
@@ -204,23 +207,25 @@ export default function PersonForm({ initial, onSaved, canManage }: { initial?: 
         <Field label="Start Date" type="date" value={form.start_date ?? ''} onChange={setDate('start_date')} />
       )}
 
-      <div>
-        <label style={lbl}>Team</label>
-        <select value={form.team_id ?? ''} onChange={set('team_id')} style={sel}>
-          <option value="">— No team —</option>
-          {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-        </select>
-      </div>
+      <AppField label="Team">
+        {control => (
+          <select {...control} value={form.team_id ?? ''} onChange={set('team_id')} className={fieldControlClassName}>
+            <option value="">— No team —</option>
+            {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        )}
+      </AppField>
 
-      <div>
-        <label style={lbl}>Manager</label>
-        <select value={form.manager_person_id ?? ''} onChange={set('manager_person_id')} style={sel}>
-          <option value="">— No manager —</option>
-          {managers.filter(m => m.id !== form.id).map(m => (
-            <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>
-          ))}
-        </select>
-      </div>
+      <AppField label="Manager">
+        {control => (
+          <select {...control} value={form.manager_person_id ?? ''} onChange={set('manager_person_id')} className={fieldControlClassName}>
+            <option value="">— No manager —</option>
+            {managers.filter(m => m.id !== form.id).map(m => (
+              <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>
+            ))}
+          </select>
+        )}
+      </AppField>
 
       {/* HR-2 Step 1D1 — explicit-linking-only control. Never
           auto-selected or highlighted by work_email match: the
@@ -242,9 +247,9 @@ export default function PersonForm({ initial, onSaved, canManage }: { initial?: 
           linked_user_already_linked handling) — this disabling is a UX
           courtesy only. */}
       {canManage && (
-        <div>
-          <label style={lbl}>Linked BrainBase Account</label>
-          <select value={form.linked_user_id ?? ''} onChange={set('linked_user_id')} style={sel}>
+        <AppField label="Linked BrainBase Account">
+          {control => (
+          <select {...control} value={form.linked_user_id ?? ''} onChange={set('linked_user_id')} className={fieldControlClassName}>
             <option value="">— No linked account —</option>
             {linkableUsers.map(u => {
               const disabled = !u.selectable;
@@ -257,26 +262,26 @@ export default function PersonForm({ initial, onSaved, canManage }: { initial?: 
               );
             })}
           </select>
-        </div>
+          )}
+        </AppField>
       )}
 
-      {error && <p style={{ color: '#f87171', fontSize: 13, margin: 0 }}>{error}</p>}
-      <button type="submit" disabled={saving} style={{ padding: '10px 0', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
-        {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Person'}
-      </button>
+      {error && <FormError>{error}</FormError>}
+      <FormActions align="stretch">
+        <Button type="submit" variant="primary" disabled={saving}>
+          {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Person'}
+        </Button>
+      </FormActions>
     </form>
   );
 }
 
 function Field({ label, value, onChange, required, type = 'text' }: { label: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; required?: boolean; type?: string }) {
   return (
-    <div>
-      <label style={lbl}>{label}</label>
-      <input type={type} value={value} onChange={onChange} required={required}
-        style={{ width: '100%', padding: '9px 12px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
-    </div>
+    <AppField label={label} required={required}>
+      {control => (
+        <input {...control} type={type} value={value} onChange={onChange} required={required} className={fieldControlClassName} />
+      )}
+    </AppField>
   );
 }
-
-const lbl: React.CSSProperties = { display: 'block', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const sel: React.CSSProperties = { width: '100%', padding: '9px 12px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14 };

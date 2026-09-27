@@ -1,5 +1,4 @@
 'use client';
-import { useOpsTheme } from '@/components/ops/theme';
 import { APP_HEADER_OFFSET_VAR } from '@/lib/layout/headerOffset';
 
 // Phase D.4.4E — replaces WorkspaceShell as app/organiser/page.tsx's outer
@@ -18,9 +17,10 @@ interface OrganiserShellProps {
   children: React.ReactNode;
 }
 
+// Phase D3 — surfaces come from the app theme tokens (was the ops JS
+// palette's pageBg), so Organiser sits on the same base as the rest of the
+// signed-in app in both themes.
 export default function OrganiserShell({ rail, children }: OrganiserShellProps) {
-  const t = useOpsTheme();
-
   return (
     <>
       {/* Same "body owns no scroll, the shell's own inner regions do"
@@ -37,7 +37,8 @@ export default function OrganiserShell({ rail, children }: OrganiserShellProps) 
         // before, now via the one shared primitive both shells use.
         position: 'fixed', top: APP_HEADER_OFFSET_VAR, left: 0, right: 0, bottom: 0,
         display: 'flex',
-        background: t.pageBg,
+        background: 'var(--bg-base)',
+        color: 'var(--text-primary)',
         fontFamily: 'var(--font-inter),"Inter",-apple-system,sans-serif',
         overflow: 'hidden',
         zIndex: 50,

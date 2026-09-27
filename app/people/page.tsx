@@ -4,8 +4,17 @@ import Link from 'next/link';
 import SlidePanel from './_components/SlidePanel';
 import PersonForm from './_components/PersonForm';
 import PersonDrawer, { type PersonDetail } from './_components/PersonDrawer';
-
-const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
+import {
+  Badge,
+  PageHeader,
+  TableContainer,
+  TableStateRow,
+  ToolbarSearch,
+  WorkToolbar,
+  buttonProps,
+  tableStyles,
+  type SemanticState,
+} from '@/components/ui/app';
 
 type Person = {
   id: string;
@@ -65,78 +74,87 @@ export default function PeoplePage() {
       || (p.team_name ?? '').toLowerCase().includes(q);
   });
 
+  // Shared app button look for the header links and the Add action.
+  // Precomputed so the canManage-gated JSX below stays free of inline calls.
+  const secondaryAction = buttonProps('secondary');
+  const primaryAction = buttonProps('primary');
+
   return (
     <div style={{ maxWidth: 1000 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>People</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '4px 0 0' }}>
-            Your organisation&apos;s workers, teams, and basic employment information.
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <Link href="/people/restricted-cases" style={{ ...btn('transparent'), border: '1px solid var(--border)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Restricted Cases</Link>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
-            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none', width: 200 }} />
-          {canManage && (
-            <>
-              {/* HR-2 Step 1B — Teams management, gated identically to
-                  "+ Add Person" on the same server-returned canManage
-                  flag; app/people/teams itself independently re-derives
-                  the same flag before showing any management action. */}
-              <Link href="/people/teams" style={{ ...btn('transparent'), border: '1px solid var(--border)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Manage Teams</Link>
-              {/* HR Administrator Management UI — gated identically to
-                  "Manage Teams" above, on the same server-returned
-                  canManage flag; app/people/administrators itself
-                  independently re-derives authorization via its own
-                  GET /api/hr/administrators call (canManageHrAccess),
-                  not this flag. */}
-              <Link href="/people/administrators" style={{ ...btn('transparent'), border: '1px solid var(--border)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Manage Administrators</Link>
-              <button onClick={() => setShowAdd(true)} style={btn('var(--purple-600)')}>+ Add Person</button>
-            </>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title="People"
+        description={<>Your organisation&apos;s workers, teams, and basic employment information.</>}
+        actions={
+          <>
+            <Link href="/people/restricted-cases" {...secondaryAction}>Restricted Cases</Link>
+            {canManage && (
+              <>
+                {/* HR-2 Step 1B — Teams management, gated identically to
+                    "+ Add Person" on the same server-returned canManage
+                    flag; app/people/teams itself independently re-derives
+                    the same flag before showing any management action. */}
+                <Link href="/people/teams" {...secondaryAction}>Manage Teams</Link>
+                {/* HR Administrator Management UI — gated identically to
+                    "Manage Teams" above, on the same server-returned
+                    canManage flag; app/people/administrators itself
+                    independently re-derives authorization via its own
+                    GET /api/hr/administrators call (canManageHrAccess),
+                    not this flag. */}
+                <Link href="/people/administrators" {...secondaryAction}>Manage Administrators</Link>
+                <button onClick={() => setShowAdd(true)} type="button" {...primaryAction}>+ Add Person</button>
+              </>
+            )}
+          </>
+        }
+      />
 
-      <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden', marginTop: 20 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <WorkToolbar count={search && !loading && !error ? `${filtered.length} of ${people.length}` : undefined}>
+        <ToolbarSearch label="Search people" value={search} onChange={e => setSearch(e.target.value)} />
+      </WorkToolbar>
+
+      <TableContainer label="People" minWidth={760}>
+        <table className={tableStyles.table}>
           <thead>
-            <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-              {['Name', 'Status', 'Job Title', 'Team', 'Manager', 'Worker Type', ''].map(h => (
-                <th key={h} style={th}>{h}</th>
-              ))}
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Status</th>
+              <th scope="col">Job Title</th>
+              <th scope="col">Team</th>
+              <th scope="col">Manager</th>
+              <th scope="col">Worker Type</th>
+              <th scope="col" className={tableStyles.actions}><span className="bb-visually-hidden">Actions</span></th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={7} style={empty}>Loading…</td></tr>}
-            {!loading && error && <tr><td colSpan={7} style={{ ...empty, color: '#f87171' }}>{error}</td></tr>}
+            {loading && <TableStateRow colSpan={7} kind="loading">Loading people…</TableStateRow>}
+            {!loading && error && <TableStateRow colSpan={7} kind="error">{error}</TableStateRow>}
             {!loading && !error && filtered.length === 0 && (
-              <tr><td colSpan={7} style={empty}>
+              <TableStateRow colSpan={7} kind="empty">
                 {people.length === 0
                   ? (canManage ? 'No people yet. Add your first person to get started.' : 'No people to show yet.')
                   : 'No people match your search.'}
-              </td></tr>
+              </TableStateRow>
             )}
-            {filtered.map((p, i) => (
-              <tr key={p.id} style={{ borderBottom: i < filtered.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
-                <td style={{ padding: '13px 16px' }}>
-                  <button onClick={() => setOpenPersonId(p.id)} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--text-primary)', fontWeight: 500, fontSize: 14, cursor: 'pointer', textAlign: 'left' }}>
+            {filtered.map(p => (
+              <tr key={p.id}>
+                <td className={tableStyles.primary}>
+                  <button type="button" onClick={() => setOpenPersonId(p.id)}>
                     {p.first_name} {p.last_name}
                   </button>
                 </td>
-                <td style={td}><StatusBadge status={p.employment_status} /></td>
-                <td style={td}>{p.job_title ?? <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
-                <td style={td}>{p.team_name ?? <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
-                <td style={td}>{p.manager_first_name ? `${p.manager_first_name} ${p.manager_last_name}` : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
-                <td style={{ ...td, textTransform: 'capitalize' }}>{p.worker_type}</td>
-                <td style={{ padding: '13px 16px' }}>
-                  <button onClick={() => setOpenPersonId(p.id)} style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>View →</button>
+                <td><StatusBadge status={p.employment_status} /></td>
+                <td>{p.job_title ?? <span className={tableStyles.muted}>—</span>}</td>
+                <td>{p.team_name ?? <span className={tableStyles.muted}>—</span>}</td>
+                <td>{p.manager_first_name ? `${p.manager_first_name} ${p.manager_last_name}` : <span className={tableStyles.muted}>—</span>}</td>
+                <td style={{ textTransform: 'capitalize' }}>{p.worker_type}</td>
+                <td className={tableStyles.actions}>
+                  <button type="button" className={tableStyles.link} onClick={() => setOpenPersonId(p.id)} aria-label={`View ${p.first_name} ${p.last_name}`}>View →</button>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
+      </TableContainer>
 
       <SlidePanel open={showAdd} onClose={() => setShowAdd(false)} title="Add Person">
         <PersonForm canManage={canManage} onSaved={() => { setShowAdd(false); load(); }} />
@@ -158,22 +176,17 @@ export default function PeoplePage() {
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, { fg: string; bg: string }> = {
-    active: { fg: '#6ee7b7', bg: 'rgba(16,185,129,.12)' },
-    onboarding: { fg: '#93c5fd', bg: 'rgba(59,130,246,.12)' },
-    inactive: { fg: '#fbbf24', bg: 'rgba(245,158,11,.12)' },
-    ended: { fg: 'var(--text-secondary)', bg: 'rgba(107,114,128,.12)' },
-  };
-  const c = colors[status] ?? colors.ended;
-  return (
-    <span style={{ display: 'inline-block', padding: '3px 9px', borderRadius: 999, fontSize: 11, fontWeight: 600, textTransform: 'capitalize', color: c.fg, background: c.bg }}>
-      {status}
-    </span>
-  );
-}
+// Employment status → canonical semantic state. Text always visible; the
+// domain word is kept as the label (only the tone is shared).
+const EMPLOYMENT_STATUS_STATE: Record<string, SemanticState> = {
+  active: 'success',
+  onboarding: 'info',
+  inactive: 'warning',
+  ended: 'inactive',
+};
 
-const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: 'var(--text-secondary)' };
-const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 };
-function btn(bg: string): React.CSSProperties { return { padding: '8px 16px', background: bg, color: bg === 'transparent' ? 'var(--text-primary)' : '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }; }
+function StatusBadge({ status }: { status: string }) {
+  const state = EMPLOYMENT_STATUS_STATE[status] ?? 'inactive';
+  const label = status.charAt(0).toUpperCase() + status.slice(1);
+  return <Badge state={state}>{label}</Badge>;
+}

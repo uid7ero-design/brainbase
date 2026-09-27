@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import SlidePanel from './SlidePanel';
+import { StateMessage, buttonProps } from '@/components/ui/app';
 
 // Exported (not just used internally) so app/people/page.tsx can type the
 // person object it receives back from onEdit() without redeclaring an
@@ -84,10 +85,12 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
     });
   }, [personId]);
 
+  const editButton = buttonProps('secondary', 'sm');
+
   return (
     <SlidePanel open={personId !== null} onClose={onClose} title="Person">
-      {loading && <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Loading…</p>}
-      {error && <p style={{ color: '#f87171', fontSize: 13 }}>{error}</p>}
+      {loading && <StateMessage kind="loading" title="Loading person…" />}
+      {error && <StateMessage kind="error" title={error} />}
       {person && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
@@ -99,7 +102,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
               {person.job_title && <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 2 }}>{person.job_title}</div>}
             </div>
             {canManage && (
-              <button onClick={() => onEdit(person)} style={{ padding: '6px 12px', background: 'rgba(255,255,255,.06)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>
+              <button onClick={() => onEdit(person)} type="button" {...editButton} style={{ flexShrink: 0 }}>
                 Edit
               </button>
             )}

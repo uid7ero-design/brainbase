@@ -40,8 +40,8 @@ export default function WorksheetInventoryPanel({
       <div
         role="note"
         style={{
-          border: "1px solid rgba(251,191,36,.3)",
-          background: "rgba(251,191,36,.06)",
+          border: "1px solid var(--status-warning-border)",
+          background: "var(--status-warning-muted)",
           borderRadius: 8,
           padding: "10px 14px",
           fontSize: 12,

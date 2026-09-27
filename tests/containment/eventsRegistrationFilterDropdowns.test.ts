@@ -250,8 +250,11 @@ describe('app/events/_components/ui.tsx — FilterDropdown interaction mechanics
     expect(block).not.toContain('createPortal')
   })
 
-  it('the closed trigger reuses inputStyle (visual consistency with the adjacent native search input); the open panel uses the TopNav dark-popup palette, not inputStyle', () => {
+  it('the closed trigger reuses inputStyle (visual consistency with the adjacent native search input); the open panel uses the app menu surface (overlay tokens, like the TopNav menus), not inputStyle', () => {
     expect(block).toMatch(/\.\.\.inputStyle/)
-    expect(block).toContain("background: 'rgba(7,5,16,.98)'")
+    // Phase D1: was the dark-only 'rgba(7,5,16,.98)' popup; now the
+    // theme-aware overlay tokens shared with the global chrome menus.
+    expect(block).toContain("background: 'var(--bg-overlay)'")
+    expect(block).toContain("boxShadow: 'var(--shadow-menu)'")
   })
 })

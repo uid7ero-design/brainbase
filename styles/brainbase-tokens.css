@@ -124,10 +124,12 @@
   --bb-info-soft: rgba(34, 199, 232, 0.08);
   --bb-info-border: rgba(34, 199, 232, 0.26);
 
-  --bb-active-fg: var(--bb-purple-300);
-  --bb-active-dot: var(--bb-purple-400);
-  --bb-active-soft: rgba(168, 121, 255, 0.1);
-  --bb-active-border: rgba(168, 121, 255, 0.3);
+  /* Active = the locked Brainbase product accent (not the older public
+     purple scale), so active states match the app's accent everywhere. */
+  --bb-active-fg: #9b7bff;
+  --bb-active-dot: #9b7bff;
+  --bb-active-soft: rgba(155, 123, 255, 0.1);
+  --bb-active-border: rgba(155, 123, 255, 0.3);
 
   --bb-inactive-fg: #aaa6b4;
   --bb-inactive-dot: #6f6b7a;
@@ -195,10 +197,10 @@
   --bb-info-soft: var(--bb-cyan-50);
   --bb-info-border: var(--bb-cyan-200);
 
-  --bb-active-fg: var(--bb-purple-700);
-  --bb-active-dot: var(--bb-purple-600);
-  --bb-active-soft: var(--bb-purple-50);
-  --bb-active-border: var(--bb-purple-200);
+  --bb-active-fg: #6d4cd6;
+  --bb-active-dot: #6d4cd6;
+  --bb-active-soft: rgba(109, 76, 214, 0.08);
+  --bb-active-border: rgba(109, 76, 214, 0.28);
 
   --bb-inactive-fg: #5b5862;
   --bb-inactive-dot: #a3a0a9;

@@ -1,4 +1,5 @@
 "use client";
+import { buttonProps } from "@/components/ui/app";
 
 // Data Hub 5A.3C.1 — the Confirm control. A direct primary button, no modal,
 // no typed confirmation (no such precedent exists anywhere in this codebase
@@ -51,16 +52,7 @@ export default function ConfirmAction({
           onClick={onConfirm}
           disabled={!eligible || busy}
           aria-busy={busy}
-          style={{
-            fontSize: 13,
-            fontWeight: 600,
-            padding: "9px 18px",
-            borderRadius: 8,
-            border: "none",
-            background: eligible && !busy ? "var(--purple-600)" : "var(--bg-raised)",
-            color: eligible && !busy ? "#fff" : "var(--text-muted)",
-            cursor: eligible && !busy ? "pointer" : "default",
-          }}
+          {...buttonProps("primary")}
         >
           {busy ? "Confirming…" : "Confirm import"}
         </button>

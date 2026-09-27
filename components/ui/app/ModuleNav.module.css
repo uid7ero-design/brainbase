@@ -1,0 +1,190 @@
+/*
+ * Shared module navigation (Phase D1). Tokens only (app/globals.css).
+ * Same active language as the global chrome (components/nav/AppChrome):
+ * accent text + weight 600 + 2px inset rule + muted tint, aria-current.
+ */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 200px;
+  min-width: 0;
+  padding: 20px 0 16px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  background: var(--bg-surface);
+  font-family: var(--font-inter), 'Inter', -apple-system, sans-serif;
+}
+
+.identity {
+  display: grid;
+  gap: 2px;
+  padding: 0 20px 12px;
+}
+
+.title {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.subtitle {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 8px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  font-size: 0.84375rem;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color 0.14s, background-color 0.14s;
+}
+
+.item:hover {
+  color: var(--text-primary);
+  background: var(--bg-sunken);
+}
+
+.item:focus-visible {
+  outline-offset: -2px;
+}
+
+.item[aria-current='page'] {
+  color: var(--brand-brainbase-accent);
+  font-weight: 600;
+  background: var(--brand-brainbase-accent-muted);
+  box-shadow: inset 2px 0 0 var(--brand-brainbase-accent);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.item[aria-current='page']:hover {
+  color: var(--brand-brainbase-accent-hover);
+}
+
+.section {
+  padding: 14px 12px 4px;
+  font-size: 0.65625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.footer {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: auto;
+  padding: 12px 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.footerItem {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.footerItem:hover {
+  color: var(--text-primary);
+  background: var(--bg-sunken);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .item {
+    transition: none;
+  }
+}
+
+/*
+ * Narrow screens: the module nav becomes a horizontal strip above the
+ * content instead of a 200px column beside it. Positioning is passed in
+ * inline by each module (sticky + header offset), so these overrides need
+ * !important. The parent flex row is turned into a column only where the
+ * browser supports :has(); otherwise the desktop layout is kept.
+ */
+@media (max-width: 767px) {
+  :global(*):has(> .sidebar) {
+    flex-direction: column;
+  }
+  .sidebar {
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    overflow: hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .identity {
+    flex-shrink: 0;
+    padding: 0 4px 0 0;
+  }
+  .subtitle {
+    display: none;
+  }
+  .nav {
+    flex: 1;
+    flex-direction: row;
+    min-width: 0;
+    padding: 0;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+  .item {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .item[aria-current='page'] {
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    box-shadow: inset 0 -2px 0 var(--brand-brainbase-accent);
+  }
+  .section {
+    display: none;
+  }
+  .footer {
+    flex-direction: row;
+    margin: 0;
+    padding: 0 0 0 8px;
+    border-top: 0;
+    border-left: 1px solid var(--border);
+  }
+  .footerItem {
+    white-space: nowrap;
+  }
+}

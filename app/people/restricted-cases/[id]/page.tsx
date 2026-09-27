@@ -2,10 +2,14 @@
 
 import Link from 'next/link';
 import { use, useEffect, useMemo, useState } from 'react';
-
-const CARD = 'var(--bg-surface)';
-const BORDER = 'var(--border)';
-const MUTED = 'var(--text-secondary)';
+import {
+  Badge,
+  FormError,
+  PageHeader,
+  StateMessage,
+  buttonProps,
+  fieldControlClassName,
+} from '@/components/ui/app';
 
 type RestrictedCase = {
   id: string;
@@ -79,28 +83,26 @@ export default function RestrictedCaseDetailPage({ params }: { params: Promise<{
 
   const personNames = useMemo(() => new Map(people.map(person => [person.id, `${person.first_name} ${person.last_name}`])), [people]);
 
-  if (loading) return <div style={empty}>Loading restricted case…</div>;
+  if (loading) return <StateMessage kind="loading" title="Loading restricted case…" size="page" />;
   if (error || !caseRecord) {
-    return <div style={{ maxWidth: 800 }}><Link href="/people/restricted-cases" style={backLink}>← Restricted Cases</Link><p style={{ ...empty, color: '#f87171' }}>{error || 'Restricted HR case not found.'}</p></div>;
+    return <div style={{ maxWidth: 800 }}><Link href="/people/restricted-cases" style={backLink}>← Restricted Cases</Link><StateMessage kind="error" title={error || 'Restricted HR case not found.'} /></div>;
   }
 
   return (
     <div style={{ maxWidth: 1100 }}>
-      <div style={{ marginBottom: 10 }}><Link href="/people/restricted-cases" style={backLink}>← Restricted Cases</Link></div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 20 }}>
-        <div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 7 }}>
-            <span style={pill}>{caseRecord.case_type}</span>
-            <span style={{ ...pill, color: caseRecord.status === 'open' ? '#6ee7b7' : 'var(--text-secondary)' }}>{caseRecord.status}</span>
-          </div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: '-0.02em' }}>{caseRecord.title}</h1>
-          <p style={{ color: MUTED, fontSize: 13, margin: '6px 0 0' }}>
-            {caseRecord.reference ? `Reference ${caseRecord.reference} · ` : ''}Opened {formatDate(caseRecord.created_at)}
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow={<Link href="/people/restricted-cases">← Restricted Cases</Link>}
+        title={caseRecord.title}
+        meta={
+          <>
+            <Badge state="inactive">{capitalise(caseRecord.case_type)}</Badge>
+            <Badge state={caseRecord.status === 'open' ? 'success' : 'inactive'}>{capitalise(caseRecord.status)}</Badge>
+          </>
+        }
+        description={<>{caseRecord.reference ? `Reference ${caseRecord.reference} · ` : ''}Opened {formatDate(caseRecord.created_at)}</>}
+      />
 
-      {actionError && <p style={errorText}>{actionError}</p>}
+      {actionError && <div style={{ marginBottom: 16 }}><FormError>{actionError}</FormError></div>}
 
       <div style={grid}>
         <section style={panel}>
@@ -126,12 +128,12 @@ export default function RestrictedCaseDetailPage({ params }: { params: Promise<{
         </section>
       </div>
 
-      <section style={{ ...panel, marginTop: 18 }}>
+      <section style={{ ...panel, marginTop: 24 }}>
         <h2 style={sectionTitle}>Notes</h2>
         <NoteSection caseId={id} notes={notes} onChanged={load} onError={setActionError} />
       </section>
 
-      <section style={{ ...panel, marginTop: 18 }}>
+      <section style={{ ...panel, marginTop: 24 }}>
         <h2 style={sectionTitle}>Documents</h2>
         <DocumentSection caseId={id} documents={documents} onChanged={load} onError={setActionError} />
       </section>
@@ -168,25 +170,25 @@ function ParticipantSection({ caseId, participants, people, personNames, canMana
 
   return <>
     {participants.length === 0 ? <p style={mutedText}>No participants recorded.</p> : (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={list}>
         {participants.map(item => (
           <div key={item.id} style={rowBox}>
             <div><div style={{ color: 'var(--text-primary)', fontSize: 13, fontWeight: 600 }}>{personNames.get(item.person_id) ?? item.person_id}</div><div style={{ ...mutedText, marginTop: 2, textTransform: 'capitalize' }}>{item.role_in_case}</div></div>
-            {canManage && <button onClick={() => remove(item.person_id)} style={dangerLink}>Remove</button>}
+            {canManage && <button type="button" onClick={() => remove(item.person_id)} {...buttonProps('danger', 'sm')} aria-label={`Remove ${personNames.get(item.person_id) ?? item.person_id} from this case`}>Remove</button>}
           </div>
         ))}
       </div>
     )}
     {canManage && (
       <div style={{ ...formRow, marginTop: 14 }}>
-        <select value={personId} onChange={event => setPersonId(event.target.value)} style={selectStyle}>
+        <select value={personId} onChange={event => setPersonId(event.target.value)} className={fieldControlClassName} style={growControl} aria-label="Participant">
           <option value="">Select person…</option>
           {people.filter(person => !existing.has(person.id)).map(person => <option key={person.id} value={person.id}>{person.first_name} {person.last_name}</option>)}
         </select>
-        <select value={role} onChange={event => setRole(event.target.value)} style={{ ...selectStyle, maxWidth: 150 }}>
+        <select value={role} onChange={event => setRole(event.target.value)} className={fieldControlClassName} style={{ ...growControl, flex: '0 1 150px' }} aria-label="Role in case">
           {['subject','complainant','respondent','witness','other'].map(value => <option key={value} value={value}>{value}</option>)}
         </select>
-        <button type="button" onClick={add} disabled={!personId} style={smallButton}>Add</button>
+        <button type="button" onClick={add} disabled={!personId} {...buttonProps('primary', 'sm')}>Add</button>
       </div>
     )}
   </>;
@@ -212,15 +214,15 @@ function AccessSection({ caseId, users, onError }: { caseId: string; users: User
 
   return <>
     <p style={mutedText}>Select an active organisation user, then grant or revoke this case&apos;s read access. Participants do not receive access automatically.</p>
-    <select value={userId} onChange={event => setUserId(event.target.value)} style={{ ...selectStyle, width: '100%', marginTop: 10 }}>
+    <select value={userId} onChange={event => setUserId(event.target.value)} className={fieldControlClassName} style={{ width: '100%', marginTop: 10 }} aria-label="User">
       <option value="">Select user…</option>
       {users.map(user => <option key={user.id} value={user.id}>{user.name}{user.email ? ` · ${user.email}` : ''}</option>)}
     </select>
-    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-      <button disabled={!userId} onClick={() => mutate('grant')} style={smallButton}>Grant access</button>
-      <button disabled={!userId} onClick={() => mutate('revoke')} style={secondaryButton}>Revoke access</button>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+      <button type="button" disabled={!userId} onClick={() => mutate('grant')} {...buttonProps('primary', 'sm')}>Grant access</button>
+      <button type="button" disabled={!userId} onClick={() => mutate('revoke')} {...buttonProps('danger', 'sm')}>Revoke access</button>
     </div>
-    {message && <p style={{ color: '#6ee7b7', fontSize: 12, margin: '9px 0 0' }}>{message}</p>}
+    {message && <p role="status" style={{ color: 'var(--status-success)', fontSize: 12, margin: '9px 0 0' }}>{message}</p>}
   </>;
 }
 
@@ -241,13 +243,15 @@ function NoteSection({ caseId, notes, onChanged, onError }: { caseId: string; no
 
   return <>
     {notes.length === 0 ? <p style={mutedText}>No case notes recorded.</p> : (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {notes.map(note => <div key={note.id} style={noteBox}><div style={{ whiteSpace: 'pre-wrap', color: '#e5e7eb', fontSize: 13, lineHeight: 1.55 }}>{note.body}</div><div style={{ ...mutedText, marginTop: 8 }}>{formatDateTime(note.created_at)} · author {note.author_id}</div></div>)}
+      <div style={list}>
+        {notes.map(note => <div key={note.id} style={noteBox}><div style={{ whiteSpace: 'pre-wrap', color: 'var(--text-primary)', fontSize: 13, lineHeight: 1.55 }}>{note.body}</div><div style={{ ...mutedText, marginTop: 8 }}>{formatDateTime(note.created_at)} · author {note.author_id}</div></div>)}
       </div>
     )}
     <form onSubmit={addNote} style={{ marginTop: 14 }}>
-      <textarea value={body} onChange={event => setBody(event.target.value)} rows={4} placeholder="Add an append-only case note…" style={{ ...selectStyle, width: '100%', resize: 'vertical', boxSizing: 'border-box' }} />
-      <button disabled={saving || !body.trim()} type="submit" style={{ ...smallButton, marginTop: 8 }}>{saving ? 'Adding…' : 'Add note'}</button>
+      <textarea value={body} onChange={event => setBody(event.target.value)} rows={4} placeholder="Add an append-only case note…" aria-label="New case note" className={fieldControlClassName} style={{ width: '100%' }} />
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+        <button disabled={saving || !body.trim()} type="submit" {...buttonProps('primary', 'sm')}>{saving ? 'Adding…' : 'Add note'}</button>
+      </div>
     </form>
   </>;
 }
@@ -277,13 +281,13 @@ function DocumentSection({ caseId, documents, onChanged, onError }: { caseId: st
 
   return <>
     {documents.length === 0 ? <p style={mutedText}>No documents attached.</p> : (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {documents.map(doc => <div key={doc.id} style={rowBox}><div><a href={`/api/hr/restricted-cases/${caseId}/documents/${doc.id}`} style={{ color: '#8fb3ff', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>{doc.original_filename}</a><div style={{ ...mutedText, marginTop: 2 }}>{formatBytes(doc.byte_size)} · {doc.content_type} · {formatDate(doc.created_at)}</div></div><button onClick={() => remove(doc.id)} style={dangerLink}>Delete</button></div>)}
+      <div style={list}>
+        {documents.map(doc => <div key={doc.id} style={rowBox}><div style={{ minWidth: 0 }}><a href={`/api/hr/restricted-cases/${caseId}/documents/${doc.id}`} style={{ color: 'var(--brand-brainbase-accent)', fontSize: 13, fontWeight: 600, textDecoration: 'none', overflowWrap: 'anywhere' }}>{doc.original_filename}</a><div style={{ ...mutedText, marginTop: 2 }}>{formatBytes(doc.byte_size)} · {doc.content_type} · {formatDate(doc.created_at)}</div></div><button type="button" onClick={() => remove(doc.id)} {...buttonProps('danger', 'sm')} aria-label={`Delete ${doc.original_filename}`}>Delete</button></div>)}
       </div>
     )}
     <div style={{ ...formRow, marginTop: 14 }}>
-      <input type="file" onChange={event => setFile(event.target.files?.[0] ?? null)} style={{ color: 'var(--text-secondary)', fontSize: 12, flex: 1 }} />
-      <button disabled={!file || uploading} onClick={upload} style={smallButton}>{uploading ? 'Uploading…' : 'Upload'}</button>
+      <input type="file" onChange={event => setFile(event.target.files?.[0] ?? null)} aria-label="Document to upload" style={{ color: 'var(--text-secondary)', fontSize: 12, flex: '1 1 200px', minWidth: 0 }} />
+      <button type="button" disabled={!file || uploading} onClick={upload} {...buttonProps('primary', 'sm')}>{uploading ? 'Uploading…' : 'Upload'}</button>
     </div>
   </>;
 }
@@ -292,18 +296,16 @@ function formatDate(value: string) { const date = new Date(value); return Number
 function formatDateTime(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleString(); }
 function formatBytes(value: number) { if (value < 1024) return `${value} B`; if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`; return `${(value / (1024 * 1024)).toFixed(1)} MB`; }
 
-const grid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'minmax(0,1.2fr) minmax(300px,.8fr)', gap: 18, marginTop: 22 };
-const panel: React.CSSProperties = { background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 18 };
+function capitalise(value: string) { return value.charAt(0).toUpperCase() + value.slice(1); }
+
+// Sections are separated by headings and a top rule rather than nested cards.
+const grid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 24 };
+const panel: React.CSSProperties = { borderTop: '1px solid var(--border)', paddingTop: 16, minWidth: 0 };
 const sectionTitle: React.CSSProperties = { fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 12px' };
-const mutedText: React.CSSProperties = { color: MUTED, fontSize: 12, margin: 0, lineHeight: 1.45 };
-const rowBox: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '10px 12px', border: `1px solid ${BORDER}`, borderRadius: 8, background: 'var(--bg-raised)' };
-const noteBox: React.CSSProperties = { padding: '12px 14px', border: `1px solid ${BORDER}`, borderRadius: 8, background: 'var(--bg-raised)' };
-const formRow: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8 };
-const selectStyle: React.CSSProperties = { flex: 1, minWidth: 0, padding: '8px 10px', background: 'var(--bg-raised)', border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 12, outline: 'none' };
-const smallButton: React.CSSProperties = { padding: '8px 12px', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer' };
-const secondaryButton: React.CSSProperties = { ...smallButton, background: 'transparent', border: `1px solid ${BORDER}`, color: '#d1d5db' };
-const dangerLink: React.CSSProperties = { background: 'none', border: 'none', color: '#f87171', fontSize: 12, cursor: 'pointer', padding: 4 };
-const pill: React.CSSProperties = { display: 'inline-block', padding: '3px 8px', borderRadius: 999, background: 'rgba(255,255,255,.06)', color: 'var(--text-secondary)', fontSize: 11, textTransform: 'capitalize' };
-const backLink: React.CSSProperties = { color: MUTED, fontSize: 12, textDecoration: 'none' };
-const empty: React.CSSProperties = { color: MUTED, fontSize: 14, padding: '28px 0' };
-const errorText: React.CSSProperties = { color: '#f87171', fontSize: 13, margin: '14px 0 0' };
+const mutedText: React.CSSProperties = { color: 'var(--text-secondary)', fontSize: 12, margin: 0, lineHeight: 1.45 };
+const list: React.CSSProperties = { display: 'flex', flexDirection: 'column', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', background: 'var(--bg-surface)' };
+const rowBox: React.CSSProperties = { display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '10px 12px', borderBottom: '1px solid var(--border-light)' };
+const noteBox: React.CSSProperties = { padding: '12px 14px', borderBottom: '1px solid var(--border-light)' };
+const formRow: React.CSSProperties = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 };
+const growControl: React.CSSProperties = { flex: '1 1 180px', minWidth: 0 };
+const backLink: React.CSSProperties = { display: 'inline-block', marginBottom: 12, color: 'var(--text-secondary)', fontSize: 12, textDecoration: 'none' };

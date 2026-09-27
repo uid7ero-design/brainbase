@@ -175,7 +175,7 @@ function StatusBadge({ label, status }: { label: string; status: string }) {
   // success-green this repo reserves for genuine success (e.g.
   // ImportSuccess.tsx's "#4ADE80" heading) — a READY batch has not
   // necessarily been reviewed or confirmed as a valid import.
-  const color = status === "FAILED" ? "#F87171" : "var(--text-secondary)";
+  const color = status === "FAILED" ? "var(--status-danger)" : "var(--text-secondary)";
   return (
     <span
       style={{
@@ -184,9 +184,8 @@ function StatusBadge({ label, status }: { label: string; status: string }) {
         fontWeight: 600,
         color,
         border: "1px solid currentColor",
-        borderRadius: 999,
-        padding: "2px 8px",
-        opacity: 0.85,
+        borderRadius: "var(--radius-sm)",
+        padding: "1px 7px",
       }}
     >
       {label}

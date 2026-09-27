@@ -1,0 +1,321 @@
+/* Command Centre widgets (Phase D2) — the same panel surface as every
+   other Command panel. Tokens only; no blur, glow, gradients or ambient
+   animation. */
+
+.panel {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: var(--font-inter), "Inter", -apple-system, sans-serif;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 14px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.titleStrong {
+  color: var(--text-primary);
+  letter-spacing: 0.04em;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden auto;
+}
+
+.label {
+  margin: 0 0 8px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.divider {
+  height: 1px;
+  margin: 0 0 16px;
+  background: var(--border);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Status colour for text/marks; always paired with written state. */
+.tone[data-status='danger'] { --status-colour: var(--status-danger); }
+.tone[data-status='warning'] { --status-colour: var(--status-warning); }
+.tone[data-status='success'] { --status-colour: var(--status-success); }
+.tone[data-status='info'] { --status-colour: var(--status-info); }
+.statusText {
+  color: var(--status-colour, var(--text-secondary));
+}
+
+/* ── Briefing ─────────────────────────────────────────────────────── */
+
+.summary {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+
+.cursor {
+  margin-left: 1px;
+  border-right: 2px solid var(--brand-brainbase-accent);
+  animation: cursor 0.8s step-end infinite;
+}
+@keyframes cursor {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.twoCol {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.changeRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+}
+.changeLabel {
+  flex: 1;
+  color: var(--text-secondary);
+}
+.changeDelta {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.recoList {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.recoLink {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-decoration: none;
+}
+.recoLink:hover {
+  border-color: var(--border-strong);
+}
+.recoLink:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 2px;
+}
+
+.prose {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tag {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.confidenceValue {
+  margin-bottom: 6px;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.meter {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--bg-sunken);
+}
+.meterFill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--brand-brainbase-accent);
+}
+.meterNote {
+  margin-top: 4px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+/* ── Weather ──────────────────────────────────────────────────────── */
+
+.weatherNow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+}
+.temp {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.weatherDesc {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.stat {
+  padding: 8px 14px;
+  border-right: 1px solid var(--border);
+}
+.stat:last-child {
+  border-right: 0;
+}
+.statLabel {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+.statValue {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.forecast {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 12px 14px;
+  list-style: none;
+}
+.forecastDay {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+.impact {
+  padding: 10px 14px 14px;
+}
+
+/* ── Map ──────────────────────────────────────────────────────────── */
+
+.mapWrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.mapSvg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  list-style: none;
+}
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-colour, var(--text-subtle));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cursor {
+    animation: none;
+  }
+}

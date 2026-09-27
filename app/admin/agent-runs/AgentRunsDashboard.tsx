@@ -64,10 +64,10 @@ const ROUTE_COLOR: Record<string, string> = {
 };
 
 function confColor(c: number | null): string {
-  if (c == null) return '#6b7280';
-  if (c >= 0.8) return '#34D399';
-  if (c >= 0.5) return '#FBBF24';
-  return '#F87171';
+  if (c == null) return 'var(--text-muted)';
+  if (c >= 0.8) return 'var(--status-success)';
+  if (c >= 0.5) return 'var(--status-warning)';
+  return 'var(--status-danger)';
 }
 
 function timeAgo(iso: string): string {
@@ -87,16 +87,16 @@ function isoDate(offset = 0): string {
 function StatCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
   return (
     <div style={{
-      background: '#0f1117', border: '1px solid #1f2433', borderRadius: 10, padding: '18px 20px',
+      background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '18px 20px',
       display: 'flex', flexDirection: 'column', gap: 6,
     }}>
-      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: '#4b5563' }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text-subtle)' }}>
         {label}
       </div>
-      <div style={{ fontSize: 26, fontWeight: 800, color: color ?? '#f9fafb', letterSpacing: '-0.01em' }}>
+      <div style={{ fontSize: 26, fontWeight: 800, color: color ?? 'var(--text-primary)', letterSpacing: '-0.01em' }}>
         {value}
       </div>
-      {sub && <div style={{ fontSize: 11, color: '#6b7280' }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{sub}</div>}
     </div>
   );
 }
@@ -110,12 +110,12 @@ function MiniBarTable({
 }) {
   const max = Math.max(...rows.map(r => r.count), 1);
   return (
-    <div style={{ background: '#0f1117', border: '1px solid #1f2433', borderRadius: 10, padding: '18px 20px' }}>
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: '#4b5563', marginBottom: 14 }}>
+    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '18px 20px' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text-subtle)', marginBottom: 14 }}>
         {title}
       </div>
       {rows.length === 0 && (
-        <div style={{ fontSize: 13, color: '#374151', textAlign: 'center', padding: '20px 0' }}>No data</div>
+        <div style={{ fontSize: 13, color: 'var(--text-subtle)', textAlign: 'center', padding: '20px 0' }}>No data</div>
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {rows.map(row => {
@@ -124,17 +124,17 @@ function MiniBarTable({
           return (
             <div key={row.label}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <span style={{ fontSize: 12, color: '#e5e7eb' }}>
+                <span style={{ fontSize: 12, color: 'var(--text-primary)' }}>
                   {row.label.replace(/Agent$/, ' Agent')}
                 </span>
                 <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                  {row.sub && <span style={{ fontSize: 11, color: '#6b7280' }}>{row.sub}</span>}
+                  {row.sub && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{row.sub}</span>}
                   <span style={{ fontSize: 13, fontWeight: 700, color, minWidth: 28, textAlign: 'right' }}>
                     {row.count}
                   </span>
                 </div>
               </div>
-              <div style={{ height: 4, borderRadius: 2, background: '#1f2433', overflow: 'hidden' }}>
+              <div style={{ height: 4, borderRadius: 2, background: 'var(--bg-surface)', overflow: 'hidden' }}>
                 <div style={{
                   height: '100%', borderRadius: 2,
                   width: `${pct}%`,
@@ -160,8 +160,8 @@ function FilterBar({
   loading: boolean;
 }) {
   const selectStyle: React.CSSProperties = {
-    background: '#0f1117', border: '1px solid #1f2433', borderRadius: 7,
-    color: '#e5e7eb', fontSize: 13, padding: '7px 10px', outline: 'none',
+    background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 7,
+    color: 'var(--text-primary)', fontSize: 13, padding: '7px 10px',
     cursor: 'pointer', fontFamily: 'inherit',
   };
   const inputStyle: React.CSSProperties = {
@@ -171,8 +171,8 @@ function FilterBar({
   return (
     <div style={{
       display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center',
-      padding: '14px 20px', background: '#0b0d13',
-      border: '1px solid #1f2433', borderRadius: 10, marginBottom: 24,
+      padding: '14px 20px', background: 'var(--bg-sunken)',
+      border: '1px solid var(--border)', borderRadius: 10, marginBottom: 24,
     }}>
       <select value={filters.orgId} onChange={e => onChange('orgId', e.target.value)} style={selectStyle}>
         <option value="">All organisations</option>
@@ -180,9 +180,9 @@ function FilterBar({
       </select>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ fontSize: 12, color: '#6b7280' }}>From</span>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>From</span>
         <input type="date" value={filters.from} onChange={e => onChange('from', e.target.value)} style={inputStyle} />
-        <span style={{ fontSize: 12, color: '#6b7280' }}>to</span>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>to</span>
         <input type="date" value={filters.to}   onChange={e => onChange('to',   e.target.value)} style={inputStyle} />
       </div>
 
@@ -200,7 +200,7 @@ function FilterBar({
         onClick={onReset}
         style={{
           padding: '7px 14px', borderRadius: 7, fontSize: 12, fontWeight: 600,
-          background: 'transparent', border: '1px solid #374151', color: '#6b7280',
+          background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)',
           cursor: 'pointer', fontFamily: 'inherit',
         }}
       >
@@ -208,7 +208,7 @@ function FilterBar({
       </button>
 
       {loading && (
-        <span style={{ fontSize: 11, color: '#4b5563', marginLeft: 4 }}>Refreshing…</span>
+        <span style={{ fontSize: 11, color: 'var(--text-subtle)', marginLeft: 4 }}>Refreshing…</span>
       )}
     </div>
   );
@@ -271,8 +271,8 @@ export default function AgentRunsDashboard({ orgs }: { orgs: Org[] }) {
 
       {/* Header */}
       <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f9fafb', marginBottom: 6 }}>Agent Runs</h1>
-        <p style={{ fontSize: 14, color: '#6b7280' }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>Agent Runs</h1>
+        <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>
           Audit log of every specialist agent invocation — routing decisions, confidence, and query history.
         </p>
       </div>
@@ -287,7 +287,7 @@ export default function AgentRunsDashboard({ orgs }: { orgs: Org[] }) {
       />
 
       {error && (
-        <div style={{ padding: '12px 16px', borderRadius: 8, background: '#1a0a0a', border: '1px solid #7f1d1d', color: '#fca5a5', marginBottom: 20 }}>
+        <div style={{ padding: '12px 16px', borderRadius: 8, background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', color: 'var(--status-danger)', marginBottom: 20 }}>
           {error}
         </div>
       )}
@@ -304,7 +304,7 @@ export default function AgentRunsDashboard({ orgs }: { orgs: Org[] }) {
           label="Fallback Rate"
           value={`${fallbackPct}%`}
           sub={`${stats.fallback_count} chat fallbacks`}
-          color={fallbackPct > 30 ? '#F87171' : fallbackPct > 15 ? '#FBBF24' : '#34D399'}
+          color={fallbackPct > 30 ? 'var(--status-danger)' : fallbackPct > 15 ? 'var(--status-warning)' : 'var(--status-success)'}
         />
         <StatCard
           label="Top Route"
@@ -340,21 +340,21 @@ export default function AgentRunsDashboard({ orgs }: { orgs: Org[] }) {
       </div>
 
       {/* Recent runs table */}
-      <div style={{ background: '#0f1117', border: '1px solid #1f2433', borderRadius: 10, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
         <div style={{
-          padding: '14px 20px', borderBottom: '1px solid #1f2433',
+          padding: '14px 20px', borderBottom: '1px solid var(--border)',
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         }}>
-          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: '#4b5563' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text-subtle)' }}>
             Recent Runs
           </span>
-          <span style={{ fontSize: 11, color: '#374151' }}>
+          <span style={{ fontSize: 11, color: 'var(--text-subtle)' }}>
             {data?.recent?.length ?? 0} shown
           </span>
         </div>
 
         {(data?.recent?.length ?? 0) === 0 && !loading && (
-          <div style={{ padding: '40px 20px', textAlign: 'center', color: '#374151', fontSize: 13 }}>
+          <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: 13 }}>
             No agent runs found for the selected filters.
           </div>
         )}
@@ -363,12 +363,12 @@ export default function AgentRunsDashboard({ orgs }: { orgs: Org[] }) {
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
-                <tr style={{ borderBottom: '1px solid #1f2433' }}>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}>
                   {['Time', 'Org', 'Agent', 'Route', 'Query', 'Confidence', 'Rows'].map(h => (
                     <th key={h} style={{
                       padding: '8px 14px', textAlign: 'left',
                       fontSize: 10, fontWeight: 700, letterSpacing: '0.07em',
-                      textTransform: 'uppercase', color: '#4b5563',
+                      textTransform: 'uppercase', color: 'var(--text-subtle)',
                     }}>
                       {h}
                     </th>
@@ -379,12 +379,12 @@ export default function AgentRunsDashboard({ orgs }: { orgs: Org[] }) {
                 {(data?.recent ?? []).map((row, i) => (
                   <tr
                     key={row.id}
-                    style={{ borderBottom: i < (data?.recent?.length ?? 0) - 1 ? '1px solid #141720' : undefined }}
+                    style={{ borderBottom: i < (data?.recent?.length ?? 0) - 1 ? '1px solid var(--border)' : undefined }}
                   >
-                    <td style={{ padding: '9px 14px', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '9px 14px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                       {timeAgo(row.created_at)}
                     </td>
-                    <td style={{ padding: '9px 14px', color: '#9ca3af', maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '9px 14px', color: 'var(--text-secondary)', maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {row.org_name ?? '—'}
                     </td>
                     <td style={{ padding: '9px 14px', whiteSpace: 'nowrap' }}>
@@ -392,7 +392,7 @@ export default function AgentRunsDashboard({ orgs }: { orgs: Org[] }) {
                         fontSize: 11, fontWeight: 600, letterSpacing: '0.04em',
                         padding: '2px 7px', borderRadius: 12,
                         background: `${AGENT_COLOR[row.agent_name] ?? '#6366F1'}18`,
-                        color: AGENT_COLOR[row.agent_name] ?? '#6366F1',
+                        color: AGENT_COLOR[row.agent_name] ?? 'var(--status-info)',
                         border: `1px solid ${AGENT_COLOR[row.agent_name] ?? '#6366F1'}30`,
                       }}>
                         {row.agent_name.replace(/Agent$/, '')}
@@ -400,27 +400,27 @@ export default function AgentRunsDashboard({ orgs }: { orgs: Org[] }) {
                     </td>
                     <td style={{ padding: '9px 14px', whiteSpace: 'nowrap' }}>
                       <span style={{
-                        fontSize: 11, color: ROUTE_COLOR[row.route_type] ?? '#6b7280',
+                        fontSize: 11, color: ROUTE_COLOR[row.route_type] ?? 'var(--text-muted)',
                         fontWeight: 600,
                       }}>
                         {row.route_type}
                       </span>
                     </td>
-                    <td style={{ padding: '9px 14px', color: '#9ca3af', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '9px 14px', color: 'var(--text-secondary)', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {row.input_query
                         ? row.input_query.length > 55
                           ? row.input_query.slice(0, 55) + '…'
                           : row.input_query
-                        : <span style={{ color: '#374151' }}>—</span>}
+                        : <span style={{ color: 'var(--text-subtle)' }}>—</span>}
                     </td>
                     <td style={{ padding: '9px 14px', whiteSpace: 'nowrap' }}>
                       {row.confidence != null ? (
                         <span style={{ color: confColor(row.confidence), fontWeight: 700 }}>
                           {Math.round(row.confidence * 100)}%
                         </span>
-                      ) : <span style={{ color: '#374151' }}>—</span>}
+                      ) : <span style={{ color: 'var(--text-subtle)' }}>—</span>}
                     </td>
-                    <td style={{ padding: '9px 14px', color: '#6b7280', textAlign: 'right' }}>
+                    <td style={{ padding: '9px 14px', color: 'var(--text-muted)', textAlign: 'right' }}>
                       {row.source_rows > 0 ? row.source_rows.toLocaleString() : '—'}
                     </td>
                   </tr>

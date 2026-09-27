@@ -1,14 +1,14 @@
 'use client';
 
-// Shared, Events-only presentation primitives — visual polish layer for
-// the authenticated Events control centre (app/events/**). Not a new
-// design system: these are thin wrappers around the same dark/violet
-// palette already used by the polished public booking page
-// (app/e/[organisationSlug]/[eventSlug]/PublicEventClient.tsx), kept
-// local to app/events/ rather than promoted into a shared components/ui
-// primitive, since nothing outside Events currently needs them.
+// Shared, Events-only presentation primitives for the authenticated
+// Events control centre (app/events/**). Phase D1: these are now thin
+// adapters onto the authenticated app system — semantic tokens for every
+// colour (light and dark), the canonical semantic Badge for status, and
+// the shared button contract's colours — kept as Events-local exports so
+// every existing call site and its behaviour stays unchanged.
 
 import { useEffect, useRef, useState } from 'react';
+import { Badge, type SemanticState } from '@/components/ui/app';
 
 export const FONT = 'var(--font-inter),-apple-system,sans-serif';
 
@@ -16,21 +16,23 @@ export const BORDER = 'var(--border)';
 export const BORDER_SOFT = 'var(--border-light)';
 export const PANEL_BG = 'var(--bg-surface)';
 export const ROW_BG = 'var(--bg-raised)';
-export const VIOLET = 'var(--purple-400)';
-export const VIOLET_SOFT = 'var(--purple-300)';
-export const VIOLET_GRADIENT = 'var(--purple-600)';
+// Product accent (was the retired --purple-* ramp). Names kept for callers.
+export const VIOLET = 'var(--brand-brainbase-accent)';
+export const VIOLET_SOFT = 'var(--brand-brainbase-accent)';
+export const VIOLET_GRADIENT = 'var(--brand-brainbase-accent)';
 export const TEXT_PRIMARY = 'var(--text-primary)';
 export const TEXT_SECONDARY = 'var(--text-secondary)';
 export const TEXT_MUTED = 'var(--text-muted)';
-export const GREEN = '#4ADE80';
-export const RED = '#F87171';
-export const YELLOW = '#FBBF24';
+// Semantic status colours (theme-aware). Names kept for callers.
+export const GREEN = 'var(--status-success)';
+export const RED = 'var(--status-danger)';
+export const YELLOW = 'var(--status-warning)';
 
 // ─── Layout primitives ──────────────────────────────────────────────
 
 export function Panel({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
-    <div style={{ background: PANEL_BG, border: `1px solid ${BORDER}`, borderRadius: 8, padding: 22, ...style }}>
+    <div style={{ background: PANEL_BG, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 20, ...style }}>
       {children}
     </div>
   );
@@ -71,25 +73,17 @@ export function capacityTone(remaining: number, capacity: number): Tone {
   return 'success';
 }
 
-const TONE_STYLES: Record<Tone, { fg: string; bg: string; bd: string }> = {
-  success: { fg: GREEN, bg: 'rgba(74,222,128,.10)', bd: 'rgba(74,222,128,.30)' },
-  danger: { fg: RED, bg: 'rgba(248,113,113,.10)', bd: 'rgba(248,113,113,.30)' },
-  warning: { fg: YELLOW, bg: 'rgba(251,191,36,.10)', bd: 'rgba(251,191,36,.30)' },
-  neutral: { fg: TEXT_SECONDARY, bg: 'var(--bg-raised)', bd: BORDER },
+// Events tones → the canonical semantic states (components/ui/semantic):
+// same text label, a state-specific dot shape, theme-aware colours.
+const TONE_STATE: Record<Tone, SemanticState> = {
+  success: 'success',
+  danger: 'error',
+  warning: 'warning',
+  neutral: 'inactive',
 };
 
 export function StatusBadge({ label, tone }: { label: string; tone: Tone }) {
-  const t = TONE_STYLES[tone];
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700,
-      letterSpacing: '.05em', textTransform: 'uppercase', padding: '3px 9px', borderRadius: 999,
-      color: t.fg, background: t.bg, border: `1px solid ${t.bd}`, whiteSpace: 'nowrap',
-    }}>
-      <span style={{ width: 5, height: 5, borderRadius: '50%', background: t.fg, flex: 'none' }} aria-hidden="true" />
-      {label}
-    </span>
-  );
+  return <Badge state={TONE_STATE[tone]}>{label}</Badge>;
 }
 
 export function eventStatusTone(status: 'DRAFT' | 'PUBLISHED' | 'CANCELLED'): Tone {
@@ -120,15 +114,18 @@ export function paymentStatusTone(paymentStatus: string): Tone {
 
 // ─── Buttons ─────────────────────────────────────────────────────────
 
+// Same colours as the shared app Button (components/ui/app/Button):
+// primary = product accent, secondary = neutral surface + strong border.
 export const primaryBtnStyle: React.CSSProperties = {
-  background: VIOLET_GRADIENT, color: '#fff', border: '1px solid var(--purple-600)', borderRadius: 6,
-  padding: '8px 16px', fontSize: 12.5, fontWeight: 650, cursor: 'pointer',
+  background: 'var(--brand-brainbase-accent)', color: 'var(--brand-brainbase-on-accent)',
+  border: '1px solid var(--brand-brainbase-accent)', borderRadius: 'var(--radius-md)',
+  padding: '8px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
   fontFamily: FONT,
 };
 
 export const secondaryBtnStyle: React.CSSProperties = {
-  background: 'var(--bg-raised)', color: TEXT_SECONDARY, border: `1px solid ${BORDER}`,
-  borderRadius: 6, padding: '7px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: FONT,
+  background: 'var(--bg-surface)', color: TEXT_PRIMARY, border: '1px solid var(--border-strong)',
+  borderRadius: 'var(--radius-md)', padding: '7px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: FONT,
 };
 
 // Delete stays visually restrained until hover/focus — never draws the
@@ -143,10 +140,10 @@ export function DangerButton({ children, onClick, disabled, ariaLabel }: {
       onMouseEnter={() => setActive(true)} onMouseLeave={() => setActive(false)}
       onFocus={() => setActive(true)} onBlur={() => setActive(false)}
       style={{
-        background: active ? 'rgba(248,113,113,.12)' : 'transparent',
-        color: active ? '#FCA5A5' : 'rgba(248,113,113,.55)',
-        border: `1px solid ${active ? 'rgba(248,113,113,.4)' : 'rgba(248,113,113,.18)'}`,
-        borderRadius: 9, padding: '7px 14px', fontSize: 12.5, fontWeight: 600, fontFamily: FONT,
+        background: active ? 'var(--status-danger-muted)' : 'transparent',
+        color: 'var(--status-danger)',
+        border: `1px solid ${active ? 'var(--status-danger)' : 'var(--status-danger-border)'}`,
+        borderRadius: 'var(--radius-md)', padding: '7px 14px', fontSize: 12.5, fontWeight: 600, fontFamily: FONT,
         cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1,
         transition: 'background .15s ease, border-color .15s ease, color .15s ease',
       }}
@@ -175,7 +172,7 @@ export const fieldStyle: React.CSSProperties = { display: 'flex', flexDirection:
 // already applied elsewhere in this codebase, e.g.
 // components/ops/maintenance/CreateJobModal.tsx's selects).
 export const inputStyle: React.CSSProperties = {
-  background: 'var(--bg-raised)', border: `1px solid ${BORDER}`, borderRadius: 6,
+  background: 'var(--bg-raised)', border: '1px solid var(--border-strong)', borderRadius: 'var(--radius-md)',
   padding: '8px 11px', color: TEXT_PRIMARY, fontSize: 13, fontFamily: FONT,
 };
 
@@ -188,7 +185,11 @@ export function Field({ label, children }: { label: string; children: React.Reac
   );
 }
 
-// ─── Filter dropdown (dark BrainBase menu, replaces a native <select>) ─
+// ─── Filter dropdown (BrainBase menu surface, replaces a native <select>) ─
+//
+// Phase D1: the open panel now uses the app's overlay tokens
+// (--bg-overlay / --border / --shadow-menu), so it follows light and dark
+// like the TopNav menus it was modelled on; behaviour is unchanged.
 //
 // Registration operations phase — a single-select dropdown that looks
 // and behaves like the top-nav dropdown family (components/nav/
@@ -284,7 +285,7 @@ export function FilterDropdown({
         style={{
           ...inputStyle,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-          cursor: 'pointer', minWidth: 150, background: open ? 'rgba(255,255,255,.06)' : inputStyle.background,
+          cursor: 'pointer', minWidth: 150, background: open ? 'var(--bg-sunken)' : inputStyle.background,
           ...triggerStyle,
         }}
       >
@@ -305,8 +306,8 @@ export function FilterDropdown({
             // the toolbar's own flex-wrap already handles vertical
             // stacking; this only guards the one axis wrapping can't.
             position: 'absolute', top: '100%', left: 0, marginTop: 4, minWidth: '100%', width: 'max-content', maxWidth: 'min(260px, calc(100vw - 32px))',
-            background: 'rgba(7,5,16,.98)', border: '1px solid rgba(255,255,255,.09)', borderRadius: 10,
-            boxShadow: '0 12px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.04)', padding: 5, zIndex: 60,
+            background: 'var(--bg-overlay)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
+            boxShadow: 'var(--shadow-menu)', padding: 4, zIndex: 60,
             maxHeight: 280, overflowY: 'auto',
           }}
         >
@@ -322,10 +323,10 @@ export function FilterDropdown({
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
                   padding: '7px 10px', background: 'none', border: 'none', borderRadius: 7, cursor: 'pointer',
-                  color: isSelected ? VIOLET_SOFT : '#E2E8F0', fontSize: 12.5, fontWeight: isSelected ? 600 : 400,
+                  color: isSelected ? VIOLET_SOFT : TEXT_PRIMARY, fontSize: 12.5, fontWeight: isSelected ? 600 : 400,
                   fontFamily: FONT, whiteSpace: 'nowrap',
                 }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,.05)'; }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-sunken)'; }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
               >
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: isSelected ? VIOLET_SOFT : 'transparent', flexShrink: 0 }} />
@@ -342,7 +343,7 @@ export function FilterDropdown({
 // ─── Row card (sessions / ticket types / registrations list rows) ────
 
 export const rowCardStyle: React.CSSProperties = {
-  padding: '13px 15px', background: ROW_BG, border: `1px solid ${BORDER_SOFT}`, borderRadius: 10,
+  padding: '12px 14px', background: ROW_BG, border: `1px solid ${BORDER_SOFT}`, borderRadius: 'var(--radius-lg)',
 };
 
 // ─── Shared scoped CSS ──────────────────────────────────────────────
@@ -351,14 +352,13 @@ export const rowCardStyle: React.CSSProperties = {
 // public booking page already uses for its own scoped <style> block.
 // Render <EventsSharedStyles /> once per page.
 
+// Phase D1: tokens only; no outline suppression — inputs keep the global
+// :focus-visible ring and gain an accent border while focused.
 const EVENTS_UI_CSS = `
 .bb-evt-row { transition: border-color .15s ease, background .15s ease; }
-.bb-evt-row:hover, .bb-evt-row:focus-within { border-color: rgba(138,77,255,.35); background: rgba(138,77,255,.05); }
-.bb-evt-input { transition: border-color .15s ease, background .15s ease, box-shadow .15s ease; }
-.bb-evt-input:focus {
-  outline: none; border-color: rgba(138,77,255,.55); background: rgba(138,77,255,.05);
-  box-shadow: 0 0 0 3px rgba(124,58,237,.14);
-}
+.bb-evt-row:hover, .bb-evt-row:focus-within { border-color: var(--brand-brainbase-accent-border); background: var(--bg-sunken); }
+.bb-evt-input { transition: border-color .15s ease; }
+.bb-evt-input:focus { border-color: var(--border-focus); }
 `;
 
 export function EventsSharedStyles() {

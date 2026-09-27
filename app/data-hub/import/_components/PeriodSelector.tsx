@@ -200,7 +200,7 @@ export default function PeriodSelector({
           </div>
 
           {submitError ? (
-            <div role="alert" style={{ marginTop: 6, fontSize: 12, color: "#fbbf24" }}>
+            <div role="alert" style={{ marginTop: 6, fontSize: 12, color: "var(--status-warning)" }}>
               {submitError}
             </div>
           ) : null}

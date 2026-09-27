@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { buttonProps } from '@/components/ui/app';
 
 // ── Client Implementations — list (Phase 2A) ────────────────────────────
 // Founder/admin view of real client implementations. No fake/seeded rows —
@@ -11,8 +13,8 @@ import { useRouter } from 'next/navigation';
 // app/admin/layout.tsx). No services/milestones/tasks/progress here —
 // those are later, separate slices.
 
-const CARD = '#0e1014';
-const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)';
+const BORDER = 'var(--border)';
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
 type Implementation = {
@@ -39,16 +41,15 @@ const STAGE_LABEL: Record<string, string> = {
   live: 'Live', on_hold: 'On Hold', cancelled: 'Cancelled',
 };
 const HEALTH_META: Record<string, { label: string; color: string }> = {
-  on_track: { label: 'On Track', color: '#34d399' },
-  at_risk:  { label: 'At Risk',  color: '#f59e0b' },
-  blocked:  { label: 'Blocked',  color: '#f87171' },
+  on_track: { label: 'On Track', color: 'var(--status-success)' },
+  at_risk:  { label: 'At Risk',  color: 'var(--status-warning)' },
+  blocked:  { label: 'Blocked',  color: 'var(--status-danger)' },
 };
 
-const thStyle: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const labelStyle: React.CSSProperties = { display: 'block', color: '#9ca3af', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const inputStyle: React.CSSProperties = { width: '100%', padding: '10px 12px', background: '#111318', border: `1px solid ${BORDER}`, borderRadius: 8, color: '#f9fafb', fontSize: 14, boxSizing: 'border-box' };
-const errorStyle: React.CSSProperties = { color: '#f87171', fontSize: 13, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: 6, padding: '8px 12px', margin: 0 };
-function btnStyle(bg: string): React.CSSProperties { return { padding: '9px 18px', background: bg, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }; }
+const thStyle: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', color: 'var(--text-muted)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const labelStyle: React.CSSProperties = { display: 'block', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const inputStyle: React.CSSProperties = { width: '100%', padding: '10px 12px', background: 'var(--bg-surface)', border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' };
+const errorStyle: React.CSSProperties = { color: 'var(--status-danger)', fontSize: 13, background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', borderRadius: 6, padding: '8px 12px', margin: 0 };
 
 export default function ImplementationsPage() {
   const router = useRouter();
@@ -123,15 +124,15 @@ export default function ImplementationsPage() {
   }
 
   return (
-    <div style={{ maxWidth: 1100, fontFamily: FONT, color: '#f9fafb' }}>
+    <div style={{ maxWidth: 1100, fontFamily: FONT, color: 'var(--text-primary)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>Client Implementations</h1>
-          <p style={{ color: '#6b7280', fontSize: 13, marginTop: 4, marginBottom: 0 }}>
+          <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4, marginBottom: 0 }}>
             {loading ? 'Loading…' : `${implementations.length} implementation${implementations.length !== 1 ? 's' : ''}`}
           </p>
         </div>
-        <button onClick={openCreate} style={btnStyle('#1a6aff')}>+ New Implementation</button>
+        <button type="button" onClick={openCreate} {...buttonProps('primary')}>+ New Implementation</button>
       </div>
 
       {loadError && (
@@ -171,8 +172,8 @@ export default function ImplementationsPage() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={submitCreate} disabled={creating} style={btnStyle('#1a6aff')}>{creating ? 'Creating…' : 'Create Implementation'}</button>
-            <button onClick={() => setShowCreate(false)} style={btnStyle('#1f2937')}>Cancel</button>
+            <button type="button" onClick={submitCreate} disabled={creating} {...buttonProps('primary')}>{creating ? 'Creating…' : 'Create Implementation'}</button>
+            <button type="button" onClick={() => setShowCreate(false)} {...buttonProps('secondary')}>Cancel</button>
           </div>
         </div>
       )}
@@ -180,8 +181,8 @@ export default function ImplementationsPage() {
       <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden' }}>
         {!loading && implementations.length === 0 && !loadError ? (
           <div style={{ padding: '48px 24px', textAlign: 'center' }}>
-            <div style={{ fontSize: 14, color: '#9ca3af', marginBottom: 6 }}>No implementations yet</div>
-            <div style={{ fontSize: 12, color: '#4b5563' }}>Create one for a real client organisation to get started.</div>
+            <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 6 }}>No implementations yet</div>
+            <div style={{ fontSize: 12, color: 'var(--text-subtle)' }}>Create one for a real client organisation to get started.</div>
           </div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -201,17 +202,17 @@ export default function ImplementationsPage() {
                     onClick={() => router.push(`/admin/implementations/${impl.id}`)}
                     style={{ borderBottom: i < implementations.length - 1 ? `1px solid ${BORDER}` : 'none', cursor: 'pointer' }}
                   >
-                    <td style={{ padding: '14px 16px', fontSize: 13, color: '#9ca3af' }}>{impl.organisation_name ?? '—'}</td>
-                    <td style={{ padding: '14px 16px', fontSize: 14, fontWeight: 500 }}>{impl.name}</td>
-                    <td style={{ padding: '14px 16px', fontSize: 13, color: '#9ca3af' }}>{impl.service_type ?? '—'}</td>
-                    <td style={{ padding: '14px 16px', fontSize: 13, color: '#9ca3af' }}>{STAGE_LABEL[impl.stage] ?? impl.stage}</td>
+                    <td style={{ padding: '14px 16px', fontSize: 13, color: 'var(--text-secondary)' }}>{impl.organisation_name ?? '—'}</td>
+                    <td style={{ padding: '14px 16px', fontSize: 14, fontWeight: 500 }}><Link href={`/admin/implementations/${impl.id}`} onClick={e => e.stopPropagation()} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>{impl.name}</Link></td>
+                    <td style={{ padding: '14px 16px', fontSize: 13, color: 'var(--text-secondary)' }}>{impl.service_type ?? '—'}</td>
+                    <td style={{ padding: '14px 16px', fontSize: 13, color: 'var(--text-secondary)' }}>{STAGE_LABEL[impl.stage] ?? impl.stage}</td>
                     <td style={{ padding: '14px 16px' }}>
                       <span style={{ fontSize: 11, fontWeight: 700, color: health.color, background: `${health.color}18`, padding: '3px 8px', borderRadius: 4 }}>{health.label}</span>
                     </td>
-                    <td style={{ padding: '14px 16px', fontSize: 13, color: '#9ca3af' }}>{impl.owner_name ?? 'Unassigned'}</td>
-                    <td style={{ padding: '14px 16px', fontSize: 13, color: '#9ca3af' }}>{impl.target_launch_date ? new Date(impl.target_launch_date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</td>
-                    <td style={{ padding: '14px 16px', fontSize: 13, color: '#9ca3af', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{impl.next_action ?? '—'}</td>
-                    <td style={{ padding: '14px 16px', fontSize: 12, color: '#6b7280' }}>{new Date(impl.updated_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}</td>
+                    <td style={{ padding: '14px 16px', fontSize: 13, color: 'var(--text-secondary)' }}>{impl.owner_name ?? 'Unassigned'}</td>
+                    <td style={{ padding: '14px 16px', fontSize: 13, color: 'var(--text-secondary)' }}>{impl.target_launch_date ? new Date(impl.target_launch_date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</td>
+                    <td style={{ padding: '14px 16px', fontSize: 13, color: 'var(--text-secondary)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{impl.next_action ?? '—'}</td>
+                    <td style={{ padding: '14px 16px', fontSize: 12, color: 'var(--text-muted)' }}>{new Date(impl.updated_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}</td>
                   </tr>
                 );
               })}

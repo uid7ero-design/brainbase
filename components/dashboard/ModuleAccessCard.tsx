@@ -1,9 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useId } from 'react';
 import { CapabilityIcon } from '@/components/brand/CapabilityIcon';
-
-const FONT = "var(--font-inter), -apple-system, sans-serif";
+import styles from './ModuleAccessCard.module.css';
 
 // The client dashboard's own capability-driven "Your tools" section — the
 // single place a staff user with a capability-gated module enabled sees an
@@ -57,76 +56,43 @@ const MODULE_ENTRIES: ModuleEntry[] = [
   },
 ];
 
+// Phase D2 — compact module access: one bordered list, one row per
+// enabled module (icon, name, purpose, direct action), instead of large
+// hover-lit tiles. Destinations, copy and capability gating are unchanged.
+// Shared by OrganisationDashboard, TennisDashboard and BrainBase.jsx; the
+// props contract is unchanged, so every consumer gets the same rows.
 function ModuleCard({ entry }: { entry: ModuleEntry }) {
-  const [hover, setHover] = useState(false);
-
   return (
-    <a
-      href={entry.href}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        padding: '12px 16px 14px',
-        borderRadius: 11,
-        textDecoration: 'none',
-        fontFamily: FONT,
-        background: hover ? 'color-mix(in srgb, var(--purple-400) 10%, var(--bg-surface))' : 'var(--bg-surface)',
-        border: `1px solid ${hover ? 'color-mix(in srgb, var(--purple-400) 38%, var(--border))' : 'var(--border)'}`,
-        boxShadow: 'none',
-        transition: 'all .18s',
-      }}
-    >
-      {/* Decorative — the title text right below already gives every card an
-          accessible name, so the icon carries no separate aria-label.
-          marginBottom trims the flex gap below just this element (8px -
-          2px = 6px) so the icon reads as grouped with the title, without
-          touching the title/description/CTA rhythm below, which keeps the
-          container's own 8px gap unchanged. */}
-      <CapabilityIcon capability={entry.key} size="md" state={hover ? 'hover' : 'default'} style={{ marginBottom: -2 }} />
-
-      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.35 }}>
-        {entry.title}
-      </span>
-      <p style={{ margin: 0, fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-        {entry.description}
-      </p>
-      <span style={{
-        fontSize: 10, fontWeight: 700, letterSpacing: '.04em',
-        color: hover ? 'var(--purple-400)' : 'var(--text-secondary)',
-        transition: 'color .18s',
-      }}>
-        {entry.cta} →
-      </span>
-    </a>
+    <li>
+      <a href={entry.href} className={styles.row}>
+        {/* Decorative — the title text beside it already gives every row an
+            accessible name, so the icon carries no separate aria-label. */}
+        <CapabilityIcon capability={entry.key} size="sm" />
+        <span className={styles.text}>
+          <span className={styles.title}>{entry.title}</span>
+          <span className={styles.description}>{entry.description}</span>
+        </span>
+        <span className={styles.cta}>
+          {entry.cta} <span aria-hidden="true">→</span>
+        </span>
+      </a>
+    </li>
   );
 }
 
 export function ModuleAccessCard({ enabledCapabilities }: { enabledCapabilities: string[] }) {
   const entries = MODULE_ENTRIES.filter(e => enabledCapabilities.includes(e.key));
+  const headingId = useId();
   if (entries.length === 0) return null;
 
   return (
-    <div style={{ fontFamily: FONT }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <div style={{ height: 1, flex: 1, background: 'var(--border)' }} />
-        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '.14em', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-          Your Tools
-        </span>
-        <div style={{ height: 1, flex: 1, background: 'var(--border)' }} />
-      </div>
-
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-        gap: 8,
-      }}>
+    <section className={styles.section} aria-labelledby={headingId}>
+      <h2 id={headingId} className={styles.heading}>Your Tools</h2>
+      <ul className={styles.list}>
         {entries.map(entry => (
           <ModuleCard key={entry.key} entry={entry} />
         ))}
-      </div>
-    </div>
+      </ul>
+    </section>
   );
 }

@@ -3,20 +3,23 @@
 // lib/commercial/purchaseReceiptLifecycle.ts (the zero-import,
 // client-safe domain module) rather than redefining status strings/
 // labels locally.
+// Phase D4: rendered with the canonical semantic Badge (compact app tag),
+// like the purchase-order/quote/invoice status badges; only the tone
+// mapping lives here.
 'use client';
 import { PURCHASE_RECEIPT_STATUS_LABELS, type PurchaseReceiptStatus } from '@/lib/commercial/purchaseReceiptLifecycle';
+import { Badge, type SemanticState } from '@/components/ui/app';
 
-const STATUS_STYLE: Record<PurchaseReceiptStatus, { color: string; bg: string }> = {
-  DRAFT: { color: 'var(--text-secondary)', bg: 'rgba(156,163,175,0.12)' },
-  POSTED: { color: '#60a5fa', bg: 'rgba(96,165,250,0.12)' },
-  CANCELLED: { color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
+const STATUS_STATE: Record<PurchaseReceiptStatus, SemanticState> = {
+  DRAFT: 'inactive',
+  POSTED: 'info',
+  CANCELLED: 'error',
 };
 
 export function PurchaseReceiptStatusBadge({ status }: { status: PurchaseReceiptStatus }) {
-  const s = STATUS_STYLE[status] ?? STATUS_STYLE.DRAFT;
   return (
-    <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: '0.04em', color: s.color, background: s.bg }}>
+    <Badge state={STATUS_STATE[status] ?? 'inactive'}>
       {PURCHASE_RECEIPT_STATUS_LABELS[status] ?? status}
-    </span>
+    </Badge>
   );
 }
