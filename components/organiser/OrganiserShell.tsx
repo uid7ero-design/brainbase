@@ -37,11 +37,11 @@ export default function OrganiserShell({ rail, children }: OrganiserShellProps) 
         // before, now via the one shared primitive both shells use.
         position: 'fixed', top: APP_HEADER_OFFSET_VAR, left: 0, right: 0, bottom: 0,
         display: 'flex',
-        background: 'var(--bg-base)',
+        background: 'var(--bb-canvas)',
         color: 'var(--text-primary)',
-        fontFamily: 'var(--font-inter),"Inter",-apple-system,sans-serif',
+        fontFamily: 'var(--bb-font-sans)',
         overflow: 'hidden',
-        zIndex: 50,
+        zIndex: 'var(--bb-z-header)',
       }}>
         {rail}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>

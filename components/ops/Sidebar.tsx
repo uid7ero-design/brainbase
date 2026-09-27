@@ -4,7 +4,7 @@ import { useOpsTheme } from '@/components/ops/theme';
 import { BrokenOrbitMark } from '@/components/brand/BrokenOrbitMark';
 import styles from './OpsSidebar.module.css';
 
-const FONT = 'var(--font-inter),"Inter",-apple-system,sans-serif';
+const FONT = 'var(--bb-font-sans)';
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 

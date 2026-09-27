@@ -79,7 +79,9 @@ describe('Organiser surfaces — tokens only, no legacy treatments', () => {
   it('the shell and rail no longer read the ops JS palette (surfaces come from CSS tokens)', () => {
     expect(shell).not.toMatch(/useOpsTheme|t\.pageBg/)
     expect(rail).not.toMatch(/useOpsTheme|t\.sidebarBg|t\.accentText/)
-    expect(shell).toContain("background: 'var(--bg-base)'")
+    // Integration with main's C.2 token rollout: the canvas token resolves to the
+    // same #0B0B0C / #F5F3EE base as --bg-base in both themes.
+    expect(shell).toContain("background: 'var(--bb-canvas)'")
     // Only the pinned AssigneeDropdown still uses the helper in the page.
     expect(pageWithoutAssignee).not.toMatch(/useOpsTheme\(\)|\bt\.(ink|paper|menuBg|accentText|panelBgSolid)\b/)
   })

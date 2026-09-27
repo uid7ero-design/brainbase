@@ -1538,7 +1538,7 @@ function ItemDrawer({
   // already uses for its own dropdown menus (see its own comment there).
   // No layout/offset math needed — once escaped, 200 already beats both.
   const drawerContent = (
-    <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", justifyContent: "flex-end" }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: "var(--bb-z-drawer)", display: "flex", justifyContent: "flex-end" }}>
       <div onClick={onClose} className={styles.scrim} aria-hidden="true" />
       <div
         ref={drawerPanelRef}
@@ -1547,7 +1547,7 @@ function ItemDrawer({
         aria-label={`Item details: ${item.name}`}
         tabIndex={-1}
         className={styles.drawer}
-        style={{ animation: "drawer-in .18s ease" }}
+        style={{ animation: "drawer-in var(--bb-duration-base) var(--bb-ease-standard)" }}
       >
         <div className={styles.drawerHeader}>
           <div style={{ flex: 1, minWidth: 0, fontSize: 15 }}>

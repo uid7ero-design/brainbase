@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
-const FONT = 'var(--font-inter),"Inter",-apple-system,sans-serif';
+const FONT = 'var(--bb-font-sans)';
 
 interface OpBarProps {
   title?: string;
@@ -28,7 +28,7 @@ function Clock() {
   }, []);
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'var(--font-geist-mono,"Geist Mono",monospace)' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'var(--bb-font-mono)' }}>
       <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', letterSpacing: '.04em', fontVariantNumeric: 'tabular-nums' }}>
         {time}
       </span>
