@@ -11,11 +11,11 @@
 -- normalization-attempt history — the same discipline
 -- rollback-datahub-raw-staging-runs.sql applies to D4B.
 --
--- Removes every D4C-B1 object and drops the three additive composite
--- UNIQUE constraints this migration added to data_hub_raw_rows/
--- data_hub_raw_cells. D4A's and D4B's OWN objects/constraints are left
--- completely untouched either way — this migration never modified them,
--- so there is nothing of theirs to restore.
+-- Removes every D4C-B1 object and drops the additive composite UNIQUE
+-- constraints this migration added to data_hub_raw_rows/data_hub_raw_cells/
+-- uploads. D4A's and D4B's OWN objects/constraints are left completely
+-- untouched either way — this migration never modified them, so there is
+-- nothing of theirs to restore.
 
 BEGIN;
 
@@ -53,6 +53,12 @@ ALTER TABLE public.uploads DROP CONSTRAINT IF EXISTS uploads_normalization_run_u
 ALTER TABLE public.uploads DROP CONSTRAINT IF EXISTS uploads_normalization_run_org_fkey;
 ALTER TABLE public.uploads DROP CONSTRAINT IF EXISTS uploads_normalized_profile_version_org_fkey;
 ALTER TABLE public.uploads DROP CONSTRAINT IF EXISTS uploads_normalized_by_fkey;
+-- NOTE: uploads_id_raw_staging_run_organisation_key (REMEDIATION, pre-PR
+-- review) is dropped LATER, after data_hub_normalization_runs itself is
+-- dropped below — that table's own
+-- data_hub_normalization_runs_upload_authoritative_raw_run_fkey depends on
+-- this index, so dropping it here (before the table is gone) fails with
+-- "other objects depend on it".
 
 ALTER TABLE public.uploads DROP COLUMN IF EXISTS normalization_run_id;
 ALTER TABLE public.uploads DROP COLUMN IF EXISTS normalized_cell_count;
@@ -79,12 +85,18 @@ ALTER TABLE public.data_hub_raw_cells DROP CONSTRAINT IF EXISTS data_hub_raw_cel
 ALTER TABLE public.data_hub_raw_cells DROP CONSTRAINT IF EXISTS data_hub_raw_cells_id_organisation_key;
 
 -- ─── Restore data_hub_raw_rows to its pre-D4C-B1 shape ────────────────────
--- Additive-only constraint — D4B's own shape is otherwise untouched.
+-- Additive-only constraints — D4B's own shape is otherwise untouched.
+ALTER TABLE public.data_hub_raw_rows DROP CONSTRAINT IF EXISTS data_hub_raw_rows_id_staging_run_source_row_organisation_key;
 ALTER TABLE public.data_hub_raw_rows DROP CONSTRAINT IF EXISTS data_hub_raw_rows_id_staging_run_organisation_key;
 
 -- ─── Remove data_hub_normalization_runs entirely ──────────────────────────
 DROP TRIGGER IF EXISTS data_hub_normalization_runs_lifecycle_guard ON public.data_hub_normalization_runs;
 DROP FUNCTION IF EXISTS public.datahub_guard_normalization_run_lifecycle();
 DROP TABLE IF EXISTS public.data_hub_normalization_runs;
+
+-- Additive-only (REMEDIATION, pre-PR review) — D4B's own uploads shape is
+-- otherwise untouched. Dropped LAST: data_hub_normalization_runs (and its
+-- dependent FK on this index) is now gone, so this can finally be dropped.
+ALTER TABLE public.uploads DROP CONSTRAINT IF EXISTS uploads_id_raw_staging_run_organisation_key;
 
 COMMIT;

@@ -549,6 +549,12 @@ model Upload {
   // D4A SQL-only coherence FK target: raw rows must use the exact profile
   // version frozen on this Upload at raw-stage completion.
   @@unique([id, raw_profile_version_id, organisation_id], map: "uploads_id_raw_profile_version_organisation_key")
+  // 6.2D4C-B1 remediation (pre-PR review), additive, SQL-only FK target:
+  // makes it structurally impossible for a DataHubNormalizationRun to
+  // derive from any raw staging run other than THIS Upload's own
+  // authoritative raw_staging_run_id (see DataHubNormalizationRun's own
+  // comment for the unmodeled proof FK that references this).
+  @@unique([id, raw_staging_run_id, organisation_id], map: "uploads_id_raw_staging_run_organisation_key")
   @@map("uploads")
 }
 
@@ -1019,6 +1025,12 @@ model DataHubRawRow {
   // really belongs to the same raw staging run its normalization run is
   // pinned to.
   @@unique([id, staging_run_id, organisation_id], map: "data_hub_raw_rows_id_staging_run_organisation_key")
+  // Data Hub 6.2D4C-B1 remediation (pre-PR review) — additive. The 3-column
+  // key above only proves lineage to a staging run; it does NOT prove a
+  // normalized row's declared source_row_number is THIS raw row's own
+  // physical source_row_number. DataHubNormalizedRow.raw_row now targets
+  // this wider key instead, closing that gap structurally.
+  @@unique([id, staging_run_id, source_row_number, organisation_id], map: "data_hub_raw_rows_id_staging_run_source_row_organisation_key")
   @@unique([staging_run_id, source_row_number], map: "data_hub_raw_rows_staging_run_source_row_key")
   @@index([organisation_id, import_batch_id])
   @@index([upload_id])
@@ -1152,6 +1164,16 @@ model DataHubRawCell {
 // SAME version its pinned raw_staging_run itself carries.
 // WorksheetMappingProfile.active_profile_version_id is never consulted
 // when creating or resuming a normalization run.
+//
+// 6.2D4C-B1 remediation (pre-PR review) — AUTHORITATIVE RAW RUN: the
+// migration also adds a DB-level-only proof FK (not modeled as a second
+// Prisma relation, same unmodeled-proof-FK precedent as above):
+// (upload_id, raw_staging_run_id, organisation_id) ->
+// Upload(id, raw_staging_run_id, organisation_id). D4B establishes
+// Upload.raw_staging_run_id as the ONE authoritative completed raw-staging
+// run for an upload; this FK makes it structurally impossible for a
+// normalization run to derive from any OTHER (e.g. superseded) SUCCEEDED
+// raw run that merely happens to belong to the same upload.
 model DataHubNormalizationRun {
   id                                   String    @id @default(cuid())
   organisation_id                      String
@@ -1238,16 +1260,23 @@ model DataHubNormalizedRow {
   // proving this row's own raw_staging_run_id agrees with its run's pin.
   normalization_run DataHubNormalizationRun @relation(fields: [normalization_run_id, organisation_id], references: [id, organisation_id])
   // Proves this row's own raw_row_id really belongs to the raw staging run
-  // its normalization run is pinned to.
-  raw_row           DataHubRawRow           @relation(fields: [raw_row_id, raw_staging_run_id, organisation_id], references: [id, staging_run_id, organisation_id])
+  // its normalization run is pinned to, AND that its own declared
+  // source_row_number is that SAME raw row's own physical source_row_number
+  // (6.2D4C-B1 remediation, pre-PR review) — a normalized row can no longer
+  // reference raw row A while claiming an arbitrary different row number.
+  raw_row           DataHubRawRow           @relation(fields: [raw_row_id, raw_staging_run_id, source_row_number, organisation_id], references: [id, staging_run_id, source_row_number, organisation_id])
 
   cells DataHubNormalizedCell[]
 
   @@unique([id, organisation_id], map: "data_hub_normalized_rows_id_organisation_key")
   @@unique([id, raw_row_id, organisation_id], map: "data_hub_normalized_rows_id_raw_row_organisation_key")
   // Resumability by RUN, not by upload alone (6.2D4B precedent) — a failed
-  // attempt's rows may coexist with a later new attempt's rows.
+  // attempt's rows may coexist with a later new attempt's rows. Also
+  // separately protects physical-row uniqueness within one run.
   @@unique([normalization_run_id, source_row_number], map: "data_hub_normalized_rows_run_source_row_key")
+  // 6.2D4C-B1 remediation (pre-PR review) — additive. One normalization run
+  // may derive AT MOST ONE normalized row from any exact raw row.
+  @@unique([normalization_run_id, raw_row_id], map: "data_hub_normalized_rows_run_raw_row_key")
   @@index([organisation_id, normalization_run_id])
   @@index([raw_row_id])
   @@map("data_hub_normalized_rows")

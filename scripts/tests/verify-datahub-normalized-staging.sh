@@ -154,6 +154,18 @@ expect_success "2. D4C-B1 migration re-applies idempotently (zero drift)" \
   "$(cat "$D4C_B1_MIGRATION")"
 
 echo ""
+echo "=== INDEX DRIFT CHECKING (remediation) — every D4C-B1 index is now pg_temp.ensure_index-checked ==="
+expect_success "2c setup: drop one real D4C-B1 index and pre-create a same-named index with the WRONG columns" \
+  "DROP INDEX IF EXISTS idx_data_hub_normalized_cells_column;
+   CREATE INDEX idx_data_hub_normalized_cells_column ON public.data_hub_normalized_cells (organisation_id);"
+expect_failure "2d. migration fails loudly on a same-named index with the wrong shape (no silent pass)" \
+  "$(cat "$D4C_B1_MIGRATION")" \
+  "Migration drift: index public.idx_data_hub_normalized_cells_column is"
+expect_success "2e. restoring the correct index lets the migration succeed again (clean re-apply)" \
+  "DROP INDEX idx_data_hub_normalized_cells_column;
+   $(cat "$D4C_B1_MIGRATION")"
+
+echo ""
 echo "=== FIXTURE WORLD: org-a tenant, one SUCCEEDED raw staging run with one row/cell ==="
 expect_success "3. seed organisations/users" \
   "INSERT INTO organisations (id, name, slug, updated_at) VALUES ('org-a','Org A','org-a', now()), ('org-b','Org B','org-b', now());
@@ -218,6 +230,19 @@ expect_failure "8. a normalization run cannot be created under a different tenan
   "raw_staging_run_id must reference a SUCCEEDED raw staging run|violates foreign key constraint"
 
 echo ""
+echo "=== AUTHORITATIVE Upload.raw_staging_run_id (remediation) ==="
+expect_success "8c setup: a SECOND SUCCEEDED raw staging run on the SAME upload, pinned to the same pv-1, but NOT the one uploads.raw_staging_run_id points to (still 'run-1')" \
+  "INSERT INTO data_hub_raw_staging_runs (id, organisation_id, import_batch_id, upload_id, source_schema_version_id, source_schema_worksheet_id,
+      worksheet_mapping_profile_id, worksheet_mapping_profile_version_id, attempt_number, source_sha256, parser_version, status,
+      execution_token, lease_expires_at, last_progress_at, expected_row_count, expected_cell_count, persisted_row_count, persisted_cell_count, completed_at)
+     VALUES ('run-superseded','org-a','batch-1','up-1','sv-1','ws-1','wp-1','pv-1',4, repeat('d',64), 'v1', 'SUCCEEDED', 'tok-sup', now()+interval '1 hour', now(), 1, 1, 1, 1, now());
+   SELECT 1/CASE WHEN (SELECT raw_staging_run_id FROM uploads WHERE id='up-1') = 'run-1' THEN 1 ELSE 0 END;"
+expect_failure "8d. a normalization run cannot be created against a SUCCEEDED raw run that belongs to the same upload but is NOT Upload's own authoritative raw_staging_run_id" \
+  "INSERT INTO data_hub_normalization_runs (id, organisation_id, import_batch_id, upload_id, raw_staging_run_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_id, worksheet_mapping_profile_version_id, attempt_number, normalizer_version, status, execution_token, lease_expires_at, last_progress_at, expected_row_count, expected_cell_count)
+   VALUES ('norm-notauthoritative','org-a','batch-1','up-1','run-superseded','sv-1','ws-1','wp-1','pv-1',1,'v1','RUNNING','ntok-nonauth', now()+interval '1 hour', now(), 1, 1);" \
+  "data_hub_normalization_runs_upload_authoritative_raw_run_fkey"
+
+echo ""
 echo "=== NEW-RUN CREATION + ONE RUNNING PER UPLOAD ==="
 expect_success "9. create a normalization run against the SUCCEEDED run-1, pinned to run-1's own pv-1 (never the active pv-2)" \
   "INSERT INTO data_hub_normalization_runs (id, organisation_id, import_batch_id, upload_id, raw_staging_run_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_id, worksheet_mapping_profile_version_id, attempt_number, normalizer_version, status, execution_token, lease_expires_at, last_progress_at, expected_row_count, expected_cell_count)
@@ -242,7 +267,7 @@ expect_failure "13b. once FAILED (terminal), the row is immutable — cannot fli
   "run is FAILED \(terminal\) and immutable"
 expect_success "13c. a later NEW attempt (attempt_number=2) coexists with the FAILED attempt 1" \
   "INSERT INTO data_hub_normalization_runs (id, organisation_id, import_batch_id, upload_id, raw_staging_run_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_id, worksheet_mapping_profile_version_id, attempt_number, normalizer_version, status, execution_token, lease_expires_at, last_progress_at, expected_row_count, expected_cell_count)
-   VALUES ('norm-2','org-a','batch-1','up-1','run-1','sv-1','ws-1','wp-1','pv-1',2,'v1','RUNNING','ntok-2', now()+interval '1 hour', now(), 1, 1);"
+   VALUES ('norm-2','org-a','batch-1','up-1','run-1','sv-1','ws-1','wp-1','pv-1',2,'v1','RUNNING','ntok-2', now()+interval '1 hour', now(), 2, 1);"
 
 echo ""
 echo "=== NORMALIZED ROW/CELL LINEAGE + IMMUTABILITY ==="
@@ -273,6 +298,33 @@ expect_failure "16. a normalized cell under nr-1 (raw_row_id=rr-1) cannot claim 
    VALUES ('nc-bad','org-a','nr-1','rr-1','rc-other','col-1','STRING','\"zzz\"', NULL, NULL);" \
   "data_hub_normalized_cells_raw_cell_row_fkey"
 
+echo ""
+echo "=== RAW ROW PHYSICAL SOURCE-ROW IDENTITY (remediation) ==="
+expect_success "16c setup: a second raw row (rr-10) under run-1 with physical source_row_number=10" \
+  "INSERT INTO data_hub_raw_rows (id, organisation_id, import_batch_id, upload_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_id, worksheet_mapping_profile_version_id, staging_run_id, source_row_number)
+   VALUES ('rr-10','org-a','batch-1','up-1','sv-1','ws-1','wp-1','pv-1','run-1',10);"
+expect_failure "16d. raw row 10 cannot be normalized while claiming source_row_number 11 (physical identity mismatch)" \
+  "INSERT INTO data_hub_normalized_rows (id, organisation_id, normalization_run_id, raw_staging_run_id, raw_row_id, source_row_number)
+   VALUES ('nr-mismatch','org-a','norm-2','run-1','rr-10',11);" \
+  "data_hub_normalized_rows_raw_row_fkey"
+expect_success "16e. raw row 10 CAN be normalized while correctly claiming its own source_row_number=10" \
+  "INSERT INTO data_hub_normalized_rows (id, organisation_id, normalization_run_id, raw_staging_run_id, raw_row_id, source_row_number)
+     VALUES ('nr-10','org-a','norm-2','run-1','rr-10',10);
+   UPDATE data_hub_normalization_runs SET persisted_row_count=2 WHERE id='norm-2';"
+
+# Note: since a normalization run is always pinned to exactly ONE raw
+# staging run, and source_row_number is unique WITHIN that raw run
+# (D4A/D4B), a duplicate raw_row_id under one normalization run
+# necessarily ALSO duplicates (normalization_run_id, source_row_number) —
+# the two UNIQUE constraints below overlap by construction in this design
+# (the task explicitly asks to retain both regardless, for defense in
+# depth / future decoupling). Whichever one Postgres reports first still
+# proves the same invariant: the duplicate is rejected either way.
+expect_failure "16f. the SAME raw_row_id (rr-1) cannot appear twice within the SAME normalization run (norm-2 already derived rr-1 as nr-1)" \
+  "INSERT INTO data_hub_normalized_rows (id, organisation_id, normalization_run_id, raw_staging_run_id, raw_row_id, source_row_number)
+   VALUES ('nr-1-dup','org-a','norm-2','run-1','rr-1',4);" \
+  "data_hub_normalized_rows_run_raw_row_key|data_hub_normalized_rows_run_source_row_key"
+
 expect_failure "17. UPDATE on a normalized row is rejected (immutable evidence)" \
   "UPDATE data_hub_normalized_rows SET source_row_number=99 WHERE id='nr-1';" \
   "normalized evidence is immutable; UPDATE"
@@ -284,9 +336,9 @@ echo ""
 echo "=== COMPLETION + UPLOAD METADATA COHERENCE/FREEZE ==="
 expect_success "19. datahub_complete_normalization_run reconciles counts and atomically completes the run + Upload metadata" \
   "SELECT * FROM datahub_complete_normalization_run('norm-2','org-a','user-a','ntok-2');"
-expect_success "19b. Upload's normalization completion metadata is exactly correct" \
+expect_success "19b. Upload's normalization completion metadata is exactly correct (2 rows: rr-1 + rr-10; 1 cell: nc-1)" \
   "SELECT 1/CASE WHEN (SELECT normalized_at IS NOT NULL AND normalized_by='user-a' AND normalized_profile_version_id='pv-1'
-       AND normalized_row_count=1 AND normalized_cell_count=1 AND normalization_run_id='norm-2' FROM uploads WHERE id='up-1') THEN 1 ELSE 0 END;"
+       AND normalized_row_count=2 AND normalized_cell_count=1 AND normalization_run_id='norm-2' FROM uploads WHERE id='up-1') THEN 1 ELSE 0 END;"
 expect_failure "20. completion metadata is frozen after completion" \
   "UPDATE uploads SET normalized_row_count=99 WHERE id='up-1';" \
   "normalization metadata is immutable once completed"
@@ -295,10 +347,18 @@ expect_failure "21. re-completing an already-SUCCEEDED run is rejected" \
   "run is not RUNNING"
 
 echo ""
+echo "=== TWO ATTEMPTS MAY EACH DERIVE THE SAME RAW ROW (remediation) ==="
+expect_success "21c. a brand-new normalization attempt (norm-2 is now SUCCEEDED/terminal, freeing the one-RUNNING-per-upload slot) can ALSO derive rr-1 — uniqueness is per-run, not global" \
+  "INSERT INTO data_hub_normalization_runs (id, organisation_id, import_batch_id, upload_id, raw_staging_run_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_id, worksheet_mapping_profile_version_id, attempt_number, normalizer_version, status, execution_token, lease_expires_at, last_progress_at, expected_row_count, expected_cell_count)
+     VALUES ('norm-3','org-a','batch-1','up-1','run-1','sv-1','ws-1','wp-1','pv-1',3,'v1','RUNNING','ntok-3', now()+interval '1 hour', now(), 1, 1);
+   INSERT INTO data_hub_normalized_rows (id, organisation_id, normalization_run_id, raw_staging_run_id, raw_row_id, source_row_number)
+     VALUES ('nr-1-again','org-a','norm-3','run-1','rr-1',4);"
+
+echo ""
 echo "=== ACTOR DELETION SEMANTICS ==="
 expect_success "22. deleting the actor nulls normalized_by, raw_staged_by, and the normalization run's created_by — nothing else changes" \
   "DELETE FROM users WHERE id='user-a';
-   SELECT 1/CASE WHEN (SELECT normalized_by IS NULL AND raw_staged_by IS NULL AND normalized_row_count=1 FROM uploads WHERE id='up-1')
+   SELECT 1/CASE WHEN (SELECT normalized_by IS NULL AND raw_staged_by IS NULL AND normalized_row_count=2 FROM uploads WHERE id='up-1')
        AND (SELECT created_by IS NULL AND status='SUCCEEDED' FROM data_hub_normalization_runs WHERE id='norm-2')
      THEN 1 ELSE 0 END;"
 

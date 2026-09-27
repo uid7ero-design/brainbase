@@ -203,10 +203,112 @@ describe("6.2D4C-B1 — exact tenant/profile/raw-run lineage FKs are present", (
     "uploads_normalization_run_org_fkey",
     "uploads_normalization_run_upload_fkey",
     "uploads_normalized_profile_version_org_fkey",
+    // 6.2D4C-B1 remediation (pre-PR review):
+    "data_hub_normalization_runs_upload_authoritative_raw_run_fkey",
   ];
 
   it.each(REQUIRED_FKS)("declares %s", (fk) => {
     expect(MIGRATION_CODE).toContain(fk);
+  });
+});
+
+describe("6.2D4C-B1 remediation — raw row physical source-row identity (pre-PR review)", () => {
+  it("the raw-row FK proves raw_row_id, raw_staging_run_id, source_row_number, AND organisation_id all match the exact raw row", () => {
+    const idx = MIGRATION_CODE.indexOf("data_hub_normalized_rows_raw_row_fkey");
+    expect(idx).toBeGreaterThan(-1);
+    const region = MIGRATION_CODE.slice(idx, idx + 700);
+    expect(region).toContain("FOREIGN KEY (raw_row_id, raw_staging_run_id, source_row_number, organisation_id)");
+    expect(region).toContain("REFERENCES public.data_hub_raw_rows(id, staging_run_id, source_row_number, organisation_id)");
+  });
+
+  it("data_hub_raw_rows carries the wider additive composite unique the FK above depends on", () => {
+    expect(MIGRATION_CODE).toContain("data_hub_raw_rows_id_staging_run_source_row_organisation_key");
+    const idx = MIGRATION_CODE.indexOf("data_hub_raw_rows_id_staging_run_source_row_organisation_key");
+    const region = MIGRATION_CODE.slice(idx, idx + 400);
+    expect(region).toContain("UNIQUE (id, staging_run_id, source_row_number, organisation_id)");
+  });
+
+  it("one normalization run can create at most one derivative row for any exact raw row", () => {
+    expect(MIGRATION_CODE).toContain("data_hub_normalized_rows_run_raw_row_key");
+    const idx = MIGRATION_CODE.indexOf("data_hub_normalized_rows_run_raw_row_key");
+    const region = MIGRATION_CODE.slice(idx, idx + 300);
+    expect(region).toContain("UNIQUE (normalization_run_id, raw_row_id)");
+  });
+
+  it("mutation proof: dropping source_row_number from the raw-row FK's column list is caught", () => {
+    // This asserts the CURRENT correct behavior. Manually removing
+    // 'source_row_number' from the ARRAY/FOREIGN KEY/REFERENCES clauses of
+    // data_hub_normalized_rows_raw_row_fkey flips this to fail — confirmed
+    // by hand during development, then reverted.
+    const idx = MIGRATION_CODE.indexOf("data_hub_normalized_rows_raw_row_fkey");
+    const region = MIGRATION_CODE.slice(idx, idx + 700);
+    expect(region).toMatch(/FOREIGN KEY \(raw_row_id, raw_staging_run_id, source_row_number, organisation_id\)/);
+  });
+});
+
+describe("6.2D4C-B1 remediation — authoritative Upload.raw_staging_run_id (pre-PR review)", () => {
+  it("a normalization run's (upload_id, raw_staging_run_id) pair must match Upload's own authoritative pointer", () => {
+    const idx = MIGRATION_CODE.indexOf("data_hub_normalization_runs_upload_authoritative_raw_run_fkey");
+    expect(idx).toBeGreaterThan(-1);
+    const region = MIGRATION_CODE.slice(idx, idx + 500);
+    expect(region).toContain("FOREIGN KEY (upload_id, raw_staging_run_id, organisation_id)");
+    expect(region).toContain("REFERENCES public.uploads(id, raw_staging_run_id, organisation_id)");
+  });
+
+  it("uploads carries the additive composite unique the authoritative FK depends on", () => {
+    expect(MIGRATION_CODE).toContain("uploads_id_raw_staging_run_organisation_key");
+    const idx = MIGRATION_CODE.indexOf("uploads_id_raw_staging_run_organisation_key");
+    const region = MIGRATION_CODE.slice(idx, idx + 300);
+    expect(region).toContain("UNIQUE (id, raw_staging_run_id, organisation_id)");
+  });
+
+  it("D4B's own Upload/raw-run constraints and the direct/pinned-profile FKs are unchanged (not weakened or replaced)", () => {
+    expect(MIGRATION_CODE).toContain("data_hub_normalization_runs_raw_run_org_fkey");
+    expect(MIGRATION_CODE).toContain("data_hub_normalization_runs_raw_run_upload_fkey");
+    expect(MIGRATION_CODE).toContain("data_hub_normalization_runs_raw_run_pinned_version_fkey");
+    expect(D4B_SQL).toContain("uploads_raw_staging_run_org_fkey");
+    expect(D4B_SQL).toContain("uploads_raw_staging_run_upload_fkey");
+  });
+
+  it("mutation proof: weakening the authoritative FK to organisation_id alone is caught", () => {
+    // Asserts the CURRENT correct behavior — confirmed by hand during
+    // development that dropping raw_staging_run_id from the FK's column
+    // list flips this assertion, then reverted.
+    const idx = MIGRATION_CODE.indexOf("data_hub_normalization_runs_upload_authoritative_raw_run_fkey");
+    const region = MIGRATION_CODE.slice(idx, idx + 500);
+    expect(region).toMatch(/FOREIGN KEY \(upload_id, raw_staging_run_id, organisation_id\)/);
+  });
+});
+
+describe("6.2D4C-B1 remediation — every same-named index is drift-checked (pre-PR review)", () => {
+  it("contains ZERO active CREATE INDEX IF NOT EXISTS statements", () => {
+    const activeStatements = MIGRATION_CODE.split("\n").filter((line) => /CREATE\s+INDEX\s+IF\s+NOT\s+EXISTS/i.test(line));
+    expect(activeStatements).toEqual([]);
+  });
+
+  it("every D4C-B1 plain index is created via pg_temp.ensure_index, not a bare CREATE INDEX", () => {
+    const REQUIRED_ENSURE_INDEXES = [
+      "idx_data_hub_normalization_runs_org_batch",
+      "idx_data_hub_normalization_runs_upload",
+      "idx_data_hub_normalization_runs_raw_run",
+      "idx_data_hub_normalized_rows_org_run",
+      "idx_data_hub_normalized_rows_raw_row",
+      "idx_data_hub_normalized_cells_org_row",
+      "idx_data_hub_normalized_cells_column",
+    ];
+    for (const name of REQUIRED_ENSURE_INDEXES) {
+      const idx = MIGRATION_CODE.indexOf(name);
+      expect(idx, name).toBeGreaterThan(-1);
+      const region = MIGRATION_CODE.slice(Math.max(0, idx - 100), idx + 50);
+      expect(region, name).toContain("pg_temp.ensure_index(");
+    }
+  });
+
+  it("mutation proof: reintroducing one bare CREATE INDEX IF NOT EXISTS is caught", () => {
+    // Asserts the CURRENT correct (zero) count. Manually reintroducing even
+    // one bare 'CREATE INDEX IF NOT EXISTS idx_...' line flips this
+    // assertion — confirmed by hand during development, then reverted.
+    expect(MIGRATION_CODE).not.toMatch(/^CREATE INDEX IF NOT EXISTS/m);
   });
 });
 

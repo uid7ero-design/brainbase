@@ -39,11 +39,14 @@
 --   public.datahub_complete_normalization_run(...)        -- atomic completion
 -- Adds (additive only — see STEP 2; D4A/D4B constraints are NOT weakened):
 --   public.data_hub_raw_rows:  UNIQUE (id, staging_run_id, organisation_id)
+--                               UNIQUE (id, staging_run_id, source_row_number, organisation_id)
 --   public.data_hub_raw_cells: UNIQUE (id, organisation_id)
 --                               UNIQUE (id, raw_row_id, organisation_id)
 --                               UNIQUE (id, source_schema_column_id, organisation_id)
 --   public.uploads: normalized_at, normalized_by, normalized_profile_version_id,
 --                    normalized_row_count, normalized_cell_count, normalization_run_id
+--                    UNIQUE (id, raw_staging_run_id, organisation_id) — the
+--                    authoritative-raw-run invariant (REMEDIATION, pre-PR review)
 --
 -- NO SYNTHETIC BACKFILL: this migration performs zero normalization writes
 -- and zero backfill of any kind. uploads' new normalization columns are
@@ -506,6 +509,32 @@ SELECT pg_temp.ensure_fk(
   'ALTER TABLE public.data_hub_normalization_runs ADD CONSTRAINT data_hub_normalization_runs_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id) ON DELETE SET NULL'
 );
 
+-- REMEDIATION (pre-PR review) — AUTHORITATIVE RAW RUN INVARIANT: D4B
+-- deliberately establishes uploads.raw_staging_run_id as the ONE
+-- authoritative completed raw-staging run for an upload (set atomically by
+-- datahub_complete_raw_staging_run). The FKs above only prove this
+-- normalization run's raw_staging_run_id belongs to the SAME upload and
+-- carries the SAME pinned profile version as some SUCCEEDED raw run on
+-- that upload — they do NOT prove it is upload's own authoritative one.
+-- Without this, a second/earlier SUCCEEDED raw run on the same upload
+-- (superseded by a later one Upload.raw_staging_run_id now actually
+-- points to) could still be normalized from. An additive composite UNIQUE
+-- on uploads makes this the exact pointed-to run, structurally, via a
+-- composite FK below.
+SELECT pg_temp.ensure_unique_constraint(
+  'uploads',
+  'uploads_id_raw_staging_run_organisation_key',
+  'UNIQUE (id, raw_staging_run_id, organisation_id)',
+  'ALTER TABLE public.uploads ADD CONSTRAINT uploads_id_raw_staging_run_organisation_key UNIQUE (id, raw_staging_run_id, organisation_id)'
+);
+
+SELECT pg_temp.ensure_fk(
+  'data_hub_normalization_runs', 'data_hub_normalization_runs_upload_authoritative_raw_run_fkey',
+  ARRAY['upload_id', 'raw_staging_run_id', 'organisation_id'],
+  'uploads', ARRAY['id', 'raw_staging_run_id', 'organisation_id'], 'a', 'a',
+  'ALTER TABLE public.data_hub_normalization_runs ADD CONSTRAINT data_hub_normalization_runs_upload_authoritative_raw_run_fkey FOREIGN KEY (upload_id, raw_staging_run_id, organisation_id) REFERENCES public.uploads(id, raw_staging_run_id, organisation_id)'
+);
+
 -- One RUNNING normalization run per Upload (D4B precedent, separate index).
 SELECT pg_temp.ensure_index(
   'data_hub_normalization_runs',
@@ -514,9 +543,25 @@ SELECT pg_temp.ensure_index(
   $sql$CREATE UNIQUE INDEX data_hub_normalization_runs_one_active_per_upload ON public.data_hub_normalization_runs (upload_id) WHERE (status = 'RUNNING')$sql$
 );
 
-CREATE INDEX IF NOT EXISTS idx_data_hub_normalization_runs_org_batch ON public.data_hub_normalization_runs(organisation_id, import_batch_id);
-CREATE INDEX IF NOT EXISTS idx_data_hub_normalization_runs_upload ON public.data_hub_normalization_runs(upload_id);
-CREATE INDEX IF NOT EXISTS idx_data_hub_normalization_runs_raw_run ON public.data_hub_normalization_runs(raw_staging_run_id);
+-- REMEDIATION (pre-PR review): every plain index below is now
+-- drift-checked via pg_temp.ensure_index rather than a bare
+-- CREATE INDEX IF NOT EXISTS — a same-named index with the wrong column
+-- list can no longer silently pass.
+SELECT pg_temp.ensure_index(
+  'data_hub_normalization_runs', 'idx_data_hub_normalization_runs_org_batch',
+  'CREATE INDEX idx_data_hub_normalization_runs_org_batch ON public.data_hub_normalization_runs USING btree (organisation_id, import_batch_id)',
+  'CREATE INDEX idx_data_hub_normalization_runs_org_batch ON public.data_hub_normalization_runs (organisation_id, import_batch_id)'
+);
+SELECT pg_temp.ensure_index(
+  'data_hub_normalization_runs', 'idx_data_hub_normalization_runs_upload',
+  'CREATE INDEX idx_data_hub_normalization_runs_upload ON public.data_hub_normalization_runs USING btree (upload_id)',
+  'CREATE INDEX idx_data_hub_normalization_runs_upload ON public.data_hub_normalization_runs (upload_id)'
+);
+SELECT pg_temp.ensure_index(
+  'data_hub_normalization_runs', 'idx_data_hub_normalization_runs_raw_run',
+  'CREATE INDEX idx_data_hub_normalization_runs_raw_run ON public.data_hub_normalization_runs USING btree (raw_staging_run_id)',
+  'CREATE INDEX idx_data_hub_normalization_runs_raw_run ON public.data_hub_normalization_runs (raw_staging_run_id)'
+);
 
 -- ═══════════════════════════════════════════════════════════════════
 -- STEP 2 — lifecycle/lease trigger (mirrors, but is separate from,
@@ -656,6 +701,19 @@ SELECT pg_temp.ensure_unique_constraint(
   'ALTER TABLE public.data_hub_raw_rows ADD CONSTRAINT data_hub_raw_rows_id_staging_run_organisation_key UNIQUE (id, staging_run_id, organisation_id)'
 );
 
+-- REMEDIATION (pre-PR review): the 3-column key above proves a raw row
+-- belongs to a given staging run, but NOT that a normalized row's declared
+-- source_row_number is that SAME raw row's own physical source_row_number
+-- — a normalized row could otherwise reference raw row A while claiming an
+-- arbitrary different row number. This wider key is what
+-- data_hub_normalized_rows_raw_row_fkey (STEP 4 below) actually references.
+SELECT pg_temp.ensure_unique_constraint(
+  'data_hub_raw_rows',
+  'data_hub_raw_rows_id_staging_run_source_row_organisation_key',
+  'UNIQUE (id, staging_run_id, source_row_number, organisation_id)',
+  'ALTER TABLE public.data_hub_raw_rows ADD CONSTRAINT data_hub_raw_rows_id_staging_run_source_row_organisation_key UNIQUE (id, staging_run_id, source_row_number, organisation_id)'
+);
+
 SELECT pg_temp.ensure_unique_constraint(
   'data_hub_raw_cells',
   'data_hub_raw_cells_id_organisation_key',
@@ -716,12 +774,25 @@ SELECT pg_temp.ensure_unique_constraint(
 );
 
 -- Resumability by RUN (invariant 11), not by upload alone — a failed
--- attempt's rows may coexist with a later new attempt's rows.
+-- attempt's rows may coexist with a later new attempt's rows. Also
+-- separately protects physical-row uniqueness within one run (no two
+-- normalized rows in the same run can claim the same source_row_number).
 SELECT pg_temp.ensure_unique_constraint(
   'data_hub_normalized_rows',
   'data_hub_normalized_rows_run_source_row_key',
   'UNIQUE (normalization_run_id, source_row_number)',
   'ALTER TABLE public.data_hub_normalized_rows ADD CONSTRAINT data_hub_normalized_rows_run_source_row_key UNIQUE (normalization_run_id, source_row_number)'
+);
+
+-- REMEDIATION (pre-PR review): one normalization run may derive AT MOST ONE
+-- normalized row from any exact raw row — without this, the same
+-- raw_row_id could otherwise appear more than once in one run under
+-- different source_row_number claims.
+SELECT pg_temp.ensure_unique_constraint(
+  'data_hub_normalized_rows',
+  'data_hub_normalized_rows_run_raw_row_key',
+  'UNIQUE (normalization_run_id, raw_row_id)',
+  'ALTER TABLE public.data_hub_normalized_rows ADD CONSTRAINT data_hub_normalized_rows_run_raw_row_key UNIQUE (normalization_run_id, raw_row_id)'
 );
 
 SELECT pg_temp.ensure_fk(
@@ -747,16 +818,28 @@ SELECT pg_temp.ensure_fk(
 );
 
 -- Proves this row's own raw_row_id really belongs to the raw staging run
--- its normalization run is pinned to (never a different run's row).
+-- its normalization run is pinned to (never a different run's row) AND
+-- that its own declared source_row_number is that SAME raw row's own
+-- physical source_row_number (REMEDIATION, pre-PR review) — a normalized
+-- row can no longer reference raw row A while claiming an arbitrary
+-- different row number.
 SELECT pg_temp.ensure_fk(
   'data_hub_normalized_rows', 'data_hub_normalized_rows_raw_row_fkey',
-  ARRAY['raw_row_id', 'raw_staging_run_id', 'organisation_id'],
-  'data_hub_raw_rows', ARRAY['id', 'staging_run_id', 'organisation_id'], 'a', 'a',
-  'ALTER TABLE public.data_hub_normalized_rows ADD CONSTRAINT data_hub_normalized_rows_raw_row_fkey FOREIGN KEY (raw_row_id, raw_staging_run_id, organisation_id) REFERENCES public.data_hub_raw_rows(id, staging_run_id, organisation_id)'
+  ARRAY['raw_row_id', 'raw_staging_run_id', 'source_row_number', 'organisation_id'],
+  'data_hub_raw_rows', ARRAY['id', 'staging_run_id', 'source_row_number', 'organisation_id'], 'a', 'a',
+  'ALTER TABLE public.data_hub_normalized_rows ADD CONSTRAINT data_hub_normalized_rows_raw_row_fkey FOREIGN KEY (raw_row_id, raw_staging_run_id, source_row_number, organisation_id) REFERENCES public.data_hub_raw_rows(id, staging_run_id, source_row_number, organisation_id)'
 );
 
-CREATE INDEX IF NOT EXISTS idx_data_hub_normalized_rows_org_run ON public.data_hub_normalized_rows(organisation_id, normalization_run_id);
-CREATE INDEX IF NOT EXISTS idx_data_hub_normalized_rows_raw_row ON public.data_hub_normalized_rows(raw_row_id);
+SELECT pg_temp.ensure_index(
+  'data_hub_normalized_rows', 'idx_data_hub_normalized_rows_org_run',
+  'CREATE INDEX idx_data_hub_normalized_rows_org_run ON public.data_hub_normalized_rows USING btree (organisation_id, normalization_run_id)',
+  'CREATE INDEX idx_data_hub_normalized_rows_org_run ON public.data_hub_normalized_rows (organisation_id, normalization_run_id)'
+);
+SELECT pg_temp.ensure_index(
+  'data_hub_normalized_rows', 'idx_data_hub_normalized_rows_raw_row',
+  'CREATE INDEX idx_data_hub_normalized_rows_raw_row ON public.data_hub_normalized_rows USING btree (raw_row_id)',
+  'CREATE INDEX idx_data_hub_normalized_rows_raw_row ON public.data_hub_normalized_rows (raw_row_id)'
+);
 
 -- ═══════════════════════════════════════════════════════════════════
 -- STEP 5 — public.data_hub_normalized_cells
@@ -902,8 +985,16 @@ SELECT pg_temp.ensure_fk(
   'ALTER TABLE public.data_hub_normalized_cells ADD CONSTRAINT data_hub_normalized_cells_column_org_fkey FOREIGN KEY (source_schema_column_id, organisation_id) REFERENCES public.source_schema_columns(id, organisation_id)'
 );
 
-CREATE INDEX IF NOT EXISTS idx_data_hub_normalized_cells_org_row ON public.data_hub_normalized_cells(organisation_id, normalized_row_id);
-CREATE INDEX IF NOT EXISTS idx_data_hub_normalized_cells_column ON public.data_hub_normalized_cells(source_schema_column_id);
+SELECT pg_temp.ensure_index(
+  'data_hub_normalized_cells', 'idx_data_hub_normalized_cells_org_row',
+  'CREATE INDEX idx_data_hub_normalized_cells_org_row ON public.data_hub_normalized_cells USING btree (organisation_id, normalized_row_id)',
+  'CREATE INDEX idx_data_hub_normalized_cells_org_row ON public.data_hub_normalized_cells (organisation_id, normalized_row_id)'
+);
+SELECT pg_temp.ensure_index(
+  'data_hub_normalized_cells', 'idx_data_hub_normalized_cells_column',
+  'CREATE INDEX idx_data_hub_normalized_cells_column ON public.data_hub_normalized_cells USING btree (source_schema_column_id)',
+  'CREATE INDEX idx_data_hub_normalized_cells_column ON public.data_hub_normalized_cells (source_schema_column_id)'
+);
 
 -- ═══════════════════════════════════════════════════════════════════
 -- STEP 6 — normalized-evidence immutability: UPDATE and DELETE are BOTH
@@ -1159,6 +1250,6 @@ COMMIT;
 -- scripts/rollback-datahub-normalized-staging.sql for the exact guarded
 -- rollback SQL: it aborts if any normalization evidence or Upload
 -- completion metadata exists, and otherwise removes every object this
--- file created and drops the three additive composite UNIQUE constraints
--- from data_hub_raw_rows/data_hub_raw_cells (D4A/D4B's OWN constraints are
--- left completely untouched either way).
+-- file created and drops the additive composite UNIQUE constraints from
+-- data_hub_raw_rows/data_hub_raw_cells/uploads (D4A/D4B's OWN constraints
+-- are left completely untouched either way).
