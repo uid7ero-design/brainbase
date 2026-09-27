@@ -2,10 +2,12 @@ import { NextResponse } from 'next/server';
 import { authorizeCommercialRequest, COMMERCIAL_MIN_ROLE } from '@/lib/commercial/authorize';
 import { getBudgetActualCommittedReport } from '@/lib/commercial/budgetActualCommitted';
 import { buildBudgetConsumptionCsvExports } from '@/lib/commercial/budgetConsumptionExport';
+import {
+  BUDGET_EXPORT_CONTROLS,
+  type BudgetExportView,
+} from '@/lib/commercial/budgetExportControls';
 
-type ExportView = 'legacy' | 'finance';
-
-function parseView(request: Request): ExportView | null {
+function parseView(request: Request): BudgetExportView | null {
   const view = new URL(request.url).searchParams.get('view');
   return view === 'legacy' || view === 'finance' ? view : null;
 }
@@ -33,9 +35,7 @@ export async function GET(request: Request) {
   );
   const exports = buildBudgetConsumptionCsvExports(report);
   const csv = view === 'finance' ? exports.financeRowsCsv : exports.legacyRowsCsv;
-  const filename = view === 'finance'
-    ? 'brainbase-budget-finance.csv'
-    : 'brainbase-budget-consumption.csv';
+  const filename = BUDGET_EXPORT_CONTROLS[view].filename;
 
   return new Response(csv, {
     status: 200,

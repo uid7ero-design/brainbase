@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { formatMoneyCents } from '@/lib/commercial/money';
+import { BUDGET_EXPORT_CONTROLS } from '@/lib/commercial/budgetExportControls';
 
 const CARD = '#0e1014';
 const BORDER = '#1a1d24';
@@ -393,20 +394,8 @@ export function BudgetExportControls({
   disabledReason?: string | null;
 }) {
   const controls = [
-    {
-      key: 'legacy',
-      label: 'Download legacy CSV',
-      available: legacyAvailable,
-      href: '/api/commercial/budgeting/consumption/export?view=legacy',
-      filename: 'brainbase-budget-consumption.csv',
-    },
-    {
-      key: 'finance',
-      label: 'Download finance CSV',
-      available: financeAvailable,
-      href: '/api/commercial/budgeting/consumption/export?view=finance',
-      filename: 'brainbase-budget-finance.csv',
-    },
+    { ...BUDGET_EXPORT_CONTROLS.legacy, available: legacyAvailable },
+    { ...BUDGET_EXPORT_CONTROLS.finance, available: financeAvailable },
   ];
 
   return (
