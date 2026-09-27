@@ -54,8 +54,35 @@ export type BudgetActualCommittedRow = {
   commitmentCount: number;
 };
 
+export type FinanceAdjustedBudgetRow = {
+  budgetId: string | null;
+  budgetVersionId: string | null;
+  budgetAccountId: string;
+  budgetAccountCode: string;
+  budgetAccountName: string;
+  financialYearId: string;
+  financialYearName: string;
+  financialPeriodId: string;
+  financialPeriodName: string;
+  currency: string;
+  taxBasis: BudgetTaxBasis | null;
+  periodisationMode: BudgetPeriodisationMode | null;
+  budgetCents: string;
+  sourceActualCents: string;
+  financeAdjustmentCents: string;
+  effectiveActualCents: string;
+  committedCents: string;
+  exposureCents: string;
+  externalGlActualCents: string | null;
+  reconciliationVarianceCents: string | null;
+  reconciliationId: string | null;
+  reconciliationStatus: 'SIGNED_OFF' | 'STALE' | null;
+  sourceSystemId: string | null;
+};
+
 export type BudgetActualCommittedReport = {
   rows: BudgetActualCommittedRow[];
+  financeRows: FinanceAdjustedBudgetRow[];
   exceptions: CombinedBudgetException[];
   resolvedActualCount: number;
   resolvedCommitmentCount: number;
@@ -111,6 +138,209 @@ function mergeSeed(row: {
     ? row.periodBudgetCents ?? 0
     : row.annualBudgetCents;
   return { ...row, budgetCents };
+}
+
+type FinanceAdjustmentReportRow = {
+  budget_id: string | null;
+  budget_version_id: string | null;
+  budget_account_id: string;
+  budget_account_code: string;
+  budget_account_name: string;
+  financial_year_id: string;
+  financial_year_name: string;
+  financial_period_id: string;
+  financial_period_name: string;
+  currency: string;
+  tax_basis: BudgetTaxBasis | null;
+  periodisation_mode: BudgetPeriodisationMode | null;
+  annual_budget_cents: string | number | bigint;
+  period_budget_cents: string | number | bigint | null;
+  finance_adjustment_cents: string | number | bigint;
+};
+
+type FinanceReconciliationReportRow = {
+  reconciliation_id: string;
+  reconciliation_status: 'SIGNED_OFF' | 'STALE';
+  source_system_id: string;
+  budget_account_id: string;
+  budget_account_code: string;
+  budget_account_name: string;
+  financial_year_id: string;
+  financial_year_name: string;
+  financial_period_id: string;
+  financial_period_name: string;
+  currency: string;
+  external_gl_actual_cents: string | number | bigint;
+  reconciliation_variance_cents: string | number | bigint;
+};
+
+type MutableFinanceRow = Omit<
+  FinanceAdjustedBudgetRow,
+  | 'budgetCents'
+  | 'sourceActualCents'
+  | 'financeAdjustmentCents'
+  | 'effectiveActualCents'
+  | 'committedCents'
+  | 'exposureCents'
+  | 'externalGlActualCents'
+  | 'reconciliationVarianceCents'
+> & {
+  budgetCents: bigint;
+  sourceActualCents: bigint;
+  financeAdjustmentCents: bigint;
+  committedCents: bigint;
+  externalGlActualCents: bigint | null;
+  reconciliationVarianceCents: bigint | null;
+};
+
+function financeGrainKey(row: {
+  budgetAccountId: string;
+  financialPeriodId: string;
+  currency: string;
+}) {
+  return [row.budgetAccountId, row.financialPeriodId, row.currency].join('|');
+}
+
+function bigintMoney(value: string | number | bigint | null | undefined) {
+  return BigInt(value ?? 0);
+}
+
+function deriveFinanceAdjustedRows(
+  sourceRows: BudgetActualCommittedRow[],
+  adjustmentRows: FinanceAdjustmentReportRow[],
+  reconciliationRows: FinanceReconciliationReportRow[],
+  sourceSystemId: string | null,
+): FinanceAdjustedBudgetRow[] {
+  const map = new Map<string, MutableFinanceRow>();
+
+  for (const row of sourceRows) {
+    if (!row.financialPeriodId || !row.financialPeriodName) continue;
+    const key = financeGrainKey({
+      budgetAccountId: row.budgetAccountId,
+      financialPeriodId: row.financialPeriodId,
+      currency: row.currency,
+    });
+    const current = map.get(key) ?? {
+      budgetId: row.budgetId,
+      budgetVersionId: row.budgetVersionId,
+      budgetAccountId: row.budgetAccountId,
+      budgetAccountCode: row.budgetAccountCode,
+      budgetAccountName: row.budgetAccountName,
+      financialYearId: row.financialYearId,
+      financialYearName: row.financialYearName,
+      financialPeriodId: row.financialPeriodId,
+      financialPeriodName: row.financialPeriodName,
+      currency: row.currency,
+      taxBasis: row.taxBasis,
+      periodisationMode: row.periodisationMode,
+      budgetCents: BigInt(0),
+      sourceActualCents: BigInt(0),
+      financeAdjustmentCents: BigInt(0),
+      committedCents: BigInt(0),
+      externalGlActualCents: null,
+      reconciliationVarianceCents: null,
+      reconciliationId: null,
+      reconciliationStatus: null,
+      sourceSystemId,
+    };
+    current.budgetCents += BigInt(row.budgetCents);
+    current.sourceActualCents += BigInt(row.actualCents);
+    current.committedCents += BigInt(row.committedCents);
+    map.set(key, current);
+  }
+
+  for (const row of adjustmentRows) {
+    const key = financeGrainKey({
+      budgetAccountId: row.budget_account_id,
+      financialPeriodId: row.financial_period_id,
+      currency: row.currency,
+    });
+    const budgetCents = row.periodisation_mode === 'PERIODISED'
+      ? bigintMoney(row.period_budget_cents)
+      : bigintMoney(row.annual_budget_cents);
+    const current = map.get(key) ?? {
+      budgetId: row.budget_id,
+      budgetVersionId: row.budget_version_id,
+      budgetAccountId: row.budget_account_id,
+      budgetAccountCode: row.budget_account_code,
+      budgetAccountName: row.budget_account_name,
+      financialYearId: row.financial_year_id,
+      financialYearName: row.financial_year_name,
+      financialPeriodId: row.financial_period_id,
+      financialPeriodName: row.financial_period_name,
+      currency: row.currency,
+      taxBasis: row.tax_basis,
+      periodisationMode: row.periodisation_mode,
+      budgetCents,
+      sourceActualCents: BigInt(0),
+      financeAdjustmentCents: BigInt(0),
+      committedCents: BigInt(0),
+      externalGlActualCents: null,
+      reconciliationVarianceCents: null,
+      reconciliationId: null,
+      reconciliationStatus: null,
+      sourceSystemId,
+    };
+    current.financeAdjustmentCents += bigintMoney(row.finance_adjustment_cents);
+    map.set(key, current);
+  }
+
+  for (const row of reconciliationRows) {
+    const key = financeGrainKey({
+      budgetAccountId: row.budget_account_id,
+      financialPeriodId: row.financial_period_id,
+      currency: row.currency,
+    });
+    const current = map.get(key) ?? {
+      budgetId: null,
+      budgetVersionId: null,
+      budgetAccountId: row.budget_account_id,
+      budgetAccountCode: row.budget_account_code,
+      budgetAccountName: row.budget_account_name,
+      financialYearId: row.financial_year_id,
+      financialYearName: row.financial_year_name,
+      financialPeriodId: row.financial_period_id,
+      financialPeriodName: row.financial_period_name,
+      currency: row.currency,
+      taxBasis: null,
+      periodisationMode: null,
+      budgetCents: BigInt(0),
+      sourceActualCents: BigInt(0),
+      financeAdjustmentCents: BigInt(0),
+      committedCents: BigInt(0),
+      externalGlActualCents: null,
+      reconciliationVarianceCents: null,
+      reconciliationId: null,
+      reconciliationStatus: null,
+      sourceSystemId: row.source_system_id,
+    };
+    current.externalGlActualCents = bigintMoney(row.external_gl_actual_cents);
+    current.reconciliationVarianceCents = bigintMoney(row.reconciliation_variance_cents);
+    current.reconciliationId = row.reconciliation_id;
+    current.reconciliationStatus = row.reconciliation_status;
+    current.sourceSystemId = row.source_system_id;
+    map.set(key, current);
+  }
+
+  return [...map.values()].map(row => {
+    const effectiveActualCents = row.sourceActualCents + row.financeAdjustmentCents;
+    const exposureCents = effectiveActualCents + row.committedCents;
+    return {
+      ...row,
+      budgetCents: row.budgetCents.toString(),
+      sourceActualCents: row.sourceActualCents.toString(),
+      financeAdjustmentCents: row.financeAdjustmentCents.toString(),
+      effectiveActualCents: effectiveActualCents.toString(),
+      committedCents: row.committedCents.toString(),
+      exposureCents: exposureCents.toString(),
+      externalGlActualCents: row.externalGlActualCents?.toString() ?? null,
+      reconciliationVarianceCents: row.reconciliationVarianceCents?.toString() ?? null,
+    };
+  }).sort((a, b) =>
+    a.currency.localeCompare(b.currency)
+    || a.financialPeriodId.localeCompare(b.financialPeriodId)
+    || a.budgetAccountCode.localeCompare(b.budgetAccountCode),
+  );
 }
 
 function assertSameSeed(existing: MergeSeed, candidate: MergeSeed) {
@@ -196,6 +426,7 @@ export function deriveBudgetActualCommittedReport(
 
   return {
     rows,
+    financeRows: [],
     exceptions: [
       ...commitments.exceptions.map(exception => ({ source: 'COMMITMENT' as const, exception })),
       ...actuals.exceptions.map(exception => ({ source: 'ACTUAL' as const, exception })),
@@ -208,7 +439,9 @@ export function deriveBudgetActualCommittedReport(
 }
 export async function getBudgetActualCommittedReport(
   organisationId: string,
+  sourceSystemId: string | null = null,
 ): Promise<BudgetActualCommittedReport> {
+  const cleanSourceSystemId = sourceSystemId?.trim() || null;
   const [
     commitmentRows,
     actualRows,
@@ -216,6 +449,8 @@ export async function getBudgetActualCommittedReport(
     mappingRows,
     lineRows,
     allocationRows,
+    financeAdjustmentRows,
+    financeReconciliationRows,
   ] = await sql.transaction(txn => [
     txn`
       WITH billed AS (
@@ -453,6 +688,125 @@ export async function getBudgetActualCommittedReport(
       WHERE bpa.organisation_id = ${organisationId}
       ORDER BY bpa.budget_line_id, bpa.financial_period_id
     `,
+    txn`
+      WITH adjustment_totals AS (
+        SELECT
+          fal.resolved_budget_version_id AS budget_version_id,
+          fal.budget_account_id,
+          fal.financial_period_id,
+          fa.currency,
+          SUM(fal.budget_basis_cents)::text AS finance_adjustment_cents
+        FROM commercial_finance_adjustment_lines fal
+        JOIN commercial_finance_adjustments fa
+          ON fa.id = fal.adjustment_id
+         AND fa.organisation_id = fal.organisation_id
+        WHERE fal.organisation_id = ${organisationId}
+          AND fa.organisation_id = ${organisationId}
+          AND fa.status IN ('POSTED','REVERSED')
+        GROUP BY
+          fal.resolved_budget_version_id,
+          fal.budget_account_id,
+          fal.financial_period_id,
+          fa.currency
+      )
+      SELECT
+        cb.id AS budget_id,
+        at.budget_version_id,
+        at.budget_account_id,
+        ba.code AS budget_account_code,
+        ba.name AS budget_account_name,
+        fp.financial_year_id,
+        fy.name AS financial_year_name,
+        at.financial_period_id,
+        fp.name AS financial_period_name,
+        at.currency,
+        cb.tax_basis,
+        cb.periodisation_mode,
+        COALESCE(SUM(bl.annual_budget_cents), 0)::text AS annual_budget_cents,
+        COALESCE(SUM(bpa.amount_cents), 0)::text AS period_budget_cents,
+        at.finance_adjustment_cents
+      FROM adjustment_totals at
+      JOIN commercial_budget_accounts ba
+        ON ba.id = at.budget_account_id
+       AND ba.organisation_id = ${organisationId}
+      JOIN commercial_financial_periods fp
+        ON fp.id = at.financial_period_id
+       AND fp.organisation_id = ${organisationId}
+      JOIN commercial_financial_years fy
+        ON fy.id = fp.financial_year_id
+       AND fy.organisation_id = fp.organisation_id
+      LEFT JOIN commercial_budget_versions bv
+        ON bv.id = at.budget_version_id
+       AND bv.organisation_id = ${organisationId}
+      LEFT JOIN commercial_budgets cb
+        ON cb.id = bv.budget_id
+       AND cb.organisation_id = bv.organisation_id
+      LEFT JOIN commercial_budget_lines bl
+        ON bl.budget_version_id = at.budget_version_id
+       AND bl.budget_account_id = at.budget_account_id
+       AND bl.organisation_id = ${organisationId}
+      LEFT JOIN commercial_budget_period_allocations bpa
+        ON bpa.budget_line_id = bl.id
+       AND bpa.financial_period_id = at.financial_period_id
+       AND bpa.organisation_id = bl.organisation_id
+      GROUP BY
+        cb.id, at.budget_version_id, at.budget_account_id, ba.code, ba.name,
+        fp.financial_year_id, fy.name, at.financial_period_id, fp.name,
+        at.currency, cb.tax_basis, cb.periodisation_mode, at.finance_adjustment_cents
+      ORDER BY at.financial_period_id, ba.code
+    `,
+    txn`
+      WITH latest AS (
+        SELECT DISTINCT ON (r.financial_period_id, r.currency)
+          r.id,
+          r.financial_period_id,
+          r.source_system_id,
+          r.currency,
+          r.status,
+          r.prepared_at
+        FROM commercial_finance_reconciliations r
+        WHERE r.organisation_id = ${organisationId}
+          AND ${cleanSourceSystemId}::text IS NOT NULL
+          AND r.source_system_id = ${cleanSourceSystemId}
+          AND r.status IN ('SIGNED_OFF','STALE')
+        ORDER BY r.financial_period_id, r.currency, r.prepared_at DESC, r.id DESC
+      )
+      SELECT
+        latest.id AS reconciliation_id,
+        latest.status AS reconciliation_status,
+        latest.source_system_id,
+        item.budget_account_id,
+        ba.code AS budget_account_code,
+        ba.name AS budget_account_name,
+        fp.financial_year_id,
+        fy.name AS financial_year_name,
+        latest.financial_period_id,
+        fp.name AS financial_period_name,
+        latest.currency,
+        SUM(item.external_gl_cents)::text AS external_gl_actual_cents,
+        SUM(item.variance_cents)::text AS reconciliation_variance_cents
+      FROM latest
+      JOIN commercial_finance_reconciliation_items item
+        ON item.reconciliation_id = latest.id
+       AND item.organisation_id = ${organisationId}
+       AND item.currency = latest.currency
+      JOIN commercial_budget_accounts ba
+        ON ba.id = item.budget_account_id
+       AND ba.organisation_id = item.organisation_id
+      JOIN commercial_financial_periods fp
+        ON fp.id = latest.financial_period_id
+       AND fp.organisation_id = ${organisationId}
+      JOIN commercial_financial_years fy
+        ON fy.id = fp.financial_year_id
+       AND fy.organisation_id = fp.organisation_id
+      WHERE item.budget_account_id IS NOT NULL
+      GROUP BY
+        latest.id, latest.status, latest.source_system_id,
+        item.budget_account_id, ba.code, ba.name,
+        fp.financial_year_id, fy.name, latest.financial_period_id,
+        fp.name, latest.currency
+      ORDER BY latest.financial_period_id, ba.code
+    `,
   ], { isolationLevel: 'RepeatableRead' });
 
   const context = deriveActiveBudgetContextFromRows(
@@ -470,5 +824,12 @@ export async function getBudgetActualCommittedReport(
     context,
   );
 
-  return deriveBudgetActualCommittedReport(commitments, actuals);
+  const report = deriveBudgetActualCommittedReport(commitments, actuals);
+  report.financeRows = deriveFinanceAdjustedRows(
+    report.rows,
+    financeAdjustmentRows as FinanceAdjustmentReportRow[],
+    financeReconciliationRows as FinanceReconciliationReportRow[],
+    cleanSourceSystemId,
+  );
+  return report;
 }

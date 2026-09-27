@@ -63,6 +63,11 @@ const ACC = '78888888-2000-0000-0000-000000000009';
 const BUDGET = '78888888-2000-0000-0000-000000000010';
 const VERSION = '78888888-2000-0000-0000-000000000011';
 const BUDGET_LINE = '78888888-2000-0000-0000-000000000012';
+const ADJUSTMENT = '78888888-2000-0000-0000-000000000013';
+const ADJUSTMENT_LINE = '78888888-2000-0000-0000-000000000014';
+const CLOSE = '78888888-2000-0000-0000-000000000015';
+const RECONCILIATION = '78888888-2000-0000-0000-000000000016';
+const RECONCILIATION_ITEM = '78888888-2000-0000-0000-000000000017';
 
 beforeAll(async () => {
   await prisma.$executeRawUnsafe(
@@ -77,6 +82,13 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   afterFirstSnapshotStatement = null;
+  await prisma.$executeRawUnsafe(`DELETE FROM commercial_finance_reconciliation_events WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
+  await prisma.$executeRawUnsafe(`DELETE FROM commercial_finance_reconciliation_items WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
+  await prisma.$executeRawUnsafe(`DELETE FROM commercial_finance_reconciliations WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
+  await prisma.$executeRawUnsafe(`DELETE FROM commercial_financial_period_closes WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
+  await prisma.$executeRawUnsafe(`DELETE FROM commercial_finance_adjustment_events WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
+  await prisma.$executeRawUnsafe(`DELETE FROM commercial_finance_adjustment_lines WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
+  await prisma.$executeRawUnsafe(`DELETE FROM commercial_finance_adjustments WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_supplier_bill_lines WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_supplier_bills WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_purchase_order_lines WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
@@ -240,10 +252,129 @@ describe('C7.8C — real PostgreSQL snapshot-safe combined consumption', () => {
     const report = await getBudgetActualCommittedReport(OTHER);
     expect(report).toMatchObject({
       rows: [],
+      financeRows: [],
       exceptions: [],
       resolvedActualCount: 0,
       resolvedCommitmentCount: 0,
       unresolvedExceptionCount: 0,
+    });
+  });
+
+  it('reports Source Actual, Finance Adjustments, Effective Actual, Committed, Exposure, signed-off External GL Actual and reconciliation variance separately', async () => {
+    await writer.$executeRawUnsafe(
+      `UPDATE commercial_supplier_bills
+       SET status='POSTED', posted_at='2026-09-15T12:00:00Z'
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      BILL, ORG,
+    );
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_finance_adjustments(
+         id,organisation_id,status,adjustment_type,effective_financial_period_id,
+         currency,description,reason_code,created_by
+       ) VALUES (
+         $1::uuid,$2,'DRAFT','MANUAL_FINANCE_ADJUSTMENT',$3::uuid,
+         'AUD','Finance reporting test','REPORTING',$4
+       )`,
+      ADJUSTMENT, ORG, PERIOD, USER,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_finance_adjustment_lines(
+         id,organisation_id,adjustment_id,financial_period_id,position,
+         budget_account_id,cost_centre_id,amount_exclusive_cents,tax_cents,
+         amount_inclusive_cents,resolved_budget_id,resolved_budget_version_id,
+         resolved_budget_line_id,resolved_tax_basis,budget_basis_cents
+       ) VALUES (
+         $1::uuid,$2,$3::uuid,$4::uuid,1,$5::uuid,$6::uuid,
+         250,0,250,$7::uuid,$8::uuid,$9::uuid,'INCLUSIVE',250
+       )`,
+      ADJUSTMENT_LINE, ORG, ADJUSTMENT, PERIOD, ACC, CC, BUDGET, VERSION, BUDGET_LINE,
+    );
+    await prisma.$executeRawUnsafe(
+      `UPDATE commercial_finance_adjustments
+       SET status='POSTED',posted_by=$1,posted_at=now()
+       WHERE id=$2::uuid AND organisation_id=$3`,
+      USER, ADJUSTMENT, ORG,
+    );
+
+    const beforeReconciliation = await getBudgetActualCommittedReport(ORG);
+    expect(beforeReconciliation.financeRows).toHaveLength(1);
+    expect(beforeReconciliation.financeRows[0]).toMatchObject({
+      budgetCents: '20000',
+      sourceActualCents: '2750',
+      financeAdjustmentCents: '250',
+      effectiveActualCents: '3000',
+      committedCents: '8250',
+      exposureCents: '11250',
+      externalGlActualCents: null,
+      reconciliationVarianceCents: null,
+      reconciliationStatus: null,
+      sourceSystemId: null,
+    });
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE commercial_financial_periods
+       SET status='CLOSED'
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      PERIOD, ORG,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_financial_period_closes(
+         id,organisation_id,financial_period_id,close_sequence,status,closed_by,
+         close_reason,control_totals,reconciliation_status
+       ) VALUES (
+         $1::uuid,$2,$3::uuid,1,'CLOSED',$4,
+         'Finance reporting test','{}'::jsonb,'SIGNED_OFF'
+       )`,
+      CLOSE, ORG, PERIOD, USER,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_finance_reconciliations(
+         id,organisation_id,financial_period_id,close_id,source_system_id,currency,
+         status,source_actual_cents,finance_adjustment_cents,
+         brainbase_effective_actual_cents,external_gl_total_cents,variance_cents,
+         unresolved_item_count,snapshot_at,prepared_by,reviewed_by,reviewed_at
+       ) VALUES (
+         $1::uuid,$2,$3::uuid,$4::uuid,'xero','AUD',
+         'SIGNED_OFF',2750,250,3000,3050,-50,
+         1,now(),$5,$5,now()
+       )`,
+      RECONCILIATION, ORG, PERIOD, CLOSE, USER,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_finance_reconciliation_items(
+         id,organisation_id,reconciliation_id,budget_account_id,currency,
+         source_actual_cents,finance_adjustment_cents,brainbase_effective_actual_cents,
+         external_gl_cents,variance_cents,source_actual_count,external_entry_count,outcome
+       ) VALUES (
+         $1::uuid,$2,$3::uuid,$4::uuid,'AUD',
+         2750,250,3000,3050,-50,1,1,'VARIANCE'
+       )`,
+      RECONCILIATION_ITEM, ORG, RECONCILIATION, ACC,
+    );
+
+    const report = await getBudgetActualCommittedReport(ORG, 'xero');
+    expect(report.financeRows).toHaveLength(1);
+    expect(report.financeRows[0]).toMatchObject({
+      sourceActualCents: '2750',
+      financeAdjustmentCents: '250',
+      effectiveActualCents: '3000',
+      committedCents: '8250',
+      exposureCents: '11250',
+      externalGlActualCents: '3050',
+      reconciliationVarianceCents: '-50',
+      reconciliationId: RECONCILIATION,
+      reconciliationStatus: 'SIGNED_OFF',
+      sourceSystemId: 'xero',
+    });
+
+    const wrongSource = await getBudgetActualCommittedReport(ORG, 'other-ledger');
+    expect(wrongSource.financeRows[0]).toMatchObject({
+      externalGlActualCents: null,
+      reconciliationVarianceCents: null,
+      reconciliationId: null,
+      reconciliationStatus: null,
+      sourceSystemId: 'other-ledger',
     });
   });
 });

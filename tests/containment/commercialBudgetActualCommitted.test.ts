@@ -105,10 +105,12 @@ describe('C7.8C — combined Budget vs Actual vs Committed arithmetic', () => {
 describe('C7.8C — snapshot SQL contract', () => {
   const source = fs.readFileSync(path.resolve(process.cwd(), 'lib/commercial/budgetActualCommitted.ts'), 'utf8');
 
-  it('reads all source streams and Budget context inside one REPEATABLE READ transaction', () => {
+  it('reads source, Budget, finance-adjustment and signed reconciliation streams inside one REPEATABLE READ transaction', () => {
     expect(source).toContain("sql.transaction(txn => [");
     expect(source).toContain("{ isolationLevel: 'RepeatableRead' }");
-    expect((source.match(/txn`/g) ?? []).length).toBe(6);
+    expect((source.match(/txn`/g) ?? []).length).toBe(8);
+    expect(source).toContain("fa.status IN ('POSTED','REVERSED')");
+    expect(source).toContain("r.status IN ('SIGNED_OFF','STALE')");
   });
 
   it('uses the same authenticated tenant parameter in commitment, Actual and Budget queries', () => {

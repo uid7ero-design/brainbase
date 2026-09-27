@@ -436,7 +436,7 @@ END $$;
     }
   }
 
-  Mark 'C7.8C combined Actual/Committed snapshot integration suite' {
+  Mark 'C7.8C/C7.9F combined source/finance-adjusted reporting integration suite' {
     $env:DATABASE_URL = "postgresql://postgres:test@127.0.0.1:$port/testdb"
     Push-Location $repo
     try {
@@ -492,7 +492,7 @@ END $$;
   }
 
   Write-Host ''
-  Write-Host "=== C7.7B/C7.7D/C7.7E/C7.8A/C7.8B/C7.8C/C7.9A/C7.9B/C7.9C/C7.9D/C7.9E1/C7.9E2/C7.9E3/C7.9E4 RESULT: PASS=$pass FAIL=$fail ==="
+  Write-Host "=== C7.7B/C7.7D/C7.7E/C7.8A/C7.8B/C7.8C/C7.9A/C7.9B/C7.9C/C7.9D/C7.9E1/C7.9E2/C7.9E3/C7.9E4/C7.9F RESULT: PASS=$pass FAIL=$fail ==="
   if ($fail -ne 0) {
     foreach ($failure in $failures) { Write-Host "  - $failure" }
     exit 1
