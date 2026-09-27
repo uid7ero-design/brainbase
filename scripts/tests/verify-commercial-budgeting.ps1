@@ -172,12 +172,12 @@ INSERT INTO users(id,organisation_id) VALUES ('user-a','org-a'),('user-b','org-b
     if ($LASTEXITCODE -ne 0) { throw "external-GL second migration exit $LASTEXITCODE" }
   }
 
-  Mark 'C7.9E1/E2/E3 finance-reconciliation fresh migration apply' {
+  Mark 'C7.9E1/E2/E3/E4 finance-reconciliation fresh migration apply' {
     Get-Content $financeReconciliationMigration -Raw | docker exec -i $container psql -v ON_ERROR_STOP=1 -U postgres -d testdb
     if ($LASTEXITCODE -ne 0) { throw "finance-reconciliation fresh migration exit $LASTEXITCODE" }
   }
 
-  Mark 'C7.9E1/E2/E3 finance-reconciliation idempotent second apply' {
+  Mark 'C7.9E1/E2/E3/E4 finance-reconciliation idempotent second apply' {
     Get-Content $financeReconciliationMigration -Raw | docker exec -i $container psql -v ON_ERROR_STOP=1 -U postgres -d testdb
     if ($LASTEXITCODE -ne 0) { throw "finance-reconciliation second migration exit $LASTEXITCODE" }
   }
@@ -480,7 +480,7 @@ END $$;
     }
   }
 
-  Mark 'C7.9E1/E2/E3 finance reconciliation integration suite' {
+  Mark 'C7.9E1/E2/E3/E4 finance reconciliation integration suite' {
     $env:DATABASE_URL = "postgresql://postgres:test@127.0.0.1:$port/testdb"
     Push-Location $repo
     try {
@@ -492,7 +492,7 @@ END $$;
   }
 
   Write-Host ''
-  Write-Host "=== C7.7B/C7.7D/C7.7E/C7.8A/C7.8B/C7.8C/C7.9A/C7.9B/C7.9C/C7.9D/C7.9E1/C7.9E2/C7.9E3 RESULT: PASS=$pass FAIL=$fail ==="
+  Write-Host "=== C7.7B/C7.7D/C7.7E/C7.8A/C7.8B/C7.8C/C7.9A/C7.9B/C7.9C/C7.9D/C7.9E1/C7.9E2/C7.9E3/C7.9E4 RESULT: PASS=$pass FAIL=$fail ==="
   if ($fail -ne 0) {
     foreach ($failure in $failures) { Write-Host "  - $failure" }
     exit 1

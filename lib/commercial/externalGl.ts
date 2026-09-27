@@ -54,10 +54,6 @@ function cleanRequired(value: string, field: string) {
   return clean;
 }
 
-function dateOnly(value: string | Date) {
-  return value instanceof Date ? value.toISOString().slice(0, 10) : value.slice(0, 10);
-}
-
 function cleanCurrency(value: string) {
   const currency = value.trim().toUpperCase();
   if (!/^[A-Z]{3}$/.test(currency)) {
@@ -143,49 +139,165 @@ export async function importExternalGlEntry(params: {
   description?: string | null; currency: string;
   amountMinorUnits: string | number | bigint; sourcePayloadHash: string;
   sourceLineageId: string;
-}): Promise<{ outcome: 'IMPORTED' | 'IDEMPOTENT'; entry: ExternalGlEntry }> {  const sourceSystemId = cleanRequired(params.sourceSystemId, 'sourceSystemId');
+}): Promise<{
+  outcome: 'IMPORTED' | 'IDEMPOTENT';
+  entry: ExternalGlEntry;
+  staleReconciliationCount: number;
+}> {
+  const sourceSystemId = cleanRequired(params.sourceSystemId, 'sourceSystemId');
   const externalEntryId = cleanRequired(params.externalEntryId, 'externalEntryId');
   const externalAccountCode = cleanRequired(params.externalAccountCode, 'externalAccountCode');
   const sourcePayloadHash = cleanRequired(params.sourcePayloadHash, 'sourcePayloadHash');
   const sourceLineageId = cleanRequired(params.sourceLineageId, 'sourceLineageId');
   const currency = cleanCurrency(params.currency);
-  const inserted = await sql`
-    INSERT INTO commercial_external_gl_entries(
-      organisation_id,source_system_id,external_entry_id,external_journal_id,
-      external_account_code,external_cost_centre_code,transaction_date,
-      accounting_period_key,description,currency,amount_minor_units,
-      source_payload_hash,source_lineage_id,imported_by
-    ) VALUES (
-      ${params.organisationId},${sourceSystemId},${externalEntryId},
-      ${params.externalJournalId?.trim() || null},${externalAccountCode},
-      ${params.externalCostCentreCode?.trim() || null},${params.transactionDate}::date,
-      ${params.accountingPeriodKey?.trim() || null},${params.description?.trim() || null},
-      ${currency},${params.amountMinorUnits.toString()}::bigint,
-      ${sourcePayloadHash},${sourceLineageId},${params.userId}
+  const externalJournalId = params.externalJournalId?.trim() || null;
+  const externalCostCentreCode = params.externalCostCentreCode?.trim() || null;
+  const accountingPeriodKey = params.accountingPeriodKey?.trim() || null;
+  const description = params.description?.trim() || null;
+  const amountMinorUnits = params.amountMinorUnits.toString();
+
+  type ImportDecisionRow = ExternalGlEntry & {
+    import_outcome: 'IMPORTED' | 'IDEMPOTENT' | 'CONFLICT';
+    stale_reconciliation_count: number;
+  };
+
+  const rows = await sql`
+    WITH inserted AS (
+      INSERT INTO commercial_external_gl_entries(
+        organisation_id,source_system_id,external_entry_id,external_journal_id,
+        external_account_code,external_cost_centre_code,transaction_date,
+        accounting_period_key,description,currency,amount_minor_units,
+        source_payload_hash,source_lineage_id,imported_by
+      ) VALUES (
+        ${params.organisationId},${sourceSystemId},${externalEntryId},
+        ${externalJournalId},${externalAccountCode},${externalCostCentreCode},
+        ${params.transactionDate}::date,${accountingPeriodKey},${description},
+        ${currency},${amountMinorUnits}::bigint,${sourcePayloadHash},
+        ${sourceLineageId},${params.userId}
+      )
+      ON CONFLICT (organisation_id,source_system_id,external_entry_id) DO NOTHING
+      RETURNING *
+    ),
+    existing AS (
+      SELECT entry.*
+      FROM commercial_external_gl_entries entry
+      WHERE entry.organisation_id=${params.organisationId}
+        AND entry.source_system_id=${sourceSystemId}
+        AND entry.external_entry_id=${externalEntryId}
+        AND NOT EXISTS (SELECT 1 FROM inserted)
+    ),
+    comparison AS (
+      SELECT existing.*,
+        (
+          existing.external_journal_id IS NOT DISTINCT FROM ${externalJournalId}
+          AND existing.external_account_code=${externalAccountCode}
+          AND existing.external_cost_centre_code IS NOT DISTINCT FROM ${externalCostCentreCode}
+          AND existing.transaction_date=${params.transactionDate}::date
+          AND existing.accounting_period_key IS NOT DISTINCT FROM ${accountingPeriodKey}
+          AND existing.description IS NOT DISTINCT FROM ${description}
+          AND existing.currency=${currency}
+          AND existing.amount_minor_units=${amountMinorUnits}::bigint
+          AND existing.source_payload_hash=${sourcePayloadHash}
+          AND existing.source_lineage_id=${sourceLineageId}
+        ) AS same
+      FROM existing
+    ),
+    decision AS (
+      SELECT 'IMPORTED'::text AS import_outcome, inserted.*
+      FROM inserted
+      UNION ALL
+      SELECT CASE WHEN comparison.same THEN 'IDEMPOTENT' ELSE 'CONFLICT' END,
+             comparison.id,comparison.organisation_id,comparison.source_system_id,
+             comparison.external_entry_id,comparison.external_journal_id,
+             comparison.external_account_code,comparison.external_cost_centre_code,
+             comparison.transaction_date,comparison.accounting_period_key,
+             comparison.description,comparison.currency,comparison.amount_minor_units,
+             comparison.source_payload_hash,comparison.source_lineage_id,
+             comparison.imported_by,comparison.imported_at
+      FROM comparison
+    ),
+    affected_observations AS (
+      SELECT inserted.transaction_date,inserted.currency
+      FROM inserted
+      UNION
+      SELECT comparison.transaction_date,comparison.currency
+      FROM comparison
+      WHERE NOT comparison.same
+      UNION
+      SELECT ${params.transactionDate}::date,${currency}
+      WHERE EXISTS (SELECT 1 FROM comparison WHERE NOT comparison.same)
+    ),
+    staled AS (
+      UPDATE commercial_finance_reconciliations reconciliation
+      SET status='STALE'
+      FROM commercial_financial_periods period,
+           commercial_financial_period_closes close_record
+      WHERE reconciliation.organisation_id=${params.organisationId}
+        AND reconciliation.source_system_id=${sourceSystemId}
+        AND reconciliation.status='SIGNED_OFF'
+        AND period.id=reconciliation.financial_period_id
+        AND period.organisation_id=reconciliation.organisation_id
+        AND close_record.id=reconciliation.close_id
+        AND close_record.organisation_id=reconciliation.organisation_id
+        AND close_record.status='CLOSED'
+        AND EXISTS (
+          SELECT 1
+          FROM affected_observations affected
+          WHERE affected.currency=reconciliation.currency
+            AND affected.transaction_date BETWEEN period.starts_on AND period.ends_on
+        )
+      RETURNING reconciliation.id,reconciliation.organisation_id,reconciliation.close_id
+    ),
+    close_updated AS (
+      UPDATE commercial_financial_period_closes close_record
+      SET reconciliation_status='STALE'
+      WHERE close_record.organisation_id=${params.organisationId}
+        AND close_record.id IN (SELECT close_id FROM staled)
+      RETURNING close_record.id
+    ),
+    events AS (
+      INSERT INTO commercial_finance_reconciliation_events(
+        organisation_id,reconciliation_id,event_type,actor_user_id,details
+      )
+      SELECT staled.organisation_id,staled.id,'STALE',${params.userId},
+        jsonb_build_object(
+          'cause',
+          CASE
+            WHEN EXISTS (SELECT 1 FROM inserted) THEN 'EXTERNAL_GL_NEW_ENTRY'
+            ELSE 'EXTERNAL_GL_CHANGED_IDENTITY'
+          END,
+          'externalEntryId',${externalEntryId},
+          'sourceSystemId',${sourceSystemId},
+          'incomingTransactionDate',${params.transactionDate},
+          'incomingCurrency',${currency},
+          'sourceLineageId',${sourceLineageId}
+        )
+      FROM staled
+      RETURNING reconciliation_id
     )
-    ON CONFLICT (organisation_id,source_system_id,external_entry_id) DO NOTHING
-    RETURNING *
-  ` as ExternalGlEntry[];
-  if (inserted[0]) return { outcome: 'IMPORTED', entry: inserted[0] };
-  const existingRows = await sql`SELECT * FROM commercial_external_gl_entries
-    WHERE organisation_id=${params.organisationId}
-      AND source_system_id=${sourceSystemId} AND external_entry_id=${externalEntryId}` as ExternalGlEntry[];
-  const existing = existingRows[0];
-  if (!existing) throw new ExternalGlError('EXTERNAL_IDENTITY_CONFLICT', 'External identity conflict.');
-  const same =
-    existing.external_journal_id === (params.externalJournalId?.trim() || null)
-    && existing.external_account_code === externalAccountCode
-    && existing.external_cost_centre_code === (params.externalCostCentreCode?.trim() || null)
-    && dateOnly(existing.transaction_date as unknown as string | Date) === params.transactionDate
-    && existing.accounting_period_key === (params.accountingPeriodKey?.trim() || null)
-    && existing.description === (params.description?.trim() || null)
-    && existing.currency === currency
-    && existing.amount_minor_units.toString() === params.amountMinorUnits.toString()
-    && existing.source_payload_hash === sourcePayloadHash
-    && existing.source_lineage_id === sourceLineageId;
-  if (!same) throw new ExternalGlError('EXTERNAL_IDENTITY_CONFLICT',
-    'The external identity already exists with different immutable source facts.');
-  return { outcome: 'IDEMPOTENT', entry: existing };
+    SELECT decision.*,
+           (SELECT COUNT(*)::int FROM staled) AS stale_reconciliation_count
+    FROM decision
+  ` as ImportDecisionRow[];
+
+  const row = rows[0];
+  if (!row) {
+    throw new ExternalGlError('EXTERNAL_IDENTITY_CONFLICT', 'External identity conflict.');
+  }
+
+  const { import_outcome, stale_reconciliation_count, ...entry } = row;
+  if (import_outcome === 'CONFLICT') {
+    throw new ExternalGlError(
+      'EXTERNAL_IDENTITY_CONFLICT',
+      'The external identity already exists with different immutable source facts.',
+    );
+  }
+
+  return {
+    outcome: import_outcome,
+    entry,
+    staleReconciliationCount: stale_reconciliation_count,
+  };
 }
 
 export function assertSameReconciliationCurrency(brainBaseCurrency: string, externalGlCurrency: string) {

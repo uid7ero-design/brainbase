@@ -74,13 +74,61 @@ describe('C7.9D — external GL admin APIs', () => {
 
   it('imports immutable external entry with session tenant and preserves idempotent outcome status', async () => {
     authorizeMock.mockResolvedValue({ ok: true, session: ADMIN });
-    importEntryMock.mockResolvedValue({ outcome:'IDEMPOTENT', entry:{ id:'gl-1' } });
+    importEntryMock.mockResolvedValue({
+      outcome:'IDEMPOTENT',
+      entry:{ id:'gl-1' },
+      staleReconciliationCount:0,
+    });
     const response = await entriesRoute.POST(new Request('http://localhost', { method:'POST', body: JSON.stringify({
       sourceSystemId:'xero', externalEntryId:'e-1', externalAccountCode:'600', transactionDate:'2026-09-30', currency:'AUD',
       amountMinorUnits:'1234', sourcePayloadHash:'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', sourceLineageId:'import-1'
     }) }));
     expect(response.status).toBe(200);
-    expect(importEntryMock).toHaveBeenCalledWith(expect.objectContaining({ organisationId:'org-a', userId:'admin-a', externalEntryId:'e-1' }));
+    expect(await response.json()).toMatchObject({
+      outcome:'IDEMPOTENT',
+      staleReconciliationCount:0,
+    });
+    expect(importEntryMock).toHaveBeenCalledWith(expect.objectContaining({
+      organisationId:'org-a',
+      userId:'admin-a',
+      externalEntryId:'e-1',
+    }));
+  });
+
+  it('returns 201 and surfaces the stale reconciliation count from a governed new external fact import', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: ADMIN });
+    importEntryMock.mockResolvedValue({
+      outcome:'IMPORTED',
+      entry:{ id:'gl-2' },
+      staleReconciliationCount:1,
+    });
+
+    const response = await entriesRoute.POST(new Request('http://localhost', {
+      method:'POST',
+      body: JSON.stringify({
+        sourceSystemId:'xero',
+        externalEntryId:'e-2',
+        externalAccountCode:'600',
+        transactionDate:'2026-09-30',
+        currency:'AUD',
+        amountMinorUnits:'50',
+        sourcePayloadHash:'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        sourceLineageId:'import-2',
+      }),
+    }));
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({
+      outcome:'IMPORTED',
+      entry:{ id:'gl-2' },
+      staleReconciliationCount:1,
+    });
+    expect(authorizeMock).toHaveBeenCalledWith('budgeting', 'admin');
+    expect(importEntryMock).toHaveBeenCalledWith(expect.objectContaining({
+      organisationId:'org-a',
+      userId:'admin-a',
+      externalEntryId:'e-2',
+    }));
   });
 
   it('maps invalid input to 400, not-found to 404, and conflicts to 409', async () => {

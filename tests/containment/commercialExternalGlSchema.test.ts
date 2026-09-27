@@ -31,7 +31,8 @@ describe('C7.9D — external GL schema/domain contract', () => {
   it('makes external GL identity tenant/source scoped and idempotent', () => {
     expect(migration).toContain('UNIQUE (organisation_id, source_system_id, external_entry_id)');
     expect(domain).toContain('ON CONFLICT (organisation_id,source_system_id,external_entry_id) DO NOTHING');
-    expect(domain).toContain("outcome: 'IDEMPOTENT'");
+    expect(domain).toContain("'IMPORTED' | 'IDEMPOTENT' | 'CONFLICT'");
+    expect(domain).toContain('staleReconciliationCount');
     expect(domain).toContain("'EXTERNAL_IDENTITY_CONFLICT'");
   });
 

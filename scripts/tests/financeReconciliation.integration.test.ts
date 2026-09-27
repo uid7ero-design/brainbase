@@ -55,6 +55,7 @@ const { createFinanceAdjustment, postFinanceAdjustment, reverseFinanceAdjustment
   await import('@/lib/commercial/financeAdjustments');
 const { activateBudgetVersion } = await import('@/lib/commercial/budgetActivation');
 const { closeFinancialPeriod, reopenFinancialPeriod } = await import('@/lib/commercial/financeClose');
+const { importExternalGlEntry } = await import('@/lib/commercial/externalGl');
 
 type Fixture = {
   org: string; user: string; fy: string; period: string; period2: string; cc: string;
@@ -210,6 +211,27 @@ async function postAdjustment(f: Fixture, cents: number, period = f.period) {
   });
   await postFinanceAdjustment({ organisationId: f.org, userId: f.user, financeAdjustmentId: draft.id });
   return draft;
+}
+
+async function signOffPeriod(f: Fixture, preparedId: string) {
+  await reviewFinanceReconciliation({
+    organisationId: f.org,
+    userId: f.user,
+    reconciliationId: preparedId,
+  });
+  const close = await closeFinancialPeriod({
+    organisationId: f.org,
+    userId: f.user,
+    financialPeriodId: f.period,
+    reason: 'Month end',
+  });
+  await signOffFinanceReconciliation({
+    organisationId: f.org,
+    userId: f.user,
+    reconciliationId: preparedId,
+    closeId: close.id,
+  });
+  return close;
 }
 
 afterAll(async () => prisma.$disconnect());
@@ -689,5 +711,184 @@ describe('C7.9E1 — prepared finance reconciliation snapshots', () => {
       prepared.id, f.org,
     );
     expect(state[0]).toEqual({ status: 'REVIEWED', close_id: null });
+  });
+
+  it('marks a signed-off closed reconciliation STALE when a new external GL fact is imported for that period', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    await addEntry(f, 1000);
+    const prepared = await prepare(f);
+    const close = await signOffPeriod(f, prepared.id);
+
+    const imported = await importExternalGlEntry({
+      organisationId: f.org,
+      userId: f.user,
+      sourceSystemId: 'xero',
+      externalEntryId: `late-${id()}`,
+      externalAccountCode: '600',
+      transactionDate: '2026-09-25',
+      currency: 'AUD',
+      amountMinorUnits: '50',
+      sourcePayloadHash: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      sourceLineageId: `late-batch-${id()}`,
+    });
+
+    expect(imported.outcome).toBe('IMPORTED');
+    expect(imported.staleReconciliationCount).toBe(1);
+
+    const state = await prisma.$queryRawUnsafe<{
+      reconciliation_status: string;
+      close_status: string;
+    }[]>(
+      `SELECT reconciliation.status AS reconciliation_status,
+              close_record.reconciliation_status AS close_status
+       FROM commercial_finance_reconciliations reconciliation
+       JOIN commercial_financial_period_closes close_record
+         ON close_record.id=reconciliation.close_id
+        AND close_record.organisation_id=reconciliation.organisation_id
+       WHERE reconciliation.id=$1::uuid
+         AND reconciliation.organisation_id=$2`,
+      prepared.id, f.org,
+    );
+    expect(state[0]).toEqual({
+      reconciliation_status: 'STALE',
+      close_status: 'STALE',
+    });
+
+    const events = await prisma.$queryRawUnsafe<{ event_type: string; details: { cause?: string } }[]>(
+      `SELECT event_type,details
+       FROM commercial_finance_reconciliation_events
+       WHERE reconciliation_id=$1::uuid AND organisation_id=$2
+       ORDER BY event_at,id`,
+      prepared.id, f.org,
+    );
+    expect(events.map(event => event.event_type)).toEqual([
+      'PREPARED', 'REVIEWED', 'SIGNED_OFF', 'STALE',
+    ]);
+    expect(events.at(-1)?.details).toMatchObject({
+      cause: 'EXTERNAL_GL_NEW_ENTRY',
+    });
+
+    const storedClose = await prisma.$queryRawUnsafe<{ id: string; status: string }[]>(
+      `SELECT id,status
+       FROM commercial_financial_period_closes
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      close.id, f.org,
+    );
+    expect(storedClose[0]).toEqual({ id: close.id, status: 'CLOSED' });
+  });
+
+  it('keeps an exact duplicate import idempotent and does not stale a signed-off reconciliation', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    const existingEntryId = await addEntry(f, 1000);
+    const prepared = await prepare(f);
+    await signOffPeriod(f, prepared.id);
+
+    const duplicate = await importExternalGlEntry({
+      organisationId: f.org,
+      userId: f.user,
+      sourceSystemId: 'xero',
+      externalEntryId: `entry-${existingEntryId}`,
+      externalAccountCode: '600',
+      transactionDate: '2026-09-20',
+      currency: 'AUD',
+      amountMinorUnits: '1000',
+      sourcePayloadHash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      sourceLineageId: `batch-${existingEntryId}`,
+    });
+
+    expect(duplicate.outcome).toBe('IDEMPOTENT');
+    expect(duplicate.staleReconciliationCount).toBe(0);
+
+    const state = await prisma.$queryRawUnsafe<{ status: string }[]>(
+      `SELECT status
+       FROM commercial_finance_reconciliations
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      prepared.id, f.org,
+    );
+    expect(state[0].status).toBe('SIGNED_OFF');
+
+    const staleEvents = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
+      `SELECT COUNT(*)::bigint AS count
+       FROM commercial_finance_reconciliation_events
+       WHERE reconciliation_id=$1::uuid
+         AND organisation_id=$2
+         AND event_type='STALE'`,
+      prepared.id, f.org,
+    );
+    expect(staleEvents[0].count.toString()).toBe('0');
+  });
+
+  it('stales on changed external identity while preserving the original immutable GL fact', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    const existingEntryId = await addEntry(f, 1000);
+    const prepared = await prepare(f);
+    await signOffPeriod(f, prepared.id);
+
+    const before = await prisma.$queryRawUnsafe<{
+      amount_minor_units: bigint;
+      source_payload_hash: string;
+      source_lineage_id: string;
+    }[]>(
+      `SELECT amount_minor_units,source_payload_hash,source_lineage_id
+       FROM commercial_external_gl_entries
+       WHERE organisation_id=$1
+         AND source_system_id='xero'
+         AND external_entry_id=$2`,
+      f.org, `entry-${existingEntryId}`,
+    );
+
+    await expect(importExternalGlEntry({
+      organisationId: f.org,
+      userId: f.user,
+      sourceSystemId: 'xero',
+      externalEntryId: `entry-${existingEntryId}`,
+      externalAccountCode: '600',
+      transactionDate: '2026-09-20',
+      currency: 'AUD',
+      amountMinorUnits: '1250',
+      sourcePayloadHash: 'cccccccccccccccccccccccccccccccc',
+      sourceLineageId: `changed-batch-${existingEntryId}`,
+    })).rejects.toMatchObject({ code: 'EXTERNAL_IDENTITY_CONFLICT' });
+
+    const after = await prisma.$queryRawUnsafe<{
+      amount_minor_units: bigint;
+      source_payload_hash: string;
+      source_lineage_id: string;
+    }[]>(
+      `SELECT amount_minor_units,source_payload_hash,source_lineage_id
+       FROM commercial_external_gl_entries
+       WHERE organisation_id=$1
+         AND source_system_id='xero'
+         AND external_entry_id=$2`,
+      f.org, `entry-${existingEntryId}`,
+    );
+    expect(after[0].amount_minor_units.toString()).toBe(before[0].amount_minor_units.toString());
+    expect(after[0].source_payload_hash).toBe(before[0].source_payload_hash);
+    expect(after[0].source_lineage_id).toBe(before[0].source_lineage_id);
+
+    const reconciliation = await prisma.$queryRawUnsafe<{ status: string }[]>(
+      `SELECT status
+       FROM commercial_finance_reconciliations
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      prepared.id, f.org,
+    );
+    expect(reconciliation[0].status).toBe('STALE');
+
+    const staleEvent = await prisma.$queryRawUnsafe<{ details: { cause?: string } }[]>(
+      `SELECT details
+       FROM commercial_finance_reconciliation_events
+       WHERE reconciliation_id=$1::uuid
+         AND organisation_id=$2
+         AND event_type='STALE'
+       ORDER BY event_at DESC,id DESC
+       LIMIT 1`,
+      prepared.id, f.org,
+    );
+    expect(staleEvent[0].details).toMatchObject({
+      cause: 'EXTERNAL_GL_CHANGED_IDENTITY',
+    });
   });
 });
