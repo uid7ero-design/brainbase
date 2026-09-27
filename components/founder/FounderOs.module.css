@@ -1,0 +1,966 @@
+/*
+ * Founder OS (authenticated visual-completion pass). The app's own
+ * surfaces, borders, type, focus, buttons and status colours — no separate
+ * dark mini-app. Tokens only (app/globals.css): no blur, glow, gradients,
+ * white-alpha neutrals or violet literals. Genuine data encodings (CRM
+ * stage hues) arrive inline from app/admin/founder/page.tsx.
+ *
+ * Desktop-first. Below 900px the three-column shell stacks (sidebar strip →
+ * content → context rail) and the page scrolls instead of each column —
+ * minimum narrow-screen safety, not a mobile redesign.
+ */
+
+/* ── Shell ─────────────────────────────────────────────────────────── */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--bb-font-sans);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.statusBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 16px;
+  min-height: 40px;
+  flex-shrink: 0;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.brandRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+}
+
+.brandTag {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brand-brainbase-accent);
+}
+
+.statusMeta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.statusLink {
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+}
+.statusLink:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 264px;
+  flex-shrink: 0;
+  padding: 12px 10px;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+/* ── Sidebar ───────────────────────────────────────────────────────── */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 168px;
+  flex-shrink: 0;
+  padding: 14px 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.sidebarGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 8px;
+}
+
+.sidebarGroup + .sidebarGroup {
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.sidebarHeading {
+  margin: 0 0 6px;
+  padding: 0 12px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.navList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Resets for a <button> carrying the shared module-nav item class. */
+.navButton {
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.actionList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.actionButton {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+}
+.actionButton:hover {
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+}
+
+.actionIcon {
+  width: 12px;
+  flex-shrink: 0;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.sidebarContext {
+  margin-top: auto;
+  padding: 14px 20px 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+/* ── Section switch ────────────────────────────────────────────────── */
+
+.tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-self: flex-start;
+  max-width: 100%;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.tab {
+  padding: 4px 11px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.tab:hover {
+  color: var(--text-primary);
+}
+/* Raised segment: accent text on --bg-surface (5.75:1 light, >5:1 dark). The previous
+   accent-on-accent-tint measured 4.35:1 where the strip is --bg-sunken. A border (not
+   outline/box-shadow) keeps the global :focus-visible ring intact. */
+.tab[aria-pressed='true'] {
+  background: var(--bg-surface);
+  border-color: var(--brand-brainbase-accent-border);
+  color: var(--brand-brainbase-accent);
+  font-weight: 600;
+}
+
+/* ── Surfaces ──────────────────────────────────────────────────────── */
+
+.card {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.cardCompact {
+  padding: 10px 12px;
+}
+
+.rail .card {
+  background: var(--bg-base);
+}
+
+.cardHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  margin-bottom: 10px;
+}
+
+.cardHeaderGroup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+}
+
+.label {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.labelStrong {
+  color: var(--text-primary);
+}
+
+.labelSpaced {
+  margin-bottom: 8px;
+}
+
+/* Honest empty / not-connected state. */
+.empty {
+  padding: 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.emptyTitle {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.emptyText {
+  margin-top: 3px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.stateText {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.errorText {
+  font-size: 0.75rem;
+  color: var(--status-danger);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Machine values only: commit hashes, slugs, latency. */
+.code {
+  font-family: var(--bb-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stackTight {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Sunken row used by lists inside a card. */
+.row {
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+}
+
+a.row {
+  text-decoration: none;
+}
+a.row:hover {
+  border-color: var(--border-strong);
+}
+
+.tile {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.tileLabel {
+  margin-bottom: 4px;
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.tileValue {
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+/* Small status / category chip. Colour comes from a status token inline;
+   the chip always carries its meaning as text. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+/* CRM stage pill: stage hue on the dot and a light tint; label text stays
+   in --text-primary so it reads in both themes. */
+.stagePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  justify-self: start;
+  padding: 1px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Wide, grid-based lists scroll inside their card on narrow screens
+   instead of pushing the page sideways. */
+.scrollX {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* ── Attention queue ───────────────────────────────────────────────── */
+
+.queueItem {
+  display: block;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+a.queueItem:hover {
+  background: var(--bg-sunken);
+}
+
+.queueHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 7px 10px 4px;
+}
+
+.queueTitle {
+  flex: 1 1 160px;
+  min-width: 0;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queueWhy {
+  padding: 0 10px 7px;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.875rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.iconButton:hover {
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+}
+
+/* ── Client pipeline ───────────────────────────────────────────────── */
+
+.pipelineGrid {
+  display: grid;
+  gap: 6px;
+  align-items: center;
+  min-width: 640px;
+}
+
+.pipelineHead {
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pipelineHeadCell {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.pipelineRow {
+  position: relative;
+  padding: 5px 6px;
+  border-left: 2px solid transparent;
+  border-radius: var(--radius-sm);
+}
+.pipelineRow:hover,
+.pipelineRow:focus-within {
+  background: var(--bg-sunken);
+}
+.pipelineRow[data-highlighted='true'] {
+  background: var(--status-success-muted);
+}
+
+/* The organisation name is the row's real button; its ::after stretches
+   over the whole row so a click anywhere on the row opens the client. */
+.pipelineOpen {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pipelineOpen::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+.pipelineOpen:focus-visible {
+  outline-offset: 2px;
+}
+
+/* Controls in a row sit above the stretched open target. */
+.pipelineAction {
+  position: relative;
+  z-index: 1;
+  justify-self: end;
+}
+
+.funnel {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 26px;
+}
+
+.funnelStep {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.funnelBar {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 2px;
+}
+
+.funnelLabel {
+  font-size: 0.625rem;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+/* ── Revenue ───────────────────────────────────────────────────────── */
+
+.revenueGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 184px;
+  gap: 16px;
+}
+
+.statRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.sourceNote {
+  margin-top: 8px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+/* ── Tasks ─────────────────────────────────────────────────────────── */
+
+.taskGrid {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 2fr) 116px 124px minmax(0, 1fr) 116px;
+  gap: 8px;
+  align-items: center;
+  min-width: 620px;
+}
+
+.taskCheck {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  color: var(--brand-brainbase-on-accent);
+  font-size: 0.6875rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.taskCheck[data-done='true'] {
+  border-color: var(--status-success);
+  background: var(--status-success);
+}
+
+.taskControl {
+  width: 100%;
+  min-width: 0;
+  min-height: 26px;
+  padding: 2px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.75rem;
+}
+.taskControl:focus-visible {
+  border-color: var(--border-focus);
+}
+
+.disclosure {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.disclosure:hover {
+  color: var(--text-primary);
+}
+
+.createForm {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.formGrid2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+/* ── Dialog / drawer content ───────────────────────────────────────── */
+
+.dialogBody {
+  display: grid;
+  gap: 12px;
+}
+
+.dialogIntro {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.segmented {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.segment {
+  flex: 1;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+/* Raised segment: accent text on --bg-surface (5.75:1 light, >5:1 dark). The previous
+   accent-on-accent-tint measured 4.35:1 where the strip is --bg-sunken. A border (not
+   outline/box-shadow) keeps the global :focus-visible ring intact. */
+.segment[aria-pressed='true'] {
+  background: var(--bg-surface);
+  border-color: var(--brand-brainbase-accent-border);
+  color: var(--brand-brainbase-accent);
+}
+
+.notice {
+  padding: 6px 9px;
+  border: 1px solid var(--brand-brainbase-accent-border);
+  border-radius: var(--radius-md);
+  background: var(--brand-brainbase-accent-muted);
+  font-size: 0.75rem;
+  color: var(--text-primary);
+}
+
+.hint {
+  padding: 7px 10px;
+  border: 1px solid var(--status-warning-border);
+  border-radius: var(--radius-md);
+  background: var(--status-warning-muted);
+  font-size: 0.75rem;
+  color: var(--text-primary);
+}
+
+.tenantBox {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.tenantBox[data-linked='true'] {
+  border-color: var(--status-info-border);
+}
+
+.tenantToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 11px;
+  border: 0;
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.tenantBody {
+  display: grid;
+  gap: 10px;
+  padding: 10px 11px;
+  border-top: 1px solid var(--border);
+}
+
+.drawerSummary {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.drawerSection {
+  display: grid;
+  gap: 6px;
+}
+
+.drawerSections {
+  display: grid;
+  gap: 14px;
+  padding-top: 12px;
+}
+
+.focusBox {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.buttonRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.twoCol {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.insight {
+  padding: 4px 0 4px 8px;
+  border-left: 2px solid var(--border-strong);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+/* ── Toast ─────────────────────────────────────────────────────────── */
+
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 32px);
+  padding: 9px 16px;
+  transform: translateX(-50%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-overlay);
+  box-shadow: var(--shadow-popover);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Narrow screens (minimum safety) ───────────────────────────────── */
+
+@media (max-width: 899px) {
+  .root {
+    height: auto !important;
+    overflow: visible;
+  }
+  .body {
+    flex-direction: column;
+    overflow: visible;
+  }
+  .sidebar {
+    width: auto;
+    gap: 8px;
+    padding: 8px 12px;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebarGroup,
+  .sidebarGroup + .sidebarGroup {
+    padding: 0;
+    border-top: 0;
+  }
+  .sidebarHeading {
+    padding: 0;
+  }
+  .navList {
+    flex-direction: row;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .navList > li {
+    flex-shrink: 0;
+  }
+  .navButton,
+  .navList a {
+    white-space: nowrap;
+  }
+  .actionList {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 4px;
+  }
+  .actionList .actionButton {
+    width: auto;
+    padding: 4px 8px;
+  }
+  .sidebarContext {
+    display: none;
+  }
+  .main {
+    overflow: visible;
+  }
+  .rail {
+    width: auto;
+    overflow: visible;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+  .revenueGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

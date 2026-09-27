@@ -148,15 +148,79 @@ describe('Phase C.2C — real, organisation-scoped data only', () => {
     expect(fallthroughBody).toMatch(/FROM service_requests WHERE organisation_id = \$\{oid\}/);
   });
 
-  it('app/dashboard/overview/page.tsx and OverviewClient.tsx are byte-for-byte untouched this phase', () => {
-    // Spot-check a few distinctive, unmodified lines rather than a full
-    // snapshot — proves the file wasn't touched without pinning its
-    // entire content.
+  // Visual-convergence update (authenticated visual-completion pass): this
+  // used to assert OverviewClient.tsx was "byte-for-byte untouched" and
+  // pinned a quick-nav colour literal (`color: '#22C55E'`). The user
+  // approved converting /dashboard/overview to theme tokens (decision B), so
+  // the freeze is replaced by stronger behavioural / containment pins: the
+  // server data shape and queries, every computed field and threshold, the
+  // HLNΛ prompts, the series toggles, and the full quick-nav information
+  // architecture (labels + routes, in order). Colour is guarded separately
+  // in tests/containment/dashboardShellVisual.test.ts.
+  describe('/dashboard/overview — behaviour and information architecture preserved', () => {
     const overviewPage = read('app/dashboard/overview/page.tsx');
-    const overviewClient = read('app/dashboard/overview/OverviewClient.tsx');
-    expect(overviewPage).toContain("import OverviewClient from './OverviewClient';");
-    expect(overviewClient).toContain('Command Overview');
-    expect(overviewClient).toContain("{ label: 'Waste',    href: '/dashboard/waste',    color: '#22C55E' }");
+    const overviewClient = read('app/dashboard/overview/OverviewClient.tsx').replace(/\r\n/g, '\n');
+
+    it('the page still renders OverviewClient from organisation-scoped queries, failing closed', () => {
+      expect(overviewPage).toContain("import OverviewClient from './OverviewClient';");
+      expect(overviewPage).toMatch(/if \(!session\) redirect\('\/login'\);/);
+      expect(overviewPage).toMatch(/FROM waste_records WHERE organisation_id = \$\{oid\}/);
+      expect(overviewPage).toMatch(/FROM fleet_metrics WHERE organisation_id = \$\{oid\}/);
+      expect(overviewPage).toMatch(/FROM service_requests WHERE organisation_id = \$\{oid\}/);
+      expect(overviewPage).toMatch(/WHERE organisation_id = \$\{oid\} AND upload_status = 'complete'/);
+      expect(overviewPage).toMatch(/return query\.catch\(\(\) => fallback\);/);
+      for (const prop of ['waste={wasteRow}', 'fleet={fleetRow}', 'serviceRequests={srByStatus', 'trend={trend}', 'alerts={alerts}', 'uploadSummary={uploadSummary}']) {
+        expect(overviewPage).toContain(prop);
+      }
+    });
+
+    it('keeps the client props contract and every computed field', () => {
+      expect(overviewClient).toContain('export default function OverviewClient({ waste, fleet, serviceRequests, trend, alerts, uploadSummary = [] }: Props)');
+      expect(overviewClient).toContain("const openCount    = serviceRequests.find(r => r.status === 'Open')?.count    ?? 0;");
+      expect(overviewClient).toContain("const closedCount  = serviceRequests.find(r => r.status === 'Closed')?.count  ?? 0;");
+      expect(overviewClient).toContain("const pendingCount = serviceRequests.find(r => r.status === 'Pending')?.count ?? 0;");
+      expect(overviewClient).toContain("const avgDays      = serviceRequests.find(r => r.status === 'Open')?.avg_days ?? 0;");
+      expect(overviewClient).toContain('const fleetCost  = Number(fleet.total_fuel  ?? 0) + Number(fleet.total_maintenance ?? 0) + Number(fleet.total_wages ?? 0);');
+      expect(overviewClient).toContain('const totalSpend = wasteCost + fleetCost;');
+      expect(overviewClient).toContain('const hasData = totalSpend > 0 || openCount > 0 || trend.length > 0;');
+      expect(overviewClient).toContain('if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;');
+    });
+
+    it('keeps the same alert thresholds (now expressed as semantic tones)', () => {
+      expect(overviewClient).toContain("avgContam > 10 ? 'danger'");
+      expect(overviewClient).toContain("openCount > 20 ? 'warning'");
+      expect(overviewClient).toContain("totalDefects > 10 ? 'danger' : totalDefects > 5 ? 'warning'");
+      expect(overviewClient).toContain("tone: avgDays > 7 ? 'danger' : undefined");
+      expect(overviewClient).toMatch(/HIGH:\s*'danger',\s*\n\s*MED:\s*'warning',\s*\n\s*LOW:\s*'success',/);
+    });
+
+    it('keeps the headings, sections and metric labels (information architecture)', () => {
+      for (const text of ['Command Overview', 'Monthly Cost Trend', 'Service Requests', 'Alerts & Anomalies', 'Service Dashboards', 'No anomalies detected', 'No trend data yet',
+        'Total Spend', 'Waste Cost', 'Fleet Cost', 'Contamination', 'Open SRs', 'Fleet Defects']) {
+        expect(overviewClient, text).toContain(text);
+      }
+      expect(overviewClient).toContain("<h1 className={styles.title}>");
+    });
+
+    it('keeps the HLNΛ actions, their prompts and the series toggles', () => {
+      expect(overviewClient).toContain('useAppStore.getState().fireHelena(q);');
+      expect(overviewClient).toContain("askHlna('Give me a full executive briefing on operational performance — cover waste, fleet, and service requests. Highlight any risks or anomalies.')");
+      expect(overviewClient).toContain("askHlna('Analyse the current alerts and anomalies in operational data. What are the root causes and what actions should I take?')");
+      expect(overviewClient).toContain('Ask HLNΛ for briefing');
+      expect(overviewClient).toContain('Ask HLNΛ to investigate');
+      expect(overviewClient).toContain('onClick={() => setActiveLines(p => ({ ...p, [key]: !p[key] }))}');
+      expect(overviewClient).toContain('aria-pressed={activeLines[key]}');
+    });
+
+    it('keeps the full quick-nav (labels and routes, in order)', () => {
+      const nav = overviewClient.slice(overviewClient.indexOf('const QUICK_NAV'), overviewClient.indexOf('];', overviewClient.indexOf('const QUICK_NAV')));
+      const pairs = [...nav.matchAll(/label: '([^']+)',\s*href: '([^']+)'/g)].map(m => `${m[1]}=${m[2]}`);
+      expect(pairs).toEqual([
+        'Waste=/dashboard/waste', 'Fleet=/dashboard/fleet', 'Water=/dashboard/water', 'Roads=/dashboard/roads',
+        'Parks=/dashboard/parks', 'Labour=/dashboard/labour', 'Integrations=/dashboard/integrations',
+      ]);
+      expect(overviewClient).toContain('<a href={d.href}');
+    });
   });
 
   it('enabled capabilities use the CORRECT existing join (m.key = om.module_key), never the known-broken m.id = om.module_id enabledModules query', () => {

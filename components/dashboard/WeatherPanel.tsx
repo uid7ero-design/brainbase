@@ -9,15 +9,14 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
+import { Badge } from '@/components/ui/app'
+import styles from './WeatherPanel.module.css'
 
 const DEFAULT_LAT = -34.93
 const DEFAULT_LNG = 138.6
 const DEFAULT_TZ = 'Australia/Adelaide'
 const DEFAULT_LOCATION_LABEL = 'Adelaide'
 const DEFAULT_CONTEXT_LABEL = 'Playability Forecast'
-
-const FONT =
-  "var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 type Props = {
   latitude?: number
@@ -36,44 +35,41 @@ type Day = {
   code: number
 }
 
+// Playability is a status encoding: the thresholds are unchanged, the
+// colour now comes from the semantic status tokens (readable in both
+// themes) instead of fixed pale hues.
+type PlayState = 'error' | 'warning' | 'success'
+
 type Playability = {
   label: string
-  color: string
-  bg: string
-  border: string
+  state: PlayState
 }
 
 function pctPlayability(rain: number): Playability {
   if (rain > 60) {
     return {
       label: 'Sessions at risk',
-      color: '#f87171',
-      bg: 'rgba(248,113,113,.10)',
-      border: 'rgba(248,113,113,.20)',
+      state: 'error',
     }
   }
 
   if (rain >= 30) {
     return {
       label: 'Monitor conditions',
-      color: '#fbbf24',
-      bg: 'rgba(251,191,36,.10)',
-      border: 'rgba(251,191,36,.20)',
+      state: 'warning',
     }
   }
 
   return {
     label: 'Good for play',
-    color: '#4ade80',
-    bg: 'rgba(74,222,128,.10)',
-    border: 'rgba(74,222,128,.20)',
+    state: 'success',
   }
 }
 
-function probBarColor(pct: number): string {
-  if (pct > 60) return 'rgba(248,113,113,.82)'
-  if (pct >= 30) return 'rgba(251,191,36,.82)'
-  return 'rgba(74,222,128,.70)'
+const BAR_CLASS: Record<PlayState, string> = {
+  error: styles.barError,
+  warning: styles.barWarning,
+  success: styles.barSuccess,
 }
 
 function probBarShape(props: {
@@ -91,7 +87,7 @@ function probBarShape(props: {
   if (h <= 0 || w <= 0) return null
 
   const r = Math.min(4, w / 2)
-  const fill = probBarColor(Number(props.rainPct ?? 0))
+  const className = BAR_CLASS[pctPlayability(Number(props.rainPct ?? 0)).state]
 
   const d =
     `M${x},${y + h} ` +
@@ -101,7 +97,7 @@ function probBarShape(props: {
     `Q${x + w},${y} ${x + w},${y + r} ` +
     `V${y + h} Z`
 
-  return <path d={d} fill={fill} />
+  return <path d={d} className={className} />
 }
 
 function weatherIcon(code: number, rain: number): string {
@@ -125,26 +121,19 @@ function dayLabel(dateStr: string, idx: number): string {
 
 function PlayBadge({ p }: { p: Playability }) {
   return (
-    <span
-      className="bb-weather-play-badge"
-      style={{
-        background: p.bg,
-        color: p.color,
-        borderColor: p.border,
-      }}
-    >
+    <Badge state={p.state} className={styles.playBadge}>
       {p.label}
-    </span>
+    </Badge>
   )
 }
 
 function LoadingRows() {
   return (
-    <div className="bb-weather-loading">
+    <div className={styles.loading} role="status" aria-label="Loading weather">
       {[1, 2, 3, 4, 5, 6, 7].map((i) => (
         <div
           key={i}
-          className="bb-weather-loading-row"
+          className={styles.loadingRow}
           style={{
             animationDelay: `${i * 0.08}s`,
           }}
@@ -152,6 +141,17 @@ function LoadingRows() {
       ))}
     </div>
   )
+}
+
+const TOOLTIP_STYLE: React.CSSProperties = {
+  background: 'var(--bg-overlay)',
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+  fontSize: 12,
+  color: 'var(--text-primary)',
+  fontFamily: 'var(--bb-font-sans)',
+  padding: '8px 11px',
+  boxShadow: 'var(--shadow-popover)',
 }
 
 export default function WeatherPanel({
@@ -214,22 +214,23 @@ export default function WeatherPanel({
     label: dayLabel(day.date, i),
   }))
 
+
   return (
-    <section className="bb-weather-panel">
-      <header className="bb-weather-header">
+    <section className={styles.panel}>
+      <header className={styles.header}>
         <div>
-          <div className="bb-weather-eyebrow">
+          <div className={styles.eyebrow}>
             Weather Intelligence
           </div>
 
-          <div className="bb-weather-title">
+          <h2 className={styles.title}>
             {contextLabel}
-          </div>
+          </h2>
         </div>
 
-        <div className="bb-weather-location">
+        <div className={styles.location}>
           {locationLabel}
-          <span>·</span>
+          <span aria-hidden="true">·</span>
           7 days
         </div>
       </header>
@@ -237,94 +238,89 @@ export default function WeatherPanel({
       {loading ? (
         <LoadingRows />
       ) : error ? (
-        <div className="bb-weather-error">
+        <div className={styles.error}>
           Weather data is currently unavailable.
         </div>
       ) : (
         <>
-          <div className="bb-weather-forecast">
+          <ul className={styles.forecast}>
             {days.map((day, i) => {
               const play = pctPlayability(day.rainPct)
 
               return (
-                <div
+                <li
                   key={day.date}
-                  className={`bb-weather-row ${
-                    i === days.length - 1
-                      ? 'bb-weather-row-last'
-                      : ''
-                  }`}
+                  className={styles.row}
                 >
-                  <div className="bb-weather-icon">
+                  <div className={styles.icon}>
                     {weatherIcon(day.code, day.rainPct)}
                   </div>
 
                   <div
-                    className={`bb-weather-day ${
-                      i === 0 ? 'bb-weather-day-today' : ''
-                    }`}
+                    className={styles.day}
+                    data-today={i === 0 ? 'true' : undefined}
                   >
                     {dayLabel(day.date, i)}
                   </div>
 
-                  <div className="bb-weather-temp">
-                    <span className="bb-weather-max">
+                  <div className={styles.temp}>
+                    <span className={styles.max}>
                       {day.maxTemp}°
                     </span>
 
-                    <span className="bb-weather-min">
+                    <span className={styles.min}>
                       {day.minTemp}°
                     </span>
                   </div>
 
-                  <div className="bb-weather-rain-track">
+                  <div className={styles.rainTrack} aria-hidden="true">
                     <div
-                      className="bb-weather-rain-fill"
+                      className={styles.rainFill}
+                      data-play={play.state}
                       style={{
                         width: `${day.rainPct}%`,
-                        background: probBarColor(day.rainPct),
                       }}
                     />
                   </div>
 
-                  <div className="bb-weather-rain-data">
-                    <div className="bb-weather-rain-pct">
+                  <div className={styles.rainData}>
+                    <div className={styles.rainPct}>
                       {day.rainPct}%
                     </div>
 
-                    <div className="bb-weather-rain-mm">
+                    <div className={styles.rainMm}>
                       {day.rainMm > 0
                         ? `${day.rainMm.toFixed(1)}mm`
                         : '—'}
                     </div>
                   </div>
 
-                  <div className="bb-weather-status">
+                  <div className={styles.status}>
                     <PlayBadge p={play} />
                   </div>
-                </div>
+                </li>
               )
             })}
-          </div>
+          </ul>
 
-          <div className="bb-weather-chart-section">
-            <div className="bb-weather-chart-header">
+          <div className={styles.chartSection}>
+            <div className={styles.chartHeader}>
               <div>
-                <div className="bb-weather-chart-eyebrow">
+                <div className={styles.chartEyebrow}>
                   Rain Probability
                 </div>
 
-                <div className="bb-weather-chart-title">
+                <h3 className={styles.chartTitle}>
                   Next 7 days
-                </div>
+                </h3>
               </div>
 
-              <div className="bb-weather-chart-status">
+              <div>
                 <PlayBadge p={todayStatus} />
               </div>
             </div>
 
-            <div className="bb-weather-chart-wrap">
+            <div className={styles.chartWrap}>
               <ResponsiveContainer width="100%" height={150}>
                 <BarChart
                   data={chartData}
@@ -339,9 +335,7 @@ export default function WeatherPanel({
                   <XAxis
                     dataKey="label"
                     tick={{
-                      fill: 'rgba(255,255,255,.32)',
-                      fontSize: 9,
-                      fontFamily: FONT,
+                      fontSize: 11,
                     }}
                     axisLine={false}
                     tickLine={false}
@@ -352,9 +346,7 @@ export default function WeatherPanel({
                     domain={[0, 100]}
                     ticks={[0, 50, 100]}
                     tick={{
-                      fill: 'rgba(255,255,255,.22)',
-                      fontSize: 8,
-                      fontFamily: FONT,
+                      fontSize: 11,
                     }}
                     axisLine={false}
                     tickLine={false}
@@ -365,26 +357,16 @@ export default function WeatherPanel({
 
                   <Tooltip
                     cursor={{
-                      fill: 'rgba(255,255,255,.025)',
                       radius: 4,
                     } as object}
-                    contentStyle={{
-                      background: '#111216',
-                      border: '1px solid rgba(255,255,255,.10)',
-                      borderRadius: 8,
-                      fontSize: 11,
-                      color: '#F5F7FA',
-                      fontFamily: FONT,
-                      padding: '8px 11px',
-                      boxShadow: '0 8px 28px rgba(0,0,0,.35)',
-                    }}
+                    contentStyle={TOOLTIP_STYLE}
                     labelStyle={{
-                      color: 'rgba(245,247,250,.75)',
+                      color: 'var(--text-secondary)',
                       marginBottom: 4,
                       fontWeight: 600,
                     }}
                     itemStyle={{
-                      color: '#F5F7FA',
+                      color: 'var(--text-primary)',
                     }}
                     formatter={(
                       value: unknown,
@@ -415,418 +397,40 @@ export default function WeatherPanel({
               </ResponsiveContainer>
             </div>
 
-            <div className="bb-weather-legend">
-              <div className="bb-weather-legend-item">
+            <ul className={styles.legend}>
+              <li className={styles.legendItem}>
                 <span
-                  className="bb-weather-legend-dot"
-                  style={{
-                    background: 'rgba(74,222,128,.70)',
-                  }}
+                  className={styles.legendDot}
+                  data-play="success"
+                  aria-hidden="true"
                 />
 
                 <span>&lt;30% good for play</span>
-              </div>
+              </li>
 
-              <div className="bb-weather-legend-item">
+              <li className={styles.legendItem}>
                 <span
-                  className="bb-weather-legend-dot"
-                  style={{
-                    background: 'rgba(251,191,36,.82)',
-                  }}
+                  className={styles.legendDot}
+                  data-play="warning"
+                  aria-hidden="true"
                 />
 
                 <span>30–60% monitor</span>
-              </div>
+              </li>
 
-              <div className="bb-weather-legend-item">
+              <li className={styles.legendItem}>
                 <span
-                  className="bb-weather-legend-dot"
-                  style={{
-                    background: 'rgba(248,113,113,.82)',
-                  }}
+                  className={styles.legendDot}
+                  data-play="error"
+                  aria-hidden="true"
                 />
 
                 <span>&gt;60% at risk</span>
-              </div>
-            </div>
+              </li>
+            </ul>
           </div>
         </>
       )}
-
-      <style>{`
-        @keyframes bbWeatherPulse {
-          0%, 100% {
-            opacity: .32;
-          }
-
-          50% {
-            opacity: .72;
-          }
-        }
-
-        .bb-weather-panel {
-          overflow: hidden;
-          border-radius: 14px;
-          border: 1px solid rgba(255,255,255,.07);
-          background: rgba(255,255,255,.025);
-          font-family: ${FONT};
-        }
-
-        .bb-weather-header {
-          min-height: 58px;
-          padding: 12px 20px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 18px;
-          border-bottom: 1px solid rgba(255,255,255,.055);
-        }
-
-        .bb-weather-eyebrow {
-          margin-bottom: 3px;
-          font-size: 7px;
-          line-height: 1.2;
-          font-weight: 750;
-          letter-spacing: .13em;
-          text-transform: uppercase;
-          color: rgba(167,139,250,.48);
-        }
-
-        .bb-weather-title {
-          font-size: 10px;
-          font-weight: 700;
-          letter-spacing: .09em;
-          text-transform: uppercase;
-          color: rgba(255,255,255,.48);
-        }
-
-        .bb-weather-location {
-          display: flex;
-          align-items: center;
-          gap: 5px;
-          font-size: 9px;
-          color: rgba(255,255,255,.22);
-          white-space: nowrap;
-        }
-
-        .bb-weather-loading {
-          padding: 12px 18px;
-          display: flex;
-          flex-direction: column;
-          gap: 7px;
-        }
-
-        .bb-weather-loading-row {
-          height: 45px;
-          border-radius: 8px;
-          background: rgba(255,255,255,.045);
-          animation: bbWeatherPulse 1.6s ease-in-out infinite;
-        }
-
-        .bb-weather-error {
-          min-height: 220px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 24px 20px;
-          text-align: center;
-          color: rgba(255,255,255,.26);
-          font-size: 11px;
-        }
-
-        .bb-weather-forecast {
-          width: 100%;
-        }
-
-        .bb-weather-row {
-          min-height: 55px;
-          display: grid;
-          grid-template-columns:
-            30px
-            58px
-            62px
-            minmax(82px, 1fr)
-            52px
-            112px;
-          align-items: center;
-          column-gap: 12px;
-          padding: 0 18px;
-          border-bottom: 1px solid rgba(255,255,255,.045);
-          transition: background .15s ease;
-        }
-
-        .bb-weather-row:hover {
-          background: rgba(255,255,255,.018);
-        }
-
-        .bb-weather-row-last {
-          border-bottom: 0;
-        }
-
-        .bb-weather-icon {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          width: 30px;
-          font-size: 17px;
-          line-height: 1;
-        }
-
-        .bb-weather-day {
-          font-size: 11px;
-          font-weight: 600;
-          color: rgba(255,255,255,.55);
-        }
-
-        .bb-weather-day-today {
-          color: rgba(245,247,250,.92);
-        }
-
-        .bb-weather-temp {
-          display: flex;
-          align-items: baseline;
-          justify-content: flex-start;
-          gap: 4px;
-          white-space: nowrap;
-        }
-
-        .bb-weather-max {
-          font-size: 12px;
-          font-weight: 700;
-          color: rgba(245,247,250,.9);
-        }
-
-        .bb-weather-min {
-          font-size: 10px;
-          color: rgba(255,255,255,.30);
-        }
-
-        .bb-weather-rain-track {
-          width: 100%;
-          height: 4px;
-          overflow: hidden;
-          border-radius: 999px;
-          background: rgba(255,255,255,.07);
-        }
-
-        .bb-weather-rain-fill {
-          height: 100%;
-          min-width: 2px;
-          border-radius: inherit;
-          transition: width .25s ease;
-        }
-
-        .bb-weather-rain-data {
-          width: 52px;
-          text-align: right;
-        }
-
-        .bb-weather-rain-pct {
-          font-size: 11px;
-          line-height: 1.2;
-          font-weight: 700;
-          color: rgba(245,247,250,.78);
-        }
-
-        .bb-weather-rain-mm {
-          min-height: 11px;
-          margin-top: 2px;
-          font-size: 8px;
-          line-height: 1.2;
-          color: rgba(255,255,255,.28);
-        }
-
-        .bb-weather-status {
-          width: 112px;
-          display: flex;
-          justify-content: flex-end;
-        }
-
-        .bb-weather-play-badge {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          min-width: 96px;
-          min-height: 24px;
-          padding: 3px 9px;
-          border: 1px solid;
-          border-radius: 999px;
-          font-size: 8px;
-          line-height: 1;
-          font-weight: 750;
-          letter-spacing: .02em;
-          white-space: nowrap;
-        }
-
-        .bb-weather-chart-section {
-          border-top: 1px solid rgba(255,255,255,.055);
-          padding: 16px 18px 18px;
-        }
-
-        .bb-weather-chart-header {
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 16px;
-          margin-bottom: 12px;
-        }
-
-        .bb-weather-chart-status {
-          padding-top: 2px;
-        }
-
-        .bb-weather-chart-eyebrow {
-          margin-bottom: 4px;
-          font-size: 7px;
-          font-weight: 750;
-          letter-spacing: .13em;
-          text-transform: uppercase;
-          color: rgba(167,139,250,.42);
-        }
-
-        .bb-weather-chart-title {
-          font-size: 10px;
-          font-weight: 700;
-          letter-spacing: .07em;
-          text-transform: uppercase;
-          color: rgba(255,255,255,.42);
-        }
-
-        .bb-weather-chart-wrap {
-          height: 150px;
-          margin: 2px -2px 0;
-        }
-
-        .bb-weather-legend {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 16px;
-          flex-wrap: wrap;
-          margin-top: 12px;
-          padding-bottom: 2px;
-        }
-
-        .bb-weather-legend-item {
-          display: flex;
-          align-items: center;
-          gap: 5px;
-          font-size: 8px;
-          line-height: 1.3;
-          color: rgba(255,255,255,.28);
-          white-space: nowrap;
-        }
-
-        .bb-weather-legend-dot {
-          width: 7px;
-          height: 7px;
-          flex-shrink: 0;
-          border-radius: 2px;
-        }
-
-        @media (max-width: 1080px) {
-          .bb-weather-row {
-            grid-template-columns:
-              28px
-              52px
-              56px
-              minmax(60px, 1fr)
-              46px
-              96px;
-            column-gap: 9px;
-            padding: 0 14px;
-          }
-
-          .bb-weather-status {
-            width: 96px;
-          }
-
-          .bb-weather-play-badge {
-            min-width: 88px;
-            padding-left: 7px;
-            padding-right: 7px;
-            font-size: 7px;
-          }
-        }
-
-        @media (max-width: 620px) {
-          .bb-weather-row {
-            min-height: 62px;
-            grid-template-columns:
-              28px
-              52px
-              58px
-              minmax(60px, 1fr)
-              48px;
-            column-gap: 8px;
-          }
-
-          .bb-weather-status {
-            display: none;
-          }
-
-          .bb-weather-chart-status {
-            display: none;
-          }
-        }
-
-        @media (max-width: 460px) {
-          .bb-weather-header {
-            padding-left: 15px;
-            padding-right: 15px;
-          }
-
-          .bb-weather-row {
-            grid-template-columns:
-              24px
-              46px
-              50px
-              minmax(48px, 1fr)
-              42px;
-            column-gap: 7px;
-            padding: 0 12px;
-          }
-
-          .bb-weather-icon {
-            width: 24px;
-            font-size: 15px;
-          }
-
-          .bb-weather-day {
-            font-size: 10px;
-          }
-
-          .bb-weather-max {
-            font-size: 11px;
-          }
-
-          .bb-weather-min {
-            font-size: 9px;
-          }
-
-          .bb-weather-rain-pct {
-            font-size: 10px;
-          }
-
-          .bb-weather-chart-section {
-            padding-left: 12px;
-            padding-right: 12px;
-          }
-
-          .bb-weather-legend {
-            gap: 10px;
-          }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .bb-weather-loading-row,
-          .bb-weather-rain-fill,
-          .bb-weather-row {
-            animation: none !important;
-            transition: none !important;
-          }
-        }
-      `}</style>
     </section>
   )
 }

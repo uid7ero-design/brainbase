@@ -1,6 +1,7 @@
 ﻿'use client';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell } from 'recharts';
 import DashboardShell, { KPI, MonthlyPoint, CostAccount, SLATarget, Action, IndustryTab, InsightCard } from '@/components/dashboard/DashboardShell';
+import { useDashboardChart } from '@/components/dashboard/ui/chartTheme';
 
 const SAMPLE_CARBON = [
   { month: 'Nov', scope1: 48.2, scope2: 18.4, scope3: 22.1, total: 88.7 },
@@ -62,8 +63,9 @@ const FLEET_BY_TYPE = [
   { name: 'Other', value: 20 },
 ];
 
-const PIE_COLORS = ['#4ade80', '#22c55e', '#16a34a', '#15803d', '#166534'];
-const FLEET_COLORS = ['#f87171', '#fbbf24', '#4ade80', '#94a3b8'];
+// Fleet fuel types keep their semantic encoding (diesel = danger, petrol =
+// warning, electric = success, other = neutral) via the theme-aware palette.
+const FLEET_TONES = ['danger', 'warning', 'success', 'neutral'] as const;
 
 const totalCarbon = SAMPLE_CARBON.reduce((s, m) => s + m.total, 0).toFixed(1);
 const totalElec = SAMPLE_ENERGY.reduce((s, e) => s + e.elec_kwh, 0);
@@ -120,55 +122,58 @@ const KPI_DATA: KPI[] = [
   { label: 'ESG Targets On Track',  value: `${ESG_TARGETS.filter(t => t.progress >= 25).length}/${ESG_TARGETS.length}`, sub: 'Meeting milestones', icon: '🎯', status: 'normal' },
 ];
 
-const dc = { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 20 } as const;
-const darkWrap: React.CSSProperties = { background: '#0f0f0f', color: '#e5e7eb', padding: 24, minHeight: '100%' };
+// Theme-token surfaces (follow <html data-theme>); charts read useDashboardChart().
+const dc = { background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 20 } as const;
+const darkWrap: React.CSSProperties = { color: 'var(--text-primary)', padding: 24, minHeight: '100%' };
 const tbl: React.CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 14 };
-const th: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', fontSize: 12, color: 'rgba(255,255,255,0.5)', fontWeight: 600 };
+const th: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 };
 const tdBase: React.CSSProperties = { padding: '12px 16px' };
 
 function badge(label: string, bg: string, color: string) {
-  return <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: bg, color }}>{label}</span>;
+  return <span style={{ padding: '3px 10px', borderRadius: 4, fontSize: 12, fontWeight: 600, background: bg, color }}>{label}</span>;
 }
 
 export default function EnvironmentPage() {
+  const chart = useDashboardChart();
+  const pal = chart.palette;
   const overviewContent = (
     <div style={darkWrap}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
         <div style={dc}>
-          <h3 style={{ margin: '0 0 16px', fontSize: 14 }}>Monthly Carbon Emissions (tCO₂e)</h3>
+          <h2 style={{ margin: '0 0 16px', fontSize: 14 }}>Monthly Carbon Emissions (tCO₂e)</h2>
           <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={SAMPLE_CARBON}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-              <XAxis dataKey="month" tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }} />
-              <YAxis tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }} />
-              <Tooltip contentStyle={{ background: '#1a1a2e', border: 'none', borderRadius: 8 }} />
-              <Area type="monotone" dataKey="scope1" stackId="1" stroke="#16a34a" fill="#16a34a" fillOpacity={0.6} name="Scope 1" />
-              <Area type="monotone" dataKey="scope2" stackId="1" stroke="#4ade80" fill="#4ade80" fillOpacity={0.6} name="Scope 2" />
-              <Area type="monotone" dataKey="scope3" stackId="1" stroke="#86efac" fill="#86efac" fillOpacity={0.6} name="Scope 3" />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+              <XAxis dataKey="month" tick={chart.tick} />
+              <YAxis tick={chart.tick} />
+              <Tooltip {...chart.tooltip} />
+              <Area type="monotone" dataKey="scope1" stackId="1" stroke={pal.primary} fill={pal.primary} fillOpacity={0.6} name="Scope 1" />
+              <Area type="monotone" dataKey="scope2" stackId="1" stroke={pal.info} fill={pal.info} fillOpacity={0.6} name="Scope 2" />
+              <Area type="monotone" dataKey="scope3" stackId="1" stroke={pal.comparison} fill={pal.comparison} fillOpacity={0.6} name="Scope 3" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
         <div style={dc}>
-          <h3 style={{ margin: '0 0 16px', fontSize: 14 }}>Waste Diversion by Stream</h3>
+          <h2 style={{ margin: '0 0 16px', fontSize: 14 }}>Waste Diversion by Stream</h2>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
-              <Pie data={SAMPLE_WASTE} dataKey="ytd_t" nameKey="stream" cx="50%" cy="50%" outerRadius={80} label={(p: any) => String(p.stream ?? '').split(' ')[0]}>
-                {SAMPLE_WASTE.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+              <Pie data={SAMPLE_WASTE} dataKey="ytd_t" nameKey="stream" cx="50%" cy="50%" outerRadius={80} stroke={pal.tooltipBg} label={(p: any) => String(p.stream ?? '').split(' ')[0]}>
+                {SAMPLE_WASTE.map((_, i) => <Cell key={i} fill={chart.series[i % chart.series.length]} />)}
               </Pie>
-              <Tooltip formatter={(v) => typeof v === 'number' ? `${v}t` : v} contentStyle={{ background: '#1a1a2e', border: 'none', borderRadius: 8 }} />
+              <Tooltip formatter={(v) => typeof v === 'number' ? `${v}t` : v} {...chart.tooltip} />
             </PieChart>
           </ResponsiveContainer>
         </div>
         <div style={{ ...dc, gridColumn: '1 / -1' }}>
-          <h3 style={{ margin: '0 0 16px', fontSize: 14 }}>ESG Target Progress</h3>
+          <h2 style={{ margin: '0 0 16px', fontSize: 14 }}>ESG Target Progress</h2>
           {ESG_TARGETS.map(t => (
             <div key={t.target} style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 13 }}>
-                <span><strong>{t.target}</strong> <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>({t.baseline})</span></span>
-                <span style={{ color: '#4ade80', fontWeight: 600 }}>{t.progress}{t.unit}</span>
+                <span><strong>{t.target}</strong> <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>({t.baseline})</span></span>
+                <span style={{ color: 'var(--status-success)', fontWeight: 600 }}>{t.progress}{t.unit}</span>
               </div>
-              <div style={{ height: 6, background: 'rgba(255,255,255,0.08)', borderRadius: 3 }}>
-                <div style={{ width: `${t.progress}%`, height: '100%', background: t.progress >= 50 ? '#4ade80' : t.progress >= 25 ? '#fbbf24' : '#f87171', borderRadius: 3, transition: 'width 0.6s' }} />
+              <div style={{ height: 6, background: 'var(--bg-sunken)', borderRadius: 3 }}>
+                <div style={{ width: `${t.progress}%`, height: '100%', background: t.progress >= 50 ? 'var(--status-success)' : t.progress >= 25 ? 'var(--status-warning)' : 'var(--status-danger)', borderRadius: 3, transition: 'width 0.6s' }} />
               </div>
             </div>
           ))}
@@ -184,41 +189,41 @@ export default function EnvironmentPage() {
         <div style={darkWrap}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
             <div style={dc}>
-              <h3 style={{ margin: '0 0 16px', fontSize: 14 }}>Scope 1 — Direct Emissions</h3>
+              <h2 style={{ margin: '0 0 16px', fontSize: 14 }}>Scope 1 — Direct Emissions</h2>
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={SAMPLE_CARBON}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="month" tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }} />
-                  <YAxis tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }} />
-                  <Tooltip contentStyle={{ background: '#1a1a2e', border: 'none', borderRadius: 8 }} />
-                  <Bar dataKey="scope1" fill="#16a34a" radius={[4,4,0,0]} name="Scope 1 (tCO₂e)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                  <XAxis dataKey="month" tick={chart.tick} />
+                  <YAxis tick={chart.tick} />
+                  <Tooltip {...chart.tooltip} />
+                  <Bar dataKey="scope1" fill={pal.primary} radius={[4,4,0,0]} name="Scope 1 (tCO₂e)" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
             <div style={dc}>
-              <h3 style={{ margin: '0 0 16px', fontSize: 14 }}>Total Monthly Emissions</h3>
+              <h2 style={{ margin: '0 0 16px', fontSize: 14 }}>Total Monthly Emissions</h2>
               <ResponsiveContainer width="100%" height={220}>
                 <LineChart data={SAMPLE_CARBON}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="month" tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }} />
-                  <YAxis tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }} />
-                  <Tooltip contentStyle={{ background: '#1a1a2e', border: 'none', borderRadius: 8 }} />
-                  <Line type="monotone" dataKey="total" stroke="#4ade80" strokeWidth={2} dot={{ fill: '#16a34a' }} name="Total (tCO₂e)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                  <XAxis dataKey="month" tick={chart.tick} />
+                  <YAxis tick={chart.tick} />
+                  <Tooltip {...chart.tooltip} />
+                  <Line type="monotone" dataKey="total" stroke={pal.primary} strokeWidth={2} dot={{ fill: pal.primary }} name="Total (tCO₂e)" />
                 </LineChart>
               </ResponsiveContainer>
             </div>
             <div style={{ ...dc, gridColumn: '1 / -1', padding: 0, overflow: 'hidden' }}>
               <table style={tbl}>
-                <thead><tr style={{ background: 'rgba(255,255,255,0.06)' }}>
-                  {['Month','Scope 1','Scope 2','Scope 3','Total (tCO₂e)'].map(h => <th key={h} style={th}>{h}</th>)}
+                <thead><tr style={{ background: 'var(--bg-sunken)' }}>
+                  {['Month','Scope 1','Scope 2','Scope 3','Total (tCO₂e)'].map(h => <th key={h} scope="col" style={th}>{h}</th>)}
                 </tr></thead>
                 <tbody>{SAMPLE_CARBON.map((m, i) => (
-                  <tr key={m.month} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: i%2===0?'transparent':'rgba(255,255,255,0.02)' }}>
+                  <tr key={m.month} style={{ borderBottom: '1px solid var(--border)', background: i%2===0?'transparent':'var(--bg-sunken)' }}>
                     <td style={{ ...tdBase, fontWeight: 600 }}>{m.month}</td>
                     <td style={tdBase}>{m.scope1}</td>
                     <td style={tdBase}>{m.scope2}</td>
                     <td style={tdBase}>{m.scope3}</td>
-                    <td style={{ ...tdBase, fontWeight: 600, color: '#4ade80' }}>{m.total}</td>
+                    <td style={{ ...tdBase, fontWeight: 600, color: 'var(--status-success)' }}>{m.total}</td>
                   </tr>
                 ))}</tbody>
               </table>
@@ -232,36 +237,36 @@ export default function EnvironmentPage() {
       content: (
         <div style={darkWrap}>
           <div style={{ ...dc, marginBottom: 20 }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 14 }}>Electricity vs Solar Generation by Site (kWh)</h3>
+            <h2 style={{ margin: '0 0 16px', fontSize: 14 }}>Electricity vs Solar Generation by Site (kWh)</h2>
             <ResponsiveContainer width="100%" height={240}>
               <BarChart data={SAMPLE_ENERGY} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                <XAxis type="number" tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-                <YAxis type="category" dataKey="site" width={130} tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }} />
-                <Tooltip contentStyle={{ background: '#1a1a2e', border: 'none', borderRadius: 8 }} formatter={(v) => typeof v === 'number' ? `${v.toLocaleString()} kWh` : v} />
-                <Bar dataKey="elec_kwh" fill="rgba(56,189,248,0.3)" radius={[0,4,4,0]} name="Grid Electricity" />
-                <Bar dataKey="solar_kwh" fill="#4ade80" radius={[0,4,4,0]} name="Solar" />
+                <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                <XAxis type="number" tick={chart.tick} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                <YAxis type="category" dataKey="site" width={130} tick={chart.tick} />
+                <Tooltip {...chart.tooltip} formatter={(v) => typeof v === 'number' ? `${v.toLocaleString()} kWh` : v} />
+                <Bar dataKey="elec_kwh" fill={pal.info} radius={[0,4,4,0]} name="Grid Electricity" />
+                <Bar dataKey="solar_kwh" fill={pal.success} radius={[0,4,4,0]} name="Solar" />
               </BarChart>
             </ResponsiveContainer>
           </div>
           <div style={{ ...dc, padding: 0, overflow: 'hidden' }}>
             <table style={tbl}>
-              <thead><tr style={{ background: 'rgba(255,255,255,0.06)' }}>
-                {['Site','Electricity (kWh)','Solar (kWh)','Gas (MJ)','Cost ($)','Solar %'].map(h => <th key={h} style={th}>{h}</th>)}
+              <thead><tr style={{ background: 'var(--bg-sunken)' }}>
+                {['Site','Electricity (kWh)','Solar (kWh)','Gas (MJ)','Cost ($)','Solar %'].map(h => <th key={h} scope="col" style={th}>{h}</th>)}
               </tr></thead>
               <tbody>{SAMPLE_ENERGY.map((e, i) => {
                 const pct = Math.round(e.solar_kwh / e.elec_kwh * 100);
                 return (
-                  <tr key={e.site} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: i%2===0?'transparent':'rgba(255,255,255,0.02)' }}>
+                  <tr key={e.site} style={{ borderBottom: '1px solid var(--border)', background: i%2===0?'transparent':'var(--bg-sunken)' }}>
                     <td style={{ ...tdBase, fontWeight: 600 }}>{e.site}</td>
                     <td style={tdBase}>{e.elec_kwh.toLocaleString()}</td>
-                    <td style={{ ...tdBase, color: '#4ade80' }}>{e.solar_kwh.toLocaleString()}</td>
+                    <td style={{ ...tdBase, color: 'var(--status-success)' }}>{e.solar_kwh.toLocaleString()}</td>
                     <td style={tdBase}>{e.gas_mj.toLocaleString()}</td>
                     <td style={tdBase}>${e.cost.toLocaleString()}</td>
                     <td style={tdBase}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 60, height: 6, background: 'rgba(255,255,255,0.1)', borderRadius: 3 }}>
-                          <div style={{ width: `${pct}%`, height: '100%', background: '#4ade80', borderRadius: 3 }} />
+                        <div style={{ width: 60, height: 6, background: 'var(--border)', borderRadius: 3 }}>
+                          <div style={{ width: `${pct}%`, height: '100%', background: 'var(--status-success)', borderRadius: 3 }} />
                         </div>
                         <span>{pct}%</span>
                       </div>
@@ -279,33 +284,33 @@ export default function EnvironmentPage() {
       content: (
         <div style={darkWrap}>
           <div style={{ ...dc, marginBottom: 20 }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 14 }}>Monthly Water Consumption (kL)</h3>
+            <h2 style={{ margin: '0 0 16px', fontSize: 14 }}>Monthly Water Consumption (kL)</h2>
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={SAMPLE_WATER}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                <XAxis dataKey="month" tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }} />
-                <YAxis tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }} />
-                <Tooltip contentStyle={{ background: '#1a1a2e', border: 'none', borderRadius: 8 }} />
-                <Bar dataKey="potable"  fill="#0ea5e9" radius={[4,4,0,0]} name="Potable (kL)" />
-                <Bar dataKey="recycled" fill="#4ade80" radius={[4,4,0,0]} name="Recycled (kL)" />
-                <Bar dataKey="lost"     fill="#f87171" radius={[4,4,0,0]} name="Losses (kL)" />
+                <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                <XAxis dataKey="month" tick={chart.tick} />
+                <YAxis tick={chart.tick} />
+                <Tooltip {...chart.tooltip} />
+                <Bar dataKey="potable"  fill={pal.info} radius={[4,4,0,0]} name="Potable (kL)" />
+                <Bar dataKey="recycled" fill={pal.success} radius={[4,4,0,0]} name="Recycled (kL)" />
+                <Bar dataKey="lost"     fill={pal.danger} radius={[4,4,0,0]} name="Losses (kL)" />
               </BarChart>
             </ResponsiveContainer>
           </div>
           <div style={{ ...dc, padding: 0, overflow: 'hidden' }}>
             <table style={tbl}>
-              <thead><tr style={{ background: 'rgba(255,255,255,0.06)' }}>
-                {['Month','Potable (kL)','Recycled (kL)','Losses (kL)','Recycled %'].map(h => <th key={h} style={th}>{h}</th>)}
+              <thead><tr style={{ background: 'var(--bg-sunken)' }}>
+                {['Month','Potable (kL)','Recycled (kL)','Losses (kL)','Recycled %'].map(h => <th key={h} scope="col" style={th}>{h}</th>)}
               </tr></thead>
               <tbody>{SAMPLE_WATER.map((w, i) => {
                 const total = w.potable + w.recycled;
                 const rPct = Math.round(w.recycled / total * 100);
                 return (
-                  <tr key={w.month} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: i%2===0?'transparent':'rgba(255,255,255,0.02)' }}>
+                  <tr key={w.month} style={{ borderBottom: '1px solid var(--border)', background: i%2===0?'transparent':'var(--bg-sunken)' }}>
                     <td style={{ ...tdBase, fontWeight: 600 }}>{w.month}</td>
                     <td style={tdBase}>{w.potable.toLocaleString()}</td>
-                    <td style={{ ...tdBase, color: '#4ade80' }}>{w.recycled.toLocaleString()}</td>
-                    <td style={{ ...tdBase, color: '#f87171' }}>{w.lost.toLocaleString()}</td>
+                    <td style={{ ...tdBase, color: 'var(--status-success)' }}>{w.recycled.toLocaleString()}</td>
+                    <td style={{ ...tdBase, color: 'var(--status-danger)' }}>{w.lost.toLocaleString()}</td>
                     <td style={tdBase}>{rPct}%</td>
                   </tr>
                 );
@@ -321,17 +326,17 @@ export default function EnvironmentPage() {
         <div style={darkWrap}>
           <div style={{ ...dc, padding: 0, overflow: 'hidden' }}>
             <table style={tbl}>
-              <thead><tr style={{ background: 'rgba(255,255,255,0.06)' }}>
-                {['Stream','YTD Volume (t)','Recycled','Disposal Method','Cost ($)','Diversion'].map(h => <th key={h} style={th}>{h}</th>)}
+              <thead><tr style={{ background: 'var(--bg-sunken)' }}>
+                {['Stream','YTD Volume (t)','Recycled','Disposal Method','Cost ($)','Diversion'].map(h => <th key={h} scope="col" style={th}>{h}</th>)}
               </tr></thead>
               <tbody>{SAMPLE_WASTE.map((w, i) => (
-                <tr key={w.stream} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: i%2===0?'transparent':'rgba(255,255,255,0.02)' }}>
+                <tr key={w.stream} style={{ borderBottom: '1px solid var(--border)', background: i%2===0?'transparent':'var(--bg-sunken)' }}>
                   <td style={{ ...tdBase, fontWeight: 600 }}>{w.stream}</td>
                   <td style={tdBase}>{w.ytd_t}</td>
                   <td style={tdBase}>{w.recycled_pct}%</td>
-                  <td style={{ ...tdBase, color: 'rgba(255,255,255,0.6)' }}>{w.disposal}</td>
+                  <td style={{ ...tdBase, color: 'var(--text-secondary)' }}>{w.disposal}</td>
                   <td style={tdBase}>${w.cost.toLocaleString()}</td>
-                  <td style={tdBase}>{badge(w.recycled_pct === 100 ? 'Diverted' : w.recycled_pct > 0 ? 'Partial' : 'Landfill', w.recycled_pct === 100 ? 'rgba(74,222,128,0.15)' : w.recycled_pct > 0 ? 'rgba(251,191,36,0.15)' : 'rgba(248,113,113,0.15)', w.recycled_pct === 100 ? '#4ade80' : w.recycled_pct > 0 ? '#fbbf24' : '#f87171')}</td>
+                  <td style={tdBase}>{badge(w.recycled_pct === 100 ? 'Diverted' : w.recycled_pct > 0 ? 'Partial' : 'Landfill', w.recycled_pct === 100 ? 'color-mix(in srgb, var(--status-success) 15%, transparent)' : w.recycled_pct > 0 ? 'color-mix(in srgb, var(--status-warning) 15%, transparent)' : 'color-mix(in srgb, var(--status-danger) 15%, transparent)', w.recycled_pct === 100 ? 'var(--status-success)' : w.recycled_pct > 0 ? 'var(--status-warning)' : 'var(--status-danger)')}</td>
                 </tr>
               ))}</tbody>
             </table>
@@ -345,42 +350,42 @@ export default function EnvironmentPage() {
         <div style={darkWrap}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
             <div style={dc}>
-              <h3 style={{ margin: '0 0 16px', fontSize: 14 }}>Fleet by Fuel Type</h3>
+              <h2 style={{ margin: '0 0 16px', fontSize: 14 }}>Fleet by Fuel Type</h2>
               <ResponsiveContainer width="100%" height={200}>
                 <PieChart>
-                  <Pie data={FLEET_BY_TYPE} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75} label={(p: any) => `${p.name} (${p.value})`}>
-                    {FLEET_BY_TYPE.map((_, i) => <Cell key={i} fill={FLEET_COLORS[i % FLEET_COLORS.length]} />)}
+                  <Pie data={FLEET_BY_TYPE} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75} stroke={pal.tooltipBg} label={(p: any) => `${p.name} (${p.value})`}>
+                    {FLEET_BY_TYPE.map((_, i) => <Cell key={i} fill={pal[FLEET_TONES[i % FLEET_TONES.length]]} />)}
                   </Pie>
-                  <Tooltip contentStyle={{ background: '#1a1a2e', border: 'none', borderRadius: 8 }} />
+                  <Tooltip {...chart.tooltip} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
             <div style={dc}>
-              <h3 style={{ margin: '0 0 16px', fontSize: 14 }}>CO₂ by Vehicle (kg) — YTD</h3>
+              <h2 style={{ margin: '0 0 16px', fontSize: 14 }}>CO₂ by Vehicle (kg) — YTD</h2>
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={FLEET_EMISSIONS.filter(v => v.co2_kg > 0)}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="vehicle" tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 10 }} />
-                  <YAxis tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }} />
-                  <Tooltip contentStyle={{ background: '#1a1a2e', border: 'none', borderRadius: 8 }} />
-                  <Bar dataKey="co2_kg" fill="#f87171" radius={[4,4,0,0]} name="CO₂ (kg)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                  <XAxis dataKey="vehicle" tick={{ ...chart.tick, fontSize: 10 }} />
+                  <YAxis tick={chart.tick} />
+                  <Tooltip {...chart.tooltip} />
+                  <Bar dataKey="co2_kg" fill={pal.danger} radius={[4,4,0,0]} name="CO₂ (kg)" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
           <div style={{ ...dc, padding: 0, overflow: 'hidden' }}>
             <table style={tbl}>
-              <thead><tr style={{ background: 'rgba(255,255,255,0.06)' }}>
-                {['Vehicle','Fuel Type','Fuel Used (L)','CO₂ (kg)','Distance (km)','Intensity (kg/km)'].map(h => <th key={h} style={th}>{h}</th>)}
+              <thead><tr style={{ background: 'var(--bg-sunken)' }}>
+                {['Vehicle','Fuel Type','Fuel Used (L)','CO₂ (kg)','Distance (km)','Intensity (kg/km)'].map(h => <th key={h} scope="col" style={th}>{h}</th>)}
               </tr></thead>
               <tbody>{FLEET_EMISSIONS.map((v, i) => {
                 const intensity = v.km > 0 ? (v.co2_kg / v.km).toFixed(2) : '—';
                 return (
-                  <tr key={v.vehicle} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: i%2===0?'transparent':'rgba(255,255,255,0.02)' }}>
+                  <tr key={v.vehicle} style={{ borderBottom: '1px solid var(--border)', background: i%2===0?'transparent':'var(--bg-sunken)' }}>
                     <td style={{ ...tdBase, fontWeight: 600 }}>{v.vehicle}</td>
-                    <td style={tdBase}>{badge(v.type, v.type === 'Electric' ? 'rgba(74,222,128,0.15)' : v.type === 'Petrol' ? 'rgba(251,191,36,0.15)' : 'rgba(248,113,113,0.15)', v.type === 'Electric' ? '#4ade80' : v.type === 'Petrol' ? '#fbbf24' : '#f87171')}</td>
+                    <td style={tdBase}>{badge(v.type, v.type === 'Electric' ? 'color-mix(in srgb, var(--status-success) 15%, transparent)' : v.type === 'Petrol' ? 'color-mix(in srgb, var(--status-warning) 15%, transparent)' : 'color-mix(in srgb, var(--status-danger) 15%, transparent)', v.type === 'Electric' ? 'var(--status-success)' : v.type === 'Petrol' ? 'var(--status-warning)' : 'var(--status-danger)')}</td>
                     <td style={tdBase}>{v.fuel_l || '—'}</td>
-                    <td style={{ ...tdBase, color: v.co2_kg > 0 ? '#f87171' : '#4ade80' }}>{v.co2_kg || '0'}</td>
+                    <td style={{ ...tdBase, color: v.co2_kg > 0 ? 'var(--status-danger)' : 'var(--status-success)' }}>{v.co2_kg || '0'}</td>
                     <td style={tdBase}>{v.km.toLocaleString()}</td>
                     <td style={tdBase}>{intensity}</td>
                   </tr>
@@ -397,32 +402,32 @@ export default function EnvironmentPage() {
         <div style={darkWrap}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginBottom: 20 }}>
             {[
-              { label: 'Targets On Track',  value: `${ESG_TARGETS.filter(t => t.progress >= 25).length}/${ESG_TARGETS.length}`, color: '#4ade80' },
-              { label: 'Total YTD Emissions', value: `${totalCarbon} tCO₂e`, color: '#fbbf24' },
-              { label: 'Diversion Rate',    value: `${diversionRate}%`,  color: '#4ade80' },
+              { label: 'Targets On Track',  value: `${ESG_TARGETS.filter(t => t.progress >= 25).length}/${ESG_TARGETS.length}`, color: 'var(--status-success)' },
+              { label: 'Total YTD Emissions', value: `${totalCarbon} tCO₂e`, color: 'var(--status-warning)' },
+              { label: 'Diversion Rate',    value: `${diversionRate}%`,  color: 'var(--status-success)' },
             ].map(k => (
               <div key={k.label} style={dc}>
-                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>{k.label}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>{k.label}</div>
                 <div style={{ fontSize: 24, fontWeight: 700, color: k.color }}>{k.value}</div>
               </div>
             ))}
           </div>
           <div style={dc}>
-            <h3 style={{ margin: '0 0 20px', fontSize: 14 }}>ESG Target Progress — Detailed Scorecard</h3>
+            <h2 style={{ margin: '0 0 20px', fontSize: 14 }}>ESG Target Progress — Detailed Scorecard</h2>
             {ESG_TARGETS.map(t => (
-              <div key={t.target} style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              <div key={t.target} style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid var(--border)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                   <div>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{t.target}</div>
-                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>Category: {t.category} · Baseline: {t.baseline}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Category: {t.category} · Baseline: {t.baseline}</div>
                   </div>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <span style={{ fontSize: 20, fontWeight: 700, color: t.progress >= 50 ? '#4ade80' : t.progress >= 25 ? '#fbbf24' : '#f87171' }}>{t.progress}{t.unit}</span>
-                    {badge(t.progress >= 50 ? 'On Track' : t.progress >= 25 ? 'In Progress' : 'Behind', t.progress >= 50 ? 'rgba(74,222,128,0.15)' : t.progress >= 25 ? 'rgba(251,191,36,0.15)' : 'rgba(248,113,113,0.15)', t.progress >= 50 ? '#4ade80' : t.progress >= 25 ? '#fbbf24' : '#f87171')}
+                    <span style={{ fontSize: 20, fontWeight: 700, color: t.progress >= 50 ? 'var(--status-success)' : t.progress >= 25 ? 'var(--status-warning)' : 'var(--status-danger)' }}>{t.progress}{t.unit}</span>
+                    {badge(t.progress >= 50 ? 'On Track' : t.progress >= 25 ? 'In Progress' : 'Behind', t.progress >= 50 ? 'color-mix(in srgb, var(--status-success) 15%, transparent)' : t.progress >= 25 ? 'color-mix(in srgb, var(--status-warning) 15%, transparent)' : 'color-mix(in srgb, var(--status-danger) 15%, transparent)', t.progress >= 50 ? 'var(--status-success)' : t.progress >= 25 ? 'var(--status-warning)' : 'var(--status-danger)')}
                   </div>
                 </div>
-                <div style={{ height: 8, background: 'rgba(255,255,255,0.08)', borderRadius: 4 }}>
-                  <div style={{ width: `${t.progress}%`, height: '100%', background: t.progress >= 50 ? '#4ade80' : t.progress >= 25 ? '#fbbf24' : '#f87171', borderRadius: 4, transition: 'width 0.6s' }} />
+                <div style={{ height: 8, background: 'var(--bg-sunken)', borderRadius: 4 }}>
+                  <div style={{ width: `${t.progress}%`, height: '100%', background: t.progress >= 50 ? 'var(--status-success)' : t.progress >= 25 ? 'var(--status-warning)' : 'var(--status-danger)', borderRadius: 4, transition: 'width 0.6s' }} />
                 </div>
               </div>
             ))}
@@ -434,7 +439,6 @@ export default function EnvironmentPage() {
 
   return (
     <DashboardShell
-      theme="dark"
       title="Environmental & ESG"
       subtitle="Carbon, energy, water and waste metrics aligned to ESG targets"
       headerColor="#052e16"

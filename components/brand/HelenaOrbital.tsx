@@ -70,13 +70,21 @@ export interface HelenaOrbitalProps {
   className?: string;
 }
 
-const PURPLE = '#A855F7';
-const VIOLET = '#7C5CFF';
-const CYAN = '#00D4FF';
-const AMBER = '#F59E0B';
-const PURPLE_GLOW = 'rgba(168,85,247,.65)';
-const VIOLET_GLOW = 'rgba(124,92,255,.65)';
-const CYAN_GLOW = 'rgba(0,212,255,.65)';
+// Visual-convergence (authenticated visual-completion pass): the orbital
+// palette is theme-token driven so the rings, spheres and core stay legible
+// on --bg-base in BOTH light and dark (the old #00D4FF cyan / #A855F7
+// purple literals were ~1.7:1 / ~3:1 on the light page). The meaning is
+// unchanged — outer = product accent, inner = info cyan, middle = a mix of
+// the two, error accent = warning amber — and the custom properties are
+// declared once on .hlo-root in ORBITAL_CSS below. Glow is restrained: a
+// low-opacity state tint and small sphere halos, no neon.
+const PURPLE = 'var(--hlo-outer)';
+const VIOLET = 'var(--hlo-middle)';
+const CYAN = 'var(--hlo-inner)';
+const AMBER = 'var(--hlo-warn)';
+const PURPLE_GLOW = 'color-mix(in srgb, var(--hlo-outer) 45%, transparent)';
+const VIOLET_GLOW = 'color-mix(in srgb, var(--hlo-middle) 45%, transparent)';
+const CYAN_GLOW = 'color-mix(in srgb, var(--hlo-inner) 45%, transparent)';
 
 // viewBox is 0 0 200 200, center (100,100) — ratios below match the approved
 // master mark (outer r=164/512, middle r=124/512, inner r=84/512, core r=34/512).
@@ -113,11 +121,11 @@ const CORE_PULSE_S: Record<HelenaVisualState, number> = {
 };
 
 const GLOW_BY_STATE: Record<HelenaVisualState, { color: string; opacity: number }> = {
-  idle: { color: 'rgba(124,92,255,.45)', opacity: 0.55 },
-  listening: { color: 'rgba(0,212,255,.55)', opacity: 0.75 },
-  thinking: { color: 'rgba(168,85,247,.60)', opacity: 0.85 },
-  speaking: { color: 'rgba(124,92,255,.70)', opacity: 0.95 },
-  error: { color: 'rgba(245,158,11,.30)', opacity: 0.35 },
+  idle: { color: 'color-mix(in srgb, var(--hlo-middle) 18%, transparent)', opacity: 0.35 },
+  listening: { color: 'color-mix(in srgb, var(--hlo-inner) 24%, transparent)', opacity: 0.5 },
+  thinking: { color: 'color-mix(in srgb, var(--hlo-outer) 24%, transparent)', opacity: 0.55 },
+  speaking: { color: 'color-mix(in srgb, var(--hlo-middle) 28%, transparent)', opacity: 0.6 },
+  error: { color: 'color-mix(in srgb, var(--hlo-warn) 16%, transparent)', opacity: 0.3 },
 };
 
 const TRACE_OPACITY: Record<HelenaVisualState, number> = {
@@ -130,11 +138,11 @@ const TRACE_OPACITY: Record<HelenaVisualState, number> = {
 };
 
 const SPHERE_GLOW_PX: Record<HelenaVisualState, number> = {
-  idle: 1.2,
-  listening: 2,
-  thinking: 2.6,
-  speaking: 3,
-  error: 0.8,
+  idle: 0.6,
+  listening: 1,
+  thinking: 1.4,
+  speaking: 1.6,
+  error: 0.4,
 };
 
 const STATE_DESCRIPTION: Record<HelenaVisualState, string> = {
@@ -154,6 +162,13 @@ const SPHERE_PROPAGATION_DELAY_MS: Record<RingName, number> = { inner: 70, middl
 type TransitionFx = 'ignition' | 'focus' | 'burst' | null;
 
 const ORBITAL_CSS = `
+  .hlo-root {
+    --hlo-outer: var(--brand-brainbase-accent);
+    --hlo-inner: var(--status-info);
+    --hlo-middle: color-mix(in srgb, var(--brand-brainbase-accent) 55%, var(--status-info));
+    --hlo-warn: var(--status-warning);
+  }
+
   @keyframes hloSpinCW  { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
   @keyframes hloSpinCCW { from { transform: rotate(0deg); } to { transform: rotate(-360deg); } }
   @keyframes hloCorePulse {
@@ -530,8 +545,8 @@ export function HelenaOrbital({
   const pulseDurationMs = isSpeaking ? (rising ? ATTACK_MS : DECAY_MS) : 220;
   const pulseEase = isSpeaking ? (rising ? ATTACK_EASE : DECAY_EASE) : 'ease-out';
 
-  const glowExt = Math.round(size * 0.4);
-  const blurPx = Math.max(6, Math.round(size * 0.18));
+  const glowExt = Math.round(size * 0.25);
+  const blurPx = Math.max(4, Math.round(size * 0.1));
 
   // useId (not Math.random) — must stay a pure, idempotent value per render.
   const uid = `hlo${useId().replace(/:/g, '')}`;
@@ -767,11 +782,8 @@ export function HelenaOrbital({
             <stop offset="1" stopColor={CYAN} />
           </linearGradient>
           <radialGradient id={`${uid}-core`} cx="34%" cy="27%" r="78%">
-            <stop offset="0" stopColor="#FFFFFF" />
-            <stop offset="0.18" stopColor="#F2EDFF" />
-            <stop offset="0.42" stopColor="#B56CFF" />
-            <stop offset="0.72" stopColor="#6576FF" />
-            <stop offset="1" stopColor={CYAN} />
+            <stop offset="0" stopColor={VIOLET} />
+            <stop offset="1" stopColor={PURPLE} />
           </radialGradient>
         </defs>
 

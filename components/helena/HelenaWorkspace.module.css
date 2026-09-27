@@ -1,0 +1,103 @@
+/* /hlna workspace chrome (components/helena/HelenaWorkspace.jsx). Tokens
+   only: page on --bg-base, header on --bg-surface with a --border rule.
+   The decorative vignette / ambient / halo radial glows were removed in
+   the authenticated visual-completion pass — HelenaOrbital itself carries
+   the state, and the text status below it keeps it non-visual too. The
+   two-column layout rules stay in the component's own <style> block
+   (pinned by tests/containment/hlnaWorkspace.test.ts). */
+
+.page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--bb-font-sans);
+}
+
+.header {
+  position: relative;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 10px;
+  height: 50px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.home {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  color: var(--text-primary);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+}
+
+.productTag {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.profile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.profile:hover {
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+}
+
+.statusBlock {
+  max-width: 340px;
+  text-align: center;
+}
+
+.stateLabel {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  transition: color 300ms ease;
+}
+
+.hint {
+  min-height: 18px;
+  margin: 6px 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stateLabel {
+    transition: none;
+  }
+}

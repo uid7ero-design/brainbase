@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { buttonProps } from '@/components/ui/app';
+import styles from '../Leads.module.css';
 
 export default function ConvertToSquadButton({
   leadId,
@@ -37,19 +39,17 @@ export default function ConvertToSquadButton({
   }
 
   return (
-    <div className="flex flex-col items-end gap-1.5">
+    <div className={styles.convert}>
       <button
+        type="button"
         onClick={convert}
         disabled={converting || inSquad}
-        className={`inline-flex items-center gap-2 font-semibold px-6 py-2.5 rounded-full text-sm transition-colors disabled:cursor-not-allowed ${
-          inSquad
-            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 opacity-90'
-            : 'border border-white/10 text-zinc-300 hover:border-white/20 hover:text-white disabled:opacity-50'
-        }`}
+        {...buttonProps('secondary')}
+        data-in-squad={inSquad ? 'true' : undefined}
       >
         {inSquad ? 'In Squad ✓' : converting ? 'Adding…' : 'Add to Squad'}
       </button>
-      {error && <p className="text-xs text-red-400">{error}</p>}
+      {error && <p className={styles.inlineError} role="alert">{error}</p>}
     </div>
   );
 }

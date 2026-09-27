@@ -1,0 +1,57 @@
+/* Blog editor layout (authenticated visual-completion pass). Tokens only.
+   Two columns on desktop; the publish/cover/author sidebar stacks under the
+   editor on narrow screens so nothing is pushed off the page at 390px. */
+
+.editorGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 20px;
+}
+
+.postRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+  padding: 14px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.postRow:hover {
+  background: var(--bg-sunken);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+@media (max-width: 760px) {
+  .editorGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .postRow {
+    flex-wrap: wrap;
+    padding: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .postRow {
+    transition: none;
+  }
+}

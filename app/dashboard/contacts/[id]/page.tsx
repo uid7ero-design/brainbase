@@ -4,6 +4,8 @@ import sql from '@/lib/db';
 import Link from 'next/link';
 import JournalClient from './JournalClient';
 import ContactDetailClient from './ContactDetailClient';
+import { PageHeader, buttonProps } from '@/components/ui/app';
+import styles from '../Contacts.module.css';
 
 export default async function ContactDetailPage({ params }: { params: Promise<{ id: string }> }) {
   let session;
@@ -30,19 +32,20 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
   const since = new Date(contact.created_at as string).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
 
   return (
-    <div className="p-6 max-w-7xl mx-auto pb-32">
-      <Link href="/dashboard/contacts" className="inline-flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors border border-white/8 hover:border-white/16 rounded-full px-4 py-2">
-        ← Back to Contacts
-      </Link>
+    <div className={`${styles.page} ${styles.wide}`}>
+      <PageHeader
+        eyebrow={
+          <Link href="/dashboard/contacts" {...buttonProps('secondary', 'sm')}>
+            ← Back to Contacts
+          </Link>
+        }
+        title={contact.name as string}
+        description={`Contact since ${since}`}
+      />
 
-      <div className="mt-6 mb-8">
-        <h1 className="text-2xl font-bold text-white tracking-tight">{contact.name as string}</h1>
-        <p className="text-zinc-500 text-sm mt-1">Contact since {since}</p>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-8 items-start">
+      <div className={styles.detailGrid}>
         {/* Left — details & actions */}
-        <div className="lg:sticky lg:top-20">
+        <div className={styles.detailAside}>
           <ContactDetailClient contact={{
             id: contact.id as string,
             name: contact.name as string,
@@ -60,10 +63,10 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
         </div>
 
         {/* Right — coaching journal */}
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-6">Session Notes</p>
+        <section aria-labelledby="session-notes-heading">
+          <h2 id="session-notes-heading" className={styles.sectionLabel}>Session Notes</h2>
           <JournalClient contactId={id} initial={journal as { id: string; note: string; created_at: string }[]} />
-        </div>
+        </section>
       </div>
     </div>
   );

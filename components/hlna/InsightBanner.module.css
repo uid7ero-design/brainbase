@@ -1,0 +1,179 @@
+/* Helena insight banner — shown above the Fleet, Waste and Service Requests
+   dashboards. Flat surface on theme tokens; the purple left rule is Helena's
+   product identity, cyan marks the recommendation (information). */
+.banner {
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 16px;
+  padding: 14px 18px 14px 20px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--brand-brainbase-accent);
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  font-family: var(--bb-font-sans);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--brand-brainbase-accent);
+}
+
+.spacer { flex: 1; }
+
+.updated {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.refresh:hover { background: var(--bg-raised); color: var(--text-primary); }
+
+.headlineRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.headline {
+  flex: 1;
+  min-width: 200px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.trendGood { background: var(--status-success-muted); color: var(--status-success); border: 1px solid var(--status-success-border); }
+.trendBad  { background: var(--status-danger-muted);  color: var(--status-danger);  border: 1px solid var(--status-danger-border); }
+
+.anomaly {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: var(--status-warning-muted);
+  border: 1px solid var(--status-warning-border);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.anomalyIcon { flex-shrink: 0; color: var(--status-warning); }
+
+.meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.metaValue { color: var(--text-secondary); }
+
+.metaValueMono { color: var(--text-secondary); font-family: var(--bb-font-mono); }
+
+.confidence { font-weight: 600; }
+.confHigh   { color: var(--status-success); }
+.confMedium { color: var(--status-warning); }
+.confLow    { color: var(--text-secondary); }
+
+.recRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.rec {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  flex: 1;
+}
+
+.recLabel {
+  flex-shrink: 0;
+  padding-top: 1px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  color: var(--status-info);
+}
+
+.recText {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+/* Loading placeholder */
+.skeleton {
+  margin-bottom: 16px;
+  padding: 14px 18px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.skRow { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+
+.skDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand-brainbase-accent-muted);
+  animation: insightPulse 1.4s ease-in-out infinite;
+}
+
+.skBar { border-radius: 4px; background: var(--bg-sunken); }
+
+@keyframes insightPulse {
+  0%, 100% { opacity: .4; }
+  50%      { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skDot { animation: none; }
+}

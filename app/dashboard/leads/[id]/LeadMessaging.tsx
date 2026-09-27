@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { Badge, Field, FormActions, FormError, Panel, buttonProps, fieldControlClassName } from '@/components/ui/app';
+import styles from '../Leads.module.css';
 
 type Message = {
   id: string;
@@ -76,78 +78,87 @@ export default function LeadMessaging({ leadId, leadName, leadEmail }: {
   }
 
   return (
-    <div className="rounded-2xl border border-white/8 bg-white/2 p-5 mb-6 space-y-4">
-      <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">Email this lead</p>
+    <Panel title="Email this lead">
+      <div className={styles.editorStack}>
+        <div className={styles.toRow}>
+          <span className={styles.toLabel}>To</span>
+          <span className={styles.toValue}>{leadEmail}</span>
+        </div>
 
-      <div className="grid grid-cols-[60px_1fr] gap-2 items-center text-sm">
-        <span className="text-xs text-zinc-500">To</span>
-        <span className="text-zinc-300">{leadEmail}</span>
-      </div>
+        <Field label="Subject">
+          {control => (
+            <input
+              {...control}
+              value={subject}
+              onChange={e => setSubject(e.target.value)}
+              placeholder="Subject"
+              maxLength={200}
+              className={fieldControlClassName}
+            />
+          )}
+        </Field>
+        <Field label="Message">
+          {control => (
+            <textarea
+              {...control}
+              value={messageBody}
+              onChange={e => setMessageBody(e.target.value)}
+              placeholder="Write your message..."
+              rows={5}
+              maxLength={5000}
+              className={fieldControlClassName}
+            />
+          )}
+        </Field>
 
-      <input
-        value={subject}
-        onChange={e => setSubject(e.target.value)}
-        placeholder="Subject"
-        maxLength={200}
-        className="w-full bg-white/4 border border-white/8 rounded-xl px-4 py-2.5 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-white/20"
-      />
-      <textarea
-        value={messageBody}
-        onChange={e => setMessageBody(e.target.value)}
-        placeholder="Write your message..."
-        rows={5}
-        maxLength={5000}
-        className="w-full bg-white/4 border border-white/8 rounded-xl px-4 py-3 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-white/20 resize-vertical"
-      />
-
-      {error && (
-        <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{error}</p>
-      )}
-      {warning && (
-        <p className="text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-2">{warning}</p>
-      )}
-
-      <div className="flex justify-end">
-        <button
-          onClick={send}
-          disabled={sending || !subject.trim() || !messageBody.trim()}
-          className="text-sm font-semibold px-5 py-2 rounded-full bg-green-500 text-black hover:bg-green-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          {sending ? 'Sending…' : 'Send Email'}
-        </button>
-      </div>
-
-      <div className="pt-2 border-t border-white/5">
-        <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-1 mt-3">
-          Message History
-        </p>
-        <p className="text-xs text-zinc-600 mb-3">
-          Outbound only — replies from the lead land directly in Luke&apos;s inbox and are not captured here.
-        </p>
-
-        {loading ? (
-          <p className="text-sm text-zinc-600">Loading…</p>
-        ) : messages.length === 0 ? (
-          <p className="text-sm text-zinc-600">No messages sent yet.</p>
-        ) : (
-          <div className="space-y-3">
-            {messages.map(m => (
-              <div key={m.id} className="rounded-xl border border-white/6 bg-white/2 px-4 py-3">
-                <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
-                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 capitalize">
-                    {m.direction}
-                  </span>
-                  <span className="text-xs text-zinc-600">
-                    {fmt(m.created_at)}{m.sender_name ? ` · ${m.sender_name}` : ''}
-                  </span>
-                </div>
-                <p className="text-sm font-semibold text-zinc-200 mb-1">{m.subject}</p>
-                <p className="text-sm text-zinc-400 whitespace-pre-wrap leading-relaxed">{m.body}</p>
-              </div>
-            ))}
-          </div>
+        {error && <FormError>{error}</FormError>}
+        {warning && (
+          <p className={styles.notice} role="status">{warning}</p>
         )}
+
+        <FormActions>
+          <button
+            type="button"
+            onClick={send}
+            disabled={sending || !subject.trim() || !messageBody.trim()}
+            {...buttonProps('primary')}
+          >
+            {sending ? 'Sending…' : 'Send Email'}
+          </button>
+        </FormActions>
+
+        <div className={styles.history}>
+          <h3 className={styles.sectionLabel}>
+            Message History
+          </h3>
+          <p className={styles.hint}>
+            Outbound only — replies from the lead land directly in Luke&apos;s inbox and are not captured here.
+          </p>
+
+          {loading ? (
+            <p className={styles.muted} role="status">Loading…</p>
+          ) : messages.length === 0 ? (
+            <p className={styles.muted}>No messages sent yet.</p>
+          ) : (
+            <ul className={styles.messages}>
+              {messages.map(m => (
+                <li key={m.id} className={styles.messageCard}>
+                  <div className={styles.messageMeta}>
+                    <Badge state="info" dot={false} className={styles.statusBadge}>
+                      {m.direction}
+                    </Badge>
+                    <span>
+                      {fmt(m.created_at)}{m.sender_name ? ` · ${m.sender_name}` : ''}
+                    </span>
+                  </div>
+                  <p className={styles.messageSubject}>{m.subject}</p>
+                  <p className={styles.messageBody}>{m.body}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
-    </div>
+    </Panel>
   );
 }

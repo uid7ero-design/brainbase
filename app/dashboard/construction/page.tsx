@@ -2,23 +2,23 @@
 
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid, Legend } from "recharts";
 import DashboardShell, { KPI, MonthlyPoint, CostAccount, SLATarget, Action, IndustryTab } from "@/components/dashboard/DashboardShell";
+import { useDashboardChart } from "@/components/dashboard/ui/chartTheme";
 
-const C = { blue:"#38bdf8", green:"#4ade80", amber:"#fbbf24", red:"#f87171", purple:"#a78bfa", orange:"#fb923c" };
-const TT = { background:"#0d0f14", border:"1px solid rgba(255,255,255,0.08)", borderRadius:10 };
+// Status colours for HTML text/chips (theme tokens, AA as text in both themes).
+// Charts read the theme-aware chart palette via useDashboardChart().
+const C = { blue:"var(--status-info)", green:"var(--status-success)", amber:"var(--status-warning)", red:"var(--status-danger)", orange:"color-mix(in srgb, var(--status-danger) 50%, var(--status-warning))" };
 const fmt = (n:number) => `$${n.toLocaleString("en-AU",{maximumFractionDigits:0})}`;
 
-const T1 = "#F5F7FA";
-const T2 = "rgba(230,237,243,0.55)";
-const T3 = "rgba(230,237,243,0.35)";
-const DC: React.CSSProperties = { background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:12, padding:20 };
+const T1 = "var(--text-primary)";
+const T2 = "var(--text-secondary)";
+const T3 = "var(--text-muted)";
+const DC: React.CSSProperties = { background:"var(--bg-surface)", border:"1px solid var(--border)", borderRadius:8, padding:20 };
 const tbl: React.CSSProperties = { width:"100%", borderCollapse:"collapse", fontSize:13 };
 const th: React.CSSProperties = { padding:"10px 12px", textAlign:"left", color:T3, fontWeight:600, fontSize:11, letterSpacing:".05em" };
 const td: React.CSSProperties = { padding:"12px", color:T2 };
-const GRID = "rgba(255,255,255,0.05)";
-const TICK = { fill:T3, fontSize:11 };
 
 function badge(label:string, bg:string, color:string) {
-  return <span style={{ padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, background:bg, color }}>{label}</span>;
+  return <span style={{ padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:700, background:bg, color }}>{label}</span>;
 }
 
 function StatCard({ label, value, sub, color }: { label:string; value:string; sub:string; color?:string }) {
@@ -150,10 +150,12 @@ function OverviewContent() {
   const totalActual = SAMPLE_PROJECTS.reduce((s,p)=>s+p.actual,0);
   const totalVariations = SAMPLE_VARIATIONS.filter(v=>v.status==="Approved").reduce((s,v)=>s+v.value,0);
   const onTrack = SAMPLE_PROJECTS.filter(p=>p.status==="On Track").length;
+  const chart = useDashboardChart();
+  const pal = chart.palette;
   const statusData = [
-    {name:"On Track",value:SAMPLE_PROJECTS.filter(p=>p.status==="On Track").length,fill:C.green},
-    {name:"Delayed",value:SAMPLE_PROJECTS.filter(p=>p.status==="Delayed").length,fill:C.red},
-    {name:"Completed",value:SAMPLE_PROJECTS.filter(p=>p.status==="Completed").length,fill:C.blue},
+    {name:"On Track",value:SAMPLE_PROJECTS.filter(p=>p.status==="On Track").length,fill:pal.success},
+    {name:"Delayed",value:SAMPLE_PROJECTS.filter(p=>p.status==="Delayed").length,fill:pal.danger},
+    {name:"Completed",value:SAMPLE_PROJECTS.filter(p=>p.status==="Completed").length,fill:pal.info},
   ];
   return (
     <div style={{ color:T1 }}>
@@ -168,11 +170,11 @@ function OverviewContent() {
           <p style={{ fontWeight:700, marginBottom:20, color:T1 }}>Monthly Budget vs Actual</p>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={MONTHLY_COST}>
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID}/>
-              <XAxis dataKey="month" tick={TICK}/><YAxis tickFormatter={v=>`$${(v/1000).toFixed(0)}k`} tick={TICK}/>
-              <Tooltip contentStyle={TT} formatter={(v:any)=>fmt(v)}/><Legend wrapperStyle={{ color:T2, fontSize:12 }}/>
-              <Bar dataKey="budget" fill={C.blue} name="Budget" radius={[4,4,0,0]} opacity={0.6}/>
-              <Bar dataKey="actual" fill={C.orange} name="Actual" radius={[4,4,0,0]}/>
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid}/>
+              <XAxis dataKey="month" tick={chart.tick}/><YAxis tickFormatter={v=>`$${(v/1000).toFixed(0)}k`} tick={chart.tick}/>
+              <Tooltip {...chart.tooltip} formatter={(v:any)=>fmt(v)}/><Legend wrapperStyle={chart.legend}/>
+              <Bar dataKey="budget" fill={pal.comparison} name="Budget" radius={[4,4,0,0]}/>
+              <Bar dataKey="actual" fill={pal.primary} name="Actual" radius={[4,4,0,0]}/>
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -180,10 +182,10 @@ function OverviewContent() {
           <p style={{ fontWeight:700, marginBottom:20, color:T1 }}>Project Status</p>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
-              <Pie data={statusData} cx="50%" cy="50%" innerRadius={55} outerRadius={85} dataKey="value">
+              <Pie data={statusData} cx="50%" cy="50%" innerRadius={55} outerRadius={85} dataKey="value" stroke={pal.tooltipBg}>
                 {statusData.map((e,i)=><Cell key={i} fill={e.fill}/>)}
               </Pie>
-              <Tooltip contentStyle={TT}/><Legend wrapperStyle={{ color:T2, fontSize:12 }}/>
+              <Tooltip {...chart.tooltip}/><Legend wrapperStyle={chart.legend}/>
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -196,7 +198,7 @@ function OverviewContent() {
               <span style={{ fontSize:13, fontWeight:600, color:T1 }}>{p.name}</span>
               <span style={{ fontSize:12, color:T3 }}>{fmt(p.actual)} / {fmt(p.budget)}</span>
             </div>
-            <div style={{ height:8, background:"rgba(255,255,255,0.08)", borderRadius:4, overflow:"hidden" }}>
+            <div style={{ height:8, background:"var(--bg-sunken)", borderRadius:4, overflow:"hidden" }}>
               <div style={{ height:"100%", width:`${Math.min(100,Math.round(p.actual/p.budget*100))}%`, background:p.actual>p.budget?C.red:C.green, borderRadius:4 }}/>
             </div>
           </div>
@@ -209,19 +211,19 @@ function OverviewContent() {
 function ProjectsTab() {
   return (
     <div style={{ ...DC, padding:0, overflow:"hidden" }}>
-      <div style={{ padding:"16px 20px", borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
+      <div style={{ padding:"16px 20px", borderBottom:"1px solid var(--border)" }}>
         <p style={{ fontWeight:700, fontSize:16, color:T1 }}>All Projects</p>
       </div>
       <table style={tbl}>
-        <thead><tr style={{ background:"rgba(255,255,255,0.06)" }}>
+        <thead><tr style={{ background:"var(--bg-sunken)" }}>
           {["ID","Project","Client","Type","Budget","Actual","Variations","Progress","Status","PM"].map(h=>(
-            <th key={h} style={th}>{h.toUpperCase()}</th>
+            <th key={h} scope="col" style={th}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
           {SAMPLE_PROJECTS.map((p,i)=>(
-            <tr key={p.id} style={{ borderBottom:"1px solid rgba(255,255,255,0.05)", background:i%2===0?"transparent":"rgba(255,255,255,0.02)" }}>
-              <td style={{ padding:"12px", fontFamily:"monospace", fontWeight:700, color:T1 }}>{p.id}</td>
+            <tr key={p.id} style={{ borderBottom:"1px solid var(--border)", background:i%2===0?"transparent":"var(--bg-sunken)" }}>
+              <td style={{ padding:"12px", fontFamily:"var(--bb-font-mono)", fontWeight:700, color:T1 }}>{p.id}</td>
               <td style={{ padding:"12px", fontWeight:600, maxWidth:180, color:T1 }}>{p.name}</td>
               <td style={td}>{p.client}</td>
               <td style={td}>{p.type}</td>
@@ -229,7 +231,7 @@ function ProjectsTab() {
               <td style={td}>{fmt(p.actual)}</td>
               <td style={{ padding:"12px", color:p.variations>0?C.amber:T2 }}>{fmt(p.variations)}</td>
               <td style={{ padding:"12px" }}><span style={{ color:p.progress>=90?C.green:p.progress>=50?C.amber:C.blue, fontWeight:700 }}>{p.progress}%</span></td>
-              <td style={{ padding:"12px" }}>{badge(p.status, p.status==="On Track"?"rgba(74,222,128,0.15)":p.status==="Delayed"?"rgba(248,113,113,0.15)":"rgba(56,189,248,0.15)", p.status==="On Track"?C.green:p.status==="Delayed"?C.red:C.blue)}</td>
+              <td style={{ padding:"12px" }}>{badge(p.status, p.status==="On Track"?"color-mix(in srgb, var(--status-success) 15%, transparent)":p.status==="Delayed"?"color-mix(in srgb, var(--status-danger) 15%, transparent)":"color-mix(in srgb, var(--status-info) 15%, transparent)", p.status==="On Track"?C.green:p.status==="Delayed"?C.red:C.blue)}</td>
               <td style={td}>{p.pm}</td>
             </tr>
           ))}
@@ -248,19 +250,19 @@ function VariationsTab() {
     </div>
     <div style={{ ...DC, padding:0, overflow:"hidden" }}>
       <table style={tbl}>
-        <thead><tr style={{ background:"rgba(255,255,255,0.06)" }}>
+        <thead><tr style={{ background:"var(--bg-sunken)" }}>
           {["Ref","Project","Description","Value","Status","Date"].map(h=>(
-            <th key={h} style={th}>{h.toUpperCase()}</th>
+            <th key={h} scope="col" style={th}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
           {SAMPLE_VARIATIONS.map((v,i)=>(
-            <tr key={v.ref} style={{ borderBottom:"1px solid rgba(255,255,255,0.05)", background:i%2===0?"transparent":"rgba(255,255,255,0.02)" }}>
-              <td style={{ padding:"12px", fontFamily:"monospace", fontWeight:700, color:T1 }}>{v.ref}</td>
+            <tr key={v.ref} style={{ borderBottom:"1px solid var(--border)", background:i%2===0?"transparent":"var(--bg-sunken)" }}>
+              <td style={{ padding:"12px", fontFamily:"var(--bb-font-mono)", fontWeight:700, color:T1 }}>{v.ref}</td>
               <td style={td}>{v.project}</td>
               <td style={{ padding:"12px", maxWidth:240, color:T1 }}>{v.description}</td>
               <td style={{ padding:"12px", fontWeight:700, color:C.amber }}>{fmt(v.value)}</td>
-              <td style={{ padding:"12px" }}>{badge(v.status, v.status==="Approved"?"rgba(74,222,128,0.15)":v.status==="Pending"?"rgba(251,191,36,0.15)":"rgba(248,113,113,0.15)", v.status==="Approved"?C.green:v.status==="Pending"?C.amber:C.red)}</td>
+              <td style={{ padding:"12px" }}>{badge(v.status, v.status==="Approved"?"color-mix(in srgb, var(--status-success) 15%, transparent)":v.status==="Pending"?"color-mix(in srgb, var(--status-warning) 15%, transparent)":"color-mix(in srgb, var(--status-danger) 15%, transparent)", v.status==="Approved"?C.green:v.status==="Pending"?C.amber:C.red)}</td>
               <td style={td}>{v.submittedDate}</td>
             </tr>
           ))}
@@ -273,23 +275,23 @@ function VariationsTab() {
 function ProgrammeTab() {
   return (
     <div style={{ ...DC, padding:0, overflow:"hidden" }}>
-      <div style={{ padding:"16px 20px", borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
+      <div style={{ padding:"16px 20px", borderBottom:"1px solid var(--border)" }}>
         <p style={{ fontWeight:700, fontSize:16, color:T1 }}>Milestone Tracker</p>
       </div>
       <table style={tbl}>
-        <thead><tr style={{ background:"rgba(255,255,255,0.06)" }}>
+        <thead><tr style={{ background:"var(--bg-sunken)" }}>
           {["Project","Milestone","Planned","Actual","Status"].map(h=>(
-            <th key={h} style={th}>{h.toUpperCase()}</th>
+            <th key={h} scope="col" style={th}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
           {SAMPLE_MILESTONES.map((m,i)=>(
-            <tr key={i} style={{ borderBottom:"1px solid rgba(255,255,255,0.05)", background:i%2===0?"transparent":"rgba(255,255,255,0.02)" }}>
-              <td style={{ padding:"12px", fontFamily:"monospace", color:T3 }}>{m.project}</td>
+            <tr key={i} style={{ borderBottom:"1px solid var(--border)", background:i%2===0?"transparent":"var(--bg-sunken)" }}>
+              <td style={{ padding:"12px", fontFamily:"var(--bb-font-mono)", color:T3 }}>{m.project}</td>
               <td style={{ padding:"12px", fontWeight:600, color:T1 }}>{m.milestone}</td>
               <td style={td}>{m.planned}</td>
               <td style={td}>{m.actual||"—"}</td>
-              <td style={{ padding:"12px" }}>{badge(m.status, m.status==="Complete"?"rgba(74,222,128,0.15)":m.status==="Delayed"?"rgba(248,113,113,0.15)":"rgba(56,189,248,0.15)", m.status==="Complete"?C.green:m.status==="Delayed"?C.red:C.blue)}</td>
+              <td style={{ padding:"12px" }}>{badge(m.status, m.status==="Complete"?"color-mix(in srgb, var(--status-success) 15%, transparent)":m.status==="Delayed"?"color-mix(in srgb, var(--status-danger) 15%, transparent)":"color-mix(in srgb, var(--status-info) 15%, transparent)", m.status==="Complete"?C.green:m.status==="Delayed"?C.red:C.blue)}</td>
             </tr>
           ))}
         </tbody>
@@ -307,17 +309,17 @@ function SubcontractorsTab() {
     </div>
     <div style={{ ...DC, padding:0, overflow:"hidden" }}>
       <table style={tbl}>
-        <thead><tr style={{ background:"rgba(255,255,255,0.06)" }}>
+        <thead><tr style={{ background:"var(--bg-sunken)" }}>
           {["Subcontractor","Trade","Project","Contract","Paid","Balance","Next Invoice","Performance"].map(h=>(
-            <th key={h} style={th}>{h.toUpperCase()}</th>
+            <th key={h} scope="col" style={th}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
           {SAMPLE_SUBS.map((s,i)=>(
-            <tr key={s.name} style={{ borderBottom:"1px solid rgba(255,255,255,0.05)", background:i%2===0?"transparent":"rgba(255,255,255,0.02)" }}>
+            <tr key={s.name} style={{ borderBottom:"1px solid var(--border)", background:i%2===0?"transparent":"var(--bg-sunken)" }}>
               <td style={{ padding:"12px", fontWeight:700, color:T1 }}>{s.name}</td>
               <td style={td}>{s.trade}</td>
-              <td style={{ padding:"12px", color:T3, fontFamily:"monospace" }}>{s.project}</td>
+              <td style={{ padding:"12px", color:T3, fontFamily:"var(--bb-font-mono)" }}>{s.project}</td>
               <td style={{ padding:"12px", fontWeight:600, color:T1 }}>{fmt(s.contract)}</td>
               <td style={td}>{fmt(s.paid)}</td>
               <td style={{ padding:"12px", color:C.amber, fontWeight:600 }}>{fmt(s.contract-s.paid)}</td>
@@ -332,7 +334,7 @@ function SubcontractorsTab() {
 }
 
 function RisksTab() {
-  const ratingBg   = (r:string) => r==="Critical"?"rgba(248,113,113,0.15)":r==="High"?"rgba(251,163,7,0.15)":r==="Medium"?"rgba(251,191,36,0.12)":"rgba(74,222,128,0.12)";
+  const ratingBg   = (r:string) => r==="Critical"?"color-mix(in srgb, var(--status-danger) 15%, transparent)":r==="High"?"color-mix(in srgb, var(--status-warning) 15%, transparent)":r==="Medium"?"color-mix(in srgb, var(--status-warning) 12%, transparent)":"color-mix(in srgb, var(--status-success) 12%, transparent)";
   const ratingColor = (r:string) => r==="Critical"?C.red:r==="High"?C.orange:r==="Medium"?C.amber:C.green;
   return (<>
     <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:16, marginBottom:24 }}>
@@ -341,19 +343,19 @@ function RisksTab() {
       ))}
     </div>
     <div style={{ ...DC, padding:0, overflow:"hidden" }}>
-      <div style={{ padding:"16px 20px", borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
+      <div style={{ padding:"16px 20px", borderBottom:"1px solid var(--border)" }}>
         <p style={{ fontWeight:700, fontSize:16, color:T1 }}>Risk Register</p>
       </div>
       <table style={tbl}>
-        <thead><tr style={{ background:"rgba(255,255,255,0.06)" }}>
+        <thead><tr style={{ background:"var(--bg-sunken)" }}>
           {["ID","Project","Description","Category","Rating","Owner","Mitigation"].map(h=>(
-            <th key={h} style={th}>{h.toUpperCase()}</th>
+            <th key={h} scope="col" style={th}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
           {SAMPLE_RISKS.map((r,i)=>(
-            <tr key={r.id} style={{ borderBottom:"1px solid rgba(255,255,255,0.05)", background:i%2===0?"transparent":"rgba(255,255,255,0.02)" }}>
-              <td style={{ padding:"12px", fontFamily:"monospace", fontWeight:700, color:T1 }}>{r.id}</td>
+            <tr key={r.id} style={{ borderBottom:"1px solid var(--border)", background:i%2===0?"transparent":"var(--bg-sunken)" }}>
+              <td style={{ padding:"12px", fontFamily:"var(--bb-font-mono)", fontWeight:700, color:T1 }}>{r.id}</td>
               <td style={td}>{r.project}</td>
               <td style={{ padding:"12px", maxWidth:200, fontSize:12, color:T2 }}>{r.description}</td>
               <td style={td}>{r.category}</td>
@@ -377,21 +379,21 @@ function ClaimsTab() {
     </div>
     <div style={{ ...DC, padding:0, overflow:"hidden" }}>
       <table style={tbl}>
-        <thead><tr style={{ background:"rgba(255,255,255,0.06)" }}>
+        <thead><tr style={{ background:"var(--bg-sunken)" }}>
           {["ID","Project","Type","Description","Value","Submitted","Status","Days Open"].map(h=>(
-            <th key={h} style={th}>{h.toUpperCase()}</th>
+            <th key={h} scope="col" style={th}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
           {SAMPLE_CLAIMS.map((c,i)=>(
-            <tr key={c.id} style={{ borderBottom:"1px solid rgba(255,255,255,0.05)", background:i%2===0?"transparent":"rgba(255,255,255,0.02)" }}>
-              <td style={{ padding:"12px", fontFamily:"monospace", fontWeight:700, color:T1 }}>{c.id}</td>
+            <tr key={c.id} style={{ borderBottom:"1px solid var(--border)", background:i%2===0?"transparent":"var(--bg-sunken)" }}>
+              <td style={{ padding:"12px", fontFamily:"var(--bb-font-mono)", fontWeight:700, color:T1 }}>{c.id}</td>
               <td style={td}>{c.project}</td>
               <td style={td}>{c.type}</td>
               <td style={{ padding:"12px", maxWidth:200, fontSize:12, color:T2 }}>{c.description}</td>
               <td style={{ padding:"12px", fontWeight:700, color:C.amber }}>{c.value?fmt(c.value):"—"}</td>
               <td style={td}>{c.submittedDate}</td>
-              <td style={{ padding:"12px" }}>{badge(c.status, c.status==="Approved"?"rgba(74,222,128,0.15)":c.status==="Pending"?"rgba(251,191,36,0.15)":"rgba(56,189,248,0.15)", c.status==="Approved"?C.green:c.status==="Pending"?C.amber:C.blue)}</td>
+              <td style={{ padding:"12px" }}>{badge(c.status, c.status==="Approved"?"color-mix(in srgb, var(--status-success) 15%, transparent)":c.status==="Pending"?"color-mix(in srgb, var(--status-warning) 15%, transparent)":"color-mix(in srgb, var(--status-info) 15%, transparent)", c.status==="Approved"?C.green:c.status==="Pending"?C.amber:C.blue)}</td>
               <td style={{ padding:"12px", color:c.daysOpen>14?C.red:T2, fontWeight:c.daysOpen>14?700:400 }}>{c.daysOpen}d</td>
             </tr>
           ))}
@@ -402,38 +404,40 @@ function ClaimsTab() {
 }
 
 function ForecastTab() {
+  const chart = useDashboardChart();
+  const pal = chart.palette;
   return (<>
     <div style={{ ...DC, marginBottom:20 }}>
       <p style={{ fontWeight:700, marginBottom:20, color:T1 }}>Budget vs Forecast Final Cost</p>
       <ResponsiveContainer width="100%" height={260}>
         <BarChart data={FORECAST_DATA}>
-          <CartesianGrid strokeDasharray="3 3" stroke={GRID}/>
-          <XAxis dataKey="name" tick={TICK}/><YAxis tickFormatter={v=>`$${(v/1000000).toFixed(1)}M`} tick={TICK}/>
-          <Tooltip contentStyle={TT} formatter={(v:any)=>fmt(v)}/><Legend wrapperStyle={{ color:T2, fontSize:12 }}/>
-          <Bar dataKey="budget"   fill={C.blue}  name="Original Budget"  radius={[4,4,0,0]} opacity={0.6}/>
-          <Bar dataKey="spent"    fill={C.green} name="Spent"            radius={[0,0,0,0]}/>
-          <Bar dataKey="forecast" fill={C.orange} name="Forecast Final"  radius={[4,4,0,0]} opacity={0.8}/>
+          <CartesianGrid strokeDasharray="3 3" stroke={chart.grid}/>
+          <XAxis dataKey="name" tick={chart.tick}/><YAxis tickFormatter={v=>`$${(v/1000000).toFixed(1)}M`} tick={chart.tick}/>
+          <Tooltip {...chart.tooltip} formatter={(v:any)=>fmt(v)}/><Legend wrapperStyle={chart.legend}/>
+          <Bar dataKey="budget"   fill={pal.comparison} name="Original Budget"  radius={[4,4,0,0]}/>
+          <Bar dataKey="spent"    fill={pal.primary} name="Spent"            radius={[0,0,0,0]}/>
+          <Bar dataKey="forecast" fill={pal.info} name="Forecast Final"  radius={[4,4,0,0]}/>
         </BarChart>
       </ResponsiveContainer>
     </div>
     <div style={{ ...DC, padding:0, overflow:"hidden" }}>
       <table style={tbl}>
-        <thead><tr style={{ background:"rgba(255,255,255,0.06)" }}>
+        <thead><tr style={{ background:"var(--bg-sunken)" }}>
           {["Project","Budget","Spent","Forecast Final","Variance","Status"].map(h=>(
-            <th key={h} style={th}>{h.toUpperCase()}</th>
+            <th key={h} scope="col" style={th}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
           {FORECAST_DATA.map((r,i)=>{
             const variance = r.forecast - r.budget;
             return (
-              <tr key={r.project} style={{ borderBottom:"1px solid rgba(255,255,255,0.05)", background:i%2===0?"transparent":"rgba(255,255,255,0.02)" }}>
+              <tr key={r.project} style={{ borderBottom:"1px solid var(--border)", background:i%2===0?"transparent":"var(--bg-sunken)" }}>
                 <td style={{ padding:"12px", fontWeight:600, color:T1 }}>{r.name}</td>
                 <td style={td}>{fmt(r.budget)}</td>
                 <td style={td}>{fmt(r.spent)}</td>
                 <td style={{ padding:"12px", fontWeight:700, color:T1 }}>{fmt(r.forecast)}</td>
                 <td style={{ padding:"12px", fontWeight:700, color:variance>0?C.red:C.green }}>{variance>0?"+":""}{fmt(variance)}</td>
-                <td style={{ padding:"12px" }}>{badge(variance>0?"Over Budget":"Within Budget", variance>0?"rgba(248,113,113,0.15)":"rgba(74,222,128,0.15)", variance>0?C.red:C.green)}</td>
+                <td style={{ padding:"12px" }}>{badge(variance>0?"Over Budget":"Within Budget", variance>0?"color-mix(in srgb, var(--status-danger) 15%, transparent)":"color-mix(in srgb, var(--status-success) 15%, transparent)", variance>0?C.red:C.green)}</td>
               </tr>
             );
           })}
@@ -456,7 +460,6 @@ const INDUSTRY_TABS: IndustryTab[] = [
 export default function ConstructionDashboard() {
   return (
     <DashboardShell
-      theme="dark"
       title="Construction Project Intelligence"
       subtitle="Budget tracking · Variations · Programme · Subcontractors"
       headerColor="#f97316"

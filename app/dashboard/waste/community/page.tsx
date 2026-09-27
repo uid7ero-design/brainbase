@@ -4,7 +4,8 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
   CartesianGrid, LineChart, Line, Cell,
 } from "recharts";
-import { KpiCard, Insight, SectionHeader, T1, T2, T3, BORDER, ROW_BDR, ROW_HEAD, GRID, TICK, DTT, DC, PAGE } from "../_dark";
+import { KpiCard, Insight, SectionHeader, T1, T2, T3, BORDER, ROW_BDR, ROW_HEAD, DC, PAGE, TRACK, legendText, useWasteChart } from "../_dark";
+import styles from "../WasteModule.module.css";
 
 const SATISFACTION = [
   { service: "General Waste",  score: 4.1, responses: 312 },
@@ -54,6 +55,7 @@ const EVENTS = [
 ];
 
 export default function CommunityPage() {
+  const chart = useWasteChart();
   const overallScore       = SATISFACTION.find(s => s.service === "Overall")!.score;
   const avgRecyclePass     = Math.round(BIN_AUDIT.reduce((s, r) => s + r.recyclePassed, 0) / BIN_AUDIT.length);
   const totalCampaignReach = CAMPAIGNS.reduce((s, r) => s + r.reach, 0);
@@ -65,14 +67,14 @@ export default function CommunityPage() {
     <div style={PAGE}>
       <p style={{ fontSize: 13, color: T3, margin: 0 }}>Period: {today}</p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
-        <KpiCard label="Overall Satisfaction"    value={`${overallScore}/5.0`}                sub="480 survey responses this period"            accent={overallScore >= 4 ? "#10b981" : "#f59e0b"} />
-        <KpiCard label="Recycling Bin Pass Rate" value={`${avgRecyclePass}%`}                 sub="Correct materials, no contamination"          accent={avgRecyclePass >= 90 ? "#10b981" : "#f59e0b"} />
-        <KpiCard label="Campaign Reach"          value={totalCampaignReach.toLocaleString()}  sub={`${CAMPAIGNS.length} campaigns this period`}  accent="#3b82f6" />
-        <KpiCard label="Event Waste Diverted"    value={`${totalEventTonnes} t`}              sub={`${EVENTS.length} community events`}          accent="#8b5cf6" />
+      <div className={styles.kpiGrid}>
+        <KpiCard label="Overall Satisfaction"    value={`${overallScore}/5.0`}                sub="480 survey responses this period"            accent={chart.series(overallScore >= 4 ? "#10b981" : "#f59e0b")} />
+        <KpiCard label="Recycling Bin Pass Rate" value={`${avgRecyclePass}%`}                 sub="Correct materials, no contamination"          accent={chart.series(avgRecyclePass >= 90 ? "#10b981" : "#f59e0b")} />
+        <KpiCard label="Campaign Reach"          value={totalCampaignReach.toLocaleString()}  sub={`${CAMPAIGNS.length} campaigns this period`}  accent={chart.series("#3b82f6")} />
+        <KpiCard label="Event Waste Diverted"    value={`${totalEventTonnes} t`}              sub={`${EVENTS.length} community events`}          accent="var(--border-strong)" />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
+      <div className={styles.grid3}>
         <Insight icon="⭐" color={overallScore >= 4 ? "green" : "amber"}
           title={`Satisfaction score ${overallScore}/5 — ${overallScore >= 4 ? "strong" : "needs attention"}`}
           body={`E-waste events lead at 4.5/5. Recycling service at 3.8/5 is the lowest — correlates with contamination confusion. Targeted bin guide could lift this score.`}
@@ -87,7 +89,7 @@ export default function CommunityPage() {
         />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+      <div className={styles.grid2}>
         <div style={DC}>
           <SectionHeader title="Community Satisfaction by Service" sub="Survey responses — 1 to 5 scale" />
           <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 8 }}>
@@ -97,17 +99,17 @@ export default function CommunityPage() {
                   <span style={{ fontSize: 13, color: T1, fontWeight: 500 }}>{s.service}</span>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     <span style={{ fontSize: 12, color: T3 }}>{s.responses} responses</span>
-                    <span style={{ fontSize: 15, fontWeight: 700, color: s.score >= 4.2 ? "#4ade80" : s.score >= 3.9 ? "#60a5fa" : "#f59e0b" }}>{s.score}/5</span>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: s.score >= 4.2 ? "var(--status-success)" : s.score >= 3.9 ? "var(--status-info)" : "var(--status-warning)" }}>{s.score}/5</span>
                   </div>
                 </div>
-                <div style={{ height: 10, background: "rgba(255,255,255,0.08)", borderRadius: 999, overflow: "hidden" }}>
-                  <div style={{ height: "100%", borderRadius: 999, width: `${(s.score / 5) * 100}%`, background: s.score >= 4.2 ? "#10b981" : s.score >= 3.9 ? "#3b82f6" : "#f59e0b" }} />
+                <div style={{ height: 10, background: TRACK, borderRadius: 999, overflow: "hidden" }}>
+                  <div style={{ height: "100%", borderRadius: 999, width: `${(s.score / 5) * 100}%`, background: chart.series(s.score >= 4.2 ? "#10b981" : s.score >= 3.9 ? "#3b82f6" : "#f59e0b") }} />
                 </div>
               </div>
             ))}
             <div style={{ paddingTop: 12, borderTop: `1px solid ${BORDER}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: T1 }}>Overall Score</span>
-              <span style={{ fontSize: 22, fontWeight: 700, color: "#4ade80" }}>{overallScore} / 5.0</span>
+              <span style={{ fontSize: 22, fontWeight: 700, color: "var(--status-success)" }}>{overallScore} / 5.0</span>
             </div>
           </div>
         </div>
@@ -116,13 +118,13 @@ export default function CommunityPage() {
           <SectionHeader title="Customer Contact Volume" sub="Phone calls and digital requests Oct 2025 – Mar 2026" />
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={HOTLINE} barCategoryGap="25%">
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
-              <XAxis dataKey="month" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={DTT} />
-              <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
-              <Bar dataKey="calls"   name="Phone"   stackId="a" fill="#3b82f6" />
-              <Bar dataKey="digital" name="Digital" stackId="a" fill="#10b981" radius={[3,3,0,0]} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+              <XAxis dataKey="month" tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip {...chart.tooltip} />
+              <Legend wrapperStyle={{ fontSize: 12 }} formatter={legendText} />
+              <Bar dataKey="calls"   name="Phone"   stackId="a" fill={chart.series("#3b82f6")} />
+              <Bar dataKey="digital" name="Digital" stackId="a" fill={chart.series("#10b981")} radius={[3,3,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -132,19 +134,19 @@ export default function CommunityPage() {
         <SectionHeader title="Bin Audit Results by Zone" sub="% of audited bins correctly sorted (pass) — target ≥ 90%" />
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={BIN_AUDIT} barCategoryGap="20%">
-            <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
-            <XAxis dataKey="zone" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis tickFormatter={v => `${v}%`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} domain={[70, 100]} />
-            <Tooltip formatter={v => `${v}%`} contentStyle={DTT} />
-            <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
-            <Bar dataKey="recyclePassed" name="Recycling Pass %" fill="#3b82f6" radius={[3,3,0,0]} />
-            <Bar dataKey="greenPassed"   name="Green Waste Pass %" fill="#10b981" radius={[3,3,0,0]} />
+            <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+            <XAxis dataKey="zone" tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis tickFormatter={v => `${v}%`} tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} domain={[70, 100]} />
+            <Tooltip formatter={v => `${v}%`} {...chart.tooltip} />
+            <Legend wrapperStyle={{ fontSize: 12 }} formatter={legendText} />
+            <Bar dataKey="recyclePassed" name="Recycling Pass %" fill={chart.series("#3b82f6")} radius={[3,3,0,0]} />
+            <Bar dataKey="greenPassed"   name="Green Waste Pass %" fill={chart.series("#10b981")} radius={[3,3,0,0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-        <div style={{ ...DC, padding: 0, overflow: "hidden" }}>
+      <div className={styles.grid2}>
+        <div style={{ ...DC, padding: 0, overflowX: "auto" }}>
           <div style={{ padding: "16px 20px", borderBottom: `1px solid ${BORDER}` }}>
             <SectionHeader title="Education Campaigns" />
           </div>
@@ -152,7 +154,7 @@ export default function CommunityPage() {
             <thead>
               <tr style={{ background: ROW_HEAD }}>
                 {["Campaign","Type","Reach","Outcome"].map((h, i) => (
-                  <th key={h} style={{ padding: "10px 14px", fontWeight: 600, fontSize: 10, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 2 ? "right" : "left" }}>{h}</th>
+                  <th key={h} scope="col" style={{ padding: "10px 14px", fontWeight: 600, fontSize: 11, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 2 ? "right" : "left" }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -161,7 +163,7 @@ export default function CommunityPage() {
                 <tr key={i} style={{ borderTop: `1px solid ${ROW_BDR}` }}>
                   <td style={{ padding: "10px 14px", color: T1, fontWeight: 500 }}>{r.name}</td>
                   <td style={{ padding: "10px 14px" }}>
-                    <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "rgba(255,255,255,0.08)", color: T2 }}>{r.type}</span>
+                    <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: "var(--radius-sm)", background: TRACK, color: T2 }}>{r.type}</span>
                   </td>
                   <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>{r.reach.toLocaleString()}</td>
                   <td style={{ padding: "10px 14px", color: T3, fontSize: 12 }}>{r.outcome}</td>
@@ -171,7 +173,7 @@ export default function CommunityPage() {
           </table>
         </div>
 
-        <div style={{ ...DC, padding: 0, overflow: "hidden" }}>
+        <div style={{ ...DC, padding: 0, overflowX: "auto" }}>
           <div style={{ padding: "16px 20px", borderBottom: `1px solid ${BORDER}` }}>
             <SectionHeader title="Community Events" />
           </div>
@@ -179,7 +181,7 @@ export default function CommunityPage() {
             <thead>
               <tr style={{ background: ROW_HEAD }}>
                 {["Event","Date","Attendees","Tonnes"].map((h, i) => (
-                  <th key={h} style={{ padding: "10px 14px", fontWeight: 600, fontSize: 10, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                  <th key={h} scope="col" style={{ padding: "10px 14px", fontWeight: 600, fontSize: 11, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -189,7 +191,7 @@ export default function CommunityPage() {
                   <td style={{ padding: "10px 14px", color: T1, fontWeight: 500 }}>{r.event}</td>
                   <td style={{ padding: "10px 14px", textAlign: "right", color: T3, fontSize: 12 }}>{r.date}</td>
                   <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>{r.attendees.toLocaleString()}</td>
-                  <td style={{ padding: "10px 14px", textAlign: "right", color: "#4ade80", fontWeight: 500 }}>{r.tonnes > 0 ? `${r.tonnes} t` : "—"}</td>
+                  <td style={{ padding: "10px 14px", textAlign: "right", color: "var(--status-success)", fontWeight: 500 }}>{r.tonnes > 0 ? `${r.tonnes} t` : "—"}</td>
                 </tr>
               ))}
             </tbody>

@@ -1,12 +1,18 @@
 import NavTabs from "./NavTabs";
+import WasteModuleTitle from "./WasteModuleTitle";
+import styles from "./WasteModule.module.css";
 
+// Authenticated visual-completion pass: the module frame follows the app
+// theme (tokens in WasteModule.module.css). WasteModuleTitle keeps exactly
+// one page-level h1 per route: it is the h1 on sub-pages and a label on the
+// Overview, where DashboardShell renders the page h1.
 export default function WasteLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ background: '#08090C', minHeight: '100vh', fontFamily: 'var(--font-inter), system-ui, sans-serif' }}>
-      <div style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid rgba(255,255,255,0.08)' }} className="text-white px-8 pt-7 pb-0">
-        <div className="max-w-7xl mx-auto">
-          <p className="text-blue-400 text-xs font-semibold uppercase tracking-widest mb-1">Executive Operations Report</p>
-          <h1 className="text-3xl font-bold tracking-tight">Waste &amp; Recycling Intelligence</h1>
+    <div className={styles.frame}>
+      <div className={styles.header}>
+        <div className={styles.headerInner}>
+          <p className={styles.eyebrow}>Executive Operations Report</p>
+          <WasteModuleTitle>Waste &amp; Recycling Intelligence</WasteModuleTitle>
           <NavTabs />
         </div>
       </div>

@@ -4,7 +4,8 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
   CartesianGrid, LineChart, Line, Cell,
 } from "recharts";
-import { KpiCard, Insight, SectionHeader, T1, T2, T3, BORDER, ROW_BDR, ROW_HEAD, GRID, TICK, DTT, DC, PAGE } from "../_dark";
+import { KpiCard, Insight, SectionHeader, T1, T2, T3, BORDER, ROW_BDR, ROW_HEAD, DC, PAGE, TRACK, legendText, useWasteChart } from "../_dark";
+import styles from "../WasteModule.module.css";
 
 const MATERIALS = [
   { material: "Paper / Cardboard", tonnes: 180, pricePerT: 45,   trend: "stable",  color: "#3b82f6" },
@@ -29,6 +30,7 @@ const PRICE_TREND = [
 const GROSS_RECYCLING_COST = 134000;
 
 export default function CommoditiesPage() {
+  const chart = useWasteChart();
   const totalRevenue  = MATERIALS.reduce((s, r) => s + r.revenue, 0);
   const totalTonnes   = MATERIALS.reduce((s, r) => s + r.tonnes, 0);
   const revenuePerT   = +(totalRevenue / totalTonnes).toFixed(2);
@@ -42,14 +44,14 @@ export default function CommoditiesPage() {
     <div style={PAGE}>
       <p style={{ fontSize: 13, color: T3, margin: 0 }}>Period: {today} &nbsp;·&nbsp; Prices reflect MRF gate returns</p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
-        <KpiCard label="Total Commodity Revenue" value={`$${totalRevenue.toLocaleString()}`}  sub="From recyclable material sales"             accent="#10b981" />
-        <KpiCard label="Revenue per Tonne"        value={`$${revenuePerT}`}                   sub={`${totalTonnes} t total processed`}          accent="#3b82f6" />
-        <KpiCard label="Net Recycling Cost"        value={`$${netCost.toLocaleString()}`}      sub={`After $${totalRevenue.toLocaleString()} revenue offset`} accent={netCost < 80000 ? "#10b981" : "#f59e0b"} />
-        <KpiCard label="Top Revenue Material"      value={topMaterial.material.split("/")[0].trim()} sub={`$${topMaterial.revenue.toLocaleString()} @ $${topMaterial.pricePerT}/t`} accent="#f59e0b" />
+      <div className={styles.kpiGrid}>
+        <KpiCard label="Total Commodity Revenue" value={`$${totalRevenue.toLocaleString()}`}  sub="From recyclable material sales"             accent={chart.series("#10b981")} />
+        <KpiCard label="Revenue per Tonne"        value={`$${revenuePerT}`}                   sub={`${totalTonnes} t total processed`}          accent={chart.series("#3b82f6")} />
+        <KpiCard label="Net Recycling Cost"        value={`$${netCost.toLocaleString()}`}      sub={`After $${totalRevenue.toLocaleString()} revenue offset`} accent={chart.series(netCost < 80000 ? "#10b981" : "#f59e0b")} />
+        <KpiCard label="Top Revenue Material"      value={topMaterial.material.split("/")[0].trim()} sub={`$${topMaterial.revenue.toLocaleString()} @ $${topMaterial.pricePerT}/t`} accent={chart.series("#f59e0b")} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
+      <div className={styles.grid3}>
         <Insight icon="📈" color="green"
           title={`${risingMats.length} commodities trending upward`}
           body={`${risingMats.map(r => r.material.split("/")[0]).join(", ")} are all on upward price trends. Aluminium at $${PRICE_TREND[PRICE_TREND.length-1].aluminium}/t is near its 6-month high — good time to lock in contracts.`}
@@ -64,17 +66,17 @@ export default function CommoditiesPage() {
         />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+      <div className={styles.grid2}>
         <div style={DC}>
           <SectionHeader title="Revenue by Material" sub="This period — sorted by total revenue" />
           <ResponsiveContainer width="100%" height={290}>
             <BarChart data={[...MATERIALS].sort((a, b) => b.revenue - a.revenue)} layout="vertical" margin={{ left: 12 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} horizontal={false} />
-              <XAxis type="number" tickFormatter={v => `$${(v/1000).toFixed(0)}k`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="material" width={155} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip formatter={v => `$${Number(v).toLocaleString()}`} contentStyle={DTT} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} horizontal={false} />
+              <XAxis type="number" tickFormatter={v => `$${(v/1000).toFixed(0)}k`} tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="material" width={155} tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip formatter={v => `$${Number(v).toLocaleString()}`} {...chart.tooltip} />
               <Bar dataKey="revenue" name="Revenue" radius={[0,4,4,0]}>
-                {[...MATERIALS].sort((a, b) => b.revenue - a.revenue).map((r, i) => <Cell key={i} fill={r.color} />)}
+                {[...MATERIALS].sort((a, b) => b.revenue - a.revenue).map((r, i) => <Cell key={i} fill={chart.series(r.color)} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -84,22 +86,22 @@ export default function CommoditiesPage() {
           <SectionHeader title="Key Commodity Price Trends" sub="Oct 2025 – Mar 2026 ($/tonne)" />
           <ResponsiveContainer width="100%" height={290}>
             <LineChart data={PRICE_TREND}>
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-              <XAxis dataKey="month" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis yAxisId="high" tickFormatter={v => `$${v}`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis yAxisId="low"  orientation="right" tickFormatter={v => `$${v}`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 350]} />
-              <Tooltip formatter={v => `$${Number(v).toLocaleString()}/t`} contentStyle={DTT} />
-              <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
-              <Line yAxisId="high" type="monotone" dataKey="aluminium" name="Aluminium" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} />
-              <Line yAxisId="low"  type="monotone" dataKey="paper"     name="Paper/Card" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
-              <Line yAxisId="low"  type="monotone" dataKey="hdpe"      name="HDPE"       stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
-              <Line yAxisId="low"  type="monotone" dataKey="pet"       name="PET"        stroke="#06b6d4" strokeWidth={2} dot={{ r: 3 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+              <XAxis dataKey="month" tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis yAxisId="high" tickFormatter={v => `$${v}`} tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis yAxisId="low"  orientation="right" tickFormatter={v => `$${v}`} tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 350]} />
+              <Tooltip formatter={v => `$${Number(v).toLocaleString()}/t`} {...chart.tooltip} />
+              <Legend wrapperStyle={{ fontSize: 12 }} formatter={legendText} />
+              <Line yAxisId="high" type="monotone" dataKey="aluminium" name="Aluminium" stroke={chart.series("#f59e0b")} strokeWidth={2} dot={{ r: 3 }} />
+              <Line yAxisId="low"  type="monotone" dataKey="paper"     name="Paper/Card" stroke={chart.series("#3b82f6")} strokeWidth={2} dot={{ r: 3 }} />
+              <Line yAxisId="low"  type="monotone" dataKey="hdpe"      name="HDPE"       stroke={chart.series("#10b981")} strokeWidth={2} dot={{ r: 3 }} />
+              <Line yAxisId="low"  type="monotone" dataKey="pet"       name="PET"        stroke={chart.series("#06b6d4")} strokeWidth={2} dot={{ r: 3 }} />
             </LineChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      <div style={{ ...DC, padding: 0, overflow: "hidden" }}>
+      <div style={{ ...DC, padding: 0, overflowX: "auto" }}>
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${BORDER}` }}>
           <SectionHeader title="Commodity Revenue Summary" />
         </div>
@@ -107,7 +109,7 @@ export default function CommoditiesPage() {
           <thead>
             <tr style={{ background: ROW_HEAD }}>
               {["Material","Tonnes","Price / Tonne","Revenue","Price Trend","% of Total Revenue"].map((h, i) => (
-                <th key={h} style={{ padding: "10px 14px", fontWeight: 600, fontSize: 10, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                <th key={h} scope="col" style={{ padding: "10px 14px", fontWeight: 600, fontSize: 11, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -116,7 +118,7 @@ export default function CommoditiesPage() {
               <tr key={i} style={{ borderTop: `1px solid ${ROW_BDR}` }}>
                 <td style={{ padding: "10px 14px", color: T1, fontWeight: 500 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{ width: 10, height: 10, borderRadius: "50%", background: r.color, flexShrink: 0 }} />
+                    <div style={{ width: 10, height: 10, borderRadius: "50%", background: chart.series(r.color), flexShrink: 0 }} />
                     {r.material}
                   </div>
                 </td>
@@ -124,14 +126,14 @@ export default function CommoditiesPage() {
                 <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>${r.pricePerT.toLocaleString()}</td>
                 <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>${r.revenue.toLocaleString()}</td>
                 <td style={{ padding: "10px 14px", textAlign: "right" }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: r.trend === "up" ? "#4ade80" : r.trend === "down" ? "#f87171" : T3 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: r.trend === "up" ? "var(--status-success)" : r.trend === "down" ? "var(--status-danger)" : T3 }}>
                     {r.trend === "up" ? "▲ Rising" : r.trend === "down" ? "▼ Falling" : "→ Stable"}
                   </span>
                 </td>
                 <td style={{ padding: "10px 14px", textAlign: "right" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
-                    <div style={{ width: 64, height: 6, background: "rgba(255,255,255,0.08)", borderRadius: 999, overflow: "hidden" }}>
-                      <div style={{ height: "100%", borderRadius: 999, width: `${(r.revenue/totalRevenue)*100}%`, background: r.color }} />
+                    <div style={{ width: 64, height: 6, background: TRACK, borderRadius: 999, overflow: "hidden" }}>
+                      <div style={{ height: "100%", borderRadius: 999, width: `${(r.revenue/totalRevenue)*100}%`, background: chart.series(r.color) }} />
                     </div>
                     <span style={{ color: T2 }}>{((r.revenue / totalRevenue) * 100).toFixed(0)}%</span>
                   </div>
@@ -140,7 +142,7 @@ export default function CommoditiesPage() {
             ))}
           </tbody>
           <tfoot>
-            <tr style={{ background: ROW_HEAD, borderTop: `2px solid rgba(255,255,255,0.1)` }}>
+            <tr style={{ background: ROW_HEAD, borderTop: `2px solid var(--border-strong)` }}>
               <td style={{ padding: "10px 14px", color: T1, fontWeight: 600 }}>Total</td>
               <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>{totalTonnes}</td>
               <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>${revenuePerT} avg</td>

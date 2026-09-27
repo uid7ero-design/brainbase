@@ -134,7 +134,7 @@ export default function QuestionsPanel({ eventId, canManage }: { eventId: string
         title="Registration Questions"
         sub="Collect dietary, accessibility, or other information from attendees at checkout."
         action={canManage && (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {!showCreate && (
               // Deliberately always passed value="" — this is an action
               // menu ("pick a template to pre-fill the create form"),

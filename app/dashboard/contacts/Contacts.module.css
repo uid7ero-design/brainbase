@@ -1,0 +1,495 @@
+/* Tenant contacts (Squad) list + contact detail (authenticated
+   visual-completion pass). Tokens only (app/globals.css): readable in light
+   and dark. Replaces fixed dark literals (white-alpha text, #0e1014 drawer,
+   near-white names, violet chrome) and dark-only Tailwind (text-white,
+   text-zinc-*, bg-white/N). */
+
+.page {
+  width: 100%;
+  max-width: 1152px;
+  margin: 0 auto;
+  padding: 24px 24px 64px;
+  box-sizing: border-box;
+  font-family: var(--bb-font-sans);
+  color: var(--text-primary);
+}
+
+.wide {
+  max-width: 1280px;
+  padding-bottom: 128px;
+}
+
+.client {
+  min-width: 0;
+}
+
+/* ── Toolbar ───────────────────────────────────────────────────────── */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.filters {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.filterButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.filterButton:hover {
+  color: var(--text-primary);
+}
+/* Raised segment: accent text on --bg-surface (5.75:1 light, >5:1 dark). The previous
+   accent-on-accent-tint measured 4.35:1 where the strip is --bg-sunken. A border (not
+   outline/box-shadow) keeps the global :focus-visible ring intact. */
+.filterButton[aria-pressed='true'] {
+  background: var(--bg-surface);
+  border-color: var(--brand-brainbase-accent-border);
+  color: var(--brand-brainbase-accent);
+}
+
+.count {
+  padding: 0 6px;
+  border: 1px solid var(--status-warning-border);
+  border-radius: var(--radius-sm);
+  background: var(--status-warning-muted);
+  color: var(--status-warning);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Tiles ─────────────────────────────────────────────────────────── */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+.tile[data-attention='true'] {
+  border-color: var(--status-warning-border);
+}
+
+.tileHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.tileIdentity {
+  flex: 1;
+  min-width: 0;
+}
+
+.tileName {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+.tileName:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.tileMeta {
+  margin-top: 2px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.tileTools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.tileContact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tileEmail,
+.tilePhone {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+.tileEmail:hover,
+.tilePhone:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.tileFooter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.tileActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* Status select styled as its semantic state. Text uses the status
+   foreground tokens (AA on their muted fills in both themes). */
+.statusSelect {
+  flex: 1 1 110px;
+  min-width: 0;
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.statusSelect[data-state='info'] { border-color: var(--status-info-border); background: var(--status-info-muted); color: var(--status-info); }
+.statusSelect[data-state='warning'] { border-color: var(--status-warning-border); background: var(--status-warning-muted); color: var(--status-warning); }
+.statusSelect[data-state='success'] { border-color: var(--status-success-border); background: var(--status-success-muted); color: var(--status-success); }
+.statusSelect[data-state='inactive'] { border-color: var(--border-strong); background: var(--status-inactive-muted); color: var(--text-secondary); }
+.statusSelect:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+.statusSelect option {
+  background: var(--bg-overlay);
+  color: var(--text-primary);
+}
+
+/* ── Drawer form (inside SlidePanel) ───────────────────────────────── */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.row2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.guardian {
+  margin: 0;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--status-warning-border);
+  border-radius: var(--radius-md);
+  background: var(--status-warning-muted);
+}
+
+.guardianLegend {
+  padding: 0 4px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--status-warning);
+}
+
+.formFooter {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+/* ── Detail page ───────────────────────────────────────────────────── */
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 32px;
+  align-items: start;
+}
+
+.detailAside {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.sectionLabel {
+  margin: 0 0 16px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.quickActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.icon {
+  width: 14px;
+  height: 14px;
+}
+
+.statusRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.statusField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fieldLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.lastContacted {
+  text-align: right;
+}
+
+.value {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+
+.added {
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-light);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.detailList {
+  margin: 0;
+}
+
+.detailRow {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 4px 16px;
+  align-items: start;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+.detailRow:last-child {
+  border-bottom: 0;
+}
+
+.detailLabel {
+  padding-top: 2px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.detailValue {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.editGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.editActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.deleteRow {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.confirm {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+/* ── Journal ───────────────────────────────────────────────────────── */
+
+.journalForm {
+  margin-bottom: 32px;
+}
+
+.journalFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.journalTextarea {
+  resize: none;
+}
+
+.entries {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.entry {
+  padding: 4px 0 4px 18px;
+  border-left: 2px solid var(--border-strong);
+}
+
+.entryDate {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.entryNote {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.empty {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+@media (min-width: 1024px) {
+  .detailGrid {
+    grid-template-columns: 380px minmax(0, 1fr);
+  }
+  .detailAside {
+    position: sticky;
+    top: 80px;
+  }
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 16px 16px 48px;
+  }
+  .wide {
+    padding-bottom: 96px;
+  }
+  .detailRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lastContacted {
+    text-align: left;
+  }
+}
+
+@media (max-width: 420px) {
+  .row2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

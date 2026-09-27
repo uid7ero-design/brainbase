@@ -8,9 +8,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
-
-const FONT =
-  "var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+import styles from './LeadsChart.module.css'
 
 type Props = {
   rawData: { day: string; leads: number }[]
@@ -35,11 +33,13 @@ function leadsBarShape(props: BarShapeProps) {
 
   const r = Math.min(4, w / 2)
 
-  const fill = props.isToday
-    ? 'rgba(139,92,246,.95)'
+  // Series colour comes from the module (theme tokens), not an SVG fill
+  // attribute, so the bars read in light and dark.
+  const className = props.isToday
+    ? styles.barToday
     : Number(props.leads) > 0
-      ? 'rgba(99,102,241,.58)'
-      : 'rgba(99,102,241,.12)'
+      ? styles.barActive
+      : styles.barZero
 
   const d =
     `M${x},${y + h} ` +
@@ -49,7 +49,7 @@ function leadsBarShape(props: BarShapeProps) {
     `Q${x + w},${y} ${x + w},${y + r} ` +
     `V${y + h} Z`
 
-  return <path d={d} fill={fill} />
+  return <path d={d} className={className} />
 }
 
 function buildChartData(raw: Props['rawData']) {
@@ -92,8 +92,8 @@ function buildChartData(raw: Props['rawData']) {
 
 function EmptyState() {
   return (
-    <div className="bb-leads-empty">
-      <div className="bb-leads-empty-icon">
+    <div className={styles.empty}>
+      <div className={styles.emptyIcon} aria-hidden="true">
         <svg
           width="22"
           height="22"
@@ -107,15 +107,26 @@ function EmptyState() {
         </svg>
       </div>
 
-      <div className="bb-leads-empty-title">
+      <div className={styles.emptyTitle}>
         No new leads this week
       </div>
 
-      <div className="bb-leads-empty-copy">
+      <div className={styles.emptyCopy}>
         New enquiries will appear here as they enter BrainBase.
       </div>
     </div>
   )
+}
+
+const TOOLTIP_STYLE: React.CSSProperties = {
+  background: 'var(--bg-overlay)',
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+  fontSize: 12,
+  color: 'var(--text-primary)',
+  fontFamily: 'var(--bb-font-sans)',
+  padding: '8px 11px',
+  boxShadow: 'var(--shadow-popover)',
 }
 
 export default function LeadsChart({ rawData }: Props) {
@@ -133,37 +144,37 @@ export default function LeadsChart({ rawData }: Props) {
     data.filter((day) => day.leads > 0).length
 
   return (
-    <section className="bb-leads-panel">
-      <header className="bb-leads-header">
+    <section className={styles.panel}>
+      <header className={styles.header}>
         <div>
-          <div className="bb-leads-eyebrow">
+          <div className={styles.eyebrow}>
             Lead Activity
           </div>
 
-          <div className="bb-leads-title">
+          <h2 className={styles.title}>
             Leads This Week
-          </div>
+          </h2>
         </div>
 
-        <div className="bb-leads-summary">
-          <div className="bb-leads-summary-item">
-            <span className="bb-leads-summary-value">
+        <div className={styles.summary}>
+          <div className={styles.summaryItem}>
+            <span className={styles.summaryValue}>
               {total}
             </span>
 
-            <span className="bb-leads-summary-label">
+            <span className={styles.summaryLabel}>
               total
             </span>
           </div>
 
-          <div className="bb-leads-summary-divider" />
+          <div className={styles.divider} aria-hidden="true" />
 
-          <div className="bb-leads-summary-item">
-            <span className="bb-leads-summary-value bb-leads-summary-today">
+          <div className={styles.summaryItem}>
+            <span className={styles.summaryValue}>
               {today}
             </span>
 
-            <span className="bb-leads-summary-label">
+            <span className={styles.summaryLabel}>
               today
             </span>
           </div>
@@ -173,26 +184,26 @@ export default function LeadsChart({ rawData }: Props) {
       {total === 0 ? (
         <EmptyState />
       ) : (
-        <div className="bb-leads-body">
-          <div className="bb-leads-chart-meta">
-            <div>
-              <span className="bb-leads-meta-value">
+        <div className={styles.body}>
+          <div className={styles.meta}>
+            <div className={styles.metaGroup}>
+              <span className={styles.metaValue}>
                 {activeDays}
               </span>
 
-              <span className="bb-leads-meta-label">
+              <span className={styles.metaLabel}>
                 active {activeDays === 1 ? 'day' : 'days'}
               </span>
             </div>
 
-            <div className="bb-leads-meta-dot" />
+            <div className={styles.metaDot} aria-hidden="true" />
 
-            <div className="bb-leads-meta-copy">
+            <div className={styles.metaLabel}>
               Last 7 days
             </div>
           </div>
 
-          <div className="bb-leads-chart-area">
+          <div className={styles.chartArea}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={data}
@@ -207,9 +218,7 @@ export default function LeadsChart({ rawData }: Props) {
                 <XAxis
                   dataKey="label"
                   tick={{
-                    fill: 'rgba(255,255,255,.32)',
-                    fontSize: 9,
-                    fontFamily: FONT,
+                    fontSize: 11,
                   }}
                   axisLine={false}
                   tickLine={false}
@@ -219,9 +228,7 @@ export default function LeadsChart({ rawData }: Props) {
                 <YAxis
                   allowDecimals={false}
                   tick={{
-                    fill: 'rgba(255,255,255,.20)',
-                    fontSize: 8,
-                    fontFamily: FONT,
+                    fontSize: 11,
                   }}
                   axisLine={false}
                   tickLine={false}
@@ -232,29 +239,16 @@ export default function LeadsChart({ rawData }: Props) {
 
                 <Tooltip
                   cursor={{
-                    fill: 'rgba(255,255,255,.025)',
                     radius: 4,
                   } as object}
-                  contentStyle={{
-                    background: '#111216',
-                    border:
-                      '1px solid rgba(255,255,255,.10)',
-                    borderRadius: 8,
-                    fontSize: 11,
-                    color: '#F5F7FA',
-                    fontFamily: FONT,
-                    padding: '8px 11px',
-                    boxShadow:
-                      '0 8px 28px rgba(0,0,0,.35)',
-                  }}
+                  contentStyle={TOOLTIP_STYLE}
                   labelStyle={{
-                    color:
-                      'rgba(245,247,250,.72)',
+                    color: 'var(--text-secondary)',
                     marginBottom: 4,
                     fontWeight: 600,
                   }}
                   itemStyle={{
-                    color: '#F5F7FA',
+                    color: 'var(--text-primary)',
                   }}
                   formatter={(value: unknown) => {
                     const n = Number(value ?? 0)
@@ -276,275 +270,19 @@ export default function LeadsChart({ rawData }: Props) {
             </ResponsiveContainer>
           </div>
 
-          <div className="bb-leads-legend">
-            <div className="bb-leads-legend-item">
-              <span className="bb-leads-legend-dot bb-leads-legend-standard" />
+          <div className={styles.legend}>
+            <div className={styles.legendItem}>
+              <span className={`${styles.legendDot} ${styles.legendStandard}`} aria-hidden="true" />
               <span>Previous days</span>
             </div>
 
-            <div className="bb-leads-legend-item">
-              <span className="bb-leads-legend-dot bb-leads-legend-today" />
+            <div className={styles.legendItem}>
+              <span className={`${styles.legendDot} ${styles.legendToday}`} aria-hidden="true" />
               <span>Today</span>
             </div>
           </div>
         </div>
       )}
-
-      <style>{`
-        .bb-leads-panel {
-          height: 100%;
-          min-height: 100%;
-          overflow: hidden;
-          display: flex;
-          flex-direction: column;
-          border-radius: 14px;
-          border: 1px solid rgba(255,255,255,.07);
-          background: rgba(255,255,255,.025);
-          font-family: ${FONT};
-        }
-
-        .bb-leads-header {
-          min-height: 58px;
-          flex-shrink: 0;
-          padding: 12px 20px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 18px;
-          border-bottom:
-            1px solid rgba(255,255,255,.055);
-        }
-
-        .bb-leads-eyebrow {
-          margin-bottom: 3px;
-          font-size: 7px;
-          line-height: 1.2;
-          font-weight: 750;
-          letter-spacing: .13em;
-          text-transform: uppercase;
-          color: rgba(167,139,250,.48);
-        }
-
-        .bb-leads-title {
-          font-size: 10px;
-          font-weight: 700;
-          letter-spacing: .09em;
-          text-transform: uppercase;
-          color: rgba(255,255,255,.48);
-        }
-
-        .bb-leads-summary {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-
-        .bb-leads-summary-item {
-          display: flex;
-          align-items: baseline;
-          gap: 4px;
-        }
-
-        .bb-leads-summary-value {
-          font-size: 13px;
-          font-weight: 750;
-          color: rgba(245,247,250,.76);
-        }
-
-        .bb-leads-summary-today {
-          color: rgba(196,181,253,.92);
-        }
-
-        .bb-leads-summary-label {
-          font-size: 8px;
-          font-weight: 550;
-          color: rgba(255,255,255,.24);
-          text-transform: uppercase;
-          letter-spacing: .05em;
-        }
-
-        .bb-leads-summary-divider {
-          width: 1px;
-          height: 16px;
-          background: rgba(255,255,255,.07);
-        }
-
-        .bb-leads-body {
-          flex: 1;
-          min-height: 0;
-          display: flex;
-          flex-direction: column;
-        }
-
-        .bb-leads-chart-meta {
-          flex-shrink: 0;
-          min-height: 42px;
-          padding: 13px 20px 5px;
-          display: flex;
-          align-items: center;
-          gap: 7px;
-          color: rgba(255,255,255,.26);
-        }
-
-        .bb-leads-chart-meta > div:first-child {
-          display: flex;
-          align-items: baseline;
-          gap: 4px;
-        }
-
-        .bb-leads-meta-value {
-          font-size: 11px;
-          font-weight: 700;
-          color: rgba(245,247,250,.58);
-        }
-
-        .bb-leads-meta-label,
-        .bb-leads-meta-copy {
-          font-size: 8px;
-          letter-spacing: .03em;
-          color: rgba(255,255,255,.24);
-        }
-
-        .bb-leads-meta-dot {
-          width: 3px;
-          height: 3px;
-          border-radius: 999px;
-          background: rgba(255,255,255,.14);
-        }
-
-        .bb-leads-chart-area {
-          flex: 1;
-          min-height: 300px;
-          padding: 0 10px;
-        }
-
-        .bb-leads-legend {
-          min-height: 46px;
-          flex-shrink: 0;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 18px;
-          padding: 8px 18px 16px;
-        }
-
-        .bb-leads-legend-item {
-          display: flex;
-          align-items: center;
-          gap: 5px;
-          font-size: 8px;
-          line-height: 1.2;
-          color: rgba(255,255,255,.28);
-        }
-
-        .bb-leads-legend-dot {
-          width: 7px;
-          height: 7px;
-          flex-shrink: 0;
-          border-radius: 2px;
-        }
-
-        .bb-leads-legend-standard {
-          background:
-            rgba(99,102,241,.58);
-        }
-
-        .bb-leads-legend-today {
-          background:
-            rgba(139,92,246,.95);
-          box-shadow:
-            0 0 8px rgba(139,92,246,.25);
-        }
-
-        .bb-leads-empty {
-          flex: 1;
-          min-height: 300px;
-          padding: 32px 22px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          text-align: center;
-        }
-
-        .bb-leads-empty-icon {
-          width: 42px;
-          height: 42px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          margin-bottom: 12px;
-          border-radius: 11px;
-          border:
-            1px solid rgba(139,92,246,.16);
-          background:
-            rgba(139,92,246,.065);
-          color:
-            rgba(167,139,250,.68);
-        }
-
-        .bb-leads-empty-title {
-          margin-bottom: 5px;
-          font-size: 12px;
-          font-weight: 650;
-          color:
-            rgba(245,247,250,.72);
-        }
-
-        .bb-leads-empty-copy {
-          max-width: 270px;
-          font-size: 10.5px;
-          line-height: 1.55;
-          color:
-            rgba(255,255,255,.27);
-        }
-
-        @media (max-width: 900px) {
-          .bb-leads-chart-area {
-            min-height: 260px;
-          }
-        }
-
-        @media (max-width: 620px) {
-          .bb-leads-header {
-            padding-left: 15px;
-            padding-right: 15px;
-          }
-
-          .bb-leads-chart-meta {
-            padding-left: 15px;
-            padding-right: 15px;
-          }
-
-          .bb-leads-chart-area {
-            min-height: 220px;
-            padding-left: 4px;
-            padding-right: 4px;
-          }
-        }
-
-        @media (max-width: 420px) {
-          .bb-leads-summary-label {
-            display: none;
-          }
-
-          .bb-leads-summary {
-            gap: 7px;
-          }
-
-          .bb-leads-summary-divider {
-            height: 13px;
-          }
-
-          .bb-leads-chart-area {
-            min-height: 205px;
-          }
-
-          .bb-leads-legend {
-            padding-bottom: 13px;
-          }
-        }
-      `}</style>
     </section>
   )
 }

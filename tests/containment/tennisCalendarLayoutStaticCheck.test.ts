@@ -53,7 +53,15 @@ describe('app/dashboard/sessions/page.tsx — static source checks (single-calen
   it('the selected calendar instance is visually distinguished using the existing purple/indigo selected convention', () => {
     expect(source).toContain('selected={inst.id === selectedInstanceId}')
     expect(source).toContain('selectedInstanceId={selectedInstanceId}')
-    expect(source).toMatch(/selected \? '#c7d2fe' : /)
+    // Visual-convergence update (authenticated visual-completion pass): the
+    // selected convention is now the product accent token (readable in light
+    // and dark) instead of the dark-only pale-indigo literal '#c7d2fe'. Still
+    // asserts a distinct selected foreground AND the selected fill + the
+    // entry exposing its selected state to assistive tech.
+    expect(source).toMatch(/selected \? 'var\(--brand-brainbase-accent\)' : /)
+    expect(source).toMatch(/background: selected \? 'var\(--brand-brainbase-accent-muted\)' : /)
+    expect(source).toContain('aria-pressed={!!selected} onClick={onSelect}')
+    expect(source).not.toContain("'#c7d2fe'")
   })
 
   it('the calendar grid is wrapped for horizontal scroll on narrow viewports instead of crushing columns', () => {

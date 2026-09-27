@@ -4,7 +4,8 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
   CartesianGrid, LineChart, Line, PieChart, Pie, Cell, ReferenceLine,
 } from "recharts";
-import { KpiCard, Insight, SectionHeader, T1, T2, T3, BORDER, ROW_BDR, ROW_HEAD, GRID, TICK, DTT, DC, PAGE } from "../_dark";
+import { KpiCard, Insight, SectionHeader, T1, T2, T3, BORDER, ROW_BDR, ROW_HEAD, DC, PAGE, legendText, useWasteChart } from "../_dark";
+import styles from "../WasteModule.module.css";
 
 const LANDFILL_LEVY = 148.50;
 const CO2_RECYCLING = 1.1;
@@ -44,6 +45,7 @@ const PIE_COLORS = ["#64748b", "#3b82f6", "#10b981"];
 const TARGET_DIVERSION = 50;
 
 export default function DiversionPage() {
+  const chart = useWasteChart();
   const totalGeneral   = ZONE_DATA.reduce((s, r) => s + r.general, 0);
   const totalRecycling = ZONE_DATA.reduce((s, r) => s + r.recycling, 0);
   const totalGreen     = ZONE_DATA.reduce((s, r) => s + r.green, 0);
@@ -66,15 +68,15 @@ export default function DiversionPage() {
     <div style={PAGE}>
       <p style={{ fontSize: 13, color: T3, margin: 0 }}>Period: {today} &nbsp;·&nbsp; SA EPA Landfill Levy: ${LANDFILL_LEVY}/tonne</p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 16 }}>
-        <KpiCard label="Diversion Rate"        value={`${diversionRate}%`}              sub={`Target: ${TARGET_DIVERSION}% · Gap: ${gapToTarget}%`} accent={diversionRate >= TARGET_DIVERSION ? "#10b981" : "#f59e0b"} />
-        <KpiCard label="Tonnes Diverted"       value={`${totalDiverted.toLocaleString()} t`} sub="Recycling + green waste"              accent="#3b82f6" />
-        <KpiCard label="Tonnes to Landfill"    value={`${totalGeneral.toLocaleString()} t`}  sub={`${((totalGeneral/totalTonnage)*100).toFixed(0)}% of total collected`} accent="#ef4444" />
-        <KpiCard label="Landfill Levy Cost"    value={`$${totalLevy.toLocaleString()}`}       sub="At $148.50/tonne (SA EPA)"           accent="#8b5cf6" />
-        <KpiCard label="CO₂-e Saved"           value={`${totalCO2} t`}                        sub="vs sending all waste to landfill"    accent="#10b981" />
+      <div className={styles.kpiGrid}>
+        <KpiCard label="Diversion Rate"        value={`${diversionRate}%`}              sub={`Target: ${TARGET_DIVERSION}% · Gap: ${gapToTarget}%`} accent={chart.series(diversionRate >= TARGET_DIVERSION ? "#10b981" : "#f59e0b")} />
+        <KpiCard label="Tonnes Diverted"       value={`${totalDiverted.toLocaleString()} t`} sub="Recycling + green waste"              accent={chart.series("#3b82f6")} />
+        <KpiCard label="Tonnes to Landfill"    value={`${totalGeneral.toLocaleString()} t`}  sub={`${((totalGeneral/totalTonnage)*100).toFixed(0)}% of total collected`} accent={chart.series("#ef4444")} />
+        <KpiCard label="Landfill Levy Cost"    value={`$${totalLevy.toLocaleString()}`}       sub="At $148.50/tonne (SA EPA)"           accent="var(--border-strong)" />
+        <KpiCard label="CO₂-e Saved"           value={`${totalCO2} t`}                        sub="vs sending all waste to landfill"    accent={chart.series("#10b981")} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
+      <div className={styles.grid3}>
         <Insight icon="♻" color={diversionRate >= TARGET_DIVERSION ? "green" : "amber"}
           title={`Diversion at ${diversionRate}% — target is ${TARGET_DIVERSION}%`}
           body={`Diverting an additional ${Math.ceil(totalGeneral * (gapToTarget / 100)).toLocaleString()} tonnes/month would close the gap. Focus: reduce landfill stream contamination to improve recycling yield.`}
@@ -89,19 +91,19 @@ export default function DiversionPage() {
         />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 20 }}>
+      <div className={styles.grid21}>
         <div style={DC}>
           <SectionHeader title="Monthly Waste Stream Tonnage" sub="General waste (landfill), recycling and green waste — Oct 2025 to Mar 2026" />
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={MONTHLY} barCategoryGap="30%">
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
-              <XAxis dataKey="month" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v => `${v}t`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={DTT} formatter={v => `${v} t`} />
-              <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
-              <Bar dataKey="general"   name="General Waste" stackId="a" fill={STREAM_COLORS.general} />
-              <Bar dataKey="recycling" name="Recycling"      stackId="a" fill={STREAM_COLORS.recycling} />
-              <Bar dataKey="green"     name="Green Waste"    stackId="a" fill={STREAM_COLORS.green} radius={[3,3,0,0]} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+              <XAxis dataKey="month" tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => `${v}t`} tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip {...chart.tooltip} formatter={v => `${v} t`} />
+              <Legend wrapperStyle={{ fontSize: 12 }} formatter={legendText} />
+              <Bar dataKey="general"   name="General Waste" stackId="a" fill={chart.series(STREAM_COLORS.general)} />
+              <Bar dataKey="recycling" name="Recycling"      stackId="a" fill={chart.series(STREAM_COLORS.recycling)} />
+              <Bar dataKey="green"     name="Green Waste"    stackId="a" fill={chart.series(STREAM_COLORS.green)} radius={[3,3,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -112,9 +114,9 @@ export default function DiversionPage() {
             <ResponsiveContainer width="100%" height={200}>
               <PieChart>
                 <Pie data={streamPie} dataKey="value" innerRadius={55} outerRadius={85} paddingAngle={3}>
-                  {streamPie.map((_, i) => <Cell key={i} fill={PIE_COLORS[i]} />)}
+                  {streamPie.map((_, i) => <Cell key={i} fill={chart.series(PIE_COLORS[i])} />)}
                 </Pie>
-                <Tooltip formatter={v => `${v} t`} contentStyle={DTT} />
+                <Tooltip formatter={v => `${v} t`} {...chart.tooltip} />
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -122,7 +124,7 @@ export default function DiversionPage() {
             {streamPie.map((s, i) => (
               <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: PIE_COLORS[i] }} />
+                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: chart.series(PIE_COLORS[i]) }} />
                   <span style={{ color: T2 }}>{s.name}</span>
                 </div>
                 <span style={{ fontWeight: 600, color: T1 }}>{((s.value / totalTonnage) * 100).toFixed(0)}%</span>
@@ -132,17 +134,17 @@ export default function DiversionPage() {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+      <div className={styles.grid2}>
         <div style={DC}>
           <SectionHeader title="Diversion Rate Trend" sub={`Monthly % vs ${TARGET_DIVERSION}% target`} />
           <ResponsiveContainer width="100%" height={250}>
             <LineChart data={MONTHLY}>
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-              <XAxis dataKey="month" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v => `${v}%`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} domain={[42, 52]} />
-              <ReferenceLine y={TARGET_DIVERSION} stroke="#f59e0b" strokeDasharray="5 5" label={{ value: `${TARGET_DIVERSION}% Target`, position: "insideTopRight", fill: "#f59e0b", fontSize: 11 }} />
-              <Tooltip formatter={v => `${v}%`} contentStyle={DTT} />
-              <Line type="monotone" dataKey="rate" name="Diversion Rate" stroke="#3b82f6" strokeWidth={2.5} dot={{ r: 4 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+              <XAxis dataKey="month" tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => `${v}%`} tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} domain={[42, 52]} />
+              <ReferenceLine y={TARGET_DIVERSION} stroke={chart.series("#f59e0b")} strokeDasharray="5 5" label={{ value: `${TARGET_DIVERSION}% Target`, position: "insideTopRight", fill: chart.palette.warning, fontSize: 11 }} />
+              <Tooltip formatter={v => `${v}%`} {...chart.tooltip} />
+              <Line type="monotone" dataKey="rate" name="Diversion Rate" stroke={chart.series("#3b82f6")} strokeWidth={2.5} dot={{ r: 4 }} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -151,20 +153,20 @@ export default function DiversionPage() {
           <SectionHeader title="Diversion Rate by Zone" sub="Recycling + green waste as % of total tonnage" />
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={ZONE_DATA} layout="vertical" margin={{ left: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} horizontal={false} />
-              <XAxis type="number" tickFormatter={v => `${v}%`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 60]} />
-              <YAxis type="category" dataKey="shortId" width={80} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <ReferenceLine x={TARGET_DIVERSION} stroke="#f59e0b" strokeDasharray="4 4" />
-              <Tooltip formatter={v => `${v}%`} contentStyle={DTT} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} horizontal={false} />
+              <XAxis type="number" tickFormatter={v => `${v}%`} tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 60]} />
+              <YAxis type="category" dataKey="shortId" width={80} tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <ReferenceLine x={TARGET_DIVERSION} stroke={chart.series("#f59e0b")} strokeDasharray="4 4" />
+              <Tooltip formatter={v => `${v}%`} {...chart.tooltip} />
               <Bar dataKey="diversionRate" name="Diversion %" radius={[0,4,4,0]}>
-                {ZONE_DATA.map((r, i) => <Cell key={i} fill={r.diversionRate >= TARGET_DIVERSION ? "#10b981" : "#3b82f6"} />)}
+                {ZONE_DATA.map((r, i) => <Cell key={i} fill={chart.series(r.diversionRate >= TARGET_DIVERSION ? "#10b981" : "#3b82f6")} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      <div style={{ ...DC, padding: 0, overflow: "hidden" }}>
+      <div style={{ ...DC, padding: 0, overflowX: "auto" }}>
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${BORDER}` }}>
           <SectionHeader title="Zone Diversion Summary" />
         </div>
@@ -172,7 +174,7 @@ export default function DiversionPage() {
           <thead>
             <tr style={{ background: ROW_HEAD }}>
               {["Zone","General (t)","Recycling (t)","Green (t)","Total (t)","Diversion Rate","Levy Cost","CO₂ Saved","vs Target"].map((h, i) => (
-                <th key={h} style={{ padding: "10px 14px", fontWeight: 600, fontSize: 10, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                <th key={h} scope="col" style={{ padding: "10px 14px", fontWeight: 600, fontSize: 11, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -181,16 +183,16 @@ export default function DiversionPage() {
               <tr key={i} style={{ borderTop: `1px solid ${ROW_BDR}` }}>
                 <td style={{ padding: "10px 14px", color: T1, fontWeight: 500 }}>{r.zone}</td>
                 <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>{r.general}</td>
-                <td style={{ padding: "10px 14px", textAlign: "right", color: "#60a5fa" }}>{r.recycling}</td>
-                <td style={{ padding: "10px 14px", textAlign: "right", color: "#4ade80" }}>{r.green}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right", color: "var(--status-info)" }}>{r.recycling}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right", color: "var(--status-success)" }}>{r.green}</td>
                 <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>{r.total}</td>
                 <td style={{ padding: "10px 14px", textAlign: "right" }}>
-                  <span style={{ fontWeight: 600, color: r.diversionRate >= TARGET_DIVERSION ? "#4ade80" : "#f59e0b" }}>{r.diversionRate}%</span>
+                  <span style={{ fontWeight: 600, color: r.diversionRate >= TARGET_DIVERSION ? "var(--status-success)" : "var(--status-warning)" }}>{r.diversionRate}%</span>
                 </td>
-                <td style={{ padding: "10px 14px", textAlign: "right", color: "#f87171" }}>${r.levyCost.toLocaleString()}</td>
-                <td style={{ padding: "10px 14px", textAlign: "right", color: "#4ade80" }}>{r.co2Saved} t</td>
+                <td style={{ padding: "10px 14px", textAlign: "right", color: "var(--status-danger)" }}>${r.levyCost.toLocaleString()}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right", color: "var(--status-success)" }}>{r.co2Saved} t</td>
                 <td style={{ padding: "10px 14px", textAlign: "right" }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: r.diversionRate >= TARGET_DIVERSION ? "#4ade80" : "#f59e0b" }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: r.diversionRate >= TARGET_DIVERSION ? "var(--status-success)" : "var(--status-warning)" }}>
                     {r.diversionRate >= TARGET_DIVERSION ? `+${(r.diversionRate - TARGET_DIVERSION).toFixed(1)}%` : `-${(TARGET_DIVERSION - r.diversionRate).toFixed(1)}%`}
                   </span>
                 </td>
@@ -198,16 +200,16 @@ export default function DiversionPage() {
             ))}
           </tbody>
           <tfoot>
-            <tr style={{ background: ROW_HEAD, borderTop: `2px solid rgba(255,255,255,0.1)` }}>
+            <tr style={{ background: ROW_HEAD, borderTop: `2px solid var(--border-strong)` }}>
               <td style={{ padding: "10px 14px", color: T1, fontWeight: 600 }}>Total</td>
               <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>{totalGeneral}</td>
-              <td style={{ padding: "10px 14px", textAlign: "right", color: "#60a5fa", fontWeight: 600 }}>{totalRecycling}</td>
-              <td style={{ padding: "10px 14px", textAlign: "right", color: "#4ade80", fontWeight: 600 }}>{totalGreen}</td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: "var(--status-info)", fontWeight: 600 }}>{totalRecycling}</td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: "var(--status-success)", fontWeight: 600 }}>{totalGreen}</td>
               <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>{totalTonnage}</td>
-              <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ fontWeight: 600, color: diversionRate >= TARGET_DIVERSION ? "#4ade80" : "#f59e0b" }}>{diversionRate}%</span></td>
-              <td style={{ padding: "10px 14px", textAlign: "right", color: "#f87171", fontWeight: 600 }}>${totalLevy.toLocaleString()}</td>
-              <td style={{ padding: "10px 14px", textAlign: "right", color: "#4ade80", fontWeight: 600 }}>{totalCO2} t</td>
-              <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ fontWeight: 600, color: gapToTarget <= 0 ? "#4ade80" : "#f59e0b" }}>{gapToTarget <= 0 ? `+${Math.abs(gapToTarget)}%` : `-${gapToTarget}%`}</span></td>
+              <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ fontWeight: 600, color: diversionRate >= TARGET_DIVERSION ? "var(--status-success)" : "var(--status-warning)" }}>{diversionRate}%</span></td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: "var(--status-danger)", fontWeight: 600 }}>${totalLevy.toLocaleString()}</td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: "var(--status-success)", fontWeight: 600 }}>{totalCO2} t</td>
+              <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ fontWeight: 600, color: gapToTarget <= 0 ? "var(--status-success)" : "var(--status-warning)" }}>{gapToTarget <= 0 ? `+${Math.abs(gapToTarget)}%` : `-${gapToTarget}%`}</span></td>
             </tr>
           </tfoot>
         </table>

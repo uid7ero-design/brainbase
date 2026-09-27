@@ -4,13 +4,9 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell,
 } from 'recharts';
 import Widget from '@/components/ops/widgets/Widget';
+import { useDashboardChart } from '@/components/dashboard/ui/chartTheme';
 import type { CategoryStreamCrossTab } from '@/modules/bin-maintenance/calculations';
-import { BIN_COLOR, BIN_LABEL, CAT_COLORS, GRID, TICK, TOOLTIP_STYLE } from './constants';
-
-const TH = {
-  label: { fontSize: 10, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.08em', color:'rgba(255,255,255,0.57)' },
-  row:   { borderBottom: '1px solid rgba(255,255,255,0.05)' },
-};
+import { BIN_LABEL, ROW_BORDER, TH_LABEL, binColor } from './constants';
 
 export default function CategoriesTab({
   by_issue_type, category_stream, loading, empty,
@@ -20,8 +16,11 @@ export default function CategoriesTab({
   loading: boolean;
   empty: boolean;
 }) {
+  const chart = useDashboardChart();
+  const pal = chart.palette;
+
   const sorted = Object.entries(by_issue_type).sort(([, a], [, b]) => b - a);
-  const top10 = sorted.slice(0, 10).map(([name, count], i) => ({ name, count, fill: CAT_COLORS[i % CAT_COLORS.length] }));
+  const top10 = sorted.slice(0, 10).map(([name, count], i) => ({ name, count, fill: chart.series[i % chart.series.length] }));
 
   const streamKeys = ['GENERAL_WASTE', 'RECYCLING', 'ORGANICS', 'BULK_WASTE'] as const;
   const stackRows = sorted.slice(0, 8).map(([issue]) => {
@@ -44,10 +43,10 @@ export default function CategoriesTab({
           {top10.length > 0 && (
             <ResponsiveContainer width="100%" height={Math.max(220, top10.length * 28)}>
               <BarChart data={top10} layout="vertical" margin={{ left: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={GRID} horizontal={false} />
-                <XAxis type="number" tick={TICK} axisLine={false} tickLine={false} allowDecimals={false} />
-                <YAxis type="category" dataKey="name" width={150} tick={{ ...TICK, fontSize: 10.5 }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={v => [`${Number(v)} (${Math.round((Number(v) / total) * 100)}%)`, 'Jobs']} />
+                <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} horizontal={false} />
+                <XAxis type="number" tick={chart.tick} axisLine={false} tickLine={false} allowDecimals={false} />
+                <YAxis type="category" dataKey="name" width={150} tick={{ ...chart.tick, fontSize: 10.5 }} axisLine={false} tickLine={false} />
+                <Tooltip {...chart.tooltip} formatter={v => [`${Number(v)} (${Math.round((Number(v) / total) * 100)}%)`, 'Jobs']} />
                 <Bar dataKey="count" radius={[0, 3, 3, 0]}>
                   {top10.map((r, i) => <Cell key={i} fill={r.fill} />)}
                 </Bar>
@@ -60,12 +59,12 @@ export default function CategoriesTab({
           {stackRows.length > 0 && (
             <ResponsiveContainer width="100%" height={Math.max(220, stackRows.length * 32)}>
               <BarChart data={stackRows} layout="vertical" margin={{ left: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={GRID} horizontal={false} />
-                <XAxis type="number" tick={TICK} axisLine={false} tickLine={false} allowDecimals={false} />
-                <YAxis type="category" dataKey="name" width={150} tick={{ ...TICK, fontSize: 10.5 }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} horizontal={false} />
+                <XAxis type="number" tick={chart.tick} axisLine={false} tickLine={false} allowDecimals={false} />
+                <YAxis type="category" dataKey="name" width={150} tick={{ ...chart.tick, fontSize: 10.5 }} axisLine={false} tickLine={false} />
+                <Tooltip {...chart.tooltip} />
                 {streamKeys.map(k => (
-                  <Bar key={k} dataKey={k} name={BIN_LABEL[k]} stackId="s" fill={BIN_COLOR[k]} />
+                  <Bar key={k} dataKey={k} name={BIN_LABEL[k]} stackId="s" fill={binColor(pal, k)} />
                 ))}
               </BarChart>
             </ResponsiveContainer>
@@ -79,17 +78,17 @@ export default function CategoriesTab({
             <thead>
               <tr>
                 {['#', 'Issue Type', 'Jobs', '% of Total'].map(h => (
-                  <th key={h} style={{ ...TH.label, textAlign: h === 'Issue Type' ? 'left' : 'right', padding: '0 6px 8px', whiteSpace: 'nowrap' }}>{h}</th>
+                  <th key={h} scope="col" style={{ ...TH_LABEL, textAlign: h === 'Issue Type' ? 'left' : 'right', padding: '0 6px 8px', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {sorted.map(([issue, count], i) => (
-                <tr key={issue} style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent', ...TH.row }}>
-                  <td style={{ padding: '7px 6px', fontSize: 11, color:'rgba(255,255,255,0.52)' }}>{i + 1}</td>
-                  <td style={{ padding: '7px 6px', fontSize: 12, color:'rgba(255,255,255,0.85)' }}>{issue}</td>
-                  <td style={{ padding: '7px 6px', fontSize: 12, fontWeight: 700, color:'rgba(255,255,255,0.77)', textAlign: 'right' }}>{count}</td>
-                  <td style={{ padding: '7px 6px', fontSize: 12, color:'rgba(255,255,255,0.62)', textAlign: 'right' }}>{Math.round((count / total) * 100)}%</td>
+                <tr key={issue} style={ROW_BORDER}>
+                  <td style={{ padding: '7px 6px', fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{i + 1}</td>
+                  <td style={{ padding: '7px 6px', fontSize: 12, color: 'var(--text-primary)' }}>{issue}</td>
+                  <td style={{ padding: '7px 6px', fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{count}</td>
+                  <td style={{ padding: '7px 6px', fontSize: 12, color: 'var(--text-secondary)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{Math.round((count / total) * 100)}%</td>
                 </tr>
               ))}
             </tbody>

@@ -1,0 +1,242 @@
+/* Leads This Week (tennis client dashboard). Tokens only so the panel and
+   the chart follow light and dark. Recharts renders SVG presentation
+   attributes, which cannot resolve CSS variables, so axis text, the tooltip
+   cursor and the bars are coloured here with CSS (CSS beats attributes).
+   Series: today = product accent, earlier days with leads = accent tint,
+   zero days = neutral. */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: var(--bb-font-sans);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  flex-shrink: 0;
+  min-height: 58px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.eyebrow {
+  margin-bottom: 3px;
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+
+.summaryItem {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.summaryValue {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.summaryLabel {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  flex-shrink: 0;
+  min-height: 42px;
+  padding: 13px 20px 5px;
+}
+
+.metaGroup {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.metaValue {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.metaLabel {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.metaDot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--text-subtle);
+}
+
+.chartArea {
+  flex: 1;
+  min-height: 300px;
+  padding: 0 10px;
+}
+
+.chartArea :global(.recharts-cartesian-axis-tick-value) {
+  fill: var(--text-muted);
+  font-family: var(--bb-font-sans);
+}
+
+.chartArea :global(.recharts-tooltip-cursor) {
+  fill: var(--bg-sunken);
+}
+
+.barToday {
+  fill: var(--brand-brainbase-accent);
+}
+.barActive {
+  fill: color-mix(in srgb, var(--brand-brainbase-accent) 50%, transparent);
+}
+.barZero {
+  fill: var(--border-strong);
+}
+
+.legend {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  flex-shrink: 0;
+  min-height: 46px;
+  padding: 8px 18px 16px;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  color: var(--text-secondary);
+}
+
+.legendDot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 2px;
+}
+.legendStandard {
+  background: color-mix(in srgb, var(--brand-brainbase-accent) 50%, transparent);
+}
+.legendToday {
+  background: var(--brand-brainbase-accent);
+}
+
+.empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  padding: 28px 22px;
+  text-align: center;
+}
+
+.emptyIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+}
+
+.emptyTitle {
+  margin-bottom: 5px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.emptyCopy {
+  max-width: 280px;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 900px) {
+  .chartArea {
+    min-height: 260px;
+  }
+}
+
+@media (max-width: 620px) {
+  .header,
+  .meta {
+    padding-left: 15px;
+    padding-right: 15px;
+  }
+  .chartArea {
+    min-height: 220px;
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+}
