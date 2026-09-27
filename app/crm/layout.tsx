@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { requireSession } from '@/lib/org';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
 import { APP_HEADER_OFFSET_VH_CALC } from '@/lib/layout/headerOffset';
+import { StateMessage } from '@/components/ui/app/StateMessage';
 import CrmSidebar from './_components/CrmSidebar';
 
 // Standalone CRM product shell. Page-level capability enforcement,
@@ -41,19 +42,16 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
           alignItems: 'center',
           justifyContent: 'center',
           minHeight: APP_HEADER_OFFSET_VH_CALC,
-          gap: 10,
-          textAlign: 'center',
           padding: 32,
           background: 'var(--bg-base)',
           color: 'var(--text-primary)',
           fontFamily: 'var(--font-inter), Inter, sans-serif',
         }}
       >
-        <div style={{ fontSize: 16, fontWeight: 700 }}>CRM isn&apos;t enabled for your organisation</div>
-        <div style={{ fontSize: 13, color: 'var(--text-secondary)', maxWidth: 360 }}>
+        <StateMessage kind="empty" size="page" title="CRM isn't enabled for your organisation">
           Ask a BrainBase admin to enable the CRM capability for your organisation to access companies, contacts,
           deals, and activities.
-        </div>
+        </StateMessage>
       </div>
     );
   }

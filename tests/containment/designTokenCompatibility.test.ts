@@ -14,7 +14,12 @@ describe('BrainBase token compatibility after main convergence', () => {
     for (const token of ['--bb-canvas:','--bb-surface-1:','--bb-text-primary:','--bb-accent-500:']) expect(rootBlock).toContain(token)
   })
   it('keeps latest-main light application palette aligned', () => {
-    for (const literal of ['--bg-base:    #F5F3EE;','--text-primary:   #15171B;','--text-secondary: #52525B;']) expect(lightBlock).toContain(literal)
+    // Integration note (main + app visual convergence): main's rollout pinned its own styling
+    // here. The reviewed Phase A token implementation supersedes that presentation, so this
+    // assertion now pins the reviewed equivalent. Behavioural assertions are unchanged.
+    // Phase A raised light --text-secondary from #52525B to the warm AA value #5F5B55 (6.08:1).
+    for (const literal of ['--bg-base:    #F5F3EE;','--text-primary:   #15171B;','--text-secondary: #5F5B55;']) expect(lightBlock).toContain(literal)
+
   })
   it('preserves the shared app-header offset contract', () => { expect(rootBlock).toContain('--app-header-offset: 52px;') })
 })

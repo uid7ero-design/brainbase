@@ -25,8 +25,8 @@ type SchemaMatchState = Extract<
 >;
 
 const SEVERITY_COLOR: Record<string, string> = {
-  BLOCKING: "#f87171",
-  WARNING: "#fbbf24",
+  BLOCKING: "var(--status-danger)",
+  WARNING: "var(--status-warning)",
   INFO: "var(--text-secondary)",
 };
 
@@ -41,7 +41,7 @@ export default function SchemaMatchReportPanel({ state, onBack, onRetry, onSelec
   return <div>
     <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)" }}>Governed schema comparison</h2>
     <p style={{ fontSize: 12, color: "var(--text-secondary)" }}>{state.batch.originalFilename ?? "This workbook"}</p>
-    <div role="note" style={{ margin: "14px 0", padding: "10px 14px", border: "1px solid rgba(251,191,36,.3)", borderRadius: 8, color: "var(--text-primary)", fontSize: 12 }}>
+    <div role="note" style={{ margin: "14px 0", padding: "10px 14px", border: "1px solid var(--status-warning-border)", borderRadius: 8, color: "var(--text-primary)", fontSize: 12 }}>
       {SCHEMA_MATCH_NOTICE}
     </div>
     {state.phase === "schemaMatchLoading" && <p aria-live="polite">Comparing workbook structure…</p>}
@@ -79,7 +79,7 @@ export default function SchemaMatchReportPanel({ state, onBack, onRetry, onSelec
       )}
       {state.phase === "schemaSelectionSaving" && <p aria-live="polite" style={{ marginTop: 16 }}>Selecting governed schema…</p>}
       {state.phase === "schemaSelected" && (
-        <div role="status" style={{ marginTop: 16, padding: "10px 14px", border: "1px solid rgba(74,222,128,.3)", borderRadius: 8, color: "var(--text-primary)", fontSize: 12 }}>
+        <div role="status" style={{ marginTop: 16, padding: "10px 14px", border: "1px solid var(--status-success-border)", borderRadius: 8, color: "var(--text-primary)", fontSize: 12 }}>
           {state.alreadySelected
             ? "This import batch is already bound to this governed dataset and schema version."
             : `This import batch is now bound to governed schema v${state.sourceSchemaVersionNumber}.`}

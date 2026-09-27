@@ -1,7 +1,12 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { Badge } from '@/components/ui/app';
+import styles from './widgets.module.css';
 
-const FONT = 'var(--font-inter),"Inter",-apple-system,sans-serif';
+// Phase D2 — on the shared panel surface and theme tokens (was dark-only
+// glass with blur and glowing dots). Every value here is static sample
+// content (see the audit's hard-coded data list) and is unchanged.
+// Colour carries meaning only: impact level (also written) and rain.
 
 const FORECAST = [
   { day: 'Thu', icon: '⛅', hi: 19, lo: 12, rain: 2  },
@@ -20,18 +25,18 @@ const OPERATIONAL_IMPACTS = [
   { area: 'Roads',             impact: 'medium', note: 'Ponding — 3 locations'      },
 ];
 
-const IMPACT_COLORS: Record<string, { color: string; bg: string }> = {
-  high:   { color: '#EF4444', bg: 'rgba(239,68,68,.10)'  },
-  medium: { color: '#F59E0B', bg: 'rgba(245,158,11,.10)' },
-  low:    { color: '#22C55E', bg: 'rgba(34,197,94,.08)'  },
+const IMPACT_STATE: Record<string, { status: 'danger' | 'warning' | 'success'; badge: 'error' | 'warning' | 'success' }> = {
+  high:   { status: 'danger',  badge: 'error'   },
+  medium: { status: 'warning', badge: 'warning' },
+  low:    { status: 'success', badge: 'success' },
 };
 
-function RainBar({ pct, color }: { pct: number; color: string }) {
+function RainBar({ pct }: { pct: number }) {
   const [w, setW] = useState(0);
   useEffect(() => { const t = setTimeout(() => setW(pct), 100); return () => clearTimeout(t); }, [pct]);
   return (
-    <div style={{ height: 2, width: '100%', background: 'rgba(255,255,255,.08)', borderRadius: 1, overflow: 'hidden', marginTop: 3 }}>
-      <div style={{ height: '100%', width: `${w}%`, background: color, borderRadius: 1, transition: 'width .8s ease' }} />
+    <div aria-hidden="true" style={{ height: 2, width: '100%', background: 'var(--bg-sunken)', borderRadius: 1, overflow: 'hidden', marginTop: 3 }}>
+      <div style={{ height: '100%', width: `${w}%`, background: 'var(--status-info)', borderRadius: 1, transition: 'width .8s ease' }} />
     </div>
   );
 }
@@ -40,102 +45,77 @@ export default function WeatherWidget() {
   const maxRain = Math.max(...FORECAST.map(f => f.rain));
 
   return (
-    <>
-      <style dangerouslySetInnerHTML={{ __html: `@keyframes wx-blink{0%,100%{opacity:1}50%{opacity:.35}}` }} />
+    <section className={styles.panel} aria-labelledby="wx-title">
+      {/* Header */}
+      <div className={styles.header}>
+        <h2 id="wx-title" className={styles.title}>Weather Intelligence</h2>
+        <Badge state="warning">Rain incoming</Badge>
+      </div>
 
-      <div style={{
-        height: '100%', display: 'flex', flexDirection: 'column',
-        borderRadius: 14, overflow: 'hidden',
-        background: 'rgba(7,8,11,.75)',
-        border: '1px solid rgba(255,255,255,.07)',
-        backdropFilter: 'blur(16px)',
-        fontFamily: FONT,
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,.04)',
-      }}>
-        {/* Header */}
-        <div style={{
-          padding: '10px 14px', flexShrink: 0,
-          borderBottom: '1px solid rgba(255,255,255,.055)',
-          background: 'rgba(255,255,255,.015)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(96,165,250,.70)" strokeWidth="2" strokeLinecap="round"><path d="M17 8C8 10 5.9 16.17 3.82 22"/><path d="M9.05 17.17C11 14.5 16 13 21 14"/><path d="M12 3a9 9 0 01-9 9"/></svg>
-            <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.10em', color: 'rgba(255,255,255,.38)', textTransform: 'uppercase' }}>
-              Weather Intelligence
-            </span>
+      <div className={styles.body} style={{ padding: 14 }}>
+
+        {/* Current conditions */}
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 14, marginBottom: 16 }}>
+          <div>
+            <span className={styles.temp}>19°</span>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>C</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '2px 7px', borderRadius: 4, background: 'rgba(245,158,11,.10)', border: '1px solid rgba(245,158,11,.20)' }}>
-            <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#F59E0B', animation: 'wx-blink 2s ease-in-out infinite' }} />
-            <span style={{ fontSize: 9, fontWeight: 700, color: '#F59E0B', letterSpacing: '.06em', textTransform: 'uppercase' }}>Rain incoming</span>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 3 }}>Partly Cloudy</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 2 }}>Feels like 17°  ·  Humidity 62%</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Wind SE  22 km/h  ·  UV Index: Low</div>
+          </div>
+          <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+            <div className={styles.label} style={{ marginBottom: 4 }}>Tonight</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--status-info)', fontVariantNumeric: 'tabular-nums' }}>8mm</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>rain forecast</div>
           </div>
         </div>
 
-        <div style={{ flex: 1, overflow: 'hidden auto', padding: '14px' }}>
-
-          {/* Current conditions */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
-            <div>
-              <span style={{ fontSize: 42, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.04em', lineHeight: 1 }}>19°</span>
-              <span style={{ fontSize: 12, color: 'rgba(255,255,255,.28)', fontWeight: 500 }}>C</span>
-            </div>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,.72)', marginBottom: 3 }}>Partly Cloudy</div>
-              <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,.35)', marginBottom: 2 }}>Feels like 17°  ·  Humidity 62%</div>
-              <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,.35)' }}>Wind SE  22 km/h  ·  UV Index: Low</div>
-            </div>
-            <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
-              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.08em', color: 'rgba(255,255,255,.25)', textTransform: 'uppercase', marginBottom: 4 }}>Tonight</div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: '#60A5FA', letterSpacing: '-.02em' }}>8mm</div>
-              <div style={{ fontSize: 9.5, color: 'rgba(96,165,250,.55)' }}>rain forecast</div>
-            </div>
-          </div>
-
-          {/* 7-day forecast */}
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: '.14em', color: 'rgba(255,255,255,.20)', textTransform: 'uppercase', marginBottom: 8 }}>7-Day Forecast</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 4 }}>
-              {FORECAST.map((f, i) => (
-                <div key={f.day} style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 9, fontWeight: 600, color: i === 0 ? 'rgba(167,139,250,.80)' : 'rgba(255,255,255,.25)', marginBottom: 4, letterSpacing: '.04em' }}>
-                    {i === 0 ? 'Today' : f.day}
-                  </div>
-                  <div style={{ fontSize: 16, marginBottom: 3 }}>{f.icon}</div>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,.72)' }}>{f.hi}°</div>
-                  <div style={{ fontSize: 9, color: 'rgba(255,255,255,.28)' }}>{f.lo}°</div>
-                  {f.rain > 0 && (
-                    <>
-                      <div style={{ fontSize: 9, color: '#60A5FA', marginTop: 2 }}>{f.rain}mm</div>
-                      <RainBar pct={Math.round((f.rain / maxRain) * 100)} color="#3B82F6" />
-                    </>
-                  )}
+        {/* 7-day forecast */}
+        <div style={{ marginBottom: 16 }}>
+          <h3 className={styles.label}>7-Day Forecast</h3>
+          <ul style={{ display: 'grid', gridTemplateColumns: 'repeat(7,minmax(0,1fr))', gap: 4, margin: 0, padding: 0, listStyle: 'none' }}>
+            {FORECAST.map((f, i) => (
+              <li key={f.day} style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: i === 0 ? 'var(--text-primary)' : 'var(--text-muted)', marginBottom: 4 }}>
+                  {i === 0 ? 'Today' : f.day}
                 </div>
-              ))}
-            </div>
-          </div>
+                <div style={{ fontSize: 16, marginBottom: 3 }} aria-hidden="true">{f.icon}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{f.hi}°</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{f.lo}°</div>
+                {f.rain > 0 && (
+                  <>
+                    <div style={{ fontSize: 11, color: 'var(--status-info)', marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{f.rain}mm</div>
+                    <RainBar pct={Math.round((f.rain / maxRain) * 100)} />
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
 
-          {/* Operational impact */}
-          <div>
-            <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: '.14em', color: 'rgba(255,255,255,.20)', textTransform: 'uppercase', marginBottom: 8 }}>Operational Impact</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {OPERATIONAL_IMPACTS.map(item => {
-                const c = IMPACT_COLORS[item.impact];
-                return (
-                  <div key={item.area} style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '7px 10px', borderRadius: 7,
-                    background: c.bg, border: `1px solid ${c.color}20`,
-                  }}>
-                    <div style={{ width: 5, height: 5, borderRadius: '50%', background: c.color, boxShadow: `0 0 5px ${c.color}`, flexShrink: 0 }} />
-                    <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,.65)', flex: 1 }}>{item.area}</span>
-                    <span style={{ fontSize: 10.5, color: c.color, fontWeight: 500 }}>{item.note}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+        {/* Operational impact */}
+        <div>
+          <h3 className={styles.label}>Operational Impact</h3>
+          <ul style={{ display: 'grid', gap: 4, margin: 0, padding: 0, listStyle: 'none' }}>
+            {OPERATIONAL_IMPACTS.map(item => {
+              const s = IMPACT_STATE[item.impact];
+              return (
+                <li key={item.area} className={styles.tone} data-status={s.status} style={{
+                  display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8,
+                  padding: '6px 10px', borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--border)', background: 'var(--bg-base)',
+                }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', flex: 1 }}>{item.area}</span>
+                  <span className={styles.statusText} style={{ fontSize: 12 }}>{item.note}</span>
+                  <Badge state={s.badge}>{item.impact}</Badge>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       </div>
-    </>
+    </section>
   );
 }

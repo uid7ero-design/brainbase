@@ -1,0 +1,81 @@
+/* /dashboard loading skeleton (Phase D2). Tokens only. */
+
+.page {
+  min-height: 100vh;
+  padding: 24px 24px 80px;
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+.header {
+  margin-bottom: 20px;
+}
+
+.block {
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.cell {
+  margin: 0 -1px -1px 0;
+  padding: 12px 14px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.panel {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0 0;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .block {
+    animation: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 16px 16px 64px;
+  }
+}

@@ -4,9 +4,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import SlidePanel from '../../../_components/SlidePanel';
 import SupplierForm from '../../../_components/SupplierForm';
-import { Field, lbl, sel } from '../../../_components/CustomerForm';
-
-const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
+import { Field } from '../../../_components/CustomerForm';
+import { Field as AppField, FormActions, FormError, PageHeader, buttonProps, fieldControlClassName } from '@/components/ui/app';
 
 type Supplier = { id: string; name: string; active: boolean };
 
@@ -68,30 +67,33 @@ export default function NewPurchaseOrderPage() {
 
   return (
     <div style={{ maxWidth: 600 }}>
-      <Link href="/commercial/purchasing/purchase-orders" style={{ color: 'var(--text-secondary)', fontSize: 13, textDecoration: 'none' }}>← Purchase Orders</Link>
-      <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: '16px 0 24px' }}>New Purchase Order</h1>
+      <PageHeader eyebrow={<Link href="/commercial/purchasing/purchase-orders">← Purchase Orders</Link>} title="New Purchase Order" />
 
-      <form onSubmit={submit} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div>
-          <label style={lbl}>Supplier *</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <select value={supplierId} onChange={e => setSupplierId(e.target.value)} style={sel}>
-              <option value="">— Select a supplier —</option>
-              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-            <button type="button" onClick={() => setShowNewSupplier(true)} style={{ padding: '9px 14px', background: '#1f2937', color: 'var(--text-primary)', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              + New
-            </button>
-          </div>
-        </div>
+      <form onSubmit={submit} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <AppField label="Supplier" required>
+          {control => (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <select {...control} value={supplierId} onChange={e => setSupplierId(e.target.value)} className={fieldControlClassName}>
+                <option value="">— Select a supplier —</option>
+                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <button type="button" onClick={() => setShowNewSupplier(true)} {...buttonProps('secondary')} aria-label="Create a new supplier" style={{ whiteSpace: 'nowrap' }}>
+                + New
+              </button>
+            </div>
+          )}
+        </AppField>
         <Field label="Supplier Reference" value={supplierReference} onChange={e => setSupplierReference(e.target.value)} placeholder="Your PO reference for this supplier" />
         <div style={{ display: 'flex', gap: 12 }}>
           <div style={{ flex: 1 }}>
             <Field label="Delivery Date" type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} />
           </div>
           <div style={{ flex: 1 }}>
-            <label style={lbl}>Payment Terms (days)</label>
-            <input value={paymentTermsDays} onChange={e => setPaymentTermsDays(e.target.value)} style={sel} placeholder="e.g. 30" inputMode="numeric" />
+            <AppField label="Payment Terms (days)">
+              {control => (
+                <input {...control} value={paymentTermsDays} onChange={e => setPaymentTermsDays(e.target.value)} className={fieldControlClassName} placeholder="e.g. 30" inputMode="numeric" />
+              )}
+            </AppField>
           </div>
         </div>
         <Field label="Delivery Address" value={deliveryAddressLine1} onChange={e => setDeliveryAddressLine1(e.target.value)} />
@@ -106,18 +108,22 @@ export default function NewPurchaseOrderPage() {
             <Field label="Postcode" value={deliveryPostcode} onChange={e => setDeliveryPostcode(e.target.value)} />
           </div>
         </div>
-        <div>
-          <label style={lbl}>Notes to Supplier</label>
-          <textarea value={supplierNotes} onChange={e => setSupplierNotes(e.target.value)} rows={2} style={{ ...sel, resize: 'vertical', lineHeight: 1.5 }} />
-        </div>
-        <div>
-          <label style={lbl}>Internal Notes</label>
-          <textarea value={internalNotes} onChange={e => setInternalNotes(e.target.value)} rows={2} style={{ ...sel, resize: 'vertical', lineHeight: 1.5 }} />
-        </div>
-        {error && <p style={{ color: '#f87171', fontSize: 13, margin: 0 }}>{error}</p>}
-        <button type="submit" disabled={saving} style={{ padding: '10px 0', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
-          {saving ? 'Creating…' : 'Create Draft — add line items next'}
-        </button>
+        <AppField label="Notes to Supplier">
+          {control => (
+            <textarea {...control} value={supplierNotes} onChange={e => setSupplierNotes(e.target.value)} rows={2} className={fieldControlClassName} />
+          )}
+        </AppField>
+        <AppField label="Internal Notes">
+          {control => (
+            <textarea {...control} value={internalNotes} onChange={e => setInternalNotes(e.target.value)} rows={2} className={fieldControlClassName} />
+          )}
+        </AppField>
+        {error && <FormError>{error}</FormError>}
+        <FormActions align="stretch">
+          <button type="submit" disabled={saving} {...buttonProps('primary')}>
+            {saving ? 'Creating…' : 'Create Draft — add line items next'}
+          </button>
+        </FormActions>
       </form>
 
       <SlidePanel open={showNewSupplier} onClose={() => setShowNewSupplier(false)} title="New Supplier">

@@ -30,7 +30,7 @@ export default function PeriodDetectionPanel({
 
   if (model.kind === "warning") {
     return (
-      <div role="status" data-period-detection="warning" style={{ fontSize: 12, color: "#fbbf24", marginBottom: 8 }}>
+      <div role="status" data-period-detection="warning" style={{ fontSize: 12, color: "var(--status-warning)", marginBottom: 8 }}>
         {model.headline}
       </div>
     );
@@ -83,7 +83,7 @@ export default function PeriodDetectionPanel({
       ) : null}
 
       {acceptError ? (
-        <div role="alert" style={{ marginTop: 6, fontSize: 12, color: "#fbbf24" }}>
+        <div role="alert" style={{ marginTop: 6, fontSize: 12, color: "var(--status-warning)" }}>
           {acceptError}
         </div>
       ) : null}

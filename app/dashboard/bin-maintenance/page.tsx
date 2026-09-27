@@ -5,6 +5,7 @@ import WorkspaceShell from '@/components/ops/WorkspaceShell';
 import MaintenanceJobDrawer, { type MaintenanceJob, type MaintenanceStatus, type Severity } from '@/components/ops/maintenance/MaintenanceJobDrawer';
 import CreateJobModal from '@/components/ops/maintenance/CreateJobModal';
 import RequestsMap from '@/components/ops/maintenance/RequestsMap';
+import { buttonProps } from '@/components/ui/app';
 import type {
   BinMaintenanceDashboardHeader, BinMaintenanceScheduleStatus, BinMaintenanceStreamStats,
   BinMaintenanceRepeatProperties, BinMaintenanceCompletionTrend,
@@ -27,7 +28,7 @@ const ST: Record<MaintenanceStatus, { color: string; bg: string; label: string }
   IN_PROGRESS: { color:'#F59E0B', bg:'rgba(245,158,11,.14)',              label:'In Progress' },
   ESCALATED:   { color:'#F97316', bg:'rgba(249,115,22,.14)',              label:'Escalated'   },
   COMPLETED:   { color:'#22C55E', bg:'rgba(34,197,94,.14)',               label:'Completed'   },
-  CLOSED:      { color:'rgba(255,255,255,.5)', bg:'rgba(255,255,255,.06)', label:'Closed'    },
+  CLOSED:      { color:'#8A8580', bg:'rgba(138,133,128,.14)', label:'Closed'    },
 };
 
 const STREAM: Record<string, { color: string; bg: string; label: string }> = {
@@ -71,7 +72,7 @@ function RingChart({ pct, color, size = 72 }: { pct: number; color: string; size
   const cx = size / 2;
   return (
     <svg width={size} height={size}>
-      <circle cx={cx} cy={cx} r={r} fill="none" stroke="rgba(255,255,255,.06)" strokeWidth="7"/>
+      <circle cx={cx} cy={cx} r={r} fill="none" stroke="var(--border)" strokeWidth="7"/>
       <circle cx={cx} cy={cx} r={r} fill="none" stroke={color} strokeWidth="7"
         strokeDasharray={`${c} ${c}`} strokeDashoffset={offset}
         strokeLinecap="round" transform={`rotate(-90 ${cx} ${cx})`}
@@ -82,12 +83,12 @@ function RingChart({ pct, color, size = 72 }: { pct: number; color: string; size
   );
 }
 
-function Sparkline({ data, color = '#A78BFA', width = 100, height = 28 }: {
+function Sparkline({ data, color = '#8A8580', width = 100, height = 28 }: {
   data: number[]; color?: string; width?: number; height?: number;
 }) {
   if (data.length < 2) return (
     <svg width={width} height={height}>
-      <text x={4} y={height/2+4} fill="rgba(255,255,255,.15)" fontSize="9" fontFamily={FONT}>No trend data</text>
+      <text x={4} y={height/2+4} fill="var(--text-subtle)" fontSize="9" fontFamily={FONT}>No trend data</text>
     </svg>
   );
   const max = Math.max(...data, 1);
@@ -146,17 +147,17 @@ function StockDrawer({ onClose }: { onClose: () => void }) {
   const lowCount = items.filter(i => i.qty < i.min).length;
 
   return (
-    <div style={{ position:'fixed',bottom:0,left:0,right:0,zIndex:200,background:'rgba(7,8,13,.97)',borderTop:'1px solid rgba(139,92,246,.25)',backdropFilter:'blur(20px)' }}>
+    <div style={{ position:'fixed',bottom:0,left:0,right:0,zIndex:200,background:'var(--bg-overlay)',borderTop:'1px solid var(--border)',boxShadow:'var(--shadow-popover)' }}>
       <div style={{ maxWidth:1400,margin:'0 auto',padding:'14px 20px' }}>
         <div style={{ display:'flex',alignItems:'center',gap:10,marginBottom:14 }}>
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#8B5CF6" strokeWidth="2" strokeLinecap="round">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--brand-brainbase-accent)" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
             <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
           </svg>
-          <span style={{ fontSize:10.5,fontWeight:700,letterSpacing:'.12em',color:'rgba(139,92,246,.75)',textTransform:'uppercase' }}>Stock & Parts</span>
-          {lowCount > 0 && <span style={{ fontSize:9,fontWeight:700,color:'#EF4444',background:'rgba(239,68,68,.10)',border:'1px solid rgba(239,68,68,.22)',padding:'2px 7px',borderRadius:10 }}>{lowCount} LOW</span>}
+          <span style={{ fontSize:10.5,fontWeight:700,letterSpacing:'.12em',color:'var(--text-secondary)',textTransform:'uppercase' }}>Stock & Parts</span>
+          {lowCount > 0 && <span style={{ fontSize:9,fontWeight:700,color:'var(--status-danger)',background:'var(--status-danger-muted)',border:'1px solid var(--status-danger-border)',padding:'2px 7px',borderRadius:10 }}>{lowCount} LOW</span>}
           <div style={{ flex:1 }} />
-          <button onClick={() => setItems(DEFAULT_STOCK)} style={{ fontSize:9.5,color:'rgba(255,255,255,.44)',background:'none',border:'none',cursor:'pointer',fontFamily:FONT }}>Reset</button>
-          <button onClick={onClose} style={{ padding:'4px 12px',borderRadius:6,background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.10)',color:'rgba(255,255,255,.62)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:FONT }}>Close</button>
+          <button type="button" onClick={() => setItems(DEFAULT_STOCK)} style={{ fontSize:9.5,color:'var(--text-muted)',background:'none',border:'none',cursor:'pointer',fontFamily:FONT }}>Reset</button>
+          <button type="button" onClick={onClose} style={{ padding:'4px 12px',borderRadius:6,background:'var(--bg-raised)',border:'1px solid var(--border)',color:'var(--text-secondary)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:FONT }}>Close</button>
         </div>
         <div style={{ display:'grid',gridTemplateColumns:'repeat(10,1fr)',gap:8 }}>
           {items.map(item => {
@@ -165,19 +166,19 @@ function StockDrawer({ onClose }: { onClose: () => void }) {
             const crit = item.qty < item.min * 0.5;
             const bar = crit ? '#EF4444' : low ? '#F59E0B' : '#22C55E';
             return (
-              <div key={item.id} style={{ background:low?'rgba(239,68,68,.04)':'rgba(255,255,255,.03)',border:`1px solid ${low?'rgba(239,68,68,.15)':'rgba(255,255,255,.07)'}`,borderRadius:9,padding:'10px 10px 8px' }}>
-                <div style={{ fontSize:9,fontWeight:600,color:'rgba(255,255,255,.62)',marginBottom:6,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{item.name}</div>
+              <div key={item.id} style={{ background:low?'var(--status-danger-muted)':'var(--bg-raised)',border:`1px solid ${low?'var(--status-danger-border)':'var(--border)'}`,borderRadius:9,padding:'10px 10px 8px' }}>
+                <div style={{ fontSize:9,fontWeight:600,color:'var(--text-secondary)',marginBottom:6,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{item.name}</div>
                 <div style={{ display:'flex',alignItems:'center',gap:4,marginBottom:6 }}>
-                  <button onClick={() => adj(item.id, -1)} style={{ width:18,height:18,borderRadius:3,background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.10)',color:'rgba(255,255,255,.72)',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:FONT,lineHeight:1,flexShrink:0 }}>−</button>
-                  <span style={{ flex:1,textAlign:'center',fontSize:20,fontWeight:800,color:low?'#EF4444':'#F5F7FA',fontFamily:FONT }}>{item.qty}</span>
-                  <button onClick={() => adj(item.id, 1)}  style={{ width:18,height:18,borderRadius:3,background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.10)',color:'rgba(255,255,255,.72)',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:FONT,lineHeight:1,flexShrink:0 }}>+</button>
+                  <button type="button" aria-label={`Decrease ${item.name}`} onClick={() => adj(item.id, -1)} style={{ width:18,height:18,borderRadius:3,background:'var(--bg-raised)',border:'1px solid var(--border)',color:'var(--text-primary)',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:FONT,lineHeight:1,flexShrink:0 }}>−</button>
+                  <span style={{ flex:1,textAlign:'center',fontSize:20,fontWeight:800,color:low?'var(--status-danger)':'var(--text-primary)',fontFamily:FONT }}>{item.qty}</span>
+                  <button type="button" aria-label={`Increase ${item.name}`} onClick={() => adj(item.id, 1)}  style={{ width:18,height:18,borderRadius:3,background:'var(--bg-raised)',border:'1px solid var(--border)',color:'var(--text-primary)',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:FONT,lineHeight:1,flexShrink:0 }}>+</button>
                 </div>
-                <div style={{ height:3,background:'rgba(255,255,255,.06)',borderRadius:2,overflow:'hidden' }}>
+                <div style={{ height:3,background:'var(--border)',borderRadius:2,overflow:'hidden' }}>
                   <div style={{ height:'100%',width:`${pct}%`,background:bar,borderRadius:2,transition:'width .4s ease' }}/>
                 </div>
                 <div style={{ display:'flex',justifyContent:'space-between',marginTop:3 }}>
-                  <span style={{ fontSize:8,color:'rgba(255,255,255,.44)' }}>min {item.min}</span>
-                  {low && <span style={{ fontSize:8,fontWeight:700,color:'#EF4444' }}>LOW</span>}
+                  <span style={{ fontSize:8,color:'var(--text-muted)' }}>min {item.min}</span>
+                  {low && <span style={{ fontSize:8,fontWeight:700,color:'var(--status-danger)' }}>LOW</span>}
                 </div>
               </div>
             );
@@ -194,11 +195,11 @@ function FilterChip({ label, active, color, count, onClick }: {
   label:string; active:boolean; color:string; count:number; onClick:()=>void;
 }) {
   return (
-    <button onClick={onClick} style={{
+    <button type="button" aria-pressed={active} onClick={onClick} style={{
       padding:'5px 11px',borderRadius:20,fontSize:10.5,fontWeight:600,
-      background:active?`${color}18`:'rgba(255,255,255,.04)',
-      border:`1px solid ${active?color+'35':'rgba(255,255,255,.08)'}`,
-      color:active?color:'rgba(255,255,255,.57)',
+      background:active?`color-mix(in srgb, ${color} 10%, transparent)`:'var(--bg-raised)',
+      border:`1px solid ${active?`color-mix(in srgb, ${color} 32%, transparent)`:'var(--border)'}`,
+      color:active?'var(--text-primary)':'var(--text-secondary)',
       cursor:'pointer',fontFamily:FONT,transition:'all .14s',display:'flex',alignItems:'center',gap:5,
     }}>
       {label}<span style={{ fontSize:9,fontWeight:700,opacity:.7 }}>{count}</span>
@@ -413,7 +414,7 @@ export default function BinMaintenancePage() {
     finally { setUploading(false); setTimeout(() => setUploadMsg(''), 6000); }
   }
 
-  const slaColor = slaStats.pct >= 80 ? '#22C55E' : slaStats.pct >= 55 ? '#F59E0B' : '#EF4444';
+  const slaColor = slaStats.pct >= 80 ? 'var(--status-success)' : slaStats.pct >= 55 ? 'var(--status-warning)' : 'var(--status-danger)';
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -424,10 +425,13 @@ export default function BinMaintenancePage() {
         @keyframes bm-fade  { from{opacity:0;transform:translateY(3px)} to{opacity:1;transform:none} }
         @keyframes bm-blink { 0%,100%{opacity:1} 50%{opacity:.35} }
         @keyframes bm-spin  { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
-        .bm-row:hover  { background:rgba(255,255,255,.032)!important; }
+        .bm-row:hover  { background:color-mix(in srgb, var(--text-primary) 4%, transparent)!important; }
         .bm-row        { cursor:pointer; transition:background .14s; }
-        .bm-card:hover { border-color:rgba(139,92,246,.22)!important; }
+        .bm-card:hover { border-color:var(--border-strong)!important; }
         .bm-card       { transition:border-color .2s; }
+        .bm-row:focus-visible { outline:2px solid var(--brand-brainbase-accent); outline-offset:-2px; }
+        .bm-upload:has(input:focus-visible) { outline:2px solid var(--brand-brainbase-accent); outline-offset:2px; }
+        @media (prefers-reduced-motion: reduce) { .bm-row, .bm-card { animation:none!important; transition:none!important; } }
         .leaflet-container { background:#0a0d12; font-family:${FONT}; }
         .leaflet-control-zoom a { background:rgba(10,13,18,.85)!important; color:rgba(255,255,255,.7)!important; border-color:rgba(255,255,255,.12)!important; }
         .leaflet-control-zoom a:hover { background:rgba(139,92,246,.22)!important; color:#fff!important; }
@@ -438,105 +442,103 @@ export default function BinMaintenancePage() {
       `}} />
 
       {/* ── Toolbar ── */}
-      <div style={{ height:36,display:'flex',alignItems:'center',gap:10,padding:'0 20px',flexShrink:0,borderBottom:'1px solid rgba(255,255,255,.04)',background:'rgba(6,7,10,.50)' }}>
-        <div style={{ fontSize:10.5,color:'rgba(255,255,255,.42)',display:'flex',alignItems:'center',gap:5 }}>
+      <div style={{ height:36,display:'flex',alignItems:'center',gap:10,padding:'0 20px',flexShrink:0,borderBottom:'1px solid var(--border)',background:'var(--bg-surface)' }}>
+        <div style={{ fontSize:10.5,color:'var(--text-muted)',display:'flex',alignItems:'center',gap:5 }}>
           <span>Operations</span><span style={{ opacity:.35 }}>/</span>
-          <span style={{ color:'rgba(255,255,255,.57)' }}>Waste</span><span style={{ opacity:.35 }}>/</span>
-          <span style={{ color:'rgba(167,139,250,.55)' }}>Bin Maintenance</span>
+          <span style={{ color:'var(--text-secondary)' }}>Waste</span><span style={{ opacity:.35 }}>/</span>
+          <span style={{ color:'var(--text-primary)' }} aria-current="page">Bin Maintenance</span>
         </div>
         <div style={{ flex:1 }} />
-        {loading && <span style={{ fontSize:9.5,color:'rgba(255,255,255,.44)',animation:'bm-blink 1.5s ease-in-out infinite' }}>Syncing…</span>}
+        {loading && <span style={{ fontSize:9.5,color:'var(--text-muted)',animation:'bm-blink 1.5s ease-in-out infinite' }}>Syncing…</span>}
         {!loading && !fetchError && (
           <div style={{ display:'flex',alignItems:'center',gap:4 }}>
-            <div style={{ width:5,height:5,borderRadius:'50%',background:'#22C55E',animation:'bm-blink 2.5s ease-in-out infinite' }}/>
-            <span style={{ fontSize:9.5,color:'rgba(34,197,94,.55)' }}>Live · {total.toLocaleString()} records</span>
-            {uploadMsg && <span style={{ fontSize:9.5,color:uploadMsg.startsWith('Imported')?'rgba(34,197,94,.70)':'rgba(249,115,22,.70)',marginLeft:6,maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>· {uploadMsg}</span>}
+            <div aria-hidden="true" style={{ width:5,height:5,borderRadius:'50%',background:'var(--status-success)' }}/>
+            <span style={{ fontSize:9.5,color:'var(--text-secondary)' }}>Live · {total.toLocaleString()} records</span>
+            {uploadMsg && <span style={{ fontSize:9.5,color:uploadMsg.startsWith('Imported')?'var(--status-success)':'var(--status-warning)',marginLeft:6,maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>· {uploadMsg}</span>}
           </div>
         )}
         {!loading && fetchError && (
           <div style={{ display:'flex',alignItems:'center',gap:5 }}>
-            <div style={{ width:5,height:5,borderRadius:'50%',background:'#EF4444' }}/>
-            <span style={{ fontSize:9.5,color:'rgba(239,68,68,.70)' }}>{fetchError}</span>
-            <button onClick={()=>fetchJobs(0,true)} style={{ fontSize:9.5,color:'rgba(139,92,246,.70)',background:'none',border:'none',cursor:'pointer',fontFamily:FONT,textDecoration:'underline',padding:0 }}>Retry</button>
+            <div aria-hidden="true" style={{ width:5,height:5,borderRadius:'50%',background:'var(--status-danger)' }}/>
+            <span role="alert" style={{ fontSize:9.5,color:'var(--status-danger)' }}>{fetchError}</span>
+            <button type="button" onClick={()=>fetchJobs(0,true)} style={{ fontSize:9.5,color:'var(--brand-brainbase-accent)',background:'none',border:'none',cursor:'pointer',fontFamily:FONT,textDecoration:'underline',padding:0 }}>Retry</button>
           </div>
         )}
-        <div style={{ width:1,height:12,background:'rgba(255,255,255,.07)' }}/>
-        <Link href="/dashboard/bin-maintenance/insights" style={{ display:'flex',alignItems:'center',gap:5,padding:'5px 11px',borderRadius:7,background:'rgba(255,255,255,.05)',border:'1px solid rgba(255,255,255,.10)',color:'rgba(255,255,255,.6)',fontSize:10.5,fontWeight:600,fontFamily:FONT,textDecoration:'none' }}>
+        <div style={{ width:1,height:12,background:'var(--border)' }}/>
+        <Link href="/dashboard/bin-maintenance/insights" style={{ display:'flex',alignItems:'center',gap:5,padding:'5px 11px',borderRadius:7,background:'var(--bg-raised)',border:'1px solid var(--border)',color:'var(--text-secondary)',fontSize:10.5,fontWeight:600,fontFamily:FONT,textDecoration:'none' }}>
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
           Insights
         </Link>
-        <div style={{ width:1,height:12,background:'rgba(255,255,255,.07)' }}/>
-        <button onClick={() => setStockOpen(v=>!v)} style={{ display:'flex',alignItems:'center',gap:5,padding:'5px 11px',borderRadius:7,background:stockOpen?'rgba(139,92,246,.18)':'rgba(255,255,255,.05)',border:`1px solid ${stockOpen?'rgba(139,92,246,.35)':'rgba(255,255,255,.10)'}`,color:stockOpen?'#C4B5FD':'rgba(255,255,255,.38)',fontSize:10.5,fontWeight:600,cursor:'pointer',fontFamily:FONT }}>
+        <div style={{ width:1,height:12,background:'var(--border)' }}/>
+        <button type="button" aria-pressed={stockOpen} onClick={() => setStockOpen(v=>!v)} style={{ display:'flex',alignItems:'center',gap:5,padding:'5px 11px',borderRadius:7,background:stockOpen?'var(--brand-brainbase-accent-muted)':'var(--bg-raised)',border:`1px solid ${stockOpen?'var(--brand-brainbase-accent-border)':'var(--border)'}`,color:stockOpen?'var(--brand-brainbase-accent)':'var(--text-secondary)',fontSize:10.5,fontWeight:600,cursor:'pointer',fontFamily:FONT }}>
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
           Stock
         </button>
-        <div style={{ width:1,height:12,background:'rgba(255,255,255,.07)' }}/>
-        <label style={{ display:'flex',alignItems:'center',gap:6,padding:'5px 13px',borderRadius:7,background:uploading?'rgba(255,255,255,.04)':'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.12)',color:uploading?'rgba(255,255,255,.25)':'rgba(255,255,255,.45)',fontSize:11,fontWeight:600,cursor:uploading?'default':'pointer',fontFamily:FONT,letterSpacing:'.02em',userSelect:'none' }}>
+        <div style={{ width:1,height:12,background:'var(--border)' }}/>
+        <label className="bm-upload" style={{ display:'flex',alignItems:'center',gap:6,padding:'5px 13px',borderRadius:7,background:uploading?'var(--bg-raised)':'var(--bg-raised)',border:'1px solid var(--border)',color:uploading?'var(--text-subtle)':'var(--text-muted)',fontSize:11,fontWeight:600,cursor:uploading?'default':'pointer',fontFamily:FONT,letterSpacing:'.02em',userSelect:'none' }}>
           {uploading
             ? <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ animation:'bm-spin .8s linear infinite' }}><path d="M21 12a9 9 0 1 1-18 0"/></svg>Importing…</>
             : <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Import CSV</>}
-          <input type="file" accept=".csv,.xlsx,.xls" style={{ display:'none' }} onChange={handleFileUpload} disabled={uploading}/>
+          <input type="file" accept=".csv,.xlsx,.xls" className="bb-visually-hidden" onChange={handleFileUpload} disabled={uploading}/>
         </label>
-        <div style={{ width:1,height:12,background:'rgba(255,255,255,.07)' }}/>
-        <button onClick={() => setCreateOpen(true)}
-          style={{ display:'flex',alignItems:'center',gap:6,padding:'5px 13px',borderRadius:7,background:'rgba(139,92,246,.22)',border:'1px solid rgba(139,92,246,.38)',color:'#C4B5FD',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:FONT,letterSpacing:'.02em' }}
-          onMouseEnter={e=>(e.currentTarget.style.background='rgba(139,92,246,.32)')}
-          onMouseLeave={e=>(e.currentTarget.style.background='rgba(139,92,246,.22)')}>
+        <div style={{ width:1,height:12,background:'var(--border)' }}/>
+        <button type="button" onClick={() => setCreateOpen(true)} {...buttonProps('primary', 'sm')}>
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           New Job
         </button>
       </div>
 
       {/* ── Stats Strip ── */}
-      <div style={{ display:'grid',gridTemplateColumns:'repeat(6,1fr)',borderBottom:'1px solid rgba(255,255,255,.05)',flexShrink:0 }}>
+      <div style={{ display:'grid',gridTemplateColumns:'repeat(6,1fr)',borderBottom:'1px solid var(--border)',flexShrink:0 }}>
         {([
-          { label:'Active Jobs',    val:stats.active,          color:'#A78BFA', sub:`${total.toLocaleString()} total`         },
+          { label:'Active Jobs',    val:stats.active,          color:'var(--brand-brainbase-accent)', sub:`${total.toLocaleString()} total`         },
           { label:'Critical',       val:stats.critical,        color:'#EF4444', sub:'need attention'                          },
           { label:'Unassigned',     val:stats.unassigned,      color:'#F59E0B', sub:'awaiting crew'                           },
           { label:'Overdue',        val:stats.overdue,         color:'#F97316', sub:'past scheduled date'                     },
           { label:'SLA Compliance', val:`${slaStats.pct}%`,    color:slaColor,  sub:`${slaStats.scheduled} scheduled`         },
           { label:'Completed',      val:stats.completed,       color:'#22C55E', sub:`${productivity.rate}% completion rate`   },
         ] as const).map((s, i) => (
-          <div key={s.label} style={{ padding:'14px 18px',background:'rgba(7,8,11,.80)',borderRight:i<5?'1px solid rgba(255,255,255,.05)':'none',position:'relative',overflow:'hidden' }}>
-            <div style={{ position:'absolute',top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${s.color}22,transparent)` }}/>
-            <div style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.46)',textTransform:'uppercase',marginBottom:7 }}>{s.label}</div>
-            <div style={{ fontSize:28,fontWeight:800,letterSpacing:'-.04em',color:'#F5F7FA',lineHeight:1 }}>
-              {statsLoading ? <span style={{ fontSize:18,color:'rgba(255,255,255,.37)' }}>—</span> : s.val}
+          <div key={s.label} style={{ padding:'14px 18px',background:'var(--bg-surface)',borderRight:i<5?'1px solid var(--border)':'none',position:'relative',overflow:'hidden' }}>
+            <div style={{ display:'flex',alignItems:'center',gap:6,fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'var(--text-muted)',textTransform:'uppercase',marginBottom:7 }}>
+              <span aria-hidden="true" style={{ width:6,height:6,borderRadius:'50%',background:s.color,flexShrink:0 }}/>{s.label}
             </div>
-            <div style={{ fontSize:9.5,color:'rgba(255,255,255,.5)',marginTop:4 }}>{s.sub}</div>
+            <div style={{ fontSize:28,fontWeight:800,letterSpacing:'-.04em',color:'var(--text-primary)',lineHeight:1 }}>
+              {statsLoading ? <span style={{ fontSize:18,color:'var(--text-muted)' }}>—</span> : s.val}
+            </div>
+            <div style={{ fontSize:9.5,color:'var(--text-secondary)',marginTop:4 }}>{s.sub}</div>
           </div>
         ))}
       </div>
 
       {/* ── Intelligence Grid ── */}
-      <div style={{ display:'grid',gridTemplateColumns:'repeat(4,1fr)',borderBottom:'1px solid rgba(255,255,255,.05)',flexShrink:0 }}>
+      <div style={{ display:'grid',gridTemplateColumns:'repeat(4,1fr)',borderBottom:'1px solid var(--border)',flexShrink:0 }}>
 
         {/* SLA Panel */}
-        <div className="bm-card" style={{ padding:'14px 16px',background:'rgba(5,6,9,.70)',borderRight:'1px solid rgba(255,255,255,.05)' }}>
-          <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.44)',textTransform:'uppercase',marginBottom:10 }}>SLA Status</div>
+        <div className="bm-card" style={{ padding:'14px 16px',background:'var(--bg-surface)',borderRight:'1px solid var(--border)' }}>
+          <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'var(--text-muted)',textTransform:'uppercase',marginBottom:10 }}>SLA Status</div>
           <div style={{ display:'flex',alignItems:'center',gap:14 }}>
             <RingChart pct={slaStats.pct} color={slaColor} size={68}/>
             <div style={{ flex:1,display:'flex',flexDirection:'column',gap:6 }}>
               {([
-                { label:'On Track', val:slaStats.onTrack,  c:'#22C55E' },
-                { label:'At Risk',  val:slaStats.atRisk,   c:'#F59E0B' },
-                { label:'Breached', val:slaStats.breached, c:'#EF4444' },
+                { label:'On Track', val:slaStats.onTrack,  c:'var(--status-success)' },
+                { label:'At Risk',  val:slaStats.atRisk,   c:'var(--status-warning)' },
+                { label:'Breached', val:slaStats.breached, c:'var(--status-danger)' },
               ]).map(r => (
                 <div key={r.label} style={{ display:'flex',alignItems:'center',gap:6 }}>
                   <div style={{ width:5,height:5,borderRadius:'50%',background:r.c,flexShrink:0 }}/>
-                  <span style={{ fontSize:10,color:'rgba(255,255,255,.6)',flex:1 }}>{r.label}</span>
+                  <span style={{ fontSize:10,color:'var(--text-secondary)',flex:1 }}>{r.label}</span>
                   <span style={{ fontSize:11,fontWeight:700,color:r.c }}>{r.val}</span>
                 </div>
               ))}
             </div>
           </div>
           {slaStats.worstSuburbs.length > 0 && (
-            <div style={{ marginTop:9,paddingTop:8,borderTop:'1px solid rgba(255,255,255,.05)' }}>
-              <div style={{ fontSize:8.5,fontWeight:700,letterSpacing:'.08em',color:'rgba(239,68,68,.45)',textTransform:'uppercase',marginBottom:4 }}>Breach Hotspots</div>
+            <div style={{ marginTop:9,paddingTop:8,borderTop:'1px solid var(--border)' }}>
+              <div style={{ fontSize:8.5,fontWeight:700,letterSpacing:'.08em',color:'var(--status-danger)',textTransform:'uppercase',marginBottom:4 }}>Breach Hotspots</div>
               {slaStats.worstSuburbs.map(([sub, cnt]) => (
                 <div key={sub} style={{ display:'flex',justifyContent:'space-between',marginBottom:3 }}>
-                  <span style={{ fontSize:9.5,color:'rgba(255,255,255,.54)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1 }}>{sub}</span>
-                  <span style={{ fontSize:9.5,fontWeight:700,color:'#EF4444',marginLeft:6 }}>{cnt}</span>
+                  <span style={{ fontSize:9.5,color:'var(--text-secondary)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1 }}>{sub}</span>
+                  <span style={{ fontSize:9.5,fontWeight:700,color:'var(--status-danger)',marginLeft:6 }}>{cnt}</span>
                 </div>
               ))}
             </div>
@@ -544,69 +546,69 @@ export default function BinMaintenancePage() {
         </div>
 
         {/* Stream Analytics */}
-        <div className="bm-card" style={{ padding:'14px 16px',background:'rgba(5,6,9,.70)',borderRight:'1px solid rgba(255,255,255,.05)' }}>
-          <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.44)',textTransform:'uppercase',marginBottom:10 }}>Stream Analytics</div>
+        <div className="bm-card" style={{ padding:'14px 16px',background:'var(--bg-surface)',borderRight:'1px solid var(--border)' }}>
+          <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'var(--text-muted)',textTransform:'uppercase',marginBottom:10 }}>Stream Analytics</div>
           {streamStats.map(s => (
             <div key={s.type} style={{ marginBottom:9 }}>
               <div style={{ display:'flex',justifyContent:'space-between',marginBottom:3 }}>
                 <div style={{ display:'flex',alignItems:'center',gap:5 }}>
                   <div style={{ width:5,height:5,borderRadius:'50%',background:s.color }}/>
-                  <span style={{ fontSize:10,color:'rgba(255,255,255,.67)',fontWeight:600 }}>{s.label}</span>
+                  <span style={{ fontSize:10,color:'var(--text-secondary)',fontWeight:600 }}>{s.label}</span>
                 </div>
                 <div style={{ display:'flex',gap:6 }}>
-                  <span style={{ fontSize:9.5,color:'rgba(255,255,255,.47)' }}>{s.total.toLocaleString()}</span>
-                  <span style={{ fontSize:9.5,fontWeight:700,color:s.color }}>{s.pct}%</span>
+                  <span style={{ fontSize:9.5,color:'var(--text-muted)' }}>{s.total.toLocaleString()}</span>
+                  <span style={{ fontSize:9.5,fontWeight:700,color:'var(--text-primary)' }}>{s.pct}%</span>
                 </div>
               </div>
-              <div style={{ height:3,background:'rgba(255,255,255,.06)',borderRadius:2,overflow:'hidden' }}>
+              <div style={{ height:3,background:'var(--border)',borderRadius:2,overflow:'hidden' }}>
                 <div style={{ height:'100%',width:`${s.pct}%`,background:s.color,borderRadius:2,transition:'width .5s ease',opacity:.8 }}/>
               </div>
               <div style={{ display:'flex',gap:8,marginTop:2 }}>
-                <span style={{ fontSize:8.5,color:'rgba(255,255,255,.44)' }}>Active: {s.active}</span>
-                <span style={{ fontSize:8.5,color:'rgba(34,197,94,.40)' }}>✓ {s.compRate}%</span>
-                {s.overdue > 0 && <span style={{ fontSize:8.5,color:'rgba(249,115,22,.55)' }}>⚠ {s.overdue}</span>}
+                <span style={{ fontSize:8.5,color:'var(--text-muted)' }}>Active: {s.active}</span>
+                <span style={{ fontSize:8.5,color:'var(--status-success)' }}>✓ {s.compRate}%</span>
+                {s.overdue > 0 && <span style={{ fontSize:8.5,color:'var(--status-warning)' }}>⚠ {s.overdue}</span>}
               </div>
             </div>
           ))}
         </div>
 
         {/* Repeat Properties */}
-        <div className="bm-card" style={{ padding:'14px 16px',background:'rgba(5,6,9,.70)',borderRight:'1px solid rgba(255,255,255,.05)',overflow:'hidden' }}>
+        <div className="bm-card" style={{ padding:'14px 16px',background:'var(--bg-surface)',borderRight:'1px solid var(--border)',overflow:'hidden' }}>
           <div style={{ display:'flex',alignItems:'center',gap:6,marginBottom:10 }}>
-            <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.44)',textTransform:'uppercase' }}>Repeat Properties</div>
-            <span style={{ fontSize:9,fontWeight:700,color:'#F97316',background:'rgba(249,115,22,.10)',border:'1px solid rgba(249,115,22,.20)',padding:'1px 6px',borderRadius:8 }}>{repeatProps.length}</span>
+            <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'var(--text-muted)',textTransform:'uppercase' }}>Repeat Properties</div>
+            <span style={{ fontSize:9,fontWeight:700,color:'var(--status-warning)',background:'var(--status-warning-muted)',border:'1px solid var(--status-warning-border)',padding:'1px 6px',borderRadius:8 }}>{repeatProps.length}</span>
           </div>
           {repeatProps.slice(0,5).map((p,i) => (
-            <div key={i} style={{ display:'flex',alignItems:'center',gap:7,marginBottom:6,padding:'5px 7px',background:'rgba(255,255,255,.025)',borderRadius:5 }}>
-              <div style={{ width:20,height:20,borderRadius:4,background:p.count>=4?'rgba(239,68,68,.14)':'rgba(249,115,22,.10)',border:`1px solid ${p.count>=4?'rgba(239,68,68,.28)':'rgba(249,115,22,.22)'}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0 }}>
-                <span style={{ fontSize:9,fontWeight:800,color:p.count>=4?'#EF4444':'#F97316' }}>{p.count}</span>
+            <div key={i} style={{ display:'flex',alignItems:'center',gap:7,marginBottom:6,padding:'5px 7px',background:'var(--bg-raised)',border:'1px solid var(--border-light)',borderRadius:5 }}>
+              <div style={{ width:20,height:20,borderRadius:4,background:p.count>=4?'var(--status-danger-muted)':'var(--status-warning-muted)',border:`1px solid ${p.count>=4?'var(--status-danger-border)':'var(--status-warning-border)'}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0 }}>
+                <span style={{ fontSize:9,fontWeight:800,color:p.count>=4?'var(--status-danger)':'var(--status-warning)' }}>{p.count}</span>
               </div>
               <div style={{ flex:1,minWidth:0 }}>
-                <div style={{ fontSize:10,color:'rgba(255,255,255,.8)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{p.address}</div>
-                <div style={{ fontSize:8.5,color:'rgba(255,255,255,.48)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{p.suburb} · {p.issues[0]}</div>
+                <div style={{ fontSize:10,color:'var(--text-primary)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{p.address}</div>
+                <div style={{ fontSize:8.5,color:'var(--text-muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{p.suburb} · {p.issues[0]}</div>
               </div>
-              {p.active > 0 && <div style={{ width:6,height:6,borderRadius:'50%',background:'#EF4444',flexShrink:0,animation:'bm-blink 2s ease-in-out infinite' }}/>}
+              {p.active > 0 && <div aria-hidden="true" style={{ width:6,height:6,borderRadius:'50%',background:'var(--status-danger)',flexShrink:0 }}/>}
             </div>
           ))}
-          {repeatProps.length > 5 && <div style={{ fontSize:9,color:'rgba(255,255,255,.42)',textAlign:'center',marginTop:4 }}>+{repeatProps.length-5} more</div>}
-          {repeatProps.length === 0 && !statsLoading && <div style={{ fontSize:9.5,color:'rgba(255,255,255,.4)',marginTop:8 }}>No repeat properties detected.</div>}
+          {repeatProps.length > 5 && <div style={{ fontSize:9,color:'var(--text-muted)',textAlign:'center',marginTop:4 }}>+{repeatProps.length-5} more</div>}
+          {repeatProps.length === 0 && !statsLoading && <div style={{ fontSize:9.5,color:'var(--text-muted)',marginTop:8 }}>No repeat properties detected.</div>}
         </div>
 
         {/* Issue Breakdown */}
-        <div className="bm-card" style={{ padding:'14px 16px',background:'rgba(5,6,9,.70)' }}>
-          <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.44)',textTransform:'uppercase',marginBottom:10 }}>Active Issue Types</div>
+        <div className="bm-card" style={{ padding:'14px 16px',background:'var(--bg-surface)' }}>
+          <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'var(--text-muted)',textTransform:'uppercase',marginBottom:10 }}>Active Issue Types</div>
           {issueFreq.map(({ issue, count, pct }) => (
             <div key={issue} style={{ marginBottom:7 }}>
               <div style={{ display:'flex',justifyContent:'space-between',marginBottom:2 }}>
-                <span style={{ fontSize:10,color:'rgba(255,255,255,.64)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,paddingRight:6 }}>{issue}</span>
-                <span style={{ fontSize:10,fontWeight:700,color:'rgba(255,255,255,.72)',flexShrink:0 }}>{count}</span>
+                <span style={{ fontSize:10,color:'var(--text-secondary)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,paddingRight:6 }}>{issue}</span>
+                <span style={{ fontSize:10,fontWeight:700,color:'var(--text-primary)',flexShrink:0 }}>{count}</span>
               </div>
-              <div style={{ height:2.5,background:'rgba(255,255,255,.06)',borderRadius:2,overflow:'hidden' }}>
-                <div style={{ height:'100%',width:`${pct}%`,background:'rgba(139,92,246,.55)',borderRadius:2,transition:'width .4s ease' }}/>
+              <div style={{ height:2.5,background:'var(--border)',borderRadius:2,overflow:'hidden' }}>
+                <div style={{ height:'100%',width:`${pct}%`,background:'var(--brand-brainbase-accent)',borderRadius:2,transition:'width .4s ease' }}/>
               </div>
             </div>
           ))}
-          {issueFreq.length === 0 && !statsLoading && <div style={{ fontSize:10,color:'rgba(255,255,255,.4)',marginTop:16,textAlign:'center' }}>No active jobs</div>}
+          {issueFreq.length === 0 && !statsLoading && <div style={{ fontSize:10,color:'var(--text-muted)',marginTop:16,textAlign:'center' }}>No active jobs</div>}
         </div>
       </div>
 
@@ -614,75 +616,75 @@ export default function BinMaintenancePage() {
       <div style={{ flex:1,display:'flex',overflow:'hidden',alignItems:'flex-start' }}>
 
         {/* Left Rail — Map */}
-        <div style={{ flex:'1 1 50%',minWidth:0,borderRight:'1px solid rgba(255,255,255,.05)',display:'flex',flexDirection:'column',background:'rgba(5,6,9,.50)' }}>
+        <div style={{ flex:'1 1 50%',minWidth:0,borderRight:'1px solid var(--border)',display:'flex',flexDirection:'column',background:'var(--bg-base)' }}>
 
           <div style={{ padding:'10px 12px 4px',flexShrink:0 }}>
             <div style={{ display:'flex',alignItems:'center',gap:6,marginBottom:6 }}>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="rgba(139,92,246,.60)" strokeWidth="2" strokeLinecap="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-              <span style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.5)',textTransform:'uppercase' }}>Operational Hotspots</span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+              <span style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'var(--text-secondary)',textTransform:'uppercase' }}>Operational Hotspots</span>
             </div>
           </div>
           <div style={{ flex:'1 1 auto',minHeight:320,padding:'0 12px',marginBottom:4,display:'flex' }}>
-            <div style={{ flex:1,borderRadius:10,overflow:'hidden',border:'1px solid rgba(255,255,255,.06)' }}>
+            <div style={{ flex:1,borderRadius:10,overflow:'hidden',border:'1px solid var(--border)' }}>
               <RequestsMap jobs={activeJobs} onSuburbClick={setSearch}/>
             </div>
           </div>
 
           <div style={{ flexShrink:0,height:260,overflowY:'auto' }}>
             <div style={{ padding:'6px 12px',flexShrink:0 }}>
-              <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.42)',textTransform:'uppercase',marginBottom:6 }}>Active By Suburb</div>
+              <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'var(--text-muted)',textTransform:'uppercase',marginBottom:6 }}>Active By Suburb</div>
               {Object.entries(
                 activeJobs.reduce((acc,j) => { acc[j.suburb]=(acc[j.suburb]??0)+1; return acc; },{} as Record<string,number>)
               ).sort(([,a],[,b])=>b-a).slice(0,6).map(([sub,cnt]) => {
                 const mx = Math.max(...Object.values(activeJobs.reduce((a,j)=>{ a[j.suburb]=(a[j.suburb]??0)+1; return a; },{} as Record<string,number>)),1);
                 return (
                   <div key={sub} style={{ display:'flex',alignItems:'center',gap:7,marginBottom:5 }}>
-                    <span style={{ fontSize:10,color:'rgba(255,255,255,.66)',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{sub}</span>
-                    <div style={{ width:50,height:3,background:'rgba(255,255,255,.06)',borderRadius:2,overflow:'hidden' }}>
-                      <div style={{ height:'100%',width:`${Math.min((cnt/mx)*100,100)}%`,background:'rgba(139,92,246,.60)',borderRadius:2 }}/>
+                    <span style={{ fontSize:10,color:'var(--text-secondary)',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{sub}</span>
+                    <div style={{ width:50,height:3,background:'var(--border)',borderRadius:2,overflow:'hidden' }}>
+                      <div style={{ height:'100%',width:`${Math.min((cnt/mx)*100,100)}%`,background:'var(--brand-brainbase-accent)',borderRadius:2 }}/>
                     </div>
-                    <span style={{ fontSize:9.5,fontWeight:700,color:'rgba(255,255,255,.54)',width:18,textAlign:'right' }}>{cnt}</span>
+                    <span style={{ fontSize:9.5,fontWeight:700,color:'var(--text-secondary)',width:18,textAlign:'right' }}>{cnt}</span>
                   </div>
                 );
               })}
             </div>
 
-            <div style={{ padding:'6px 12px',flexShrink:0,borderTop:'1px solid rgba(255,255,255,.04)' }}>
-              <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.42)',textTransform:'uppercase',marginBottom:7 }}>Productivity</div>
+            <div style={{ padding:'6px 12px',flexShrink:0,borderTop:'1px solid var(--border)' }}>
+              <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'var(--text-muted)',textTransform:'uppercase',marginBottom:7 }}>Productivity</div>
               <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:7,marginBottom:8 }}>
-                <div style={{ padding:'8px',background:'rgba(255,255,255,.03)',borderRadius:7,border:'1px solid rgba(255,255,255,.06)' }}>
-                  <div style={{ fontSize:8.5,color:'rgba(255,255,255,.46)',marginBottom:2 }}>Completed</div>
-                  <div style={{ fontSize:18,fontWeight:800,color:'#22C55E',lineHeight:1 }}>{productivity.total.toLocaleString()}</div>
-                  <div style={{ fontSize:8,color:'rgba(34,197,94,.38)',marginTop:2 }}>{productivity.rate}% rate</div>
+                <div style={{ padding:'8px',background:'var(--bg-raised)',borderRadius:7,border:'1px solid var(--border)' }}>
+                  <div style={{ fontSize:8.5,color:'var(--text-muted)',marginBottom:2 }}>Completed</div>
+                  <div style={{ fontSize:18,fontWeight:800,color:'var(--status-success)',lineHeight:1 }}>{productivity.total.toLocaleString()}</div>
+                  <div style={{ fontSize:8,color:'var(--text-muted)',marginTop:2 }}>{productivity.rate}% rate</div>
                 </div>
-                <div style={{ padding:'8px',background:'rgba(255,255,255,.03)',borderRadius:7,border:'1px solid rgba(255,255,255,.06)' }}>
-                  <div style={{ fontSize:8.5,color:'rgba(255,255,255,.46)',marginBottom:2 }}>Avg / Week</div>
-                  <div style={{ fontSize:18,fontWeight:800,color:'#A78BFA',lineHeight:1 }}>{productivity.avg}</div>
-                  <div style={{ fontSize:8,color:'rgba(167,139,250,.38)',marginTop:2 }}>historical</div>
+                <div style={{ padding:'8px',background:'var(--bg-raised)',borderRadius:7,border:'1px solid var(--border)' }}>
+                  <div style={{ fontSize:8.5,color:'var(--text-muted)',marginBottom:2 }}>Avg / Week</div>
+                  <div style={{ fontSize:18,fontWeight:800,color:'var(--text-primary)',lineHeight:1 }}>{productivity.avg}</div>
+                  <div style={{ fontSize:8,color:'var(--text-muted)',marginTop:2 }}>historical</div>
                 </div>
               </div>
               {productivity.trend.length > 1 && (
                 <>
-                  <div style={{ fontSize:8.5,color:'rgba(255,255,255,.4)',marginBottom:3 }}>Weekly completion trend</div>
+                  <div style={{ fontSize:8.5,color:'var(--text-muted)',marginBottom:3 }}>Weekly completion trend</div>
                   <Sparkline data={productivity.trend} color="#22C55E" width={265} height={28}/>
                 </>
               )}
             </div>
 
             {/* HLNA Briefing */}
-            <div style={{ padding:'8px 12px 12px',borderTop:'1px solid rgba(255,255,255,.04)' }}>
+            <div style={{ padding:'8px 12px 12px',borderTop:'1px solid var(--border)' }}>
               <div style={{ display:'flex',alignItems:'center',gap:5,marginBottom:8 }}>
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="rgba(139,92,246,.80)" strokeWidth="2.5" strokeLinecap="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                <span style={{ fontSize:9,fontWeight:700,letterSpacing:'.14em',color:'rgba(139,92,246,.65)',textTransform:'uppercase' }}>HLNA · Operational Brief</span>
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="var(--brand-brainbase-accent)" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                <span style={{ fontSize:9,fontWeight:700,letterSpacing:'.14em',color:'var(--text-secondary)',textTransform:'uppercase' }}>HLNA · Operational Brief</span>
               </div>
               {hlna.map((line, i) => (
                 <div key={i} style={{ display:'flex',gap:7,marginBottom:7,animation:`bm-fade .3s ease ${i*.08}s both` }}>
-                  <div style={{ width:3,height:3,borderRadius:'50%',background:'rgba(139,92,246,.50)',flexShrink:0,marginTop:5 }}/>
-                  <p style={{ fontSize:9.5,color:'rgba(255,255,255,.6)',margin:0,lineHeight:1.65,fontFamily:FONT }}>{line}</p>
+                  <div style={{ width:3,height:3,borderRadius:'50%',background:'var(--brand-brainbase-accent)',flexShrink:0,marginTop:5 }}/>
+                  <p style={{ fontSize:9.5,color:'var(--text-secondary)',margin:0,lineHeight:1.65,fontFamily:FONT }}>{line}</p>
                 </div>
               ))}
               {hlna.length === 0 && !statsLoading && (
-                <p style={{ fontSize:9.5,color:'rgba(255,255,255,.4)',fontFamily:FONT,margin:0 }}>Awaiting data…</p>
+                <p style={{ fontSize:9.5,color:'var(--text-muted)',fontFamily:FONT,margin:0 }}>Awaiting data…</p>
               )}
             </div>
           </div>
@@ -692,30 +694,28 @@ export default function BinMaintenancePage() {
         <div style={{ flex:'1 1 50%',display:'flex',flexDirection:'column',overflow:'hidden',minWidth:0 }}>
 
           {/* Filter bar */}
-          <div style={{ padding:'10px 16px',borderBottom:'1px solid rgba(255,255,255,.04)',background:'rgba(6,7,10,.40)',flexShrink:0,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap' }}>
-            <FilterChip label="Active"      active={filterStatus==='active'}      color="#A78BFA" count={statusCounts.active??0}      onClick={()=>setFilterStatus('active')} />
-            <FilterChip label="Open"        active={filterStatus==='OPEN'}        color="#EF4444" count={statusCounts.OPEN??0}        onClick={()=>setFilterStatus(filterStatus==='OPEN'?'active':'OPEN')} />
+          <div style={{ padding:'10px 16px',borderBottom:'1px solid var(--border)',background:'var(--bg-surface)',flexShrink:0,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap' }}>
+            <FilterChip label="Active"      active={filterStatus==='active'}      color="var(--brand-brainbase-accent)" count={statusCounts.active??0}      onClick={()=>setFilterStatus('active')} />
+            <FilterChip label="Open"        active={filterStatus==='OPEN'}        color="var(--status-danger)" count={statusCounts.OPEN??0}        onClick={()=>setFilterStatus(filterStatus==='OPEN'?'active':'OPEN')} />
             <FilterChip label="Escalated"   active={filterStatus==='ESCALATED'}   color="#F97316" count={statusCounts.ESCALATED??0}   onClick={()=>setFilterStatus(filterStatus==='ESCALATED'?'active':'ESCALATED')} />
-            <FilterChip label="In Progress" active={filterStatus==='IN_PROGRESS'} color="#F59E0B" count={statusCounts.IN_PROGRESS??0} onClick={()=>setFilterStatus(filterStatus==='IN_PROGRESS'?'active':'IN_PROGRESS')} />
-            <FilterChip label="Completed"   active={filterStatus==='COMPLETED'}   color="#22C55E" count={statusCounts.COMPLETED??0}   onClick={()=>setFilterStatus(filterStatus==='COMPLETED'?'active':'COMPLETED')} />
-            <FilterChip label="All"         active={filterStatus==='all'}         color="rgba(255,255,255,.40)" count={statusCounts.all??0} onClick={()=>setFilterStatus('all')} />
+            <FilterChip label="In Progress" active={filterStatus==='IN_PROGRESS'} color="var(--status-warning)" count={statusCounts.IN_PROGRESS??0} onClick={()=>setFilterStatus(filterStatus==='IN_PROGRESS'?'active':'IN_PROGRESS')} />
+            <FilterChip label="Completed"   active={filterStatus==='COMPLETED'}   color="var(--status-success)" count={statusCounts.COMPLETED??0}   onClick={()=>setFilterStatus(filterStatus==='COMPLETED'?'active':'COMPLETED')} />
+            <FilterChip label="All"         active={filterStatus==='all'}         color="var(--text-primary)" count={statusCounts.all??0} onClick={()=>setFilterStatus('all')} />
             <div style={{ flex:1 }}/>
             {(['all','CRITICAL','HIGH','MEDIUM','LOW'] as const).map(sev => (
-              <button key={sev} onClick={()=>setFilterSev(filterSev===sev?'all':sev)} style={{
+              <button key={sev} type="button" aria-pressed={filterSev===sev} onClick={()=>setFilterSev(filterSev===sev?'all':sev)} style={{
                 padding:'4px 9px',borderRadius:6,fontSize:9.5,fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em',cursor:'pointer',fontFamily:FONT,transition:'all .14s',
-                background:filterSev===sev?(sev==='all'?'rgba(255,255,255,.10)':SEV[sev as Severity]?.bg):'transparent',
-                border:`1px solid ${filterSev===sev?(sev==='all'?'rgba(255,255,255,.20)':SEV[sev as Severity]?.border):'rgba(255,255,255,.06)'}`,
-                color:filterSev===sev?(sev==='all'?'rgba(255,255,255,.60)':SEV[sev as Severity]?.color):'rgba(255,255,255,.22)',
+                background:filterSev===sev?(sev==='all'?'var(--bg-raised)':SEV[sev as Severity]?.bg):'transparent',
+                border:`1px solid ${filterSev===sev?(sev==='all'?'var(--border-strong)':SEV[sev as Severity]?.border):'var(--border)'}`,
+                color:filterSev===sev?'var(--text-primary)':'var(--text-muted)',
               }}>{sev==='all'?'ALL SEV':sev[0]+sev.slice(1).toLowerCase()}</button>
             ))}
             <div style={{ position:'relative' }}>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.28)" strokeWidth="2" strokeLinecap="round" style={{ position:'absolute',left:9,top:'50%',transform:'translateY(-50%)' }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…"
-                style={{ background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',borderRadius:7,padding:'5px 10px 5px 28px',fontSize:11.5,color:'#F5F7FA',fontFamily:FONT,outline:'none',width:140,transition:'border-color .14s' }}
-                onFocus={e=>(e.currentTarget.style.borderColor='rgba(139,92,246,.40)')}
-                onBlur={e=>(e.currentTarget.style.borderColor='rgba(255,255,255,.08)')}/>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" aria-hidden="true" style={{ position:'absolute',left:9,top:'50%',transform:'translateY(-50%)' }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="search" aria-label="Search jobs" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…"
+                style={{ background:'var(--bg-raised)',border:'1px solid var(--border-strong)',borderRadius:7,padding:'5px 10px 5px 28px',fontSize:11.5,color:'var(--text-primary)',fontFamily:FONT,width:140 }}/>
             </div>
-            <select value={sortBy} onChange={e=>setSortBy(e.target.value as typeof sortBy)} style={{ background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',borderRadius:7,padding:'5px 10px',fontSize:11,color:'rgba(255,255,255,.72)',fontFamily:FONT,outline:'none',cursor:'pointer',colorScheme:'dark' }}>
+            <select aria-label="Sort jobs" value={sortBy} onChange={e=>setSortBy(e.target.value as typeof sortBy)} style={{ background:'var(--bg-raised)',border:'1px solid var(--border-strong)',borderRadius:7,padding:'5px 10px',fontSize:11,color:'var(--text-primary)',fontFamily:FONT,cursor:'pointer' }}>
               <option value="severity">Severity ↓</option>
               <option value="date">Scheduled date</option>
               <option value="suburb">Suburb A→Z</option>
@@ -724,35 +724,35 @@ export default function BinMaintenancePage() {
           </div>
 
           {/* Table header */}
-          <div style={{ display:'grid',gridTemplateColumns:'4px 1fr 160px 100px 100px 70px 44px',padding:'7px 16px',borderBottom:'1px solid rgba(255,255,255,.05)',background:'rgba(0,0,0,.20)',flexShrink:0,alignItems:'center' }}>
+          <div style={{ display:'grid',gridTemplateColumns:'4px 1fr 160px 100px 100px 70px 44px',padding:'7px 16px',borderBottom:'1px solid var(--border)',background:'var(--bg-sunken)',flexShrink:0,alignItems:'center' }}>
             {['','Address / Issue','Bin Type','Status','Assigned','Due / Age',''].map((h,i)=>(
-              <span key={i} style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.44)',textTransform:'uppercase',paddingLeft:i===0?0:i===1?10:0 }}>{h}</span>
+              <span key={i} style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'var(--text-muted)',textTransform:'uppercase',paddingLeft:i===0?0:i===1?10:0 }}>{h}</span>
             ))}
           </div>
 
           {/* Rows */}
           <div style={{ flex:1,overflowY:'auto',overflowX:'hidden' }}>
             {loading && jobs.length === 0 && Array.from({length:8}).map((_,i) => (
-              <div key={i} style={{ display:'grid',gridTemplateColumns:'4px 1fr 160px 100px 100px 70px 44px',padding:'11px 16px',borderBottom:'1px solid rgba(255,255,255,.03)',alignItems:'center',opacity:1-i*0.1 }}>
-                <div style={{ width:3,height:28,borderRadius:2,background:'rgba(255,255,255,.06)' }}/>
+              <div key={i} style={{ display:'grid',gridTemplateColumns:'4px 1fr 160px 100px 100px 70px 44px',padding:'11px 16px',borderBottom:'1px solid var(--border)',alignItems:'center',opacity:1-i*0.1 }}>
+                <div style={{ width:3,height:28,borderRadius:2,background:'var(--border)' }}/>
                 <div style={{ paddingLeft:12 }}>
-                  <div style={{ height:10,width:'55%',background:'rgba(255,255,255,.05)',borderRadius:4,marginBottom:6,animation:'bm-blink 1.5s ease-in-out infinite' }}/>
-                  <div style={{ height:8,width:'35%',background:'rgba(255,255,255,.04)',borderRadius:4,animation:'bm-blink 1.5s ease-in-out infinite' }}/>
+                  <div style={{ height:10,width:'55%',background:'var(--border)',borderRadius:4,marginBottom:6,animation:'bm-blink 1.5s ease-in-out infinite' }}/>
+                  <div style={{ height:8,width:'35%',background:'var(--border)',borderRadius:4,animation:'bm-blink 1.5s ease-in-out infinite' }}/>
                 </div>
-                {[120,70,80,50].map((w,j) => <div key={j} style={{ height:8,width:w,background:'rgba(255,255,255,.04)',borderRadius:4,animation:'bm-blink 1.5s ease-in-out infinite' }}/>)}
+                {[120,70,80,50].map((w,j) => <div key={j} style={{ height:8,width:w,background:'var(--border)',borderRadius:4,animation:'bm-blink 1.5s ease-in-out infinite' }}/>)}
                 <div/>
               </div>
             ))}
 
             {!loading && fetchError && jobs.length === 0 && (
               <div style={{ padding:'48px',textAlign:'center' }}>
-                <div style={{ fontSize:13,color:'rgba(239,68,68,.60)',marginBottom:8 }}>{fetchError}</div>
-                <button onClick={()=>fetchJobs(0,true)} style={{ fontSize:11,color:'#C4B5FD',background:'rgba(139,92,246,.14)',border:'1px solid rgba(139,92,246,.28)',borderRadius:7,padding:'7px 16px',cursor:'pointer',fontFamily:FONT }}>Retry</button>
+                <div role="alert" style={{ fontSize:13,color:'var(--status-danger)',marginBottom:8 }}>{fetchError}</div>
+                <button type="button" onClick={()=>fetchJobs(0,true)} {...buttonProps('secondary', 'sm')}>Retry</button>
               </div>
             )}
 
             {!loading && !fetchError && displayed.length === 0 && (
-              <div style={{ padding:'48px',textAlign:'center',color:'rgba(255,255,255,.42)',fontSize:13 }}>
+              <div style={{ padding:'48px',textAlign:'center',color:'var(--text-muted)',fontSize:13 }}>
                 {jobs.length === 0 ? 'No maintenance jobs. Upload a spreadsheet or create a job.' : 'No jobs match the current filters.'}
               </div>
             )}
@@ -763,53 +763,54 @@ export default function BinMaintenancePage() {
               const od = isOverdue(job);
               const av = job.assigned_to ? job.assigned_to.split(' ').map((w:string)=>w[0]).join('') : null;
               return (
-                <div key={job.id} className="bm-row"
-                  style={{ display:'grid',gridTemplateColumns:'4px 1fr 160px 100px 100px 70px 44px',padding:'11px 16px',borderBottom:'1px solid rgba(255,255,255,.04)',alignItems:'center',background:i%2===0?'rgba(0,0,0,.10)':'transparent',animation:'bm-fade .18s ease' }}
-                  onClick={()=>setSelectedJob(job)}>
-                  <div style={{ width:3,height:28,borderRadius:2,background:s.color,boxShadow:`0 0 6px ${s.color}55`,flexShrink:0 }}/>
+                <div key={job.id} className="bm-row" role="button" tabIndex={0}
+                  style={{ display:'grid',gridTemplateColumns:'4px 1fr 160px 100px 100px 70px 44px',padding:'11px 16px',borderBottom:'1px solid var(--border-light)',alignItems:'center',background:i%2===0?'var(--bg-surface)':'transparent',animation:'bm-fade .18s ease' }}
+                  onClick={()=>setSelectedJob(job)}
+                  onKeyDown={e=>{ if (e.key==='Enter' || e.key===' ') { e.preventDefault(); setSelectedJob(job); } }}>
+                  <div style={{ width:3,height:28,borderRadius:2,background:s.color,flexShrink:0 }}/>
                   <div style={{ paddingLeft:12,minWidth:0 }}>
                     <div style={{ display:'flex',alignItems:'baseline',gap:6 }}>
-                      <div style={{ fontSize:12.5,fontWeight:600,color:'rgba(255,255,255,.85)',lineHeight:1.3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{job.address}</div>
+                      <div style={{ fontSize:12.5,fontWeight:600,color:'var(--text-primary)',lineHeight:1.3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{job.address}</div>
                       {job.ticket_number && (
-                        <span style={{ fontSize:9,fontWeight:600,color:'rgba(255,255,255,.28)',fontFamily:'monospace',flexShrink:0 }}>#{job.ticket_number}</span>
+                        <span style={{ fontSize:9,fontWeight:600,color:'var(--text-muted)',fontFamily:'monospace',flexShrink:0 }}>#{job.ticket_number}</span>
                       )}
                     </div>
                     <div style={{ display:'flex',alignItems:'center',gap:5,marginTop:2 }}>
-                      <span style={{ fontSize:10,color:'rgba(255,255,255,.52)' }}>{job.suburb}</span>
+                      <span style={{ fontSize:10,color:'var(--text-secondary)' }}>{job.suburb}</span>
                       <span style={{ opacity:.3 }}>·</span>
-                      <span style={{ fontSize:10,color:'rgba(255,255,255,.66)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:160 }}>{job.issue_type}</span>
+                      <span style={{ fontSize:10,color:'var(--text-secondary)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:160 }}>{job.issue_type}</span>
                     </div>
                   </div>
                   <div style={{ display:'flex',alignItems:'center',gap:5 }}>
                     <div style={{ width:5,height:5,borderRadius:'50%',background:STREAM[job.bin_type]?.color||'#6B7280',flexShrink:0 }}/>
-                    <span style={{ fontSize:11,color:'rgba(255,255,255,.62)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>
+                    <span style={{ fontSize:11,color:'var(--text-secondary)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>
                       {job.bin_type.replace(/_/g,' ').toLowerCase().replace(/(?:^|\s)\S/g,c=>c.toUpperCase())}
                     </span>
                   </div>
                   <div style={{ padding:'3px 9px',borderRadius:20,background:st.bg,border:`1px solid ${st.color}30`,display:'inline-flex',alignItems:'center',gap:5,width:'fit-content' }}>
-                    <div style={{ width:5,height:5,borderRadius:'50%',background:st.color,flexShrink:0,animation:['OPEN','ESCALATED','IN_PROGRESS'].includes(job.status)?'bm-blink 2.4s ease-in-out infinite':'none' }}/>
-                    <span style={{ fontSize:9.5,fontWeight:700,color:st.color,letterSpacing:'.05em',whiteSpace:'nowrap' }}>{st.label}</span>
+                    <div aria-hidden="true" style={{ width:5,height:5,borderRadius:'50%',background:st.color,flexShrink:0 }}/>
+                    <span style={{ fontSize:9.5,fontWeight:700,color:'var(--text-primary)',letterSpacing:'.05em',whiteSpace:'nowrap' }}>{st.label}</span>
                   </div>
                   <div style={{ display:'flex',alignItems:'center',gap:6 }}>
                     {av ? (
                       <>
-                        <div style={{ width:22,height:22,borderRadius:'50%',background:'rgba(96,165,250,.16)',border:'1px solid rgba(96,165,250,.24)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:700,color:'#60A5FA',flexShrink:0 }}>{av}</div>
-                        <span style={{ fontSize:10.5,color:'rgba(255,255,255,.66)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{job.assigned_to?.split(' ')[0]}</span>
+                        <div style={{ width:22,height:22,borderRadius:'50%',background:'var(--bg-sunken)',border:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:700,color:'var(--text-secondary)',flexShrink:0 }}>{av}</div>
+                        <span style={{ fontSize:10.5,color:'var(--text-secondary)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{job.assigned_to?.split(' ')[0]}</span>
                       </>
                     ) : (
-                      <span style={{ fontSize:10.5,color:'rgba(255,255,255,.42)',fontStyle:'italic' }}>Unassigned</span>
+                      <span style={{ fontSize:10.5,color:'var(--text-muted)',fontStyle:'italic' }}>Unassigned</span>
                     )}
                   </div>
                   <div style={{ textAlign:'right' }}>
                     {job.scheduled_date && (
-                      <div style={{ fontSize:10.5,fontWeight:od?700:400,color:od?'#F97316':'rgba(255,255,255,.38)',whiteSpace:'nowrap' }}>
+                      <div style={{ fontSize:10.5,fontWeight:od?700:400,color:od?'var(--status-warning)':'var(--text-muted)',whiteSpace:'nowrap' }}>
                         {od?'⚠ ':''}{new Date(job.scheduled_date).toLocaleDateString('en-AU',{day:'numeric',month:'short'})}
                       </div>
                     )}
-                    <div style={{ fontSize:9.5,color:'rgba(255,255,255,.44)',marginTop:1 }}>{ageStr(job.created_at)}</div>
+                    <div style={{ fontSize:9.5,color:'var(--text-muted)',marginTop:1 }}>{ageStr(job.created_at)}</div>
                   </div>
                   <div style={{ display:'flex',justifyContent:'center' }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.20)" strokeWidth="2" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-subtle)" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
                   </div>
                 </div>
               );
@@ -817,8 +818,7 @@ export default function BinMaintenancePage() {
 
             {!loading && hasMore && displayed.length > 0 && (
               <div style={{ padding:'14px 16px',textAlign:'center' }}>
-                <button onClick={()=>fetchJobs(skip+PAGE_SIZE, false)} disabled={loadingMore}
-                  style={{ padding:'8px 20px',borderRadius:8,background:'rgba(139,92,246,.10)',border:'1px solid rgba(139,92,246,.22)',color:'rgba(196,181,253,.60)',fontSize:11,fontWeight:600,cursor:loadingMore?'default':'pointer',fontFamily:FONT }}>
+                <button type="button" onClick={()=>fetchJobs(skip+PAGE_SIZE, false)} disabled={loadingMore} {...buttonProps('secondary', 'sm')}>
                   {loadingMore ? 'Loading…' : `Load more · ${total-jobs.length} remaining`}
                 </button>
               </div>
@@ -826,14 +826,14 @@ export default function BinMaintenancePage() {
           </div>
 
           {/* Footer */}
-          <div style={{ padding:'8px 16px',borderTop:'1px solid rgba(255,255,255,.04)',background:'rgba(0,0,0,.20)',flexShrink:0,display:'flex',alignItems:'center',gap:10 }}>
-            <span style={{ fontSize:10,color:'rgba(255,255,255,.42)' }}>{displayed.length} shown · {jobs.length.toLocaleString()} loaded · {total.toLocaleString()} total</span>
+          <div style={{ padding:'8px 16px',borderTop:'1px solid var(--border)',background:'var(--bg-sunken)',flexShrink:0,display:'flex',alignItems:'center',gap:10 }}>
+            <span style={{ fontSize:10,color:'var(--text-muted)' }}>{displayed.length} shown · {jobs.length.toLocaleString()} loaded · {total.toLocaleString()} total</span>
             <div style={{ flex:1 }}/>
             <div style={{ display:'flex',alignItems:'center',gap:6 }}>
               {Object.entries(STREAM).map(([k,v]) => (
                 <div key={k} style={{ display:'flex',alignItems:'center',gap:3 }}>
                   <div style={{ width:5,height:5,borderRadius:'50%',background:v.color }}/>
-                  <span style={{ fontSize:9,color:'rgba(255,255,255,.44)' }}>{v.label.split(' ')[0]}</span>
+                  <span style={{ fontSize:9,color:'var(--text-muted)' }}>{v.label.split(' ')[0]}</span>
                 </div>
               ))}
             </div>

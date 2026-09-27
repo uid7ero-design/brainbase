@@ -1,5 +1,6 @@
 'use client';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { useDialogFocus } from '@/components/ui/app/useDialogFocus';
 
 const FONT = 'var(--font-inter),"Inter",-apple-system,sans-serif';
 
@@ -52,7 +53,7 @@ const ST: Record<MaintenanceStatus, { color: string; bg: string; label: string }
   IN_PROGRESS: { color: '#F59E0B', bg: 'rgba(245,158,11,.14)',         label: 'In Progress' },
   ESCALATED:   { color: '#F97316', bg: 'rgba(249,115,22,.14)',         label: 'Escalated'   },
   COMPLETED:   { color: '#22C55E', bg: 'rgba(34,197,94,.14)',          label: 'Completed'   },
-  CLOSED:      { color: 'rgba(255,255,255,.30)', bg: 'rgba(255,255,255,.06)', label: 'Closed' },
+  CLOSED:      { color: '#8A8580', bg: 'rgba(138,133,128,.14)', label: 'Closed' },
 };
 
 const BIN_LABELS: Record<BinType, string> = {
@@ -158,6 +159,8 @@ export default function MaintenanceJobDrawer({ job, onClose, onStatusChange }: P
   const [commentInput, setCommentInput] = useState('');
   const [localComments, setLocalComments] = useState(job.comments ?? []);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(true, onClose, panelRef);
 
   const sev  = SEV[job.severity];
   const st   = ST[status];
@@ -198,9 +201,9 @@ export default function MaintenanceJobDrawer({ job, onClose, onStatusChange }: P
     return (
       <button onClick={() => setTab(id)} style={{
         flex: 1, padding: '10px 4px', fontSize: 10.5, fontWeight: 600,
-        color: tab === id ? '#A78BFA' : 'rgba(255,255,255,.28)',
+        color: tab === id ? 'var(--brand-brainbase-accent)' : 'var(--text-subtle)',
         background: 'none', border: 'none',
-        borderBottom: tab === id ? '2px solid #7C3AED' : '2px solid transparent',
+        borderBottom: tab === id ? '2px solid var(--brand-brainbase-accent)' : '2px solid transparent',
         cursor: 'pointer', fontFamily: FONT, letterSpacing: '.06em', textTransform: 'uppercase',
         transition: 'color .14s', marginBottom: -1,
       }}>{label}</button>
@@ -215,49 +218,49 @@ export default function MaintenanceJobDrawer({ job, onClose, onStatusChange }: P
         @keyframes mj-tab  { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:none} }
       `}} />
 
-      <div onClick={onClose} style={{ position:'fixed',inset:0,zIndex:200,background:'rgba(0,0,0,.55)',backdropFilter:'blur(2px)',animation:'mj-fade .18s ease' }} />
+      <div onClick={onClose} aria-hidden="true" style={{ position:'fixed',inset:0,zIndex:200,background:'var(--scrim)',animation:'mj-fade .18s ease' }} />
 
-      <div style={{
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-label={`Maintenance job: ${job.address}`} tabIndex={-1} style={{
         position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 201,
-        width: 480, display: 'flex', flexDirection: 'column',
-        background: 'rgba(4,5,9,.98)', borderLeft: '1px solid rgba(255,255,255,.08)',
-        boxShadow: '-24px 0 80px rgba(0,0,0,.60)', fontFamily: FONT,
+        width: 480, maxWidth: '100vw', display: 'flex', flexDirection: 'column',
+        background: 'var(--bg-surface)', borderLeft: '1px solid var(--border)',
+        boxShadow: 'var(--shadow-dialog)', fontFamily: FONT,
         animation: 'mj-in .22s cubic-bezier(.16,.84,.44,1)',
       }}>
 
         {/* Header */}
-        <div style={{ padding: '16px 20px', flexShrink: 0, borderBottom: '1px solid rgba(255,255,255,.07)', background: 'rgba(255,255,255,.015)' }}>
+        <div style={{ padding: '16px 20px', flexShrink: 0, borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6, flexWrap: 'wrap' }}>
-                <div style={{ width: 7, height: 7, borderRadius: '50%', background: sev.color, boxShadow: `0 0 7px ${sev.color}`, flexShrink: 0 }} />
+                <div style={{ width: 7, height: 7, borderRadius: '50%', background: sev.color, flexShrink: 0 }} />
                 <span style={{ fontSize: 9.5, fontWeight: 700, color: sev.color, letterSpacing: '.10em', textTransform: 'uppercase' }}>{sev.label}</span>
                 <div style={{ padding: '2px 8px', borderRadius: 20, background: st.bg, fontSize: 9, fontWeight: 700, color: st.color, letterSpacing: '.06em', textTransform: 'uppercase' }}>{st.label}</div>
-                <div style={{ padding: '2px 8px', borderRadius: 20, background: 'rgba(255,255,255,.06)', fontSize: 9, fontWeight: 600, color: 'rgba(255,255,255,.35)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{BIN_LABELS[job.bin_type]}</div>
+                <div style={{ padding: '2px 8px', borderRadius: 20, background: 'var(--bg-sunken)', fontSize: 9, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{BIN_LABELS[job.bin_type]}</div>
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#F5F7FA', lineHeight: 1.3 }}>{job.address}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3 }}>{job.address}</div>
                 {job.ticket_number && (
-                  <span style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,.32)', fontFamily: 'monospace' }}>#{job.ticket_number}</span>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', fontFamily: 'monospace' }}>#{job.ticket_number}</span>
                 )}
               </div>
-              <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,.40)', marginTop: 2 }}>{job.suburb} &middot; {job.issue_type}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>{job.suburb} &middot; {job.issue_type}</div>
             </div>
-            <button onClick={onClose} style={{ width:28,height:28,borderRadius:7,background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.10)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'rgba(255,255,255,.45)',fontSize:16,fontFamily:FONT,flexShrink:0 }}>×</button>
+            <button type="button" aria-label="Close job details" onClick={onClose} style={{ width:28,height:28,borderRadius:7,background:'var(--bg-sunken)',border:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'var(--text-muted)',fontSize:16,fontFamily:FONT,flexShrink:0 }}>×</button>
           </div>
 
           {/* HLNA confidence */}
           <div style={{ display:'flex',alignItems:'center',gap:8 }}>
-            <span style={{ fontSize:9,fontWeight:700,color:'rgba(167,139,250,.50)',letterSpacing:'.08em',textTransform:'uppercase',whiteSpace:'nowrap' }}>HLNA analysis</span>
-            <div style={{ flex:1,height:3,background:'rgba(255,255,255,.07)',borderRadius:2,overflow:'hidden' }}>
-              <div style={{ height:'100%',width:`${hlna.confidence}%`,background:'linear-gradient(90deg,rgba(167,139,250,.5),rgba(139,92,246,.85))',borderRadius:2 }} />
+            <span style={{ fontSize:9,fontWeight:700,color:'var(--brand-brainbase-accent)',letterSpacing:'.08em',textTransform:'uppercase',whiteSpace:'nowrap' }}>HLNA analysis</span>
+            <div style={{ flex:1,height:3,background:'var(--bg-sunken)',borderRadius:2,overflow:'hidden' }}>
+              <div style={{ height:'100%',width:`${hlna.confidence}%`,background:'var(--brand-brainbase-accent)',borderRadius:2 }} />
             </div>
-            <span style={{ fontSize:9,fontWeight:700,color:'rgba(167,139,250,.70)' }}>{hlna.confidence}%</span>
+            <span style={{ fontSize:9,fontWeight:700,color:'var(--brand-brainbase-accent)' }}>{hlna.confidence}%</span>
           </div>
         </div>
 
         {/* Tab bar */}
-        <div style={{ display:'flex',flexShrink:0,borderBottom:'1px solid rgba(255,255,255,.06)',background:'rgba(0,0,0,.18)' }}>
+        <div style={{ display:'flex',flexShrink:0,borderBottom:'1px solid var(--border)',background:'rgba(0,0,0,.18)' }}>
           <TabBtn id="details"  label="Details"  />
           <TabBtn id="comments" label="Comments" />
           <TabBtn id="timeline" label="Timeline" />
@@ -265,7 +268,7 @@ export default function MaintenanceJobDrawer({ job, onClose, onStatusChange }: P
         </div>
 
         {/* Content */}
-        <div style={{ flex:1,overflowY:'auto',overflowX:'hidden' }}>
+        <div data-dialog-body="" style={{ flex:1,overflowY:'auto',overflowX:'hidden' }}>
 
           {/* ── DETAILS ── */}
           {tab === 'details' && (
@@ -273,7 +276,7 @@ export default function MaintenanceJobDrawer({ job, onClose, onStatusChange }: P
 
               {/* Job info grid */}
               <section>
-                <div style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.22)',textTransform:'uppercase',marginBottom:10 }}>Job Details</div>
+                <div style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'var(--text-subtle)',textTransform:'uppercase',marginBottom:10 }}>Job Details</div>
                 <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:8 }}>
                   {[
                     { label:'Ticket #',       value: job.ticket_number || '—' },
@@ -286,23 +289,23 @@ export default function MaintenanceJobDrawer({ job, onClose, onStatusChange }: P
                     { label:'Completed',      value: fmtDate(job.completed_date) },
                     { label:'Reported',       value: fmtDate(job.created_at) },
                   ].map(r => (
-                    <div key={r.label} style={{ padding:'9px 12px',borderRadius:8,background:'rgba(255,255,255,.025)',border:'1px solid rgba(255,255,255,.05)' }}>
-                      <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.10em',color:'rgba(255,255,255,.22)',textTransform:'uppercase',marginBottom:4 }}>{r.label}</div>
-                      <div style={{ fontSize:12,color:'rgba(230,237,243,.68)',fontWeight:500 }}>{r.value}</div>
+                    <div key={r.label} style={{ padding:'9px 12px',borderRadius:8,background:'var(--bg-surface)',border:'1px solid var(--border-light)' }}>
+                      <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.10em',color:'var(--text-subtle)',textTransform:'uppercase',marginBottom:4 }}>{r.label}</div>
+                      <div style={{ fontSize:12,color:'var(--text-secondary)',fontWeight:500 }}>{r.value}</div>
                     </div>
                   ))}
                 </div>
                 {job.notes && (
-                  <div style={{ marginTop:8,padding:'10px 14px',borderRadius:9,background:'rgba(255,255,255,.02)',border:'1px solid rgba(255,255,255,.05)' }}>
-                    <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.10em',color:'rgba(255,255,255,.22)',textTransform:'uppercase',marginBottom:5 }}>Notes</div>
-                    <p style={{ margin:0,fontSize:12,color:'rgba(230,237,243,.58)',lineHeight:1.6 }}>{job.notes}</p>
+                  <div style={{ marginTop:8,padding:'10px 14px',borderRadius:9,background:'var(--bg-surface)',border:'1px solid var(--border-light)' }}>
+                    <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.10em',color:'var(--text-subtle)',textTransform:'uppercase',marginBottom:5 }}>Notes</div>
+                    <p style={{ margin:0,fontSize:12,color:'var(--text-secondary)',lineHeight:1.6 }}>{job.notes}</p>
                   </div>
                 )}
               </section>
 
               {/* Status controls */}
               <section>
-                <div style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.22)',textTransform:'uppercase',marginBottom:10 }}>Workflow</div>
+                <div style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'var(--text-subtle)',textTransform:'uppercase',marginBottom:10 }}>Workflow</div>
                 <div style={{ padding:'10px 14px',borderRadius:9,background:st.bg.replace('.14','.07'),border:`1px solid ${st.color}28`,display:'flex',alignItems:'center',gap:9,marginBottom:10 }}>
                   <div style={{ width:8,height:8,borderRadius:'50%',background:st.color }} />
                   <span style={{ fontSize:12.5,fontWeight:700,color:st.color }}>Current: {st.label}</span>
@@ -316,14 +319,14 @@ export default function MaintenanceJobDrawer({ job, onClose, onStatusChange }: P
                       <button key={tr.key} disabled={!avail||active} onClick={() => applyStatus(tr.key)} style={{
                         display:'flex',alignItems:'center',gap:10,width:'100%',padding:'9px 14px',borderRadius:8,
                         cursor:avail&&!active?'pointer':'default',
-                        background:active?`${c.color}12`:avail?'rgba(255,255,255,.04)':'transparent',
-                        border:`1px solid ${active?c.color+'35':avail?'rgba(255,255,255,.08)':'rgba(255,255,255,.04)'}`,
+                        background:active?`${c.color}12`:avail?'var(--bg-sunken)':'transparent',
+                        border:`1px solid ${active?c.color+'35':avail?'var(--border)':'var(--border-light)'}`,
                         opacity:avail||active?1:0.30,fontFamily:FONT,transition:'all .14s',
                       }}
                         onMouseEnter={e=>{ if(avail&&!active){e.currentTarget.style.background=`${c.color}0e`;} }}
-                        onMouseLeave={e=>{ if(avail&&!active){e.currentTarget.style.background='rgba(255,255,255,.04)';} }}>
+                        onMouseLeave={e=>{ if(avail&&!active){e.currentTarget.style.background='var(--bg-sunken)';} }}>
                         <div style={{ width:7,height:7,borderRadius:'50%',background:c.color,flexShrink:0 }} />
-                        <span style={{ fontSize:11.5,fontWeight:600,flex:1,textAlign:'left',color:active?c.color:avail?'rgba(255,255,255,.65)':'rgba(255,255,255,.22)' }}>
+                        <span style={{ fontSize:11.5,fontWeight:600,flex:1,textAlign:'left',color:active?c.color:avail?'var(--text-secondary)':'var(--text-subtle)' }}>
                           {actionBusy===tr.key?'Applying…':active?`${tr.label} ✓`:tr.label}
                         </span>
                         {active && <span style={{ fontSize:9,color:c.color,fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em' }}>Active</span>}
@@ -335,20 +338,20 @@ export default function MaintenanceJobDrawer({ job, onClose, onStatusChange }: P
 
               {/* Assignment */}
               <section>
-                <div style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.22)',textTransform:'uppercase',marginBottom:10 }}>Assignment</div>
+                <div style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'var(--text-subtle)',textTransform:'uppercase',marginBottom:10 }}>Assignment</div>
                 <div style={{ display:'flex',flexDirection:'column',gap:5 }}>
                   {OPERATORS.map(op => {
                     const isActive = assignedTo === op;
                     return (
                       <button key={op} onClick={() => { setAssignedTo(op); applyStatus('ASSIGNED',{assignedTo:op}); }}
-                        style={{ display:'flex',alignItems:'center',gap:10,width:'100%',padding:'9px 12px',borderRadius:8,cursor:'pointer',background:isActive?'rgba(96,165,250,.10)':'rgba(255,255,255,.03)',border:`1px solid ${isActive?'rgba(96,165,250,.26)':'rgba(255,255,255,.06)'}`,fontFamily:FONT,transition:'all .14s',textAlign:'left' }}
+                        style={{ display:'flex',alignItems:'center',gap:10,width:'100%',padding:'9px 12px',borderRadius:8,cursor:'pointer',background:isActive?'var(--status-info-muted)':'var(--bg-surface)',border:`1px solid ${isActive?'var(--status-info-border)':'var(--border)'}`,fontFamily:FONT,transition:'all .14s',textAlign:'left' }}
                         onMouseEnter={e=>{ if(!isActive)e.currentTarget.style.background='rgba(96,165,250,.05)'; }}
-                        onMouseLeave={e=>{ if(!isActive)e.currentTarget.style.background='rgba(255,255,255,.03)'; }}>
-                        <div style={{ width:26,height:26,borderRadius:'50%',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700,background:isActive?'rgba(96,165,250,.18)':'rgba(255,255,255,.07)',color:isActive?'#60A5FA':'rgba(255,255,255,.40)' }}>
+                        onMouseLeave={e=>{ if(!isActive)e.currentTarget.style.background='var(--bg-surface)'; }}>
+                        <div style={{ width:26,height:26,borderRadius:'50%',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700,background:isActive?'var(--status-info-muted)':'var(--bg-sunken)',color:isActive?'var(--status-info)':'var(--text-muted)' }}>
                           {op.split(' ').map((w:string)=>w[0]).join('')}
                         </div>
-                        <span style={{ fontSize:12,fontWeight:isActive?600:400,color:isActive?'#60A5FA':'rgba(255,255,255,.55)',flex:1 }}>{op}</span>
-                        {isActive && <span style={{ fontSize:9,color:'#60A5FA',fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em' }}>Assigned</span>}
+                        <span style={{ fontSize:12,fontWeight:isActive?600:400,color:isActive?'var(--status-info)':'var(--text-secondary)',flex:1 }}>{op}</span>
+                        {isActive && <span style={{ fontSize:9,color:'var(--status-info)',fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em' }}>Assigned</span>}
                       </button>
                     );
                   })}
@@ -360,28 +363,28 @@ export default function MaintenanceJobDrawer({ job, onClose, onStatusChange }: P
           {/* ── COMMENTS ── */}
           {tab === 'comments' && (
             <div style={{ padding:'16px 20px',display:'flex',flexDirection:'column',gap:12,animation:'mj-tab .18s ease' }}>
-              <div style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.22)',textTransform:'uppercase',marginBottom:2 }}>Operational Notes</div>
+              <div style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'var(--text-subtle)',textTransform:'uppercase',marginBottom:2 }}>Operational Notes</div>
 
               {localComments.length === 0 && (
-                <div style={{ padding:'20px',textAlign:'center',color:'rgba(255,255,255,.22)',fontSize:12 }}>No comments yet</div>
+                <div style={{ padding:'20px',textAlign:'center',color:'var(--text-subtle)',fontSize:12 }}>No comments yet</div>
               )}
               {localComments.map(c => (
-                <div key={c.id} style={{ padding:'10px 14px',borderRadius:9,background:'rgba(255,255,255,.025)',border:'1px solid rgba(255,255,255,.06)' }}>
-                  <div style={{ fontSize:9.5,color:'rgba(255,255,255,.28)',marginBottom:5 }}>
+                <div key={c.id} style={{ padding:'10px 14px',borderRadius:9,background:'var(--bg-surface)',border:'1px solid var(--border)' }}>
+                  <div style={{ fontSize:9.5,color:'var(--text-subtle)',marginBottom:5 }}>
                     {new Date(c.created_at).toLocaleString('en-AU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})} · Operator
                   </div>
-                  <div style={{ fontSize:12.5,color:'rgba(230,237,243,.68)',lineHeight:1.6 }}>{c.comment}</div>
+                  <div style={{ fontSize:12.5,color:'var(--text-secondary)',lineHeight:1.6 }}>{c.comment}</div>
                 </div>
               ))}
 
               {/* Add comment */}
               <div style={{ marginTop:4 }}>
                 <textarea value={commentInput} onChange={e=>setCommentInput(e.target.value)} placeholder="Add operational note or update…" rows={3}
-                  style={{ width:'100%',background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',borderRadius:8,padding:'9px 12px',fontSize:12,color:'#F5F7FA',fontFamily:FONT,resize:'vertical',outline:'none',transition:'border-color .14s',boxSizing:'border-box' }}
-                  onFocus={e=>(e.currentTarget.style.borderColor='rgba(139,92,246,.45)')}
-                  onBlur={e=>(e.currentTarget.style.borderColor='rgba(255,255,255,.08)')}
+                  style={{ width:'100%',background:'var(--bg-sunken)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 12px',fontSize:12,color:'var(--text-primary)',fontFamily:FONT,resize:'vertical',transition:'border-color .14s',boxSizing:'border-box' }}
+                  onFocus={e=>(e.currentTarget.style.borderColor='var(--border-focus)')}
+                  onBlur={e=>(e.currentTarget.style.borderColor='var(--border)')}
                 />
-                <button onClick={addComment} disabled={!commentInput.trim()} style={{ marginTop:8,padding:'7px 16px',borderRadius:7,fontSize:11.5,fontWeight:600,background:commentInput.trim()?'rgba(139,92,246,.22)':'rgba(255,255,255,.04)',border:`1px solid ${commentInput.trim()?'rgba(139,92,246,.38)':'rgba(255,255,255,.07)'}`,color:commentInput.trim()?'#C4B5FD':'rgba(255,255,255,.18)',cursor:commentInput.trim()?'pointer':'default',fontFamily:FONT,transition:'all .14s' }}>
+                <button onClick={addComment} disabled={!commentInput.trim()} style={{ marginTop:8,padding:'7px 16px',borderRadius:7,fontSize:11.5,fontWeight:600,background:commentInput.trim()?'var(--brand-brainbase-accent-muted)':'var(--bg-sunken)',border:`1px solid ${commentInput.trim()?'var(--brand-brainbase-accent-border)':'var(--border)'}`,color:commentInput.trim()?'var(--brand-brainbase-accent)':'var(--text-subtle)',cursor:commentInput.trim()?'pointer':'default',fontFamily:FONT,transition:'all .14s' }}>
                   Add Note
                 </button>
               </div>
@@ -391,7 +394,7 @@ export default function MaintenanceJobDrawer({ job, onClose, onStatusChange }: P
           {/* ── TIMELINE ── */}
           {tab === 'timeline' && (
             <div style={{ padding:'16px 20px',animation:'mj-tab .18s ease' }}>
-              <div style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.22)',textTransform:'uppercase',marginBottom:14 }}>Status History</div>
+              <div style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'var(--text-subtle)',textTransform:'uppercase',marginBottom:14 }}>Status History</div>
               {[
                 { time: ageLabel(job.created_at),  type:'alert',  actor:'System',   text:`Job created: ${job.issue_type} at ${job.address}` },
                 ...(job.assigned_to ? [{ time:'Shortly after', type:'action', actor:'Dispatch', text:`Assigned to ${job.assigned_to}` }] : []),
@@ -401,15 +404,15 @@ export default function MaintenanceJobDrawer({ job, onClose, onStatusChange }: P
                 ...(status==='COMPLETED' ? [{ time:fmtDate(job.completed_date), type:'system', actor:'Crew', text:'Job marked complete' }] : []),
               ].map((ev,i,arr) => (
                 <div key={i} style={{ display:'flex',gap:12,marginBottom:16,position:'relative' }}>
-                  {i<arr.length-1 && <div style={{ position:'absolute',left:6,top:14,bottom:-10,width:1,background:'rgba(255,255,255,.06)' }} />}
-                  <div style={{ width:13,height:13,borderRadius:'50%',flexShrink:0,marginTop:1,background:ev.type==='alert'?'#EF4444':ev.type==='ai'?'#A78BFA':'#60A5FA',boxShadow:`0 0 5px ${ev.type==='alert'?'#EF444460':ev.type==='ai'?'#A78BFA60':'#60A5FA60'}` }} />
+                  {i<arr.length-1 && <div style={{ position:'absolute',left:6,top:14,bottom:-10,width:1,background:'var(--bg-sunken)' }} />}
+                  <div style={{ width:13,height:13,borderRadius:'50%',flexShrink:0,marginTop:1,background:ev.type==='alert'?'#EF4444':ev.type==='ai'?'#A78BFA':'#60A5FA' }} />
                   <div style={{ flex:1 }}>
                     <div style={{ display:'flex',gap:8,marginBottom:3 }}>
-                      <span style={{ fontSize:9,fontWeight:700,color:'rgba(255,255,255,.28)' }}>{ev.time}</span>
-                      <span style={{ fontSize:9,fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em',color:ev.type==='alert'?'#EF4444':ev.type==='ai'?'#A78BFA':'#60A5FA' }}>{ev.type}</span>
-                      <span style={{ fontSize:9,color:'rgba(255,255,255,.20)' }}>{ev.actor}</span>
+                      <span style={{ fontSize:9,fontWeight:700,color:'var(--text-subtle)' }}>{ev.time}</span>
+                      <span style={{ fontSize:9,fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em',color:ev.type==='alert'?'var(--status-danger)':ev.type==='ai'?'var(--brand-brainbase-accent)':'var(--status-info)' }}>{ev.type}</span>
+                      <span style={{ fontSize:9,color:'var(--text-subtle)' }}>{ev.actor}</span>
                     </div>
-                    <div style={{ fontSize:12,color:'rgba(230,237,243,.60)',lineHeight:1.5 }}>{ev.text}</div>
+                    <div style={{ fontSize:12,color:'var(--text-secondary)',lineHeight:1.5 }}>{ev.text}</div>
                   </div>
                 </div>
               ))}
@@ -421,36 +424,36 @@ export default function MaintenanceJobDrawer({ job, onClose, onStatusChange }: P
             <div style={{ padding:'16px 20px',display:'flex',flexDirection:'column',gap:16,animation:'mj-tab .18s ease' }}>
               <div style={{ display:'flex',alignItems:'center',gap:7,marginBottom:2 }}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#A78BFA" strokeWidth="2" strokeLinecap="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-                <span style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'rgba(167,139,250,.55)',textTransform:'uppercase' }}>HLNA Operational Intelligence</span>
+                <span style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'var(--brand-brainbase-accent)',textTransform:'uppercase' }}>HLNA Operational Intelligence</span>
               </div>
 
               <section>
-                <div style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.22)',textTransform:'uppercase',marginBottom:8 }}>Issue Analysis</div>
-                <p style={{ margin:0,fontSize:12.5,color:'rgba(230,237,243,.68)',lineHeight:1.65,padding:'12px 14px',background:'rgba(139,92,246,.06)',border:'1px solid rgba(139,92,246,.14)',borderRadius:9 }}>{hlna.summary}</p>
+                <div style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'var(--text-subtle)',textTransform:'uppercase',marginBottom:8 }}>Issue Analysis</div>
+                <p style={{ margin:0,fontSize:12.5,color:'var(--text-secondary)',lineHeight:1.65,padding:'12px 14px',background:'var(--brand-brainbase-accent-muted)',border:'1px solid var(--brand-brainbase-accent-border)',borderRadius:9 }}>{hlna.summary}</p>
               </section>
 
               <section>
-                <div style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.22)',textTransform:'uppercase',marginBottom:8 }}>Pattern Detection</div>
-                <p style={{ margin:0,fontSize:12,color:'rgba(230,237,243,.55)',lineHeight:1.65,padding:'12px 14px',background:'rgba(255,255,255,.02)',border:'1px solid rgba(255,255,255,.05)',borderRadius:9 }}>{hlna.pattern}</p>
+                <div style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'var(--text-subtle)',textTransform:'uppercase',marginBottom:8 }}>Pattern Detection</div>
+                <p style={{ margin:0,fontSize:12,color:'var(--text-secondary)',lineHeight:1.65,padding:'12px 14px',background:'var(--bg-surface)',border:'1px solid var(--border-light)',borderRadius:9 }}>{hlna.pattern}</p>
               </section>
 
               <section>
-                <div style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.22)',textTransform:'uppercase',marginBottom:8 }}>Recommended Action</div>
-                <div style={{ padding:'12px 14px',borderRadius:9,background:'rgba(34,197,94,.06)',border:'1px solid rgba(34,197,94,.16)' }}>
+                <div style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'var(--text-subtle)',textTransform:'uppercase',marginBottom:8 }}>Recommended Action</div>
+                <div style={{ padding:'12px 14px',borderRadius:9,background:'var(--status-success-muted)',border:'1px solid var(--status-success-border)' }}>
                   <div style={{ display:'flex',alignItems:'flex-start',gap:9 }}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth="2" strokeLinecap="round" style={{ marginTop:1,flexShrink:0 }}><polyline points="20 6 9 17 4 12"/></svg>
-                    <p style={{ margin:0,fontSize:12,color:'rgba(34,197,94,.80)',lineHeight:1.65 }}>{hlna.recommendation}</p>
+                    <p style={{ margin:0,fontSize:12,color:'var(--status-success)',lineHeight:1.65 }}>{hlna.recommendation}</p>
                   </div>
                 </div>
               </section>
 
-              <section style={{ display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderRadius:9,background:'rgba(167,139,250,.06)',border:'1px solid rgba(167,139,250,.14)' }}>
+              <section style={{ display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderRadius:9,background:'var(--brand-brainbase-accent-muted)',border:'1px solid var(--brand-brainbase-accent-border)' }}>
                 <div>
-                  <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.10em',color:'rgba(167,139,250,.50)',textTransform:'uppercase',marginBottom:3 }}>Confidence Score</div>
-                  <div style={{ fontSize:22,fontWeight:700,color:'#A78BFA',letterSpacing:'-.02em' }}>{hlna.confidence}%</div>
+                  <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.10em',color:'var(--brand-brainbase-accent)',textTransform:'uppercase',marginBottom:3 }}>Confidence Score</div>
+                  <div style={{ fontSize:22,fontWeight:700,color:'var(--brand-brainbase-accent)',letterSpacing:'-.02em' }}>{hlna.confidence}%</div>
                 </div>
-                <div style={{ flex:1,height:5,background:'rgba(255,255,255,.07)',borderRadius:3,overflow:'hidden' }}>
-                  <div style={{ height:'100%',width:`${hlna.confidence}%`,background:'linear-gradient(90deg,rgba(167,139,250,.5),#7C3AED)',borderRadius:3,transition:'width .8s ease' }} />
+                <div style={{ flex:1,height:5,background:'var(--bg-sunken)',borderRadius:3,overflow:'hidden' }}>
+                  <div style={{ height:'100%',width:`${hlna.confidence}%`,background:'var(--brand-brainbase-accent)',borderRadius:3,transition:'width .8s ease' }} />
                 </div>
               </section>
             </div>
@@ -459,9 +462,9 @@ export default function MaintenanceJobDrawer({ job, onClose, onStatusChange }: P
         </div>
 
         {/* Footer */}
-        <div style={{ padding:'10px 20px',flexShrink:0,borderTop:'1px solid rgba(255,255,255,.06)',background:'rgba(0,0,0,.18)',display:'flex',alignItems:'center',justifyContent:'space-between' }}>
-          <span style={{ fontSize:9,color:'rgba(255,255,255,.16)',letterSpacing:'.04em' }}>Job · {job.id.slice(0,16)}</span>
-          <button onClick={onClose} style={{ padding:'5px 14px',borderRadius:6,background:'rgba(255,255,255,.05)',border:'1px solid rgba(255,255,255,.10)',color:'rgba(255,255,255,.38)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:FONT }}>Close</button>
+        <div style={{ padding:'10px 20px',flexShrink:0,borderTop:'1px solid var(--border)',background:'rgba(0,0,0,.18)',display:'flex',alignItems:'center',justifyContent:'space-between' }}>
+          <span style={{ fontSize:9,color:'var(--text-subtle)',letterSpacing:'.04em' }}>Job · {job.id.slice(0,16)}</span>
+          <button onClick={onClose} style={{ padding:'5px 14px',borderRadius:6,background:'var(--bg-sunken)',border:'1px solid var(--border)',color:'var(--text-muted)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:FONT }}>Close</button>
         </div>
       </div>
     </>

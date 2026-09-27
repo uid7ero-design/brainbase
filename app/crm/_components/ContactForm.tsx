@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { Button, Field, FormActions, FormError, fieldControlClassName } from '@/components/ui/app';
 import { CRM_CONTACT_CLASSIFICATIONS, CRM_CONTACT_CLASSIFICATION_LABELS, type CrmContactClassification } from '@/lib/crm/classification';
 
 type Contact = {
@@ -41,60 +42,60 @@ export default function ContactForm({ initial, onSaved }: { initial?: Contact; o
 
   return (
     <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <Field label="First Name *" value={form.first_name ?? ''} onChange={set('first_name')} required />
-        <Field label="Last Name *"  value={form.last_name  ?? ''} onChange={set('last_name')}  required />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+        <TextField label="First Name" value={form.first_name ?? ''} onChange={set('first_name')} required />
+        <TextField label="Last Name"  value={form.last_name  ?? ''} onChange={set('last_name')}  required />
       </div>
-      <Field label="Email" value={form.email ?? ''} onChange={set('email')} />
-      <Field label="Phone" value={form.phone ?? ''} onChange={set('phone')} />
-      <Field label="Job Title" value={form.job_title ?? ''} onChange={set('job_title')} />
-      <div>
-        {/* Classification is optional — "Unclassified" (empty value)
-            submits as '', which both API routes (POST/PUT
-            /api/crm/contacts) treat identically to null. Never required:
-            see this field's own comment in lib/crm/classification.ts —
-            most existing contacts, and any contact a human creates
-            without picking one, are unclassified, which is a valid,
-            expected state, not an error. */}
-        <label style={lbl}>Classification</label>
-        <select value={form.classification ?? ''} onChange={set('classification')} style={sel}>
-          <option value="">— Unclassified —</option>
-          {CRM_CONTACT_CLASSIFICATIONS.map(value => (
-            <option key={value} value={value}>{CRM_CONTACT_CLASSIFICATION_LABELS[value]}</option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <label style={lbl}>Company</label>
-        <select value={form.company_id ?? ''} onChange={set('company_id')} style={sel}>
-          <option value="">— No company —</option>
-          {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-      </div>
+      <TextField label="Email" value={form.email ?? ''} onChange={set('email')} />
+      <TextField label="Phone" value={form.phone ?? ''} onChange={set('phone')} />
+      <TextField label="Job Title" value={form.job_title ?? ''} onChange={set('job_title')} />
+      {/* Classification is optional — "Unclassified" (empty value)
+          submits as '', which both API routes (POST/PUT
+          /api/crm/contacts) treat identically to null. Never required:
+          see this field's own comment in lib/crm/classification.ts —
+          most existing contacts, and any contact a human creates
+          without picking one, are unclassified, which is a valid,
+          expected state, not an error. */}
+      <Field label="Classification">
+        {control => (
+          <select {...control} value={form.classification ?? ''} onChange={set('classification')} className={fieldControlClassName}>
+            <option value="">— Unclassified —</option>
+            {CRM_CONTACT_CLASSIFICATIONS.map(value => (
+              <option key={value} value={value}>{CRM_CONTACT_CLASSIFICATION_LABELS[value]}</option>
+            ))}
+          </select>
+        )}
+      </Field>
+      <Field label="Company">
+        {control => (
+          <select {...control} value={form.company_id ?? ''} onChange={set('company_id')} className={fieldControlClassName}>
+            <option value="">— No company —</option>
+            {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        )}
+      </Field>
+      <Field label="Notes">
+        {control => (
+          <textarea {...control} value={form.notes ?? ''} onChange={set('notes')} rows={3} className={fieldControlClassName} />
+        )}
+      </Field>
 
-      <div>
-        <label style={lbl}>Notes</label>
-        <textarea value={form.notes ?? ''} onChange={set('notes')} rows={3}
-          style={{ ...sel, resize: 'vertical', lineHeight: 1.5 }} />
-      </div>
-
-      {error && <p style={{ color: '#f87171', fontSize: 13, margin: 0 }}>{error}</p>}
-      <button type="submit" disabled={saving} style={{ padding: '10px 0', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
-        {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Contact'}
-      </button>
+      {error && <FormError>{error}</FormError>}
+      <FormActions align="stretch">
+        <Button type="submit" variant="primary" disabled={saving}>
+          {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Contact'}
+        </Button>
+      </FormActions>
     </form>
   );
 }
 
-function Field({ label, value, onChange, required }: { label: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; required?: boolean }) {
+function TextField({ label, value, onChange, required }: { label: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; required?: boolean }) {
   return (
-    <div>
-      <label style={lbl}>{label}</label>
-      <input value={value} onChange={onChange} required={required}
-        style={{ width: '100%', padding: '9px 12px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
-    </div>
+    <Field label={label} required={required}>
+      {control => (
+        <input {...control} value={value} onChange={onChange} required={required} className={fieldControlClassName} />
+      )}
+    </Field>
   );
 }
-
-const lbl: React.CSSProperties = { display: 'block', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const sel: React.CSSProperties = { width: '100%', padding: '9px 12px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14 };

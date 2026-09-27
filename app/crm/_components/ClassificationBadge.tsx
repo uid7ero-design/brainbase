@@ -12,13 +12,27 @@
 
 import { CRM_CONTACT_CLASSIFICATION_LABELS, type CrmContactClassification } from '@/lib/crm/classification';
 
-const TONE: Record<CrmContactClassification, { fg: string; bg: string; bd: string }> = {
-  CLIENT: { fg: '#4ADE80', bg: 'rgba(74,222,128,.10)', bd: 'rgba(74,222,128,.30)' },
-  LEAD: { fg: '#FBBF24', bg: 'rgba(251,191,36,.10)', bd: 'rgba(251,191,36,.30)' },
-  EVENT_CONTACT: { fg: '#A78BFA', bg: 'rgba(167,139,250,.10)', bd: 'rgba(167,139,250,.30)' },
-  SUPPLIER: { fg: '#60A5FA', bg: 'rgba(96,165,250,.10)', bd: 'rgba(96,165,250,.30)' },
-  PARTNER: { fg: '#F472B6', bg: 'rgba(244,114,182,.10)', bd: 'rgba(244,114,182,.30)' },
-  OTHER: { fg: '#9CA3AF', bg: 'rgba(156,163,175,.10)', bd: 'rgba(156,163,175,.30)' },
+// Domain category encoding (kept) — six distinct contact categories, always
+// rendered beside their text label. Categories whose meaning matches a
+// semantic state use the status tokens (client→success, lead→warning,
+// supplier→info, other→inactive); Event Contact and Partner have no
+// semantic equivalent, so they get their own category hue (chosen apart from
+// the brand accent and the status hues), mixed toward the theme's
+// text colour for legible contrast in both light and dark themes.
+const categoryTone = (hue: string) => ({
+  fg: `color-mix(in srgb, ${hue} 65%, var(--text-primary))`,
+  bg: `color-mix(in srgb, ${hue} 12%, transparent)`,
+  bd: `color-mix(in srgb, ${hue} 35%, transparent)`,
+  dot: hue,
+});
+
+const TONE: Record<CrmContactClassification, { fg: string; bg: string; bd: string; dot: string }> = {
+  CLIENT: { fg: 'var(--status-success)', bg: 'var(--status-success-muted)', bd: 'var(--status-success-border)', dot: 'var(--status-success)' },
+  LEAD: { fg: 'var(--status-warning)', bg: 'var(--status-warning-muted)', bd: 'var(--status-warning-border)', dot: 'var(--status-warning)' },
+  EVENT_CONTACT: categoryTone('#3B82F6'),
+  SUPPLIER: { fg: 'var(--status-info)', bg: 'var(--status-info-muted)', bd: 'var(--status-info-border)', dot: 'var(--status-info)' },
+  PARTNER: categoryTone('#F472B6'),
+  OTHER: { fg: 'var(--status-inactive)', bg: 'var(--status-inactive-muted)', bd: 'var(--border)', dot: 'var(--status-inactive)' },
 };
 
 // `null`/`undefined` (unclassified) renders a plain muted "—" rather
@@ -27,18 +41,18 @@ const TONE: Record<CrmContactClassification, { fg: string; bg: string; bd: strin
 // tone of its own.
 export default function ClassificationBadge({ classification }: { classification: CrmContactClassification | null | undefined }) {
   if (!classification) {
-    return <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>—</span>;
+    return <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>—</span>;
   }
   const tone = TONE[classification];
   return (
     <span
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600,
-        padding: '2px 8px', borderRadius: 999,
+        padding: '2px 8px', borderRadius: 'var(--radius-sm)',
         color: tone.fg, background: tone.bg, border: `1px solid ${tone.bd}`, whiteSpace: 'nowrap',
       }}
     >
-      <span style={{ width: 5, height: 5, borderRadius: '50%', background: tone.fg, flex: 'none' }} aria-hidden="true" />
+      <span style={{ width: 5, height: 5, borderRadius: '50%', background: tone.dot, flex: 'none' }} aria-hidden="true" />
       {CRM_CONTACT_CLASSIFICATION_LABELS[classification]}
     </span>
   );

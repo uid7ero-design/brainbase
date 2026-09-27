@@ -5,8 +5,15 @@ import { useSearchParams } from 'next/navigation';
 import { StatusBadge } from './_status';
 import { formatMoneyCents } from '@/lib/commercial/money';
 import { formatCommercialDate } from '@/lib/commercial/dates';
-
-const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
+import {
+  PageHeader,
+  TableContainer,
+  TableStateRow,
+  WorkToolbar,
+  buttonProps,
+  tableStyles,
+  toolbarControlClassName,
+} from '@/components/ui/app';
 
 type Quote = {
   id: string; quote_number: string | null; status: string; customer_id: string;
@@ -40,66 +47,64 @@ export default function QuotesPage() {
 
   return (
     <div style={{ maxWidth: 1100 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>Quotes</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '4px 0 0' }}>{quotes.length} total</p>
-        </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 13 }}>
-            <option value="ALL">All statuses</option>
-            <option value="DRAFT">Draft</option>
-            <option value="SENT">Sent</option>
-            <option value="ACCEPTED">Accepted</option>
-            <option value="REJECTED">Rejected</option>
-            <option value="EXPIRED">Expired</option>
-          </select>
-          <Link href="/commercial/quotes/new" style={btn('var(--purple-600)')}>+ New Quote</Link>
-        </div>
-      </div>
+      <PageHeader
+        title="Quotes"
+        description={`${quotes.length} total`}
+        actions={<Link href="/commercial/quotes/new" {...buttonProps('primary')}>+ New Quote</Link>}
+      />
 
-      <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden', overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 780 }}>
+      <WorkToolbar count={statusFilter !== 'ALL' && !loading ? `${filtered.length} of ${quotes.length}` : undefined}>
+        <select
+          value={statusFilter}
+          onChange={e => setStatusFilter(e.target.value)}
+          aria-label="Filter by status"
+          className={toolbarControlClassName}
+        >
+          <option value="ALL">All statuses</option>
+          <option value="DRAFT">Draft</option>
+          <option value="SENT">Sent</option>
+          <option value="ACCEPTED">Accepted</option>
+          <option value="REJECTED">Rejected</option>
+          <option value="EXPIRED">Expired</option>
+        </select>
+      </WorkToolbar>
+
+      <TableContainer label="Quotes" minWidth={780}>
+        <table className={tableStyles.table}>
           <thead>
-            <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-              {['Number', 'Customer', 'Status', 'Issue Date', 'Expiry', 'Total', ''].map(h => (
-                <th key={h} style={th}>{h}</th>
-              ))}
+            <tr>
+              <th scope="col">Number</th>
+              <th scope="col">Customer</th>
+              <th scope="col">Status</th>
+              <th scope="col">Issue Date</th>
+              <th scope="col">Expiry</th>
+              <th scope="col" className={tableStyles.num}>Total</th>
+              <th scope="col" className={tableStyles.actions}><span className="bb-visually-hidden">Actions</span></th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={7} style={empty}>Loading…</td></tr>}
-            {!loading && filtered.length === 0 && <tr><td colSpan={7} style={empty}>No quotes yet.</td></tr>}
-            {filtered.map((q, i) => (
-              <tr key={q.id} style={{ borderBottom: i < filtered.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
-                <td style={{ padding: '13px 16px' }}>
-                  <Link href={`/commercial/quotes/${q.id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none', fontWeight: 500, fontSize: 14 }}>
-                    {q.quote_number ?? <Dim>Draft</Dim>}
+            {loading && <TableStateRow colSpan={7} kind="loading">Loading quotes…</TableStateRow>}
+            {!loading && filtered.length === 0 && <TableStateRow colSpan={7} kind="empty">No quotes yet.</TableStateRow>}
+            {filtered.map(q => (
+              <tr key={q.id}>
+                <td className={tableStyles.primary} style={{ whiteSpace: 'nowrap' }}>
+                  <Link href={`/commercial/quotes/${q.id}`}>
+                    {q.quote_number ?? <span className={tableStyles.muted}>Draft</span>}
                   </Link>
                 </td>
-                <td style={td}>{q.customer_name_snapshot ?? customersById[q.customer_id] ?? <Dim>—</Dim>}</td>
-                <td style={td}><StatusBadge status={q.status} /></td>
-                <td style={td}>{q.issue_date ? formatCommercialDate(q.issue_date) : <Dim>—</Dim>}</td>
-                <td style={td}>{q.expiry_date ? formatCommercialDate(q.expiry_date) : <Dim>—</Dim>}</td>
-                <td style={td}>{formatMoneyCents(q.total_cents, q.currency)}</td>
-                <td style={{ padding: '13px 16px' }}>
-                  <Link href={`/commercial/quotes/${q.id}`} style={{ fontSize: 12, color: 'var(--text-secondary)', textDecoration: 'none' }}>View →</Link>
+                <td>{q.customer_name_snapshot ?? customersById[q.customer_id] ?? <span className={tableStyles.muted}>—</span>}</td>
+                <td><StatusBadge status={q.status} /></td>
+                <td>{q.issue_date ? formatCommercialDate(q.issue_date) : <span className={tableStyles.muted}>—</span>}</td>
+                <td>{q.expiry_date ? formatCommercialDate(q.expiry_date) : <span className={tableStyles.muted}>—</span>}</td>
+                <td className={tableStyles.num}>{formatMoneyCents(q.total_cents, q.currency)}</td>
+                <td className={tableStyles.actions}>
+                  <Link href={`/commercial/quotes/${q.id}`} className={tableStyles.link} aria-label={`View quote ${q.quote_number ?? '(draft)'}`}>View →</Link>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
+      </TableContainer>
     </div>
   );
 }
-
-function Dim({ children }: { children: React.ReactNode }) {
-  return <span style={{ color: 'var(--text-muted)' }}>{children}</span>;
-}
-
-const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: 'var(--text-secondary)' };
-const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 };
-function btn(bg: string): React.CSSProperties { return { padding: '8px 16px', background: bg, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, textDecoration: 'none', display: 'inline-block' }; }

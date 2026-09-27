@@ -1,5 +1,6 @@
 'use client';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { useDialogFocus } from '@/components/ui/app/useDialogFocus';
 import type { MaintenanceJob, Severity, BinType } from './MaintenanceJobDrawer';
 
 const FONT = 'var(--font-inter),"Inter",-apple-system,sans-serif';
@@ -23,19 +24,21 @@ interface Props {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label style={{ display:'block',fontSize:9.5,fontWeight:700,letterSpacing:'.10em',color:'rgba(255,255,255,.30)',textTransform:'uppercase',marginBottom:6 }}>{label}</label>
+      <label style={{ display:'block',fontSize:9.5,fontWeight:700,letterSpacing:'.10em',color:'var(--text-muted)',textTransform:'uppercase',marginBottom:6 }}>{label}</label>
       {children}
     </div>
   );
 }
 
 const INPUT_STYLE: React.CSSProperties = {
-  width: '100%', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.09)',
-  borderRadius: 8, padding: '9px 12px', fontSize: 12.5, color: '#F5F7FA',
-  fontFamily: FONT, outline: 'none', transition: 'border-color .14s', boxSizing: 'border-box',
+  width: '100%', background: 'var(--bg-sunken)', border: '1px solid var(--border)',
+  borderRadius: 8, padding: '9px 12px', fontSize: 12.5, color: 'var(--text-primary)',
+  fontFamily: FONT, transition: 'border-color .14s', boxSizing: 'border-box',
 };
 
 export default function CreateJobModal({ onClose, onCreated }: Props) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(true, onClose, panelRef);
   const [suburb, setSuburb]         = useState('');
   const [address, setAddress]       = useState('');
   const [binType, setBinType]       = useState<BinType>('GENERAL_WASTE');
@@ -97,42 +100,42 @@ export default function CreateJobModal({ onClose, onCreated }: Props) {
       <style dangerouslySetInnerHTML={{ __html: `
         @keyframes cm-fade { from{opacity:0} to{opacity:1} }
         @keyframes cm-in   { from{opacity:0;transform:translateY(-12px) scale(.97)} to{opacity:1;transform:none} }
-        .cm-input:focus { border-color:rgba(139,92,246,.45) !important; }
+        .cm-input:focus { border-color:var(--border-focus) !important; }
         .cm-select { appearance:none; }
       `}} />
 
       {/* Backdrop */}
-      <div onClick={onClose} style={{ position:'fixed',inset:0,zIndex:200,background:'rgba(0,0,0,.60)',backdropFilter:'blur(3px)',animation:'cm-fade .18s ease' }} />
+      <div onClick={onClose} aria-hidden="true" style={{ position:'fixed',inset:0,zIndex:200,background:'var(--scrim)',animation:'cm-fade .18s ease' }} />
 
       {/* Modal */}
-      <div style={{
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="create-job-title" tabIndex={-1} style={{
         position:'fixed',top:'50%',left:'50%',transform:'translate(-50%,-50%)',
-        zIndex:201,width:520,maxHeight:'90vh',
+        zIndex:201,width:520,maxWidth:'calc(100vw - 24px)',maxHeight:'90vh',
         display:'flex',flexDirection:'column',
-        background:'rgba(6,7,11,.98)',
-        border:'1px solid rgba(255,255,255,.10)',
-        borderRadius:16,boxShadow:'0 32px 80px rgba(0,0,0,.70)',
+        background:'var(--bg-surface)',
+        border:'1px solid var(--border)',
+        borderRadius:'var(--radius-lg)',boxShadow:'var(--shadow-dialog)',
         fontFamily:FONT,
         animation:'cm-in .22s cubic-bezier(.16,.84,.44,1)',
         overflow:'hidden',
       }}>
 
         {/* Header */}
-        <div style={{ padding:'18px 24px',borderBottom:'1px solid rgba(255,255,255,.07)',background:'rgba(255,255,255,.015)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0 }}>
+        <div style={{ padding:'18px 24px',borderBottom:'1px solid var(--border)',background:'var(--bg-surface)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0 }}>
           <div>
-            <div style={{ fontSize:14.5,fontWeight:700,color:'#F5F7FA',letterSpacing:'-.01em' }}>New Maintenance Job</div>
-            <div style={{ fontSize:11,color:'rgba(255,255,255,.30)',marginTop:2 }}>Create operational maintenance record</div>
+            <h2 id="create-job-title" style={{ margin:0,fontSize:14.5,fontWeight:700,color:'var(--text-primary)',letterSpacing:'-.01em' }}>New Maintenance Job</h2>
+            <div style={{ fontSize:11,color:'var(--text-muted)',marginTop:2 }}>Create operational maintenance record</div>
           </div>
-          <button onClick={onClose} style={{ width:30,height:30,borderRadius:8,background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.10)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'rgba(255,255,255,.45)',fontSize:16,fontFamily:FONT }}>×</button>
+          <button type="button" aria-label="Close new maintenance job" onClick={onClose} style={{ width:30,height:30,borderRadius:8,background:'var(--bg-sunken)',border:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'var(--text-muted)',fontSize:16,fontFamily:FONT }}>×</button>
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} style={{ flex:1,overflowY:'auto',padding:'20px 24px',display:'flex',flexDirection:'column',gap:14 }}>
+        <form onSubmit={handleSubmit} data-dialog-body="" style={{ flex:1,overflowY:'auto',padding:'20px 24px',display:'flex',flexDirection:'column',gap:14 }}>
 
           <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:14 }}>
             <Field label="Suburb">
               <select value={suburb} onChange={e=>setSuburb(e.target.value)} className="cm-select" required
-                style={{ ...INPUT_STYLE, paddingRight:28, backgroundImage:'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,.35)\' stroke-width=\'2\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'/%3E%3C/svg%3E")', backgroundRepeat:'no-repeat', backgroundPosition:'calc(100% - 10px) center', cursor:'pointer', colorScheme:'dark' }}>
+                style={{ ...INPUT_STYLE, paddingRight:28, backgroundImage:'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%238A8580\' stroke-width=\'2\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'/%3E%3C/svg%3E")', backgroundRepeat:'no-repeat', backgroundPosition:'calc(100% - 10px) center', cursor:'pointer' }}>
                 <option value="">Select suburb…</option>
                 {SUBURBS.map(s=><option key={s} value={s}>{s}</option>)}
               </select>
@@ -145,7 +148,7 @@ export default function CreateJobModal({ onClose, onCreated }: Props) {
           <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:14 }}>
             <Field label="Bin Type">
               <select value={binType} onChange={e=>setBinType(e.target.value as BinType)} className="cm-select"
-                style={{ ...INPUT_STYLE, paddingRight:28, backgroundImage:'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,.35)\' stroke-width=\'2\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'/%3E%3C/svg%3E")', backgroundRepeat:'no-repeat', backgroundPosition:'calc(100% - 10px) center', cursor:'pointer', colorScheme:'dark' }}>
+                style={{ ...INPUT_STYLE, paddingRight:28, backgroundImage:'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%238A8580\' stroke-width=\'2\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'/%3E%3C/svg%3E")', backgroundRepeat:'no-repeat', backgroundPosition:'calc(100% - 10px) center', cursor:'pointer' }}>
                 <option value="GENERAL_WASTE">General Waste</option>
                 <option value="RECYCLING">Recycling</option>
                 <option value="ORGANICS">Organics</option>
@@ -154,7 +157,7 @@ export default function CreateJobModal({ onClose, onCreated }: Props) {
             </Field>
             <Field label="Issue Type">
               <select value={issueType} onChange={e=>setIssueType(e.target.value)} className="cm-select"
-                style={{ ...INPUT_STYLE, paddingRight:28, backgroundImage:'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,.35)\' stroke-width=\'2\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'/%3E%3C/svg%3E")', backgroundRepeat:'no-repeat', backgroundPosition:'calc(100% - 10px) center', cursor:'pointer', colorScheme:'dark' }}>
+                style={{ ...INPUT_STYLE, paddingRight:28, backgroundImage:'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%238A8580\' stroke-width=\'2\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'/%3E%3C/svg%3E")', backgroundRepeat:'no-repeat', backgroundPosition:'calc(100% - 10px) center', cursor:'pointer' }}>
                 {ISSUE_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
               </select>
             </Field>
@@ -173,11 +176,11 @@ export default function CreateJobModal({ onClose, onCreated }: Props) {
                 <button type="button" key={s.key} onClick={()=>setSeverity(s.key)} style={{
                   padding:'9px 4px',borderRadius:8,fontSize:10.5,fontWeight:700,letterSpacing:'.06em',
                   textTransform:'uppercase',cursor:'pointer',transition:'all .14s',fontFamily:FONT,
-                  background:severity===s.key?`${s.color}18`:'rgba(255,255,255,.03)',
-                  border:`1px solid ${severity===s.key?s.color+'35':'rgba(255,255,255,.06)'}`,
-                  color:severity===s.key?s.color:'rgba(255,255,255,.30)',
+                  background:severity===s.key?`${s.color}18`:'var(--bg-surface)',
+                  border:`1px solid ${severity===s.key?s.color+'35':'var(--border)'}`,
+                  color:severity===s.key?s.color:'var(--text-muted)',
                 }}>
-                  <div style={{ width:6,height:6,borderRadius:'50%',background:s.color,margin:'0 auto 4px',boxShadow:severity===s.key?`0 0 6px ${s.color}`:'none' }} />
+                  <div style={{ width:6,height:6,borderRadius:'50%',background:s.color,margin:'0 auto 4px' }} />
                   {s.label}
                 </button>
               ))}
@@ -187,14 +190,14 @@ export default function CreateJobModal({ onClose, onCreated }: Props) {
           <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:14 }}>
             <Field label="Assign To (optional)">
               <select value={assignedTo} onChange={e=>setAssignedTo(e.target.value)} className="cm-select"
-                style={{ ...INPUT_STYLE, paddingRight:28, backgroundImage:'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'rgba(255,255,255,.35)\' stroke-width=\'2\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'/%3E%3C/svg%3E")', backgroundRepeat:'no-repeat', backgroundPosition:'calc(100% - 10px) center', cursor:'pointer', colorScheme:'dark' }}>
+                style={{ ...INPUT_STYLE, paddingRight:28, backgroundImage:'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%238A8580\' stroke-width=\'2\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'/%3E%3C/svg%3E")', backgroundRepeat:'no-repeat', backgroundPosition:'calc(100% - 10px) center', cursor:'pointer' }}>
                 <option value="">Unassigned</option>
                 {['Sarah Chen','Marcus Webb','Tom Barrett','Priya Kumar','Lisa Okafor','James Nguyen'].map(o=><option key={o} value={o}>{o}</option>)}
               </select>
             </Field>
             <Field label="Scheduled Date (optional)">
               <input type="date" value={scheduledDate} onChange={e=>setScheduledDate(e.target.value)} className="cm-input"
-                style={{ ...INPUT_STYLE, colorScheme:'dark' }} />
+                style={INPUT_STYLE} />
             </Field>
           </div>
 
@@ -204,16 +207,16 @@ export default function CreateJobModal({ onClose, onCreated }: Props) {
           </Field>
 
           {error && (
-            <div style={{ padding:'9px 12px',borderRadius:8,background:'rgba(239,68,68,.10)',border:'1px solid rgba(239,68,68,.20)',fontSize:12,color:'#EF4444' }}>{error}</div>
+            <div style={{ padding:'9px 12px',borderRadius:8,background:'var(--status-danger-muted)',border:'1px solid var(--status-danger-border)',fontSize:12,color:'var(--status-danger)' }}>{error}</div>
           )}
         </form>
 
         {/* Actions */}
-        <div style={{ padding:'14px 24px',borderTop:'1px solid rgba(255,255,255,.07)',display:'flex',gap:10,justifyContent:'flex-end',flexShrink:0,background:'rgba(0,0,0,.15)' }}>
-          <button type="button" onClick={onClose} style={{ padding:'9px 18px',borderRadius:8,background:'rgba(255,255,255,.05)',border:'1px solid rgba(255,255,255,.10)',color:'rgba(255,255,255,.40)',fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:FONT }}>
+        <div style={{ padding:'14px 24px',borderTop:'1px solid var(--border)',display:'flex',gap:10,justifyContent:'flex-end',flexShrink:0,background:'rgba(0,0,0,.15)' }}>
+          <button type="button" onClick={onClose} style={{ padding:'9px 18px',borderRadius:8,background:'var(--bg-sunken)',border:'1px solid var(--border)',color:'var(--text-muted)',fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:FONT }}>
             Cancel
           </button>
-          <button type="submit" form="" onClick={handleSubmit as unknown as React.MouseEventHandler} disabled={loading} style={{ padding:'9px 20px',borderRadius:8,background:loading?'rgba(139,92,246,.15)':'rgba(139,92,246,.28)',border:'1px solid rgba(139,92,246,.40)',color:loading?'rgba(196,181,253,.40)':'#C4B5FD',fontSize:12,fontWeight:700,cursor:loading?'default':'pointer',fontFamily:FONT,transition:'all .15s' }}>
+          <button type="submit" form="" onClick={handleSubmit as unknown as React.MouseEventHandler} disabled={loading} style={{ padding:'9px 20px',borderRadius:8,background:loading?'var(--brand-brainbase-accent-muted)':'var(--brand-brainbase-accent-muted)',border:'1px solid var(--brand-brainbase-accent-border)',color:loading?'var(--brand-brainbase-accent)':'var(--brand-brainbase-accent)',fontSize:12,fontWeight:700,cursor:loading?'default':'pointer',fontFamily:FONT,transition:'all .15s' }}>
             {loading ? 'Creating…' : 'Create Job'}
           </button>
         </div>

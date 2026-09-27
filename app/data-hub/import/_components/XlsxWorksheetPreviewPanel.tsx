@@ -20,7 +20,7 @@ export default function XlsxWorksheetPreviewPanel({ state, onBack, onRetry, onRe
   return <div>
     <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)" }}>{state.worksheet.worksheetName}</h2>
     <p style={{ fontSize: 12, color: "var(--text-secondary)" }}>Worksheet {position} of {state.worksheets.length}</p>
-    <div role="note" style={{ margin: "14px 0", padding: "10px 14px", border: "1px solid rgba(251,191,36,.3)", borderRadius: 8, color: "var(--text-primary)", fontSize: 12 }}>
+    <div role="note" style={{ margin: "14px 0", padding: "10px 14px", border: "1px solid var(--status-warning-border)", borderRadius: 8, color: "var(--text-primary)", fontSize: 12 }}>
       Preview only — Excel import and confirmation are not enabled.
     </div>
     {state.phase === "xlsxWorksheetPreviewing" && <p aria-live="polite">Loading worksheet preview…</p>}

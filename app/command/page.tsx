@@ -12,10 +12,17 @@ import WeatherWidget from "@/components/ops/widgets/WeatherWidget";
 import MapWidget from "@/components/ops/widgets/MapWidget";
 import DrilldownDrawer, { type DrawerAlert } from "@/components/ops/DrilldownDrawer";
 import FinancialTab from "./financial";
-import { useOpsTheme } from "@/components/ops/theme";
+import {
+  Badge, Button, Metric, MetricStrip, StateMessage, TableContainer,
+  buttonProps, fieldControlClassName, tableStyles,
+} from "@/components/ui/app";
+import { useChartPalette } from "@/components/ui/app/chartPalette";
+import styles from "./command.module.css";
 
-const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 const LAYOUT_KEY = "ops-workspace-layout-v1";
+// Command keeps its desktop density: below this width the overview canvas
+// scrolls horizontally inside itself instead of crushing 12 columns.
+const MIN_GRID_WIDTH = 720;
 
 // ── DATA ─────────────────────────────────────────────────────────────────────
 
@@ -67,13 +74,18 @@ const TABS = [
 const ACTIVE_FY = "2025-26";
 
 // ── STATUS STYLES ────────────────────────────────────────────────────────────
+// Phase D2: one semantic mapping for every status on this page. Colour
+// comes from the app status tokens (command.module.css `.tone`), and every
+// status is also written as text — colour is never the only signal.
 
-const S = {
-  critical: { dot: "#EF4444", label: "Critical", bg: "rgba(239,68,68,.08)",  border: "rgba(239,68,68,.20)",  text: "#EF4444", glow: "rgba(239,68,68,.28)"  },
-  warning:  { dot: "#F59E0B", label: "Warning",  bg: "rgba(245,158,11,.08)", border: "rgba(245,158,11,.20)", text: "#F59E0B", glow: "rgba(245,158,11,.24)" },
-  stable:   { dot: "#22C55E", label: "Stable",   bg: "rgba(34,197,94,.08)",  border: "rgba(34,197,94,.20)",  text: "#22C55E", glow: "rgba(34,197,94,.22)"  },
-  ok:       { dot: "#22C55E", color: "#22C55E" },
-  warn:     { dot: "#F59E0B", color: "#F59E0B" },
+type StatusKey = "critical" | "warning" | "stable" | "ok" | "warn";
+
+const S: Record<StatusKey, { tone: "danger" | "warning" | "success"; badge: "error" | "warning" | "success"; label: string }> = {
+  critical: { tone: "danger",  badge: "error",   label: "Critical" },
+  warning:  { tone: "warning", badge: "warning", label: "Warning"  },
+  stable:   { tone: "success", badge: "success", label: "Stable"   },
+  ok:       { tone: "success", badge: "success", label: "OK"       },
+  warn:     { tone: "warning", badge: "warning", label: "Warning"  },
 };
 
 // ── DEFAULT LAYOUT ────────────────────────────────────────────────────────────
@@ -91,6 +103,8 @@ const DEFAULT_LAYOUT: LayoutItem[] = [
 ];
 
 // ── SPARKLINE ────────────────────────────────────────────────────────────────
+// Colours come from the JS chart palette (SVG attributes cannot resolve the
+// theme's CSS variables reliably), so the line keeps contrast in both themes.
 
 function Sparkline({ data, color }: { data: number[]; color: string }) {
   const W = 60, H = 26;
@@ -100,9 +114,9 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
   const pts  = data.map((v, i) => `${x(i)},${y(v)}`).join(" ");
   const fill = [`0,${H}`, ...data.map((v, i) => `${x(i)},${y(v)}`), `${W},${H}`].join(" ");
   return (
-    <svg width={W} height={H} style={{ display: "block", overflow: "visible" }}>
-      <polygon points={fill} fill={color} opacity="0.09" />
-      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.80" />
+    <svg width={W} height={H} style={{ display: "block", overflow: "visible" }} aria-hidden="true" focusable="false">
+      <polygon points={fill} fill={color} opacity="0.12" />
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -110,7 +124,6 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
 // ── LIVE TIMESTAMP ─────────────────────────────────────────────────────────────
 
 function LiveAgo({ baseSeconds = 0 }: { baseSeconds?: number }) {
-  const t = useOpsTheme();
   const [secs, setSecs] = useState(baseSeconds);
   useEffect(() => {
     const id = setInterval(() => setSecs(p => p + 1), 1000);
@@ -120,24 +133,7 @@ function LiveAgo({ baseSeconds = 0 }: { baseSeconds?: number }) {
   // Honest label: this counts seconds since mount, it does not reflect an
   // actual data refresh — was previously "Updated {txt}", which read as a
   // live-refresh timestamp.
-  return <span style={{ fontSize: 9.5, color: t.ink(.22), fontVariantNumeric: "tabular-nums" }}>Demo · {txt}</span>;
-}
-
-// ── HEARTBEAT ─────────────────────────────────────────────────────────────────
-
-function Heartbeat() {
-  return (
-    <svg width="32" height="16" viewBox="0 0 32 16" style={{ display: "block" }}>
-      <polyline points="0,8 5,8 7,3 9,13 11,4 13,12 15,8 32,8"
-        fill="none" stroke="rgba(34,197,94,.50)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-        <animateTransform attributeName="transform" type="translate" from="0,0" to="-32,0" dur="2s" repeatCount="indefinite" />
-      </polyline>
-      <polyline points="32,8 37,8 39,3 41,13 43,4 45,12 47,8 64,8"
-        fill="none" stroke="rgba(34,197,94,.50)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-        <animateTransform attributeName="transform" type="translate" from="-32,0" to="-64,0" dur="2s" repeatCount="indefinite" />
-      </polyline>
-    </svg>
-  );
+  return <span className={styles.liveAgo}>Demo · {txt}</span>;
 }
 
 // ── MESSAGE TYPE ─────────────────────────────────────────────────────────────
@@ -147,11 +143,15 @@ type OrbState = "idle" | "thinking" | "alert";
 type PipelineItem = { id: string; type: string; title: string; description: string | null; org_name: string | null; created_at: string; status: string };
 
 // ── KPI STRIP (live data) ────────────────────────────────────────────────────
+// Phase D2: rendered with the shared MetricStrip/Metric. Values, trend
+// labels, trend rules and spark series are unchanged (see the audit's
+// hard-coded KPI list — "Fleet Avail.", the completion fallback and the
+// spark histories are static and left exactly as they were).
 
 type KpiEntry = { label: string; value: string | number; trend: "up" | "down"; trendLabel: string; trendBad: boolean };
 
 function KpiStrip() {
-  const t = useOpsTheme();
+  const chart = useChartPalette();
   const [kpis, setKpis] = useState<Record<string, Record<string, number>>>({});
   const [loading, setLoading] = useState(true);
 
@@ -199,50 +199,35 @@ function KpiStrip() {
     [95, 94, 93, 92, 90, 89, 88],
   ];
 
-  if (loading) {
-    return (
-      <section style={{ height: "100%", display: "grid", gridTemplateColumns: "repeat(5,1fr)", borderRadius: 12, overflow: "hidden", border: `1px solid ${t.ink(.07)}`, background: t.paper(.88) }}>
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ height: 9, width: 60, borderRadius: 4, background: t.ink(.07) }} />
-            <div style={{ height: 34, width: 80, borderRadius: 4, background: t.ink(.05) }} />
-          </div>
-        ))}
-      </section>
-    );
-  }
-
   return (
-    <section style={{ height: "100%", display: "grid", gridTemplateColumns: "repeat(5,1fr)", borderRadius: 12, overflow: "hidden", border: `1px solid ${t.ink(.07)}`, boxShadow: `inset 0 1px 0 ${t.ink(.04)}, 0 0 30px rgba(0,0,0,.30)` }}>
-      {KPI_DATA.map((kpi, i) => {
-        const color = kpi.trendBad ? "#EF4444" : "#22C55E";
-        return (
-          <div key={kpi.label} style={{ padding: "16px 18px", background: t.paper(.88), backdropFilter: "blur(12px)", borderRight: i < KPI_DATA.length - 1 ? `1px solid ${t.ink(.055)}` : "none", position: "relative", overflow: "hidden" }}>
-            <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, background: `linear-gradient(90deg,transparent,${color}22,transparent)` }} />
-            <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".12em", color: t.ink(.24), textTransform: "uppercase", marginBottom: 9 }}>{kpi.label}</div>
-            <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 6 }}>
-              <div>
-                <div style={{ fontSize: 34, fontWeight: 700, letterSpacing: "-.04em", color: t.ink(.94), lineHeight: 1, marginBottom: 6 }}>{kpi.value}</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10.5, fontWeight: 600, color }}>
-                  <span>{kpi.trend === "up" ? "↑" : "↓"}</span>
-                  <span>{kpi.trendLabel}</span>
-                </div>
-              </div>
-              <Sparkline data={sparks[i]} color={color} />
-            </div>
-          </div>
-        );
-      })}
-    </section>
+    <MetricStrip style={{ height: "100%", gridTemplateColumns: "repeat(5, minmax(0, 1fr))" }}>
+      {KPI_DATA.map((kpi, i) => (
+        <Metric
+          key={kpi.label}
+          label={kpi.label}
+          value={kpi.value}
+          loading={loading}
+          change={{ label: kpi.trendLabel, direction: kpi.trend, tone: kpi.trendBad ? "danger" : "success" }}
+          visual={<Sparkline data={sparks[i]} color={kpi.trendBad ? chart.danger : chart.success} />}
+        />
+      ))}
+    </MetricStrip>
   );
 }
+
+// ── ICONS ────────────────────────────────────────────────────────────────────
+
+const Chevron = ({ dir = "right" }: { dir?: "right" | "down" | "left" }) => (
+  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true" focusable="false">
+    <polyline points={dir === "down" ? "6 9 12 15 18 9" : dir === "left" ? "15 18 9 12 15 6" : "9 18 15 12 9 6"} />
+  </svg>
+);
 
 // ── PAGE ─────────────────────────────────────────────────────────────────────
 
 export default function CommandPage() {
-  const t = useOpsTheme();
   const router = useRouter();
-  const containerRef = useRef<HTMLDivElement>(null);
+  const resizeObserver = useRef<ResizeObserver | null>(null);
   const [gridWidth, setGridWidth] = useState(900);
   const [layout, setLayout] = useState<LayoutItem[]>(DEFAULT_LAYOUT);
   const [editMode, setEditMode] = useState(false);
@@ -251,6 +236,7 @@ export default function CommandPage() {
   const [drawerAlert, setDrawerAlert]   = useState<DrawerAlert | null>(null);
   const [pipelineAlerts, setPipelineAlerts] = useState<PipelineItem[]>([]);
   const [activeTab, setActiveTab] = useState("overview");
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   // Init tab from URL + sync URL on change
   useEffect(() => {
@@ -265,6 +251,19 @@ export default function CommandPage() {
     if (tabId === "overview") url.searchParams.delete("tab");
     else url.searchParams.set("tab", tabId);
     window.history.replaceState(null, "", url.pathname + url.search);
+  }
+
+  // Tabs keyboard pattern (WAI-ARIA): arrows / Home / End move between tabs.
+  function handleTabKey(e: React.KeyboardEvent<HTMLButtonElement>, index: number) {
+    let next = -1;
+    if (e.key === "ArrowRight") next = (index + 1) % TABS.length;
+    else if (e.key === "ArrowLeft") next = (index - 1 + TABS.length) % TABS.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = TABS.length - 1;
+    if (next < 0) return;
+    e.preventDefault();
+    handleTabChange(TABS[next].id);
+    tabRefs.current[TABS[next].id]?.focus();
   }
 
   useEffect(() => {
@@ -285,14 +284,20 @@ export default function CommandPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const prevMsgCount = useRef(msgs.length);
 
-  // Responsive grid width
-  useEffect(() => {
-    const el = containerRef.current;
+  // Responsive grid width. A callback ref (not a mount-time effect): the
+  // canvas only exists once WorkspaceShell has mounted and while the
+  // Overview tab is shown, so a [] effect never found it and the grid stayed
+  // at its 900px default (clipped on narrow screens, half-width on wide
+  // ones). Phase D2 layout fix; the grid's own behaviour is unchanged.
+  const containerRef = useCallback((el: HTMLDivElement | null) => {
+    resizeObserver.current?.disconnect();
+    resizeObserver.current = null;
     if (!el) return;
     const ro = new ResizeObserver(entries => setGridWidth(entries[0].contentRect.width));
     ro.observe(el);
-    return () => ro.disconnect();
+    resizeObserver.current = ro;
   }, []);
+  useEffect(() => () => resizeObserver.current?.disconnect(), []);
 
   // Load persisted layout
   useEffect(() => {
@@ -357,45 +362,27 @@ export default function CommandPage() {
   // ── WIDGET PANELS ────────────────────────────────────────────────────────
 
   const StatusRibbon = (
-    <section style={{ height: "100%", display: "grid", gridTemplateColumns: "repeat(6,1fr)", borderRadius: 10, overflow: "hidden", border: `1px solid ${t.ink(.07)}`, boxShadow: "0 0 20px rgba(0,0,0,.20)" }}>
-      {SYS_STATUS.map((sys, i) => {
-        const color = sys.status === "ok" ? "#22C55E" : sys.status === "warn" ? "#F59E0B" : "#EF4444";
+    <section className={styles.ribbon} aria-label="System status">
+      {SYS_STATUS.map(sys => {
+        const s = S[sys.status];
         const isOpen = ribbonExpanded === sys.label;
         return (
-          <div key={sys.label}
+          <button
+            key={sys.label}
+            type="button"
+            className={`${styles.ribbonCell} ${styles.tone}`}
+            data-status={s.tone}
+            aria-expanded={isOpen}
             onClick={() => setRibbonExpanded(isOpen ? null : sys.label)}
-            style={{
-              padding: "10px 14px",
-              background: isOpen ? `${color}0D` : t.paper(.85),
-              backdropFilter: "blur(10px)",
-              borderRight: i < SYS_STATUS.length - 1 ? `1px solid ${t.ink(.055)}` : "none",
-              display: "flex", alignItems: "center", gap: 8,
-              cursor: "pointer", transition: "all .18s", position: "relative",
-              boxShadow: isOpen ? `inset 0 0 0 1px ${color}30` : "none",
-            }}
-            onMouseEnter={e => { if (!isOpen) (e.currentTarget as HTMLDivElement).style.background = t.ink(.04); }}
-            onMouseLeave={e => { if (!isOpen) (e.currentTarget as HTMLDivElement).style.background = t.paper(.85); }}
           >
-            {/* Status dot with pulse ring on critical */}
-            <div style={{ position: "relative", flexShrink: 0 }}>
-              {sys.status === "critical" && (
-                <div style={{ position: "absolute", inset: -4, borderRadius: "50%", border: `1px solid ${color}`, animation: "ribbon-ring 2s ease-out infinite", opacity: 0 }} />
-              )}
-              <div style={{ width: 7, height: 7, borderRadius: "50%", background: color, boxShadow: `0 0 7px ${color}`, animation: sys.status !== "ok" ? "ribbon-pulse 2.2s ease-in-out infinite" : "none" }} />
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: t.ink(.68), lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sys.label}</div>
-              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".06em", color, textTransform: "uppercase", marginTop: 1 }}>{sys.note}</div>
-              {isOpen && (
-                <div style={{ fontSize: 9.5, color: t.ink(.45), lineHeight: 1.5, marginTop: 4, whiteSpace: "normal", animation: "ribbon-expand .15s ease" }}>
-                  {sys.detail}
-                </div>
-              )}
-            </div>
-            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={t.ink(.20)} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0, transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .18s" }}>
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </div>
+            <span className={styles.dot} aria-hidden="true" />
+            <span className={styles.ribbonText}>
+              <span className={styles.ribbonLabel}>{sys.label}</span>
+              <span className={`${styles.ribbonNote} ${styles.statusText}`}>{sys.note}</span>
+              {isOpen && <span className={styles.ribbonDetail}>{sys.detail}</span>}
+            </span>
+            <span className={styles.chevron}><Chevron dir="down" /></span>
+          </button>
         );
       })}
     </section>
@@ -404,61 +391,37 @@ export default function CommandPage() {
   const totalAlertCount = ALERTS.filter(a => a.status === "critical" || a.status === "warning").length + pipelineAlerts.length;
 
   const AlertsGrid = (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", borderRadius: 14, overflow: "hidden", background: t.paper(.72), border: `1px solid ${t.ink(.07)}`, backdropFilter: "blur(16px)" }}>
-      <div style={{ padding: "11px 16px", borderBottom: `1px solid ${t.ink(.055)}`, background: t.ink(.015), flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-          <div style={{ width: 5.5, height: 5.5, borderRadius: "50%", background: "#EF4444", boxShadow: "0 0 6px #EF4444", animation: "kf-blink 2s ease-in-out infinite" }} />
-          <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".10em", color: t.ink(.40), textTransform: "uppercase" }}>Active Alerts</span>
+    <section className={styles.panel} aria-labelledby="cc-alerts-title">
+      <div className={styles.panelHeader}>
+        <h2 id="cc-alerts-title" className={styles.panelTitle}>
+          Active Alerts
           {pipelineAlerts.length > 0 && (
-            <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 7px", borderRadius: 20, background: "rgba(99,102,241,.20)", border: "1px solid rgba(99,102,241,.35)", color: "#a5b4fc", letterSpacing: ".04em" }}>
-              {pipelineAlerts.length} client request{pipelineAlerts.length !== 1 ? "s" : ""}
-            </span>
+            <Badge state="info">{pipelineAlerts.length} client request{pipelineAlerts.length !== 1 ? "s" : ""}</Badge>
           )}
-        </div>
-        <span style={{ fontSize: 10.5, color: "rgba(239,68,68,.70)", fontWeight: 600 }}>{totalAlertCount} require attention</span>
+        </h2>
+        <span className={styles.panelMeta} data-tone="danger">{totalAlertCount} require attention</span>
       </div>
-      <div style={{ flex: 1, overflowY: "auto", padding: "12px" }}>
+      <div className={styles.panelBody}>
         {/* Client pipeline requests */}
         {pipelineAlerts.length > 0 && (
-          <div style={{ marginBottom: 10 }}>
-            <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".10em", color: "rgba(165,180,252,.50)", textTransform: "uppercase", marginBottom: 6 }}>Client Requests</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))", gap: 9, marginBottom: 12 }}>
+          <div>
+            <h3 className={styles.sectionLabel}>Client Requests</h3>
+            <div className={styles.cardGrid}>
               {pipelineAlerts.map(item => (
-                <div key={item.id} style={{
-                  padding: "14px", borderRadius: 11,
-                  background: "rgba(99,102,241,.08)", border: "1px solid rgba(99,102,241,.22)",
-                  backdropFilter: "blur(8px)", display: "flex", flexDirection: "column", gap: 8,
-                  transition: "all .18s", boxShadow: `inset 0 1px 0 ${t.ink(.04)}`,
-                }}>
+                <article key={item.id} className={`${styles.alertCard} ${styles.tone}`} data-status="info" style={{ cursor: "default" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#a5b4fc", boxShadow: "0 0 6px #a5b4fc", animation: "kf-blink 2s ease-in-out infinite", flexShrink: 0 }} />
-                    <span style={{ fontSize: 9.5, fontWeight: 700, color: "#a5b4fc", letterSpacing: ".09em", textTransform: "uppercase" }}>
-                      {item.type === "issue" ? "Issue" : item.type === "feedback" ? "Feedback" : "Request"}
-                    </span>
-                    {item.org_name && (
-                      <span style={{ fontSize: 9, color: "rgba(165,180,252,.55)", marginLeft: "auto" }}>{item.org_name}</span>
-                    )}
+                    <Badge state="info">{item.type === "issue" ? "Issue" : item.type === "feedback" ? "Feedback" : "Request"}</Badge>
+                    {item.org_name && <span className={styles.alertMetricLabel} style={{ marginLeft: "auto" }}>{item.org_name}</span>}
                   </div>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: t.ink(.94), lineHeight: 1.35 }}>{item.title}</div>
-                  {item.description && (
-                    <div style={{ fontSize: 10.5, color: t.ink(.40), lineHeight: 1.55 }}>{item.description}</div>
-                  )}
-                  <Link href="/admin/pipeline"
-                    style={{
-                      display: "block", padding: "7px 12px", borderRadius: 7, marginTop: "auto",
-                      background: "rgba(99,102,241,.16)", border: "1px solid rgba(99,102,241,.35)",
-                      fontSize: 11, fontWeight: 600, color: "#a5b4fc",
-                      textDecoration: "none", textAlign: "center", letterSpacing: ".02em", transition: "all .15s",
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background = "rgba(99,102,241,.28)"; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = "rgba(99,102,241,.16)"; }}
-                  >
+                  <div className={styles.alertTitle}>{item.title}</div>
+                  {item.description && <div className={styles.alertDescription}>{item.description}</div>}
+                  <Link href="/admin/pipeline" {...buttonProps("secondary", "sm")} className={`${buttonProps("secondary", "sm").className} ${styles.alertAction}`}>
                     Respond →
                   </Link>
-                </div>
+                </article>
               ))}
             </div>
-            <div style={{ height: 1, background: t.ink(.05), marginBottom: 12 }} />
+            <div className={styles.divider} />
           </div>
         )}
         {/* Operational alerts — static sample data (see the ALERTS
@@ -466,173 +429,156 @@ export default function CommandPage() {
             /api/admin/pipeline. Labelled so the two don't blend together
             in one "Active Alerts" panel with no way to tell which is
             which. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-          <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".10em", color: "rgba(251,191,36,.60)", textTransform: "uppercase" }}>Operational Alerts</span>
-          <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".06em", color: "rgba(251,191,36,.75)", background: "rgba(251,191,36,.10)", border: "1px solid rgba(251,191,36,.22)", borderRadius: 3, padding: "1px 5px" }}>DEMO</span>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))", gap: 9 }}>
+        <h3 className={styles.sectionLabel}>
+          Operational Alerts
+          <span className={styles.demoTag}>DEMO</span>
+        </h3>
+        <div className={styles.cardGrid}>
           {ALERTS.map(alert => {
             const s = S[alert.status];
+            const open = () => setDrawerAlert({ id: alert.id, title: alert.title, status: alert.status, metric: alert.metric, metricLabel: alert.metricLabel, description: alert.description });
             return (
-              <div key={alert.id} style={{
-                padding: "16px", borderRadius: 11,
-                background: s.bg, border: `1px solid ${s.border}`,
-                backdropFilter: "blur(8px)",
-                display: "flex", flexDirection: "column", gap: 9,
-                transition: "all .18s",
-                boxShadow: `inset 0 1px 0 ${t.ink(.04)}`,
-                cursor: "pointer",
-              }}
-                onClick={() => setDrawerAlert({ id: alert.id, title: alert.title, status: alert.status, metric: alert.metric, metricLabel: alert.metricLabel, description: alert.description })}
-                onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = "translateY(-2px)"; (e.currentTarget as HTMLDivElement).style.boxShadow = `0 8px 28px ${"glow" in s ? s.glow : "transparent"}, inset 0 1px 0 ${t.ink(.04)}`; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = ""; (e.currentTarget as HTMLDivElement).style.boxShadow = `inset 0 1px 0 ${t.ink(.04)}`; }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.dot, boxShadow: `0 0 6px ${s.dot}`, flexShrink: 0 }} />
-                  <span style={{ fontSize: 9.5, fontWeight: 700, color: s.text, letterSpacing: ".09em", textTransform: "uppercase" }}>{("label" in s) ? s.label : ""}</span>
-                </div>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: t.ink(.94), lineHeight: 1.35 }}>{alert.title}</div>
-                <div>
-                  <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.04em", color: s.text, lineHeight: 1 }}>{alert.metric}</div>
-                  <div style={{ fontSize: 9.5, color: t.ink(.30), marginTop: 2, letterSpacing: ".04em" }}>{alert.metricLabel}</div>
-                </div>
-                <div style={{ fontSize: 10.5, color: t.ink(.42), lineHeight: 1.55 }}>{alert.description}</div>
+              <article key={alert.id} className={`${styles.alertCard} ${styles.tone}`} data-status={s.tone} onClick={open}>
+                <Badge state={s.badge}>{s.label}</Badge>
+                <button type="button" className={styles.alertOpen} aria-haspopup="dialog" onClick={e => { e.stopPropagation(); open(); }}>
+                  <span className={styles.alertTitle}>{alert.title}</span>
+                  <span>
+                    <span className={styles.alertMetric} style={{ display: "block" }}>{alert.metric}</span>
+                    <span className={styles.alertMetricLabel}>{alert.metricLabel}</span>
+                  </span>
+                </button>
+                <div className={styles.alertDescription}>{alert.description}</div>
                 <Link href={alert.href}
                   onClick={e => e.stopPropagation()}
-                  style={{
-                    display: "block", padding: "7px 12px", borderRadius: 7,
-                    background: `${s.dot}16`, border: `1px solid ${s.dot}35`,
-                    fontSize: 11, fontWeight: 600, color: s.text,
-                    textDecoration: "none", textAlign: "center", letterSpacing: ".02em", transition: "all .15s",
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.background = `${s.dot}28`; e.currentTarget.style.boxShadow = `0 0 12px ${"glow" in s ? s.glow : "transparent"}`; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = `${s.dot}16`; e.currentTarget.style.boxShadow = ""; }}>
+                  {...buttonProps("secondary", "sm")}
+                  className={`${buttonProps("secondary", "sm").className} ${styles.alertAction}`}>
                   {alert.action} →
                 </Link>
-              </div>
+              </article>
             );
           })}
         </div>
       </div>
-    </div>
+    </section>
   );
 
   const ActionsHub = (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", borderRadius: 14, overflow: "hidden", background: t.paper(.72), border: `1px solid ${t.ink(.07)}`, backdropFilter: "blur(16px)" }}>
-      <div style={{ padding: "11px 16px", borderBottom: `1px solid ${t.ink(.055)}`, background: t.ink(.015), flexShrink: 0 }}>
-        <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".10em", color: t.ink(.38), textTransform: "uppercase" }}>Operational Actions</span>
+    <section className={styles.panel} aria-labelledby="cc-actions-title">
+      <div className={styles.panelHeader}>
+        <h2 id="cc-actions-title" className={styles.panelTitle}>Operational Actions</h2>
       </div>
-      <div style={{ flex: 1, overflowY: "auto", padding: "10px" }}>
-        {([
-          { label: "Resolve Alerts",  href: "/dashboard/waste", color: "#EF4444", bg: "rgba(239,68,68,.10)", border: "rgba(239,68,68,.24)", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
-          { label: "Reassign Routes", href: "/dashboard/waste", color: "#F59E0B", bg: "rgba(245,158,11,.10)", border: "rgba(245,158,11,.24)", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg> },
-          { label: "Dispatch Crew",   href: "/dashboard/fleet", color: "#60A5FA", bg: "rgba(59,130,246,.10)", border: "rgba(59,130,246,.24)", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg> },
-        ] as { label: string; href: string; color: string; bg: string; border: string; icon: React.ReactNode }[]).map(btn => (
-          <Link key={btn.label} href={btn.href} style={{ textDecoration: "none", display: "block", marginBottom: 6 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 12px", borderRadius: 8, background: btn.bg, border: `1px solid ${btn.border}`, cursor: "pointer", transition: "all .15s" }}
-              onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = "translateX(2px)"; (e.currentTarget as HTMLDivElement).style.filter = "brightness(1.14)"; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = ""; (e.currentTarget as HTMLDivElement).style.filter = ""; }}>
-              <span style={{ color: btn.color, flexShrink: 0 }}>{btn.icon}</span>
-              <span style={{ fontSize: 11.5, fontWeight: 600, color: btn.color, flex: 1 }}>{btn.label}</span>
-              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={btn.color} strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-            </div>
-          </Link>
-        ))}
-        <div style={{ height: 1, background: t.ink(.05), margin: "8px 2px" }} />
-        {([
-          { label: "Monthly Report", action: () => alert("Coming soon."), icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> },
-          { label: "Export Data",    action: () => alert("Coming soon."), icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> },
-        ] as { label: string; action: () => void; icon: React.ReactNode }[]).map(btn => (
-          <button key={btn.label} onClick={btn.action} style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 12px", borderRadius: 8, width: "100%", background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, cursor: "pointer", transition: "all .15s", fontFamily: FONT, marginBottom: 6 }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = t.ink(.07); (e.currentTarget as HTMLElement).style.transform = "translateX(2px)"; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = t.ink(.04); (e.currentTarget as HTMLElement).style.transform = ""; }}>
-            <span style={{ color: t.ink(.38), flexShrink: 0 }}>{btn.icon}</span>
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: t.ink(.55), flex: 1 }}>{btn.label}</span>
-            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={t.ink(.20)} strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-          </button>
-        ))}
+      <div className={styles.panelBody}>
+        <ul className={styles.actionList}>
+          {([
+            { label: "Resolve Alerts",  href: "/dashboard/waste", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
+            { label: "Reassign Routes", href: "/dashboard/waste", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg> },
+            { label: "Dispatch Crew",   href: "/dashboard/fleet", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg> },
+          ] as { label: string; href: string; icon: React.ReactNode }[]).map(btn => (
+            <li key={btn.label}>
+              <Link href={btn.href} className={styles.actionRow}>
+                {btn.icon}
+                <span>{btn.label}</span>
+                <Chevron />
+              </Link>
+            </li>
+          ))}
+        </ul>
+        <div className={styles.divider} />
+        <ul className={styles.actionList}>
+          {([
+            { label: "Monthly Report", action: () => alert("Coming soon."), icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> },
+            { label: "Export Data",    action: () => alert("Coming soon."), icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> },
+          ] as { label: string; action: () => void; icon: React.ReactNode }[]).map(btn => (
+            <li key={btn.label}>
+              <button type="button" onClick={btn.action} className={styles.actionRow} data-secondary="">
+                {btn.icon}
+                <span>{btn.label}</span>
+                <Chevron />
+              </button>
+            </li>
+          ))}
+        </ul>
       </div>
-    </div>
+    </section>
   );
 
   const ChangesPanel = (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", borderRadius: 14, overflow: "hidden", background: t.paper(.72), border: `1px solid ${t.ink(.07)}`, backdropFilter: "blur(16px)" }}>
-      <div style={{ padding: "11px 16px", borderBottom: `1px solid ${t.ink(.055)}`, background: t.ink(.015), flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".10em", color: t.ink(.38), textTransform: "uppercase" }}>Last 24 Hours</span>
-        <Heartbeat />
+    <section className={styles.panel} aria-labelledby="cc-changes-title">
+      <div className={styles.panelHeader}>
+        <h2 id="cc-changes-title" className={styles.panelTitle}>Last 24 Hours</h2>
       </div>
-      <div style={{ flex: 1, padding: "10px 14px" }}>
-        {CHANGES.map((c, i) => {
-          const bad = c.dir === "up"; const color = bad ? "#EF4444" : "#22C55E";
-          return (
-            <div key={c.label} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 2px", borderBottom: i < CHANGES.length - 1 ? `1px solid ${t.ink(.04)}` : "none" }}>
-              <div style={{ width: 24, height: 24, borderRadius: 7, background: `${color}14`, border: `1px solid ${color}28`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 12, color }}>
-                {c.dir === "up" ? "↑" : "↓"}
-              </div>
-              <span style={{ fontSize: 11.5, color: t.ink(.62), flex: 1 }}>{c.label}</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color }}>{c.delta}</span>
-            </div>
-          );
-        })}
+      <div className={styles.panelBody}>
+        <ul className={styles.changeList}>
+          {CHANGES.map(c => {
+            const bad = c.dir === "up";
+            return (
+              <li key={c.label} className={`${styles.changeRow} ${styles.tone}`} data-status={bad ? "danger" : "success"}>
+                <span className={styles.statusText} aria-hidden="true">{c.dir === "up" ? "▲" : "▼"}</span>
+                <span className={styles.changeLabel}>{c.label}</span>
+                <span className={styles.changeDelta}>
+                  {c.delta}
+                  <span className={styles.srOnly}>{c.dir === "up" ? ", up" : ", down"}</span>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
       </div>
-    </div>
+    </section>
   );
 
+  // HLNA assistant — the orb is a functional state visual (idle / thinking),
+  // kept exactly as HlnaOrb renders it; only the extra glow wrapper and the
+  // legacy "HLNΛ" wordmark treatment were removed.
   const AssistantPanel = (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", borderRadius: 14, overflow: "hidden", background: t.paper(.72), border: `1px solid ${t.ink(.07)}`, backdropFilter: "blur(16px)" }}>
-      <div style={{ padding: "11px 16px", borderBottom: `1px solid ${t.ink(.055)}`, background: "rgba(139,92,246,.04)", flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
-          <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#22C55E", boxShadow: "0 0 5px #22C55E", animation: "kf-blink 2.4s ease-in-out infinite" }} />
-          <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".10em", color: t.ink(.48), textTransform: "uppercase" }}>
-            HLN<span style={{ color: "#A78BFA" }}>Λ</span> Assistant
-          </span>
-          <span style={{ fontSize: 9, color: t.ink(.18), letterSpacing: ".06em", textTransform: "uppercase" }}>· Ask anything</span>
-        </div>
-        <div style={{ filter: orbState === "thinking" ? "drop-shadow(0 0 8px rgba(167,139,250,.7))" : "drop-shadow(0 0 4px rgba(139,92,246,.35))", transition: "filter .4s" }}>
-          <HlnaOrb size={28} state={orbState === "alert" ? "idle" : orbState} speechRef={undefined} style={undefined} />
-        </div>
+    <section className={styles.panel} aria-labelledby="cc-assistant-title">
+      <div className={styles.panelHeader}>
+        <h2 id="cc-assistant-title" className={styles.panelTitle}>
+          HLNA Assistant
+          <span style={{ fontWeight: 500, letterSpacing: 0, textTransform: "none", color: "var(--text-subtle)" }}>· Ask anything</span>
+        </h2>
+        <HlnaOrb size={28} state={orbState === "alert" ? "idle" : orbState} speechRef={undefined} style={undefined} />
       </div>
-      <div style={{ flex: 1, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+      <div className={styles.chatLog} role="log" aria-live="polite" aria-label="Conversation with HLNA">
         {msgs.map((m, i) => (
-          <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", animation: "kf-fadein .2s ease" }}>
-            <div style={{ maxWidth: "85%", padding: "8px 12px", borderRadius: 9, fontSize: 12.5, lineHeight: 1.6, background: m.role === "user" ? t.ink(.06) : "rgba(99,102,241,.15)", border: m.role === "user" ? `1px solid ${t.ink(.08)}` : "1px solid rgba(99,102,241,.24)", color: t.ink(.86) }}>
+          <div key={i} className={styles.msg} data-role={m.role}>
+            <div className={styles.bubble}>
+              <span className={styles.srOnly}>{m.role === "user" ? "You: " : "HLNA: "}</span>
               {m.text}
             </div>
           </div>
         ))}
         {busy && (
-          <div style={{ display: "flex" }}>
-            <div style={{ padding: "10px 14px", borderRadius: 9, background: "rgba(99,102,241,.10)", border: "1px solid rgba(99,102,241,.20)", display: "flex", gap: 5, alignItems: "center" }}>
-              {[0, 1, 2].map(j => <div key={j} style={{ width: 5, height: 5, borderRadius: "50%", background: "#A78BFA", animation: `kf-bounce .9s ${j * .15}s ease-in-out infinite alternate` }} />)}
+          <div className={styles.msg}>
+            <div className={styles.typing} role="status">
+              <span aria-hidden="true" /><span aria-hidden="true" /><span aria-hidden="true" />
+              <span className={styles.srOnly}>HLNA is thinking…</span>
             </div>
           </div>
         )}
         <div ref={bottomRef} />
       </div>
-      <div style={{ padding: "0 12px 8px", display: "flex", gap: 6, flexWrap: "wrap", flexShrink: 0 }}>
+      <div className={styles.suggestions}>
         {SUGGESTED.map(p => (
-          <button key={p} onClick={() => send(p)} style={{ padding: "4px 10px", borderRadius: 20, fontSize: 10.5, fontWeight: 500, background: t.ink(.04), border: `1px solid ${t.ink(.07)}`, color: t.ink(.48), cursor: "pointer", transition: "all .15s", whiteSpace: "nowrap", fontFamily: FONT }}
-            onMouseEnter={e => { e.currentTarget.style.background = "rgba(139,92,246,.14)"; e.currentTarget.style.color = "#C4B5FD"; e.currentTarget.style.borderColor = "rgba(139,92,246,.28)"; }}
-            onMouseLeave={e => { e.currentTarget.style.background = t.ink(.04); e.currentTarget.style.color = t.ink(.48); e.currentTarget.style.borderColor = t.ink(.07); }}>
+          <button key={p} type="button" className={styles.suggestion} onClick={() => send(p)}>
             {p}
           </button>
         ))}
       </div>
-      <div style={{ padding: "8px 12px", borderTop: `1px solid ${t.ink(.05)}`, display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
-        <input value={input} onChange={e => setInput(e.target.value)}
+      <div className={styles.composer}>
+        <label htmlFor="cc-assistant-input" className={styles.srOnly}>Message HLNA</label>
+        <input id="cc-assistant-input" value={input} onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
-          placeholder="Ask HLNΛ anything…"
-          style={{ flex: 1, background: t.ink(.04), border: `1px solid ${t.ink(.07)}`, borderRadius: 8, padding: "7px 11px", fontSize: 12.5, color: t.ink(.94), outline: "none", fontFamily: FONT, transition: "border-color .15s" }}
-          onFocus={e => (e.currentTarget.style.borderColor = "rgba(139,92,246,.45)")}
-          onBlur={e => (e.currentTarget.style.borderColor = t.ink(.07))}
+          placeholder="Ask HLNA anything…"
+          className={fieldControlClassName}
         />
-        <button onClick={() => send(input)} disabled={!input.trim() || busy} style={{ width: 34, height: 34, borderRadius: 8, flexShrink: 0, background: input.trim() ? "rgba(139,92,246,.28)" : t.ink(.04), border: `1px solid ${input.trim() ? "rgba(139,92,246,.44)" : t.ink(.07)}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: input.trim() ? "pointer" : "default", transition: "all .15s" }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={input.trim() ? "#C4B5FD" : t.ink(.20)} strokeWidth="2" strokeLinecap="round">
+        <Button variant={input.trim() ? "primary" : "secondary"} size="sm" onClick={() => send(input)} disabled={!input.trim() || busy} aria-label="Send message">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" focusable="false">
             <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
           </svg>
-        </button>
+        </Button>
       </div>
-    </div>
+    </section>
   );
 
   // ── RENDER ───────────────────────────────────────────────────────────────
@@ -646,40 +592,24 @@ export default function CommandPage() {
         .react-grid-item{transition:all 200ms ease;transition-property:left,top,width,height;box-sizing:border-box}
         .react-grid-item.cssTransforms{transition-property:transform,width,height}
         .react-grid-item.resizing{will-change:width,height;z-index:4}
-        .react-grid-item.react-draggable-dragging{transition:none;z-index:5;will-change:transform;cursor:grabbing!important;opacity:.92;filter:drop-shadow(0 12px 28px rgba(0,0,0,.55))}
-        .react-grid-item.react-grid-placeholder{background:rgba(139,92,246,.07);border:1px dashed rgba(139,92,246,.28);border-radius:12px;opacity:.8;transition-duration:100ms;z-index:2;backdrop-filter:blur(4px)}
+        .react-grid-item.react-draggable-dragging{transition:none;z-index:5;will-change:transform;cursor:grabbing!important;box-shadow:var(--shadow-popover);border-radius:var(--radius-lg)}
+        .react-grid-item.react-grid-placeholder{background:var(--brand-brainbase-accent-muted);border:1px dashed var(--brand-brainbase-accent-border);border-radius:var(--radius-lg);opacity:1;transition-duration:100ms;z-index:2}
         .react-grid-item>.react-resizable-handle{position:absolute;width:20px;height:20px;bottom:0;right:0;cursor:se-resize;opacity:0;transition:opacity .2s}
         .react-grid-item:hover>.react-resizable-handle{opacity:1}
-        .react-grid-item>.react-resizable-handle::after{content:"";position:absolute;right:4px;bottom:4px;width:6px;height:6px;border-right:1.5px solid ${t.ink(.25)};border-bottom:1.5px solid ${t.ink(.25)}}
-        .edit-mode .react-grid-item:not(.react-grid-placeholder){outline:1px dashed rgba(139,92,246,.25);outline-offset:-1px;cursor:grab}
-        /* Page keyframes */
-        @keyframes kf-blink  { 0%,100%{opacity:1} 50%{opacity:.3} }
-        @keyframes kf-bounce { from{transform:translateY(0);opacity:.4} to{transform:translateY(-5px);opacity:1} }
-        @keyframes kf-fadein { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
-        @keyframes ribbon-pulse { 0%,100%{box-shadow:0 0 7px currentColor} 50%{box-shadow:0 0 14px currentColor} }
-        @keyframes ribbon-ring  { 0%{transform:scale(1);opacity:.6} 100%{transform:scale(3);opacity:0} }
-        @keyframes ribbon-expand{ from{opacity:0;max-height:0} to{opacity:1;max-height:60px} }
-        @keyframes toolbar-in   { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:none} }
+        .react-grid-item>.react-resizable-handle::after{content:"";position:absolute;right:4px;bottom:4px;width:6px;height:6px;border-right:1.5px solid var(--border-strong);border-bottom:1.5px solid var(--border-strong)}
+        .edit-mode .react-grid-item:not(.react-grid-placeholder){outline:1px dashed var(--brand-brainbase-accent-border);outline-offset:-1px;cursor:grab}
+        @media (prefers-reduced-motion: reduce){.react-grid-layout,.react-grid-item{transition:none}}
       `}} />
 
       {/* ── Workspace toolbar ── */}
-      <div style={{
-        height: 34, display: "flex", alignItems: "center", gap: 10,
-        padding: "0 20px", flexShrink: 0,
-        borderBottom: `1px solid ${t.ink(.04)}`,
-        background: t.paper(.50),
-        animation: "toolbar-in .2s ease",
-      }}>
-        <Link href="/dashboard" style={{ display: "flex", alignItems: "center", gap: 4, textDecoration: "none", color: t.ink(.22), fontSize: 10.5, transition: "color .14s" }}
-          onMouseEnter={e => (e.currentTarget.style.color = t.ink(.55))}
-          onMouseLeave={e => (e.currentTarget.style.color = t.ink(.22))}
-        >
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+      <div className={styles.toolbar}>
+        <Link href="/dashboard" className={styles.crumbLink}>
+          <Chevron dir="left" />
           Dashboard
         </Link>
-        <span style={{ opacity: .20, fontSize: 10 }}>/</span>
-        <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, color: t.ink(.20), letterSpacing: ".03em" }}>
-          <span>Command Centre</span><span style={{ opacity: .35 }}>/</span><span style={{ color: "rgba(167,139,250,.55)" }}>Operations</span>
+        <span className={styles.crumbSep} aria-hidden="true">/</span>
+        <div className={styles.crumbs}>
+          <span>Command Centre</span><span className={styles.crumbSep} aria-hidden="true">/</span><span className={styles.crumbCurrent}>Operations</span>
         </div>
         {/* Global demo-environment indicator — Command Centre mixes real,
             organisation-scoped KPI data (waste/kerbside/dumping/CRM tabs,
@@ -690,81 +620,64 @@ export default function CommandPage() {
             This lives in command/page.tsx only, not the shared
             WorkspaceShell component — bin-maintenance (a real operational
             page using the same shell) must not be affected. */}
-        <span style={{
-          fontSize: 9, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase",
-          color: "rgba(251,191,36,.75)", background: "rgba(251,191,36,.08)",
-          border: "1px solid rgba(251,191,36,.22)", borderRadius: 4, padding: "2px 7px",
-        }}>
+        <span className={styles.demoTag}>
           Demo Environment
         </span>
-        <div style={{ flex: 1 }} />
-        <Link href="/command/organiser" style={{ display: "flex", alignItems: "center", gap: 4, textDecoration: "none", color: t.ink(.22), fontSize: 10.5, transition: "color .14s" }}
-          onMouseEnter={e => (e.currentTarget.style.color = "rgba(167,139,250,.85)")}
-          onMouseLeave={e => (e.currentTarget.style.color = t.ink(.22))}
-        >
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+        <div className={styles.toolbarSpacer} />
+        <Link href="/command/organiser" className={styles.crumbLink}>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
           Organiser
         </Link>
-        <div style={{ width: 1, height: 12, background: t.ink(.07) }} />
+        <div className={styles.toolbarDivider} />
         <LiveAgo baseSeconds={3} />
-        <div style={{ width: 1, height: 12, background: t.ink(.07) }} />
-        {activeTab === "overview" && editMode && (
-          <button onClick={resetLayout} style={{ padding: "3px 9px", borderRadius: 5, fontSize: 10, fontWeight: 600, background: t.ink(.04), border: `1px solid ${t.ink(.10)}`, color: t.ink(.35), cursor: "pointer", fontFamily: FONT, letterSpacing: ".04em" }}>
-            Reset layout
-          </button>
-        )}
         {activeTab === "overview" && (
-          <button onClick={() => setEditMode(p => !p)} style={{
-            padding: "3px 10px", borderRadius: 5, fontSize: 10, fontWeight: 600,
-            background: editMode ? "rgba(139,92,246,.20)" : t.ink(.04),
-            border: `1px solid ${editMode ? "rgba(139,92,246,.38)" : t.ink(.10)}`,
-            color: editMode ? "#C4B5FD" : t.ink(.35),
-            cursor: "pointer", fontFamily: FONT, letterSpacing: ".04em", transition: "all .15s",
-          }}>
-            {editMode ? "✓ Done" : "⊞ Edit workspace"}
-          </button>
+          <>
+            <div className={styles.toolbarDivider} />
+            {editMode && (
+              <Button size="sm" onClick={resetLayout}>
+                Reset layout
+              </Button>
+            )}
+            <Button size="sm" variant={editMode ? "primary" : "secondary"} aria-pressed={editMode} onClick={() => setEditMode(p => !p)}>
+              {editMode ? "✓ Done" : "⊞ Edit workspace"}
+            </Button>
+          </>
         )}
       </div>
 
       {/* ── Tab bar ── */}
-      <div style={{
-        height: 40, display: "flex", alignItems: "center", gap: 0,
-        padding: "0 16px", flexShrink: 0,
-        borderBottom: `1px solid ${t.ink(.05)}`,
-        background: t.paper(.60),
-        overflowX: "auto",
-      }}>
-        {TABS.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => handleTabChange(tab.id)}
-            style={{
-              padding: "0 18px", height: "100%",
-              background: activeTab === tab.id ? "rgba(139,92,246,.14)" : "transparent",
-              border: "none",
-              borderBottom: activeTab === tab.id ? "2px solid #A78BFA" : "2px solid transparent",
-              color: activeTab === tab.id ? "#C4B5FD" : t.ink(.35),
-              fontSize: 12, fontWeight: 600, cursor: "pointer",
-              transition: "all .15s", whiteSpace: "nowrap",
-              letterSpacing: ".02em", fontFamily: FONT,
-            }}
-            onMouseEnter={e => { if (activeTab !== tab.id) e.currentTarget.style.color = t.ink(.60); }}
-            onMouseLeave={e => { if (activeTab !== tab.id) e.currentTarget.style.color = t.ink(.35); }}
-          >
-            {tab.label}
-          </button>
-        ))}
+      <div className={styles.tabs} role="tablist" aria-label="Command Centre views">
+        {TABS.map((tab, index) => {
+          const selected = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              ref={el => { tabRefs.current[tab.id] = el; }}
+              type="button"
+              role="tab"
+              id={`cc-tab-${tab.id}`}
+              aria-selected={selected}
+              aria-controls="cc-tabpanel"
+              tabIndex={selected ? 0 : -1}
+              className={styles.tab}
+              onClick={() => handleTabChange(tab.id)}
+              onKeyDown={e => handleTabKey(e, index)}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* ── Tab content ── */}
       {activeTab === "overview" ? (
         /* Overview: full GridLayout dashboard */
-        <div ref={containerRef} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "12px 16px 64px" }}>
+        <div ref={containerRef} id="cc-tabpanel" role="tabpanel" aria-labelledby="cc-tab-overview" className={styles.canvas}>
           {gridWidth > 0 && (
             <div className={editMode ? "edit-mode" : ""}>
               <GridLayout
                 layout={layout}
-                width={gridWidth - 32}
+                width={Math.max(gridWidth - 32, MIN_GRID_WIDTH)}
                 gridConfig={{ cols: 12, rowHeight: 32, margin: [10, 10], containerPadding: [0, 0] }}
                 dragConfig={{ enabled: editMode, handle: ".widget-drag-handle" }}
                 resizeConfig={{ enabled: editMode }}
@@ -790,7 +703,7 @@ export default function CommandPage() {
           )}
         </div>
       ) : (
-        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex" }}>
+        <div id="cc-tabpanel" role="tabpanel" aria-labelledby={`cc-tab-${activeTab}`} tabIndex={0} className={styles.tabPanel}>
           {activeTab === "financial" && <FinancialTab />}
           {activeTab === "waste"     && <WasteIntelligenceTab />}
           {activeTab === "debtors"   && <DebtorsTab />}
@@ -813,6 +726,9 @@ export default function CommandPage() {
 }
 
 // ━━━ ANALYTICS TAB COMPONENTS ━━━
+// Phase D2: each tab is a heading + MetricStrip (+ a Phase C table where
+// the data has rows). Colour appears only where a value carries a state
+// (thresholds, severities, statuses); the rest are neutral figures.
 
 function tabFetch(endpoint: string): Promise<Record<string, unknown>> {
   return fetch(`/api/${endpoint}/kpi?fy=${ACTIVE_FY}`, { credentials: "include" })
@@ -821,9 +737,15 @@ function tabFetch(endpoint: string): Promise<Record<string, unknown>> {
     .catch(() => ({}));
 }
 
+function TabLoading({ children }: { children: React.ReactNode }) {
+  return (
+    <div className={styles.tabBody}>
+      <StateMessage kind="loading" title={children} />
+    </div>
+  );
+}
 
 const WasteIntelligenceTab = React.memo(function WasteIntelligenceTab() {
-  const t = useOpsTheme();
   const [data, setData] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -831,25 +753,17 @@ const WasteIntelligenceTab = React.memo(function WasteIntelligenceTab() {
     tabFetch("waste").then(d => { if (alive) { setData(d as typeof data); setLoading(false); } });
     return () => { alive = false; };
   }, []);
-  if (loading) return <div style={{ padding: 20, color: t.ink(.40) }}>Loading waste intelligence...</div>;
+  if (loading) return <TabLoading>Loading waste intelligence...</TabLoading>;
   const dr = Math.round(data.diversionRate ?? 0);
   return (
-    <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 20, flex: 1, overflowY: "auto" }}>
-      <h2 style={{ fontSize: 20, fontWeight: 700, color: t.ink(.94), margin: 0 }}>Waste Intelligence</h2>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
-        {([
-          { label: "Total Waste",    val: Math.round(data.totalWaste    ?? 0), color: "#EF4444" },
-          { label: "Recycling",      val: Math.round(data.totalRecycling ?? 0), color: "#FBBF24" },
-          { label: "Organics",       val: Math.round(data.totalOrganics  ?? 0), color: "#22C55E" },
-          { label: "Diversion Rate", val: `${dr}%`,                             color: dr > 60 ? "#22C55E" : "#F59E0B" },
-        ] as const).map(({ label, val, color }) => (
-          <div key={label} style={{ padding: 14, background: t.ink(.04), border: `1px solid ${color}33`, borderRadius: 8 }}>
-            <div style={{ fontSize: 10, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
-            <div style={{ fontSize: 24, fontWeight: 700, color }}>{val}</div>
-            {label !== "Diversion Rate" && <div style={{ fontSize: 9, color: t.ink(.30) }}>tonnes</div>}
-          </div>
-        ))}
-      </div>
+    <div className={styles.tabBody}>
+      <h2 className={styles.tabTitle}>Waste Intelligence</h2>
+      <MetricStrip>
+        <Metric label="Total Waste" value={Math.round(data.totalWaste ?? 0)} sub="tonnes" />
+        <Metric label="Recycling" value={Math.round(data.totalRecycling ?? 0)} sub="tonnes" />
+        <Metric label="Organics" value={Math.round(data.totalOrganics ?? 0)} sub="tonnes" />
+        <Metric label="Diversion Rate" value={`${dr}%`} tone={dr > 60 ? "success" : "warning"} sub={dr > 60 ? "Above 60% target" : "Below 60% target"} />
+      </MetricStrip>
     </div>
   );
 });
@@ -857,7 +771,6 @@ const WasteIntelligenceTab = React.memo(function WasteIntelligenceTab() {
 type Debtor = { account: string; amount: number; daysOverdue: number; status: string };
 
 const DebtorsTab = React.memo(function DebtorsTab() {
-  const t = useOpsTheme();
   const [data, setData] = useState<{ totalOutstanding?: number; count?: number; avgDaysOverdue?: number; recoveryRate?: number; topDebtors?: Debtor[] }>({});
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -865,48 +778,42 @@ const DebtorsTab = React.memo(function DebtorsTab() {
     tabFetch("debtors").then(d => { if (alive) { setData(d as typeof data); setLoading(false); } });
     return () => { alive = false; };
   }, []);
-  if (loading) return <div style={{ padding: 20, color: t.ink(.40) }}>Loading debtors...</div>;
+  if (loading) return <TabLoading>Loading debtors...</TabLoading>;
   const rr = Math.round(data.recoveryRate ?? 0);
   return (
-    <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 20, flex: 1, overflowY: "auto" }}>
-      <h2 style={{ fontSize: 20, fontWeight: 700, color: t.ink(.94), margin: 0 }}>Debtors Management</h2>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
-        {([
-          { label: "Total Outstanding", val: `$${Number(data.totalOutstanding ?? 0).toLocaleString()}`, color: "#EF4444" },
-          { label: "Debtor Count",       val: String(data.count ?? 0),                                   color: "#F59E0B" },
-          { label: "Avg Days Overdue",   val: String(Math.round(data.avgDaysOverdue ?? 0)),               color: "#EF4444" },
-          { label: "Recovery Rate",      val: `${rr}%`,                                                   color: rr > 50 ? "#22C55E" : "#EF4444" },
-        ] as const).map(({ label, val, color }) => (
-          <div key={label} style={{ padding: 14, background: t.ink(.04), border: `1px solid ${color}33`, borderRadius: 8 }}>
-            <div style={{ fontSize: 10, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
-            <div style={{ fontSize: 24, fontWeight: 700, color }}>{val}</div>
-          </div>
-        ))}
-      </div>
+    <div className={styles.tabBody}>
+      <h2 className={styles.tabTitle}>Debtors Management</h2>
+      <MetricStrip>
+        <Metric label="Total Outstanding" value={`$${Number(data.totalOutstanding ?? 0).toLocaleString()}`} />
+        <Metric label="Debtor Count" value={String(data.count ?? 0)} />
+        <Metric label="Avg Days Overdue" value={String(Math.round(data.avgDaysOverdue ?? 0))} />
+        <Metric label="Recovery Rate" value={`${rr}%`} tone={rr > 50 ? "success" : "danger"} sub={rr > 50 ? "Above 50%" : "At or below 50%"} />
+      </MetricStrip>
       {(data.topDebtors?.length ?? 0) > 0 && (
-        <div style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 12, padding: 16, overflowX: "auto" }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 12 }}>Top Debtors</div>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, color: t.ink(.70) }}>
-            <thead>
-              <tr style={{ borderBottom: `1px solid ${t.ink(.08)}` }}>
-                {["Account", "Amount", "Days Overdue", "Status"].map(h => (
-                  <th key={h} style={{ padding: "8px 12px", textAlign: h === "Account" || h === "Status" ? "left" : "right", fontWeight: 600, color: t.ink(.40) }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.topDebtors!.map((d, i) => (
-                <tr key={i} style={{ borderBottom: `1px solid ${t.ink(.04)}` }}>
-                  <td style={{ padding: "8px 12px" }}>{d.account}</td>
-                  <td style={{ padding: "8px 12px", textAlign: "right" }}>${d.amount.toLocaleString()}</td>
-                  <td style={{ padding: "8px 12px", textAlign: "right" }}>{d.daysOverdue}</td>
-                  <td style={{ padding: "8px 12px" }}>
-                    <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 10, background: d.status === "OPEN" ? "rgba(239,68,68,.15)" : "rgba(34,197,94,.15)", color: d.status === "OPEN" ? "#EF4444" : "#22C55E" }}>{d.status}</span>
-                  </td>
+        <div>
+          <h3 className={styles.subTitle}>Top Debtors</h3>
+          <TableContainer label="Top debtors" minWidth={480}>
+            <table className={tableStyles.table}>
+              <thead>
+                <tr>
+                  <th scope="col">Account</th>
+                  <th scope="col" className={tableStyles.num}>Amount</th>
+                  <th scope="col" className={tableStyles.num}>Days Overdue</th>
+                  <th scope="col">Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {data.topDebtors!.map((d, i) => (
+                  <tr key={i}>
+                    <td className={tableStyles.primary}>{d.account}</td>
+                    <td className={tableStyles.num}>${d.amount.toLocaleString()}</td>
+                    <td className={tableStyles.num}>{d.daysOverdue}</td>
+                    <td><Badge state={d.status === "OPEN" ? "error" : "success"}>{d.status}</Badge></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableContainer>
         </div>
       )}
     </div>
@@ -914,7 +821,6 @@ const DebtorsTab = React.memo(function DebtorsTab() {
 });
 
 const KerbsideTab = React.memo(function KerbsideTab() {
-  const t = useOpsTheme();
   const [data, setData] = useState<{ totalScheduled?: number; missedCount?: number; completionRate?: number; slaCompliance?: number }>({});
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -922,34 +828,26 @@ const KerbsideTab = React.memo(function KerbsideTab() {
     tabFetch("missed-collections").then(d => { if (alive) { setData(d as typeof data); setLoading(false); } });
     return () => { alive = false; };
   }, []);
-  if (loading) return <div style={{ padding: 20, color: t.ink(.40) }}>Loading kerbside operations...</div>;
+  if (loading) return <TabLoading>Loading kerbside operations...</TabLoading>;
   const cr = Math.round(data.completionRate ?? 0);
   const sl = Math.round(data.slaCompliance ?? 0);
   return (
-    <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 20, flex: 1, overflowY: "auto" }}>
-      <h2 style={{ fontSize: 20, fontWeight: 700, color: t.ink(.94), margin: 0 }}>Kerbside Operations</h2>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
-        {([
-          { label: "Total Scheduled",    val: String(data.totalScheduled ?? 0), color: "#5B9CF6" },
-          { label: "Missed Collections", val: String(data.missedCount ?? 0),    color: "#EF4444" },
-          { label: "Completion Rate",    val: `${cr}%`,                         color: cr > 95 ? "#22C55E" : "#F59E0B" },
-          { label: "SLA Compliance",     val: `${sl}%`,                         color: sl > 90 ? "#22C55E" : "#EF4444" },
-        ] as const).map(({ label, val, color }) => (
-          <div key={label} style={{ padding: 14, background: t.ink(.04), border: `1px solid ${color}33`, borderRadius: 8 }}>
-            <div style={{ fontSize: 10, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
-            <div style={{ fontSize: 24, fontWeight: 700, color }}>{val}</div>
-          </div>
-        ))}
-      </div>
+    <div className={styles.tabBody}>
+      <h2 className={styles.tabTitle}>Kerbside Operations</h2>
+      <MetricStrip>
+        <Metric label="Total Scheduled" value={String(data.totalScheduled ?? 0)} />
+        <Metric label="Missed Collections" value={String(data.missedCount ?? 0)} />
+        <Metric label="Completion Rate" value={`${cr}%`} tone={cr > 95 ? "success" : "warning"} sub={cr > 95 ? "Above 95%" : "At or below 95%"} />
+        <Metric label="SLA Compliance" value={`${sl}%`} tone={sl > 90 ? "success" : "danger"} sub={sl > 90 ? "Above 90%" : "At or below 90%"} />
+      </MetricStrip>
     </div>
   );
 
 });
 
-// â”â”â” ADDITIONAL TABS â”â”â”
+// ━━━ ADDITIONAL TABS ━━━
 
 const IllegalDumpingTab = React.memo(function IllegalDumpingTab() {
-  const t = useOpsTheme();
   const [data, setData] = useState<{
     totalIncidents?: number; recoveryRate?: number;
     topSuburbs?: { suburb: string; count: number }[];
@@ -961,52 +859,35 @@ const IllegalDumpingTab = React.memo(function IllegalDumpingTab() {
     tabFetch("illegal-dumping").then(d => { if (alive) { setData(d as typeof data); setLoading(false); } });
     return () => { alive = false; };
   }, []);
-  if (loading) return <div style={{ padding: 20, color: t.ink(.40) }}>Loading illegal dumping data...</div>;
+  if (loading) return <TabLoading>Loading illegal dumping data...</TabLoading>;
   const rr = Math.round(data.recoveryRate ?? 0);
   const sb = data.severityBreakdown;
   return (
-    <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 20, flex: 1, overflowY: "auto" }}>
-      <h2 style={{ fontSize: 20, fontWeight: 700, color: t.ink(.94), margin: 0 }}>Illegal Dumping</h2>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
-        <div style={{ padding: 14, background: t.ink(.04), border: "1px solid rgba(239,68,68,.2)", borderRadius: 8 }}>
-          <div style={{ fontSize: 10, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Total Incidents</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: "#EF4444" }}>{data.totalIncidents ?? 0}</div>
-        </div>
-        <div style={{ padding: 14, background: t.ink(.04), border: rr > 50 ? "1px solid rgba(34,197,94,.2)" : "1px solid rgba(239,68,68,.2)", borderRadius: 8 }}>
-          <div style={{ fontSize: 10, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Recovery Rate</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: rr > 50 ? "#22C55E" : "#EF4444" }}>{rr}%</div>
-        </div>
-      </div>
+    <div className={styles.tabBody}>
+      <h2 className={styles.tabTitle}>Illegal Dumping</h2>
+      <MetricStrip>
+        <Metric label="Total Incidents" value={data.totalIncidents ?? 0} />
+        <Metric label="Recovery Rate" value={`${rr}%`} tone={rr > 50 ? "success" : "danger"} sub={rr > 50 ? "Above 50%" : "At or below 50%"} />
+      </MetricStrip>
       {(data.topSuburbs?.length ?? 0) > 0 && (
-        <div style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 12, padding: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 12 }}>Top Suburbs</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 12 }}>
+        <div>
+          <h3 className={styles.subTitle}>Top Suburbs</h3>
+          <MetricStrip>
             {data.topSuburbs!.map((s, i) => (
-              <div key={i} style={{ padding: 12, background: t.ink(.02), border: `1px solid ${t.ink(.05)}`, borderRadius: 8 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: t.ink(.94), marginBottom: 4 }}>{s.suburb}</div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: "#EF4444" }}>{s.count}</div>
-                <div style={{ fontSize: 9, color: t.ink(.30) }}>incidents</div>
-              </div>
+              <Metric key={i} label={s.suburb} value={s.count} sub="incidents" />
             ))}
-          </div>
+          </MetricStrip>
         </div>
       )}
       {sb && (
-        <div style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 12, padding: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 12 }}>Severity Breakdown</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12 }}>
-            {([
-              { label: "CRITICAL", val: sb.CRITICAL, bg: "rgba(239,68,68,.10)",  border: "rgba(239,68,68,.2)",  color: "#EF4444" },
-              { label: "HIGH",     val: sb.HIGH,     bg: "rgba(245,158,11,.10)", border: "rgba(245,158,11,.2)", color: "#F59E0B" },
-              { label: "MEDIUM",   val: sb.MEDIUM,   bg: "rgba(34,197,94,.10)",  border: "rgba(34,197,94,.2)",  color: "#22C55E" },
-              { label: "LOW",      val: sb.LOW,      bg: "rgba(91,156,246,.10)", border: "rgba(91,156,246,.2)", color: "#5B9CF6" },
-            ] as const).map(({ label, val, bg, border, color }) => (
-              <div key={label} style={{ padding: 12, background: bg, border: `1px solid ${border}`, borderRadius: 8, textAlign: "center" }}>
-                <div style={{ fontSize: 12, color, fontWeight: 600, marginBottom: 4 }}>{label}</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color }}>{val ?? 0}</div>
-              </div>
-            ))}
-          </div>
+        <div>
+          <h3 className={styles.subTitle}>Severity Breakdown</h3>
+          <MetricStrip>
+            <Metric label="CRITICAL" value={sb.CRITICAL ?? 0} tone="danger" />
+            <Metric label="HIGH" value={sb.HIGH ?? 0} tone="warning" />
+            <Metric label="MEDIUM" value={sb.MEDIUM ?? 0} tone="success" />
+            <Metric label="LOW" value={sb.LOW ?? 0} tone="info" />
+          </MetricStrip>
         </div>
       )}
     </div>
@@ -1014,7 +895,6 @@ const IllegalDumpingTab = React.memo(function IllegalDumpingTab() {
 });
 
 const CRMTab = React.memo(function CRMTab() {
-  const t = useOpsTheme();
   type CRMRequest = { requestId?: string; category?: string; status?: string; daysRequestOpen?: number; deadlinePassed?: boolean };
   const [requests, setRequests] = useState<CRMRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1027,50 +907,44 @@ const CRMTab = React.memo(function CRMTab() {
     if (alive) setLoading(false);
     return () => { alive = false; };
   }, []);
-  if (loading) return <div style={{ padding: 20, color: t.ink(.40) }}>Loading CRM requests...</div>;
+  if (loading) return <TabLoading>Loading CRM requests...</TabLoading>;
   const openCount    = requests.filter(r => r.status === "Active").length;
   const overdueCount = requests.filter(r => r.deadlinePassed).length;
   const avgDaysOpen  = requests.length > 0 ? Math.round(requests.reduce((s, r) => s + (r.daysRequestOpen ?? 0), 0) / requests.length) : 0;
   return (
-    <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 20, flex: 1, overflowY: "auto" }}>
-      <h2 style={{ fontSize: 20, fontWeight: 700, color: t.ink(.94), margin: 0 }}>CRM / Requests</h2>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
-        {([
-          { label: "Total Requests", val: String(requests.length), color: "#5B9CF6" },
-          { label: "Open",           val: String(openCount),        color: "#22C55E" },
-          { label: "Overdue",        val: String(overdueCount),     color: overdueCount > 0 ? "#EF4444" : "#22C55E" },
-          { label: "Avg Days Open",  val: String(avgDaysOpen),      color: "#F59E0B" },
-        ] as const).map(({ label, val, color }) => (
-          <div key={label} style={{ padding: 14, background: t.ink(.04), border: `1px solid ${color}33`, borderRadius: 8 }}>
-            <div style={{ fontSize: 10, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
-            <div style={{ fontSize: 24, fontWeight: 700, color }}>{val}</div>
-          </div>
-        ))}
-      </div>
+    <div className={styles.tabBody}>
+      <h2 className={styles.tabTitle}>CRM / Requests</h2>
+      <MetricStrip>
+        <Metric label="Total Requests" value={String(requests.length)} />
+        <Metric label="Open" value={String(openCount)} />
+        <Metric label="Overdue" value={String(overdueCount)} tone={overdueCount > 0 ? "danger" : "success"} sub={overdueCount > 0 ? "Past deadline" : "None overdue"} />
+        <Metric label="Avg Days Open" value={String(avgDaysOpen)} />
+      </MetricStrip>
       {requests.length > 0 && (
-        <div style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 12, padding: 16, overflowX: "auto" }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 12 }}>Recent Requests</div>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, color: t.ink(.70) }}>
-            <thead>
-              <tr style={{ borderBottom: `1px solid ${t.ink(.08)}` }}>
-                {["ID", "Category", "Status", "Days Open"].map((h, i) => (
-                  <th key={h} style={{ padding: "8px 12px", textAlign: i === 3 ? "right" : "left", fontWeight: 600, color: t.ink(.40) }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {requests.slice(0, 10).map((r, i) => (
-                <tr key={i} style={{ borderBottom: `1px solid ${t.ink(.04)}` }}>
-                  <td style={{ padding: "8px 12px" }}>{r.requestId?.slice(0, 8)}</td>
-                  <td style={{ padding: "8px 12px" }}>{r.category}</td>
-                  <td style={{ padding: "8px 12px" }}>
-                    <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 9, background: r.status === "Active" ? "rgba(91,156,246,.15)" : "rgba(34,197,94,.15)", color: r.status === "Active" ? "#5B9CF6" : "#22C55E" }}>{r.status}</span>
-                  </td>
-                  <td style={{ padding: "8px 12px", textAlign: "right" }}>{r.daysRequestOpen ?? 0}</td>
+        <div>
+          <h3 className={styles.subTitle}>Recent Requests</h3>
+          <TableContainer label="Recent requests" minWidth={440}>
+            <table className={tableStyles.table}>
+              <thead>
+                <tr>
+                  <th scope="col">ID</th>
+                  <th scope="col">Category</th>
+                  <th scope="col">Status</th>
+                  <th scope="col" className={tableStyles.num}>Days Open</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {requests.slice(0, 10).map((r, i) => (
+                  <tr key={i}>
+                    <td className={tableStyles.primary}>{r.requestId?.slice(0, 8)}</td>
+                    <td>{r.category}</td>
+                    <td>{r.status && <Badge state={r.status === "Active" ? "info" : "success"}>{r.status}</Badge>}</td>
+                    <td className={tableStyles.num}>{r.daysRequestOpen ?? 0}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableContainer>
         </div>
       )}
     </div>
@@ -1080,7 +954,6 @@ const CRMTab = React.memo(function CRMTab() {
 type SportActivity = { name: string; participants: number; spectators: number; visitors: number };
 
 const SportingClubsTab = React.memo(function SportingClubsTab() {
-  const t = useOpsTheme();
   const [data, setData] = useState<{ totalActivities?: number; totalParticipants?: number; totalSpectators?: number; totalVisitors?: number; byActivity?: SportActivity[] }>({});
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -1088,45 +961,41 @@ const SportingClubsTab = React.memo(function SportingClubsTab() {
     tabFetch("sports").then(d => { if (alive) { setData(d as typeof data); setLoading(false); } });
     return () => { alive = false; };
   }, []);
-  if (loading) return <div style={{ padding: 20, color: t.ink(.40) }}>Loading sporting clubs data...</div>;
+  if (loading) return <TabLoading>Loading sporting clubs data...</TabLoading>;
   return (
-    <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 20, flex: 1, overflowY: "auto" }}>
-      <h2 style={{ fontSize: 20, fontWeight: 700, color: t.ink(.94), margin: 0 }}>Sporting Clubs</h2>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
-        {([
-          { label: "Total Activities",   val: String(data.totalActivities ?? 0),             color: "#22C55E" },
-          { label: "Total Participants", val: (data.totalParticipants ?? 0).toLocaleString(), color: "#5B9CF6" },
-          { label: "Spectators/Week",    val: (data.totalSpectators ?? 0).toLocaleString(),   color: "#F59E0B" },
-          { label: "Total Visitors",     val: (data.totalVisitors ?? 0).toLocaleString(),     color: "#A78BFA" },
-        ] as const).map(({ label, val, color }) => (
-          <div key={label} style={{ padding: 14, background: t.ink(.04), border: `1px solid ${color}33`, borderRadius: 8 }}>
-            <div style={{ fontSize: 10, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
-            <div style={{ fontSize: 24, fontWeight: 700, color }}>{val}</div>
-          </div>
-        ))}
-      </div>
+    <div className={styles.tabBody}>
+      <h2 className={styles.tabTitle}>Sporting Clubs</h2>
+      <MetricStrip>
+        <Metric label="Total Activities" value={String(data.totalActivities ?? 0)} />
+        <Metric label="Total Participants" value={(data.totalParticipants ?? 0).toLocaleString()} />
+        <Metric label="Spectators/Week" value={(data.totalSpectators ?? 0).toLocaleString()} />
+        <Metric label="Total Visitors" value={(data.totalVisitors ?? 0).toLocaleString()} />
+      </MetricStrip>
       {(data.byActivity?.length ?? 0) > 0 && (
-        <div style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 12, padding: 16, overflowX: "auto" }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 12 }}>Sports Breakdown</div>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, color: t.ink(.70) }}>
-            <thead>
-              <tr style={{ borderBottom: `1px solid ${t.ink(.08)}` }}>
-                {["Sport", "Participants", "Spectators/Week", "Visitors/Week"].map((h, i) => (
-                  <th key={h} style={{ padding: "8px 12px", textAlign: i === 0 ? "left" : "right", fontWeight: 600, color: t.ink(.40) }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.byActivity!.map((a, i) => (
-                <tr key={i} style={{ borderBottom: `1px solid ${t.ink(.04)}` }}>
-                  <td style={{ padding: "8px 12px" }}>{a.name}</td>
-                  <td style={{ padding: "8px 12px", textAlign: "right" }}>{a.participants.toLocaleString()}</td>
-                  <td style={{ padding: "8px 12px", textAlign: "right" }}>{a.spectators.toLocaleString()}</td>
-                  <td style={{ padding: "8px 12px", textAlign: "right" }}>{a.visitors.toLocaleString()}</td>
+        <div>
+          <h3 className={styles.subTitle}>Sports Breakdown</h3>
+          <TableContainer label="Sports breakdown" minWidth={480}>
+            <table className={tableStyles.table}>
+              <thead>
+                <tr>
+                  <th scope="col">Sport</th>
+                  <th scope="col" className={tableStyles.num}>Participants</th>
+                  <th scope="col" className={tableStyles.num}>Spectators/Week</th>
+                  <th scope="col" className={tableStyles.num}>Visitors/Week</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {data.byActivity!.map((a, i) => (
+                  <tr key={i}>
+                    <td className={tableStyles.primary}>{a.name}</td>
+                    <td className={tableStyles.num}>{a.participants.toLocaleString()}</td>
+                    <td className={tableStyles.num}>{a.spectators.toLocaleString()}</td>
+                    <td className={tableStyles.num}>{a.visitors.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableContainer>
         </div>
       )}
     </div>

@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Field, lbl, sel } from './CustomerForm';
+import { Field } from './CustomerForm';
+import { Button, Field as AppField, FormActions, FormError, fieldControlClassName } from '@/components/ui/app';
 
 type TaxCode = { id: string; code: string; name: string; rate: string };
 
@@ -39,41 +40,52 @@ export default function ProductForm({ initial, onSaved }: { initial?: Product; o
 
   return (
     <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div>
-        <label style={lbl}>Type</label>
-        <select value={form.type ?? 'PRODUCT'} onChange={set('type')} style={sel} disabled={!!initial?.id}>
-          <option value="PRODUCT">Product</option>
-          <option value="SERVICE">Service</option>
-        </select>
-      </div>
-      <Field label="Name *" value={form.name ?? ''} onChange={set('name')} required />
-      <div>
-        <label style={lbl}>Description</label>
-        <textarea value={form.description ?? ''} onChange={set('description')} rows={2} style={{ ...sel, resize: 'vertical', lineHeight: 1.5 }} />
-      </div>
+      <AppField label="Type">
+        {control => (
+          <select {...control} value={form.type ?? 'PRODUCT'} onChange={set('type')} className={fieldControlClassName} disabled={!!initial?.id}>
+            <option value="PRODUCT">Product</option>
+            <option value="SERVICE">Service</option>
+          </select>
+        )}
+      </AppField>
+      <Field label="Name" value={form.name ?? ''} onChange={set('name')} required />
+      <AppField label="Description">
+        {control => (
+          <textarea {...control} value={form.description ?? ''} onChange={set('description')} rows={2} className={fieldControlClassName} />
+        )}
+      </AppField>
       <Field label="SKU / Code" value={form.sku ?? ''} onChange={set('sku')} />
       <Field label="Unit" value={form.unitLabel ?? ''} onChange={set('unitLabel')} placeholder="each, hour, kg, ..." />
       <div style={{ display: 'flex', gap: 12 }}>
         <div style={{ flex: 1 }}>
-          <label style={lbl}>Default Price</label>
-          <input value={priceDisplay} onChange={e => setPriceDisplay(e.target.value)} placeholder="0.00" inputMode="decimal" style={sel} />
+          <AppField label="Default Price">
+            {control => (
+              <input {...control} value={priceDisplay} onChange={e => setPriceDisplay(e.target.value)} placeholder="0.00" inputMode="decimal" className={fieldControlClassName} />
+            )}
+          </AppField>
         </div>
         <div style={{ width: 90 }}>
-          <label style={lbl}>Currency</label>
-          <input value={form.currency ?? 'AUD'} onChange={set('currency')} style={sel} maxLength={3} />
+          <AppField label="Currency">
+            {control => (
+              <input {...control} value={form.currency ?? 'AUD'} onChange={set('currency')} className={fieldControlClassName} maxLength={3} />
+            )}
+          </AppField>
         </div>
       </div>
-      <div>
-        <label style={lbl}>Default Tax Code</label>
-        <select value={form.defaultTaxCodeId ?? ''} onChange={set('defaultTaxCodeId')} style={sel}>
-          <option value="">— No tax code —</option>
-          {taxCodes.map(t => <option key={t.id} value={t.id}>{t.code} — {t.name} ({t.rate}%)</option>)}
-        </select>
-      </div>
-      {error && <p style={{ color: '#f87171', fontSize: 13, margin: 0 }}>{error}</p>}
-      <button type="submit" disabled={saving} style={{ padding: '10px 0', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
-        {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create'}
-      </button>
+      <AppField label="Default Tax Code">
+        {control => (
+          <select {...control} value={form.defaultTaxCodeId ?? ''} onChange={set('defaultTaxCodeId')} className={fieldControlClassName}>
+            <option value="">— No tax code —</option>
+            {taxCodes.map(t => <option key={t.id} value={t.id}>{t.code} — {t.name} ({t.rate}%)</option>)}
+          </select>
+        )}
+      </AppField>
+      {error && <FormError>{error}</FormError>}
+      <FormActions align="stretch">
+        <Button type="submit" variant="primary" disabled={saving}>
+          {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create'}
+        </Button>
+      </FormActions>
     </form>
   );
 }

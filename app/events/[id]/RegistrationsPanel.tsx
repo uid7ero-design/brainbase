@@ -392,8 +392,8 @@ export default function RegistrationsPanel({
         )}
       </div>
 
-      {(error || listError) && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12, marginBottom: 12 }}>{listError ?? error}</div>}
-      {actionError && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12, marginBottom: 12 }}>{actionError}</div>}
+      {(error || listError) && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12, marginBottom: 12 }}>{listError ?? error}</div>}
+      {actionError && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12, marginBottom: 12 }}>{actionError}</div>}
       {displayedOrders === null && !listError && <div style={{ fontSize: 13, color: TEXT_MUTED }}>Loading…</div>}
       {displayedOrders !== null && displayedOrders.length === 0 && (
         <EmptyState
@@ -505,7 +505,7 @@ export default function RegistrationsPanel({
                   <div key={a.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, fontSize: 12.5 }}>
                     <span style={{ color: TEXT_PRIMARY, fontWeight: 500 }}>{a.name}</span>
                     {a.checked_in_at ? (
-                      <span style={{ color: '#4ADE80', fontWeight: 600 }}>Checked in · {new Date(a.checked_in_at).toLocaleTimeString()}</span>
+                      <span style={{ color: 'var(--status-success)', fontWeight: 600 }}>Checked in · {new Date(a.checked_in_at).toLocaleTimeString()}</span>
                     ) : (
                       <span style={{ color: TEXT_MUTED }}>Not checked in</span>
                     )}

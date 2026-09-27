@@ -69,7 +69,7 @@ function ImportFlow({ onRestart }: { onRestart: () => void }) {
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "32px 24px" }}>
-      <div ref={headingRef} tabIndex={-1} style={{ outline: "none" }} aria-live="polite">
+      <div ref={headingRef} tabIndex={-1} aria-live="polite">
         {screenGroup === "select" && (
           <>
             <FileSelector session={session} />

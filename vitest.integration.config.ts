@@ -106,6 +106,12 @@ import path from 'path';
 // C7.5C addition: scripts/tests/supplierBillFractionalQuantityMigration
 // .integration.test.ts proves the INTEGER -> NUMERIC(14,4) migration
 // against disposable Postgres before any Production rollout.
+//
+// 6.2D4B remediation addition: scripts/tests/dataHubStageWorksheetRoute
+// .integration.test.ts proves the actual multi-request POST -> RUNNING ->
+// POST -> SUCCEEDED continuation seam against the real, unmodified route
+// handler and the real datahub_stage_raw_batch/datahub_complete_raw_staging_run
+// Postgres functions — see scripts/tests/verify-datahub-stage-worksheet-route.sh.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -127,6 +133,7 @@ export default defineConfig({
       'scripts/tests/hrLifecycleTaskCompletion.integration.test.ts',
       'scripts/tests/hrLifecycleTaskActionsApprovals.integration.test.ts',
       'scripts/tests/hrLifecycleWorkflowActions.integration.test.ts',
+      'scripts/tests/dataHubStageWorksheetRoute.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,

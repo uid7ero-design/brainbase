@@ -1,0 +1,104 @@
+/* Compact metric strip. Tokens only (app/globals.css). */
+
+.strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+/* Hairline dividers drawn by each cell (right + bottom); the strip clips
+   the outer edge, so a partial last row leaves plain surface, not a block. */
+.metric {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+  margin: 0 -1px -1px 0;
+  padding: 12px 14px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.value {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  overflow-wrap: break-word;
+}
+
+.value[data-tone='success'] {
+  color: var(--status-success);
+}
+.value[data-tone='warning'] {
+  color: var(--status-warning);
+}
+.value[data-tone='danger'] {
+  color: var(--status-danger);
+}
+.value[data-tone='info'] {
+  color: var(--status-info);
+}
+
+.placeholder {
+  color: var(--text-subtle);
+}
+
+.sub {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* Phase D2: value + decorative trend graphic side by side. */
+.valueRow {
+  display: flex;
+  margin: 0;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.visual {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-subtle);
+}
+
+.change {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+.change[data-tone='success'] {
+  color: var(--status-success);
+}
+.change[data-tone='warning'] {
+  color: var(--status-warning);
+}
+.change[data-tone='danger'] {
+  color: var(--status-danger);
+}
+.change[data-tone='info'] {
+  color: var(--status-info);
+}

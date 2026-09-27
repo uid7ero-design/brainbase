@@ -1,6 +1,17 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  Metric, MetricStrip, StateMessage, TableContainer, fieldControlClassName, tableStyles,
+} from '@/components/ui/app';
+import styles from './command.module.css';
+
+// Phase D2 — on the shared app system: theme tokens (was dark-only),
+// MetricStrip, the Phase C table contract, a real tablist, keyboard-operable
+// edit cells and visible focus. Data, PATCH calls, debouncing and every
+// calculation are unchanged. Colour carries meaning only: variance sign
+// (also written as a minus sign), the manual-override marker (also a
+// titled, announced glyph) and focus/selection accent.
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -56,7 +67,6 @@ type SubTab = 'summary' | 'expenses' | 'recoveries' | 'revenue' | 'rise-fall';
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const ACTIVE_FY = '2025-26';
-const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
 function fmtCurrency(n: number): string {
   if (n === 0) return '$0';
@@ -72,18 +82,20 @@ function fmtFull(n: number): string {
   return `${sign}$${Math.abs(Math.round(n)).toLocaleString()}`;
 }
 
-function varianceColor(v: number): string {
-  if (v > 0)  return '#22C55E';
-  if (v < 0)  return '#EF4444';
-  return 'rgba(255,255,255,.40)';
+function varianceSign(v: number): 'pos' | 'neg' | 'zero' {
+  if (v > 0)  return 'pos';
+  if (v < 0)  return 'neg';
+  return 'zero';
 }
 
 // ── Editable number cell ──────────────────────────────────────────────────────
 
 function EditCell({
-  value, onSave, saving, align = 'right',
+  value, onSave, saving, align = 'right', label,
 }: {
   value: number;
+  /** Accessible name for the value, e.g. "Budget FY, 1234 Waste disposal". */
+  label: string;
   onSave: (v: number) => void;
   saving?: boolean;
   align?: 'left' | 'right';
@@ -106,44 +118,35 @@ function EditCell({
 
   if (saving) {
     return (
-      <td style={{ padding: '7px 10px', textAlign: align, color: 'rgba(255,255,255,.30)', fontSize: 11 }}>
-        saving…
+      <td className={tableStyles.num}>
+        <span className={tableStyles.muted}>saving…</span>
       </td>
     );
   }
 
   if (editing) {
     return (
-      <td style={{ padding: '4px 6px', textAlign: align }}>
+      <td className={tableStyles.num} style={{ textAlign: align }}>
         <input
           ref={inputRef}
           value={draft}
+          aria-label={label}
+          inputMode="decimal"
           onChange={e => setDraft(e.target.value)}
           onBlur={commit}
           onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
-          style={{
-            width: '100%', background: 'rgba(139,92,246,.15)', border: '1px solid rgba(139,92,246,.45)',
-            borderRadius: 4, padding: '3px 6px', color: '#F5F7FA', fontSize: 11,
-            fontFamily: FONT, textAlign: align, outline: 'none',
-          }}
+          className={styles.editInput}
+          style={{ textAlign: align }}
         />
       </td>
     );
   }
 
   return (
-    <td
-      onClick={startEdit}
-      title="Click to edit"
-      style={{
-        padding: '7px 10px', textAlign: align, cursor: 'text',
-        fontSize: 11, color: 'rgba(255,255,255,.75)',
-        borderBottom: '1px dashed rgba(255,255,255,.10)',
-      }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(139,92,246,.07)'; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = ''; }}
-    >
-      {fmtFull(value)}
+    <td className={tableStyles.num} style={{ textAlign: align }}>
+      <button type="button" className={styles.editButton} onClick={startEdit} title="Click to edit" aria-label={`${label}: ${fmtFull(value)}. Edit`} style={{ textAlign: align }}>
+        {fmtFull(value)}
+      </button>
     </td>
   );
 }
@@ -160,9 +163,9 @@ function LineItemTable({
 }) {
   if (items.length === 0) {
     return (
-      <div style={{ padding: '40px 0', textAlign: 'center', color: 'rgba(255,255,255,.25)', fontSize: 12 }}>
-        No line items. Load data via the ingest script or add rows manually.
-      </div>
+      <StateMessage kind="empty" title="No line items.">
+        Load data via the ingest script or add rows manually.
+      </StateMessage>
     );
   }
 
@@ -175,60 +178,61 @@ function LineItemTable({
   };
 
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+    <TableContainer label="Line items" minWidth={820}>
+      <table className={tableStyles.table}>
         <thead>
-          <tr style={{ borderBottom: '1px solid rgba(255,255,255,.10)' }}>
+          <tr>
             {['GL', 'Description', 'Budget FY ✎', 'YTD Actual ✎', 'Commitments ✎', 'EOFY Forecast', 'Variance $', 'Var %'].map((h, i) => (
-              <th key={h} style={{
-                padding: '8px 10px', textAlign: i > 1 ? 'right' : 'left',
-                fontWeight: 600, fontSize: 10, letterSpacing: '.06em',
-                color: 'rgba(255,255,255,.38)', textTransform: 'uppercase',
-              }}>{h}</th>
+              <th key={h} scope="col" className={i > 1 ? tableStyles.num : undefined}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {items.map(item => (
-            <tr key={item.gl} style={{ borderBottom: '1px solid rgba(255,255,255,.04)' }}>
-              <td style={{ padding: '7px 10px', fontSize: 10.5, color: 'rgba(255,255,255,.40)', fontVariantNumeric: 'tabular-nums' }}>
+            <tr key={item.gl}>
+              <td className={tableStyles.meta} style={{ fontVariantNumeric: 'tabular-nums' }}>
                 {item.gl}
               </td>
-              <td style={{ padding: '7px 10px', color: '#F5F7FA', fontWeight: 500, maxWidth: 200 }}>
+              <td className={tableStyles.primary} style={{ maxWidth: 220 }}>
                 {item.description}
               </td>
-              <EditCell value={item.budget_fy}   saving={savingGl === item.gl} onSave={v => onUpdate(item.gl, 'budget_fy',   v)} />
-              <EditCell value={item.ytd_actual}  saving={savingGl === item.gl} onSave={v => onUpdate(item.gl, 'ytd_actual',  v)} />
-              <EditCell value={item.commitments} saving={savingGl === item.gl} onSave={v => onUpdate(item.gl, 'commitments', v)} />
-              <td style={{ padding: '7px 10px', textAlign: 'right', fontSize: 11, color: item.has_override ? '#A78BFA' : 'rgba(255,255,255,.70)' }}>
+              <EditCell label={`Budget FY, ${item.gl} ${item.description}`}   value={item.budget_fy}   saving={savingGl === item.gl} onSave={v => onUpdate(item.gl, 'budget_fy',   v)} />
+              <EditCell label={`YTD Actual, ${item.gl} ${item.description}`}  value={item.ytd_actual}  saving={savingGl === item.gl} onSave={v => onUpdate(item.gl, 'ytd_actual',  v)} />
+              <EditCell label={`Commitments, ${item.gl} ${item.description}`} value={item.commitments} saving={savingGl === item.gl} onSave={v => onUpdate(item.gl, 'commitments', v)} />
+              <td className={`${tableStyles.num} ${item.has_override ? styles.override : ''}`}>
                 {fmtFull(item.eofy_forecast)}
-                {item.has_override && <span title="Manual override" style={{ marginLeft: 4, fontSize: 9, color: '#A78BFA' }}>●</span>}
+                {item.has_override && (
+                  <span title="Manual override" style={{ marginLeft: 4, fontSize: 9 }}>
+                    <span aria-hidden="true">●</span>
+                    <span className={styles.srOnly}> (manual override)</span>
+                  </span>
+                )}
               </td>
-              <td style={{ padding: '7px 10px', textAlign: 'right', fontSize: 11, fontWeight: 600, color: varianceColor(item.variance) }}>
+              <td className={`${tableStyles.num} ${styles.variance}`} data-sign={varianceSign(item.variance)} style={{ fontWeight: 600 }}>
                 {fmtFull(item.variance)}
               </td>
-              <td style={{ padding: '7px 10px', textAlign: 'right', fontSize: 11, color: varianceColor(item.variance_pct) }}>
+              <td className={`${tableStyles.num} ${styles.variance}`} data-sign={varianceSign(item.variance_pct)}>
                 {item.variance_pct > 0 ? '+' : ''}{item.variance_pct.toFixed(1)}%
               </td>
             </tr>
           ))}
         </tbody>
         <tfoot>
-          <tr style={{ borderTop: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.025)' }}>
-            <td colSpan={2} style={{ padding: '9px 10px', fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,.60)' }}>TOTAL</td>
+          <tr className={styles.totalRow}>
+            <td colSpan={2}>TOTAL</td>
             {[total.budget_fy, total.ytd_actual, total.commitments, total.eofy_forecast].map((v, i) => (
-              <td key={i} style={{ padding: '9px 10px', textAlign: 'right', fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,.70)' }}>
+              <td key={i} className={tableStyles.num}>
                 {fmtFull(v)}
               </td>
             ))}
-            <td style={{ padding: '9px 10px', textAlign: 'right', fontSize: 11, fontWeight: 700, color: varianceColor(total.variance) }}>
+            <td className={`${tableStyles.num} ${styles.variance}`} data-sign={varianceSign(total.variance)}>
               {fmtFull(total.variance)}
             </td>
             <td />
           </tr>
         </tfoot>
       </table>
-    </div>
+    </TableContainer>
   );
 }
 
@@ -318,16 +322,16 @@ export default function FinancialTab() {
 
   if (loading) {
     return (
-      <div style={{ padding: 24, color: 'rgba(255,255,255,.35)', fontSize: 13, fontFamily: FONT }}>
-        Loading financial data…
+      <div className={styles.tabBody}>
+        <StateMessage kind="loading" title="Loading financial data…" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div style={{ padding: 24, color: '#EF4444', fontSize: 13, fontFamily: FONT }}>
-        Error loading financial data: {error}
+      <div className={styles.tabBody}>
+        <StateMessage kind="error" title="Error loading financial data">{error}</StateMessage>
       </div>
     );
   }
@@ -346,93 +350,84 @@ export default function FinancialTab() {
 
   // ── Summary tab ────────────────────────────────────────────────────────────
 
+  const netVariance = summary.net.budget_fy - summary.net.eofy_forecast;
+
   const SummaryContent = (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      {/* KPI cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12 }}>
-        {([
-          { label: 'Net Budget FY',    val: fmtCurrency(summary.net.budget_fy),     color: '#5B9CF6' },
-          { label: 'Gross Expenses',   val: fmtCurrency(summary.expenses.eofy_forecast), color: '#F59E0B' },
-          { label: 'EOFY Net Forecast',val: fmtCurrency(summary.net.eofy_forecast),  color: '#A78BFA' },
-          { label: 'Net Variance',     val: fmtCurrency(summary.net.budget_fy - summary.net.eofy_forecast),
-            color: (summary.net.budget_fy - summary.net.eofy_forecast) >= 0 ? '#22C55E' : '#EF4444' },
-        ] as const).map(({ label, val, color }) => (
-          <div key={label} style={{ padding: 16, background: 'rgba(255,255,255,.04)', border: `1px solid ${color}33`, borderRadius: 10 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,.38)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>{label}</div>
-            <div style={{ fontSize: 26, fontWeight: 700, color, fontVariantNumeric: 'tabular-nums' }}>{val}</div>
-          </div>
-        ))}
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <MetricStrip>
+        <Metric label="Net Budget FY" value={fmtCurrency(summary.net.budget_fy)} />
+        <Metric label="Gross Expenses" value={fmtCurrency(summary.expenses.eofy_forecast)} />
+        <Metric label="EOFY Net Forecast" value={fmtCurrency(summary.net.eofy_forecast)} />
+        <Metric label="Net Variance" value={fmtCurrency(netVariance)} tone={netVariance >= 0 ? 'success' : 'danger'} sub={netVariance >= 0 ? 'Within budget' : 'Over budget'} />
+      </MetricStrip>
 
       {/* Forecast settings */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <div style={{ padding: 16, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 10 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,.38)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 12 }}>
-            Forecast Multiplier — <span style={{ color: '#A78BFA' }}>{multiplier.toFixed(2)}×</span>
-          </div>
+      <div className={styles.settings}>
+        <div className={styles.setting}>
+          <label htmlFor="fin-multiplier" className={styles.settingLabel}>
+            Forecast Multiplier — <span className={styles.settingValue}>{multiplier.toFixed(2)}×</span>
+          </label>
           <input
+            id="fin-multiplier"
             type="range" min="0.5" max="2.0" step="0.01"
             value={multiplier}
             onChange={e => handleMultiplierChange(parseFloat(e.target.value))}
-            style={{ width: '100%', accentColor: '#A78BFA', cursor: 'pointer' }}
+            className={styles.range}
           />
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9.5, color: 'rgba(255,255,255,.25)', marginTop: 4 }}>
+          <div className={styles.rangeScale} aria-hidden="true">
             <span>0.50×</span><span>1.00× (neutral)</span><span>2.00×</span>
           </div>
         </div>
-        <div style={{ padding: 16, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 10 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,.38)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 10 }}>
+        <div className={styles.setting}>
+          <label htmlFor="fin-as-at" className={styles.settingLabel}>
             Actuals As-At Date
-          </div>
+          </label>
           <input
+            id="fin-as-at"
             type="date"
             defaultValue={forecast_params.as_at_date}
             onBlur={e => updateActualsAsAtDate(e.target.value)}
-            style={{
-              background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.12)',
-              borderRadius: 6, padding: '6px 10px', color: '#F5F7FA', fontSize: 12,
-              fontFamily: FONT, outline: 'none', width: '100%', colorScheme: 'dark',
-            }}
+            className={fieldControlClassName}
           />
         </div>
       </div>
 
       {/* Category breakdown table */}
-      <div style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 10, overflow: 'hidden' }}>
-        <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,.06)', fontSize: 10, fontWeight: 700, letterSpacing: '.08em', color: 'rgba(255,255,255,.38)', textTransform: 'uppercase' }}>
-          Category Breakdown
-        </div>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid rgba(255,255,255,.07)' }}>
-              {['Category', 'Budget FY', 'YTD Actual', 'Commitments', 'EOFY Forecast', 'Variance'].map((h, i) => (
-                <th key={h} style={{ padding: '8px 16px', textAlign: i === 0 ? 'left' : 'right', fontWeight: 600, fontSize: 10.5, color: 'rgba(255,255,255,.38)' }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {([
-              { label: 'Gross Expenses', totals: summary.expenses,   color: '#F59E0B' },
-              { label: 'Recoveries',     totals: summary.recoveries, color: '#22C55E' },
-              { label: 'Revenue',        totals: summary.revenue,    color: '#5B9CF6' },
-            ] as const).map(({ label, totals, color }) => (
-              <tr key={label} style={{ borderBottom: '1px solid rgba(255,255,255,.04)' }}>
-                <td style={{ padding: '10px 16px', color, fontWeight: 600 }}>{label}</td>
-                {[totals.budget_fy, totals.ytd_actual, totals.commitments, totals.eofy_forecast, totals.variance].map((v, i) => (
-                  <td key={i} style={{ padding: '10px 16px', textAlign: 'right', color: i === 4 ? varianceColor(v) : 'rgba(255,255,255,.70)', fontWeight: i === 4 ? 600 : 400 }}>
-                    {fmtFull(v)}
-                  </td>
+      <div>
+        <h3 className={styles.subTitle}>Category Breakdown</h3>
+        <TableContainer label="Category breakdown" minWidth={640}>
+          <table className={tableStyles.table}>
+            <thead>
+              <tr>
+                {['Category', 'Budget FY', 'YTD Actual', 'Commitments', 'EOFY Forecast', 'Variance'].map((h, i) => (
+                  <th key={h} scope="col" className={i === 0 ? undefined : tableStyles.num}>{h}</th>
                 ))}
               </tr>
-            ))}
-            <tr style={{ background: 'rgba(255,255,255,.025)', borderTop: '1px solid rgba(255,255,255,.10)' }}>
-              <td style={{ padding: '10px 16px', fontWeight: 700, color: '#F5F7FA' }}>Net</td>
-              <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 700, color: '#F5F7FA' }}>{fmtFull(summary.net.budget_fy)}</td>
-              <td colSpan={3} />
-              <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: 700, color: '#F5F7FA' }}>{fmtFull(summary.net.eofy_forecast)}</td>
-            </tr>
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {([
+                { label: 'Gross Expenses', totals: summary.expenses   },
+                { label: 'Recoveries',     totals: summary.recoveries },
+                { label: 'Revenue',        totals: summary.revenue    },
+              ] as const).map(({ label, totals }) => (
+                <tr key={label}>
+                  <td className={tableStyles.primary}>{label}</td>
+                  {[totals.budget_fy, totals.ytd_actual, totals.commitments, totals.eofy_forecast, totals.variance].map((v, i) => (
+                    <td key={i} className={i === 4 ? `${tableStyles.num} ${styles.variance}` : tableStyles.num} data-sign={i === 4 ? varianceSign(v) : undefined} style={{ fontWeight: i === 4 ? 600 : undefined }}>
+                      {fmtFull(v)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+              <tr className={styles.totalRow}>
+                <td>Net</td>
+                <td className={tableStyles.num}>{fmtFull(summary.net.budget_fy)}</td>
+                <td colSpan={3} />
+                <td className={tableStyles.num}>{fmtFull(summary.net.eofy_forecast)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </TableContainer>
       </div>
     </div>
   );
@@ -440,17 +435,17 @@ export default function FinancialTab() {
   // ── Rise & Fall tab ────────────────────────────────────────────────────────
 
   const RafContent = (
-    <div style={{ overflowX: 'auto' }}>
-      {rise_and_fall.length === 0 ? (
-        <div style={{ padding: '40px 0', textAlign: 'center', color: 'rgba(255,255,255,.25)', fontSize: 12 }}>
-          No Rise & Fall entries. Add contractor escalation data via the ingest script.
-        </div>
-      ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+    rise_and_fall.length === 0 ? (
+      <StateMessage kind="empty" title="No Rise & Fall entries.">
+        Add contractor escalation data via the ingest script.
+      </StateMessage>
+    ) : (
+      <TableContainer label="Rise and fall" minWidth={720}>
+        <table className={tableStyles.table}>
           <thead>
-            <tr style={{ borderBottom: '1px solid rgba(255,255,255,.10)' }}>
+            <tr>
               {['GL', 'Description', 'Contractor', 'Base Value', 'Escalation %', 'Escalated Value'].map((h, i) => (
-                <th key={h} style={{ padding: '8px 10px', textAlign: i > 2 ? 'right' : 'left', fontWeight: 600, fontSize: 10, letterSpacing: '.06em', color: 'rgba(255,255,255,.38)', textTransform: 'uppercase' }}>{h}</th>
+                <th key={h} scope="col" className={i > 2 ? tableStyles.num : undefined}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -458,65 +453,76 @@ export default function FinancialTab() {
             {rise_and_fall.map(entry => {
               const escalated = entry.base_value * (1 + entry.escalation_pct / 100);
               return (
-                <tr key={entry.gl} style={{ borderBottom: '1px solid rgba(255,255,255,.04)' }}>
-                  <td style={{ padding: '7px 10px', fontSize: 10.5, color: 'rgba(255,255,255,.40)' }}>{entry.gl}</td>
-                  <td style={{ padding: '7px 10px', color: '#F5F7FA' }}>{entry.description}</td>
-                  <td style={{ padding: '7px 10px', color: 'rgba(255,255,255,.65)' }}>{entry.contractor}</td>
-                  <td style={{ padding: '7px 10px', textAlign: 'right', color: 'rgba(255,255,255,.70)' }}>{fmtFull(entry.base_value)}</td>
-                  <td style={{ padding: '7px 10px', textAlign: 'right', color: '#F59E0B' }}>{entry.escalation_pct.toFixed(1)}%</td>
-                  <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600, color: '#EF4444' }}>{fmtFull(escalated)}</td>
+                <tr key={entry.gl}>
+                  <td className={tableStyles.meta}>{entry.gl}</td>
+                  <td className={tableStyles.primary}>{entry.description}</td>
+                  <td>{entry.contractor}</td>
+                  <td className={tableStyles.num}>{fmtFull(entry.base_value)}</td>
+                  <td className={tableStyles.num}>{entry.escalation_pct.toFixed(1)}%</td>
+                  <td className={tableStyles.num} style={{ fontWeight: 600 }}>{fmtFull(escalated)}</td>
                 </tr>
               );
             })}
           </tbody>
           <tfoot>
-            <tr style={{ borderTop: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.025)' }}>
-              <td colSpan={3} style={{ padding: '9px 10px', fontWeight: 700, color: 'rgba(255,255,255,.60)' }}>TOTAL</td>
-              <td style={{ padding: '9px 10px', textAlign: 'right', fontWeight: 700, color: 'rgba(255,255,255,.70)' }}>
+            <tr className={styles.totalRow}>
+              <td colSpan={3}>TOTAL</td>
+              <td className={tableStyles.num}>
                 {fmtFull(rise_and_fall.reduce((s, e) => s + e.base_value, 0))}
               </td>
               <td />
-              <td style={{ padding: '9px 10px', textAlign: 'right', fontWeight: 700, color: '#EF4444' }}>
+              <td className={tableStyles.num}>
                 {fmtFull(rise_and_fall.reduce((s, e) => s + e.base_value * (1 + e.escalation_pct / 100), 0))}
               </td>
             </tr>
           </tfoot>
         </table>
-      )}
-    </div>
+      </TableContainer>
+    )
   );
+
+  function handleSubTabKey(e: React.KeyboardEvent<HTMLButtonElement>, index: number) {
+    let next = -1;
+    if (e.key === 'ArrowRight') next = (index + 1) % SUB_TABS.length;
+    else if (e.key === 'ArrowLeft') next = (index - 1 + SUB_TABS.length) % SUB_TABS.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = SUB_TABS.length - 1;
+    if (next < 0) return;
+    e.preventDefault();
+    setSubTab(SUB_TABS[next].id);
+    document.getElementById(`fin-tab-${SUB_TABS[next].id}`)?.focus();
+  }
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, fontFamily: FONT }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0 }}>
       {/* Header */}
       <div style={{ padding: '18px 22px 0', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <div className={styles.finHeader}>
           <div>
-            <h2 style={{ fontSize: 18, fontWeight: 700, color: '#F5F7FA', margin: 0 }}>Financial Management</h2>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,.30)', marginTop: 3 }}>FY {ACTIVE_FY} · Forecast ×{multiplier.toFixed(2)}</div>
+            <h2 className={styles.tabTitle}>Financial Management</h2>
+            <div className={styles.finMeta}>FY {ACTIVE_FY} · Forecast ×{multiplier.toFixed(2)}</div>
           </div>
-          <div style={{ fontSize: 10, color: 'rgba(255,255,255,.20)', letterSpacing: '.04em' }}>
+          <div className={styles.finMeta}>
             As-at {forecast_params.as_at_date || '—'}
           </div>
         </div>
 
         {/* Sub-tab bar */}
-        <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid rgba(255,255,255,.07)' }}>
-          {SUB_TABS.map(t => (
+        <div className={styles.subTabs} role="tablist" aria-label="Financial views">
+          {SUB_TABS.map((t, index) => (
             <button
               key={t.id}
+              id={`fin-tab-${t.id}`}
+              type="button"
+              role="tab"
+              aria-selected={subTab === t.id}
+              aria-controls="fin-tabpanel"
+              tabIndex={subTab === t.id ? 0 : -1}
+              className={styles.tab}
               onClick={() => setSubTab(t.id)}
-              style={{
-                padding: '8px 16px', background: 'transparent', border: 'none',
-                borderBottom: subTab === t.id ? '2px solid #A78BFA' : '2px solid transparent',
-                color: subTab === t.id ? '#C4B5FD' : 'rgba(255,255,255,.32)',
-                fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                transition: 'all .15s', fontFamily: FONT,
-              }}
-              onMouseEnter={e => { if (subTab !== t.id) e.currentTarget.style.color = 'rgba(255,255,255,.55)'; }}
-              onMouseLeave={e => { if (subTab !== t.id) e.currentTarget.style.color = 'rgba(255,255,255,.32)'; }}
+              onKeyDown={e => handleSubTabKey(e, index)}
             >
               {t.label}
             </button>
@@ -525,7 +531,7 @@ export default function FinancialTab() {
       </div>
 
       {/* Tab content */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '18px 22px 48px' }}>
+      <div id="fin-tabpanel" role="tabpanel" aria-labelledby={`fin-tab-${subTab}`} style={{ flex: 1, overflowY: 'auto', padding: '18px 22px 48px' }}>
         {subTab === 'summary'    && SummaryContent}
         {subTab === 'expenses'   && (
           <LineItemTable

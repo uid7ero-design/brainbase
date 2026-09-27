@@ -327,7 +327,7 @@ function MappingSelector({
           </select>
 
           {sourceMappingsState.status === "error" ? (
-            <div role="alert" style={{ marginTop: 6, fontSize: 12, color: "#fbbf24" }}>
+            <div role="alert" style={{ marginTop: 6, fontSize: 12, color: "var(--status-warning)" }}>
               {sourceMappingsState.message}
             </div>
           ) : null}
@@ -339,7 +339,7 @@ function MappingSelector({
           ) : null}
 
           {submitError ? (
-            <div id="data-hub-mapping-error" role="alert" style={{ marginTop: 6, fontSize: 12, color: "#fbbf24" }}>
+            <div id="data-hub-mapping-error" role="alert" style={{ marginTop: 6, fontSize: 12, color: "var(--status-warning)" }}>
               {submitError}
             </div>
           ) : null}
@@ -375,7 +375,7 @@ function PreviewTable({
       {preview.mapping !== null ? (
         <div style={{ marginBottom: 12, fontSize: 12 }}>
           {preview.mapping.structurallyValid ? (
-            <div style={{ color: preview.mapping.domainRowsValid ? "rgba(52,211,153,.85)" : "#fbbf24" }}>
+            <div style={{ color: preview.mapping.domainRowsValid ? "var(--status-success)" : "var(--status-warning)" }}>
               Mapping v{preview.mapping.versionNumber} structurally matches this file&apos;s columns.{" "}
               {preview.mapping.domainRowsValid
                 ? "The previewed rows also passed value validation."
@@ -397,8 +397,8 @@ function PreviewTable({
         <div
           role="alert"
           style={{
-            border: "1px solid rgba(239,68,68,.25)",
-            background: "rgba(239,68,68,.06)",
+            border: "1px solid var(--status-danger-border)",
+            background: "var(--status-danger-muted)",
             borderRadius: 8,
             padding: "10px 14px",
             fontSize: 12,

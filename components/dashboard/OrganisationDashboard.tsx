@@ -20,10 +20,19 @@
 // individual number there is fabricated. This component instead only
 // renders a metric section when its underlying table genuinely has rows
 // for this organisation, and has no hardcoded municipal quick-nav at all.
-import { useState } from 'react';
+// Phase D2 — presentation moved onto the shared app system (PageHeader,
+// MetricStrip/Metric, Panel, StateMessage, semantic Badge). Data flags,
+// thresholds and values are unchanged; the page reads top-down as org
+// context → exceptions → key metrics → module access. The three
+// thresholds below are the ones that already coloured these tiles; they
+// are named once so the metric tone and the exception line cannot drift.
+import { Badge, MetricStrip, Metric, PageHeader, Panel, StateMessage, buttonProps } from '@/components/ui/app';
 import { ModuleAccessCard } from './ModuleAccessCard';
+import styles from './OrganisationDashboard.module.css';
 
-const FONT = "var(--font-inter), -apple-system, sans-serif";
+const CONTAMINATION_THRESHOLD = 10; // %
+const DEFECT_THRESHOLD = 5;
+const OPEN_REQUEST_THRESHOLD = 20;
 
 type OperationalRow = Record<string, number>;
 type SRRow = { status: string; count: number; avg_days: number };
@@ -43,46 +52,9 @@ function fmt(n: number) {
   return `$${n.toFixed(0)}`;
 }
 
-function MetricCard({ label, value, sub, accent = 'var(--purple-400)', icon }: {
-  label: string; value: string; sub?: string; accent?: string; icon?: string;
-}) {
-  return (
-    <div style={{
-      background: 'var(--bg-surface)',
-      border: '1px solid var(--border)',
-      borderTop: `2px solid ${accent}`,
-      borderRadius: 10,
-      padding: '14px 16px',
-      display: 'flex', flexDirection: 'column', gap: 4,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        {icon && <span style={{ fontSize: 13 }}>{icon}</span>}
-        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
-          {label}
-        </span>
-      </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
-        {value}
-      </div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.3 }}>{sub}</div>}
-    </div>
-  );
-}
-
-function Card({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{
-      background: 'rgba(255,255,255,0.025)', border: '1px solid var(--border)',
-      borderRadius: 12, padding: '18px 20px',
-    }}>
-      {children}
-    </div>
-  );
-}
+type Exception = { key: string; state: 'error' | 'warning'; label: string; text: string };
 
 export default function OrganisationDashboard({ orgName, enabledCapabilities, waste, fleet, serviceRequests }: Props) {
-  const [hlnaHover, setHlnaHover] = useState(false);
-
   const wasteCost    = Number(waste.total_cost ?? 0);
   const totalTonnes  = Number(waste.total_tonnes ?? 0);
   const avgContam    = Number(waste.avg_contamination ?? 0);
@@ -102,89 +74,77 @@ export default function OrganisationDashboard({ orgName, enabledCapabilities, wa
   const hasOperationalData = hasWasteData || hasFleetData || hasSRData;
   const hasAnyCapability   = enabledCapabilities.length > 0;
 
+  const contamHigh   = hasWasteData && avgContam > CONTAMINATION_THRESHOLD;
+  const defectsHigh  = hasFleetData && totalDefects > DEFECT_THRESHOLD;
+  const requestsHigh = hasSRData && openCount > OPEN_REQUEST_THRESHOLD;
+
+  const exceptions: Exception[] = [
+    ...(contamHigh ? [{ key: 'contam', state: 'error' as const, label: 'Above threshold', text: `Contamination averaging ${avgContam.toFixed(1)}% (threshold ${CONTAMINATION_THRESHOLD}%)` }] : []),
+    ...(defectsHigh ? [{ key: 'defects', state: 'error' as const, label: 'Above threshold', text: `${totalDefects} fleet defects (threshold ${DEFECT_THRESHOLD})` }] : []),
+    ...(requestsHigh ? [{ key: 'requests', state: 'warning' as const, label: 'Backlog', text: `${openCount} open service requests (threshold ${OPEN_REQUEST_THRESHOLD})` }] : []),
+  ];
+
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', color: 'var(--text-primary)', fontFamily: FONT, padding: '20px 24px 80px' }}>
+    <div className={styles.page} style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
 
-      {/* ── Header ── */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
-            Dashboard
-          </h1>
-          {orgName && (
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
-              {orgName}
-            </div>
-          )}
-        </div>
-
-        <a
-          href="/hlna"
-          onMouseEnter={() => setHlnaHover(true)}
-          onMouseLeave={() => setHlnaHover(false)}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '9px 16px', borderRadius: 9, textDecoration: 'none',
-            background: hlnaHover ? 'rgba(155,123,255,0.16)' : 'rgba(155,123,255,0.09)',
-            border: `1px solid ${hlnaHover ? 'rgba(155,123,255,0.42)' : 'rgba(155,123,255,0.24)'}`,
-            color: 'var(--purple-300)', fontSize: 12, fontWeight: 600, fontFamily: FONT,
-            transition: 'all .18s',
-          }}
-        >
-          <span style={{
-            width: 8, height: 8, borderRadius: '50%',
-            background: 'var(--purple-400)', flexShrink: 0,
-          }} />
-          Open HLNA
-        </a>
-      </div>
-
-      {/* ── Your Tools (capability-gated module entry points) ── */}
-      {hasAnyCapability && (
-        <div style={{ marginBottom: 22 }}>
-          <ModuleAccessCard enabledCapabilities={enabledCapabilities} />
-        </div>
-      )}
+      <PageHeader
+        title="Dashboard"
+        description={orgName}
+        actions={<a href="/hlna" {...buttonProps('secondary', 'sm')}>Open HLNA</a>}
+      />
 
       {/* ── Operational overview — real, organisation-scoped data only.
           Each metric group renders only when its own table genuinely has
           rows for this organisation; nothing here is a default/demo value. ── */}
       {hasOperationalData ? (
-        <Card>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 14 }}>
-            Operational Overview
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
+        <section className={styles.section} aria-labelledby="org-dashboard-ops">
+          <h2 id="org-dashboard-ops" className={styles.sectionTitle}>Operational Overview</h2>
+
+          {exceptions.length > 0 && (
+            <ul className={styles.exceptions} aria-label="Needs attention">
+              {exceptions.map(e => (
+                <li key={e.key} className={styles.exception}>
+                  <Badge state={e.state}>{e.label}</Badge>
+                  <span>{e.text}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <MetricStrip>
             {hasWasteData && (
               <>
-                <MetricCard label="Waste Cost" value={fmt(wasteCost)} sub={totalTonnes > 0 ? `${totalTonnes.toLocaleString('en-AU', { maximumFractionDigits: 0 })} tonnes` : undefined} accent="var(--purple-400)" icon="♻" />
-                <MetricCard label="Contamination" value={avgContam > 0 ? `${avgContam.toFixed(1)}%` : '—'} sub="Avg across suburbs" accent={avgContam > 10 ? '#EF4444' : '#22C55E'} icon="⚠" />
+                <Metric label="Waste Cost" value={fmt(wasteCost)} sub={totalTonnes > 0 ? `${totalTonnes.toLocaleString('en-AU', { maximumFractionDigits: 0 })} tonnes` : undefined} />
+                <Metric label="Contamination" value={avgContam > 0 ? `${avgContam.toFixed(1)}%` : '—'} sub="Avg across suburbs" tone={contamHigh ? 'danger' : undefined} />
               </>
             )}
             {hasFleetData && (
               <>
-                <MetricCard label="Fleet Cost" value={fmt(fleetCost)} sub={vehicleCount > 0 ? `${vehicleCount} vehicles active` : undefined} accent="var(--bb-signal, #08a9cb)" icon="🚛" />
-                <MetricCard label="Fleet Defects" value={totalDefects > 0 ? String(totalDefects) : '—'} sub={vehicleCount > 0 ? `across ${vehicleCount} vehicles` : undefined} accent={totalDefects > 5 ? '#EF4444' : '#22C55E'} icon="🔧" />
+                <Metric label="Fleet Cost" value={fmt(fleetCost)} sub={vehicleCount > 0 ? `${vehicleCount} vehicles active` : undefined} />
+                <Metric label="Fleet Defects" value={totalDefects > 0 ? String(totalDefects) : '—'} sub={vehicleCount > 0 ? `across ${vehicleCount} vehicles` : undefined} tone={defectsHigh ? 'danger' : undefined} />
               </>
             )}
             {hasSRData && (
               <>
-                <MetricCard label="Open Requests" value={String(openCount)} sub={avgDays > 0 ? `avg ${avgDays.toFixed(1)} days open` : undefined} accent={openCount > 20 ? '#F59E0B' : '#22C55E'} icon="📋" />
-                <MetricCard label="Closed Requests" value={String(closedCount)} accent="#22C55E" icon="✓" />
+                <Metric label="Open Requests" value={String(openCount)} sub={avgDays > 0 ? `avg ${avgDays.toFixed(1)} days open` : undefined} tone={requestsHigh ? 'warning' : undefined} />
+                <Metric label="Closed Requests" value={String(closedCount)} />
               </>
             )}
-          </div>
-        </Card>
+          </MetricStrip>
+        </section>
       ) : (
-        <Card>
-          <div style={{ textAlign: 'center', padding: '20px 0' }}>
-            <div style={{ fontSize: 22, marginBottom: 8, opacity: 0.35 }}>◈</div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>No operational metrics available yet</div>
-            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
-              Metrics will appear here once operational data is available for your organisation.
-            </div>
-          </div>
-        </Card>
+        <Panel className={styles.section}>
+          <StateMessage kind="empty" title="No operational metrics available yet">
+            Metrics will appear here once operational data is available for your organisation.
+          </StateMessage>
+        </Panel>
+      )}
+
+      {/* ── Your Tools (capability-gated module entry points) ── */}
+      {hasAnyCapability && (
+        <div className={styles.section}>
+          <ModuleAccessCard enabledCapabilities={enabledCapabilities} />
+        </div>
       )}
     </div>
   );

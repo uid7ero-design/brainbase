@@ -5,14 +5,16 @@ import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import OrganiserShell from "@/components/organiser/OrganiserShell";
 import OrganiserRail from "@/components/organiser/OrganiserRail";
-import { Surface } from "@/components/ui";
 import { useOpsTheme } from "@/components/ops/theme";
 import { useAppStore } from "@/lib/state/useAppStore";
 import { describeActivityEvent, describeBoardActivityEvent, type ActivityEventLike } from "@/lib/organiser/activityFormat";
 import { enqueueCoalesced, type CoalescingQueueMap } from "@/lib/organiser/coalescingMutationQueue";
 import { createNotesAutosaveTimer, type NotesAutosaveTimer } from "@/lib/organiser/notesAutosave";
+import { PageHeader, StateMessage, buttonProps, fieldControlClassName } from "@/components/ui/app";
+import { useDialogFocus } from "@/components/ui/app/useDialogFocus";
+import styles from "@/components/organiser/Organiser.module.css";
 
-const FONT = 'var(--bb-font-sans)';
+const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
 // ── TYPES ────────────────────────────────────────────────────────────────────
 
@@ -58,20 +60,16 @@ type SaveState = "idle" | "saving" | "saved" | "error";
 type SaveStatus = { state: SaveState; message?: string };
 
 // Compact, silent-when-idle indicator for tight row/grid contexts (the
-// table view's Status/Priority/due-date cells) — a small colored dot
-// with the real message only in its title tooltip, so it never disturbs
-// the existing dense grid layout.
+// table view's Status/Priority/due-date cells) — a small dot with the real
+// message in its title AND as screen-reader text (D3: never colour-only).
+// Saving is neutral, saved is success, error is danger.
 function SaveDot({ status }: { status?: SaveStatus }) {
   if (!status || status.state === "idle") return null;
-  const color = status.state === "saving" ? "var(--bb-accent-500)" : status.state === "saved" ? "var(--bb-success)" : "var(--bb-danger)";
+  const text = status.state === "error" ? (status.message ?? "Couldn't save") : status.state === "saving" ? "Saving…" : "Saved";
   return (
-    <span
-      title={status.state === "error" ? (status.message ?? "Couldn't save") : status.state === "saving" ? "Saving…" : "Saved"}
-      style={{
-        display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: color,
-        marginLeft: 5, flexShrink: 0, animation: status.state === "saving" ? "bb-save-pulse 1s ease-in-out infinite" : undefined,
-      }}
-    />
+    <span title={text} className={styles.saveDot} data-state={status.state}>
+      <span className={styles.srOnly}>{text}</span>
+    </span>
   );
 }
 
@@ -79,9 +77,9 @@ function SaveDot({ status }: { status?: SaveStatus }) {
 // room for the actual word instead of just a dot.
 function SaveStatusText({ status }: { status?: SaveStatus }) {
   if (!status || status.state === "idle") return null;
-  if (status.state === "saving") return <span style={{ fontSize: 9.5, fontWeight: 600, color: "var(--bb-accent-400)", marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>Saving…</span>;
-  if (status.state === "saved") return <span style={{ fontSize: 9.5, fontWeight: 600, color: "var(--bb-success)", marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>Saved</span>;
-  return <span style={{ fontSize: 9.5, fontWeight: 600, color: "var(--bb-danger)", marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>{status.message ?? "Couldn't save"}</span>;
+  if (status.state === "saving") return <span className={styles.saveText} data-state="saving">Saving…</span>;
+  if (status.state === "saved") return <span className={styles.saveText} data-state="saved">Saved</span>;
+  return <span className={styles.saveText} data-state="error" role="alert">{status.message ?? "Couldn't save"}</span>;
 }
 
 type OrganiserFile = { id: string; file_name: string; file_url: string; file_size: number | null; created_at: string };
@@ -98,85 +96,73 @@ type SheetChoice = { name: string; rowCount: number; looksLikeData: boolean };
 // ── STATUS / PRIORITY PALETTES ──────────────────────────────────────────────
 
 const STATUS_OPTIONS = ["Not Started", "Working on it", "Stuck", "Done"];
-// These status/priority palettes are module-level constants (evaluated once,
-// not per-render), so they can't call useOpsTheme() — they use fixed neutral
-// fallback colours rather than theme-tuned ones. Only the "no status set"/
-// "no priority set" default grey, so the impact of not re-tuning it per theme
-// is minimal.
+// D3 — status and priority are SEMANTIC states, so they resolve to the
+// app's status tokens (theme-aware, contrast-checked) instead of fixed hex
+// values. The word is always shown next to the colour. Purple is never a
+// status or priority colour.
 const STATUS_COLORS: Record<string, string> = {
-  "not started": "#8A8F98",
-  "working on it": "#F59E0B",
-  "stuck": "#EF4444",
-  "done": "#22C55E",
+  "not started": "var(--text-muted)",
+  "working on it": "var(--status-warning)",
+  "stuck": "var(--status-danger)",
+  "done": "var(--status-success)",
 };
 function statusColor(status: string): string {
-  return STATUS_COLORS[status.toLowerCase()] ?? "#8A8F98";
+  return STATUS_COLORS[status.toLowerCase()] ?? "var(--text-muted)";
 }
 
 const PRIORITY_OPTIONS = ["", "Low", "Medium", "High", "Critical"];
 const PRIORITY_COLORS: Record<string, string> = {
-  low: "#60A5FA",
-  medium: "#818CF8",
-  high: "#F59E0B",
-  critical: "#EF4444",
+  low: "var(--text-muted)",
+  medium: "var(--status-info)",
+  high: "var(--status-warning)",
+  critical: "var(--status-danger)",
 };
 function priorityColor(priority: string): string {
-  return PRIORITY_COLORS[priority.toLowerCase()] ?? "#5B6270";
+  return PRIORITY_COLORS[priority.toLowerCase()] ?? "var(--text-subtle)";
 }
 
+// User-chosen colours for a custom status column's options — CATEGORY
+// data the user picks and the server stores, not app styling, so the
+// palette is preserved as-is (D3 classification B).
 const SWATCH_COLORS = ["#8A8F98", "#60A5FA", "#818CF8", "#A78BFA", "#F59E0B", "#EF4444", "#22C55E", "#14B8A6", "#EC4899"];
-
-// Static part of the "section label" style — colour is theme-dependent and
-// merged in at each use site (`{ ...SECTION_LABEL, color: t.ink(.30) }`)
-// since this constant is evaluated once at module load, not per-render.
-const SECTION_LABEL: React.CSSProperties = { fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 8 };
 
 // Table grid: Name | Status | Priority | Due date | Owner | ...custom columns | + slot | delete slot
 function gridTemplate(columns: OrganiserColumn[]): string {
   const custom = columns.map(() => "120px").join(" ");
-  return `1fr 140px 110px 130px 130px ${custom ? custom + " " : ""}34px 28px`;
+  return `minmax(220px, 1fr) 140px 110px 130px 130px ${custom ? custom + " " : ""}34px 28px`;
 }
 
 // ── SMALL UI PRIMITIVES ──────────────────────────────────────────────────────
 
-function Pill({ label, color, onClick }: { label: string; color: string; onClick?: () => void }) {
+// A pill's colour is passed as a CSS custom property (--pill) and tinted
+// in CSS with color-mix, so tokens (var(--status-…)) and user hex colours
+// both work — no hex-alpha string concatenation.
+function pillVars(color: string, tintText: boolean): React.CSSProperties {
+  return { ["--pill" as string]: color, ["--pill-text" as string]: tintText ? color : "var(--text-primary)" } as React.CSSProperties;
+}
+
+function Pill({ label, color }: { label: string; color: string }) {
   return (
-    <span
-      onClick={onClick}
-      style={{
-        display: "inline-flex", alignItems: "center", gap: 5,
-        padding: "3px 9px", borderRadius: 20, fontSize: 11, fontWeight: 600,
-        background: `${color}1E`, border: `1px solid ${color}40`, color,
-        cursor: onClick ? "pointer" : "default", whiteSpace: "nowrap",
-      }}
-    >
+    <span className={styles.pillStatic} style={pillVars(color, true)}>
       {label || "—"}
     </span>
   );
 }
 
-function pillSelectStyle(color: string): React.CSSProperties {
-  return {
-    appearance: "none", WebkitAppearance: "none", MozAppearance: "none",
-    padding: "3px 24px 3px 9px", borderRadius: 20, fontSize: 11, fontWeight: 600,
-    background: `${color}1E`, border: `1px solid ${color}40`, color,
-    cursor: "pointer", fontFamily: FONT, maxWidth: "100%",
-  };
-}
-
 function PillSelect({
-  value, options, colorFor, onChange, placeholder,
+  value, options, colorFor, onChange, placeholder, label,
 }: {
   value: string; options: string[]; colorFor: (v: string) => string;
   onChange: (v: string) => void; placeholder?: string;
+  /** Accessible name, e.g. "Status for Draft budget". */
+  label: string;
 }) {
-  const t = useOpsTheme();
-  const color = value ? colorFor(value) : t.ink(.42);
+  const color = value ? colorFor(value) : "var(--text-muted)";
   const allOptions = value && !options.includes(value) ? [value, ...options] : options;
   return (
-    <select value={value} onChange={e => onChange(e.target.value)} style={pillSelectStyle(color)}>
+    <select value={value} aria-label={label} onChange={e => onChange(e.target.value)} className={styles.pill} style={pillVars(color, true)}>
       {allOptions.map(o => (
-        <option key={o || "(none)"} value={o} style={{ background: t.menuBg, color: t.ink(.90) }}>
+        <option key={o || "(none)"} value={o}>
           {o || placeholder || "—"}
         </option>
       ))}
@@ -184,21 +170,21 @@ function PillSelect({
   );
 }
 
-// Like PillSelect, but options come from a column's own {label,color} list instead of a hardcoded palette.
+// Like PillSelect, but options come from a column's own {label,color} list
+// (user category colours) instead of the semantic palette.
 function OptionsPillSelect({
-  value, options, onChange, placeholder,
+  value, options, onChange, placeholder, label,
 }: {
-  value: string; options: ColumnOption[]; onChange: (v: string) => void; placeholder?: string;
+  value: string; options: ColumnOption[]; onChange: (v: string) => void; placeholder?: string; label: string;
 }) {
-  const t = useOpsTheme();
   const current = options.find(o => o.label === value);
-  const color = current?.color ?? t.ink(.42);
-  const allOptions = value && !options.some(o => o.label === value) ? [{ label: value, color: t.ink(.42) }, ...options] : options;
+  const color = current?.color ?? "var(--text-muted)";
+  const allOptions = value && !options.some(o => o.label === value) ? [{ label: value, color: "var(--text-muted)" }, ...options] : options;
   return (
-    <select value={value} onChange={e => onChange(e.target.value)} style={pillSelectStyle(color)}>
-      <option value="" style={{ background: t.menuBg, color: t.ink(.90) }}>{placeholder || "—"}</option>
+    <select value={value} aria-label={label} onChange={e => onChange(e.target.value)} className={styles.pill} style={pillVars(color, false)}>
+      <option value="">{placeholder || "—"}</option>
       {allOptions.map(o => (
-        <option key={o.label} value={o.label} style={{ background: t.menuBg, color: t.ink(.90) }}>{o.label}</option>
+        <option key={o.label} value={o.label}>{o.label}</option>
       ))}
     </select>
   );
@@ -268,6 +254,8 @@ function AssigneeDropdown({
       style={{ position: "relative", width: 168 }}
       onKeyDown={e => {
         if (e.key === "Escape") {
+          // Consumed here, so an enclosing dialog (the item drawer) stays open.
+          if (open) e.preventDefault();
           setOpen(false);
           triggerRef.current?.focus();
         }
@@ -287,7 +275,7 @@ function AssigneeDropdown({
         }}
       >
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selectedLabel}</span>
-        <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" style={{ flexShrink: 0, opacity: .6, transform: open ? "rotate(180deg)" : undefined, transition: "transform var(--bb-duration-fast) var(--bb-ease-standard)" }} aria-hidden="true">
+        <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" style={{ flexShrink: 0, opacity: .6, transform: open ? "rotate(180deg)" : undefined, transition: "transform .12s" }} aria-hidden="true">
           <path d="M1 2l3 3 3-3" />
         </svg>
       </button>
@@ -299,7 +287,7 @@ function AssigneeDropdown({
           style={{
             position: "absolute", top: "100%", left: 0, marginTop: 4, width: "100%",
             background: t.menuBg, border: `1px solid ${t.ink(.10)}`, borderRadius: 8,
-            boxShadow: "0 12px 32px rgba(0,0,0,.45)", padding: 4, zIndex: 20,
+            boxShadow: "var(--shadow-menu)", padding: 4, zIndex: 20,
             maxHeight: 220, overflowY: "auto",
           }}
         >
@@ -315,7 +303,7 @@ function AssigneeDropdown({
                 style={{
                   display: "block", width: "100%", textAlign: "left", padding: "6px 9px",
                   background: "none", border: "none", borderRadius: 6, cursor: "pointer",
-                  color: isSelected ? "#a5b4fc" : t.ink(.85), fontSize: 12, fontWeight: isSelected ? 600 : 400,
+                  color: isSelected ? t.accentText : t.ink(.85), fontSize: 12, fontWeight: isSelected ? 600 : 400,
                   fontFamily: FONT,
                 }}
                 onMouseEnter={e => { e.currentTarget.style.background = t.ink(.05); }}
@@ -371,7 +359,6 @@ function InlineText({
   // dirty-draft/commit/cancel logic rather than duplicating it in ItemRow.
   renderTrigger?: (args: { display: string; startEdit: () => void }) => React.ReactNode;
 }) {
-  const t = useOpsTheme();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const [dirty, setDirty] = useState(false);
@@ -407,17 +394,19 @@ function InlineText({
     return (
       <span style={{ display: "inline-flex", alignItems: "center", minWidth: 0 }}>
         {renderTrigger ? renderTrigger({ display, startEdit: () => setEditing(true) }) : (
-          <span
+          // D3 — a real button (was a click-only <span>): Enter/Space start
+          // editing exactly as a click does.
+          <button
+            type="button"
             onClick={() => setEditing(true)}
             title="Click to edit"
-            style={{
-              cursor: "text", fontWeight: bold ? 600 : 400,
-              color: value ? t.ink(.90) : t.ink(.28),
-              fontSize: bold ? 13 : 12, lineHeight: 1.4,
-            }}
+            className={styles.editTrigger}
+            data-empty={value ? undefined : ""}
+            style={{ fontWeight: bold ? 600 : 400 }}
           >
             {display}
-          </span>
+            <span className={styles.srOnly}> (edit)</span>
+          </button>
         )}
         <SaveStatusText status={status} />
       </span>
@@ -433,11 +422,9 @@ function InlineText({
         if (e.key === "Enter") { (e.target as HTMLInputElement).blur(); }
         if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
       }}
-      style={{
-        fontSize: bold ? 13 : 12, fontWeight: bold ? 600 : 400, fontFamily: FONT,
-        background: t.ink(.06), border: "1px solid rgba(139,92,246,.45)",
-        borderRadius: 6, padding: "2px 6px", color: t.ink(.94), outline: "none", width: "100%",
-      }}
+      aria-label={`Edit ${value || placeholder || "text"}`}
+      className={styles.inlineInput}
+      style={{ fontWeight: bold ? 600 : 400 }}
     />
   );
 }
@@ -445,7 +432,6 @@ function InlineText({
 // ── CUSTOM COLUMN CELL ───────────────────────────────────────────────────────
 
 function CustomCell({ column, value, onChange }: { column: OrganiserColumn; value: unknown; onChange: (v: unknown) => void }) {
-  const t = useOpsTheme();
   if (column.type === "text") {
     return <InlineText value={value != null ? String(value) : ""} onSave={v => onChange(v)} />;
   }
@@ -453,9 +439,10 @@ function CustomCell({ column, value, onChange }: { column: OrganiserColumn; valu
     return (
       <input
         type="number"
+        aria-label={column.name}
         value={value != null ? String(value) : ""}
         onChange={e => onChange(e.target.value === "" ? null : Number(e.target.value))}
-        style={{ width: "100%", background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 6, padding: "3px 6px", fontSize: 11, color: t.ink(.90), fontFamily: FONT }}
+        className={styles.cellInput}
       />
     );
   }
@@ -463,9 +450,11 @@ function CustomCell({ column, value, onChange }: { column: OrganiserColumn; valu
     return (
       <input
         type="date"
+        aria-label={column.name}
         value={value != null ? String(value) : ""}
         onChange={e => onChange(e.target.value || null)}
-        style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 6, padding: "3px 6px", fontSize: 11, color: value ? t.ink(.90) : t.ink(.30), fontFamily: FONT, colorScheme: "dark" }}
+        className={styles.cellInput}
+        data-empty={value ? undefined : ""}
       />
     );
   }
@@ -473,9 +462,10 @@ function CustomCell({ column, value, onChange }: { column: OrganiserColumn; valu
     return (
       <input
         type="checkbox"
+        aria-label={column.name}
         checked={!!value}
         onChange={e => onChange(e.target.checked)}
-        style={{ width: 14, height: 14, cursor: "pointer" }}
+        style={{ width: 14, height: 14, cursor: "pointer", accentColor: "var(--brand-brainbase-accent)" }}
       />
     );
   }
@@ -485,6 +475,7 @@ function CustomCell({ column, value, onChange }: { column: OrganiserColumn; valu
       value={value != null ? String(value) : ""}
       options={column.options}
       onChange={v => onChange(v || null)}
+      label={column.name}
     />
   );
 }
@@ -519,21 +510,19 @@ function AddItemRow({ onAdd, indent }: { onAdd: (name: string) => Promise<boolea
   }
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", paddingLeft: indent ? 44 : 12 }}>
-      <span style={{ color: "var(--bb-accent-400)", fontSize: 14, lineHeight: 1 }}>+</span>
+    <div className={styles.addRow} style={{ paddingLeft: indent ? 44 : 12 }}>
+      <span aria-hidden="true">+</span>
       <input
         value={value}
         disabled={submitting}
+        aria-label={indent ? "Add subitem" : "Add item"}
         onChange={e => { setValue(e.target.value); if (error) setError(null); }}
         onKeyDown={e => { if (e.key === "Enter") submit(); }}
         placeholder={indent ? "Add subitem…" : "Add item…"}
-        style={{
-          flex: 1, background: "transparent", border: "none", outline: "none",
-          fontSize: 12, color: submitting ? "var(--bb-text-tertiary)" : "var(--bb-text-primary)", fontFamily: FONT,
-        }}
+        className={styles.addInput}
       />
-      {submitting && <span style={{ fontSize: 10.5, color: "var(--bb-accent-400)", flexShrink: 0 }}>Adding…</span>}
-      {error && <span style={{ fontSize: 10.5, color: "var(--bb-danger)", flexShrink: 0 }}>{error}</span>}
+      {submitting && <span className={styles.inlineStatus} role="status">Adding…</span>}
+      {error && <span className={styles.inlineStatus} data-tone="danger" role="alert">{error}</span>}
     </div>
   );
 }
@@ -541,27 +530,39 @@ function AddItemRow({ onAdd, indent }: { onAdd: (name: string) => Promise<boolea
 // ── ADD-COLUMN BUTTON ────────────────────────────────────────────────────────
 
 function AddColumnButton({ onAdd }: { onAdd: (name: string, type: ColumnType) => void }) {
-  const t = useOpsTheme();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [type, setType] = useState<ColumnType>("text");
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  function close() {
+    setOpen(false);
+    setName("");
+    setTimeout(() => triggerRef.current?.focus(), 0);
+  }
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} title="Add column" style={{ background: "transparent", border: "1px dashed var(--bb-border-strong)", borderRadius: "var(--bb-radius-sm)", color: "var(--bb-text-muted)", cursor: "pointer", width: 22, height: 18, fontSize: 12, lineHeight: 1, fontFamily: FONT }}>
+      <button ref={triggerRef} type="button" onClick={() => setOpen(true)} title="Add column" aria-label="Add column" aria-expanded={false} className={styles.addColumn}>
         +
       </button>
     );
   }
   return (
     <div style={{ position: "relative" }}>
-      <div style={{ position: "absolute", top: 0, right: 0, zIndex: "var(--bb-z-menu)", background: "var(--bb-surface-3)", border: "1px solid var(--bb-border-accent)", borderRadius: "var(--bb-radius-md)", padding: "var(--bb-space-4)", width: 170, display: "flex", flexDirection: "column", gap: "var(--bb-space-3)", boxShadow: "var(--bb-shadow-float)" }}>
+      <div
+        role="group"
+        aria-label="Add column"
+        className={styles.popover}
+        onKeyDown={e => { if (e.key === "Escape") { e.preventDefault(); close(); } }}
+      >
         <input
           autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="Column name"
+          aria-label="Column name"
           onKeyDown={e => { if (e.key === "Enter" && name.trim()) { onAdd(name.trim(), type); setName(""); setType("text"); setOpen(false); } }}
-          style={{ fontSize: 11.5, fontFamily: FONT, background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-sm)", padding: "5px 7px", color: "var(--bb-text-primary)", outline: "none" }}
+          className={fieldControlClassName}
         />
-        <select value={type} onChange={e => setType(e.target.value as ColumnType)} style={{ fontSize: 11.5, fontFamily: FONT, background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-sm)", padding: "5px 7px", color: "var(--bb-text-primary)" }}>
+        <select value={type} aria-label="Column type" onChange={e => setType(e.target.value as ColumnType)} className={fieldControlClassName}>
           <option value="text">Text</option>
           <option value="number">Number</option>
           <option value="date">Date</option>
@@ -569,8 +570,8 @@ function AddColumnButton({ onAdd }: { onAdd: (name: string, type: ColumnType) =>
           <option value="checkbox">Checkbox</option>
         </select>
         <div style={{ display: "flex", gap: 6 }}>
-          <button onClick={() => { if (name.trim()) { onAdd(name.trim(), type); } setName(""); setType("text"); setOpen(false); }} style={{ ...btnStyle(true, t), flex: 1, padding: "4px 8px" }}>Add</button>
-          <button onClick={() => { setOpen(false); setName(""); }} style={{ ...btnStyle(false, t), padding: "4px 8px" }}>×</button>
+          <button type="button" onClick={() => { if (name.trim()) { onAdd(name.trim(), type); } setName(""); setType("text"); setOpen(false); }} {...buttonProps("primary", "sm")} style={{ flex: 1 }}>Add</button>
+          <button type="button" onClick={close} {...buttonProps("secondary", "sm")} aria-label="Cancel adding column">×</button>
         </div>
       </div>
     </div>
@@ -585,65 +586,84 @@ function ColumnHeaderCell({
   column: OrganiserColumn; onRename: (name: string) => void; onDelete: () => void; onEditOptions: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   return (
-    <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+    <div
+      style={{ position: "relative", display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}
+      onKeyDown={e => { if (e.key === "Escape" && menuOpen) { e.preventDefault(); setMenuOpen(false); triggerRef.current?.focus(); } }}
+    >
       <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{column.name}</span>
-      <button onClick={() => setMenuOpen(o => !o)} style={{ background: "transparent", border: "none", color: "var(--bb-text-muted)", cursor: "pointer", fontSize: 11, padding: 0, flexShrink: 0 }}>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setMenuOpen(o => !o)}
+        aria-label={`Column options for ${column.name}`}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        className={styles.iconButton}
+        style={{ width: 18, height: 18 }}
+      >
         ⋯
       </button>
       {menuOpen && (
-        <div onMouseLeave={() => setMenuOpen(false)} style={{ position: "absolute", top: "100%", right: 0, zIndex: "var(--bb-z-menu)", background: "var(--bb-surface-3)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-md)", padding: "var(--bb-space-2)", minWidth: 130, boxShadow: "var(--bb-shadow-float)", textTransform: "none" }}>
-          <button onClick={() => { const n = prompt("Rename column", column.name); if (n?.trim()) onRename(n.trim()); setMenuOpen(false); }} style={{ ...menuBtnStyle, color: "var(--bb-text-primary)" }}>Rename</button>
+        <div role="menu" aria-label={`${column.name} options`} onMouseLeave={() => setMenuOpen(false)} className={styles.menu}>
+          <button type="button" role="menuitem" onClick={() => { const n = prompt("Rename column", column.name); if (n?.trim()) onRename(n.trim()); setMenuOpen(false); }} className={styles.menuItem}>Rename</button>
           {column.type === "status" && (
-            <button onClick={() => { onEditOptions(); setMenuOpen(false); }} style={{ ...menuBtnStyle, color: "var(--bb-text-primary)" }}>Edit options</button>
+            <button type="button" role="menuitem" onClick={() => { onEditOptions(); setMenuOpen(false); }} className={styles.menuItem}>Edit options</button>
           )}
-          <button onClick={() => { onDelete(); setMenuOpen(false); }} style={{ ...menuBtnStyle, color: "var(--bb-danger)" }}>Delete column</button>
+          <button type="button" role="menuitem" onClick={() => { onDelete(); setMenuOpen(false); }} className={styles.menuItem} data-tone="danger">Delete column</button>
         </div>
       )}
     </div>
   );
 }
 
-// Static part only — colour is theme-dependent and merged in at each use site,
-// since this constant is evaluated once at module load, not per-render.
-const menuBtnStyle: React.CSSProperties = { display: "block", width: "100%", textAlign: "left", padding: "6px 8px", fontSize: 11.5, fontWeight: 500, background: "transparent", border: "none", cursor: "pointer", borderRadius: "var(--bb-radius-sm)", fontFamily: FONT };
-
 // ── COLUMN OPTIONS EDITOR ────────────────────────────────────────────────────
 
+// D3 — a real modal dialog (role, name, Escape, contained Tab, focus
+// return) via the shared useDialogFocus; the option-editing logic is
+// unchanged. Swatch colours are the user's category palette (preserved).
 function ColumnOptionsEditor({ column, onSave, onClose }: { column: OrganiserColumn; onSave: (options: ColumnOption[]) => void; onClose: () => void }) {
-  const t = useOpsTheme();
   const [opts, setOpts] = useState<ColumnOption[]>(column.options);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(true, onClose, panelRef);
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 210, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.5)" }} />
-      <div style={{ position: "relative", width: 320, background: t.menuBg, border: `1px solid ${t.ink(.1)}`, borderRadius: 12, padding: 16, boxShadow: "0 20px 50px rgba(0,0,0,.5)", fontFamily: FONT }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: t.ink(.90), marginBottom: 12 }}>“{column.name}” options</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12, maxHeight: 280, overflowY: "auto" }}>
+    <div className={styles.overlay} data-centred="">
+      <div onClick={onClose} className={styles.scrim} aria-hidden="true" />
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="column-options-title" tabIndex={-1} className={styles.dialog}>
+        <h2 id="column-options-title" className={styles.dialogTitle}>“{column.name}” options</h2>
+        <div data-dialog-body="" style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12, maxHeight: 280, overflowY: "auto" }}>
           {opts.map((o, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div key={i} role="group" aria-label={`Option ${i + 1}`} style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
               <input
                 value={o.label}
+                aria-label={`Option ${i + 1} label`}
                 onChange={e => setOpts(prev => prev.map((p, j) => j === i ? { ...p, label: e.target.value } : p))}
-                style={{ flex: 1, fontSize: 11.5, fontFamily: FONT, background: t.ink(.05), border: `1px solid ${t.ink(.1)}`, borderRadius: 6, padding: "5px 8px", color: t.ink(.90), outline: "none" }}
+                className={fieldControlClassName}
+                style={{ flex: 1, minWidth: 120 }}
               />
-              <div style={{ display: "flex", gap: 3 }}>
+              <div className={styles.swatches}>
                 {SWATCH_COLORS.map(c => (
                   <button
-                    key={c} onClick={() => setOpts(prev => prev.map((p, j) => j === i ? { ...p, color: c } : p))}
-                    style={{ width: 14, height: 14, borderRadius: "50%", background: c, border: o.color === c ? "2px solid #fff" : `1px solid ${t.ink(.2)}`, cursor: "pointer", padding: 0, flexShrink: 0 }}
+                    key={c} type="button"
+                    aria-label={`Colour ${c}`}
+                    aria-pressed={o.color === c}
+                    onClick={() => setOpts(prev => prev.map((p, j) => j === i ? { ...p, color: c } : p))}
+                    className={styles.swatchButton}
+                    style={{ background: c }}
                   />
                 ))}
               </div>
-              <button onClick={() => setOpts(prev => prev.filter((_, j) => j !== i))} style={{ background: "transparent", border: "none", color: "rgba(239,68,68,.7)", cursor: "pointer", fontSize: 14, flexShrink: 0 }}>×</button>
+              <button type="button" onClick={() => setOpts(prev => prev.filter((_, j) => j !== i))} aria-label={`Remove option ${o.label || i + 1}`} className={styles.iconButton} data-tone="danger">×</button>
             </div>
           ))}
         </div>
-        <button onClick={() => setOpts(prev => [...prev, { label: "New option", color: SWATCH_COLORS[prev.length % SWATCH_COLORS.length] }])} style={{ ...btnStyle(false, t), marginBottom: 12 }}>
+        <button type="button" onClick={() => setOpts(prev => [...prev, { label: "New option", color: SWATCH_COLORS[prev.length % SWATCH_COLORS.length] }])} {...buttonProps("secondary", "sm")} style={{ marginBottom: 12 }}>
           + Add option
         </button>
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button onClick={onClose} style={viewButtonStyle()}>Cancel</button>
-          <button onClick={() => { onSave(opts); onClose(); }} style={btnStyle(true, t)}>Save</button>
+        <div className={styles.actionsRow}>
+          <button type="button" onClick={onClose} {...buttonProps("secondary", "sm")}>Cancel</button>
+          <button type="button" onClick={() => { onSave(opts); onClose(); }} {...buttonProps("primary", "sm")}>Save</button>
         </div>
       </div>
     </div>
@@ -666,52 +686,47 @@ function ItemRow({
   // ever relevant, looked up per field below.
   saveStatus: Record<string, SaveStatus>;
 }) {
-  const [hover, setHover] = useState(false);
+  // D3 — the rename and delete actions are always in the DOM and the tab
+  // order; CSS reveals them on row hover OR keyboard focus within the row
+  // (.reveal), instead of a JS hover flag that kept them mouse-only.
   return (
     <div
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        display: "grid",
-        gridTemplateColumns: gridTemplate(columns),
-        alignItems: "center", gap: 10,
-        padding: "7px 12px", paddingLeft: 12 + depth * 28,
-        borderTop: "1px solid var(--bb-border-subtle)",
-        background: hover ? "var(--bb-surface-hover)" : "transparent",
-        transition: "background var(--bb-duration-fast) var(--bb-ease-standard)",
-      }}
+      className={styles.row}
+      style={{ gridTemplateColumns: gridTemplate(columns), paddingLeft: 12 + depth * 28 }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+      <div className={styles.nameCell}>
         {onItemDragHandleStart && (
           <span
             draggable
             onDragStart={e => { e.dataTransfer.effectAllowed = "move"; onItemDragHandleStart(); }}
             title="Drag to reorder item"
+            role="button"
+            tabIndex={0}
             aria-label="Reorder item"
-            style={{ width: 12, height: 16, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "grab", color: "var(--bb-text-muted)" }}
+            style={{ width: 12, height: 16, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "grab", color: "var(--text-muted)" }}
           >
-            <svg width="8" height="12" viewBox="0 0 8 12" fill="currentColor"><circle cx="2" cy="2" r="1.2" /><circle cx="6" cy="2" r="1.2" /><circle cx="2" cy="6" r="1.2" /><circle cx="6" cy="6" r="1.2" /><circle cx="2" cy="10" r="1.2" /><circle cx="6" cy="10" r="1.2" /></svg>
+            <svg width="8" height="12" viewBox="0 0 8 12" fill="currentColor" aria-hidden="true"><circle cx="2" cy="2" r="1.2" /><circle cx="6" cy="2" r="1.2" /><circle cx="2" cy="6" r="1.2" /><circle cx="6" cy="6" r="1.2" /><circle cx="2" cy="10" r="1.2" /><circle cx="6" cy="10" r="1.2" /></svg>
           </span>
         )}
         {hasChildren ? (
           <button
+            type="button"
             onClick={onToggleCollapse}
-            style={{
-              width: 16, height: 16, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-              background: "transparent", border: "none", cursor: "pointer", color: "var(--bb-text-muted)",
-              transform: collapsed ? "rotate(-90deg)" : "none", transition: "transform var(--bb-duration-fast) var(--bb-ease-standard)",
-            }}
+            aria-expanded={!collapsed}
+            aria-label={`${collapsed ? "Show" : "Hide"} subitems of ${item.name}`}
+            className={styles.iconButton}
+            style={{ width: 18, height: 18 }}
           >
-            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><polyline points="6 9 12 15 18 9" /></svg>
+            <svg className={styles.chevron} width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true"><polyline points="6 9 12 15 18 9" /></svg>
           </button>
-        ) : <span style={{ width: 16, flexShrink: 0 }} />}
+        ) : <span style={{ width: 18, flexShrink: 0 }} />}
         {/* D.4.7D — inline rename in the table, without losing the
             existing "click the name to open the drawer" interaction.
             InlineText's own dirty-draft/save-status machinery is reused
             verbatim via renderTrigger — only the "not editing" display is
             customised here: the name text itself still opens the drawer,
-            and a separate hover-revealed pencil icon (mirroring this
-            row's own hover-revealed delete icon below) starts the rename.
+            and a separate pencil button (revealed on row hover or focus,
+            mirroring the row's delete button) starts the rename.
             The two can never fire off the same click. */}
         <InlineText
           value={item.name}
@@ -719,50 +734,52 @@ function ItemRow({
           status={saveStatus[`item:${item.id}:name`]}
           renderTrigger={({ display, startEdit }) => (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 4, minWidth: 0 }}>
-              <span
+              <button
+                type="button"
                 onClick={() => onOpenDrawer(item)}
                 title="Open details"
-                style={{ cursor: "pointer", fontSize: depth === 0 ? 12.5 : 12, fontWeight: depth === 0 ? 600 : 400, color: "var(--bb-text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                className={styles.textButton}
+                style={{ fontSize: depth === 0 ? 13 : 12, fontWeight: depth === 0 ? 600 : 400 }}
               >
                 {display}
-              </span>
-              {hover && (
-                <button
-                  onClick={startEdit}
-                  title="Rename"
-                  style={{ width: 16, height: 16, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", color: "var(--bb-text-muted)" }}
-                >
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
-                </button>
-              )}
+              </button>
+              <button
+                type="button"
+                onClick={startEdit}
+                title="Rename"
+                aria-label={`Rename ${item.name}`}
+                className={`${styles.iconButton} ${styles.reveal}`}
+                style={{ width: 20, height: 20 }}
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+              </button>
             </span>
           )}
         />
       </div>
 
       <span style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
-        <PillSelect value={item.status} options={STATUS_OPTIONS} colorFor={statusColor} onChange={v => onUpdate(item.id, { status: v })} />
+        <PillSelect label={`Status for ${item.name}`} value={item.status} options={STATUS_OPTIONS} colorFor={statusColor} onChange={v => onUpdate(item.id, { status: v })} />
         <SaveDot status={saveStatus[`item:${item.id}:status`]} />
       </span>
       <span style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
-        <PillSelect value={item.priority ?? ""} options={PRIORITY_OPTIONS} colorFor={priorityColor} onChange={v => onUpdate(item.id, { priority: v })} placeholder="Priority" />
+        <PillSelect label={`Priority for ${item.name}`} value={item.priority ?? ""} options={PRIORITY_OPTIONS} colorFor={priorityColor} onChange={v => onUpdate(item.id, { priority: v })} placeholder="Priority" />
         <SaveDot status={saveStatus[`item:${item.id}:priority`]} />
       </span>
 
       <span style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
         <input
           type="date"
+          aria-label={`Due date for ${item.name}`}
           value={item.due_date ?? ""}
           onChange={e => onUpdate(item.id, { due_date: e.target.value || null })}
-          style={{
-            background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-sm)",
-            padding: "3px 6px", fontSize: 11, color: item.due_date ? "var(--bb-text-primary)" : "var(--bb-text-muted)", fontFamily: FONT, colorScheme: "dark",
-          }}
+          className={styles.cellInput}
+          data-empty={item.due_date ? undefined : ""}
         />
         <SaveDot status={saveStatus[`item:${item.id}:due_date`]} />
       </span>
 
-      <span style={{ fontSize: 11.5, color: "var(--bb-text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <span className={styles.muted}>
         {item.owner || "—"}
       </span>
 
@@ -778,15 +795,16 @@ function ItemRow({
 
       <span />
 
-      {hover ? (
-        <button
-          onClick={() => onDelete(item.id)}
-          title="Delete"
-          style={{ width: 22, height: 22, borderRadius: "var(--bb-radius-sm)", background: "var(--bb-danger-soft)", border: "1px solid color-mix(in srgb, var(--bb-danger) 24%, transparent)", color: "var(--bb-danger)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
-        >
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-        </button>
-      ) : <span />}
+      <button
+        type="button"
+        onClick={() => onDelete(item.id)}
+        title="Delete"
+        aria-label={`Delete ${item.name}`}
+        className={`${styles.iconButton} ${styles.reveal}`}
+        data-tone="danger"
+      >
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+      </button>
     </div>
   );
 }
@@ -869,153 +887,169 @@ function GroupSection({
     onReorderSubitems(parentItemId, [...currentIds.filter(id => id !== dragged.itemId), dragged.itemId]);
   }
 
-  const color = group?.color || "#8B5CF6";
+  // The group colour is user data (a category marker) — shown as a swatch
+  // only, never as a tinted header wash. Neutral when unset.
+  const color = group?.color || "var(--text-subtle)";
+  const groupLabel = group?.name ?? "No group";
 
   return (
-    <Surface variant="base" radius="xl" style={{ marginBottom: 18, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--bb-space-4)", padding: "9px 12px", background: `${color}10`, borderBottom: open ? "1px solid var(--bb-border-subtle)" : "none" }}>
+    <section className={styles.group} aria-label={groupLabel}>
+      <div className={styles.groupHeader} data-collapsed={open ? undefined : ""}>
         {onGroupDragHandleStart && (
           <span
             draggable
             onDragStart={e => { e.dataTransfer.effectAllowed = "move"; onGroupDragHandleStart(); }}
             title="Drag to reorder"
+            role="button"
+            tabIndex={0}
             aria-label="Reorder group"
-            style={{ width: 14, height: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "grab", color: "var(--bb-text-muted)" }}
+            style={{ width: 14, height: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "grab", color: "var(--text-muted)" }}
           >
-            <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="2.5" cy="2.5" r="1.4" /><circle cx="7.5" cy="2.5" r="1.4" /><circle cx="2.5" cy="7" r="1.4" /><circle cx="7.5" cy="7" r="1.4" /><circle cx="2.5" cy="11.5" r="1.4" /><circle cx="7.5" cy="11.5" r="1.4" /></svg>
+            <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor" aria-hidden="true"><circle cx="2.5" cy="2.5" r="1.4" /><circle cx="7.5" cy="2.5" r="1.4" /><circle cx="2.5" cy="7" r="1.4" /><circle cx="7.5" cy="7" r="1.4" /><circle cx="2.5" cy="11.5" r="1.4" /><circle cx="7.5" cy="11.5" r="1.4" /></svg>
           </span>
         )}
-        <button onClick={() => setOpen(o => !o)} style={{ width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", color, transform: open ? "none" : "rotate(-90deg)", transition: "transform var(--bb-duration-fast) var(--bb-ease-standard)" }}>
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><polyline points="6 9 12 15 18 9" /></svg>
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          aria-expanded={open}
+          aria-label={`${open ? "Collapse" : "Expand"} ${groupLabel}`}
+          className={styles.iconButton}
+          style={{ width: 20, height: 20 }}
+        >
+          <svg className={styles.chevron} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true"><polyline points="6 9 12 15 18 9" /></svg>
         </button>
-        <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
+        <span className={styles.swatch} style={{ background: color }} aria-hidden="true" />
         <div style={{ flex: 1, minWidth: 0 }}>
           {group ? (
             <InlineText value={group.name} bold onSave={v => onRenameGroup(group.id, v)} status={saveStatus[`group:${group.id}:name`]} />
           ) : (
-            <span style={{ fontSize: 13, fontWeight: 600, color: "var(--bb-text-tertiary)" }}>No group</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)" }}>No group</span>
           )}
         </div>
-        <span style={{ fontSize: 10.5, color: "var(--bb-text-muted)" }}>{topLevel.length} item{topLevel.length !== 1 ? "s" : ""}</span>
+        <span className={styles.groupCount}>{topLevel.length} item{topLevel.length !== 1 ? "s" : ""}</span>
         {group && (
-          <button onClick={() => onDeleteGroup(group.id)} title="Delete group" style={{ width: 20, height: 20, borderRadius: "var(--bb-radius-sm)", background: "transparent", border: "none", color: "var(--bb-text-muted)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /></svg>
+          <button type="button" onClick={() => onDeleteGroup(group.id)} title="Delete group" aria-label={`Delete group ${group.name}`} className={styles.iconButton} data-tone="danger">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /></svg>
           </button>
         )}
       </div>
 
       {open && (
-        <div>
-          <div style={{ display: "grid", gridTemplateColumns: gridTemplate(columns), gap: 10, padding: "6px 12px", fontSize: "var(--bb-type-micro-size)", fontWeight: 700, letterSpacing: "var(--bb-type-micro-tracking)", color: "var(--bb-text-muted)", textTransform: "uppercase", background: "var(--bb-surface-soft)" }}>
-            <span>Name</span><span>Status</span><span>Priority</span><span>Due date</span><span>Owner</span>
-            {columns.map(col => (
-              <ColumnHeaderCell
-                key={col.id} column={col}
-                onRename={name => onRenameColumn(col.id, name)}
-                onDelete={() => onDeleteColumn(col.id)}
-                onEditOptions={() => onEditColumnOptions(col)}
-              />
-            ))}
-            <AddColumnButton onAdd={onAddColumn} />
-            <span />
-          </div>
-          {topLevel.map(item => {
-            const kids = childrenOf(item.id);
-            const collapsed = collapsedParents.has(item.id);
-            return (
-              <div
-                key={item.id}
-                onDragOver={e => { if (draggingItemId) e.preventDefault(); }}
-                onDrop={e => { e.preventDefault(); handleTopLevelItemDrop(item.id); }}
-              >
-                <ItemRow
-                  item={item} depth={0} columns={columns}
-                  onUpdate={onUpdateItem} onDelete={onDeleteItem} onOpenDrawer={onOpenDrawer}
-                  hasChildren={kids.length > 0} collapsed={collapsed}
-                  onToggleCollapse={() => setCollapsedParents(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; })}
-                  saveStatus={saveStatus}
-                  onItemDragHandleStart={() => setDraggingItemId(item.id)}
+        <div className={styles.groupBody}>
+          <div className={styles.groupGrid}>
+            <div className={styles.headRow} style={{ gridTemplateColumns: gridTemplate(columns) }}>
+              <span>Name</span><span>Status</span><span>Priority</span><span>Due date</span><span>Owner</span>
+              {columns.map(col => (
+                <ColumnHeaderCell
+                  key={col.id} column={col}
+                  onRename={name => onRenameColumn(col.id, name)}
+                  onDelete={() => onDeleteColumn(col.id)}
+                  onEditOptions={() => onEditColumnOptions(col)}
                 />
-                {!collapsed && kids.map(child => (
-                  <div
-                    key={child.id}
-                    onDragOver={e => {
-                      if (draggingSubitem?.parentId === item.id) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                      }
-                    }}
-                    onDrop={e => {
-                      if (draggingSubitem?.parentId === item.id) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleSubitemDrop(item.id, child.id);
-                      }
-                    }}
-                  >
-                    <ItemRow
-                      item={child} depth={1} columns={columns}
-                      onUpdate={onUpdateItem} onDelete={onDeleteItem} onOpenDrawer={onOpenDrawer}
-                      hasChildren={false} collapsed={false} onToggleCollapse={() => {}}
-                      saveStatus={saveStatus}
-                      onItemDragHandleStart={() => setDraggingSubitem({ parentId: item.id, itemId: child.id })}
-                    />
-                  </div>
-                ))}
-                {!collapsed && kids.length > 0 && (
-                  <div
-                    onDragOver={e => {
-                      if (draggingSubitem?.parentId === item.id) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                      }
-                    }}
-                    onDrop={e => {
-                      if (draggingSubitem?.parentId === item.id) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleSubitemDropAtEnd(item.id);
-                      }
-                    }}
-                    title="Move subitem to end"
-                    aria-label="Move subitem to end"
-                    style={{
-                      height: draggingSubitem?.parentId === item.id ? 8 : 0,
-                      marginLeft: 28,
-                      borderRadius: 5,
-                      border: draggingSubitem?.parentId === item.id ? "1px dashed var(--bb-border-strong)" : "none",
-                      background: draggingSubitem?.parentId === item.id ? "var(--bb-surface-soft)" : "transparent",
-                      pointerEvents: draggingSubitem?.parentId === item.id ? "auto" : "none",
-                      transition: "height var(--bb-duration-fast) var(--bb-ease-standard)",
-                    }}
+              ))}
+              <AddColumnButton onAdd={onAddColumn} />
+              <span />
+            </div>
+            {topLevel.map(item => {
+              const kids = childrenOf(item.id);
+              const collapsed = collapsedParents.has(item.id);
+              return (
+                <div
+                  key={item.id}
+                  onDragOver={e => { if (draggingItemId) e.preventDefault(); }}
+                  onDrop={e => { e.preventDefault(); handleTopLevelItemDrop(item.id); }}
+                >
+                  <ItemRow
+                    item={item} depth={0} columns={columns}
+                    onUpdate={onUpdateItem} onDelete={onDeleteItem} onOpenDrawer={onOpenDrawer}
+                    hasChildren={kids.length > 0} collapsed={collapsed}
+                    onToggleCollapse={() => setCollapsedParents(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; })}
+                    saveStatus={saveStatus}
+                    onItemDragHandleStart={() => setDraggingItemId(item.id)}
                   />
-                )}
-                {!collapsed && (
-                  <AddItemRow indent onAdd={name => onAddItem(name, group?.id ?? null, item.id)} />
-                )}
-              </div>
-            );
-          })}
-          {topLevel.length > 0 && (
-            <div
-              onDragOver={e => { if (draggingItemId) e.preventDefault(); }}
-              onDrop={e => { e.preventDefault(); handleTopLevelItemDropAtEnd(); }}
-              title="Move item to end"
-              aria-label="Move item to end"
-              style={{
-                height: draggingItemId ? 10 : 0,
-                borderRadius: 5,
-                border: draggingItemId ? "1px dashed var(--bb-border-strong)" : "none",
-                background: draggingItemId ? "var(--bb-surface-soft)" : "transparent",
-                pointerEvents: draggingItemId ? "auto" : "none",
-                transition: "height var(--bb-duration-fast) var(--bb-ease-standard)",
-              }}
-            />
-          )}
-          <AddItemRow onAdd={name => onAddItem(name, group?.id ?? null, null)} />
+                  {!collapsed && kids.map(child => (
+                    <div
+                      key={child.id}
+                      onDragOver={e => {
+                        if (draggingSubitem?.parentId === item.id) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }
+                      }}
+                      onDrop={e => {
+                        if (draggingSubitem?.parentId === item.id) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleSubitemDrop(item.id, child.id);
+                        }
+                      }}
+                    >
+                      <ItemRow
+                        item={child} depth={1} columns={columns}
+                        onUpdate={onUpdateItem} onDelete={onDeleteItem} onOpenDrawer={onOpenDrawer}
+                        hasChildren={false} collapsed={false} onToggleCollapse={() => {}}
+                        saveStatus={saveStatus}
+                        onItemDragHandleStart={() => setDraggingSubitem({ parentId: item.id, itemId: child.id })}
+                      />
+                    </div>
+                  ))}
+                  {!collapsed && kids.length > 0 && (
+                    <div
+                      onDragOver={e => {
+                        if (draggingSubitem?.parentId === item.id) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }
+                      }}
+                      onDrop={e => {
+                        if (draggingSubitem?.parentId === item.id) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleSubitemDropAtEnd(item.id);
+                        }
+                      }}
+                      title="Move subitem to end"
+                      role="region"
+                      aria-label="Move subitem to end"
+                      style={{
+                        height: draggingSubitem?.parentId === item.id ? 8 : 0,
+                        marginLeft: 28,
+                        borderRadius: "var(--radius-sm)",
+                        border: draggingSubitem?.parentId === item.id ? "1px dashed var(--border)" : "none",
+                        background: draggingSubitem?.parentId === item.id ? "var(--bg-surface)" : "transparent",
+                        pointerEvents: draggingSubitem?.parentId === item.id ? "auto" : "none",
+                        transition: "height .12s",
+                      }}
+                    />
+                  )}
+                  {!collapsed && (
+                    <AddItemRow indent onAdd={name => onAddItem(name, group?.id ?? null, item.id)} />
+                  )}
+                </div>
+              );
+            })}
+            {topLevel.length > 0 && (
+              <div
+                onDragOver={e => { if (draggingItemId) e.preventDefault(); }}
+                onDrop={e => { e.preventDefault(); handleTopLevelItemDropAtEnd(); }}
+                title="Move item to end"
+                role="region"
+                aria-label="Move item to end"
+                style={{
+                  height: draggingItemId ? 10 : 0,
+                  borderRadius: "var(--radius-sm)",
+                  border: draggingItemId ? "1px dashed var(--border)" : "none",
+                  background: draggingItemId ? "var(--bg-surface)" : "transparent",
+                  pointerEvents: draggingItemId ? "auto" : "none",
+                  transition: "height .12s",
+                }}
+              />
+            )}
+            <AddItemRow onAdd={name => onAddItem(name, group?.id ?? null, null)} />
+          </div>
         </div>
       )}
-    </Surface>
+    </section>
   );
 }
 
@@ -1029,42 +1063,50 @@ function KanbanView({
   const topLevel = items.filter(i => !i.parent_item_id);
   const statuses = Array.from(new Set([...STATUS_OPTIONS, ...topLevel.map(i => i.status)]));
 
+  // D3 — board semantics preserved (a column per status, a status select
+  // per card; there is no drag-and-drop). Each card's title is a real
+  // button that opens the drawer; the card surface keeps its mouse click.
   return (
-    <div style={{ display: "flex", gap: "var(--bb-space-5)", padding: "var(--bb-space-2) var(--bb-space-7) var(--bb-space-7)", overflowX: "auto", height: "100%", background: "var(--bb-canvas)" }}>
+    <div className={styles.kanban}>
       {statuses.map(status => {
         const cards = topLevel.filter(i => i.status === status);
         const color = statusColor(status);
         return (
-          <div key={status} style={{ width: 260, flexShrink: 0, display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "var(--bb-space-3)", padding: "var(--bb-space-3) var(--bb-space-2)", marginBottom: "var(--bb-space-4)" }}>
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />
-              <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--bb-text-secondary)" }}>{status}</span>
-              <span style={{ fontSize: 10, color: "var(--bb-text-muted)" }}>{cards.length}</span>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--bb-space-4)", overflowY: "auto", flex: 1 }}>
+          <section key={status} className={styles.kanbanColumn} aria-label={`${status}, ${cards.length} item${cards.length === 1 ? "" : "s"}`}>
+            <h2 className={styles.kanbanHeader}>
+              <span className={styles.swatch} style={{ background: color }} aria-hidden="true" />
+              <span style={{ flex: 1 }}>{status}</span>
+              <span className={styles.groupCount}>{cards.length}</span>
+            </h2>
+            <ul className={styles.kanbanList}>
               {cards.map(item => (
-                <div
+                <li
                   key={item.id} onClick={() => onOpenDrawer(item)}
-                  style={{ padding: "10px 12px", borderRadius: "var(--bb-radius-lg)", background: "var(--bb-surface-1)", border: "1px solid var(--bb-border-subtle)", cursor: "pointer", boxShadow: "var(--bb-shadow-sm)" }}
+                  className={styles.card}
                 >
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--bb-text-primary)", marginBottom: "var(--bb-space-3)", lineHeight: 1.4 }}>{item.name}</div>
-                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
-                    {item.priority && <Pill label={item.priority} color={priorityColor(item.priority)} />}
-                    {item.due_date && <span style={{ fontSize: 10, color: "var(--bb-text-tertiary)" }}>{item.due_date}</span>}
-                  </div>
+                  <button type="button" className={`${styles.textButton} ${styles.cardTitle}`} onClick={e => { e.stopPropagation(); onOpenDrawer(item); }}>
+                    {item.name}
+                  </button>
+                  {(item.priority || item.due_date) && (
+                    <div className={styles.cardMeta}>
+                      {item.priority && <Pill label={item.priority} color={priorityColor(item.priority)} />}
+                      {item.due_date && <span>Due {item.due_date}</span>}
+                    </div>
+                  )}
                   <select
                     value={item.status}
+                    aria-label={`Status for ${item.name}`}
                     onClick={e => e.stopPropagation()}
                     onChange={e => onUpdateItem(item.id, { status: e.target.value })}
-                    style={{ fontSize: 10, background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-sm)", color: "var(--bb-text-secondary)", padding: "2px 4px", fontFamily: FONT }}
+                    className={styles.cardSelect}
                   >
                     {Array.from(new Set([...STATUS_OPTIONS, item.status])).map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
-                </div>
+                </li>
               ))}
-              {cards.length === 0 && <div style={{ fontSize: 10.5, color: "var(--bb-text-muted)", padding: "var(--bb-space-4) var(--bb-space-2)" }}>No items</div>}
-            </div>
-          </div>
+              {cards.length === 0 && <li className={styles.hint} style={{ padding: "6px 4px" }}>No items</li>}
+            </ul>
+          </section>
         );
       })}
     </div>
@@ -1072,19 +1114,6 @@ function KanbanView({
 }
 
 // ── CALENDAR VIEW ────────────────────────────────────────────────────────────
-
-function navBtnStyle(): React.CSSProperties {
-  return { width: 26, height: 26, borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", color: "var(--bb-text-secondary)", cursor: "pointer", fontSize: 14, fontFamily: FONT, display: "flex", alignItems: "center", justifyContent: "center" };
-}
-
-
-function viewButtonStyle(): React.CSSProperties {
-  return {
-    padding: "6px 12px", borderRadius: "var(--bb-radius-md)", fontSize: 11.5, fontWeight: 600, fontFamily: FONT,
-    background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)",
-    color: "var(--bb-text-secondary)", cursor: "pointer", whiteSpace: "nowrap",
-  };
-}
 
 function CalendarView({ items, onOpenDrawer }: { items: OrganiserItem[]; onOpenDrawer: (item: OrganiserItem) => void }) {
   const [monthDate, setMonthDate] = useState(() => new Date());
@@ -1107,40 +1136,51 @@ function CalendarView({ items, onOpenDrawer }: { items: OrganiserItem[]; onOpenD
     itemsByDate.set(it.due_date, arr);
   }
   const todayStr = fmt(new Date());
+  const monthLabel = monthDate.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
   return (
-    <div style={{ padding: "var(--bb-space-2) var(--bb-space-7) var(--bb-space-7)", height: "100%", display: "flex", flexDirection: "column", background: "var(--bb-canvas)" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-        <button onClick={() => setMonthDate(new Date(year, month - 1, 1))} style={navBtnStyle()}>‹</button>
-        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--bb-text-primary)", minWidth: 150, textAlign: "center" }}>
-          {monthDate.toLocaleDateString(undefined, { month: "long", year: "numeric" })}
-        </span>
-        <button onClick={() => setMonthDate(new Date(year, month + 1, 1))} style={navBtnStyle()}>›</button>
-        <button onClick={() => setMonthDate(new Date())} style={{ ...viewButtonStyle(), marginLeft: 4 }}>Today</button>
+    <div className={styles.calendar}>
+      <div className={styles.calendarNav}>
+        <button type="button" onClick={() => setMonthDate(new Date(year, month - 1, 1))} aria-label="Previous month" {...buttonProps("secondary", "sm")}>‹</button>
+        <h2 className={styles.monthLabel} aria-live="polite">{monthLabel}</h2>
+        <button type="button" onClick={() => setMonthDate(new Date(year, month + 1, 1))} aria-label="Next month" {...buttonProps("secondary", "sm")}>›</button>
+        <button type="button" onClick={() => setMonthDate(new Date())} {...buttonProps("secondary", "sm")}>Today</button>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 6, flex: 1, overflowY: "auto" }}>
-        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => (
-          <div key={d} style={{ fontSize: "var(--bb-type-micro-size)", fontWeight: 700, letterSpacing: "var(--bb-type-micro-tracking)", color: "var(--bb-text-muted)", textTransform: "uppercase", padding: "0 4px 4px" }}>{d}</div>
-        ))}
-        {cells.map((d, i) => {
-          const key = d ? fmt(d) : `blank-${i}`;
-          const dayItems = d ? (itemsByDate.get(fmt(d)) ?? []) : [];
-          const isToday = !!d && fmt(d) === todayStr;
-          return (
-            <div key={key} style={{ minHeight: 86, borderRadius: "var(--bb-radius-md)", padding: 6, background: d ? "var(--bb-surface-soft)" : "transparent", border: d ? `1px solid ${isToday ? "var(--bb-border-focus)" : "var(--bb-border-subtle)"}` : "none" }}>
-              {d && <div style={{ fontSize: 10.5, fontWeight: isToday ? 700 : 500, color: isToday ? "var(--bb-accent-300)" : "var(--bb-text-tertiary)", marginBottom: 4 }}>{d.getDate()}</div>}
-              {dayItems.slice(0, 3).map(it => (
-                <div
-                  key={it.id} onClick={() => onOpenDrawer(it)} title={it.name}
-                  style={{ fontSize: 9.5, fontWeight: 600, color: "var(--bb-text-primary)", background: `${statusColor(it.status)}22`, border: `1px solid ${statusColor(it.status)}40`, borderRadius: "var(--bb-radius-sm)", padding: "2px 5px", marginBottom: 3, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                >
-                  {it.name}
-                </div>
-              ))}
-              {dayItems.length > 3 && <div style={{ fontSize: 9, color: "var(--bb-text-muted)" }}>+{dayItems.length - 3} more</div>}
-            </div>
-          );
-        })}
+      <div className={styles.calendarScroll}>
+        <div className={styles.calendarGrid}>
+          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => (
+            <div key={d} className={styles.weekday} aria-hidden="true">{d}</div>
+          ))}
+          {cells.map((d, i) => {
+            const key = d ? fmt(d) : `blank-${i}`;
+            const dayItems = d ? (itemsByDate.get(fmt(d)) ?? []) : [];
+            const isToday = !!d && fmt(d) === todayStr;
+            return (
+              <div
+                key={key}
+                className={styles.day}
+                data-blank={d ? undefined : ""}
+                data-today={isToday ? "" : undefined}
+                aria-label={d ? `${d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}${isToday ? ", today" : ""}${dayItems.length ? `, ${dayItems.length} item${dayItems.length === 1 ? "" : "s"} due` : ""}` : undefined}
+                role={d ? "group" : undefined}
+              >
+                {d && <div className={styles.dayNumber} aria-hidden="true">{d.getDate()}</div>}
+                {dayItems.slice(0, 3).map(it => (
+                  <button
+                    type="button"
+                    key={it.id} onClick={() => onOpenDrawer(it)} title={`${it.name} — ${it.status}`}
+                    className={styles.dayItem}
+                    style={pillVars(statusColor(it.status), false)}
+                  >
+                    {it.name}
+                    <span className={styles.srOnly}>, {it.status}</span>
+                  </button>
+                ))}
+                {dayItems.length > 3 && <div className={styles.more}>+{dayItems.length - 3} more</div>}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -1236,59 +1276,60 @@ function BoardActivity({
   }
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "var(--bb-space-6) var(--bb-space-7) 60px", background: "var(--bb-canvas)" }}>
+    <div className={styles.scroller}>
       {loading ? (
-        <div style={{ color: "var(--bb-text-tertiary)", fontSize: 13 }}>Loading activity…</div>
+        <StateMessage kind="loading" title="Loading activity…" />
       ) : error ? (
-        <div style={{ color: "var(--bb-danger)", fontSize: 13 }}>{error}</div>
+        <StateMessage kind="error" title={error} />
       ) : events.length === 0 ? (
-        <div style={{ color: "var(--bb-text-muted)", fontSize: 12.5 }}>No activity yet.</div>
+        <StateMessage kind="empty" title="No activity yet." />
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 640 }}>
+        <ul className={styles.activityList}>
           {events.map(ev => {
             const desc = describeBoardActivityEvent(ev, groupNamesById, liveItemNamesById, userNamesById);
             // Deleted items (and any non-item entity type, once a future
             // phase instruments one) have no live row to open — no
-            // click-through for those, per section 19.
+            // click-through for those, per section 19. D3: a live item's
+            // summary is a real button; otherwise plain text.
             const liveItem = ev.entity_type === "item" ? liveItemsById[ev.entity_id] : undefined;
+            const Summary = liveItem ? "button" : "span";
             return (
-              <div key={ev.id} style={{ padding: "10px 12px", borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-1)", border: "1px solid var(--bb-border-subtle)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, gap: 8 }}>
-                  <span
+              <li key={ev.id} className={styles.event}>
+                <div className={styles.eventHead}>
+                  <Summary
+                    {...(liveItem ? { type: "button" as const, className: styles.textButton, title: "Open item" } : {})}
                     onClick={liveItem ? () => onOpenItem(liveItem) : undefined}
-                    style={{
-                      fontSize: 12, fontWeight: 600, color: "var(--bb-text-primary)",
-                      cursor: liveItem ? "pointer" : "default",
-                    }}
                   >
                     {desc.summary}
-                  </span>
-                  <span style={{ fontSize: 9.5, color: "var(--bb-text-muted)", flexShrink: 0 }}>{new Date(ev.created_at).toLocaleString()}</span>
+                  </Summary>
+                  <time className={styles.eventTime} dateTime={ev.created_at}>{new Date(ev.created_at).toLocaleString()}</time>
                 </div>
                 {desc.detail && (
-                  <div style={{ fontSize: 11.5, color: "var(--bb-text-secondary)", fontStyle: "italic", marginTop: 2 }}>{`"${desc.detail}"`}</div>
+                  <div className={styles.eventDetail}>{`"${desc.detail}"`}</div>
                 )}
                 {desc.diffs.length > 0 && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
                     {desc.diffs.map((d, i) => (
-                      <div key={i} style={{ fontSize: 11, color: "var(--bb-text-secondary)" }}>
-                        <span style={{ color: "var(--bb-text-tertiary)" }}>{d.label}: </span>
+                      <div key={i} className={styles.eventDiff}>
+                        <span>{d.label}: </span>
                         {d.before !== null ? (
-                          <>{d.before} <span style={{ color: "var(--bb-text-muted)" }}>→</span> {d.after}</>
+                          <>{d.before} <span aria-label="changed to">→</span> {d.after}</>
                         ) : d.after}
                       </div>
                     ))}
                   </div>
                 )}
-              </div>
+              </li>
             );
           })}
           {nextCursor && (
-            <button onClick={loadMore} disabled={loadingMore} style={viewButtonStyle()}>
-              {loadingMore ? "Loading…" : "Load more"}
-            </button>
+            <li>
+              <button type="button" onClick={loadMore} disabled={loadingMore} {...buttonProps("secondary", "sm")}>
+                {loadingMore ? "Loading…" : "Load more"}
+              </button>
+            </li>
           )}
-        </div>
+        </ul>
       )}
     </div>
   );
@@ -1368,47 +1409,49 @@ function ItemActivity({
 
   return (
     <div>
-      <div style={{ ...SECTION_LABEL, color: "var(--bb-text-muted)" }}>Activity</div>
+      <h2 className={styles.sectionLabel}>Activity</h2>
       {loading ? (
-        <div style={{ fontSize: 11, color: "var(--bb-text-muted)" }}>Loading…</div>
+        <p className={styles.hint}>Loading…</p>
       ) : error ? (
-        <div style={{ fontSize: 11, color: "var(--bb-danger)" }}>{error}</div>
+        <p className={styles.error} role="alert">{error}</p>
       ) : events.length === 0 ? (
-        <div style={{ fontSize: 11, color: "var(--bb-text-muted)" }}>No activity yet.</div>
+        <p className={styles.hint}>No activity yet.</p>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <ul className={styles.activityList}>
           {events.map(ev => {
             const desc = describeActivityEvent(ev, groupNamesById, userNamesById);
             return (
-              <div key={ev.id} style={{ padding: "8px 10px", borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-subtle)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, gap: 8 }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: "var(--bb-text-primary)" }}>{desc.summary}</span>
-                  <span style={{ fontSize: 9.5, color: "var(--bb-text-muted)", flexShrink: 0 }}>{new Date(ev.created_at).toLocaleString()}</span>
+              <li key={ev.id} className={styles.event}>
+                <div className={styles.eventHead}>
+                  <span>{desc.summary}</span>
+                  <time className={styles.eventTime} dateTime={ev.created_at}>{new Date(ev.created_at).toLocaleString()}</time>
                 </div>
                 {desc.detail && (
-                  <div style={{ fontSize: 11.5, color: "var(--bb-text-secondary)", fontStyle: "italic", marginTop: 2 }}>{`"${desc.detail}"`}</div>
+                  <div className={styles.eventDetail}>{`"${desc.detail}"`}</div>
                 )}
                 {desc.diffs.length > 0 && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
                     {desc.diffs.map((d, i) => (
-                      <div key={i} style={{ fontSize: 11, color: "var(--bb-text-secondary)" }}>
-                        <span style={{ color: "var(--bb-text-tertiary)" }}>{d.label}: </span>
+                      <div key={i} className={styles.eventDiff}>
+                        <span>{d.label}: </span>
                         {d.before !== null ? (
-                          <>{d.before} <span style={{ color: "var(--bb-text-muted)" }}>→</span> {d.after}</>
+                          <>{d.before} <span aria-label="changed to">→</span> {d.after}</>
                         ) : d.after}
                       </div>
                     ))}
                   </div>
                 )}
-              </div>
+              </li>
             );
           })}
           {nextCursor && (
-            <button onClick={loadMore} disabled={loadingMore} style={viewButtonStyle()}>
-              {loadingMore ? "Loading…" : "Load more"}
-            </button>
+            <li>
+              <button type="button" onClick={loadMore} disabled={loadingMore} {...buttonProps("secondary", "sm")}>
+                {loadingMore ? "Loading…" : "Load more"}
+              </button>
+            </li>
           )}
-        </div>
+        </ul>
       )}
     </div>
   );
@@ -1423,8 +1466,12 @@ function ItemDrawer({
   // row; only this open item's own entries are ever looked up below.
   saveStatus: Record<string, SaveStatus>;
 }) {
-  const t = useOpsTheme();
   const fieldEntries = Object.entries(item.fields || {});
+  // D3 — shared modal focus behaviour: first field focused on open, Tab
+  // contained, Escape closes (unless an inner control consumed it), focus
+  // returns to whatever opened the drawer.
+  const drawerPanelRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(true, onClose, drawerPanelRef);
   // Phase D.4.6P — same id -> name lookup OrganiserPageContent's own
   // userNamesById provides, built locally from this drawer's own already
   // tenant-scoped ACTIVE-members prop (the same list the Assignee picker
@@ -1639,36 +1686,39 @@ function ItemDrawer({
   // No layout/offset math needed — once escaped, 200 already beats both.
   const drawerContent = (
     <div style={{ position: "fixed", inset: 0, zIndex: "var(--bb-z-drawer)", display: "flex", justifyContent: "flex-end" }}>
-      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "var(--bb-scrim)" }} />
-      <div style={{
-        position: "relative", width: 400, maxWidth: "92vw", height: "100%",
-        background: "var(--bb-surface-1)", borderLeft: "1px solid var(--bb-border-default)",
-        display: "flex", flexDirection: "column", boxShadow: "var(--bb-shadow-modal)",
-        animation: "drawer-in var(--bb-duration-base) var(--bb-ease-standard)",
-      }}>
-        <div style={{ padding: "var(--bb-space-6) var(--bb-space-7)", borderBottom: "1px solid var(--bb-border-subtle)", display: "flex", alignItems: "flex-start", gap: "var(--bb-space-5)" }}>
-          <div style={{ flex: 1 }}>
+      <div onClick={onClose} className={styles.scrim} aria-hidden="true" />
+      <div
+        ref={drawerPanelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Item details: ${item.name}`}
+        tabIndex={-1}
+        className={styles.drawer}
+        style={{ animation: "drawer-in var(--bb-duration-base) var(--bb-ease-standard)" }}
+      >
+        <div className={styles.drawerHeader}>
+          <div style={{ flex: 1, minWidth: 0, fontSize: 15 }}>
             <InlineText value={item.name} bold onSave={v => onUpdate(item.id, { name: v })} status={saveStatus[`item:${item.id}:name`]} />
           </div>
-          <button onClick={onClose} style={{ width: 26, height: 26, borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", color: "var(--bb-text-secondary)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          <button type="button" onClick={onClose} aria-label="Close item details" className={styles.iconButton} style={{ width: 28, height: 28, border: "1px solid var(--border)" }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
 
-        <div style={{ flex: 1, overflowY: "auto", padding: "var(--bb-space-6) var(--bb-space-7)", display: "flex", flexDirection: "column", gap: "var(--bb-space-6)" }}>
-          <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-            <Field label="Status" status={saveStatus[`item:${item.id}:status`]}><PillSelect value={item.status} options={STATUS_OPTIONS} colorFor={statusColor} onChange={v => onUpdate(item.id, { status: v })} /></Field>
-            <Field label="Priority" status={saveStatus[`item:${item.id}:priority`]}><PillSelect value={item.priority ?? ""} options={PRIORITY_OPTIONS} colorFor={priorityColor} onChange={v => onUpdate(item.id, { priority: v })} placeholder="None" /></Field>
+        <div className={styles.drawerBody} data-dialog-body="">
+          <div className={styles.fieldRow}>
+            <Field label="Status" status={saveStatus[`item:${item.id}:status`]}><PillSelect label="Status" value={item.status} options={STATUS_OPTIONS} colorFor={statusColor} onChange={v => onUpdate(item.id, { status: v })} /></Field>
+            <Field label="Priority" status={saveStatus[`item:${item.id}:priority`]}><PillSelect label="Priority" value={item.priority ?? ""} options={PRIORITY_OPTIONS} colorFor={priorityColor} onChange={v => onUpdate(item.id, { priority: v })} placeholder="None" /></Field>
           </div>
-          <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+          <div className={styles.fieldRow}>
             <Field label="Due date" status={saveStatus[`item:${item.id}:due_date`]}>
-              <input type="date" value={item.due_date ?? ""} onChange={e => onUpdate(item.id, { due_date: e.target.value || null })}
-                style={{ background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-sm)", padding: "5px 8px", fontSize: 12, color: "var(--bb-text-primary)", fontFamily: FONT, colorScheme: "dark" }} />
+              <input type="date" aria-label="Due date" value={item.due_date ?? ""} onChange={e => onUpdate(item.id, { due_date: e.target.value || null })}
+                className={fieldControlClassName} />
             </Field>
             <Field label="Owner">
-              <input value={item.owner ?? ""} onChange={e => onUpdate(item.id, { owner: e.target.value })}
+              <input aria-label="Owner" value={item.owner ?? ""} onChange={e => onUpdate(item.id, { owner: e.target.value })}
                 placeholder="Unassigned"
-                style={{ background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-sm)", padding: "5px 8px", fontSize: 12, color: "var(--bb-text-primary)", fontFamily: FONT, width: 140 }} />
+                className={fieldControlClassName} style={{ width: 160 }} />
             </Field>
           </div>
 
@@ -1680,7 +1730,7 @@ function ItemDrawer({
               An empty option always means "Unassigned" (assignee_user_id:
               null), the same semantics the human PATCH route and Helena's
               own propose_organiser_assignee_change both use. */}
-          <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+          <div className={styles.fieldRow}>
             <Field label="Assignee" status={saveStatus[`item:${item.id}:assignee_user_id`]}>
               <AssigneeDropdown
                 value={item.assignee_user_id ?? ""}
@@ -1692,76 +1742,80 @@ function ItemDrawer({
 
           <Field label="Notes" status={saveStatus[notesKey]}>
             <textarea
+              aria-label="Notes"
               value={notesDraft}
               onChange={e => handleNotesChange(e.target.value)}
               onBlur={flushNotesNow}
               rows={4}
               placeholder="Add notes…"
-              style={{ background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-md)", padding: "8px 10px", fontSize: 12.5, color: "var(--bb-text-primary)", fontFamily: FONT, resize: "vertical", width: "100%" }}
+              className={fieldControlClassName}
+              style={{ resize: "vertical", width: "100%" }}
             />
           </Field>
 
           <div>
-            <div style={{ ...SECTION_LABEL, color: "var(--bb-text-muted)" }}>Files</div>
-            <input ref={fileRef} type="file" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(f); e.target.value = ""; }} />
-            <button onClick={() => fileRef.current?.click()} disabled={uploadingFile} style={{ ...btnStyle(false, t), marginBottom: 8 }}>
+            <h2 className={styles.sectionLabel}>Files</h2>
+            <input ref={fileRef} type="file" tabIndex={-1} aria-hidden="true" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(f); e.target.value = ""; }} />
+            <button type="button" onClick={() => fileRef.current?.click()} disabled={uploadingFile} {...buttonProps("secondary", "sm")} style={{ marginBottom: 8 }}>
               {uploadingFile ? "Uploading…" : "+ Attach file"}
             </button>
             {fileError && (
-              <div style={{ fontSize: 11, color: "var(--bb-danger)", marginBottom: 6 }}>{fileError}</div>
+              <p className={styles.error} role="alert">{fileError}</p>
             )}
             {files.length === 0 ? (
-              <div style={{ fontSize: 11, color: "var(--bb-text-muted)" }}>No files attached.</div>
+              <p className={styles.hint} style={{ margin: 0 }}>No files attached.</p>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <ul style={{ display: "flex", flexDirection: "column", gap: 6, margin: 0, padding: 0, listStyle: "none" }}>
                 {files.map(f => (
-                  <div key={f.id} style={{ display: "flex", alignItems: "center", gap: "var(--bb-space-4)", padding: "7px 9px", borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-subtle)" }}>
-                    <a href={f.file_url} target="_blank" rel="noreferrer" style={{ flex: 1, fontSize: 11.5, color: "var(--bb-accent-400)", textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.file_name}</a>
-                    <span style={{ fontSize: 9.5, color: "var(--bb-text-muted)" }}>{f.file_size ? `${Math.round(f.file_size / 1024)} KB` : ""}</span>
-                    <button onClick={() => deleteFile(f.id)} style={{ background: "transparent", border: "none", color: "var(--bb-danger)", cursor: "pointer", fontSize: 14, flexShrink: 0 }}>×</button>
-                  </div>
+                  <li key={f.id} className={styles.listItem}>
+                    <a href={f.file_url} target="_blank" rel="noreferrer" className={styles.link}>{f.file_name}</a>
+                    <span className={styles.eventTime}>{f.file_size ? `${Math.round(f.file_size / 1024)} KB` : ""}</span>
+                    <button type="button" onClick={() => deleteFile(f.id)} aria-label={`Delete file ${f.file_name}`} className={styles.iconButton} data-tone="danger">×</button>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </div>
 
           <div>
-            <div style={{ ...SECTION_LABEL, color: "var(--bb-text-muted)" }}>Updates</div>
+            <h2 className={styles.sectionLabel}>Updates</h2>
             <textarea
+              aria-label="Post an update"
               value={newUpdate} onChange={e => setNewUpdate(e.target.value)} rows={2}
               placeholder="Post an update…"
-              style={{ width: "100%", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-md)", padding: "6px 9px", fontSize: 11.5, color: "var(--bb-text-primary)", fontFamily: FONT, resize: "vertical", marginBottom: 6 }}
+              className={fieldControlClassName}
+              style={{ width: "100%", resize: "vertical", marginBottom: 6 }}
             />
-            <button onClick={addUpdate} disabled={!newUpdate.trim()} style={{ ...btnStyle(true, t), marginBottom: 10 }}>Post update</button>
+            <button type="button" onClick={addUpdate} disabled={!newUpdate.trim()} {...buttonProps("primary", "sm")} style={{ marginBottom: 10 }}>Post update</button>
             {updateError && (
-              <div style={{ fontSize: 11, color: "var(--bb-danger)", marginBottom: 8 }}>{updateError}</div>
+              <p className={styles.error} role="alert">{updateError}</p>
             )}
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <ul style={{ display: "flex", flexDirection: "column", gap: 8, margin: 0, padding: 0, listStyle: "none" }}>
               {updates.map(u => (
-                <div key={u.id} style={{ padding: "8px 10px", borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-subtle)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, gap: 8 }}>
-                    <span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--bb-text-secondary)" }}>{u.author_name || "Someone"}</span>
-                    <span style={{ fontSize: 9.5, color: "var(--bb-text-muted)", flexShrink: 0 }}>{new Date(u.created_at).toLocaleString()}</span>
+                <li key={u.id} className={styles.event}>
+                  <div className={styles.eventHead}>
+                    <span>{u.author_name || "Someone"}</span>
+                    <time className={styles.eventTime} dateTime={u.created_at}>{new Date(u.created_at).toLocaleString()}</time>
                   </div>
-                  <div style={{ fontSize: 11.5, color: "var(--bb-text-primary)", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{u.body}</div>
-                </div>
+                  <div style={{ fontSize: 12, lineHeight: 1.5, whiteSpace: "pre-wrap", color: "var(--text-primary)" }}>{u.body}</div>
+                </li>
               ))}
-            </div>
+            </ul>
           </div>
 
           <ItemActivity key={`${item.id}:${item.updated_at}`} itemId={item.id} updatedAt={item.updated_at} groupNamesById={groupNamesById} userNamesById={userNamesById} />
 
           {fieldEntries.length > 0 && (
             <div>
-              <div style={{ ...SECTION_LABEL, color: "var(--bb-text-muted)" }}>Imported fields</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <h2 className={styles.sectionLabel}>Imported fields</h2>
+              <dl style={{ display: "flex", flexDirection: "column", gap: 6, margin: 0 }}>
                 {fieldEntries.map(([k, v]) => (
-                  <div key={k} style={{ fontSize: 11.5, lineHeight: 1.5, padding: "6px 9px", borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-subtle)" }}>
-                    <div style={{ color: "var(--bb-text-tertiary)", fontWeight: 600, marginBottom: 1, textTransform: "capitalize" }}>{k}</div>
-                    <div style={{ color: "var(--bb-text-secondary)" }}>{v}</div>
+                  <div key={k} className={styles.imported}>
+                    <dt style={{ color: "var(--text-muted)", fontWeight: 600, marginBottom: 1, textTransform: "capitalize" }}>{k}</dt>
+                    <dd style={{ margin: 0, color: "var(--text-primary)" }}>{v}</dd>
                   </div>
                 ))}
-              </div>
+              </dl>
             </div>
           )}
         </div>
@@ -1772,11 +1826,15 @@ function ItemDrawer({
   return typeof document !== "undefined" ? createPortal(drawerContent, document.body) : null;
 }
 
+// D3 — a labelled group: the visible label names the group for assistive
+// tech (each control inside also carries its own aria-label), and the
+// save state is announced beside it.
 function Field({ label, children, status }: { label: string; children: React.ReactNode; status?: SaveStatus }) {
+  const labelId = React.useId();
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-      <span style={{ display: "flex", alignItems: "center", fontSize: "var(--bb-type-micro-size)", fontWeight: 700, letterSpacing: "var(--bb-type-micro-tracking)", color: "var(--bb-text-muted)", textTransform: "uppercase" }}>
-        {label}
+    <div className={styles.field} role="group" aria-labelledby={labelId}>
+      <span className={styles.fieldLabel}>
+        <span id={labelId}>{label}</span>
         <SaveStatusText status={status} />
       </span>
       {children}
@@ -1801,7 +1859,6 @@ type ViewMode = "table" | "board" | "calendar" | "activity";
 // a cross-org data fetch. No URL param write-back on manual switching by
 // design (out of scope for this correction).
 function OrganiserPageContent() {
-  const t = useOpsTheme();
   const searchParams = useSearchParams();
   const requestedBoardId = searchParams.get("board");
   const [boards, setBoards] = useState<OrganiserBoard[]>([]);
@@ -2586,61 +2643,58 @@ function OrganiserPageContent() {
     >
       <style dangerouslySetInnerHTML={{ __html: `
         @keyframes drawer-in { from{ transform: translateX(24px); opacity:.4 } to{ transform:none; opacity:1 } }
-        @keyframes bb-save-pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
-        input[type=date]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(.4); cursor: pointer; }
+        @media (prefers-reduced-motion: reduce) { [role="dialog"] { animation: none !important; } }
       ` }} />
 
       {loading ? (
-            <div style={{ padding: "var(--bb-space-8)", color: "var(--bb-text-muted)", fontSize: "var(--bb-type-body-size)" }}>Loading…</div>
+            <div className={styles.centre}>
+              <StateMessage kind="loading" title="Loading…" size="page" />
+            </div>
           ) : !activeBoard ? (
-            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Surface variant="soft" radius="xl" style={{ textAlign: "center", maxWidth: 340, padding: "var(--bb-space-8)" }}>
-                <div style={{ fontSize: "var(--bb-type-card-title-size)", fontWeight: "var(--bb-type-card-title-weight)", color: "var(--bb-text-primary)", marginBottom: "var(--bb-space-3)" }}>Create your first board</div>
-                <div style={{ fontSize: "var(--bb-type-body-size)", color: "var(--bb-text-secondary)", marginBottom: "var(--bb-space-6)", lineHeight: 1.6 }}>
+            <div className={styles.centre}>
+              <div className={styles.firstBoard}>
+                <h2>Create your first board</h2>
+                <p>
                   Boards keep separate lists — TAFE, Work, Home — each with its own groups and items. Add one to get started.
-                </div>
+                </p>
                 <NewBoardInline onCreate={createBoard} />
-              </Surface>
+              </div>
             </div>
           ) : (
             <>
-              <div style={{ display: "flex", alignItems: "center", gap: "var(--bb-space-5)", padding: "14px var(--bb-space-7)", borderBottom: "1px solid var(--bb-border-subtle)", background: "var(--bb-surface-1)", flexShrink: 0 }}>
-                <div style={{ fontSize: "var(--bb-type-section-size)", fontWeight: "var(--bb-type-section-weight)", color: "var(--bb-text-primary)" }}>
-                  <InlineText value={activeBoard.name} bold onSave={v => renameBoard(activeBoard.id, v)} />
-                </div>
-
-                <div style={{ display: "flex", gap: "var(--bb-space-1)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-md)", padding: 2, marginLeft: "var(--bb-space-3)" }}>
-                  {(["table", "board", "calendar", "activity"] as ViewMode[]).map(v => (
-                    <button
-                      key={v} onClick={() => setView(v)}
-                      style={{
-                        padding: "4px 11px", borderRadius: "var(--bb-radius-sm)", fontSize: "var(--bb-type-label-size)", fontWeight: 600, fontFamily: FONT,
-                        background: view === v ? "var(--bb-surface-selected)" : "transparent",
-                        border: "none", color: view === v ? "var(--bb-accent-300)" : "var(--bb-text-tertiary)",
-                        cursor: "pointer", textTransform: "capitalize",
-                      }}
-                    >
-                      {v}
-                    </button>
-                  ))}
-                </div>
-
-                <div style={{ flex: 1 }} />
-                {view === "table" && <button onClick={() => setAddingGroup(true)} style={btnStyle(false, t)}>+ New group</button>}
-                <button onClick={() => fileInputRef.current?.click()} disabled={importing} style={btnStyle(true, t)}>
-                  {importing ? "Importing…" : "Import CSV/XLSX"}
-                </button>
+              <div className={styles.toolbar}>
+                <PageHeader
+                  eyebrow="Organiser"
+                  title={<InlineText value={activeBoard.name} bold onSave={v => renameBoard(activeBoard.id, v)} />}
+                  meta={
+                    <div className={styles.viewSwitch} role="group" aria-label="View">
+                      {(["table", "board", "calendar", "activity"] as ViewMode[]).map(v => (
+                        <button key={v} type="button" onClick={() => setView(v)} aria-pressed={view === v} className={styles.viewButton}>
+                          {v.charAt(0).toUpperCase() + v.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                  }
+                  actions={
+                    <>
+                      {view === "table" && <button onClick={() => setAddingGroup(true)} type="button" {...buttonProps("secondary", "sm")}>+ New group</button>}
+                      <button type="button" onClick={() => fileInputRef.current?.click()} disabled={importing} {...buttonProps("primary", "sm")}>
+                        {importing ? "Importing…" : "Import CSV/XLSX"}
+                      </button>
+                    </>
+                  }
+                />
                 <input
-                  ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: "none" }}
+                  ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" tabIndex={-1} aria-hidden="true" style={{ display: "none" }}
                   onChange={e => { const f = e.target.files?.[0]; if (f) handleImport(f); e.target.value = ""; }}
                 />
               </div>
 
               {importMsg && (
-                <Surface variant="selected" radius="md" style={{ margin: "10px var(--bb-space-7) 0", padding: "var(--bb-space-4) var(--bb-space-5)", color: "var(--bb-accent-300)", fontSize: "var(--bb-type-body-sm-size)", display: "flex", alignItems: "center", gap: "var(--bb-space-4)" }}>
-                  <span style={{ flex: 1 }}>{importMsg}</span>
-                  <button onClick={() => setImportMsg(null)} style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer", fontSize: 13 }}>×</button>
-                </Surface>
+                <div className={styles.notice} role="status">
+                  <span>{importMsg}</span>
+                  <button type="button" onClick={() => setImportMsg(null)} aria-label="Dismiss import message" className={styles.iconButton}>×</button>
+                </div>
               )}
 
               {/* D.4.7B — single-slot transient error notice for mutations
@@ -2648,10 +2702,10 @@ function OrganiserPageContent() {
                   showPageNotice's own comment. Same visual convention as
                   the import-message banner above, error-toned. */}
               {pageNotice && (
-                <Surface variant="base" radius="md" style={{ margin: "10px var(--bb-space-7) 0", padding: "var(--bb-space-4) var(--bb-space-5)", background: "var(--bb-danger-soft)", borderColor: "color-mix(in srgb, var(--bb-danger) 28%, transparent)", color: "var(--bb-danger)", fontSize: "var(--bb-type-body-sm-size)", display: "flex", alignItems: "center", gap: "var(--bb-space-4)" }}>
-                  <span style={{ flex: 1 }}>{pageNotice}</span>
-                  <button onClick={() => setPageNotice(null)} style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer", fontSize: 13 }}>×</button>
-                </Surface>
+                <div className={styles.notice} data-tone="danger" role="alert">
+                  <span>{pageNotice}</span>
+                  <button type="button" onClick={() => setPageNotice(null)} aria-label="Dismiss notice" className={styles.iconButton}>×</button>
+                </div>
               )}
 
               {sheetChoices && pendingImportFile && (
@@ -2665,7 +2719,7 @@ function OrganiserPageContent() {
               )}
 
               {view === "table" && (
-                <div style={{ flex: 1, overflowY: "auto", padding: "var(--bb-space-6) var(--bb-space-7) 60px", background: "var(--bb-canvas)" }}>
+                <div className={styles.scroller}>
                   {boardData?.groups.map(g => (
                     <div
                       key={g.id}
@@ -2684,35 +2738,20 @@ function OrganiserPageContent() {
                       />
                     </div>
                   ))}
-                  {/* D.4.7E (Slice E2 fix) — every existing drop target
-                      (each group's own wrapper div, above) inserts the
-                      dragged group BEFORE it — there was previously no way
-                      to express "after the current last group," so a group
-                      could never actually become the new last one via drag.
-                      This is the one explicit terminal target that closes
-                      that gap. Always mounted (never conditionally rendered)
-                      so there is no mount-timing race against a real drag's
-                      dragover events; collapsed to zero height and
-                      non-interactive (`pointerEvents: "none"`) whenever
-                      nothing is being dragged, so it adds no visual clutter
-                      and cannot swallow an accidental drop the rest of the
-                      time. Routes through the exact same reorderGroups(...)
-                      path as every other drop — no second mutation path. */}
                   {boardData && boardData.groups.length > 0 && (
                     <div
                       onDragOver={e => { if (draggingGroupId) e.preventDefault(); }}
                       onDrop={e => { e.preventDefault(); handleGroupDropAtEnd(); }}
                       title="Move group to end"
+                      role="region"
                       aria-label="Move group to end"
                       style={{
                         height: draggingGroupId ? 14 : 0,
                         marginBottom: draggingGroupId ? 12 : 0,
-                        borderRadius: "var(--bb-radius-sm)",
-                        border: draggingGroupId ? "1px dashed var(--bb-border-strong)" : "none",
-                        background: draggingGroupId ? "var(--bb-surface-soft)" : "transparent",
-                        transition:
-                          "height var(--bb-duration-fast) var(--bb-ease-standard), " +
-                          "margin-bottom var(--bb-duration-fast) var(--bb-ease-standard)",
+                        borderRadius: "var(--radius-sm)",
+                        border: draggingGroupId ? "1px dashed var(--border)" : "none",
+                        background: draggingGroupId ? "var(--bg-surface)" : "transparent",
+                        transition: "height .12s, margin-bottom .12s",
                         pointerEvents: draggingGroupId ? "auto" : "none",
                       }}
                     />
@@ -2730,25 +2769,26 @@ function OrganiserPageContent() {
                   )}
 
                   {addingGroup && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+                    <div className={styles.newGroup}>
                       <input
                         ref={groupNameInputRef}
                         autoFocus value={groupName} disabled={groupSubmitting}
+                        aria-label="Group name"
                         onChange={e => { setGroupName(e.target.value); if (groupError) setGroupError(null); }}
                         placeholder="Group name…"
                         onKeyDown={e => { if (e.key === "Enter") submitNewGroup(); if (e.key === "Escape") { setGroupName(""); setGroupError(null); setAddingGroup(false); } }}
-                        style={{ fontSize: "var(--bb-type-body-size)", fontFamily: FONT, background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-focus)", borderRadius: "var(--bb-radius-md)", padding: "7px 10px", color: "var(--bb-text-primary)", outline: "none", flex: 1, maxWidth: 260 }}
+                        className={fieldControlClassName}
                       />
-                      <button onClick={submitNewGroup} disabled={groupSubmitting} style={btnStyle(true, t)}>{groupSubmitting ? "Adding…" : "Add"}</button>
-                      <button onClick={() => { setGroupName(""); setGroupError(null); setAddingGroup(false); }} style={btnStyle(false, t)}>Cancel</button>
-                      {groupError && <span style={{ fontSize: 10.5, color: "var(--bb-danger)" }}>{groupError}</span>}
+                      <button onClick={submitNewGroup} disabled={groupSubmitting} type="button" {...buttonProps("primary", "sm")}>{groupSubmitting ? "Adding…" : "Add"}</button>
+                      <button type="button" onClick={() => { setGroupName(""); setGroupError(null); setAddingGroup(false); }} {...buttonProps("secondary", "sm")}>Cancel</button>
+                      {groupError && <span className={styles.inlineStatus} data-tone="danger" role="alert">{groupError}</span>}
                     </div>
                   )}
 
                   {boardData && boardData.groups.length === 0 && !boardData.items.length && !addingGroup && (
-                    <div style={{ color: "var(--bb-text-muted)", fontSize: "var(--bb-type-body-size)", padding: "var(--bb-space-7) var(--bb-space-2)" }}>
+                    <p className={styles.empty}>
                       No groups yet. Add a group, or import a CSV to populate this board.
-                    </div>
+                    </p>
                   )}
                 </div>
               )}
@@ -2807,62 +2847,49 @@ function SheetPicker({
   fileName: string; sheets: SheetChoice[]; importing: boolean;
   onPick: (sheetName: string) => void; onCancel: () => void;
 }) {
-  const t = useOpsTheme();
   // Recommend the data-shaped sheet with the most rows (e.g. a "STUDY_MASTER"
   // superset over a narrower "ASSESSMENTS" sheet), falling back to the first sheet.
   const dataSheets = sheets.filter(s => s.looksLikeData);
   const recommended = (dataSheets.length ? dataSheets : sheets).reduce((best, s) => (s.rowCount > (best?.rowCount ?? -1) ? s : best), dataSheets[0] ?? sheets[0]);
 
   return (
-    <div style={{ margin: "10px 20px 0", padding: "14px 16px", borderRadius: 10, background: "rgba(139,92,246,.06)", border: "1px solid rgba(139,92,246,.24)" }}>
-      <div style={{ fontSize: 12.5, fontWeight: 600, color: t.ink(.90), marginBottom: 3 }}>“{fileName}” has {sheets.length} sheets — which one has your items?</div>
-      <div style={{ fontSize: 11, color: t.ink(.40), marginBottom: 10 }}>Sheets without an “Item Name” column are probably instructions, dashboards, or lookup lists, not task data.</div>
+    <div className={styles.sheetPicker} role="group" aria-labelledby="sheet-picker-title">
+      <p id="sheet-picker-title" style={{ margin: "0 0 3px", fontSize: 13, fontWeight: 600 }}>“{fileName}” has {sheets.length} sheets — which one has your items?</p>
+      <p className={styles.hint} style={{ margin: "0 0 10px" }}>Sheets without an “Item Name” column are probably instructions, dashboards, or lookup lists, not task data.</p>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
         {sheets.map(s => (
           <button
             key={s.name}
+            type="button"
             disabled={importing}
             onClick={() => onPick(s.name)}
-            style={{
-              display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 8, textAlign: "left",
-              background: s.name === recommended?.name ? "rgba(139,92,246,.14)" : t.ink(.03),
-              border: `1px solid ${s.name === recommended?.name ? "rgba(139,92,246,.4)" : t.ink(.08)}`,
-              cursor: importing ? "default" : "pointer", fontFamily: FONT,
-            }}
+            className={styles.sheetOption}
+            data-recommended={s.name === recommended?.name ? "" : undefined}
           >
-            <span style={{ fontSize: 12, fontWeight: 600, color: s.looksLikeData ? t.ink(.90) : t.ink(.40), flex: 1 }}>{s.name}</span>
-            {s.name === recommended?.name && <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".06em", color: "#C4B5FD", textTransform: "uppercase" }}>Recommended</span>}
-            <span style={{ fontSize: 10.5, color: t.ink(.30) }}>{s.rowCount} row{s.rowCount === 1 ? "" : "s"}</span>
+            <span style={{ fontWeight: 600, color: s.looksLikeData ? "var(--text-primary)" : "var(--text-muted)", flex: 1 }}>{s.name}</span>
+            {s.name === recommended?.name && <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", color: "var(--brand-brainbase-accent)", textTransform: "uppercase" }}>Recommended</span>}
+            <span className={styles.eventTime}>{s.rowCount} row{s.rowCount === 1 ? "" : "s"}</span>
           </button>
         ))}
       </div>
-      <button onClick={onCancel} disabled={importing} style={btnStyle(false, t)}>Cancel</button>
+      <button type="button" onClick={onCancel} disabled={importing} {...buttonProps("secondary", "sm")}>Cancel</button>
     </div>
   );
 }
 
 function NewBoardInline({ onCreate }: { onCreate: (name: string) => void }) {
-  const t = useOpsTheme();
   const [name, setName] = useState("");
   return (
-    <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+    <div className={styles.inlineCreate}>
       <input
         autoFocus value={name} onChange={e => setName(e.target.value)}
+        aria-label="Board name"
         onKeyDown={e => { if (e.key === "Enter" && name.trim()) onCreate(name.trim()); }}
         placeholder="e.g. TAFE"
-        style={{ fontSize: 13, fontFamily: FONT, background: t.ink(.05), border: "1px solid rgba(139,92,246,.4)", borderRadius: 8, padding: "8px 12px", color: t.ink(.94), outline: "none", width: 180 }}
+        className={fieldControlClassName}
+        style={{ width: 180 }}
       />
-      <button onClick={() => { if (name.trim()) onCreate(name.trim()); }} style={btnStyle(true, t)}>Create</button>
+      <button type="button" onClick={() => { if (name.trim()) onCreate(name.trim()); }} {...buttonProps("primary", "sm")}>Create</button>
     </div>
   );
-}
-
-function btnStyle(primary: boolean, t: ReturnType<typeof useOpsTheme>): React.CSSProperties {
-  return {
-    padding: "6px 12px", borderRadius: 7, fontSize: 11.5, fontWeight: 600, fontFamily: FONT,
-    background: primary ? (t.isDark ? "rgba(139,92,246,.22)" : "rgba(124,58,237,.14)") : t.ink(.05),
-    border: `1px solid ${primary ? (t.isDark ? "rgba(139,92,246,.4)" : "rgba(124,58,237,.35)") : t.ink(.10)}`,
-    color: primary ? t.accentText : t.ink(.65),
-    cursor: "pointer", whiteSpace: "nowrap",
-  };
 }

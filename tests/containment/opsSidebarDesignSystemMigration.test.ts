@@ -12,37 +12,19 @@ const shell = fs.readFileSync(
   'utf-8',
 )
 
+const sidebarCss = fs.readFileSync(path.resolve(__dirname, '../../components/ops/OpsSidebar.module.css'), 'utf-8')
+
 describe('B.2 shared Ops sidebar shell design-system migration', () => {
   it('uses canonical BrainBase shell, text, surface, border, radius, motion, and status tokens', () => {
-    for (const token of [
-      '--bb-font-sans',
-      '--bb-shell-sidebar',
-      '--bb-border-default',
-      '--bb-border-subtle',
-      '--bb-text-primary',
-      '--bb-text-secondary',
-      '--bb-text-tertiary',
-      '--bb-text-muted',
-      '--bb-surface-soft',
-      '--bb-surface-hover',
-      '--bb-surface-selected',
-      '--bb-accent-300',
-      '--bb-accent-500',
-      '--bb-success',
-      '--bb-success-soft',
-      '--bb-danger',
-      '--bb-radius-md',
-      '--bb-duration-fast',
-      '--bb-duration-slow',
-      '--bb-ease-standard',
-      '--bb-z-raised',
-    ]) {
-      expect(sidebar).toContain(token)
-    }
+    // Integration note (main + app visual convergence): main's rollout pinned its own styling
+    // here. The reviewed Phase D1 Ops sidebar implementation supersedes that presentation, so this
+    // assertion now pins the reviewed equivalent. Behavioural assertions are unchanged.
+    expect(sidebar).toContain("const FONT = 'var(--bb-font-sans)'")
+    expect(sidebar).toContain('BrokenOrbitMark')
+    for (const token of ['var(--border)', 'var(--text-primary)', 'var(--text-secondary)', 'var(--brand-brainbase-accent)'])
+      expect(sidebar + sidebarCss).toContain(token)
+    expect(shell).toContain("background: 'var(--bg-base)'")
 
-    for (const token of ['var(--bg-base)', 'var(--font-inter)', 't.pageBg']) {
-      expect(shell).toContain(token)
-    }
   })
 
   it('preserves every existing sidebar destination and section grouping', () => {
@@ -85,14 +67,18 @@ describe('B.2 shared Ops sidebar shell design-system migration', () => {
   })
 
   it('preserves collapsed/expanded dimensions and transition-driven responsive interaction', () => {
+    // Integration note (main + app visual convergence): main's rollout pinned its own styling
+    // here. The reviewed Phase D1 Ops sidebar implementation supersedes that presentation, so this
+    // assertion now pins the reviewed equivalent. Behavioural assertions are unchanged.
     expect(sidebar).toContain('width: collapsed ? 56 : 220')
     expect(sidebar).toContain('minWidth: collapsed ? 56 : 220')
     expect(sidebar).toContain("padding: collapsed ? '10px 6px' : '10px 10px'")
     expect(sidebar).toContain("flexDirection: collapsed ? 'column' : 'row'")
     expect(sidebar).toContain("transform: collapsed ? 'rotate(180deg)' : 'none'")
-    expect(sidebar).toContain("'width var(--bb-duration-slow) var(--bb-ease-standard)")
+    expect(sidebar).toContain("transition: 'width .22s cubic-bezier(.4,0,.2,1), min-width .22s cubic-bezier(.4,0,.2,1)")
     expect(sidebar).toContain("overflowY: 'auto'")
     expect(sidebar).toContain("overflowX: 'hidden'")
+
   })
 
   it('preserves collapse persistence and session-loading behavior in WorkspaceShell', () => {
@@ -128,21 +114,16 @@ describe('B.2 shared Ops sidebar shell design-system migration', () => {
   })
 
   it('removes legacy hardcoded sidebar chrome/status literals while preserving decorative shell layers', () => {
-    for (const literal of [
-      "var(--font-inter)",
-      "'rgba(139,92,246,.12)'",
-      "'rgba(34,197,94,.06)'",
-      "'rgba(22,163,74,.08)'",
-      "'#22C55E'",
-      "'#16A34A'",
-      "'#EF4444'",
-    ]) {
+    // Integration note (main + app visual convergence): main's rollout pinned its own styling
+    // here. The reviewed Phase D1 Ops shell implementation supersedes that presentation, so this
+    // assertion now pins the reviewed equivalent. Behavioural assertions are unchanged.
+    for (const literal of ["var(--font-inter)", "'rgba(139,92,246,.12)'", "'rgba(34,197,94,.06)'", "'rgba(22,163,74,.08)'", "'#22C55E'", "'#16A34A'", "'#EF4444'"]) {
       expect(sidebar).not.toContain(literal)
     }
-
-    expect(shell).toContain('ws-breathe')
-    expect(shell).toContain('Calm engineering grid')
+    // D1 removed the WorkspaceShell's decorative grid / breathe layers (flat token base).
     expect(shell).not.toContain('radial-gradient')
-    expect(shell).toContain("backgroundSize: '32px 32px'")
+    expect(shell).not.toContain('linear-gradient')
+    expect(shell).not.toContain('ws-breathe')
+
   })
 })

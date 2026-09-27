@@ -3,8 +3,17 @@ import { useEffect, useState } from 'react';
 import SlidePanel from '../_components/SlidePanel';
 import ProductForm from '../_components/ProductForm';
 import { formatMoneyCents } from '@/lib/commercial/money';
-
-const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
+import {
+  Badge,
+  PageHeader,
+  TableContainer,
+  TableStateRow,
+  ToolbarSearch,
+  WorkToolbar,
+  buttonProps,
+  tableStyles,
+  toolbarControlClassName,
+} from '@/components/ui/app';
 
 type Product = {
   id: string; type: 'PRODUCT' | 'SERVICE'; name: string; sku: string | null;
@@ -40,63 +49,63 @@ export default function ProductsPage() {
 
   return (
     <div style={{ maxWidth: 1100 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>Products &amp; Services</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '4px 0 0' }}>{products.length} total</p>
-        </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <select value={filter} onChange={e => setFilter(e.target.value as typeof filter)}
-            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 13 }}>
-            <option value="ALL">All types</option>
-            <option value="PRODUCT">Products</option>
-            <option value="SERVICE">Services</option>
-          </select>
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search…"
-            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none', width: 180 }}
-          />
-          <button onClick={() => setShowAdd(true)} style={btn('var(--purple-600)')}>+ Add</button>
-        </div>
-      </div>
+      <PageHeader
+        title="Products & Services"
+        description={`${products.length} total`}
+        actions={<button type="button" onClick={() => setShowAdd(true)} {...buttonProps('primary')}>+ Add</button>}
+      />
 
-      <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden', overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
+      <WorkToolbar count={(filter !== 'ALL' || search) && !loading ? `${filtered.length} of ${products.length}` : undefined}>
+        <select
+          value={filter}
+          onChange={e => setFilter(e.target.value as typeof filter)}
+          aria-label="Filter by type"
+          className={toolbarControlClassName}
+        >
+          <option value="ALL">All types</option>
+          <option value="PRODUCT">Products</option>
+          <option value="SERVICE">Services</option>
+        </select>
+        <ToolbarSearch label="Search products and services" value={search} onChange={e => setSearch(e.target.value)} />
+      </WorkToolbar>
+
+      <TableContainer label="Products and services" minWidth={720}>
+        <table className={tableStyles.table}>
           <thead>
-            <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-              {['Name', 'Type', 'SKU', 'Unit', 'Price', 'Status', ''].map(h => (
-                <th key={h} style={th}>{h}</th>
-              ))}
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Type</th>
+              <th scope="col">SKU</th>
+              <th scope="col">Unit</th>
+              <th scope="col" className={tableStyles.num}>Price</th>
+              <th scope="col">Status</th>
+              <th scope="col" className={tableStyles.actions}><span className="bb-visually-hidden">Actions</span></th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={7} style={empty}>Loading…</td></tr>}
-            {!loading && filtered.length === 0 && <tr><td colSpan={7} style={empty}>No products or services yet.</td></tr>}
-            {filtered.map((p, i) => (
-              <tr key={p.id} style={{ borderBottom: i < filtered.length - 1 ? `1px solid ${BORDER}` : 'none', opacity: p.active ? 1 : 0.5 }}>
-                <td style={{ padding: '13px 16px', color: 'var(--text-primary)', fontWeight: 500, fontSize: 14 }}>{p.name}</td>
-                <td style={td}>{p.type === 'PRODUCT' ? 'Product' : 'Service'}</td>
-                <td style={td}>{p.sku ?? <Dim>—</Dim>}</td>
-                <td style={td}>{p.unit_label ?? <Dim>—</Dim>}</td>
-                <td style={td}>{formatMoneyCents(p.default_unit_price_cents, p.currency)}</td>
-                <td style={td}>
-                  <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: '0.04em', color: p.active ? '#4ade80' : 'var(--text-secondary)', background: p.active ? 'rgba(74,222,128,0.1)' : 'rgba(156,163,175,0.1)' }}>
-                    {p.active ? 'Active' : 'Inactive'}
+            {loading && <TableStateRow colSpan={7} kind="loading">Loading products and services…</TableStateRow>}
+            {!loading && filtered.length === 0 && <TableStateRow colSpan={7} kind="empty">No products or services yet.</TableStateRow>}
+            {filtered.map(p => (
+              <tr key={p.id}>
+                <td className={tableStyles.primary}>{p.name}</td>
+                <td>{p.type === 'PRODUCT' ? 'Product' : 'Service'}</td>
+                <td>{p.sku ?? <span className={tableStyles.muted}>—</span>}</td>
+                <td>{p.unit_label ?? <span className={tableStyles.muted}>—</span>}</td>
+                <td className={tableStyles.num}>{formatMoneyCents(p.default_unit_price_cents, p.currency)}</td>
+                <td><Badge state={p.active ? 'active' : 'inactive'}>{p.active ? 'Active' : 'Inactive'}</Badge></td>
+                <td className={tableStyles.actions}>
+                  <span style={{ display: 'inline-flex', gap: 12 }}>
+                    <button type="button" onClick={() => setEditing(p)} className={tableStyles.link} aria-label={`Edit ${p.name}`}>Edit</button>
+                    <button type="button" onClick={() => toggleActive(p)} className={tableStyles.link} aria-label={`${p.active ? 'Deactivate' : 'Reactivate'} ${p.name}`}>
+                      {p.active ? 'Deactivate' : 'Reactivate'}
+                    </button>
                   </span>
-                </td>
-                <td style={{ padding: '13px 16px', display: 'flex', gap: 12 }}>
-                  <button onClick={() => setEditing(p)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer', padding: 0 }}>Edit</button>
-                  <button onClick={() => toggleActive(p)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer', padding: 0 }}>
-                    {p.active ? 'Deactivate' : 'Reactivate'}
-                  </button>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
+      </TableContainer>
 
       <SlidePanel open={showAdd} onClose={() => setShowAdd(false)} title="Add Product / Service">
         <ProductForm onSaved={() => { setShowAdd(false); load(); }} />
@@ -116,12 +125,3 @@ export default function ProductsPage() {
     </div>
   );
 }
-
-function Dim({ children }: { children: React.ReactNode }) {
-  return <span style={{ color: 'var(--text-muted)' }}>{children}</span>;
-}
-
-const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: 'var(--text-secondary)' };
-const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 };
-function btn(bg: string): React.CSSProperties { return { padding: '8px 16px', background: bg, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }; }

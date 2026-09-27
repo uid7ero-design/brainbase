@@ -6,7 +6,15 @@ const source = fs.readFileSync(path.resolve(__dirname, '../../app/crm/page.tsx')
 
 describe('C.1 CRM overview after latest-main visual convergence', () => {
   it('uses the latest main application theme variables', () => {
-    for (const token of ['var(--bg-surface)','var(--border)','var(--text-primary)','var(--text-secondary)','var(--text-muted)','var(--purple-600)']) expect(source).toContain(token)
+    // Integration note (main + app visual convergence): main's rollout pinned its own styling
+    // here. The reviewed Phase D4 CRM implementation supersedes that presentation, so this
+    // assertion now pins the reviewed equivalent. Behavioural assertions are unchanged.
+    const uiImport = source.match(/import \{([^}]*)\} from '@\/components\/ui\/app'/)?.[1] ?? ''
+    for (const name of ['Metric', 'MetricStrip', 'PageHeader', 'Panel', 'StateMessage', 'tableStyles'])
+      expect(uiImport).toMatch(new RegExp(`\\b${name}\\b`))
+    for (const token of ['var(--border)','var(--text-primary)','var(--text-secondary)']) expect(source).toContain(token)
+    expect(source).not.toContain('var(--purple-')
+
   })
   it('preserves the four overview fetches', () => {
     for (const endpoint of ["fetch('/api/crm/deals')","fetch('/api/crm/activities?limit=15')","fetch('/api/crm/companies')","fetch('/api/crm/contacts')"]) expect(source).toContain(endpoint)
@@ -23,10 +31,16 @@ describe('C.1 CRM overview after latest-main visual convergence', () => {
     for (const href of ['/crm/companies','/crm/contacts','/crm/deals','/crm/activities']) expect(source.includes(`href: '${href}'`) || source.includes(`href="${href}"`)).toBe(true)
   })
   it('preserves category semantics and intentional data colours', () => {
-    expect(source).toContain("qualified: '#60a5fa'")
-    expect(source).toContain("closed_won: '#34d399'")
+    // Integration note (main + app visual convergence): main's rollout pinned its own styling
+    // here. The reviewed Phase D4 CRM implementation supersedes that presentation, so this
+    // assertion now pins the reviewed equivalent. Behavioural assertions are unchanged.
+    // D4 maps the stage categories onto semantic status tokens; proposal keeps its domain pink.
+    expect(source).toContain("qualified: 'var(--status-info)'")
+    expect(source).toContain("closed_won: 'var(--status-success)'")
+    expect(source).toContain("proposal: '#f472b6'")
     expect(source).toContain('STAGE_COLORS[d.stage]')
     expect(source).toContain('TYPE_ICONS[a.type]')
+
   })
   it('does not add mutations or persistence behavior', () => {
     for (const text of ['POST','PATCH','DELETE','enabledCapabilities','useRouter','localStorage','sessionStorage']) expect(source).not.toContain(text)

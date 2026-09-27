@@ -183,6 +183,12 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       // confirmDataHubWorksheet (this route never validates period input
       // itself — Step 3.6 only checks presence, never format).
       INVALID_REPORTING_PERIOD: 500,
+      // Data Hub 6.2D4B — stageWorksheetRows/completeStagingRun-only,
+      // unreachable from confirmDataHubWorksheet.
+      RUN_ALREADY_IN_PROGRESS: 500,
+      STAGING_INELIGIBLE: 500,
+      LEASE_LOST: 500,
+      WORKBOOK_INTEGRITY_CHANGED: 500,
     };
     return NextResponse.json(
       { ok: false, error: result.message },

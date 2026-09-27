@@ -5,6 +5,16 @@
 // on port 55565. The harness must bootstrap the current main Prisma schema
 // and apply the real D4A migration twice before invoking this file. The proof
 // then verifies the resulting catalog and behavioral invariants.
+//
+// 6.2D4B UPDATE: the current Prisma schema also requires
+// scripts/create-datahub-raw-staging-runs.sql to be applied (DataHubRawRow.
+// staging_run_id is now a required, non-optional Prisma field, and
+// uploads_raw_staging_coherence_check now also requires raw_staging_run_id
+// in its "complete" branch) — the harness must apply D4A then D4B, in that
+// order, before this file runs. D4A's own SQL file is untouched; this is a
+// consequence of both migrations sharing one Prisma schema, not a D4A
+// behavior change. See datahubRawStagingRunFoundation.postgres-proof.test.ts
+// for D4B's own dedicated proof.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Prisma, PrismaClient } from "@prisma/client";
@@ -134,6 +144,30 @@ describe("6.2D4A raw staging foundation — real disposable Postgres proof", () 
         },
       ],
     });
+
+    // 6.2D4B: DataHubRawRow.staging_run_id is now required (the D4B
+    // migration is also applied by this harness, see the header comment
+    // above) — every raw row fixture below must reference a real run.
+    await prisma.dataHubRawStagingRun.createMany({
+      data: [
+        {
+          id: "d4a-run-a", organisation_id: "d4a-org-a", import_batch_id: "d4a-batch-a", upload_id: "d4a-upload-a",
+          source_schema_version_id: "d4a-sv-a", source_schema_worksheet_id: "d4a-ws-a",
+          worksheet_mapping_profile_id: "d4a-wp-a", worksheet_mapping_profile_version_id: "d4a-wp-a-v1",
+          attempt_number: 1, source_sha256: "a".repeat(64), parser_version: "test",
+          status: "RUNNING", execution_token: "d4a-run-a-token",
+          lease_expires_at: new Date(Date.now() + 60_000), last_progress_at: new Date(),
+        },
+        {
+          id: "d4a-run-b", organisation_id: "d4a-org-b", import_batch_id: "d4a-batch-b", upload_id: "d4a-upload-b",
+          source_schema_version_id: "d4a-sv-b", source_schema_worksheet_id: "d4a-ws-b",
+          worksheet_mapping_profile_id: "d4a-wp-b", worksheet_mapping_profile_version_id: "d4a-wp-b-v1",
+          attempt_number: 1, source_sha256: "b".repeat(64), parser_version: "test",
+          status: "RUNNING", execution_token: "d4a-run-b-token",
+          lease_expires_at: new Date(Date.now() + 60_000), last_progress_at: new Date(),
+        },
+      ],
+    });
   }, 60_000);
 
   afterAll(async () => {
@@ -148,9 +182,14 @@ describe("6.2D4A raw staging foundation — real disposable Postgres proof", () 
       WHERE c.contype='f' AND t.relname IN ('data_hub_raw_rows','data_hub_raw_cells')
       GROUP BY t.relname ORDER BY t.relname
     `);
+    // 6.2D4B: data_hub_raw_rows' FK count is 10, not D4A's own original 8 —
+    // this harness now also applies D4B (see the header comment), which
+    // drops 1 D4A FK (data_hub_raw_rows_upload_profile_version_org_fkey)
+    // and adds 3 new ones (staging_run_profile_version_fkey,
+    // staging_run_upload_fkey, staging_run_pinned_version_fkey): 8 - 1 + 3 = 10.
     expect(rows.map((r) => [r.table_name, Number(r.fk_count)])).toEqual([
       ["data_hub_raw_cells", 3],
-      ["data_hub_raw_rows", 8],
+      ["data_hub_raw_rows", 10],
     ]);
 
     const triggers = await prisma.$queryRawUnsafe<Array<{ tgname: string }>>(`
@@ -183,6 +222,7 @@ describe("6.2D4A raw staging foundation — real disposable Postgres proof", () 
         raw_profile_version_id: "d4a-wp-a-v1",
         raw_row_count: 2,
         raw_cell_count: 4,
+        raw_staging_run_id: "d4a-run-a",
       },
     });
 
@@ -197,7 +237,7 @@ describe("6.2D4A raw staging foundation — real disposable Postgres proof", () 
         id: "d4a-rr-a", organisation_id: "d4a-org-a", import_batch_id: "d4a-batch-a", upload_id: "d4a-upload-a",
         source_schema_version_id: "d4a-sv-a", source_schema_worksheet_id: "d4a-ws-a",
         worksheet_mapping_profile_id: "d4a-wp-a", worksheet_mapping_profile_version_id: "d4a-wp-a-v1",
-        source_row_number: 2, created_by: "d4a-stage-a",
+        source_row_number: 2, created_by: "d4a-stage-a", staging_run_id: "d4a-run-a",
       },
     });
 
@@ -223,6 +263,7 @@ describe("6.2D4A raw staging foundation — real disposable Postgres proof", () 
       upload_id: "d4a-upload-a",
       source_schema_version_id: "d4a-sv-a",
       source_row_number: 3,
+      staging_run_id: "d4a-run-a",
     };
 
     await expect(prisma.dataHubRawRow.create({
@@ -256,7 +297,7 @@ describe("6.2D4A raw staging foundation — real disposable Postgres proof", () 
         id: "d4a-row-zero", organisation_id: "d4a-org-a", import_batch_id: "d4a-batch-a", upload_id: "d4a-upload-a",
         source_schema_version_id: "d4a-sv-a", source_schema_worksheet_id: "d4a-ws-a",
         worksheet_mapping_profile_id: "d4a-wp-a", worksheet_mapping_profile_version_id: "d4a-wp-a-v1",
-        source_row_number: 0,
+        source_row_number: 0, staging_run_id: "d4a-run-a",
       },
     })).rejects.toThrow();
 
@@ -265,7 +306,7 @@ describe("6.2D4A raw staging foundation — real disposable Postgres proof", () 
         id: "d4a-row-dup", organisation_id: "d4a-org-a", import_batch_id: "d4a-batch-a", upload_id: "d4a-upload-a",
         source_schema_version_id: "d4a-sv-a", source_schema_worksheet_id: "d4a-ws-a",
         worksheet_mapping_profile_id: "d4a-wp-a", worksheet_mapping_profile_version_id: "d4a-wp-a-v1",
-        source_row_number: 2,
+        source_row_number: 2, staging_run_id: "d4a-run-a",
       },
     })).rejects.toThrow();
 
@@ -274,7 +315,7 @@ describe("6.2D4A raw staging foundation — real disposable Postgres proof", () 
         id: "d4a-rr-probe", organisation_id: "d4a-org-a", import_batch_id: "d4a-batch-a", upload_id: "d4a-upload-a",
         source_schema_version_id: "d4a-sv-a", source_schema_worksheet_id: "d4a-ws-a",
         worksheet_mapping_profile_id: "d4a-wp-a", worksheet_mapping_profile_version_id: "d4a-wp-a-v1",
-        source_row_number: 3,
+        source_row_number: 3, staging_run_id: "d4a-run-a",
       },
     });
 

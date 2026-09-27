@@ -6,8 +6,17 @@ import { SupplierBillStatusBadge } from '../../_billStatus';
 import { formatCommercialDate } from '@/lib/commercial/dates';
 import { formatMoneyCents } from '@/lib/commercial/money';
 import type { SupplierBillStatus } from '@/lib/commercial/supplierBillLifecycle';
-
-const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
+import {
+  Field as AppField,
+  FormError,
+  PageHeader,
+  StateMessage,
+  TableContainer,
+  TableStateRow,
+  buttonProps,
+  fieldControlClassName,
+  tableStyles,
+} from '@/components/ui/app';
 
 type SupplierBill = {
   id: string; source_purchase_order_id: string; supplier_invoice_number: string; bill_number: string | null;
@@ -231,205 +240,234 @@ export default function SupplierBillDetailPage() {
     return `${(n / (1024 * 1024)).toFixed(1)} MB`;
   }
 
-  if (loading) return <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Loading…</div>;
-  if (!supplierBill) return <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Supplier bill not found.</div>;
+  if (loading) return <StateMessage kind="loading" title="Loading supplier bill…" size="page" />;
+  if (!supplierBill) {
+    return (
+      <StateMessage
+        kind="empty"
+        size="page"
+        title="Supplier bill not found."
+        action={<Link href="/commercial/purchasing/supplier-bills">Back to supplier bills</Link>}
+      />
+    );
+  }
 
   return (
     <div style={{ maxWidth: 960 }}>
-      <Link href="/commercial/purchasing/supplier-bills" style={{ fontSize: 13, color: 'var(--text-secondary)', textDecoration: 'none' }}>← Supplier Bills</Link>
+      <PageHeader
+        eyebrow={<Link href="/commercial/purchasing/supplier-bills">← Supplier Bills</Link>}
+        title={supplierBill.bill_number ?? 'Draft Supplier Bill'}
+        meta={<SupplierBillStatusBadge status={supplierBill.status} />}
+        description={purchaseOrder ? (
+          <>
+            Against Purchase Order{' '}
+            <Link href={`/commercial/purchasing/purchase-orders/${purchaseOrder.id}`} style={{ color: 'var(--brand-brainbase-accent)' }}>
+              {purchaseOrder.purchase_order_number ?? purchaseOrder.id}
+            </Link>
+            {purchaseOrder.supplier_name_snapshot ? ` — ${purchaseOrder.supplier_name_snapshot}` : ''}
+          </>
+        ) : undefined}
+        actions={
+          <>
+            {isDraft && isAdmin && lines.length > 0 && (
+              <button type="button" onClick={() => setConfirmingPost(true)} disabled={busy} {...buttonProps('primary')}>Post Bill</button>
+            )}
+            {isDraft && canEdit && supplierBill.bill_number == null && (
+              <button type="button" onClick={() => setConfirmingDelete(true)} disabled={busy} {...buttonProps('danger')}>Delete Draft</button>
+            )}
+            {isPosted && isAdmin && (
+              <button type="button" onClick={() => setConfirmingCancel(true)} disabled={busy} {...buttonProps('danger')}>Cancel Bill</button>
+            )}
+          </>
+        }
+      />
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '8px 0 4px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>
-            {supplierBill.bill_number ?? 'Draft Supplier Bill'}
-          </h1>
-          <SupplierBillStatusBadge status={supplierBill.status} />
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {isDraft && isAdmin && lines.length > 0 && (
-            <button onClick={() => setConfirmingPost(true)} disabled={busy} style={actionBtn('var(--purple-600)')}>Post Bill</button>
-          )}
-          {isDraft && canEdit && supplierBill.bill_number == null && (
-            <button onClick={() => setConfirmingDelete(true)} disabled={busy} style={actionBtn('#7f1d1d')}>Delete Draft</button>
-          )}
-          {isPosted && isAdmin && (
-            <button onClick={() => setConfirmingCancel(true)} disabled={busy} style={actionBtn('#7f1d1d')}>Cancel Bill</button>
-          )}
-        </div>
-      </div>
-
-      {purchaseOrder && (
-        <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 20px' }}>
-          Against Purchase Order{' '}
-          <Link href={`/commercial/purchasing/purchase-orders/${purchaseOrder.id}`} style={{ color: '#60a5fa', textDecoration: 'none' }}>
-            {purchaseOrder.purchase_order_number ?? purchaseOrder.id}
-          </Link>
-          {purchaseOrder.supplier_name_snapshot ? ` — ${purchaseOrder.supplier_name_snapshot}` : ''}
-        </p>
-      )}
-
-      {actionError && <div style={{ ...panel, borderColor: '#7f1d1d', color: '#f87171', marginBottom: 16 }}>{actionError}</div>}
+      {actionError && <div style={{ marginBottom: 16 }}><FormError>{actionError}</FormError></div>}
 
       {confirmingPost && (
-        <div style={{ ...panel, borderColor: 'var(--purple-600)', marginBottom: 20 }}>
-          <p style={{ margin: '0 0 12px', fontSize: 13 }}>
+        <div role="group" aria-label="Confirm post" style={{ ...panel, marginBottom: 20 }}>
+          <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text-primary)' }}>
             Posting allocates a permanent bill number, freezes the supplier snapshot, and freezes this document — lines can no longer be edited afterward. The server will re-check that no line bills beyond its purchase order line&rsquo;s ordered value. Continue?
           </p>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={postAction} disabled={busy} style={actionBtn('var(--purple-600)')}>Yes, Post Bill</button>
-            <button onClick={() => setConfirmingPost(false)} style={actionBtn('var(--border)')}>Cancel</button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" onClick={postAction} disabled={busy} {...buttonProps('primary')}>Yes, Post Bill</button>
+            <button type="button" onClick={() => setConfirmingPost(false)} {...buttonProps('secondary')}>Cancel</button>
           </div>
         </div>
       )}
 
       {confirmingDelete && (
-        <div style={{ ...panel, borderColor: '#7f1d1d', marginBottom: 20 }}>
-          <p style={{ margin: '0 0 12px', fontSize: 13 }}>Delete this draft supplier bill permanently? This cannot be undone. It has never been posted — nothing else is affected.</p>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={deleteAction} disabled={busy} style={actionBtn('#dc2626')}>Yes, Delete Draft</button>
-            <button onClick={() => setConfirmingDelete(false)} style={actionBtn('var(--border)')}>Keep Draft</button>
+        <div role="group" aria-label="Confirm delete" style={{ ...dangerPanel, marginBottom: 20 }}>
+          <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text-primary)' }}>Delete this draft supplier bill permanently? This cannot be undone. It has never been posted — nothing else is affected.</p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" onClick={deleteAction} disabled={busy} {...buttonProps('danger')}>Yes, Delete Draft</button>
+            <button type="button" onClick={() => setConfirmingDelete(false)} {...buttonProps('secondary')}>Keep Draft</button>
           </div>
         </div>
       )}
 
       {confirmingCancel && (
-        <div style={{ ...panel, borderColor: '#7f1d1d', marginBottom: 20 }}>
-          <p style={{ margin: '0 0 8px', fontSize: 13 }}>Cancelling this supplier bill marks it inactive and removes it from billed-to-date. This does not delete the record. No supplier payments exist yet, so there is nothing further to reverse.</p>
-          <label style={lbl}>Reason (required)</label>
-          <textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)} rows={2} placeholder="Why is this supplier bill being cancelled?" style={{ ...sel, marginBottom: 12 }} />
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={cancelAction} disabled={busy} style={actionBtn('#dc2626')}>Confirm Cancel</button>
-            <button onClick={() => setConfirmingCancel(false)} style={actionBtn('var(--border)')}>Keep Bill</button>
+        <div role="group" aria-label="Confirm cancel" style={{ ...dangerPanel, marginBottom: 20 }}>
+          <p style={{ margin: '0 0 8px', fontSize: 13, color: 'var(--text-primary)' }}>Cancelling this supplier bill marks it inactive and removes it from billed-to-date. This does not delete the record. No supplier payments exist yet, so there is nothing further to reverse.</p>
+          <AppField label="Reason" required>
+            {control => (
+              <textarea {...control} value={cancelReason} onChange={e => setCancelReason(e.target.value)} rows={2} placeholder="Why is this supplier bill being cancelled?" className={fieldControlClassName} />
+            )}
+          </AppField>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+            <button type="button" onClick={cancelAction} disabled={busy} {...buttonProps('danger')}>Confirm Cancel</button>
+            <button type="button" onClick={() => setConfirmingCancel(false)} {...buttonProps('secondary')}>Keep Bill</button>
           </div>
         </div>
       )}
 
-      <div style={{ ...panel, marginBottom: 20 }}>
+      <dl style={{ ...panel, margin: '0 0 20px' }}>
         <Row label="Supplier Invoice Number" value={supplierBill.supplier_invoice_number} />
         <Row label="Bill Date" value={supplierBill.bill_date ? formatCommercialDate(supplierBill.bill_date) : '—'} />
         <Row label="Due Date" value={supplierBill.due_date ? formatCommercialDate(supplierBill.due_date) : '—'} />
         {isCancelled && supplierBill.cancel_reason && <Row label="Cancellation Reason" value={supplierBill.cancel_reason} />}
-      </div>
+      </dl>
 
-      <div style={{ ...panel, marginBottom: 20 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-              {['Description', 'Ordered Value', 'Previously Billed', 'Remaining', 'Qty', 'Unit Price', 'Tax', 'Line Total', ''].map(h => <th key={h} style={th}>{h}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {lines.length === 0 && <tr><td colSpan={9} style={empty}>No line items yet.</td></tr>}
-            {lines.map(line => {
-              const poLine = poLines.find(l => l.id === line.source_purchase_order_line_id);
-              const remaining = remainingForPoLine(line.source_purchase_order_line_id, line.id);
-              return (
-                <tr key={line.id} style={{ borderBottom: `1px solid ${BORDER}` }}>
-                  <td style={td}>{line.description_snapshot}</td>
-                  <td style={td}>{poLine ? formatMoneyCents(poLine.line_total_cents, supplierBill.currency) : '—'}</td>
-                  <td style={td}>{formatMoneyCents(billedAmounts[line.source_purchase_order_line_id] ?? 0, supplierBill.currency)}</td>
-                  <td style={{ ...td, color: remaining < 0 ? '#f87171' : 'var(--text-secondary)' }}>{formatMoneyCents(remaining, supplierBill.currency)}</td>
-                  <td style={td}>{line.quantity}</td>
-                  <td style={td}>{formatMoneyCents(line.unit_price_cents, supplierBill.currency)}</td>
-                  <td style={td}>{line.tax_code_snapshot ?? '—'}</td>
-                  <td style={td}>{formatMoneyCents(line.line_total_cents, supplierBill.currency)}</td>
-                  <td style={td}>
-                    {isDraft && canEdit && (
-                      <button onClick={() => removeLine(line.id)} disabled={busy} style={{ background: 'none', border: 'none', color: '#f87171', fontSize: 12, cursor: 'pointer' }}>Remove</button>
-                    )}
-                  </td>
+      <div style={{ marginBottom: 20 }}>
+        <TableContainer label="Bill lines" minWidth={860}>
+          <table className={tableStyles.table}>
+            <thead>
+              <tr>
+                <th scope="col">Description</th>
+                <th scope="col" className={tableStyles.num}>Ordered Value</th>
+                <th scope="col" className={tableStyles.num}>Previously Billed</th>
+                <th scope="col" className={tableStyles.num}>Remaining</th>
+                <th scope="col" className={tableStyles.num}>Qty</th>
+                <th scope="col" className={tableStyles.num}>Unit Price</th>
+                <th scope="col">Tax</th>
+                <th scope="col" className={tableStyles.num}>Line Total</th>
+                <th scope="col" className={tableStyles.actions}><span className="bb-visually-hidden">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.length === 0 && <TableStateRow colSpan={9} kind="empty">No line items yet.</TableStateRow>}
+              {lines.map(line => {
+                const poLine = poLines.find(l => l.id === line.source_purchase_order_line_id);
+                const remaining = remainingForPoLine(line.source_purchase_order_line_id, line.id);
+                return (
+                  <tr key={line.id}>
+                    <td style={{ color: 'var(--text-primary)' }}>{line.description_snapshot}</td>
+                    <td className={tableStyles.num}>{poLine ? formatMoneyCents(poLine.line_total_cents, supplierBill.currency) : '—'}</td>
+                    <td className={tableStyles.num}>{formatMoneyCents(billedAmounts[line.source_purchase_order_line_id] ?? 0, supplierBill.currency)}</td>
+                    <td className={tableStyles.num} style={remaining < 0 ? { color: 'var(--status-danger)', fontWeight: 600 } : undefined}>{formatMoneyCents(remaining, supplierBill.currency)}</td>
+                    <td className={tableStyles.num}>{line.quantity}</td>
+                    <td className={tableStyles.num}>{formatMoneyCents(line.unit_price_cents, supplierBill.currency)}</td>
+                    <td>{line.tax_code_snapshot ?? '—'}</td>
+                    <td className={tableStyles.num}>{formatMoneyCents(line.line_total_cents, supplierBill.currency)}</td>
+                    <td className={tableStyles.actions}>
+                      {isDraft && canEdit && (
+                        <button type="button" onClick={() => removeLine(line.id)} disabled={busy} className={tableStyles.link} style={{ color: 'var(--status-danger)' }} aria-label={`Remove line ${line.description_snapshot}`}>Remove</button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            {lines.length > 0 && (
+              <tfoot style={{ borderTop: '1px solid var(--border)' }}>
+                <tr>
+                  <td colSpan={7} className={tableStyles.num} style={{ fontWeight: 600 }}>Subtotal</td>
+                  <td className={tableStyles.num} style={{ fontWeight: 600 }}>{formatMoneyCents(supplierBill.subtotal_cents, supplierBill.currency)}</td>
+                  <td />
                 </tr>
-              );
-            })}
-          </tbody>
-          {lines.length > 0 && (
-            <tfoot>
-              <tr>
-                <td colSpan={7} style={{ ...td, textAlign: 'right', fontWeight: 600 }}>Subtotal</td>
-                <td style={{ ...td, fontWeight: 600 }} colSpan={2}>{formatMoneyCents(supplierBill.subtotal_cents, supplierBill.currency)}</td>
-              </tr>
-              <tr>
-                <td colSpan={7} style={{ ...td, textAlign: 'right', fontWeight: 600 }}>Tax</td>
-                <td style={{ ...td, fontWeight: 600 }} colSpan={2}>{formatMoneyCents(supplierBill.tax_cents, supplierBill.currency)}</td>
-              </tr>
-              <tr>
-                <td colSpan={7} style={{ ...td, textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>Total</td>
-                <td style={{ ...td, fontWeight: 700, color: 'var(--text-primary)' }} colSpan={2}>{formatMoneyCents(supplierBill.total_cents, supplierBill.currency)}</td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
+                <tr>
+                  <td colSpan={7} className={tableStyles.num} style={{ fontWeight: 600 }}>Tax</td>
+                  <td className={tableStyles.num} style={{ fontWeight: 600 }}>{formatMoneyCents(supplierBill.tax_cents, supplierBill.currency)}</td>
+                  <td />
+                </tr>
+                <tr>
+                  <td colSpan={7} className={tableStyles.num} style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Total</td>
+                  <td className={tableStyles.num} style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{formatMoneyCents(supplierBill.total_cents, supplierBill.currency)}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </TableContainer>
 
         {isDraft && canEdit && (
-          <form onSubmit={addLine} style={{ padding: '16px 0 0', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <form onSubmit={addLine} aria-label="Add bill line" style={{ ...panel, padding: 16, marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <div style={{ flex: '2 1 220px' }}>
-              <label style={lbl}>Purchase Order Line</label>
-              <select value={newPoLineId} onChange={e => setNewPoLineId(e.target.value)} style={sel}>
-                <option value="">— Select a purchase order line —</option>
-                {poLines.map(pl => {
-                  const remaining = remainingForPoLine(pl.id);
-                  return (
-                    <option key={pl.id} value={pl.id}>
-                      {pl.description_snapshot} (remaining: {formatMoneyCents(remaining, supplierBill.currency)})
-                    </option>
-                  );
-                })}
-              </select>
+              <AppField label="Purchase Order Line">
+                {control => (
+                  <select value={newPoLineId} onChange={e => setNewPoLineId(e.target.value)} {...control} className={fieldControlClassName}>
+                    <option value="">— Select a purchase order line —</option>
+                    {poLines.map(pl => {
+                      const remaining = remainingForPoLine(pl.id);
+                      return (
+                        <option key={pl.id} value={pl.id}>
+                          {pl.description_snapshot} (remaining: {formatMoneyCents(remaining, supplierBill.currency)})
+                        </option>
+                      );
+                    })}
+                  </select>
+                )}
+              </AppField>
             </div>
             <div style={{ flex: '0 1 90px' }}>
-              <label style={lbl}>Quantity</label>
-              <input type="number" min="0.0001" step="0.0001" value={newQuantity} onChange={e => setNewQuantity(e.target.value)} style={sel} inputMode="decimal" />
+              <AppField label="Quantity">
+                {control => <input {...control} type="number" min="0.0001" step="0.0001" value={newQuantity} onChange={e => setNewQuantity(e.target.value)} className={fieldControlClassName} inputMode="decimal" />}
+              </AppField>
             </div>
             <div style={{ flex: '0 1 120px' }}>
-              <label style={lbl}>Unit Price</label>
-              <input value={newUnitPrice} onChange={e => setNewUnitPrice(e.target.value)} style={sel} placeholder="0.00" inputMode="decimal" />
+              <AppField label="Unit Price">
+                {control => <input {...control} value={newUnitPrice} onChange={e => setNewUnitPrice(e.target.value)} className={fieldControlClassName} placeholder="0.00" inputMode="decimal" />}
+              </AppField>
             </div>
             <div style={{ flex: '0 1 140px' }}>
-              <label style={lbl}>Tax Code</label>
-              <select value={newTaxCodeId} onChange={e => setNewTaxCodeId(e.target.value)} style={sel}>
-                <option value="">— None —</option>
-                {taxCodes.map(t => <option key={t.id} value={t.id}>{t.code} ({t.rate}%)</option>)}
-              </select>
+              <AppField label="Tax Code">
+                {control => (
+                  <select {...control} value={newTaxCodeId} onChange={e => setNewTaxCodeId(e.target.value)} className={fieldControlClassName}>
+                    <option value="">— None —</option>
+                    {taxCodes.map(t => <option key={t.id} value={t.id}>{t.code} ({t.rate}%)</option>)}
+                  </select>
+                )}
+              </AppField>
             </div>
-            <button type="submit" disabled={busy} style={actionBtn('var(--purple-600)')}>Add Line</button>
+            <button type="submit" disabled={busy} {...buttonProps('primary')}>Add Line</button>
           </form>
         )}
       </div>
 
-      <div style={panel}>
-        <h2 style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', margin: '0 0 12px' }}>Supporting Documents</h2>
+      <section aria-labelledby="bill-supporting-documents" style={panel}>
+        <h2 id="bill-supporting-documents" style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', margin: '0 0 12px' }}>Supporting Documents</h2>
         {attachments.length === 0 && <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 12px' }}>No supporting documents yet.</p>}
         {attachments.map(a => (
-          <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${BORDER}` }}>
-            <div>
-              <a href={`/api/commercial/supplier-bills/${id}/attachments/${a.id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none', fontSize: 13, fontWeight: 500 }}>{a.original_filename}</a>
+          <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ minWidth: 0 }}>
+              <a href={`/api/commercial/supplier-bills/${id}/attachments/${a.id}`} style={{ color: 'var(--text-primary)', fontSize: 13, fontWeight: 500, overflowWrap: 'anywhere' }}>{a.original_filename}</a>
               <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
                 {ATTACHMENT_CATEGORY_LABELS[a.category]} · {formatBytes(a.size_bytes)} · {a.uploaded_by_name ?? 'Unknown'} · {formatCommercialDate(a.created_at)}
               </div>
             </div>
             {isDraft && canEdit && (
-              <button onClick={() => removeAttachment(a.id)} style={{ background: 'none', border: 'none', color: '#f87171', fontSize: 12, cursor: 'pointer' }}>Remove</button>
+              <button type="button" onClick={() => removeAttachment(a.id)} className={tableStyles.link} style={{ color: 'var(--status-danger)' }} aria-label={`Remove ${a.original_filename}`}>Remove</button>
             )}
           </div>
         ))}
 
         {isDraft && canEdit && (
           <form onSubmit={uploadAttachment} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginTop: 14, flexWrap: 'wrap' }}>
-            <div>
-              <label style={lbl}>Category</label>
-              <select value={uploadCategory} onChange={e => setUploadCategory(e.target.value as AttachmentCategory)} style={sel}>
-                {(Object.keys(ATTACHMENT_CATEGORY_LABELS) as AttachmentCategory[]).map(c => <option key={c} value={c}>{ATTACHMENT_CATEGORY_LABELS[c]}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={lbl}>File</label>
-              <input type="file" onChange={e => setUploadFile(e.target.files?.[0] ?? null)} style={{ fontSize: 13, color: 'var(--text-secondary)' }} />
-            </div>
-            <button type="submit" disabled={uploadBusy} style={actionBtn('var(--purple-600)')}>{uploadBusy ? 'Uploading…' : '+ Attach Document'}</button>
+            <AppField label="Category">
+              {control => (
+                <select {...control} value={uploadCategory} onChange={e => setUploadCategory(e.target.value as AttachmentCategory)} className={fieldControlClassName}>
+                  {(Object.keys(ATTACHMENT_CATEGORY_LABELS) as AttachmentCategory[]).map(c => <option key={c} value={c}>{ATTACHMENT_CATEGORY_LABELS[c]}</option>)}
+                </select>
+              )}
+            </AppField>
+            <AppField label="File">
+              {control => <input {...control} type="file" onChange={e => setUploadFile(e.target.files?.[0] ?? null)} style={{ fontSize: 13, color: 'var(--text-secondary)' }} />}
+            </AppField>
+            <button type="submit" disabled={uploadBusy} {...buttonProps('secondary')}>{uploadBusy ? 'Uploading…' : '+ Attach Document'}</button>
           </form>
         )}
-        {uploadError && <div style={{ color: '#f87171', fontSize: 12, marginTop: 8 }}>{uploadError}</div>}
-      </div>
+        {uploadError && <div style={{ marginTop: 8 }}><FormError>{uploadError}</FormError></div>}
+      </section>
     </div>
   );
 }
@@ -437,16 +475,11 @@ export default function SupplierBillDetailPage() {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ marginBottom: 12 }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 3 }}>{label}</div>
-      <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>{value}</div>
+      <dt style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 3 }}>{label}</dt>
+      <dd style={{ margin: 0, fontSize: 14, color: 'var(--text-primary)' }}>{value}</dd>
     </div>
   );
 }
 
-const panel: React.CSSProperties = { background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20 };
-const th: React.CSSProperties = { padding: '8px 8px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '10px 8px', fontSize: 13, color: 'var(--text-secondary)' };
-const empty: React.CSSProperties = { padding: '20px 8px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 };
-const lbl: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' };
-const sel: React.CSSProperties = { width: '100%', padding: '8px 10px', background: 'var(--bg-base)', border: `1px solid ${BORDER}`, borderRadius: 7, color: 'var(--text-primary)', fontSize: 13, boxSizing: 'border-box' };
-function actionBtn(bg: string): React.CSSProperties { return { padding: '8px 14px', background: bg, color: '#fff', border: 'none', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer' }; }
+const panel: React.CSSProperties = { background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20 };
+const dangerPanel: React.CSSProperties = { background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', borderRadius: 'var(--radius-lg)', padding: 20 };

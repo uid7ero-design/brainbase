@@ -8,28 +8,39 @@ const read = (relative: string) =>
 const page = read('app/organiser/page.tsx')
 const rail = read('components/organiser/OrganiserRail.tsx')
 
+const organiserCss = fs.readFileSync(path.resolve(__dirname, '../../components/organiser/Organiser.module.css'), 'utf-8')
+const railCss = fs.readFileSync(path.resolve(__dirname, '../../components/organiser/OrganiserRail.module.css'), 'utf-8')
+
 describe('C.3 Organiser rail and table chrome design-system migration', () => {
   it('migrates OrganiserRail chrome to canonical BrainBase tokens', () => {
-    for (const token of [
-      '--bb-font-sans', '--bb-shell-sidebar', '--bb-border-subtle', '--bb-border-default',
-      '--bb-border-strong', '--bb-border-focus', '--bb-surface-soft', '--bb-surface-hover',
-      '--bb-surface-selected', '--bb-surface-3', '--bb-text-primary', '--bb-text-secondary',
-      '--bb-text-tertiary', '--bb-text-muted', '--bb-accent-300', '--bb-accent-500',
-      '--bb-danger', '--bb-radius-md', '--bb-radius-sm', '--bb-shadow-float',
-      '--bb-duration-fast', '--bb-duration-base', '--bb-ease-standard', '--bb-z-menu',
-    ]) expect(rail).toContain(token)
+    // Integration note (main + app visual convergence): main's C.x rollout pinned its own
+    // inline --bb-* styling. The reviewed Phase D3 implementation supersedes that presentation
+    // (CSS module on the Phase A app tokens, shared primitives, dialog semantics), so this
+    // assertion now pins the D3 equivalent. Every behavioural assertion in this file is unchanged.
+    expect(rail).toContain("import styles from './OrganiserRail.module.css'")
+    expect(rail).toContain('<nav')
+    expect(rail).toContain('aria-current')
+    for (const token of ['var(--bg-surface)', 'var(--border)', 'var(--text-primary)', 'var(--text-muted)', 'var(--brand-brainbase-accent)'])
+      expect(railCss).toContain(token)
     expect(rail).not.toContain('useOpsTheme')
     expect(rail).not.toContain('var(--font-inter)')
+
   })
 
   it('preserves rail collapse persistence, exact widths, and hydration guard', () => {
+    // Integration note (main + app visual convergence): main's C.x rollout pinned its own
+    // inline --bb-* styling. The reviewed Phase D3 implementation supersedes that presentation
+    // (CSS module on the Phase A app tokens, shared primitives, dialog semantics), so this
+    // assertion now pins the D3 equivalent. Every behavioural assertion in this file is unchanged.
     expect(rail).toContain("const COLLAPSE_KEY = 'organiser-rail-collapsed'")
     expect(rail).toContain('localStorage.getItem(COLLAPSE_KEY)')
     expect(rail).toContain('localStorage.setItem(COLLAPSE_KEY, String(next))')
     expect(rail).toContain('const width = collapsed ? 56 : 208')
     expect(rail).toContain("visibility: mounted ? 'visible' : 'hidden'")
     expect(rail).toContain("aria-label={collapsed ? 'Expand Organiser rail' : 'Collapse Organiser rail'}")
-    expect(rail).toContain("transform: collapsed ? 'rotate(180deg)' : 'none'")
+    // The collapsed chevron rotation lives in the rail CSS module (D3).
+    expect(railCss).toMatch(/\.rail\[data-collapsed\] \.collapse \{\s*transform: rotate\(180deg\)/)
+
   })
 
   it('preserves rail board selection, create, rename, and delete behavior', () => {
@@ -44,15 +55,14 @@ describe('C.3 Organiser rail and table chrome design-system migration', () => {
   })
 
   it('migrates table group, row, input, menu, and destructive-action chrome to canonical tokens', () => {
-    for (const token of [
-      '--bb-border-subtle', '--bb-border-default', '--bb-border-strong', '--bb-surface-soft',
-      '--bb-surface-hover', '--bb-text-primary', '--bb-text-secondary', '--bb-text-muted',
-      '--bb-accent-400', '--bb-danger', '--bb-danger-soft', '--bb-radius-sm',
-      '--bb-radius-md', '--bb-shadow-float', '--bb-duration-fast', '--bb-ease-standard',
-      '--bb-z-menu', '--bb-type-micro-size', '--bb-type-micro-tracking',
-    ]) expect(page).toContain(token)
-    expect(page).toContain('<Surface variant="base" radius="xl" style={{ marginBottom: 18, overflow: "hidden" }}>')
-    expect(page).toContain('background: hover ? "var(--bb-surface-hover)" : "transparent"')
+    // Integration note (main + app visual convergence): main's C.x rollout pinned its own
+    // inline --bb-* styling. The reviewed Phase D3 implementation supersedes that presentation
+    // (CSS module on the Phase A app tokens, shared primitives, dialog semantics), so this
+    // assertion now pins the D3 equivalent. Every behavioural assertion in this file is unchanged.
+    expect(page).toContain('className={styles.')
+    for (const token of ['var(--border)', 'var(--bg-surface)', 'var(--bg-sunken)', 'var(--text-secondary)', 'var(--status-danger)', 'var(--radius-sm)', 'var(--shadow-menu)'])
+      expect(organiserCss).toContain(token)
+
   })
 
   it('preserves item mutation entry points and row interaction semantics', () => {

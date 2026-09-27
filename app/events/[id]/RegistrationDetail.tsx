@@ -318,7 +318,7 @@ export default function RegistrationDetail({
 
   return (
     <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${BORDER_SOFT}`, display: 'flex', flexDirection: 'column', gap: 18 }}>
-      {error && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12 }}>{error}</div>}
+      {error && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12 }}>{error}</div>}
 
       {/* A. PURCHASER */}
       <div>
@@ -347,19 +347,19 @@ export default function RegistrationDetail({
                   <button onClick={() => setEditingPurchaser(true)} style={ghostBtnSm}>Edit purchaser</button>
                 </div>
                 {resendState.status === 'sent' && (
-                  <span style={{ fontSize: 11, color: '#4ADE80' }}>Sent · {new Date(resendState.at).toLocaleTimeString()}</span>
+                  <span style={{ fontSize: 11, color: 'var(--status-success)' }}>Sent · {new Date(resendState.at).toLocaleTimeString()}</span>
                 )}
                 {resendState.status === 'failed' && (
-                  <span role="alert" style={{ fontSize: 11, color: '#FCA5A5', textAlign: 'right', maxWidth: 220 }}>{resendState.message}</span>
+                  <span role="alert" style={{ fontSize: 11, color: 'var(--status-danger)', textAlign: 'right', maxWidth: 220 }}>{resendState.message}</span>
                 )}
                 {resendState.status === 'unknown' && (
-                  <span role="alert" style={{ fontSize: 11, color: '#FBBF24', textAlign: 'right', maxWidth: 220 }}>{resendState.message}</span>
+                  <span role="alert" style={{ fontSize: 11, color: 'var(--status-warning)', textAlign: 'right', maxWidth: 220 }}>{resendState.message}</span>
                 )}
                 {resendState.status === 'not_configured' && (
-                  <span role="alert" style={{ fontSize: 11, color: '#FBBF24', textAlign: 'right', maxWidth: 220 }}>{resendState.message}</span>
+                  <span role="alert" style={{ fontSize: 11, color: 'var(--status-warning)', textAlign: 'right', maxWidth: 220 }}>{resendState.message}</span>
                 )}
                 {resendState.status === 'sent_audit_failed' && (
-                  <span role="alert" style={{ fontSize: 11, color: '#FBBF24', textAlign: 'right', maxWidth: 220 }}>{resendState.message}</span>
+                  <span role="alert" style={{ fontSize: 11, color: 'var(--status-warning)', textAlign: 'right', maxWidth: 220 }}>{resendState.message}</span>
                 )}
                 {resendState.status === 'cooldown' && (
                   <span style={{ fontSize: 11, color: TEXT_MUTED, textAlign: 'right', maxWidth: 220 }}>
@@ -477,7 +477,7 @@ export default function RegistrationDetail({
           the purchaser/attendee themselves submitted. */}
       <div>
         <div style={sectionHeaderStyle}>Internal staff notes</div>
-        {notesError && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12, marginBottom: 8 }}>{notesError}</div>}
+        {notesError && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12, marginBottom: 8 }}>{notesError}</div>}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
           {notes === null && <div style={{ fontSize: 12, color: TEXT_MUTED }}>Loading notes…</div>}
@@ -514,7 +514,7 @@ export default function RegistrationDetail({
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <textarea
             value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="Add an internal note…" rows={1}
-            style={{ ...inputStyle, flex: '1 1 220px', fontSize: 12.5, background: 'rgba(255,255,255,.02)', resize: 'vertical' }}
+            style={{ ...inputStyle, flex: '1 1 220px', fontSize: 12.5, background: 'var(--bg-surface)', resize: 'vertical' }}
           />
           <button onClick={addNote} disabled={addingNote || !newNote.trim()} style={{ ...primaryBtnStyle, padding: '7px 14px', opacity: addingNote || !newNote.trim() ? 0.6 : 1 }}>
             {addingNote ? 'Adding…' : 'Add note'}

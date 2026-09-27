@@ -13,6 +13,7 @@ describe('HLNA Labs broken-orbit alignment', () => {
   const microAsset = read('public/Brand/brainbase-broken-orbit-micro.svg');
   const topNav = read('components/nav/TopNav.tsx');
   const dataHubSources = read('app/data-hub/sources/SourcesAdminClient.tsx');
+  const chromeCss = read('components/nav/AppChrome.module.css');
 
   it('locks the approved geometry exactly', () => {
     expect(mark).toContain('viewBox="0 0 100 100"');
@@ -52,13 +53,16 @@ describe('HLNA Labs broken-orbit alignment', () => {
     expect(topNav).not.toContain('rgba(7,5,16,.98)');
     expect(topNav).not.toContain('rgba(255,255,255,.85)');
     expect(topNav).not.toContain('rgba(255,255,255,.45)');
-    expect(topNav).toContain('var(--brand-brainbase-accent)');
-    expect(topNav).toContain('var(--bg-overlay)');
+    // Integration note: Phase B moved the dropdown chrome into AppChrome.module.css.
+    expect(topNav + chromeCss).toContain('var(--brand-brainbase-accent)');
+    expect(topNav + chromeCss).toContain('var(--bg-overlay)');
   });
 
   it('keeps the corrected Data Hub admin notice theme-aware', () => {
     expect(dataHubSources).not.toContain('rgba(249,250,251,.05)');
-    expect(dataHubSources).toContain('background: "var(--bg-raised)"');
+    // Integration note: the reviewed D4 surface hierarchy uses the sunken well for this
+    // page-level notice (raised is the same white as the Panel cards beside it in light mode).
+    expect(dataHubSources).toContain('background: "var(--bg-sunken)"');
   });
 
   it('contains no glow, gradient, or shadow in the approved mark component', () => {

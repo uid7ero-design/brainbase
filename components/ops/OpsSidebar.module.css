@@ -1,0 +1,174 @@
+/*
+ * Ops workspace sidebar (Phase D1). Tokens only (app/globals.css).
+ * Same active language as the global chrome and ModuleNav: accent text,
+ * weight 600, 2px inset rule, muted tint, aria-current. Collapse,
+ * icons and sections are Ops-specific and stay in Sidebar.tsx.
+ */
+
+.aside {
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+}
+
+.brandText {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.header {
+  border-bottom: 1px solid var(--border);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+  transition: color 0.14s, background-color 0.14s;
+}
+
+.item[data-collapsed='true'] {
+  gap: 0;
+  padding: 9px 0;
+  justify-content: center;
+}
+
+.item:hover {
+  color: var(--text-primary);
+  background: var(--bg-sunken);
+}
+
+.item:focus-visible {
+  outline-offset: -2px;
+}
+
+.item[aria-current='page'] {
+  color: var(--brand-brainbase-accent);
+  background: var(--brand-brainbase-accent-muted);
+  box-shadow: inset 2px 0 0 var(--brand-brainbase-accent);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.itemLabel {
+  font-size: 0.78125rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.item[aria-current='page'] .itemLabel {
+  font-weight: 600;
+}
+
+.alertDot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--status-danger);
+}
+
+.section {
+  padding: 0 12px;
+  margin-bottom: 4px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.sectionRule {
+  height: 1px;
+  margin: 6px 0;
+  background: var(--border);
+}
+
+.iconButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.14s, background-color 0.14s, transform 0.2s;
+}
+
+.iconButton:hover {
+  color: var(--text-primary);
+  background: var(--bg-sunken);
+}
+
+.footer {
+  border-top: 1px solid var(--border);
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid var(--status-success-border);
+  border-radius: var(--radius-md);
+  background: var(--status-success-muted);
+}
+
+.statusDot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--status-success);
+}
+
+.statusText {
+  overflow: hidden;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--status-success);
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .item,
+  .iconButton {
+    transition: none;
+  }
+}

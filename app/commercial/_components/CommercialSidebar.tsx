@@ -1,9 +1,8 @@
 'use client';
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { APP_HEADER_OFFSET_VAR, APP_HEADER_OFFSET_VH_CALC } from '@/lib/layout/headerOffset';
+import { ModuleNavItem, ModuleSidebar } from '@/components/ui/app';
 
-const BORDER = 'var(--border)';
 
 // Purchasing/Expenses/Budgeting/Finance Intelligence remain deliberately
 // omitted entirely (not shown-disabled) per the C3 brief's original
@@ -62,54 +61,19 @@ export default function CommercialSidebar({ quotesEnabled = false, invoicingEnab
   ];
 
   return (
-    <aside
-      style={{
-        width: 200,
-        borderRight: `1px solid ${BORDER}`,
-        padding: '28px 0',
-        display: 'flex',
-        flexDirection: 'column',
-        flexShrink: 0,
-        position: 'sticky',
-        top: APP_HEADER_OFFSET_VAR,
-        height: APP_HEADER_OFFSET_VH_CALC,
-      }}
+    <ModuleSidebar
+      title="Commercial"
+      label="Commercial sections"
+      style={{ position: 'sticky', top: APP_HEADER_OFFSET_VAR, height: APP_HEADER_OFFSET_VH_CALC }}
     >
-      <div
-        style={{
-          padding: '0 20px 14px',
-          fontSize: 11,
-          fontWeight: 700,
-          color: 'var(--text-muted)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.08em',
-        }}
-      >
-        Commercial
-      </div>
-      <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, padding: '0 8px' }}>
-        {navItems.map(item => {
-          const active = item.exact ? pathname === item.href : pathname.startsWith(item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              style={{
-                display: 'block',
-                padding: '8px 12px',
-                fontSize: 14,
-                textDecoration: 'none',
-                borderRadius: 7,
-                color: active ? 'var(--brand-brainbase-accent)' : 'var(--text-secondary)',
-                background: active ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)' : 'transparent',
-                transition: 'background .12s, color .12s',
-              }}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
-    </aside>
+      {navItems.map(item => {
+        const active = item.exact ? pathname === item.href : pathname.startsWith(item.href);
+        return (
+          <ModuleNavItem key={item.href} href={item.href} active={active}>
+            {item.label}
+          </ModuleNavItem>
+        );
+      })}
+    </ModuleSidebar>
   );
 }

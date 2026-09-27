@@ -75,7 +75,7 @@ export default function UploadProgress({
             style={{
               height: "100%",
               width: `${pct ?? 0}%`,
-              background: "var(--purple-600)",
+              background: "var(--status-info)",
               transition: "width .2s",
             }}
           />
