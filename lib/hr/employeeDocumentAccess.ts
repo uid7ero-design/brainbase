@@ -32,3 +32,29 @@ export function canManageEmployeeDocument(
   return actor.organisationId === target.organisationId
     && actor.isHrAdministrator;
 }
+
+/**
+ * Acknowledgement is personal evidence from the employee linked to the
+ * document owner. HR administrators do not gain authority to acknowledge
+ * on another employee's behalf merely because they can administer HR.
+ */
+export function canAcknowledgeEmployeeDocument(
+  actor: EmployeeDocumentActorContext,
+  target: EmployeeDocumentAccessTarget,
+): boolean {
+  return actor.organisationId === target.organisationId
+    && target.personLinkedUserId !== null
+    && actor.userId === target.personLinkedUserId;
+}
+
+/**
+ * Verification is an HR-governance action. Linked employees, managers and
+ * unrelated users cannot verify employee-document versions.
+ */
+export function canVerifyEmployeeDocument(
+  actor: EmployeeDocumentActorContext,
+  target: { organisationId: string },
+): boolean {
+  return actor.organisationId === target.organisationId
+    && actor.isHrAdministrator;
+}
