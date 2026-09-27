@@ -1,5 +1,6 @@
 import { prisma } from "../../prisma";
 import type { GovernedColumnAddress } from "../workbookParser";
+import { headerRowOneBasedFromDocument } from "../schemaProfiles/profileDocument";
 
 // Data Hub 6.2D4B — staging-eligibility gate. Read-only; no writes.
 //
@@ -41,20 +42,6 @@ export type StagingEligibilityResult =
       worksheetName: string;
     }
   | { ok: false; code: StagingEligibilityFailureCode };
-
-/** undefined = invalid document; null = governed "no tabular header". */
-function headerRowFromProfileDocument(doc: unknown): number | null | undefined {
-  if (doc === null || typeof doc !== "object" || Array.isArray(doc)) return undefined;
-  const keys = Object.keys(doc).sort();
-  if (keys.join(",") !== "documentVersion,headerRowOneBased,schemaStatus") return undefined;
-  const d = doc as { documentVersion: unknown; headerRowOneBased: unknown; schemaStatus: unknown };
-  if (d.documentVersion !== 1 || typeof d.schemaStatus !== "string") return undefined;
-  if (d.headerRowOneBased === null) return null;
-  if (typeof d.headerRowOneBased !== "number" || !Number.isSafeInteger(d.headerRowOneBased) || d.headerRowOneBased < 1) {
-    return undefined;
-  }
-  return d.headerRowOneBased;
-}
 
 export async function resolveStagingEligibility(context: {
   organisationId: string;
@@ -128,7 +115,7 @@ export async function resolveStagingEligibility(context: {
     return { ok: false, code: "STAGING_INELIGIBLE" };
   }
 
-  const headerRowOneBased = headerRowFromProfileDocument(profileVersion.profile_document);
+  const headerRowOneBased = headerRowOneBasedFromDocument(profileVersion.profile_document);
   if (headerRowOneBased === undefined || headerRowOneBased === null) {
     return { ok: false, code: "STAGING_INELIGIBLE" };
   }
@@ -253,7 +240,7 @@ export async function resolvePinnedStagingRunContext(context: {
 
   // Header row comes from THIS pinned version's own document — never
   // re-derived from whatever version is active today.
-  const headerRowOneBased = headerRowFromProfileDocument(profileVersion.profile_document);
+  const headerRowOneBased = headerRowOneBasedFromDocument(profileVersion.profile_document);
   if (headerRowOneBased === undefined || headerRowOneBased === null) {
     return { ok: false, code: "INVALID_STATE" };
   }
