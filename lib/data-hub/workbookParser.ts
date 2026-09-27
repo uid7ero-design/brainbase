@@ -1163,3 +1163,201 @@ export async function decodeWorksheet(
 
   return decodeSpreadsheetWorksheet(bytes, selection.index, limits);
 }
+
+// ---------------------------------------------------------------------------
+// Data Hub 6.2D4B — bounded, address-based, physical-row-preserving data-row
+// reader for governed staging execution.
+//
+// WHY THIS EXISTS (instead of decodeWorksheet/decodeSpreadsheetWorksheet):
+// decodeSpreadsheetWorksheet's own `rows` array comes from
+// `sheet_to_json(ws, { header: 1, blankrows: false })`, which drops blank
+// rows from the returned array entirely — so a row's array INDEX does not
+// equal its true physical Excel row number whenever blank rows are
+// interspersed among populated ones (see that function's own comment,
+// above, at the "Data Hub 6.2C3" / "6.2D3C" headers, which already flags
+// this exact gap for a single probed cell/header row). D4B's raw evidence
+// requires `source_row_number` to be the TRUE 1-based physical Excel row —
+// full stop — so this reader iterates physical row/column ADDRESSES
+// directly (mirroring readWorksheetHeaderRows's own address-based
+// extraction above, extended from one row to a bounded range), never
+// `sheet_to_json`. decodeSpreadsheetWorksheet itself is NOT modified — it
+// remains exactly as-is for the preview/inspection paths, which never
+// needed physical-row fidelity.
+//
+// GOVERNED COLUMN ADDRESSING: this reader never assumes governed columns
+// are contiguous or start at ordinal 0. Each physical cell is read at its
+// own exact governed ordinal from `governedColumns` (in caller-supplied
+// order — typically ascending ordinal, but this function does not require
+// or enforce that), and each returned cell in `WorksheetDataRow.cells`
+// carries that same governed column's identity alongside its value, so a
+// caller can build a DataHubRawCell insert directly without re-deriving or
+// positionally inferring source_schema_column_id/column_ordinal/
+// source_header/sensitivity_class.
+//
+// Same safety envelope as every other reader in this file: original-size
+// cap -> format classification -> signature -> (xlsx) archive guard ->
+// sheet-names-only pass + worksheet-count cap -> ONE SheetJS read of the
+// full selected worksheet (no `sheetRows` cap — unlike
+// readWorksheetHeaderRows, this reader may need to read deep into the
+// sheet across many calls) -> declared-range + materialized-window limit
+// enforcement against the ACTUALLY-scanned window.
+// ---------------------------------------------------------------------------
+
+export interface GovernedColumnAddress {
+  /** The governed schema's own column id — the exact governed column identity. */
+  id: string;
+  /** Zero-based physical column ordinal. Non-contiguous; need not start at 0. */
+  ordinal: number;
+  sourceHeader: string;
+  sensitivityClass: string;
+}
+
+export interface WorksheetDataRowsRequest {
+  /** Zero-based, authoritative worksheet index. */
+  index: number;
+  /** One-based governed header row (from the governed profile's own header-row field). */
+  headerRowOneBased: number;
+  /** Exact governed columns to read, each at its own exact ordinal. */
+  governedColumns: GovernedColumnAddress[];
+  /** 1-based physical row to resume AFTER (exclusive). Omit to start at the first data row. */
+  resumeAfterSourceRowOneBased?: number;
+  /** Stop once this many non-blank rows have been collected in this call. */
+  maxRowsToRead: number;
+}
+
+export type NormalizedCellValue = string | number | boolean | null;
+
+export interface WorksheetDataCell extends GovernedColumnAddress {
+  value: NormalizedCellValue;
+}
+
+export interface WorksheetDataRow {
+  /** True 1-based physical Excel row number — never a post-filtering index. */
+  sourceRowOneBased: number;
+  /** One entry per requested governed column, in the SAME order as `governedColumns`. */
+  cells: WorksheetDataCell[];
+}
+
+export interface WorksheetDataRowsResult {
+  index: number;
+  name: string;
+  visibility: WorksheetVisibility;
+  rows: WorksheetDataRow[];
+  /** True once the worksheet's declared range has been fully scanned. */
+  exhausted: boolean;
+}
+
+function isRowBlank(ws: XLSX.WorkSheet, r: number, governedColumns: GovernedColumnAddress[]): boolean {
+  for (const col of governedColumns) {
+    const cell = ws[XLSX.utils.encode_cell({ r, c: col.ordinal })] as XLSX.CellObject | undefined;
+    if (cell && cell.v !== undefined && cell.v !== null && cell.v !== "") return false;
+  }
+  return true;
+}
+
+export async function readWorksheetDataRows(
+  bytes: Uint8Array,
+  input: WorkbookInput,
+  request: WorksheetDataRowsRequest,
+  options: { limits?: Partial<Pick<WorkbookLimits, "maxOriginalBytes" | "maxWorksheetCount" | "maxSelectedWorksheetColumns" | "maxSelectedWorksheetCells">> } = {}
+): Promise<WorksheetDataRowsResult> {
+  const limits: WorkbookLimits = { ...DEFAULT_WORKBOOK_LIMITS, ...options.limits };
+  validateLimits(limits);
+  assertNonNegativeSafeInteger(request.index, "index");
+  assertPositiveSafeInteger(request.headerRowOneBased, "headerRowOneBased");
+  assertPositiveSafeInteger(request.maxRowsToRead, "maxRowsToRead");
+  if (request.governedColumns.length === 0) {
+    throw new RangeError("readWorksheetDataRows: governedColumns must not be empty.");
+  }
+  for (const col of request.governedColumns) {
+    assertNonNegativeSafeInteger(col.ordinal, "governedColumns[].ordinal");
+  }
+  if (request.governedColumns.length > limits.maxSelectedWorksheetColumns) {
+    throw new WorkbookParserError("WORKSHEET_LIMIT_EXCEEDED", "The requested governed column set is too wide.", {
+      limit: "maxSelectedWorksheetColumns",
+      maximum: limits.maxSelectedWorksheetColumns,
+      actual: request.governedColumns.length,
+      basis: "materialized",
+    });
+  }
+
+  if (bytes.byteLength > limits.maxOriginalBytes) {
+    throw new WorkbookParserError("WORKBOOK_LIMIT_EXCEEDED", "The file exceeds the maximum allowed size.", {
+      limit: "maxOriginalBytes",
+      maximum: limits.maxOriginalBytes,
+      actual: bytes.byteLength,
+    });
+  }
+
+  const format = classifyFormat(input);
+  if (format === "csv") {
+    throw new WorkbookParserError("UNSUPPORTED_FILE_TYPE", "Data rows are only supported for spreadsheet workbooks.");
+  }
+  validateSignature(format, bytes);
+  if (format === "xlsx") {
+    await assertGuardedXlsxArchive(bytes);
+  }
+
+  const sheetNames = readSheetNamesOnly(bytes);
+  assertWorksheetCount(sheetNames, limits);
+  if (request.index >= sheetNames.length) {
+    throw new WorkbookParserError("WORKSHEET_NOT_FOUND", "No worksheet exists at the given index.", {
+      worksheetIndex: request.index,
+    });
+  }
+  const name = sheetNames[request.index];
+
+  let wb: XLSX.WorkBook;
+  try {
+    wb = xlsxAdapter.read(bytes, { type: "buffer", sheets: [request.index], cellDates: true, cellHTML: false });
+  } catch (err) {
+    throw new WorkbookParserError(
+      "MALFORMED_WORKBOOK",
+      "The file could not be recognized as a valid workbook.",
+      undefined,
+      err
+    );
+  }
+  const ws = wb.Sheets[name];
+  if (!ws) {
+    throw new WorkbookParserError("MALFORMED_WORKBOOK", "The selected worksheet could not be decoded.", {
+      worksheetIndex: request.index,
+    });
+  }
+  const visibilities = readVisibilities(wb, sheetNames.length);
+
+  const ref = ws["!fullref"] ?? ws["!ref"];
+  if (!ref) {
+    return { index: request.index, name, visibility: visibilities[request.index], rows: [], exhausted: true };
+  }
+  const range = XLSX.utils.decode_range(ref);
+
+  const firstDataRow0Based = request.headerRowOneBased; // one past the 0-based header index
+  const startRow0Based = Math.max(firstDataRow0Based, request.resumeAfterSourceRowOneBased ?? 0);
+
+  const rows: WorksheetDataRow[] = [];
+  let scannedRows = 0;
+  let r = startRow0Based;
+  for (; r <= range.e.r; r++) {
+    if (isRowBlank(ws, r, request.governedColumns)) continue;
+    const cells: WorksheetDataCell[] = request.governedColumns.map((col) => {
+      const cell = ws[XLSX.utils.encode_cell({ r, c: col.ordinal })] as XLSX.CellObject | undefined;
+      return { ...col, value: normalizeCellValue(cell?.v) as NormalizedCellValue };
+    });
+    rows.push({ sourceRowOneBased: r + 1, cells });
+    scannedRows++;
+    if (scannedRows >= request.maxRowsToRead) {
+      r++;
+      break;
+    }
+  }
+  const exhausted = r > range.e.r;
+
+  const materializedCellCount = rows.length * request.governedColumns.length;
+  assertMaterializedLimits(
+    { rowCount: rows.length, columnCount: request.governedColumns.length, materializedCellCount },
+    limits
+  );
+
+  return { index: request.index, name, visibility: visibilities[request.index], rows, exhausted };
+}
