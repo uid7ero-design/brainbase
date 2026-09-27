@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) throw new Error('budgetActualCommitted.integration.test.ts requires DATABASE_URL.');
@@ -47,6 +49,7 @@ const sqlMock = Object.assign(
 vi.doMock('@/lib/db', () => ({ default: sqlMock }));
 
 const { getBudgetActualCommittedReport } = await import('@/lib/commercial/budgetActualCommitted');
+const { FinanceAdjustedTable } = await import('@/app/commercial/budgeting/commitments/page');
 
 const ORG = 'org-c78c';
 const OTHER = 'org-c78c-other';
@@ -368,6 +371,13 @@ describe('C7.8C — real PostgreSQL snapshot-safe combined consumption', () => {
       sourceSystemId: 'xero',
     });
 
+    const signedHtml = renderToStaticMarkup(createElement(FinanceAdjustedTable, {
+      rows: report.financeRows,
+    }));
+    expect(signedHtml).toContain('Source Actual');
+    expect(signedHtml).toContain('$30.50');
+    expect(signedHtml).toContain('SIGNED_OFF');
+
     const wrongSource = await getBudgetActualCommittedReport(ORG, 'other-ledger');
     expect(wrongSource.financeRows[0]).toMatchObject({
       externalGlActualCents: null,
@@ -376,5 +386,26 @@ describe('C7.8C — real PostgreSQL snapshot-safe combined consumption', () => {
       reconciliationStatus: null,
       sourceSystemId: 'other-ledger',
     });
+    const nullGlHtml = renderToStaticMarkup(createElement(FinanceAdjustedTable, {
+      rows: wrongSource.financeRows,
+    }));
+    expect((nullGlHtml.match(/—/g) ?? []).length).toBeGreaterThanOrEqual(3);
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE commercial_finance_reconciliations
+       SET status='STALE'
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      RECONCILIATION, ORG,
+    );
+    const staleReport = await getBudgetActualCommittedReport(ORG, 'xero');
+    expect(staleReport.financeRows[0].reconciliationStatus).toBe('STALE');
+
+    const staleHtml = renderToStaticMarkup(createElement(FinanceAdjustedTable, {
+      rows: staleReport.financeRows,
+    }));
+    expect(staleHtml).toContain('data-reconciliation-status="STALE"');
+    expect(staleHtml).toContain('>STALE<');
+    expect(staleHtml).toContain('$30.50');
+    expect(staleHtml).toContain('-$0.50');
   });
 });

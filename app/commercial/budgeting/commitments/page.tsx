@@ -74,8 +74,35 @@ type ReconciliationException =
   | { source: 'COMMITMENT'; exception: CommitmentException }
   | { source: 'ACTUAL'; exception: ActualException };
 
+export type FinanceRow = {
+  budgetId: string | null;
+  budgetVersionId: string | null;
+  budgetAccountId: string;
+  budgetAccountCode: string;
+  budgetAccountName: string;
+  financialYearId: string;
+  financialYearName: string;
+  financialPeriodId: string;
+  financialPeriodName: string;
+  currency: string;
+  taxBasis: 'EXCLUSIVE' | 'INCLUSIVE' | null;
+  periodisationMode: 'ANNUAL_ONLY' | 'PERIODISED' | null;
+  budgetCents: string;
+  sourceActualCents: string;
+  financeAdjustmentCents: string;
+  effectiveActualCents: string;
+  committedCents: string;
+  exposureCents: string;
+  externalGlActualCents: string | null;
+  reconciliationVarianceCents: string | null;
+  reconciliationId: string | null;
+  reconciliationStatus: 'SIGNED_OFF' | 'STALE' | null;
+  sourceSystemId: string | null;
+};
+
 type Report = {
   rows: ConsumptionRow[];
+  financeRows: FinanceRow[];
   exceptions: ReconciliationException[];
   resolvedActualCount: number;
   resolvedCommitmentCount: number;
@@ -119,6 +146,7 @@ export default function BudgetCommitmentsPage() {
     })();
   }, []);
   const rows = useMemo(() => report?.rows ?? [], [report]);
+  const financeRows = useMemo(() => report?.financeRows ?? [], [report]);
   const filteredRows = useMemo(() => rows.filter(row => {
     if (filters.financialYearId !== 'ALL' && row.financialYearId !== filters.financialYearId) return false;
     if (filters.financialPeriodId !== 'ALL' && row.financialPeriodId !== filters.financialPeriodId) return false;
@@ -285,6 +313,9 @@ export default function BudgetCommitmentsPage() {
           </>
         )}
       </section>
+
+      <FinanceAdjustedTable rows={financeRows} />
+
       <section>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline', marginBottom: 10 }}>
           <h2 style={{ fontSize: 16, margin: 0 }}>Exception & reconciliation queue</h2>
@@ -330,6 +361,88 @@ export default function BudgetCommitmentsPage() {
       </section>
     </div>
   );
+}
+
+export function FinanceAdjustedTable({ rows }: { rows: FinanceRow[] }) {
+  return (
+    <section style={{ marginBottom: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline', marginBottom: 10 }}>
+        <h2 style={{ fontSize: 16, margin: 0 }}>Finance-adjusted reporting</h2>
+        <span style={{ fontSize: 11, color: MUTED }}>Budget account · period · currency</span>
+      </div>
+      {rows.length === 0 ? (
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20, color: MUTED }}>
+          No finance-adjusted rows are available.
+        </div>
+      ) : (
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1450 }}>
+            <thead><tr>
+              {[
+                'Budget account', 'Period', 'Currency', 'Budget', 'Source Actual', 'Finance Adjustments',
+                'Effective Actual', 'Committed', 'Exposure', 'External GL Actual',
+                'Reconciliation Variance', 'Reconciliation',
+              ].map(label => <th key={label} style={th}>{label}</th>)}
+            </tr></thead>
+            <tbody>
+              {rows.map(row => (
+                <tr key={financeRowKey(row)}>
+                  <td style={td}>
+                    <div style={{ fontWeight: 650 }}>{row.budgetAccountCode}</div>
+                    <div style={sub}>{row.budgetAccountName}</div>
+                  </td>
+                  <td style={td}>
+                    <div>{row.financialYearName}</div>
+                    <div style={sub}>{row.financialPeriodName}</div>
+                  </td>
+                  <td style={td}>{row.currency}</td>
+                  <td style={moneyTd}>{financeMoney(row.budgetCents, row.currency)}</td>
+                  <td style={moneyTd}>{financeMoney(row.sourceActualCents, row.currency)}</td>
+                  <td style={moneyTd}>{financeMoney(row.financeAdjustmentCents, row.currency)}</td>
+                  <td style={{ ...moneyTd, fontWeight: 700 }}>{financeMoney(row.effectiveActualCents, row.currency)}</td>
+                  <td style={moneyTd}>{financeMoney(row.committedCents, row.currency)}</td>
+                  <td style={{ ...moneyTd, fontWeight: 700 }}>{financeMoney(row.exposureCents, row.currency)}</td>
+                  <td style={moneyTd}>{nullableFinanceMoney(row.externalGlActualCents, row.currency)}</td>
+                  <td style={moneyTd}>{nullableFinanceMoney(row.reconciliationVarianceCents, row.currency)}</td>
+                  <td style={td}>
+                    {row.reconciliationStatus ? (
+                      <span
+                        data-reconciliation-status={row.reconciliationStatus}
+                        style={{
+                          display: 'inline-block',
+                          fontSize: 10,
+                          fontWeight: 700,
+                          borderRadius: 999,
+                          padding: '3px 7px',
+                          color: row.reconciliationStatus === 'STALE' ? '#fbbf24' : '#34d399',
+                          border: `1px solid ${row.reconciliationStatus === 'STALE' ? '#fbbf2455' : '#34d39955'}`,
+                        }}
+                      >
+                        {row.reconciliationStatus}
+                      </span>
+                    ) : '—'}
+                    {row.sourceSystemId ? <div style={sub}>{row.sourceSystemId}</div> : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function financeMoney(cents: string, currency: string) {
+  return formatMoneyCents(Number(cents), currency);
+}
+
+function nullableFinanceMoney(cents: string | null, currency: string) {
+  return cents === null ? '—' : financeMoney(cents, currency);
+}
+
+function financeRowKey(row: FinanceRow) {
+  return [row.budgetAccountId, row.financialPeriodId, row.currency].join(':');
 }
 
 function exceptionView(item: ReconciliationException) {
