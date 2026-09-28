@@ -157,7 +157,9 @@ const DEFAULT_TOKENS: PublicEventThemeTokens = {
   accentGradient: 'linear-gradient(100deg,#6A3DFF 0%,#8A4DFF 55%,#5677FF 100%)',
   textPrimary: '#F5F7FA',
   textSecondary: 'rgba(226,232,240,.66)',
-  textMuted: 'rgba(226,232,240,.42)',
+  // .52 (was .42 = 3.5:1): the lowest opacity of the same tint that clears
+  // 4.5:1 on bg and on the translucent card surface.
+  textMuted: 'rgba(226,232,240,.52)',
   green: '#4ADE80',
   red: '#F87171',
   // The default theme has no separate band chrome (EventHeader renders
@@ -167,7 +169,7 @@ const DEFAULT_TOKENS: PublicEventThemeTokens = {
   bandBgTranslucent: 'rgba(7,8,11,.86)',
   bandBorder: 'rgba(255,255,255,.08)',
   bandTextPrimary: '#F5F7FA',
-  bandTextMuted: 'rgba(226,232,240,.42)',
+  bandTextMuted: 'rgba(226,232,240,.52)',
   bandAccent: '#8A4DFF',
   // Exact original literals from PublicEventClient/Hub/checkout-success
   // — see this field's own type-level comment for why these exist.
@@ -210,7 +212,9 @@ const SCHOOL_TEST_TOKENS: PublicEventThemeTokens = {
   accentGradient: 'linear-gradient(100deg,#4B001F 0%,#5C0026 55%,#65002B 100%)',
   textPrimary: '#1A1A1A',
   textSecondary: 'rgba(26,26,26,.68)',
-  textMuted: 'rgba(26,26,26,.46)',
+  // .62 (was .46 = 2.9:1): clears 4.5:1 on bg, cardBg and sectionBg while
+  // staying visibly lighter than textSecondary.
+  textMuted: 'rgba(26,26,26,.62)',
   green: '#1B7F3F',
   red: '#B3261E',
   headingFontFamily: 'Georgia, "Times New Roman", Times, serif',

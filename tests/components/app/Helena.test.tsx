@@ -150,6 +150,13 @@ describe.each(['light', 'dark'] as const)('Helena conversation surface (%s)', th
   it('/hlna workspace chrome: named header controls, a pressed-state mic and the text state label', async () => {
     const { container, user } = renderBrainbase(<HelenaWorkspace />, { theme });
 
+    // Deferred-issues pass (N5): exactly one page-level h1, visually hidden
+    // because the wordmark is the visible identity.
+    const h1s = screen.getAllByRole('heading', { level: 1 });
+    expect(h1s).toHaveLength(1);
+    expect(h1s[0]).toHaveTextContent('HLNΛ workspace');
+    expect(h1s[0]).toHaveClass('sr-only');
+
     expect(screen.getByRole('link', { name: 'BRΛINBΛSE home' })).toHaveAttribute('href', '/dashboard');
     expect(screen.getByRole('link', { name: 'Profile' })).toHaveAttribute('href', '/account/profile');
     const perf = screen.getByRole('button', { name: /Performance/ });

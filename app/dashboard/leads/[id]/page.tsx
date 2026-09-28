@@ -7,7 +7,7 @@ import DeleteLeadButton from './DeleteLeadButton';
 import LeadStatusPicker from './LeadStatusPicker';
 import ConvertToSquadButton from './ConvertToSquadButton';
 import LeadMessaging from './LeadMessaging';
-import { leadStatusState } from '../leadStatus';
+import { leadStatusLabel, leadStatusState } from '../leadStatus';
 import styles from '../Leads.module.css';
 
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
@@ -70,7 +70,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           title="Lead Details"
           actions={
             <Badge state={leadStatusState(lead.status as string)} className={styles.statusBadge}>
-              {lead.status as string}
+              {leadStatusLabel(lead.status as string)}
             </Badge>
           }
         >

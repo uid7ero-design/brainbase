@@ -147,6 +147,9 @@ export default function HelenaWorkspace() {
 
       {/* ── Header — minimal: wordmark, BrainGraph toggle, profile ─────── */}
       <header className={styles.header}>
+        {/* Page title for assistive tech — the BrainBase/HLNΛ wordmark is
+            the visible identity, so the h1 is visually hidden. */}
+        <h1 className="sr-only">HLNΛ workspace</h1>
         <a
           href="/dashboard"
           aria-label="BRΛINBΛSE home"

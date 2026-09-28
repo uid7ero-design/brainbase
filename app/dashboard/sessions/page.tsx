@@ -1800,7 +1800,11 @@ export default function SessionsPage() {
   }
 
   return (
-    <div style={{ maxWidth: 1400, margin: '0 auto', padding: '32px 16px', fontFamily: FONT, color: 'var(--text-primary)', minWidth: 0 }}>
+    // width/boxSizing: as a flex child with auto side margins this root would
+    // otherwise shrink-to-fit its content, letting the week grid's 700px
+    // minimum widen the whole page at phone width instead of scrolling
+    // inside the calendar's own overflow-x wrapper.
+    <div style={{ width: '100%', boxSizing: 'border-box', maxWidth: 1400, margin: '0 auto', padding: '32px 16px', fontFamily: FONT, color: 'var(--text-primary)', minWidth: 0 }}>
       {showCreate && <CreateModal onClose={() => setShowCreate(false)} onCreate={handleCreate} sessionTypes={sessionTypes} onManageTypes={() => setShowManageTypes(true)} />}
       {editingSession && <EditModal session={editingSession} onClose={() => setEditingSession(null)} onSave={handleSave} sessionTypes={sessionTypes} onManageTypes={() => setShowManageTypes(true)} />}
       {showManageTypes && <ManageSessionTypesModal types={sessionTypes} onClose={() => setShowManageTypes(false)} onChanged={loadSessionTypes} />}

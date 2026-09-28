@@ -185,7 +185,10 @@ export default function EventDetailClient({ eventId, canManage, organisationSlug
   const formatMoney = (cents: number) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: revenueCurrency }).format(cents / 100);
 
   return (
-    <div style={{ padding: 32, fontFamily: FONT, color: TEXT_PRIMARY, maxWidth: 1140, margin: '0 auto' }}>
+    // width/boxSizing: bound the root to the viewport (it would otherwise
+    // shrink-to-fit its content inside the app's flex column), so the
+    // metric strip reflows at phone width instead of widening the page.
+    <div style={{ width: '100%', boxSizing: 'border-box', padding: 32, fontFamily: FONT, color: TEXT_PRIMARY, maxWidth: 1140, margin: '0 auto' }}>
       <EventsSharedStyles />
 
       <Link href="/events" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: VIOLET_SOFT, fontSize: 12.5, textDecoration: 'none', marginBottom: 16, fontWeight: 600 }}>

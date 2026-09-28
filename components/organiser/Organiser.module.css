@@ -37,7 +37,7 @@
 
 .viewButton {
   padding: 4px 11px;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-secondary);
@@ -50,8 +50,12 @@
 .viewButton:hover {
   color: var(--text-primary);
 }
+/* Raised segment: accent text on --bg-surface (5.75:1 light, >5:1 dark).
+   Accent-on-accent-tint over the --bg-sunken strip measured 4.35:1 in
+   light. A border (not outline/box-shadow) keeps :focus-visible intact. */
 .viewButton[aria-pressed='true'] {
-  background: var(--brand-brainbase-accent-muted);
+  background: var(--bg-surface);
+  border-color: var(--brand-brainbase-accent-border);
   color: var(--brand-brainbase-accent);
 }
 
