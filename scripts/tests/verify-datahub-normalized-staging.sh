@@ -48,9 +48,19 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 2
 fi
 
+# Disposable, per-run, local-only credential for this throwaway container —
+# never Production/Preview/Neon, never persisted, never printed. Generated
+# fresh each run so no fixed value ever appears in source control.
+PGPASSWORD="$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 20)"
+if [ -z "$PGPASSWORD" ]; then
+  echo "ERROR: failed to generate a disposable Postgres password." >&2
+  exit 2
+fi
+export PGPASSWORD
+
 echo "Starting disposable postgres:16-alpine ($CONTAINER) on host port $HOST_PORT..."
 docker run -d --name "$CONTAINER" \
-  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_PASSWORD="$PGPASSWORD" \
   -p "127.0.0.1:${HOST_PORT}:5432" \
   postgres:16-alpine >/dev/null
 
@@ -64,7 +74,7 @@ if [ "$READY" -ne 1 ]; then
   exit 2
 fi
 
-export DATABASE_URL="postgresql://postgres:postgres@localhost:${HOST_PORT}/postgres"
+export DATABASE_URL="postgresql://postgres:${PGPASSWORD}@localhost:${HOST_PORT}/postgres"
 export DIRECT_URL="$DATABASE_URL"
 cd "$REPO_ROOT"
 
