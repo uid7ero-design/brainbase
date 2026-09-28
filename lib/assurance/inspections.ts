@@ -333,7 +333,10 @@ function normaliseResponseValue(type: InspectionResponseType, value: unknown, it
  * response. For a template-based inspection, the item's label and
  * response type come from the bound template VERSION — never from the
  * request — so a response always describes exactly what was asked.
- * Every save writes an audit row, so revisions keep a history.
+ * Every save writes an audit row carrying the previous outcome/value/notes
+ * (inspection responses are operational observations, not personal data),
+ * so a revision never loses what was recorded before. Once a finding has
+ * been raised from an item, that item's response is frozen.
  */
 export async function recordInspectionResponse(viewer: AssuranceViewer, inspectionId: string, raw: Record<string, unknown>): Promise<{ id: string }> {
   if (!viewerCan(viewer, 'record')) throw new AssuranceForbiddenError();
@@ -360,8 +363,31 @@ export async function recordInspectionResponse(viewer: AssuranceViewer, inspecti
   if (!outcome && value === null) throw new AssuranceValidationError('Choose an outcome or enter a response.');
   if (outcome === 'FAIL' && !notes) throw new AssuranceValidationError('Add a note describing why this item failed.');
 
+  const [previous, raisedFrom] = await Promise.all([
+    sql`
+      SELECT outcome, response_value, notes FROM assurance_inspection_responses
+      WHERE organisation_id = ${viewer.organisationId} AND inspection_id = ${inspectionId}::uuid AND item_key = ${itemKey}
+    `.then(r => r as { outcome: string | null; response_value: unknown; notes: string | null }[]),
+    sql`
+      SELECT 1 FROM audit_logs
+      WHERE organisation_id = ${viewer.organisationId} AND resource_type = 'assurance_finding' AND action = 'assurance_finding.created'
+        AND after_state->>'inspection_id' = ${inspectionId} AND after_state->>'inspection_item_key' = ${itemKey}
+      LIMIT 1
+    `.then(r => r as unknown[]),
+  ]);
+  if (raisedFrom.length > 0) {
+    throw new AssuranceConflictError('A finding has been raised from this item, so its response can no longer be changed.');
+  }
+  const before = previous[0]
+    ? { outcome: previous[0].outcome, value: previous[0].response_value ?? null, notes: previous[0].notes }
+    : null;
+
   const responseId = crypto.randomUUID();
-  const rows = (await sql`
+  // Share-lock the inspection first (completion/cancellation update it), so
+  // a response cannot land after a concurrent completion.
+  const results = await sql.transaction([
+    sql`SELECT id FROM assurance_inspections WHERE organisation_id = ${viewer.organisationId} AND id = ${inspectionId}::uuid FOR SHARE`,
+    sql`
     WITH ins AS (
       INSERT INTO assurance_inspection_responses (
         id, organisation_id, inspection_id, item_key, item_label, response_type, response_value, outcome, notes, responded_by, responded_at
@@ -380,12 +406,15 @@ export async function recordInspectionResponse(viewer: AssuranceViewer, inspecti
     ), aud AS (
       INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
       SELECT gen_random_uuid()::text, ${viewer.organisationId}, ${viewer.userId}, 'assurance_inspection.response_recorded',
-             'assurance_inspection', ins.inspection_id::text, NULL,
-             jsonb_build_object('item_key', ${itemKey}::text, 'outcome', ${outcome}::text, 'response_id', ins.id)
+             'assurance_inspection', ins.inspection_id::text, ${before ? JSON.stringify(before) : null}::jsonb,
+             jsonb_build_object('item_key', ${itemKey}::text, 'outcome', ${outcome}::text, 'response_id', ins.id,
+                                'value', ${value === null ? null : JSON.stringify(value)}::jsonb, 'notes', ${notes}::text)
       FROM ins
     )
     SELECT id FROM ins
-  `) as { id: string }[];
+  `,
+  ]);
+  const rows = results[1] as { id: string }[];
   if (!rows[0]) throw new AssuranceConflictError('This inspection is no longer in progress.');
   return rows[0];
 }

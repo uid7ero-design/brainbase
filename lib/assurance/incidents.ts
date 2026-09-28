@@ -68,9 +68,13 @@ export async function listIncidents(viewer: AssuranceViewer, filters: IncidentLi
            ou.name AS owner_name,
            loc.name AS location_name,
            (SELECT count(*) FROM assurance_investigation_incidents ii
-             WHERE ii.organisation_id = inc.organisation_id AND ii.incident_id = inc.id)::int AS investigation_count,
+             JOIN assurance_investigations inv ON inv.organisation_id = ii.organisation_id AND inv.id = ii.investigation_id
+             WHERE ii.organisation_id = inc.organisation_id AND ii.incident_id = inc.id
+               AND ${investigationVisibleSql(viewer)})::int AS investigation_count,
            (SELECT count(*) FROM assurance_incident_findings xf
-             WHERE xf.organisation_id = inc.organisation_id AND xf.incident_id = inc.id)::int AS finding_count
+             JOIN assurance_findings f ON f.organisation_id = xf.organisation_id AND f.id = xf.finding_id
+             WHERE xf.organisation_id = inc.organisation_id AND xf.incident_id = inc.id
+               AND ${findingVisibleSql(viewer)})::int AS finding_count
     FROM assurance_incidents inc
     LEFT JOIN assurance_risk_levels rl ON rl.organisation_id = inc.organisation_id AND rl.id = inc.risk_level_id
     LEFT JOIN users ou ON ou.id = inc.owner_user_id AND ou.organisation_id = inc.organisation_id
@@ -344,14 +348,28 @@ export async function transitionIncident(
     `) as { open_findings: number; active_investigations: number }[];
     const b = blockers[0];
     if (b.open_findings > 0 || b.active_investigations > 0) {
-      const parts = [];
-      if (b.open_findings > 0) parts.push(`${b.open_findings} linked finding${b.open_findings === 1 ? ' is' : 's are'} still open`);
-      if (b.active_investigations > 0) parts.push(`${b.active_investigations} linked investigation${b.active_investigations === 1 ? ' is' : 's are'} still active`);
-      throw new AssuranceConflictError(`This incident cannot be closed yet: ${parts.join(' and ')}.`);
+      // Counts deliberately not shown: they may include restricted records.
+      throw new AssuranceConflictError('This incident cannot be closed yet: linked findings or investigations are still open.');
     }
   }
 
-  const rows = (await sql`
+  // Lock the incident FIRST (raising a finding from it share-locks it), then
+  // re-check the closure guard inside the UPDATE with a fresh snapshot.
+  const closeGuard = sql`(
+    NOT ${closing}::boolean OR (
+      NOT EXISTS (
+        SELECT 1 FROM assurance_incident_findings lx
+        JOIN assurance_findings f ON f.organisation_id = lx.organisation_id AND f.id = lx.finding_id
+        WHERE lx.organisation_id = ${viewer.organisationId} AND lx.incident_id = ${id}::uuid AND f.status NOT IN ('CLOSED', 'CANCELLED'))
+      AND NOT EXISTS (
+        SELECT 1 FROM assurance_investigation_incidents ii
+        JOIN assurance_investigations inv ON inv.organisation_id = ii.organisation_id AND inv.id = ii.investigation_id
+        WHERE ii.organisation_id = ${viewer.organisationId} AND ii.incident_id = ${id}::uuid AND inv.status NOT IN ('COMPLETED', 'CANCELLED'))
+    )
+  )`;
+  const results = await sql.transaction([
+    sql`SELECT id FROM assurance_incidents WHERE organisation_id = ${viewer.organisationId} AND id = ${id}::uuid FOR UPDATE`,
+    sql`
     WITH upd AS (
       UPDATE assurance_incidents
       SET status = ${to},
@@ -360,6 +378,7 @@ export async function transitionIncident(
           closed_by = CASE WHEN ${closing}::boolean THEN ${viewer.userId} ELSE NULL END,
           closure_summary = CASE WHEN ${closing}::boolean THEN ${closureSummary} ELSE closure_summary END
       WHERE organisation_id = ${viewer.organisationId} AND id = ${id}::uuid AND status = ${current.status}
+        AND ${closeGuard}
       RETURNING id, status
     ), aud AS (
       ${auditFromCte('upd', {
@@ -368,7 +387,9 @@ export async function transitionIncident(
       })}
     )
     SELECT id, status FROM upd
-  `) as { id: string; status: IncidentStatus }[];
-  if (!rows[0]) throw new AssuranceConflictError('This incident was changed by someone else. Refresh and try again.');
+  `,
+  ]);
+  const rows = results[1] as { id: string; status: IncidentStatus }[];
+  if (!rows[0]) throw new AssuranceConflictError('This incident changed while you were updating it. Refresh and try again.');
   return rows[0];
 }

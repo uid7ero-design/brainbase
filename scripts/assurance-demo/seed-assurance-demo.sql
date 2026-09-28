@@ -77,8 +77,16 @@ INSERT INTO modules (key, name, description, active)
 VALUES ('assurance', 'Assurance', 'Incidents, investigations, inspections, findings, corrective actions, evidence and verification.', true)
 ON CONFLICT (key) DO NOTHING;
 
-INSERT INTO organisation_modules (organisation_id, module_key, enabled, config, updated_at)
-VALUES ('assurance-demo-org', 'assurance', true, '{}'::jsonb, now());
+-- Organiser is enabled too, so the corrective actions' linked Organiser
+-- tasks are displayed (Assurance only shows task names to organisations
+-- entitled to Organiser).
+INSERT INTO modules (key, name, description, active)
+VALUES ('organiser', 'Organiser', 'Boards, groups and tasks.', true)
+ON CONFLICT (key) DO NOTHING;
+
+INSERT INTO organisation_modules (organisation_id, module_key, enabled, config, updated_at) VALUES
+  ('assurance-demo-org', 'assurance', true, '{}'::jsonb, now()),
+  ('assurance-demo-org', 'organiser', true, '{}'::jsonb, now());
 
 -- ── Shared BrainBase entities (People, locations, assets, contractor) ────
 

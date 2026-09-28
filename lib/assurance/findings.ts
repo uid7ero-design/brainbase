@@ -53,11 +53,13 @@ export async function listFindings(viewer: AssuranceViewer, filters: FindingList
            rl.name AS risk_name, ru.name AS responsible_name, tf.current_due_at AS due_at,
            ${findingSourcesSql(viewer)} AS sources,
            (SELECT count(*) FROM assurance_action_findings af
-             WHERE af.organisation_id = f.organisation_id AND af.finding_id = f.id)::int AS action_count,
+             JOIN assurance_actions a ON a.organisation_id = af.organisation_id AND a.id = af.action_id
+             WHERE af.organisation_id = f.organisation_id AND af.finding_id = f.id
+               AND ${actionVisibleSql(viewer)})::int AS action_count,
            (SELECT count(*) FROM assurance_action_findings af
              JOIN assurance_actions a ON a.organisation_id = af.organisation_id AND a.id = af.action_id
              WHERE af.organisation_id = f.organisation_id AND af.finding_id = f.id
-               AND a.status NOT IN ('CLOSED', 'CANCELLED'))::int AS open_action_count
+               AND a.status NOT IN ('CLOSED', 'CANCELLED') AND ${actionVisibleSql(viewer)})::int AS open_action_count
     FROM assurance_findings f
     LEFT JOIN assurance_risk_levels rl ON rl.organisation_id = f.organisation_id AND rl.id = f.risk_level_id
     LEFT JOIN users ru ON ru.id = f.responsible_user_id AND ru.organisation_id = f.organisation_id
@@ -258,7 +260,7 @@ export async function createFinding(viewer: AssuranceViewer, raw: Record<string,
     throw new AssuranceValidationError('Due date cannot be in the past.');
   }
 
-  await Promise.all([
+  const [, , incident, investigation, inspection] = await Promise.all([
     assertSameOrgUsers(viewer.organisationId, [{ field: 'Responsible person', userId: input.responsibleUserId }]),
     assertContextRefsInOrg(viewer.organisationId, {
       riskLevelId: input.riskLevelId, locationId: input.locationId, assetId: input.assetId,
@@ -268,6 +270,13 @@ export async function createFinding(viewer: AssuranceViewer, raw: Record<string,
     input.investigationId ? assertInvestigationVisible(viewer, input.investigationId) : null,
     input.inspectionId ? assertInspectionExists(viewer, input.inspectionId) : null,
   ]);
+  // A finished source cannot gain new findings (that would silently reopen
+  // work behind a closed record). Enforced here, not only in the UI.
+  if ((incident && (incident.status === 'CLOSED' || incident.status === 'CANCELLED'))
+    || (investigation && (investigation.status === 'COMPLETED' || investigation.status === 'CANCELLED'))
+    || (inspection && inspection.status === 'CANCELLED')) {
+    throw new AssuranceConflictError('Findings cannot be raised from a closed, completed or cancelled record.');
+  }
   if (input.inspectionId && input.inspectionItemKey) {
     const r = (await sql`
       SELECT outcome FROM assurance_inspection_responses
@@ -277,45 +286,69 @@ export async function createFinding(viewer: AssuranceViewer, raw: Record<string,
   }
 
   const id = crypto.randomUUID();
+  const org = viewer.organisationId;
+  // Share-lock the source first (its closure takes FOR UPDATE, so the two
+  // serialise); each insert then re-checks the source is still open with a
+  // fresh snapshot, so everything is written together or not at all.
+  const lock = input.incidentId
+    ? sql`SELECT id FROM assurance_incidents WHERE organisation_id = ${org} AND id = ${input.incidentId}::uuid FOR SHARE`
+    : input.investigationId
+      ? sql`SELECT id FROM assurance_investigations WHERE organisation_id = ${org} AND id = ${input.investigationId}::uuid FOR SHARE`
+      : input.inspectionId
+        ? sql`SELECT id FROM assurance_inspections WHERE organisation_id = ${org} AND id = ${input.inspectionId}::uuid FOR SHARE`
+        : sql`SELECT 1`;
+  const sourceOpen = input.incidentId
+    ? sql`EXISTS (SELECT 1 FROM assurance_incidents s WHERE s.organisation_id = ${org} AND s.id = ${input.incidentId}::uuid AND s.status NOT IN ('CLOSED', 'CANCELLED'))`
+    : input.investigationId
+      ? sql`EXISTS (SELECT 1 FROM assurance_investigations s WHERE s.organisation_id = ${org} AND s.id = ${input.investigationId}::uuid AND s.status NOT IN ('COMPLETED', 'CANCELLED'))`
+      : input.inspectionId
+        ? sql`EXISTS (SELECT 1 FROM assurance_inspections s WHERE s.organisation_id = ${org} AND s.id = ${input.inspectionId}::uuid AND s.status <> 'CANCELLED')`
+        : sql`true`;
   return withFreshReference('finding', async reference => {
     const statements = [
+      lock,
       sql`
         INSERT INTO assurance_findings (
           id, organisation_id, finding_reference, finding_type, title, description, status, risk_level_id,
           responsible_user_id, responsible_external_organisation_id, identified_at, location_id, asset_id, created_by
-        ) VALUES (
-          ${id}::uuid, ${viewer.organisationId}, ${reference}, ${input.findingType}, ${input.title}, ${input.description},
-          'OPEN', ${input.riskLevelId}::uuid, ${input.responsibleUserId}, ${input.responsibleExternalOrganisationId}::uuid,
-          ${input.identifiedAt}::timestamptz, ${input.locationId}::uuid, ${input.assetId}::uuid, ${viewer.userId}
         )
+        SELECT ${id}::uuid, ${org}, ${reference}, ${input.findingType}, ${input.title}, ${input.description},
+               'OPEN', ${input.riskLevelId}::uuid, ${input.responsibleUserId}, ${input.responsibleExternalOrganisationId}::uuid,
+               ${input.identifiedAt}::timestamptz, ${input.locationId}::uuid, ${input.assetId}::uuid, ${viewer.userId}
+        WHERE ${sourceOpen}
+        RETURNING id
       `,
     ];
     if (input.incidentId) statements.push(sql`
       INSERT INTO assurance_incident_findings (organisation_id, incident_id, finding_id, created_by)
-      VALUES (${viewer.organisationId}, ${input.incidentId}::uuid, ${id}::uuid, ${viewer.userId})
+      SELECT ${org}, ${input.incidentId}::uuid, ${id}::uuid, ${viewer.userId} WHERE ${sourceOpen}
     `);
     if (input.investigationId) statements.push(sql`
       INSERT INTO assurance_investigation_findings (organisation_id, investigation_id, finding_id, created_by)
-      VALUES (${viewer.organisationId}, ${input.investigationId}::uuid, ${id}::uuid, ${viewer.userId})
+      SELECT ${org}, ${input.investigationId}::uuid, ${id}::uuid, ${viewer.userId} WHERE ${sourceOpen}
     `);
     if (input.inspectionId) statements.push(sql`
       INSERT INTO assurance_inspection_findings (organisation_id, inspection_id, finding_id, created_by)
-      VALUES (${viewer.organisationId}, ${input.inspectionId}::uuid, ${id}::uuid, ${viewer.userId})
+      SELECT ${org}, ${input.inspectionId}::uuid, ${id}::uuid, ${viewer.userId} WHERE ${sourceOpen}
     `);
     if (input.dueAt) statements.push(sql`
       INSERT INTO assurance_timeframes (organisation_id, finding_id, timeframe_type, original_due_at, current_due_at, created_by)
-      VALUES (${viewer.organisationId}, ${id}::uuid, 'CLOSURE', ${input.dueAt}::timestamptz, ${input.dueAt}::timestamptz, ${viewer.userId})
+      SELECT ${org}, ${id}::uuid, 'CLOSURE', ${input.dueAt}::timestamptz, ${input.dueAt}::timestamptz, ${viewer.userId} WHERE ${sourceOpen}
     `);
     statements.push(sql`
       INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
-      VALUES (gen_random_uuid()::text, ${viewer.organisationId}, ${viewer.userId}, 'assurance_finding.created', 'assurance_finding', ${id},
-              NULL, ${JSON.stringify({
-                finding_reference: reference, finding_type: input.findingType, status: 'OPEN',
-                incident_id: input.incidentId, investigation_id: input.investigationId,
-                inspection_id: input.inspectionId, inspection_item_key: input.inspectionItemKey,
-              })}::jsonb)
+      SELECT gen_random_uuid()::text, ${org}, ${viewer.userId}, 'assurance_finding.created', 'assurance_finding', ${id},
+             NULL, ${JSON.stringify({
+               finding_reference: reference, finding_type: input.findingType, status: 'OPEN',
+               incident_id: input.incidentId, investigation_id: input.investigationId,
+               inspection_id: input.inspectionId, inspection_item_key: input.inspectionItemKey,
+             })}::jsonb
+      WHERE ${sourceOpen}
     `);
-    await sql.transaction(statements);
+    const results = await sql.transaction(statements);
+    if ((results[1] as unknown[]).length === 0) {
+      throw new AssuranceConflictError('The source record was closed while you were raising this finding. Nothing was saved.');
+    }
     return { id, finding_reference: reference };
   });
 }
@@ -353,17 +386,26 @@ export async function transitionFinding(viewer: AssuranceViewer, id: string, raw
         AND a.status NOT IN ('CLOSED', 'CANCELLED')
     `) as { n: number }[];
     if (open[0].n > 0) {
-      throw new AssuranceConflictError(`This finding cannot be closed yet: ${open[0].n} linked action${open[0].n === 1 ? ' is' : 's are'} still open.`);
+      // Count deliberately not shown: it may include actions hidden from this viewer.
+      throw new AssuranceConflictError('This finding cannot be closed yet: one or more linked actions are still open.');
     }
   }
-  const rows = (await sql`
+  // Lock the finding FIRST (action creation share-locks it), then re-check
+  // "no open actions" inside the UPDATE with a fresh snapshot.
+  const results = await sql.transaction([
+    sql`SELECT id FROM assurance_findings WHERE organisation_id = ${viewer.organisationId} AND id = ${id}::uuid FOR UPDATE`,
+    sql`
     WITH upd AS (
-      UPDATE assurance_findings
+      UPDATE assurance_findings f
       SET status = ${to}, updated_at = now(),
           closed_at = CASE WHEN ${closing}::boolean THEN now() ELSE NULL END,
           closed_by = CASE WHEN ${closing}::boolean THEN ${viewer.userId} ELSE NULL END
-      WHERE organisation_id = ${viewer.organisationId} AND id = ${id}::uuid AND status = ${current.status}
-      RETURNING id, status
+      WHERE f.organisation_id = ${viewer.organisationId} AND f.id = ${id}::uuid AND f.status = ${current.status}
+        AND (NOT ${closing}::boolean OR NOT EXISTS (
+          SELECT 1 FROM assurance_action_findings af
+          JOIN assurance_actions a ON a.organisation_id = af.organisation_id AND a.id = af.action_id
+          WHERE af.organisation_id = f.organisation_id AND af.finding_id = f.id AND a.status NOT IN ('CLOSED', 'CANCELLED')))
+      RETURNING f.id, f.status
     ), aud AS (
       ${auditFromCte('upd', {
         organisationId: viewer.organisationId, userId: viewer.userId, resourceType: 'assurance_finding',
@@ -371,7 +413,9 @@ export async function transitionFinding(viewer: AssuranceViewer, id: string, raw
       })}
     )
     SELECT id, status FROM upd
-  `) as { id: string; status: FindingStatus }[];
-  if (!rows[0]) throw new AssuranceConflictError('This finding was changed by someone else. Refresh and try again.');
+  `,
+  ]);
+  const rows = results[1] as { id: string; status: FindingStatus }[];
+  if (!rows[0]) throw new AssuranceConflictError('This finding changed while you were updating it (for example, an action was added). Refresh and try again.');
   return rows[0];
 }

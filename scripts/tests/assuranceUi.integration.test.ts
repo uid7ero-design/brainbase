@@ -416,7 +416,13 @@ describe('actions, evidence history and verification workflow', () => {
     await expectError(m.actions.createAction(mgrA, { findingIds: [f.id], actionType: 'CORRECTIVE', title: 'x', ownerUserId: 'b-mgr' }), 'AssuranceValidationError');
     const a = await m.actions.createAction(mgrA, { findingIds: [f.id], actionType: 'CORRECTIVE', title: 'Secure drain grate', priority: 'HIGH', ownerUserId: 'a-mgr', dueAt: future(5) });
 
-    // Organiser task links: same org only; task status never drives the action.
+    // Organiser task links need the Organiser capability, same org only; task status never drives the action.
+    await expectError(m.actions.linkActionTask(mgrA, a.id, { organiserItemId: ITEM_A }), 'AssuranceForbiddenError', /Organiser/);
+    expect(await m.actions.listOrganiserItemOptions(mgrA)).toEqual([]);
+    await sql.raw(`
+      INSERT INTO modules (key, name, active) VALUES ('organiser', 'Organiser', true) ON CONFLICT (key) DO NOTHING;
+      INSERT INTO organisation_modules (organisation_id, module_key, enabled) VALUES ('org-a', 'organiser', true) ON CONFLICT DO NOTHING;
+    `);
     await expectError(m.actions.linkActionTask(mgrA, a.id, { organiserItemId: ITEM_B }), 'AssuranceValidationError');
     await m.actions.linkActionTask(mgrA, a.id, { organiserItemId: ITEM_A });
     let d = await m.actions.getActionDetail(mgrA, a.id);
@@ -604,6 +610,163 @@ describe('synthetic demo fixture renders a coherent, connected scenario', () => 
     expect((await m.actions.getActionDetail(demoAdmin, id('802')))!.action.status).toBe('CLOSED');
     // FND-DEMO-002 can move on, but closure is refused while ACT-DEMO-003 is outstanding.
     await m.findings.transitionFinding(demoAdmin, id('702'), { status: 'AWAITING_VERIFICATION' });
-    await expectError(m.findings.transitionFinding(demoAdmin, id('702'), { status: 'CLOSED' }), 'AssuranceConflictError', /1 linked action is still open/);
+    await expectError(m.findings.transitionFinding(demoAdmin, id('702'), { status: 'CLOSED' }), 'AssuranceConflictError', /linked actions are still open/);
+  });
+});
+
+// ── Security review remediation (read-only review of this branch) ────────
+describe('security review remediation', () => {
+  it('M1: evidence already used elsewhere cannot be pulled under a restricted record (would hide it)', async () => {
+    const open = await m.incidents.createIncident(mgrA, incidentInput({ title: 'M1 open incident' }));
+    const secret = await m.incidents.createIncident(mgrA, incidentInput({ title: 'M1 restricted incident', restricted: true }));
+    const ev = await m.evidence.createEvidence(mgrA, { evidenceType: 'PHOTO', title: 'M1 shared photo', target: 'incident', targetId: open.id });
+    await expectError(m.evidence.linkEvidence(mgrA, ev.id, { target: 'incident', targetId: secret.id }), 'AssuranceConflictError', /hide it/);
+    expect(await m.evidence.getEvidenceDetail(mgr2A, ev.id)).not.toBeNull();
+    // New evidence recorded directly for the restricted record is fine (and restricted).
+    const own = await m.evidence.createEvidence(mgrA, { evidenceType: 'STATEMENT', title: 'M1 restricted statement', target: 'incident', targetId: secret.id });
+    expect(await m.evidence.getEvidenceDetail(mgr2A, own.id)).toBeNull();
+    // Linking restricted-scoped evidence onward to an open record is allowed (it stays restricted).
+    await m.evidence.linkEvidence(mgrA, own.id, { target: 'incident', targetId: open.id });
+    expect(await m.evidence.getEvidenceDetail(mgr2A, own.id)).toBeNull();
+  });
+
+  it('M2: services refuse children under finished parents, not only the UI', async () => {
+    const inc = await m.incidents.createIncident(mgrA, incidentInput({ title: 'M2 closed incident' }));
+    await m.incidents.transitionIncident(mgrA, inc.id, { status: 'UNDER_REVIEW' });
+    await m.incidents.transitionIncident(mgrA, inc.id, { status: 'CLOSED', closureSummary: 'done' });
+    await expectError(m.findings.createFinding(mgrA, { findingType: 'HAZARD', title: 't', description: 'd', incidentId: inc.id }), 'AssuranceConflictError');
+
+    const f = await m.findings.createFinding(mgrA, { findingType: 'DEFECT', title: 'M2 finding', description: 'd' });
+    const a = await m.actions.createAction(mgrA, { findingIds: [f.id], actionType: 'REMEDIAL', title: 'M2 action', evidenceRequired: false, verificationRequired: false });
+    await m.actions.completeActionWork(mgrA, a.id);
+    await m.actions.closeAction(mgrA, a.id);
+    await expectError(m.evidence.createEvidence(mgrA, { evidenceType: 'PHOTO', title: 'late', target: 'action', targetId: a.id }), 'AssuranceConflictError', /finished/);
+    const ev = await m.evidence.createEvidence(mgrA, { evidenceType: 'PHOTO', title: 'unlinked' });
+    await expectError(m.evidence.linkEvidence(mgrA, ev.id, { target: 'action', targetId: a.id }), 'AssuranceConflictError', /finished/);
+    await m.findings.transitionFinding(mgrA, f.id, { status: 'UNDER_REVIEW' });
+    await m.findings.transitionFinding(mgrA, f.id, { status: 'CLOSED' });
+    await expectError(m.evidence.linkEvidence(mgrA, ev.id, { target: 'finding', targetId: f.id }), 'AssuranceConflictError', /finished/);
+    await expectError(m.actions.createAction(mgrA, { findingIds: [f.id], actionType: 'REMEDIAL', title: 'late' }), 'AssuranceConflictError');
+  });
+
+  it('M5: evidence cannot be added to (or removed from) an existing verification record', async () => {
+    const f = await m.findings.createFinding(mgrA, { findingType: 'DEFECT', title: 'M5 finding', description: 'd' });
+    const a = await m.actions.createAction(mgrA, { findingIds: [f.id], actionType: 'REMEDIAL', title: 'M5 action', ownerUserId: 'a-mgr', evidenceRequired: false });
+    await m.actions.completeActionWork(mgrA, a.id);
+    const v = await m.verifications.recordVerification(mgr2A, a.id, { result: 'ACCEPTED' });
+    const ev = await m.evidence.createEvidence(mgrA, { evidenceType: 'PHOTO', title: 'after the fact' });
+    await expectError(m.evidence.linkEvidence(mgrA, ev.id, { target: 'verification', targetId: v.id }), 'AssuranceConflictError', /verification/);
+    await expectError(m.evidence.createEvidence(mgrA, { evidenceType: 'PHOTO', title: 'x', target: 'verification', targetId: v.id }), 'AssuranceConflictError', /verification/);
+  });
+
+  it('M3: an evidence unlink racing a closure cannot leave a closed action without evidence', async () => {
+    const { Client } = await import('pg');
+    const f = await m.findings.createFinding(mgrA, { findingType: 'DEFECT', title: 'M3 finding', description: 'd' });
+    const a = await m.actions.createAction(mgrA, { findingIds: [f.id], actionType: 'REMEDIAL', title: 'M3 action', ownerUserId: 'a-mgr', verificationRequired: false });
+    await m.evidence.createEvidence(mgrA, { evidenceType: 'PHOTO', title: 'M3 photo', target: 'action', targetId: a.id });
+    await m.actions.completeActionWork(mgrA, a.id);
+    const link = (await m.actions.getActionDetail(mgrA, a.id))!.evidence[0];
+
+    // Simulate a closure in flight: hold the action lock and close it, uncommitted.
+    const c = new Client({ connectionString: DATABASE_URL });
+    await c.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SELECT id FROM assurance_actions WHERE id = $1 FOR UPDATE', [a.id]);
+      await c.query("UPDATE assurance_actions SET status = 'CLOSED', closed_at = now() WHERE id = $1", [a.id]);
+      const unlink = m.evidence.unlinkEvidence(mgrA, { target: 'action', linkId: link.link_id, reason: 'race probe' }).then(() => 'unlinked', e => (e as Error).name);
+      await new Promise(r => setTimeout(r, 300));
+      await c.query('COMMIT');
+      expect(await unlink).toBe('AssuranceConflictError');
+    } finally {
+      await c.end();
+    }
+    const d = await m.actions.getActionDetail(mgrA, a.id);
+    expect(d!.action.status).toBe('CLOSED');
+    expect(d!.evidence.filter(e => !e.removed_at)).toHaveLength(1);
+  });
+
+  it('M4: creating an action racing the finding closure cannot leave an open action under a closed finding', async () => {
+    const { Client } = await import('pg');
+    const f = await m.findings.createFinding(mgrA, { findingType: 'DEFECT', title: 'M4 finding', description: 'd' });
+    const c = new Client({ connectionString: DATABASE_URL });
+    await c.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SELECT id FROM assurance_findings WHERE id = $1 FOR UPDATE', [f.id]);
+      await c.query("UPDATE assurance_findings SET status = 'CLOSED', closed_at = now() WHERE id = $1", [f.id]);
+      const create = m.actions.createAction(mgrA, { findingIds: [f.id], actionType: 'REMEDIAL', title: 'M4 racing action' }).then(() => 'created', e => (e as Error).name);
+      await new Promise(r => setTimeout(r, 300));
+      await c.query('COMMIT');
+      expect(await create).toBe('AssuranceConflictError');
+    } finally {
+      await c.end();
+    }
+    const n = await sql.raw(`SELECT count(*)::int AS n FROM assurance_actions WHERE title = 'M4 racing action'`) as { n: number }[];
+    expect(n[0].n).toBe(0);
+  });
+
+  it('L1: counts do not reveal restricted records to uninvolved users', async () => {
+    const inc = await m.incidents.createIncident(mgrA, incidentInput({ title: 'L1 open incident' }));
+    await m.investigations.createInvestigation(adminA, { title: 'L1 restricted investigation', scope: 's', restricted: true, relatedIncidentIds: [inc.id] });
+    const inv2 = await m.investigations.createInvestigation(mgrA, { title: 'L1 open investigation', scope: 's', primaryIncidentId: inc.id });
+    const row = (await m.incidents.listIncidents(mgr2A, { q: 'L1 open incident' }))[0];
+    expect(row.investigation_count).toBe(1);
+    expect((await m.incidents.listIncidents(adminA, { q: 'L1 open incident' }))[0].investigation_count).toBe(2);
+    const d = await m.investigations.getInvestigationDetail(mgr2A, inv2.id);
+    expect(d!.incidents[0].other_investigation_count).toBe(0);
+    expect((await m.investigations.getInvestigationDetail(adminA, inv2.id))!.incidents[0].other_investigation_count).toBe(1);
+  });
+
+  it('L3: response revisions keep the previous value; items with raised findings are frozen', async () => {
+    const ins = await m.inspections.createInspection(mgrA, { title: 'L3 inspection', inspectionType: 'SITE' });
+    await m.inspections.startInspection(mgrA, ins.id);
+    const key = 'adhoc-l3-item-000001';
+    await m.inspections.recordInspectionResponse(mgrA, ins.id, { itemKey: key, itemLabel: 'L3 item', outcome: 'OBSERVATION', notes: 'first note' });
+    await m.inspections.recordInspectionResponse(mgrA, ins.id, { itemKey: key, itemLabel: 'L3 item', outcome: 'FAIL', notes: 'second note' });
+    const audit = await sql.raw(`SELECT before_state FROM audit_logs WHERE resource_id = '${ins.id}' AND action = 'assurance_inspection.response_recorded' ORDER BY created_at`) as { before_state: Record<string, unknown> | null }[];
+    expect(audit.map(x => x.before_state?.notes ?? null)).toEqual([null, 'first note']);
+    await m.findings.createFinding(mgrA, { findingType: 'DEFECT', title: 'L3 finding', description: 'd', inspectionId: ins.id, inspectionItemKey: key });
+    await expectError(m.inspections.recordInspectionResponse(mgrA, ins.id, { itemKey: key, itemLabel: 'L3 item', outcome: 'PASS' }), 'AssuranceConflictError', /frozen|no longer be changed/);
+  });
+
+  it('L4/L6/L7: cancellation reason kept, single PRIMARY enforced, completers stay non-independent', async () => {
+    const f = await m.findings.createFinding(mgrA, { findingType: 'DEFECT', title: 'L4 finding', description: 'd' });
+    const cancelled = await m.actions.createAction(mgrA, { findingIds: [f.id], actionType: 'REMEDIAL', title: 'L4 action' });
+    await m.actions.cancelAction(mgrA, cancelled.id, { reason: 'Superseded by capital works program' });
+    const aud = await sql.raw(`SELECT after_state->>'reason' AS r FROM audit_logs WHERE resource_id = '${cancelled.id}' AND action = 'assurance_action.cancelled'`) as { r: string }[];
+    expect(aud[0].r).toBe('Superseded by capital works program');
+
+    const i1 = await m.incidents.createIncident(mgrA, incidentInput({ title: 'L6 a' }));
+    const i2 = await m.incidents.createIncident(mgrA, incidentInput({ title: 'L6 b' }));
+    const inv = await m.investigations.createInvestigation(mgrA, { title: 'L6', scope: 's', primaryIncidentId: i1.id });
+    await expectError(m.investigations.linkIncidentToInvestigation(mgrA, inv.id, { incidentId: i2.id, relationship: 'PRIMARY' }), 'AssuranceConflictError', /primary/);
+
+    // mgr2A completes the work, is rejected... then someone else re-completes: mgr2A still cannot verify.
+    const a = await m.actions.createAction(mgrA, { findingIds: [f.id], actionType: 'REMEDIAL', title: 'L7 action', ownerUserId: 'a-admin', evidenceRequired: false });
+    await m.actions.completeActionWork(mgr2A, a.id);
+    await m.verifications.recordVerification(mgrA, a.id, { result: 'REJECTED', notes: 'redo' });
+    await m.actions.completeActionWork(mgrA, a.id);
+    await expectError(m.verifications.recordVerification(mgr2A, a.id, { result: 'ACCEPTED' }), 'AssuranceForbiddenError', /independent/);
+    expect((await m.verifications.listVerificationQueue(mgr2A)).find(q => q.id === a.id)?.can_verify).toBe(false);
+
+    // A no-op re-completion is refused.
+    const b = await m.actions.createAction(mgrA, { findingIds: [f.id], actionType: 'REMEDIAL', title: 'L7 noop', evidenceRequired: false, verificationRequired: false });
+    await m.actions.completeActionWork(mgrA, b.id);
+    await expectError(m.actions.completeActionWork(mgrA, b.id), 'AssuranceConflictError', /already/);
+  });
+
+  it('L2: verification evidence is listed only when the viewer can see it', async () => {
+    const secret = await m.incidents.createIncident(adminA, incidentInput({ title: 'L2 restricted', restricted: true }));
+    const hidden = await m.evidence.createEvidence(adminA, { evidenceType: 'STATEMENT', title: 'L2 hidden statement', target: 'incident', targetId: secret.id });
+    const f = await m.findings.createFinding(mgrA, { findingType: 'DEFECT', title: 'L2 finding', description: 'd' });
+    const a = await m.actions.createAction(mgrA, { findingIds: [f.id], actionType: 'REMEDIAL', title: 'L2 action', ownerUserId: 'a-mgr', evidenceRequired: false });
+    await m.actions.completeActionWork(mgrA, a.id);
+    await m.verifications.recordVerification(adminA, a.id, { result: 'ACCEPTED', evidenceIds: [hidden.id] });
+    const forAdmin = await m.actions.getActionDetail(adminA, a.id);
+    expect(forAdmin!.verifications[0].evidence.map(e => e.id)).toEqual([hidden.id]);
+    const forOther = await m.actions.getActionDetail(mgr2A, a.id);
+    expect(forOther!.verifications[0].evidence).toEqual([]);
+    expect(JSON.stringify(forOther)).not.toMatch(/L2 hidden statement/);
   });
 });

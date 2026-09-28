@@ -13,8 +13,9 @@ import { AssuranceConflictError, AssuranceForbiddenError, AssuranceNotFoundError
 //
 //   * assurance_verifications is append-only at the DB level (A0.1C
 //     trigger). A correction is always a NEW attempt.
-//   * Independence: the verifier may not be the Action's owner or the
-//     person who marked its work complete.
+//   * Independence: the verifier may not be the Action's owner, nor anyone
+//     who has EVER marked its work complete (every completion is an audit
+//     row, so a later re-completion cannot launder an earlier completer).
 //   * A verification result never closes anything. ACCEPTED makes the
 //     Action eligible for explicit closure; REJECTED sends the work back;
 //     MORE_EVIDENCE_REQUIRED returns it to AWAITING_EVIDENCE.
@@ -42,7 +43,13 @@ export async function listVerificationQueue(viewer: AssuranceViewer): Promise<Ve
            (SELECT t.current_due_at FROM assurance_timeframes t
              WHERE t.organisation_id = a.organisation_id AND t.action_id = a.id AND t.status IN ('ACTIVE', 'OVERDUE')
              ORDER BY t.current_due_at ASC LIMIT 1) AS due_at,
-           (COALESCE(a.owner_user_id, '') <> ${viewer.userId} AND COALESCE(a.work_completed_by, '') <> ${viewer.userId}) AS can_verify
+           (COALESCE(a.owner_user_id, '') <> ${viewer.userId}
+             AND COALESCE(a.work_completed_by, '') <> ${viewer.userId}
+             AND NOT EXISTS (
+               SELECT 1 FROM audit_logs l
+               WHERE l.organisation_id = a.organisation_id AND l.resource_type = 'assurance_action'
+                 AND l.resource_id = a.id::text AND l.action = 'assurance_action.work_completed'
+                 AND l.user_id = ${viewer.userId})) AS can_verify
     FROM assurance_actions a
     LEFT JOIN users ou ON ou.id = a.owner_user_id AND ou.organisation_id = a.organisation_id
     LEFT JOIN users wu ON wu.id = a.work_completed_by AND wu.organisation_id = a.organisation_id
@@ -95,8 +102,14 @@ export async function recordVerification(viewer: AssuranceViewer, actionId: stri
 
   const a = await getActionState(viewer, actionId);
   if (a.status !== 'AWAITING_VERIFICATION') throw new AssuranceConflictError('This action is not awaiting verification.');
-  if (a.owner_user_id === viewer.userId || a.work_completed_by === viewer.userId) {
-    throw new AssuranceForbiddenError('Verification must be independent: the action owner or the person who completed the work cannot verify it.');
+  const completedBefore = (await sql`
+    SELECT 1 FROM audit_logs
+    WHERE organisation_id = ${viewer.organisationId} AND resource_type = 'assurance_action' AND resource_id = ${actionId}
+      AND action = 'assurance_action.work_completed' AND user_id = ${viewer.userId}
+    LIMIT 1
+  `) as unknown[];
+  if (a.owner_user_id === viewer.userId || a.work_completed_by === viewer.userId || completedBefore.length > 0) {
+    throw new AssuranceForbiddenError('Verification must be independent: the action owner or anyone who completed the work cannot verify it.');
   }
   if (a.latest_verification_result === 'ACCEPTED' || a.latest_verification_result === 'NOT_APPLICABLE') {
     throw new AssuranceConflictError('This action has already been verified. Close it, or record a new attempt only after further work.');
@@ -113,12 +126,17 @@ export async function recordVerification(viewer: AssuranceViewer, actionId: stri
   const verificationId = crypto.randomUUID();
   const nextStatus = NEXT_STATUS[result];
   try {
-    const rows = (await sql`
+    const results = await sql.transaction([
+      sql`SELECT id FROM assurance_actions WHERE organisation_id = ${viewer.organisationId} AND id = ${actionId}::uuid FOR UPDATE`,
+      sql`
       WITH act AS (
         SELECT a.id, a.organisation_id, a.status
         FROM assurance_actions a
         WHERE a.organisation_id = ${viewer.organisationId} AND a.id = ${actionId}::uuid AND a.status = 'AWAITING_VERIFICATION'
-        FOR UPDATE
+          AND COALESCE((
+            SELECT v.result FROM assurance_verifications v
+            WHERE v.organisation_id = a.organisation_id AND v.action_id = a.id
+            ORDER BY v.attempt_number DESC LIMIT 1), '') NOT IN ('ACCEPTED', 'NOT_APPLICABLE')
       ), ins AS (
         INSERT INTO assurance_verifications (id, organisation_id, action_id, attempt_number, result, verified_by, verified_at, notes)
         SELECT ${verificationId}::uuid, act.organisation_id, act.id,
@@ -146,7 +164,9 @@ export async function recordVerification(viewer: AssuranceViewer, actionId: stri
         FROM ins
       )
       SELECT id, attempt_number FROM ins
-    `) as { id: string; attempt_number: number }[];
+    `,
+    ]);
+    const rows = results[1] as { id: string; attempt_number: number }[];
     if (!rows[0]) throw new AssuranceConflictError('This action is no longer awaiting verification.');
     return { id: rows[0].id, attempt_number: rows[0].attempt_number, action_status: nextStatus };
   } catch (err) {

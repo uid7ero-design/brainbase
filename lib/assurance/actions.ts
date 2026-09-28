@@ -8,6 +8,7 @@ import { assertSameOrgUsers } from './users';
 import { assertContextRefsInOrg } from './lookups';
 import { withFreshReference } from './references';
 import { assertFindingsVisible } from './findings';
+import { checkCapability } from '@/lib/capabilities/requireCapability';
 import type { EvidenceLinkRow } from './incidents';
 import {
   ACTION_PRIORITIES, ACTION_STATUSES, ACTION_TYPES, type ActionPriority, type ActionStatus, type ActionType,
@@ -191,14 +192,15 @@ export async function getActionDetail(viewer: AssuranceViewer, id: string): Prom
       JOIN assurance_findings f ON f.organisation_id = af.organisation_id AND f.id = af.finding_id
       WHERE af.organisation_id = ${org} AND af.action_id = ${id}::uuid AND NOT ${findingVisibleSql(viewer)}
     `,
-    // Organiser tasks: id, name and status only — displayed, never acted on.
-    sql`
+    // Organiser tasks: id, name and status only — displayed, never acted on,
+    // and only when the organisation has Organiser.
+    organiserEnabled(org).then(enabled => (enabled ? sql`
       SELECT t.id AS link_id, t.relationship_type, t.organiser_item_id, oi.name, oi.status
       FROM assurance_action_tasks t
       JOIN organiser_items oi ON oi.organisation_id = t.organisation_id AND oi.id = t.organiser_item_id
       WHERE t.organisation_id = ${org} AND t.action_id = ${id}::uuid
       ORDER BY t.created_at ASC
-    `,
+    ` : [])),
     sql`
       SELECT l.id AS link_id, e.id AS evidence_id, e.evidence_reference, e.evidence_type, e.title,
              l.purpose, l.created_at AS linked_at, l.removed_at, l.removal_reason,
@@ -218,6 +220,7 @@ export async function getActionDetail(viewer: AssuranceViewer, id: string): Prom
                FROM assurance_evidence_verifications ev
                JOIN assurance_evidence e ON e.organisation_id = ev.organisation_id AND e.id = ev.evidence_id
                WHERE ev.organisation_id = v.organisation_id AND ev.verification_id = v.id AND ev.removed_at IS NULL
+                 AND ${evidenceVisibleSql(viewer)}
              ), '[]'::json) AS evidence
       FROM assurance_verifications v
       LEFT JOIN users u ON u.id = v.verified_by AND u.organisation_id = v.organisation_id
@@ -303,36 +306,53 @@ export async function createAction(viewer: AssuranceViewer, raw: Record<string, 
   }
 
   const id = crypto.randomUUID();
+  const ids = input.findingIds;
+  // Share-lock the findings first (a concurrent finding closure takes FOR
+  // UPDATE, so the two serialise); every later statement re-checks that all
+  // of them are still open with a fresh snapshot, so the action, its links,
+  // timeframe and audit row are written together or not at all.
+  const findingsStillOpen = sql`(
+    SELECT count(*) FROM assurance_findings f
+    WHERE f.organisation_id = ${viewer.organisationId} AND f.id = ANY(${ids}::uuid[]) AND f.status NOT IN ('CLOSED', 'CANCELLED')
+  ) = ${ids.length}`;
   return withFreshReference('action', async reference => {
     const statements = [
+      sql`SELECT id FROM assurance_findings WHERE organisation_id = ${viewer.organisationId} AND id = ANY(${ids}::uuid[]) FOR SHARE`,
       sql`
         INSERT INTO assurance_actions (
           id, organisation_id, action_reference, action_type, title, description, priority, status, owner_user_id,
           responsible_external_organisation_id, evidence_required, verification_required, created_by
-        ) VALUES (
-          ${id}::uuid, ${viewer.organisationId}, ${reference}, ${input.actionType}, ${input.title}, ${input.description},
-          ${input.priority}, 'OPEN', ${input.ownerUserId}, ${input.responsibleExternalOrganisationId}::uuid,
-          ${input.evidenceRequired}, ${input.verificationRequired}, ${viewer.userId}
         )
+        SELECT ${id}::uuid, ${viewer.organisationId}, ${reference}, ${input.actionType}, ${input.title}, ${input.description},
+               ${input.priority}, 'OPEN', ${input.ownerUserId}, ${input.responsibleExternalOrganisationId}::uuid,
+               ${input.evidenceRequired}, ${input.verificationRequired}, ${viewer.userId}
+        WHERE ${findingsStillOpen}
+        RETURNING id
       `,
-      ...input.findingIds.map(findingId => sql`
+      ...ids.map(findingId => sql`
         INSERT INTO assurance_action_findings (organisation_id, action_id, finding_id, created_by)
-        VALUES (${viewer.organisationId}, ${id}::uuid, ${findingId}::uuid, ${viewer.userId})
+        SELECT ${viewer.organisationId}, ${id}::uuid, ${findingId}::uuid, ${viewer.userId}
+        WHERE ${findingsStillOpen}
       `),
     ];
     if (input.dueAt) statements.push(sql`
       INSERT INTO assurance_timeframes (organisation_id, action_id, timeframe_type, original_due_at, current_due_at, created_by)
-      VALUES (${viewer.organisationId}, ${id}::uuid, 'ACTION', ${input.dueAt}::timestamptz, ${input.dueAt}::timestamptz, ${viewer.userId})
+      SELECT ${viewer.organisationId}, ${id}::uuid, 'ACTION', ${input.dueAt}::timestamptz, ${input.dueAt}::timestamptz, ${viewer.userId}
+      WHERE ${findingsStillOpen}
     `);
     statements.push(sql`
       INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
-      VALUES (gen_random_uuid()::text, ${viewer.organisationId}, ${viewer.userId}, 'assurance_action.created', 'assurance_action', ${id},
-              NULL, ${JSON.stringify({
-                action_reference: reference, status: 'OPEN', finding_ids: input.findingIds, priority: input.priority,
-                evidence_required: input.evidenceRequired, verification_required: input.verificationRequired,
-              })}::jsonb)
+      SELECT gen_random_uuid()::text, ${viewer.organisationId}, ${viewer.userId}, 'assurance_action.created', 'assurance_action', ${id},
+             NULL, ${JSON.stringify({
+               action_reference: reference, status: 'OPEN', finding_ids: ids, priority: input.priority,
+               evidence_required: input.evidenceRequired, verification_required: input.verificationRequired,
+             })}::jsonb
+      WHERE ${findingsStillOpen}
     `);
-    await sql.transaction(statements);
+    const results = await sql.transaction(statements);
+    if ((results[1] as unknown[]).length === 0) {
+      throw new AssuranceConflictError('A linked finding was closed while you were creating this action. Nothing was saved.');
+    }
     return { id, action_reference: reference };
   });
 }
@@ -344,7 +364,10 @@ async function guardedActionUpdate(
   verb: string,
   set: { status: ActionStatus; markWorkComplete?: boolean; close?: boolean },
 ): Promise<void> {
-  const rows = (await sql`
+  // Lock first, then guard with a fresh snapshot (see closeAction()).
+  const results = await sql.transaction([
+    sql`SELECT id FROM assurance_actions WHERE organisation_id = ${viewer.organisationId} AND id = ${id}::uuid FOR UPDATE`,
+    sql`
     WITH upd AS (
       UPDATE assurance_actions
       SET status = ${set.status},
@@ -362,8 +385,9 @@ async function guardedActionUpdate(
       })}
     )
     SELECT id FROM upd
-  `) as unknown[];
-  if (rows.length === 0) throw new AssuranceConflictError('This action was changed by someone else. Refresh and try again.');
+  `,
+  ]);
+  if ((results[1] as unknown[]).length === 0) throw new AssuranceConflictError('This action was changed by someone else. Refresh and try again.');
 }
 
 export async function startAction(viewer: AssuranceViewer, id: string): Promise<void> {
@@ -386,6 +410,12 @@ export async function completeActionWork(viewer: AssuranceViewer, id: string): P
   const next: ActionStatus = a.evidence_required && a.active_evidence_count === 0
     ? 'AWAITING_EVIDENCE'
     : a.verification_required ? 'AWAITING_VERIFICATION' : 'IN_PROGRESS';
+  if (a.work_completed_at != null && next === a.status) {
+    throw new AssuranceConflictError('Work is already marked complete. The action is ready to close.');
+  }
+  // work_completed_at/by record the LATEST completion; every completion is
+  // also an audit row, and verification independence is checked against all
+  // of them (see verifications.ts), so re-completion cannot launder a completer.
   await guardedActionUpdate(viewer, id, a.status, 'work_completed', { status: next, markWorkComplete: true });
   return { status: next };
 }
@@ -409,10 +439,13 @@ export async function closeAction(viewer: AssuranceViewer, id: string): Promise<
   const readiness = computeActionReadiness(a);
   if (!readiness.canClose) throw new AssuranceConflictError(`This action cannot be closed yet. ${readiness.blockers.join(' ')}`);
 
-  // Re-assert every closure precondition inside the same guarded UPDATE so
-  // a concurrent evidence unlink / verification cannot slip between the
-  // read above and the write.
-  const rows = (await sql`
+  // Lock the action row FIRST (evidence link/unlink and verification take
+  // the same lock), then re-assert every closure precondition in a second
+  // statement, which gets a fresh snapshot once the lock is granted — so a
+  // concurrent unlink/verification cannot slip between check and write.
+  const results = await sql.transaction([
+    sql`SELECT id FROM assurance_actions WHERE organisation_id = ${viewer.organisationId} AND id = ${id}::uuid FOR UPDATE`,
+    sql`
     WITH upd AS (
       UPDATE assurance_actions a
       SET status = 'CLOSED', updated_at = now(), closed_at = now(), closed_by = ${viewer.userId}
@@ -433,8 +466,9 @@ export async function closeAction(viewer: AssuranceViewer, id: string): Promise<
       })}
     )
     SELECT id FROM upd
-  `) as unknown[];
-  if (rows.length === 0) throw new AssuranceConflictError('This action changed while you were closing it. Refresh and try again.');
+  `,
+  ]);
+  if ((results[1] as unknown[]).length === 0) throw new AssuranceConflictError('This action changed while you were closing it. Refresh and try again.');
 }
 
 export async function cancelAction(viewer: AssuranceViewer, id: string, raw: Record<string, unknown>): Promise<void> {
@@ -450,7 +484,7 @@ export async function cancelAction(viewer: AssuranceViewer, id: string, raw: Rec
     ), aud AS (
       ${auditFromCte('upd', {
         organisationId: viewer.organisationId, userId: viewer.userId, resourceType: 'assurance_action',
-        verb: 'cancelled', before: { status: a.status }, after: { status: 'CANCELLED', reason_provided: reason.length > 0 },
+        verb: 'cancelled', before: { status: a.status }, after: { status: 'CANCELLED', reason },
       })}
     )
     SELECT id FROM upd
@@ -458,8 +492,18 @@ export async function cancelAction(viewer: AssuranceViewer, id: string, raw: Rec
   if (rows.length === 0) throw new AssuranceConflictError('This action was changed by someone else. Refresh and try again.');
 }
 
+/**
+ * Organiser task names/statuses are only shown or linked when the
+ * organisation is entitled to Organiser — the same capability every
+ * Organiser API enforces (lib/organiser/authorize.ts).
+ */
+export async function organiserEnabled(organisationId: string): Promise<boolean> {
+  return (await checkCapability(organisationId, 'organiser')).allowed;
+}
+
 /** Organiser items in the organisation for the task-link picker (id + name only). */
 export async function listOrganiserItemOptions(viewer: AssuranceViewer): Promise<{ id: string; label: string }[]> {
+  if (!(await organiserEnabled(viewer.organisationId))) return [];
   const rows = (await sql`
     SELECT id, name FROM organiser_items
     WHERE organisation_id = ${viewer.organisationId}
@@ -476,6 +520,7 @@ export async function linkActionTask(viewer: AssuranceViewer, actionId: string, 
   const relationshipType = requiredEnum(['IMPLEMENTATION', 'FOLLOW_UP', 'EVIDENCE_COLLECTION', 'OTHER'] as const, raw.relationshipType ?? 'IMPLEMENTATION', 'Relationship');
   const a = await getActionState(viewer, actionId);
   if (a.status === 'CLOSED' || a.status === 'CANCELLED') throw new AssuranceConflictError('Tasks cannot be linked to a finished action.');
+  if (!(await organiserEnabled(viewer.organisationId))) throw new AssuranceForbiddenError('Organiser is not enabled for your organisation.');
   const item = (await sql`
     SELECT id FROM organiser_items WHERE organisation_id = ${viewer.organisationId} AND id = ${organiserItemId}::uuid
   `) as unknown[];

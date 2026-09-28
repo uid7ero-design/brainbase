@@ -8,11 +8,6 @@ import { listAssuranceHistory, type AssuranceHistoryEntry } from './audit';
 import type { AssuranceTimestamp } from './sqlHelpers';
 import { assertContextRefsInOrg } from './lookups';
 import { withFreshReference } from './references';
-import { assertIncidentVisible } from './incidents';
-import { assertInvestigationVisible } from './investigations';
-import { assertInspectionExists } from './inspections';
-import { assertFindingsVisible } from './findings';
-import { getActionState } from './actions';
 import { EVIDENCE_LINK_TARGETS, EVIDENCE_TYPES, type EvidenceLinkTarget, type EvidenceType } from './domain';
 import {
   isUuid, optionalDateTime, optionalText, optionalUuid, requiredEnum, requiredText, requiredUuid, searchPattern,
@@ -211,30 +206,101 @@ export async function getEvidenceDetail(viewer: AssuranceViewer, id: string): Pr
   };
 }
 
-/** Confirms the link target exists in the org and is visible to the viewer. */
-async function assertTargetVisible(viewer: AssuranceViewer, target: EvidenceLinkTarget, targetId: string): Promise<void> {
+// A viewer with no user id and no admin rights: "who could see this if they
+// weren't personally involved?" Used to tell whether a link target is
+// restricted-scoped (hidden from ordinary members of the organisation).
+function publicViewerOf(viewer: AssuranceViewer): AssuranceViewer {
+  return { organisationId: viewer.organisationId, userId: '', role: 'viewer', canViewAllRestricted: false };
+}
+
+type TargetState = { status: string; publicVisible: boolean };
+
+/**
+ * Loads a link target the viewer can see (404 otherwise) with its status
+ * and whether it is visible to an uninvolved member (restricted scope).
+ * Verification targets are refused: evidence is attached to a verification
+ * only by recordVerification() itself, at the moment it is recorded.
+ */
+async function loadTarget(viewer: AssuranceViewer, target: EvidenceLinkTarget, targetId: string): Promise<TargetState> {
+  const org = viewer.organisationId;
+  const pub = publicViewerOf(viewer);
+  let rows: { status: string; public_visible: boolean }[] = [];
   switch (target) {
-    case 'incident': await assertIncidentVisible(viewer, targetId); return;
-    case 'investigation': await assertInvestigationVisible(viewer, targetId); return;
-    case 'inspection': await assertInspectionExists(viewer, targetId); return;
-    case 'finding': await assertFindingsVisible(viewer, [targetId]); return;
-    case 'action': await getActionState(viewer, targetId); return;
-    case 'verification': {
-      const rows = (await sql`
-        SELECT v.id FROM assurance_verifications v
-        JOIN assurance_actions a ON a.organisation_id = v.organisation_id AND a.id = v.action_id
-        WHERE v.organisation_id = ${viewer.organisationId} AND v.id = ${targetId}::uuid AND ${actionVisibleSql(viewer)}
-      `) as unknown[];
-      if (rows.length === 0) throw new AssuranceNotFoundError('Verification');
-    }
+    case 'incident':
+      rows = (await sql`
+        SELECT inc.status, ${incidentVisibleSql(pub)} AS public_visible FROM assurance_incidents inc
+        WHERE inc.organisation_id = ${org} AND inc.id = ${targetId}::uuid AND ${incidentVisibleSql(viewer)}
+      `) as typeof rows;
+      break;
+    case 'investigation':
+      rows = (await sql`
+        SELECT inv.status, ${investigationVisibleSql(pub)} AS public_visible FROM assurance_investigations inv
+        WHERE inv.organisation_id = ${org} AND inv.id = ${targetId}::uuid AND ${investigationVisibleSql(viewer)}
+      `) as typeof rows;
+      break;
+    case 'inspection':
+      rows = (await sql`
+        SELECT i.status, true AS public_visible FROM assurance_inspections i
+        WHERE i.organisation_id = ${org} AND i.id = ${targetId}::uuid
+      `) as typeof rows;
+      break;
+    case 'finding':
+      rows = (await sql`
+        SELECT f.status, ${findingVisibleSql(pub)} AS public_visible FROM assurance_findings f
+        WHERE f.organisation_id = ${org} AND f.id = ${targetId}::uuid AND ${findingVisibleSql(viewer)}
+      `) as typeof rows;
+      break;
+    case 'action':
+      rows = (await sql`
+        SELECT a.status, ${actionVisibleSql(pub)} AS public_visible FROM assurance_actions a
+        WHERE a.organisation_id = ${org} AND a.id = ${targetId}::uuid AND ${actionVisibleSql(viewer)}
+      `) as typeof rows;
+      break;
+    case 'verification':
+      throw new AssuranceConflictError('Evidence for a verification is attached when the verification is recorded; it cannot be added or removed afterwards.');
   }
+  if (!rows[0]) throw new AssuranceNotFoundError('Record');
+  return { status: rows[0].status, publicVisible: rows[0].public_visible === true };
+}
+
+/** Evidence of finished records is part of their closure record and is frozen. */
+function assertEvidenceNotFrozen(target: EvidenceLinkTarget, status: string): void {
+  const frozen =
+    (target === 'action' && (status === 'CLOSED' || status === 'CANCELLED'))
+    || (target === 'finding' && (status === 'CLOSED' || status === 'CANCELLED'))
+    || (target === 'inspection' && status === 'CANCELLED');
+  if (frozen) throw new AssuranceConflictError('This record is finished; its evidence is part of the closure record and can no longer be changed.');
+}
+
+/** Guard fragment re-checked inside the write itself (race-safe with the row lock taken first). */
+function notFrozenSql(viewer: AssuranceViewer, target: EvidenceLinkTarget, targetId: string) {
+  if (target === 'action') {
+    return sql`NOT EXISTS (SELECT 1 FROM assurance_actions g WHERE g.organisation_id = ${viewer.organisationId} AND g.id = ${targetId}::uuid AND g.status IN ('CLOSED', 'CANCELLED'))`;
+  }
+  if (target === 'finding') {
+    return sql`NOT EXISTS (SELECT 1 FROM assurance_findings g WHERE g.organisation_id = ${viewer.organisationId} AND g.id = ${targetId}::uuid AND g.status IN ('CLOSED', 'CANCELLED'))`;
+  }
+  if (target === 'inspection') {
+    return sql`NOT EXISTS (SELECT 1 FROM assurance_inspections g WHERE g.organisation_id = ${viewer.organisationId} AND g.id = ${targetId}::uuid AND g.status = 'CANCELLED')`;
+  }
+  return sql`true`;
+}
+
+/** Row lock on the parent so closure and evidence changes serialise. */
+function lockTargetSql(viewer: AssuranceViewer, target: EvidenceLinkTarget, targetId: string) {
+  if (target === 'action') return sql`SELECT id FROM assurance_actions WHERE organisation_id = ${viewer.organisationId} AND id = ${targetId}::uuid FOR UPDATE`;
+  if (target === 'finding') return sql`SELECT id FROM assurance_findings WHERE organisation_id = ${viewer.organisationId} AND id = ${targetId}::uuid FOR UPDATE`;
+  if (target === 'inspection') return sql`SELECT id FROM assurance_inspections WHERE organisation_id = ${viewer.organisationId} AND id = ${targetId}::uuid FOR UPDATE`;
+  return sql`SELECT 1`;
 }
 
 function linkInsert(viewer: AssuranceViewer, target: EvidenceLinkTarget, evidenceId: string, targetId: string, purpose: string | null) {
   const t = LINK_TABLES[target];
   return sql`
     INSERT INTO ${sql.unsafe(t.table)} (organisation_id, evidence_id, ${sql.unsafe(t.column)}, purpose, created_by)
-    VALUES (${viewer.organisationId}, ${evidenceId}::uuid, ${targetId}::uuid, ${purpose}, ${viewer.userId})
+    SELECT ${viewer.organisationId}, ${evidenceId}::uuid, ${targetId}::uuid, ${purpose}, ${viewer.userId}
+    WHERE ${notFrozenSql(viewer, target, targetId)}
+    RETURNING id
   `;
 }
 
@@ -252,32 +318,46 @@ export async function createEvidence(viewer: AssuranceViewer, raw: Record<string
     purpose: optionalText(raw.purpose, 'Purpose', 500),
   };
   if ((input.target === null) !== (input.targetId === null)) throw new AssuranceValidationError('Choose both what the evidence relates to and the record.');
-  await Promise.all([
+  const [, state] = await Promise.all([
     assertContextRefsInOrg(viewer.organisationId, { locationId: input.locationId }),
-    input.target && input.targetId ? assertTargetVisible(viewer, input.target, input.targetId) : null,
+    input.target && input.targetId ? loadTarget(viewer, input.target, input.targetId) : null,
   ]);
+  if (input.target && state) assertEvidenceNotFrozen(input.target, state.status);
 
   // metadata holds only a small allow-listed set of descriptive keys.
   const metadata: Record<string, string> = { source: 'manual_entry' };
   if (input.heldAt) metadata.held_at = input.heldAt;
 
   const id = crypto.randomUUID();
+  const target = input.target;
+  const targetId = input.targetId;
+  // Lock the parent first; every later statement re-checks "not frozen"
+  // with a fresh snapshot, so the evidence, its link and its audit row are
+  // written together or not at all.
+  const guard = target && targetId ? notFrozenSql(viewer, target, targetId) : sql`true`;
   return withFreshReference('evidence', async reference => {
     const statements = [
+      target && targetId ? lockTargetSql(viewer, target, targetId) : sql`SELECT 1`,
       sql`
         INSERT INTO assurance_evidence (id, organisation_id, evidence_reference, evidence_type, title, description, captured_by, captured_at, location_id, metadata, created_by)
-        VALUES (${id}::uuid, ${viewer.organisationId}, ${reference}, ${input.evidenceType}, ${input.title}, ${input.description},
-                ${viewer.userId}, ${input.capturedAt ?? new Date().toISOString()}::timestamptz, ${input.locationId}::uuid,
-                ${JSON.stringify(metadata)}::jsonb, ${viewer.userId})
+        SELECT ${id}::uuid, ${viewer.organisationId}, ${reference}, ${input.evidenceType}, ${input.title}, ${input.description},
+               ${viewer.userId}, ${input.capturedAt ?? new Date().toISOString()}::timestamptz, ${input.locationId}::uuid,
+               ${JSON.stringify(metadata)}::jsonb, ${viewer.userId}
+        WHERE ${guard}
+        RETURNING id
       `,
     ];
-    if (input.target && input.targetId) statements.push(linkInsert(viewer, input.target, id, input.targetId, input.purpose));
+    if (target && targetId) statements.push(linkInsert(viewer, target, id, targetId, input.purpose));
     statements.push(sql`
       INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
-      VALUES (gen_random_uuid()::text, ${viewer.organisationId}, ${viewer.userId}, 'assurance_evidence.created', 'assurance_evidence', ${id},
-              NULL, ${JSON.stringify({ evidence_reference: reference, evidence_type: input.evidenceType, link_target: input.target, link_target_id: input.targetId })}::jsonb)
+      SELECT gen_random_uuid()::text, ${viewer.organisationId}, ${viewer.userId}, 'assurance_evidence.created', 'assurance_evidence', ${id},
+             NULL, ${JSON.stringify({ evidence_reference: reference, evidence_type: input.evidenceType, link_target: target, link_target_id: targetId })}::jsonb
+      WHERE ${guard}
     `);
-    await sql.transaction(statements);
+    const results = await sql.transaction(statements);
+    if ((results[1] as unknown[]).length === 0) {
+      throw new AssuranceConflictError('This record was finished while you were adding evidence. Nothing was saved.');
+    }
     return { id, evidence_reference: reference };
   });
 }
@@ -294,17 +374,43 @@ export async function linkEvidence(viewer: AssuranceViewer, evidenceId: string, 
     WHERE e.organisation_id = ${viewer.organisationId} AND e.id = ${evidenceId}::uuid AND ${evidenceVisibleSql(viewer)}
   `) as unknown[];
   if (ev.length === 0) throw new AssuranceNotFoundError('Evidence');
-  await assertTargetVisible(viewer, target, targetId);
+  const state = await loadTarget(viewer, target, targetId);
+  assertEvidenceNotFrozen(target, state.status);
+
+  // Linking existing evidence to a restricted-scoped record would hide it
+  // from everyone who can currently see it (visibility is inherited from
+  // every link, including removed ones). That is only allowed for evidence
+  // that has never been linked anywhere; otherwise record new evidence.
+  if (!state.publicVisible) {
+    const used = (await sql`
+      SELECT (
+        (SELECT count(*) FROM assurance_evidence_incidents x WHERE x.organisation_id = ${viewer.organisationId} AND x.evidence_id = ${evidenceId}::uuid)
+        + (SELECT count(*) FROM assurance_evidence_investigations x WHERE x.organisation_id = ${viewer.organisationId} AND x.evidence_id = ${evidenceId}::uuid)
+        + (SELECT count(*) FROM assurance_evidence_inspections x WHERE x.organisation_id = ${viewer.organisationId} AND x.evidence_id = ${evidenceId}::uuid)
+        + (SELECT count(*) FROM assurance_evidence_findings x WHERE x.organisation_id = ${viewer.organisationId} AND x.evidence_id = ${evidenceId}::uuid)
+        + (SELECT count(*) FROM assurance_evidence_actions x WHERE x.organisation_id = ${viewer.organisationId} AND x.evidence_id = ${evidenceId}::uuid)
+        + (SELECT count(*) FROM assurance_evidence_verifications x WHERE x.organisation_id = ${viewer.organisationId} AND x.evidence_id = ${evidenceId}::uuid)
+      )::int AS n
+    `) as { n: number }[];
+    if (used[0].n > 0) {
+      throw new AssuranceConflictError('This evidence is already used on other records. Linking it to a restricted record would hide it from everyone else — record new evidence for the restricted record instead.');
+    }
+  }
 
   try {
-    await sql.transaction([
+    const results = await sql.transaction([
+      lockTargetSql(viewer, target, targetId),
       linkInsert(viewer, target, evidenceId, targetId, purpose),
       sql`
         INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
-        VALUES (gen_random_uuid()::text, ${viewer.organisationId}, ${viewer.userId}, 'assurance_evidence.linked', 'assurance_evidence', ${evidenceId},
-                NULL, ${JSON.stringify({ target, target_id: targetId })}::jsonb)
+        SELECT gen_random_uuid()::text, ${viewer.organisationId}, ${viewer.userId}, 'assurance_evidence.linked', 'assurance_evidence', ${evidenceId},
+               NULL, ${JSON.stringify({ target, target_id: targetId })}::jsonb
+        WHERE ${notFrozenSql(viewer, target, targetId)}
       `,
     ]);
+    if ((results[1] as unknown[]).length === 0) {
+      throw new AssuranceConflictError('This record was finished while you were linking evidence. Nothing was saved.');
+    }
   } catch (err) {
     if ((err as { code?: string }).code === '23505') throw new AssuranceConflictError('This evidence is already linked to that record.');
     throw err;
@@ -319,37 +425,44 @@ export async function unlinkEvidence(viewer: AssuranceViewer, raw: Record<string
   const reason = requiredText(raw.reason, 'Reason for removal', 1000);
   const t = LINK_TABLES[target];
 
-  const link = (await sql`
-    SELECT evidence_id, ${sql.unsafe(t.column)} AS target_id, removed_at
-    FROM ${sql.unsafe(t.table)}
-    WHERE organisation_id = ${viewer.organisationId} AND id = ${linkId}::uuid
-  `) as { evidence_id: string; target_id: string; removed_at: unknown }[];
-  if (!link[0]) throw new AssuranceNotFoundError('Evidence link');
-  await assertTargetVisible(viewer, target, link[0].target_id);
-  if (link[0].removed_at) throw new AssuranceConflictError('This evidence link was already removed.');
   if (target === 'verification') {
     throw new AssuranceConflictError('Evidence recorded with a verification is part of that verification record and cannot be removed.');
   }
-  if (target === 'action') {
-    const a = await getActionState(viewer, link[0].target_id);
-    if (a.status === 'CLOSED') {
-      throw new AssuranceConflictError('Evidence supporting a closed action cannot be removed — it is part of the closure record.');
-    }
-  }
 
-  const rows = (await sql`
-    WITH upd AS (
-      UPDATE ${sql.unsafe(t.table)}
-      SET removed_at = now(), removed_by = ${viewer.userId}, removal_reason = ${reason}
-      WHERE organisation_id = ${viewer.organisationId} AND id = ${linkId}::uuid AND removed_at IS NULL
-      RETURNING evidence_id AS id
-    ), aud AS (
-      INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
-      SELECT gen_random_uuid()::text, ${viewer.organisationId}, ${viewer.userId}, 'assurance_evidence.unlinked', 'assurance_evidence',
-             upd.id::text, NULL, jsonb_build_object('target', ${target}::text, 'target_id', ${link[0].target_id}::text, 'link_id', ${linkId}::text)
-      FROM upd
-    )
-    SELECT id FROM upd
-  `) as unknown[];
-  if (rows.length === 0) throw new AssuranceConflictError('This evidence link was already removed.');
+  // The evidence itself must be visible to the viewer as well as the target.
+  const link = (await sql`
+    SELECT l.evidence_id, l.${sql.unsafe(t.column)} AS target_id, l.removed_at
+    FROM ${sql.unsafe(t.table)} l
+    JOIN assurance_evidence e ON e.organisation_id = l.organisation_id AND e.id = l.evidence_id
+    WHERE l.organisation_id = ${viewer.organisationId} AND l.id = ${linkId}::uuid AND ${evidenceVisibleSql(viewer)}
+  `) as { evidence_id: string; target_id: string; removed_at: unknown }[];
+  if (!link[0]) throw new AssuranceNotFoundError('Evidence link');
+  const targetId = link[0].target_id;
+  const state = await loadTarget(viewer, target, targetId);
+  if (link[0].removed_at) throw new AssuranceConflictError('This evidence link was already removed.');
+  assertEvidenceNotFrozen(target, state.status);
+
+  // Lock the parent first so a concurrent closure cannot slip between the
+  // check and the unlink; the UPDATE re-checks "not frozen" afterwards.
+  const results = await sql.transaction([
+    lockTargetSql(viewer, target, targetId),
+    sql`
+      WITH upd AS (
+        UPDATE ${sql.unsafe(t.table)}
+        SET removed_at = now(), removed_by = ${viewer.userId}, removal_reason = ${reason}
+        WHERE organisation_id = ${viewer.organisationId} AND id = ${linkId}::uuid AND removed_at IS NULL
+          AND ${notFrozenSql(viewer, target, targetId)}
+        RETURNING evidence_id AS id
+      ), aud AS (
+        INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
+        SELECT gen_random_uuid()::text, ${viewer.organisationId}, ${viewer.userId}, 'assurance_evidence.unlinked', 'assurance_evidence',
+               upd.id::text, NULL, jsonb_build_object('target', ${target}::text, 'target_id', ${targetId}::text, 'link_id', ${linkId}::text)
+        FROM upd
+      )
+      SELECT id FROM upd
+    `,
+  ]);
+  if ((results[1] as unknown[]).length === 0) {
+    throw new AssuranceConflictError('This evidence link could not be removed — it was already removed, or the record was finished.');
+  }
 }

@@ -64,7 +64,9 @@ export async function listInvestigations(viewer: AssuranceViewer, filters: Inves
              WHERE ii.organisation_id = inv.organisation_id AND ii.investigation_id = inv.id
                AND NOT ${incidentVisibleSql(viewer)})::int AS hidden_incident_count,
            (SELECT count(*) FROM assurance_investigation_findings xf
-             WHERE xf.organisation_id = inv.organisation_id AND xf.investigation_id = inv.id)::int AS finding_count
+             JOIN assurance_findings f ON f.organisation_id = xf.organisation_id AND f.id = xf.finding_id
+             WHERE xf.organisation_id = inv.organisation_id AND xf.investigation_id = inv.id
+               AND ${findingVisibleSql(viewer)})::int AS finding_count
     FROM assurance_investigations inv
     LEFT JOIN users lu ON lu.id = inv.lead_user_id AND lu.organisation_id = inv.organisation_id
     WHERE inv.organisation_id = ${org}
@@ -125,9 +127,12 @@ export async function getInvestigationDetail(viewer: AssuranceViewer, id: string
              CASE WHEN ${incidentVisibleSql(viewer)} THEN inc.incident_reference END AS incident_reference,
              CASE WHEN ${incidentVisibleSql(viewer)} THEN inc.title END AS title,
              CASE WHEN ${incidentVisibleSql(viewer)} THEN inc.status END AS status,
-             (SELECT count(*) FROM assurance_investigation_incidents o
+             CASE WHEN ${incidentVisibleSql(viewer)} THEN (
+               SELECT count(*) FROM assurance_investigation_incidents o
+               JOIN assurance_investigations inv ON inv.organisation_id = o.organisation_id AND inv.id = o.investigation_id
                WHERE o.organisation_id = ii.organisation_id AND o.incident_id = ii.incident_id
-                 AND o.investigation_id <> ii.investigation_id)::int AS other_investigation_count
+                 AND o.investigation_id <> ii.investigation_id AND ${investigationVisibleSql(viewer)}
+             ) ELSE 0 END::int AS other_investigation_count
       FROM assurance_investigation_incidents ii
       JOIN assurance_incidents inc ON inc.organisation_id = ii.organisation_id AND inc.id = ii.incident_id
       WHERE ii.organisation_id = ${org} AND ii.investigation_id = ${id}::uuid
@@ -293,24 +298,36 @@ export async function linkIncidentToInvestigation(viewer: AssuranceViewer, inves
   const incidentId = requiredUuid(raw.incidentId, 'Incident');
   const relationship = requiredEnum(INVESTIGATION_INCIDENT_RELATIONSHIPS, raw.relationship ?? 'RELATED', 'Relationship');
   await assertIncidentsVisible(viewer, [incidentId]);
-  if (relationship === 'PRIMARY') {
-    const existing = (await sql`
-      SELECT 1 FROM assurance_investigation_incidents
-      WHERE organisation_id = ${viewer.organisationId} AND investigation_id = ${investigationId}::uuid AND relationship = 'PRIMARY'
-    `) as unknown[];
-    if (existing.length > 0) throw new AssuranceConflictError('This investigation already has a primary incident.');
-  }
   try {
-    await sql.transaction([
+    // Lock the investigation first so concurrent links serialise; the insert
+    // then refuses a second PRIMARY and a finished investigation atomically.
+    const results = await sql.transaction([
+      sql`SELECT id FROM assurance_investigations WHERE organisation_id = ${viewer.organisationId} AND id = ${investigationId}::uuid FOR UPDATE`,
       sql`
-        INSERT INTO assurance_investigation_incidents (organisation_id, investigation_id, incident_id, relationship, created_by)
-        VALUES (${viewer.organisationId}, ${investigationId}::uuid, ${incidentId}::uuid, ${relationship}, ${viewer.userId})
+        WITH ins AS (
+          INSERT INTO assurance_investigation_incidents (organisation_id, investigation_id, incident_id, relationship, created_by)
+          SELECT ${viewer.organisationId}, ${investigationId}::uuid, ${incidentId}::uuid, ${relationship}, ${viewer.userId}
+          WHERE EXISTS (SELECT 1 FROM assurance_investigations v WHERE v.organisation_id = ${viewer.organisationId}
+                          AND v.id = ${investigationId}::uuid AND v.status NOT IN ('COMPLETED', 'CANCELLED'))
+            AND (${relationship}::text <> 'PRIMARY' OR NOT EXISTS (
+                  SELECT 1 FROM assurance_investigation_incidents x
+                  WHERE x.organisation_id = ${viewer.organisationId} AND x.investigation_id = ${investigationId}::uuid AND x.relationship = 'PRIMARY'))
+          RETURNING investigation_id AS id
+        ), aud AS (
+          INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
+          SELECT gen_random_uuid()::text, ${viewer.organisationId}, ${viewer.userId}, 'assurance_investigation.incident_linked',
+                 'assurance_investigation', ins.id::text, NULL,
+                 jsonb_build_object('incident_id', ${incidentId}::text, 'relationship', ${relationship}::text)
+          FROM ins
+        )
+        SELECT id FROM ins
       `,
-      auditInsert({
-        organisationId: viewer.organisationId, userId: viewer.userId, resourceType: 'assurance_investigation',
-        resourceId: investigationId, verb: 'incident_linked', after: { incident_id: incidentId, relationship },
-      }),
     ]);
+    if ((results[1] as unknown[]).length === 0) {
+      throw new AssuranceConflictError(relationship === 'PRIMARY'
+        ? 'This investigation already has a primary incident, or it has been completed.'
+        : 'This investigation has been completed or cancelled.');
+    }
   } catch (err) {
     if ((err as { code?: string }).code === '23505') throw new AssuranceConflictError('That incident is already linked.');
     throw err;
