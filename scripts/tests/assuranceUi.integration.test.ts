@@ -63,21 +63,24 @@ async function expectError(p: Promise<unknown>, cls: 'AssuranceNotFoundError' | 
 
 beforeAll(async () => {
   await sql.raw(`
-    INSERT INTO organisations (id, name) VALUES ('org-a', 'Org A'), ('org-b', 'Org B'), ('org-c', 'Org C (empty)');
-    INSERT INTO users (id, organisation_id, name, role, status) VALUES
-      ('a-admin', 'org-a', 'Alex Admin', 'ADMIN', 'ACTIVE'),
-      ('a-mgr', 'org-a', 'Morgan Manager', 'MANAGER', 'ACTIVE'),
-      ('a-mgr2', 'org-a', 'Riley Reviewer', 'MANAGER', 'ACTIVE'),
-      ('a-viewer', 'org-a', 'Vic Viewer', 'VIEWER', 'ACTIVE'),
-      ('a-inactive', 'org-a', 'Ina Inactive', 'MANAGER', 'INACTIVE'),
-      ('b-mgr', 'org-b', 'Blake Other-Tenant', 'MANAGER', 'ACTIVE'),
-      ('c-admin', 'org-c', 'Casey Empty', 'ADMIN', 'ACTIVE');
+    INSERT INTO organisations (id, name, slug, updated_at) VALUES
+      ('org-a', 'Org A', 'org-a', now()), ('org-b', 'Org B', 'org-b', now()), ('org-c', 'Org C (empty)', 'org-c', now());
+    INSERT INTO users (id, organisation_id, username, name, role, status, updated_at) VALUES
+      ('a-admin', 'org-a', 'a-admin', 'Alex Admin', 'ADMIN', 'ACTIVE', now()),
+      ('a-mgr', 'org-a', 'a-mgr', 'Morgan Manager', 'MANAGER', 'ACTIVE', now()),
+      ('a-mgr2', 'org-a', 'a-mgr2', 'Riley Reviewer', 'MANAGER', 'ACTIVE', now()),
+      ('a-viewer', 'org-a', 'a-viewer', 'Vic Viewer', 'VIEWER', 'ACTIVE', now()),
+      ('a-inactive', 'org-a', 'a-inactive', 'Ina Inactive', 'MANAGER', 'INACTIVE', now()),
+      ('b-mgr', 'org-b', 'b-mgr', 'Blake Other-Tenant', 'MANAGER', 'ACTIVE', now()),
+      ('c-admin', 'org-c', 'c-admin', 'Casey Empty', 'ADMIN', 'ACTIVE', now());
+    INSERT INTO organiser_boards (id, organisation_id, name) VALUES
+      ('00000000-0000-0000-0000-0000000ab001', 'org-a', 'Board A'), ('00000000-0000-0000-0000-0000000bb001', 'org-b', 'Board B');
     INSERT INTO hr_people (id, organisation_id, first_name, last_name, job_title, work_email) VALUES
       ('${PERSON_A}', 'org-a', 'Pat', 'Person', 'Depot Operator', 'pat@example.test'),
       ('${PERSON_B}', 'org-b', 'Other', 'Tenant', 'Operator', 'other@example.test');
-    INSERT INTO organiser_items (id, organisation_id, name, status) VALUES
-      ('${ITEM_A}', 'org-a', 'Replace wash-bay drain grate', 'Done'),
-      ('${ITEM_B}', 'org-b', 'Other tenant task', 'Open');
+    INSERT INTO organiser_items (id, board_id, organisation_id, name, status) VALUES
+      ('${ITEM_A}', '00000000-0000-0000-0000-0000000ab001', 'org-a', 'Replace wash-bay drain grate', 'Done'),
+      ('${ITEM_B}', '00000000-0000-0000-0000-0000000bb001', 'org-b', 'Other tenant task', 'Open');
   `);
   const loc = await sql.raw(`
     INSERT INTO locations (organisation_id, location_reference, location_type, name) VALUES
@@ -514,5 +517,93 @@ describe('actions, evidence history and verification workflow', () => {
     expect(d.seriousIncidents.some(w => w.id === inc.id)).toBe(true);
     expect(d.counts.overdue_actions).toBeGreaterThanOrEqual(1);
     expect((await m.actions.listActions(mgrA, { view: 'overdue' })).some(r => r.id === a.id)).toBe(true);
+  });
+});
+
+// ── Synthetic demo fixture (scripts/assurance-demo/seed-assurance-demo.sql) ─
+// The harness seeds the fixture before this suite runs. These checks prove
+// it loads coherently and renders the intended workflow through the REAL
+// services — not just that the SQL applied.
+describe('synthetic demo fixture renders a coherent, connected scenario', () => {
+  const DEMO = 'assurance-demo-org';
+  const demoAdmin = V(DEMO, 'assurance-demo-coordinator', 'admin');
+  const demoWhs = V(DEMO, 'assurance-demo-whs', 'manager');
+  const demoViewer = V(DEMO, 'assurance-demo-viewer', 'viewer');
+  const id = (n: string) => `a55de000-0000-4000-8000-000000000${n}`;
+
+  it('is obviously synthetic and namespaced', async () => {
+    const users = await sql.raw(`SELECT id, name FROM users WHERE organisation_id = '${DEMO}'`) as { id: string; name: string }[];
+    expect(users.length).toBe(5);
+    expect(users.every(u => u.id.startsWith('assurance-demo-') && u.name.startsWith('Demo · '))).toBe(true);
+    const refs = await sql.raw(`SELECT incident_reference AS r FROM assurance_incidents WHERE organisation_id = '${DEMO}'`) as { r: string }[];
+    expect(refs.every(x => /^INC-DEMO-\d{3}$/.test(x.r))).toBe(true);
+    const org = await sql.raw(`SELECT name FROM organisations WHERE id = '${DEMO}'`) as { name: string }[];
+    expect(org[0].name).toMatch(/^\[DEMO\].*\(synthetic\)$/);
+  });
+
+  it('the dashboard answers the operational questions from the fixture', async () => {
+    const d = await m.dashboard.getDashboardData(demoAdmin);
+    expect(d.isEmpty).toBe(false);
+    expect(d.counts).toMatchObject({
+      open_incidents: 4, serious_open_incidents: 2, active_investigations: 1, inspections_due: 1,
+      inspections_in_progress: 1, open_findings: 3, open_actions: 2, overdue_actions: 1, awaiting_verification: 1,
+    });
+    expect(d.attention.map(w => w.reference)).toContain('ACT-DEMO-003');
+    expect(d.awaitingVerification.map(w => w.reference)).toEqual(['ACT-DEMO-002']);
+    expect(d.inspectionsDue.map(w => w.reference).sort()).toEqual(['INS-DEMO-002', 'INS-DEMO-003']);
+    // The customer-service viewer does not see the restricted security incident.
+    const v = await m.dashboard.getDashboardData(demoViewer);
+    expect(v.counts.open_incidents).toBe(3);
+    expect(v.counts.serious_open_incidents).toBe(1);
+  });
+
+  it('inspection -> finding -> action -> evidence -> verification chain, with template v1 preserved', async () => {
+    const ins = await m.inspections.getInspectionDetail(demoAdmin, id('401'));
+    expect(ins!.inspection).toMatchObject({ template_version_number: 1, latest_template_version_number: 2, status: 'COMPLETED' });
+    expect(ins!.checklist).toHaveLength(5);
+    expect(ins!.responses.find(r => r.item_key === '02-drain-grates-secured')!.outcome).toBe('FAIL');
+    expect(ins!.findings).toEqual([expect.objectContaining({ finding_reference: 'FND-DEMO-001', source_item_key: '02-drain-grates-secured' })]);
+
+    const act = await m.actions.getActionDetail(demoAdmin, id('801'));
+    expect(act!.action.status).toBe('CLOSED');
+    expect(act!.verifications.map(v => [v.attempt_number, v.result])).toEqual([[2, 'ACCEPTED'], [1, 'REJECTED']]);
+    expect(act!.verifications[0].evidence.map(e => e.reference)).toEqual(['EVD-DEMO-001']);
+    expect(act!.evidence.filter(e => e.removed_at).map(e => e.evidence_reference)).toEqual(['EVD-DEMO-003']);
+    expect(act!.tasks.map(t => t.name)).toEqual(['Bolt down wash bay grate WB-3 (DEMO)']);
+
+    // Closing the action did not close its finding.
+    const f = await m.findings.getFindingDetail(demoAdmin, id('701'));
+    expect(f!.finding.status).toBe('AWAITING_VERIFICATION');
+    expect(f!.sources.map(s => s.reference)).toEqual(['INS-DEMO-001']);
+  });
+
+  it('incident <-> investigation M:N and awaiting-verification work', async () => {
+    const inc = await m.incidents.getIncidentDetail(demoAdmin, id('501'));
+    expect(inc!.investigations.map(l => [l.investigation_reference, l.relationship]).sort()).toEqual([['INV-DEMO-001', 'PRIMARY'], ['INV-DEMO-002', 'CONTEXT']]);
+    expect(inc!.incident.status).toBe('UNDER_INVESTIGATION'); // INV-DEMO-002 completed; incident still open
+    expect(inc!.people.map(p => p.role).sort()).toEqual(['INJURED_PERSON', 'WITNESS']);
+    const inv = await m.investigations.getInvestigationDetail(demoAdmin, id('601'));
+    expect(inv!.incidents.map(l => l.incident_reference)).toEqual(['INC-DEMO-001', 'INC-DEMO-002']);
+    const queue = await m.verifications.listVerificationQueue(demoWhs);
+    expect(queue.map(q => [q.action_reference, q.can_verify])).toEqual([['ACT-DEMO-002', true]]);
+    const act2 = await m.actions.getActionDetail(demoAdmin, id('802'));
+    const tf = act2!.timeframes[0];
+    expect(new Date(tf.original_due_at).getTime()).toBeLessThan(new Date(tf.current_due_at).getTime());
+    expect(tf.extensions).toHaveLength(1);
+  });
+
+  it('the restricted incident is visible only to its owner/admins', async () => {
+    expect(await m.incidents.getIncidentDetail(demoAdmin, id('503'))).not.toBeNull();
+    expect(await m.incidents.getIncidentDetail(demoWhs, id('503'))).toBeNull();
+    expect(await m.incidents.getIncidentDetail(demoViewer, id('503'))).toBeNull();
+  });
+
+  it('supports the next click-through: the independent verifier accepts ACT-DEMO-002, then it can be closed', async () => {
+    await m.verifications.recordVerification(demoWhs, id('802'), { result: 'ACCEPTED', notes: 'Slip test passed (synthetic).' });
+    await m.actions.closeAction(demoAdmin, id('802'));
+    expect((await m.actions.getActionDetail(demoAdmin, id('802')))!.action.status).toBe('CLOSED');
+    // FND-DEMO-002 can move on, but closure is refused while ACT-DEMO-003 is outstanding.
+    await m.findings.transitionFinding(demoAdmin, id('702'), { status: 'AWAITING_VERIFICATION' });
+    await expectError(m.findings.transitionFinding(demoAdmin, id('702'), { status: 'CLOSED' }), 'AssuranceConflictError', /1 linked action is still open/);
   });
 });
