@@ -192,3 +192,109 @@ describe('Organiser board and calendar views', () => {
     await expectNoAxeViolations(container);
   });
 });
+
+// D.4.7F — real end-to-end coverage for keyboard reordering, on top of
+// ReorderHandle's own isolated unit/axe test: this proves the ACTUAL
+// wiring in app/organiser/page.tsx (ReorderHandle -> the keyboard-move
+// closures -> the existing reorderTopLevelItems function -> optimistic
+// setBoardData) behaves correctly in a real render, not just that the
+// extracted component's own onKeyDown fires in isolation.
+describe('Organiser keyboard reorder', () => {
+  it('ArrowDown on an item handle moves it later, announces the new position, and stays axe-clean', async () => {
+    const { user, container } = await renderOrganiser();
+    expect(screen.getAllByRole('button', { name: /^(Draft budget|Book venue)$/ }).map(b => b.textContent))
+      .toEqual(['Draft budget', 'Book venue']);
+
+    const handles = screen.getAllByRole('button', { name: 'Reorder item' });
+    expect(handles).toHaveLength(2);
+    const draftBudgetHandle = handles[0];
+    draftBudgetHandle.focus();
+    await user.keyboard('{ArrowDown}');
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /^(Draft budget|Book venue)$/ }).map(b => b.textContent))
+        .toEqual(['Book venue', 'Draft budget']);
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('Moved Draft budget to position 2 of 2');
+    // Design's own stated expectation (stable React `key={item.id}` should
+    // carry the DOM node, and therefore focus, across the reorder) —
+    // verified empirically here rather than assumed; no manual .focus()
+    // call was added because this passes without one.
+    expect(document.activeElement).toBe(draftBudgetHandle);
+    await expectNoAxeViolations(container);
+  });
+
+  it('ArrowUp on the first item is a boundary no-op: no reorder, no announcement', async () => {
+    const { user } = await renderOrganiser();
+    const handles = screen.getAllByRole('button', { name: 'Reorder item' });
+    handles[0].focus();
+    await user.keyboard('{ArrowUp}');
+    expect(screen.getAllByRole('button', { name: /^(Draft budget|Book venue)$/ }).map(b => b.textContent))
+      .toEqual(['Draft budget', 'Book venue']);
+    expect(screen.getByRole('status')).toHaveTextContent('');
+  });
+
+  it('two rapid ArrowDown presses coalesce to exactly one additional network write, settling on the latest computed order', async () => {
+    // A controllable, externally-resolvable promise — same technique
+    // coalescingMutationQueue.test.ts uses to prove enqueueCoalesced's own
+    // contract; here it proves the identical guarantee holds end-to-end
+    // through the real reorderTopLevelItems function this keyboard path
+    // now shares with pointer drag.
+    function deferred<T>() {
+      let resolve!: (v: T) => void;
+      const promise = new Promise<T>(res => { resolve = res; });
+      return { promise, resolve };
+    }
+    const reorderResponse = deferred<Response>();
+    let reorderCallCount = 0;
+    const reorderBodies: unknown[] = [];
+    const threeItemBoard = { ...BOARD_DATA, items: [...BOARD_DATA.items, item('i3', 'Confirm caterer', 'Not Started', null, null)] };
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const json = (b: unknown) => Promise.resolve(new Response(JSON.stringify(b), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      if (url === '/api/organiser/boards') return json({ boards: BOARDS });
+      if (url.startsWith('/api/organiser/boards/b1/items/reorder')) {
+        reorderCallCount++;
+        reorderBodies.push(JSON.parse(String(init?.body)));
+        return reorderCallCount === 1 ? reorderResponse.promise : json({});
+      }
+      if (url.startsWith('/api/organiser/boards/b1')) return json(threeItemBoard);
+      if (url.startsWith('/api/organiser/members')) return json({ members: [] });
+      if (url.includes('/files')) return json({ files: [] });
+      if (url.includes('/updates')) return json({ updates: [] });
+      if (url.startsWith('/api/organiser/activity')) return json({ activity: [], next_cursor: null });
+      return json({});
+    });
+
+    const { user } = await renderOrganiser();
+    const namesOf = () => screen.getAllByRole('button', { name: /^(Draft budget|Book venue|Confirm caterer)$/ }).map(b => b.textContent);
+    expect(namesOf()).toEqual(['Draft budget', 'Book venue', 'Confirm caterer']);
+
+    const handles = screen.getAllByRole('button', { name: 'Reorder item' });
+    expect(handles).toHaveLength(3);
+    handles[0].focus(); // Draft budget
+
+    await user.keyboard('{ArrowDown}'); // optimistic: Book venue, Draft budget, Confirm caterer
+    await waitFor(() => expect(reorderCallCount).toBe(1));
+    await waitFor(() => expect(namesOf()).toEqual(['Book venue', 'Draft budget', 'Confirm caterer']));
+
+    // Second press fires BEFORE the first request resolves — this is the
+    // "rapid keypress while a write is in flight" scenario. It must not
+    // start a second overlapping request.
+    await user.keyboard('{ArrowDown}'); // optimistic: Book venue, Confirm caterer, Draft budget
+    expect(reorderCallCount).toBe(1);
+    await waitFor(() => expect(namesOf()).toEqual(['Book venue', 'Confirm caterer', 'Draft budget']));
+
+    reorderResponse.resolve(new Response(JSON.stringify({}), { status: 200 }));
+    await waitFor(() => expect(reorderCallCount).toBe(2));
+
+    expect(reorderBodies[0]).toEqual({ group_id: 'g1', ordered_item_ids: ['i2', 'i1', 'i3'] });
+    // The coalesced second request carries the LATEST value computed while
+    // the first was in flight, not an intermediate one it superseded.
+    expect(reorderBodies[1]).toEqual({ group_id: 'g1', ordered_item_ids: ['i2', 'i3', 'i1'] });
+
+    // Final settled order matches the latest keypress, not a stale one.
+    await waitFor(() => expect(namesOf()).toEqual(['Book venue', 'Confirm caterer', 'Draft budget']));
+  });
+});

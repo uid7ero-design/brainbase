@@ -7,6 +7,10 @@ const read = (relative: string) =>
 
 const page = read('app/organiser/page.tsx')
 const rail = read('components/organiser/OrganiserRail.tsx')
+// D.4.7F — the group/item/subitem drag handle's own `draggable`/onDragStart
+// markup was extracted into this component (still owned by, and only ever
+// rendered from, table chrome — never the rail). See ReorderHandle.tsx.
+const reorderHandle = read('components/organiser/ReorderHandle.tsx')
 
 const organiserCss = fs.readFileSync(path.resolve(__dirname, '../../components/organiser/Organiser.module.css'), 'utf-8')
 const railCss = fs.readFileSync(path.resolve(__dirname, '../../components/organiser/OrganiserRail.module.css'), 'utf-8')
@@ -107,7 +111,15 @@ describe('C.3 Organiser rail and table chrome design-system migration', () => {
   })
 
   it('preserves the integrated drag/drop hooks in table chrome without moving them into the rail', () => {
-    for (const hook of ['draggable', 'onDragStart=', 'onDragOver=', 'onDrop=']) {
+    // D.4.7F — `draggable` and `onDragStart=` now live in ReorderHandle.tsx
+    // (extracted from page.tsx so the new keyboard wiring could get real
+    // rendered accessibility coverage) — that component is itself only
+    // ever imported and rendered by page.tsx's table chrome, so the two
+    // together still prove drag/drop stayed in table chrome, not the rail.
+    expect(reorderHandle).toContain('draggable')
+    expect(reorderHandle).toContain('onDragStart=')
+    expect(page).toContain("import { ReorderHandle } from \"@/components/organiser/ReorderHandle\"")
+    for (const hook of ['onDragOver=', 'onDrop=']) {
       expect(page).toContain(hook)
     }
     expect(page).toContain('onGroupDragHandleStart')

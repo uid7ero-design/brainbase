@@ -18,22 +18,67 @@ function block(startMarker: string, endMarker: string): string {
 const itemRowBlock = () => block('function ItemRow(', '\nfunction GroupSection(')
 const groupSectionBlock = () => block('function GroupSection(', '\nfunction KanbanView(')
 const reorderItemsBlock = () => block('async function reorderTopLevelItems(', '\n  async function addItem(')
+// D.4.7F — the handler for handleTopLevelItemKeyReorder lives inside
+// GroupSection, right after handleSubitemDropAtEnd; bounded to just that
+// function (not the whole GroupSection block) for a tight assertion.
+const handleTopLevelItemKeyReorderBlock = () => block('function handleTopLevelItemKeyReorder(', '\n  }')
 
 describe('E3 ItemRow drag handle', () => {
-  it('is an optional, dedicated draggable hit target with accessible labeling', () => {
+  it('is an optional, dedicated draggable hit target rendered via <ReorderHandle>', () => {
     const b = itemRowBlock()
     expect(b).toMatch(/onItemDragHandleStart\?: \(\) => void/)
     expect(b).toMatch(/\{onItemDragHandleStart && \(/)
-    expect(b).toMatch(/draggable/)
+    expect(b).toMatch(/<ReorderHandle/)
     expect(b).toMatch(/onDragStart=/)
     expect(b).toMatch(/title="Drag to reorder item"/)
-    expect(b).toMatch(/aria-label="Reorder item"/)
+    expect(b).toMatch(/ariaLabel="Reorder item"/)
   })
 
   it('keeps name-click drawer open and separate inline rename intact', () => {
     const b = itemRowBlock()
     expect(b).toMatch(/onClick=\{\(\) => onOpenDrawer\(item\)\}/)
     expect(b).toMatch(/title="Rename"/)
+  })
+})
+
+describe('D.4.7F — ItemRow/GroupSection keyboard reorder wiring (top-level items)', () => {
+  it('ItemRow declares an optional onKeyReorder prop and wires it to ReorderHandle\'s onMove', () => {
+    const b = itemRowBlock()
+    expect(b).toMatch(/onKeyReorder\?: \(move: ReorderMove\) => void;/)
+    expect(b).toMatch(/onMove=\{move => onKeyReorder\?\.\(move\)\}/)
+  })
+
+  it('the top-level ItemRow call site passes onKeyReorder wired to handleTopLevelItemKeyReorder(item.id, move)', () => {
+    const b = groupSectionBlock()
+    expect(b).toMatch(/onKeyReorder=\{move => handleTopLevelItemKeyReorder\(item\.id, move\)\}/)
+  })
+
+  it('handleTopLevelItemKeyReorder computes via moveInOrderedList against THIS group\'s own topLevel ids only', () => {
+    const b = handleTopLevelItemKeyReorderBlock()
+    expect(b).toMatch(/const currentIds = topLevel\.map\(i => i\.id\);/)
+    expect(b).toMatch(/const reordered = moveInOrderedList\(currentIds, itemId, move\);/)
+  })
+
+  it('is a true no-op on a boundary move before any announcement or reorder call', () => {
+    const b = handleTopLevelItemKeyReorderBlock()
+    const guardIdx = b.indexOf('if (!reordered) return;')
+    const announceIdx = b.indexOf('onAnnounce(')
+    const reorderIdx = b.indexOf('onReorderTopLevelItems(')
+    expect(guardIdx).toBeGreaterThan(-1)
+    expect(announceIdx).toBeGreaterThan(guardIdx)
+    expect(reorderIdx).toBeGreaterThan(announceIdx)
+  })
+
+  it('terminates in the exact same onReorderTopLevelItems prop pointer drop already calls — exactly one call, no new mutation path', () => {
+    const b = handleTopLevelItemKeyReorderBlock()
+    const calls = b.match(/onReorderTopLevelItems\(/g) ?? []
+    expect(calls.length).toBe(1)
+    expect(b).not.toMatch(/fetch\(/)
+  })
+
+  it('announces with the entity type and moved-to position/total — matching the approved design\'s exact message shape', () => {
+    const b = handleTopLevelItemKeyReorderBlock()
+    expect(b).toMatch(/`Moved \$\{item\.name\} to position \$\{reordered\.indexOf\(itemId\) \+ 1\} of \$\{reordered\.length\}`/)
   })
 })
 
@@ -137,6 +182,13 @@ describe('E3 scope exclusions', () => {
     const calendar = block('function CalendarView(', '\nfunction ')
     expect(kanban).not.toMatch(/onItemDragHandleStart|reorderTopLevelItems|handleTopLevelItemDrop/)
     expect(calendar).not.toMatch(/onItemDragHandleStart|reorderTopLevelItems|handleTopLevelItemDrop/)
+  })
+
+  it('D.4.7F — does not add keyboard reorder behavior to Kanban or Calendar views either', () => {
+    const kanban = block('function KanbanView(', '\nfunction CalendarView(')
+    const calendar = block('function CalendarView(', '\nfunction ')
+    expect(kanban).not.toMatch(/onKeyReorder|handleTopLevelItemKeyReorder|moveInOrderedList|ReorderHandle/)
+    expect(calendar).not.toMatch(/onKeyReorder|handleTopLevelItemKeyReorder|moveInOrderedList|ReorderHandle/)
   })
 
   it('introduces no item reorder activity type', () => {
