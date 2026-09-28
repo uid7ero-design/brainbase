@@ -253,7 +253,7 @@ describe('Phase D.4.2 — capability icons did not touch the underlying gating t
   // mirroring hasEvents/hasCrm exactly — every capability="..." prop in
   // this file is now one of events/crm/organiser, matching the three
   // gates that actually exist.
-  it('no capability id beyond events/crm/organiser/quotes/people was introduced anywhere in TopNav.tsx — every capability="..." prop matches a real gate', () => {
+  it('no capability id beyond events/crm/organiser/quotes/people/assurance was introduced anywhere in TopNav.tsx — every capability="..." prop matches a real gate', () => {
     const capabilityProps = topNavSource.match(/capability="[a-zA-Z]+"/g) ?? []
     expect(capabilityProps.length).toBeGreaterThan(0)
     for (const prop of capabilityProps) {
@@ -263,7 +263,9 @@ describe('Phase D.4.2 — capability icons did not touch the underlying gating t
       // "every capability prop matches a real gate" intent exactly.
       // HR-1 People Foundation — 'people' added the same way (hasPeople =
       // enabledCapabilities.includes('people')).
-      expect(['capability="events"', 'capability="crm"', 'capability="organiser"', 'capability="quotes"', 'capability="people"']).toContain(prop)
+      // BrainBase Assurance — 'assurance' added the same way (hasAssurance =
+      // enabledCapabilities.includes('assurance')).
+      expect(['capability="events"', 'capability="crm"', 'capability="organiser"', 'capability="quotes"', 'capability="people"', 'capability="assurance"']).toContain(prop)
     }
   })
 })

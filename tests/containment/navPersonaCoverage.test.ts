@@ -241,13 +241,15 @@ describe('Phase D.4.2 — capability icons across all three personas', () => {
   // HR-1 People Foundation added People as a fifth real capability-gated
   // NavItem, mirroring Events/CRM/Organiser/Commercial exactly in both
   // branches — counts updated from 4 to 5.
-  it('Persona 2/3 (shared branch + LD Tennis branch): only Events, CRM, Organiser, Commercial, and People NavItem entries carry a capability prop, using this file\'s own already-computed regions — no icon leaked onto a founder-only or LD-Tennis-bespoke item', () => {
+  // BrainBase Assurance added Assurance as a sixth, gated on 'assurance',
+  // mirrored in both branches — counts updated from 5 to 6.
+  it('Persona 2/3 (shared branch + LD Tennis branch): only Events, CRM, Organiser, Commercial, People, and Assurance NavItem entries carry a capability prop, using this file\'s own already-computed regions — no icon leaked onto a founder-only or LD-Tennis-bespoke item', () => {
     const sharedCapabilityProps = sharedRegion.match(/capability="[a-zA-Z]+"/g) ?? []
     const ldTennisCapabilityProps = ldTennisRegion.match(/capability="[a-zA-Z]+"/g) ?? []
-    expect(sharedCapabilityProps.length).toBe(5) // Events & Ticketing, CRM, Commercial, Organiser, People
-    expect(ldTennisCapabilityProps.length).toBe(5) // Events, CRM, Commercial, Organiser, People
+    expect(sharedCapabilityProps.length).toBe(6) // Events & Ticketing, CRM, Commercial, Organiser, People, Assurance
+    expect(ldTennisCapabilityProps.length).toBe(6) // Events, CRM, Commercial, Organiser, People, Assurance
     for (const prop of [...sharedCapabilityProps, ...ldTennisCapabilityProps]) {
-      expect(['capability="events"', 'capability="crm"', 'capability="organiser"', 'capability="quotes"', 'capability="people"']).toContain(prop)
+      expect(['capability="events"', 'capability="crm"', 'capability="organiser"', 'capability="quotes"', 'capability="people"', 'capability="assurance"']).toContain(prop)
     }
   })
 

@@ -1090,6 +1090,15 @@ function AppNav({
       'people',
     );
 
+  // BrainBase Assurance — same capability-driven pattern as
+  // hasOrganiser/hasPeople. Visibility only: app/assurance/layout.tsx,
+  // every Assurance page and every /api/assurance route enforce the
+  // 'assurance' capability server-side independently.
+  const hasAssurance =
+    enabledCapabilities.includes(
+      'assurance',
+    );
+
   const initials = name
     .split(' ')
     .map(
@@ -1241,6 +1250,17 @@ function AppNav({
                 capability="people"
                 active={pathname.startsWith(
                   '/people',
+                )}
+              />
+            )}
+
+            {hasAssurance && (
+              <NavItem
+                href="/assurance"
+                label="Assurance"
+                capability="assurance"
+                active={pathname.startsWith(
+                  '/assurance',
                 )}
               />
             )}
@@ -1483,6 +1503,17 @@ function AppNav({
                 capability="people"
                 active={pathname.startsWith(
                   '/people',
+                )}
+              />
+            )}
+
+            {hasAssurance && (
+              <NavItem
+                href="/assurance"
+                label="Assurance"
+                capability="assurance"
+                active={pathname.startsWith(
+                  '/assurance',
                 )}
               />
             )}
