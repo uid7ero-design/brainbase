@@ -2434,3 +2434,34 @@ Left unchanged by decision:
 - Founder OS's harness-only 40px overflow. Verify it on Preview with the real admin layout; do not patch it from harness evidence.
 - The pre-existing sticky ClientBanner gap. It stays documented.
 - The documented functional issues. They remain out of scope.
+
+## Deferred-issues follow-up (N1–N5) — base main ca3daa6
+
+A small follow-up for the five non-blocking issues recorded during the authenticated Preview acceptance of PR #291. Visual and semantic changes only; behaviour, data, APIs, enums and public route logic are unchanged. The remaining visual-completion backlog is untouched.
+
+- **N1 — Sessions calendar at phone width.**
+  - Cause: the page root (a flex child with auto side margins) shrank to fit its content, so the week grid's 700px minimum widened the whole page.
+  - Fix: the root is bounded to its container (`width: 100%`, `box-sizing: border-box`). The seven-day grid keeps its 700px minimum and scrolls inside its existing `overflow-x: auto` wrapper.
+  - Harness: page overflow 737px → 0 at 390 and 103px → 0 at 1024, in both themes.
+- **N2 — Event detail at phone width.**
+  - Same shrink-to-fit root; bounded the same way, so the shared `MetricStrip` reflows to its 148px column minimum. `MetricStrip` itself is unchanged.
+  - Harness: overflow 23px → 0 at 390. The earlier QuestionsPanel wrap is kept.
+- **N3 — Public /e and /t muted text.** The same tint at higher opacity only; the brand treatments (always-dark ticket, institutional burgundy/gold/serif theme, default palette) are unchanged.
+  - Institutional theme `textMuted`: .46 → .62 (2.90–2.97:1 → at least 4.5:1 on bg, card and section surfaces).
+  - Default theme and ticket `textMuted` / `TICKET_TEXT_MUTED`: .42 → .52 (3.48–3.52:1 → at least 4.5:1). The ticket field labels now use the shared constant.
+  - Muted text stays lighter than secondary text.
+  - Harness failures: School page 13 → 0, default event page 14 → 0, ticket 4 → 0. (The School "Pay" button on its burgundy gradient reads as a probe artefact; white on #4B001F–#65002B is at least 13:1.)
+  - Two default-theme pins were updated from .42 to .52 with the required comment; `publicMutedTextContrast.test.ts` computes the contrast.
+- **N4 — Organiser view switch.**
+  - Selected state is now a raised segment: `--bg-surface`, an accent-border ring and accent text, instead of accent on the accent tint over the sunken strip.
+  - Measured: Table selected 4.35:1 → 5.75:1 (light) and 5.78 → 5.99:1 (dark).
+  - A border, not outline or box-shadow, so `:focus-visible` still applies. Verified with real keyboard focus: 2px solid accent ring, 2px offset.
+  - PR #248's drag handles are untouched (13 present in the harness).
+- **N5 — Headings and copy.**
+  - `/hlna`: a visually hidden `<h1>HLNΛ workspace</h1>`; the wordmark stays the visual identity.
+  - Bin Maintenance Insights: one visible h1 via the shared `PageHeader`.
+  - Lead status badges: display copy via `leadStatusLabel()` (for example `in_progress` → "In Progress", matching the status picker's existing labels). Stored and API values, comparisons and `leadStatusState()` are unchanged.
+- **Documented, not fixed:**
+  - PR #248's new organiser drag handles (focusable `role="button"`) have no keyboard way to reorder; reordering is native HTML drag only. This is a functional accessibility gap for a separate pass.
+  - Out-of-scope observation: the default public event theme's input placeholder is `rgba(226,232,240,.32)`. It was not measured, because placeholders were excluded from the probe.
+- **Verification sources:** harness verification only, not authenticated routes. Real components were rendered in a real Chrome in before (main ca3daa6) and after worktrees, with fixtures and a scratch-only SQL/session shim for the leads pages, at 1440, 1024 and 390, light and dark.

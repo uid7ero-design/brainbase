@@ -27,7 +27,8 @@ export const TICKET_BORDER_SOFT = 'rgba(255,255,255,.06)';
 export const TICKET_VIOLET_SOFT = '#A78BFA';
 export const TICKET_TEXT_PRIMARY = '#F5F7FA';
 export const TICKET_TEXT_SECONDARY = 'rgba(226,232,240,.66)';
-export const TICKET_TEXT_MUTED = 'rgba(226,232,240,.42)';
+// .52 (was .42 = 3.5:1 on the ticket surface): same tint, clears 4.5:1.
+export const TICKET_TEXT_MUTED = 'rgba(226,232,240,.52)';
 export const TICKET_GREEN = '#4ADE80';
 export const TICKET_RED = '#F87171';
 export const TICKET_FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
@@ -170,7 +171,7 @@ export function TicketCard(props: TicketCardProps) {
 function TicketField({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.05em', textTransform: 'uppercase', color: 'rgba(226,232,240,.42)' }}>{label}</div>
+      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.05em', textTransform: 'uppercase', color: TICKET_TEXT_MUTED }}>{label}</div>
       <div style={{ fontSize: 14, color: '#F5F7FA', fontWeight: 600, marginTop: 2 }}>{value}</div>
     </div>
   );

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { PageHeader } from '@/components/ui/app';
 import KpiCard from '@/components/dashboard/ui/KpiCard';
 import Widget from '@/components/ops/widgets/Widget';
 import { useDashboardChart } from '@/components/dashboard/ui/chartTheme';
@@ -134,6 +135,9 @@ export default function BinMaintenanceInsightsPage() {
         <svg aria-hidden="true" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
         Bin Maintenance
       </Link>
+
+      {/* The page's single h1 (it previously had none). */}
+      <PageHeader title="Bin Maintenance Insights" />
 
       {/* Date filter strip */}
       <div role="group" aria-labelledby="bmi-date-range" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 16, padding: '10px 14px', borderRadius: 'var(--radius-lg)', background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>

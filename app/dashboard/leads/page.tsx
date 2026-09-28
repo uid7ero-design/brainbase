@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import sql from '@/lib/db';
 import Link from 'next/link';
 import { Badge, PageHeader, StateMessage, TableContainer, tableStyles } from '@/components/ui/app';
-import { leadStatusState } from './leadStatus';
+import { leadStatusLabel, leadStatusState } from './leadStatus';
 import styles from './Leads.module.css';
 
 
@@ -64,7 +64,7 @@ export default async function LeadsDashboard() {
                     <td className={lead.session_type ? undefined : tableStyles.muted}>{lead.session_type || '—'}</td>
                     <td className={styles.message} title={lead.message || undefined}>{lead.message || '—'}</td>
                     <td>
-                      <Badge state={leadStatusState(lead.status)} className={styles.statusBadge}>{lead.status}</Badge>
+                      <Badge state={leadStatusState(lead.status)} className={styles.statusBadge}>{leadStatusLabel(lead.status)}</Badge>
                     </td>
                     <td className={styles.received}>
                       <span style={{ display: 'block' }}>{date}</span>

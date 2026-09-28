@@ -59,7 +59,11 @@ describe('resolvePublicEventTheme — resolver behaviour', () => {
     expect(theme.tokens.accentGradient).toBe('linear-gradient(100deg,#6A3DFF 0%,#8A4DFF 55%,#5677FF 100%)')
     expect(theme.tokens.textPrimary).toBe('#F5F7FA')
     expect(theme.tokens.textSecondary).toBe('rgba(226,232,240,.66)')
-    expect(theme.tokens.textMuted).toBe('rgba(226,232,240,.42)')
+    // Visual-convergence update (deferred-issues pass, N3): textMuted .42 → .52 —
+    // same tint, the lowest opacity that clears WCAG AA 4.5:1 on the default
+    // surfaces (was 3.5:1). Every other default token stays byte-identical;
+    // the contrast itself is computed in publicMutedTextContrast.test.ts.
+    expect(theme.tokens.textMuted).toBe('rgba(226,232,240,.52)')
     expect(theme.tokens.green).toBe('#4ADE80')
     expect(theme.tokens.red).toBe('#F87171')
   })
