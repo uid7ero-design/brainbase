@@ -103,7 +103,8 @@ function WorkList({ items, dueLabel, empty, showOverdue, detailAsBadge, detailAs
     <Card padded={false}>
       <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
         {items.map((it, i) => {
-          const overdue = showOverdue && isPast(it.due_at) && it.status !== 'IN_PROGRESS';
+          // An in-progress inspection's scheduled time being past is not "overdue".
+          const overdue = showOverdue && isPast(it.due_at) && !(it.kind === 'inspection' && it.status === 'IN_PROGRESS');
           return (
             <li key={`${it.kind}-${it.id}`} style={{ borderBottom: i < items.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
               <Link href={`${HREF[it.kind]}/${it.id}`} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '11px 16px', textDecoration: 'none' }}>
