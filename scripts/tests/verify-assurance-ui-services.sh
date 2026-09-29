@@ -4,7 +4,7 @@
 # Starts a throwaway postgres:17 container, creates minimal stand-ins for
 # the pre-existing platform tables (organisations, users, hr_people,
 # organiser_items, audit_logs), applies the REAL Assurance migrations
-# (A0.1B, A0.1C, A0.1D-1, A0.1D-2, A0.1D-3), then runs the Assurance
+# (A0.1B, A0.1C, A0.1D-1, A0.1D-2, A0.1D-3, A0.1E-1 Audit), then runs the Assurance
 # service-layer integration suite (scripts/tests/assuranceUi.integration.test.ts)
 # against it through a Neon-compatible `pg` seam. Also proves the synthetic
 # demo fixture (scripts/assurance-demo/*.sql): its guard, that it loads, that
@@ -31,7 +31,7 @@ trap cleanup EXIT
 
 for f in scripts/create-shared-foundations-a01b.sql scripts/create-assurance-core-a01c.sql \
          scripts/create-assurance-incidents-a01d1.sql scripts/create-assurance-investigations-a01d2.sql \
-         scripts/create-assurance-inspections-a01d3.sql; do
+         scripts/create-assurance-inspections-a01d3.sql scripts/create-assurance-audits-a01e1.sql; do
   [ -f "$f" ] || { echo "ERROR: $f not found." >&2; exit 2; }
 done
 
@@ -145,10 +145,10 @@ CREATE TABLE audit_logs (
 );
 SQL
 
-echo "Applying real Assurance migrations (A0.1B, A0.1C, A0.1D-1..3) ..."
+echo "Applying real Assurance migrations (A0.1B, A0.1C, A0.1D-1..3, A0.1E-1) ..."
 for f in scripts/create-shared-foundations-a01b.sql scripts/create-assurance-core-a01c.sql \
          scripts/create-assurance-incidents-a01d1.sql scripts/create-assurance-investigations-a01d2.sql \
-         scripts/create-assurance-inspections-a01d3.sql; do
+         scripts/create-assurance-inspections-a01d3.sql scripts/create-assurance-audits-a01e1.sql; do
   psql_exec < "$f" >/dev/null || { echo "ERROR: $f failed to apply." >&2; exit 2; }
   echo "  applied $f"
 done
@@ -182,7 +182,7 @@ fi
 echo "Cleaning up the demo fixture (disposable-only) and proving history triggers are restored ..."
 cleanup_demo || { echo "ERROR: demo cleanup failed." >&2; exit 1; }
 [ "$(echo "SELECT count(*) FROM organisations WHERE id = 'assurance-demo-org';" | psql_q | tr -d '[:space:]')" = "0" ] || { echo "ERROR: demo org survived cleanup." >&2; exit 1; }
-[ "$(echo "SELECT count(*) FROM pg_trigger WHERE tgname IN ('trg_assurance_verifications_append_only','trg_assurance_inspection_template_versions_immutable') AND tgenabled = 'O';" | psql_q | tr -d '[:space:]')" = "2" ]   || { echo "ERROR: history triggers not re-enabled after cleanup." >&2; exit 1; }
+[ "$(echo "SELECT count(*) FROM pg_trigger WHERE tgname IN ('trg_assurance_verifications_append_only','trg_assurance_inspection_template_versions_immutable','trg_assurance_audit_template_versions_immutable') AND tgenabled = 'O';" | psql_q | tr -d '[:space:]')" = "3" ]   || { echo "ERROR: history triggers not re-enabled after cleanup." >&2; exit 1; }
 [ "$(echo "SELECT count(*) FROM assurance_incidents WHERE organisation_id = 'org-a';" | psql_q | tr -d '[:space:]')" != "0" ] || { echo "ERROR: cleanup touched non-demo data." >&2; exit 1; }
 if echo "UPDATE assurance_verifications SET notes = 'x' WHERE organisation_id = 'org-a';" | psql_exec >/dev/null 2>&1; then
   echo "ERROR: append-only trigger not active after cleanup." >&2; exit 1

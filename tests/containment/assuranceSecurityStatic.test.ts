@@ -79,12 +79,44 @@ describe('pages', () => {
       expect(src, f).not.toMatch(/server-only|@\/lib\/db|next\/headers|from '\.\/(authorize|access|audit|users|lookups|sqlHelpers)'/)
     }
   })
-  it('Audit is shown only as a disabled placeholder (A0.1E-1 is still in deployment gating)', () => {
+  it('navigation: Audits enabled in order; later A0.1E workflows (Evaluation, Contractor Assurance, Insurance) absent', () => {
     const src = read('app/assurance/_components/AssuranceSidebar.tsx')
-    expect(src).toMatch(/aria-disabled="true"/)
-    expect(src).not.toMatch(/\/assurance\/audits?/)
-    expect(walk('app').some(f => /assurance\/audits?/.test(f))).toBe(false)
-    expect(walk('lib/assurance').some(f => /audit(s)?\.ts$/.test(f) && !f.endsWith('/audit.ts'))).toBe(false)
+    const order = [...src.matchAll(/href: '(\/assurance[^']*)'/g)].map(m => m[1])
+    expect(order).toEqual([
+      '/assurance', '/assurance/incidents', '/assurance/investigations', '/assurance/inspections', '/assurance/audits',
+      '/assurance/findings', '/assurance/actions', '/assurance/evidence', '/assurance/verification',
+    ])
+    expect(src).not.toMatch(/aria-disabled/)
+    expect(src).not.toMatch(/evaluation|insurance|contractor/i)
+    expect(walk('app').some(f => /assurance\/(evaluations?|insurance|contractor)/i.test(f))).toBe(false)
+  })
+  it('Audit routes and pages exist', () => {
+    for (const f of [
+      'app/assurance/audits/page.tsx', 'app/assurance/audits/new/page.tsx', 'app/assurance/audits/[id]/page.tsx',
+      'app/assurance/audits/templates/page.tsx', 'app/assurance/audits/templates/[id]/page.tsx',
+    ]) expect(fs.existsSync(path.join(ROOT, f)), f).toBe(true)
+    const expect_ = (route: string, op: string) => {
+      const src = stripComments(read(`app/api/assurance/${route}/route.ts`))
+      expect(src, route).toMatch(new RegExp(`assurancePost(WithId)?\\('${op}'`))
+    }
+    expect_('audits', 'record')
+    expect_('audits/[id]/start', 'record')
+    expect_('audits/[id]/responses', 'record')
+    expect_('audits/[id]/complete', 'record')
+    expect_('audits/[id]/cancel', 'close')
+    expect_('audits/[id]/findings', 'record')
+    expect_('audit-templates', 'administer')
+    expect_('audit-templates/[id]/versions', 'administer')
+    expect_('audit-templates/[id]/active', 'administer')
+  })
+  it('no Audit -> Action shortcut: Audit code never writes actions; findings are the only bridge', () => {
+    for (const f of ['lib/assurance/audits.ts', 'lib/assurance/auditTemplates.ts', ...walk('app/api/assurance/audits'), ...walk('app/api/assurance/audit-templates')]) {
+      const src = stripComments(read(f))
+      expect(src, f).not.toMatch(/assurance_actions|assurance_action_findings|createAction|lib\/assurance\/actions/)
+    }
+    const audits = stripComments(read('lib/assurance/audits.ts'))
+    // completion/response never touch findings
+    expect(audits).not.toMatch(/INSERT INTO assurance_findings|UPDATE assurance_findings/)
   })
 })
 
@@ -101,6 +133,7 @@ describe('service layer', () => {
       expect(src, f).not.toMatch(/\bTRUNCATE\b/i)
       expect(src, f).not.toMatch(/UPDATE\s+assurance_inspection_template_versions/i)
       expect(src, f).not.toMatch(/UPDATE\s+assurance_verifications/i)
+      expect(src, f).not.toMatch(/UPDATE\s+assurance_audit_template_versions/i)
       expect(src, f).not.toMatch(/UPDATE\s+assurance_timeframes\s+SET\s+original_due_at/i)
     }
   })
@@ -151,7 +184,7 @@ describe('service layer', () => {
     }
   })
   it('every Assurance mutation writes an audit row', () => {
-    for (const f of ['incidents', 'investigations', 'inspections', 'templates', 'findings', 'actions', 'evidence', 'verifications']) {
+    for (const f of ['incidents', 'investigations', 'inspections', 'templates', 'audits', 'auditTemplates', 'findings', 'actions', 'evidence', 'verifications']) {
       const src = stripComments(read(`lib/assurance/${f}.ts`))
       const writes = (src.match(/\b(INSERT INTO assurance_|UPDATE assurance_)/g) ?? []).length
       const audits = (src.match(/auditInsert\(|auditFromCte\(|INSERT INTO audit_logs/g) ?? []).length

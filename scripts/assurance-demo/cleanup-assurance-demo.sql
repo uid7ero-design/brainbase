@@ -4,9 +4,9 @@
 -- scripts/assurance-demo/seed-assurance-demo.sql. Never run against Production.
 --
 -- Assurance history is deliberately hard to delete: verification history is
--- append-only and template versions are immutable (row triggers reject
--- UPDATE/DELETE). To remove the synthetic rows, this script disables those
--- two triggers for the duration of this ONE transaction and re-enables them
+-- append-only and inspection/audit template versions are immutable (row
+-- triggers reject UPDATE/DELETE). To remove the synthetic rows, this script
+-- disables those three triggers for the duration of this ONE transaction and re-enables them
 -- before COMMIT. ALTER TABLE takes an ACCESS EXCLUSIVE lock, so concurrent
 -- writers wait rather than slipping through; the triggers are never left
 -- disabled (any error rolls the whole transaction back, including the
@@ -26,12 +26,14 @@ END $$;
 
 ALTER TABLE assurance_verifications DISABLE TRIGGER trg_assurance_verifications_append_only;
 ALTER TABLE assurance_inspection_template_versions DISABLE TRIGGER trg_assurance_inspection_template_versions_immutable;
+ALTER TABLE assurance_audit_template_versions DISABLE TRIGGER trg_assurance_audit_template_versions_immutable;
 
 -- Children before parents (every Assurance FK is ON DELETE NO ACTION).
 DELETE FROM assurance_evidence_verifications WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_evidence_actions       WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_evidence_findings      WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_evidence_inspections   WHERE organisation_id = 'assurance-demo-org';
+DELETE FROM assurance_evidence_audits        WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_evidence_investigations WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_evidence_incidents     WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_evidence_cases         WHERE organisation_id = 'assurance-demo-org';
@@ -42,6 +44,7 @@ DELETE FROM assurance_timeframes             WHERE organisation_id = 'assurance-
 DELETE FROM assurance_action_tasks           WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_action_findings        WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_inspection_findings    WHERE organisation_id = 'assurance-demo-org';
+DELETE FROM assurance_audit_findings         WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_investigation_findings WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_incident_findings      WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_investigation_people   WHERE organisation_id = 'assurance-demo-org';
@@ -49,17 +52,22 @@ DELETE FROM assurance_investigation_incidents WHERE organisation_id = 'assurance
 DELETE FROM assurance_incident_people        WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_case_people            WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_inspection_responses   WHERE organisation_id = 'assurance-demo-org';
+DELETE FROM assurance_audit_responses        WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_evidence               WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_actions                WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_findings               WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_inspections            WHERE organisation_id = 'assurance-demo-org';
+DELETE FROM assurance_audits                 WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_inspection_template_versions WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_inspection_templates   WHERE organisation_id = 'assurance-demo-org';
+DELETE FROM assurance_audit_template_versions WHERE organisation_id = 'assurance-demo-org';
+DELETE FROM assurance_audit_templates        WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_investigations         WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_incidents              WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_cases                  WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_risk_levels            WHERE organisation_id = 'assurance-demo-org';
 
+ALTER TABLE assurance_audit_template_versions ENABLE TRIGGER trg_assurance_audit_template_versions_immutable;
 ALTER TABLE assurance_inspection_template_versions ENABLE TRIGGER trg_assurance_inspection_template_versions_immutable;
 ALTER TABLE assurance_verifications ENABLE TRIGGER trg_assurance_verifications_append_only;
 
@@ -84,6 +92,8 @@ DECLARE
 BEGIN
   SELECT (SELECT count(*) FROM assurance_incidents WHERE organisation_id = 'assurance-demo-org')
        + (SELECT count(*) FROM assurance_verifications WHERE organisation_id = 'assurance-demo-org')
+       + (SELECT count(*) FROM assurance_audits WHERE organisation_id = 'assurance-demo-org')
+       + (SELECT count(*) FROM assurance_audit_template_versions WHERE organisation_id = 'assurance-demo-org')
        + (SELECT count(*) FROM organisations WHERE id = 'assurance-demo-org')
     INTO leftover;
   IF leftover <> 0 THEN
@@ -91,7 +101,8 @@ BEGIN
   END IF;
   IF EXISTS (
     SELECT 1 FROM pg_trigger
-    WHERE tgname IN ('trg_assurance_verifications_append_only', 'trg_assurance_inspection_template_versions_immutable')
+    WHERE tgname IN ('trg_assurance_verifications_append_only', 'trg_assurance_inspection_template_versions_immutable',
+                     'trg_assurance_audit_template_versions_immutable')
       AND tgenabled = 'D'
   ) THEN
     RAISE EXCEPTION 'An Assurance history trigger is still disabled';

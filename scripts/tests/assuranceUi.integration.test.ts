@@ -21,6 +21,8 @@ type Mods = {
   investigations: typeof import('@/lib/assurance/investigations');
   inspections: typeof import('@/lib/assurance/inspections');
   templates: typeof import('@/lib/assurance/templates');
+  audits: typeof import('@/lib/assurance/audits');
+  auditTemplates: typeof import('@/lib/assurance/auditTemplates');
   findings: typeof import('@/lib/assurance/findings');
   actions: typeof import('@/lib/assurance/actions');
   evidence: typeof import('@/lib/assurance/evidence');
@@ -101,6 +103,8 @@ beforeAll(async () => {
     investigations: await import('@/lib/assurance/investigations'),
     inspections: await import('@/lib/assurance/inspections'),
     templates: await import('@/lib/assurance/templates'),
+    audits: await import('@/lib/assurance/audits'),
+    auditTemplates: await import('@/lib/assurance/auditTemplates'),
     findings: await import('@/lib/assurance/findings'),
     actions: await import('@/lib/assurance/actions'),
     evidence: await import('@/lib/assurance/evidence'),
@@ -552,11 +556,12 @@ describe('synthetic demo fixture renders a coherent, connected scenario', () => 
     expect(d.isEmpty).toBe(false);
     expect(d.counts).toMatchObject({
       open_incidents: 4, serious_open_incidents: 2, active_investigations: 1, inspections_due: 1,
-      inspections_in_progress: 1, open_findings: 3, open_actions: 2, overdue_actions: 1, awaiting_verification: 1,
+      inspections_in_progress: 1, open_findings: 4, open_actions: 3, overdue_actions: 1, awaiting_verification: 2,
+      audits_due: 1, audits_in_progress: 0, audits_completed_30d: 1, open_audit_findings: 1,
     });
     expect(d.attention.map(w => w.reference)).toContain('ACT-DEMO-003');
-    expect(d.awaitingVerification.map(w => w.reference)).toEqual(['ACT-DEMO-002']);
-    expect(d.inspectionsDue.map(w => w.reference).sort()).toEqual(['INS-DEMO-002', 'INS-DEMO-003']);
+    expect(d.awaitingVerification.map(w => w.reference).sort()).toEqual(['ACT-DEMO-002', 'ACT-DEMO-004']);
+    expect(d.inspectionsDue.map(w => w.reference).sort()).toEqual(['AUD-DEMO-002', 'INS-DEMO-002', 'INS-DEMO-003']);
     // The customer-service viewer does not see the restricted security incident.
     const v = await m.dashboard.getDashboardData(demoViewer);
     expect(v.counts.open_incidents).toBe(3);
@@ -768,5 +773,220 @@ describe('security review remediation', () => {
     const forOther = await m.actions.getActionDetail(mgr2A, a.id);
     expect(forOther!.verifications[0].evidence).toEqual([]);
     expect(JSON.stringify(forOther)).not.toMatch(/L2 hidden statement/);
+  });
+});
+
+// ── A0.1E-1 Audit ──────────────────────────────────────────────────────────
+describe('audits (A0.1E-1)', () => {
+  const adminB = V('org-b', 'b-mgr', 'admin');
+  const criteria = [
+    { label: 'Route sheets completed every shift' },
+    { label: 'Contamination reported within 5 days' },
+    { label: 'Pre-start checks recorded' },
+    { label: 'Hazardous waste handled by licensed contractor', required: false },
+  ];
+  async function newTemplate(viewer = adminA, name = 'Audit tpl') {
+    return m.auditTemplates.createAuditTemplate(viewer, { name, auditType: 'INTERNAL', standardReference: 'Synthetic Procedure v1', criteria });
+  }
+
+  it('ad hoc audits require a standard_reference (service and database)', async () => {
+    await expectError(m.audits.createAudit(mgrA, { title: 'No basis', scope: 's', auditType: 'SITE' }), 'AssuranceValidationError', /standard/);
+    await expect(sql.raw(`INSERT INTO assurance_audits (organisation_id, audit_reference, audit_type, title, scope)
+      VALUES ('org-a', 'AUD-RAW-1', 'SITE', 't', 's')`)).rejects.toThrow(/basis_check/);
+    const a = await m.audits.createAudit(mgrA, { title: 'Ad hoc', scope: 's', auditType: 'SITE', standardReference: 'Synthetic Std 2' });
+    expect((await m.audits.getAuditDetail(mgrA, a.id))!.audit.standard_reference).toBe('Synthetic Std 2');
+  });
+
+  it('tenant isolation: another organisation cannot see, act on or link to an audit', async () => {
+    const a = await m.audits.createAudit(mgrA, { title: 'Tenant audit', scope: 's', auditType: 'SITE', standardReference: 'Std' });
+    expect((await m.audits.listAudits(mgrB)).some(r => r.id === a.id)).toBe(false);
+    expect(await m.audits.getAuditDetail(mgrB, a.id)).toBeNull();
+    await expectError(m.audits.startAudit(mgrB, a.id), 'AssuranceNotFoundError');
+    await expectError(m.audits.recordAuditResponse(mgrB, a.id, { criterionKey: 'adhoc-x-000001', criterionLabel: 'x', outcome: 'COMPLIANT' }), 'AssuranceNotFoundError');
+    await expectError(m.findings.createFinding(mgrB, { findingType: 'DEFECT', title: 't', description: 'd', auditId: a.id }), 'AssuranceNotFoundError');
+    await expectError(m.evidence.createEvidence(mgrB, { evidenceType: 'PHOTO', title: 'x', target: 'audit', targetId: a.id }), 'AssuranceNotFoundError');
+    expect(await m.audits.getAuditDetail(mgrA, 'not-a-uuid')).toBeNull();
+  });
+
+  it('same-org ACTIVE auditor validation and no organisation_id trust', async () => {
+    await expectError(m.audits.createAudit(mgrA, { title: 't', scope: 's', auditType: 'SITE', standardReference: 'Std', auditorUserId: 'b-mgr' }), 'AssuranceValidationError', /Auditor/);
+    await expectError(m.audits.createAudit(mgrA, { title: 't', scope: 's', auditType: 'SITE', standardReference: 'Std', auditorUserId: 'a-inactive' }), 'AssuranceValidationError', /Auditor/);
+    await expectError(m.audits.createAudit(viewerA, { title: 't', scope: 's', auditType: 'SITE', standardReference: 'Std' }), 'AssuranceForbiddenError');
+    const a = await m.audits.createAudit(mgrA, {
+      title: 'Mass assignment probe', scope: 's', auditType: 'SITE', standardReference: 'Std', auditorUserId: 'a-mgr2',
+      organisationId: 'org-b', organisation_id: 'org-b', status: 'COMPLETED', created_by: 'b-mgr',
+    });
+    const row = (await sql.raw(`SELECT organisation_id, status, created_by, auditor_user_id FROM assurance_audits WHERE id = '${a.id}'`) as Record<string, string>[])[0];
+    expect(row).toEqual({ organisation_id: 'org-a', status: 'PLANNED', created_by: 'a-mgr', auditor_user_id: 'a-mgr2' });
+  });
+
+  it('cross-tenant template, location, asset and external organisation are rejected', async () => {
+    const tplB = await newTemplate(adminB, 'Org B template');
+    await expectError(m.audits.createAudit(mgrA, { title: 't', scope: 's', templateVersionId: tplB.version_id }), 'AssuranceValidationError', /Template/);
+    const [assetB] = await sql.raw(`INSERT INTO assets (organisation_id, asset_reference, asset_type, name) VALUES ('org-b', 'AST-B-AUD', 'VEHICLE', 'B truck') RETURNING id`) as { id: string }[];
+    const [orgB] = await sql.raw(`INSERT INTO external_organisations (organisation_id, reference, name) VALUES ('org-b', 'EXT-B-AUD', 'B contractor') RETURNING id`) as { id: string }[];
+    const base = { title: 't', scope: 's', auditType: 'SITE', standardReference: 'Std' };
+    await expectError(m.audits.createAudit(mgrA, { ...base, locationId: LOC_B }), 'AssuranceValidationError', /Location/);
+    await expectError(m.audits.createAudit(mgrA, { ...base, assetId: assetB.id }), 'AssuranceValidationError', /Asset/);
+    await expectError(m.audits.createAudit(mgrA, { ...base, externalOrganisationId: orgB.id }), 'AssuranceValidationError', /External/);
+    // Templates are admin-only and org-scoped.
+    await expectError(m.auditTemplates.createAuditTemplate(mgrA, { name: 'x', auditType: 'SITE', criteria }), 'AssuranceForbiddenError');
+    expect(await m.auditTemplates.getAuditTemplateDetail(adminA, tplB.id)).toBeNull();
+    await expectError(m.auditTemplates.createAuditTemplateVersion(adminA, tplB.id, { title: 'x', criteria }), 'AssuranceNotFoundError');
+  });
+
+  it('template versions are immutable and historical audits keep their exact version', async () => {
+    const t = await newTemplate(adminA, 'Waste ops');
+    const a = await m.audits.createAudit(mgrA, { title: 'Bound to v1', scope: 's', templateVersionId: t.version_id, auditorUserId: 'a-mgr2', scheduledAt: future(3), locationId: LOC_A });
+    const v2 = await m.auditTemplates.createAuditTemplateVersion(adminA, t.id, { title: 'Waste ops rev 2', standardReference: 'Synthetic Procedure v2', criteria: [{ label: 'Only criterion in v2' }] });
+    expect(v2.version_number).toBe(2);
+    await expect(sql.raw(`UPDATE assurance_audit_template_versions SET title = 'tampered' WHERE id = '${t.version_id}'`)).rejects.toThrow(/immutable/);
+    await expect(sql.raw(`DELETE FROM assurance_audit_template_versions WHERE id = '${t.version_id}'`)).rejects.toThrow(/immutable/);
+    const d = await m.audits.getAuditDetail(mgrA, a.id);
+    expect(d!.audit).toMatchObject({ template_version_number: 1, latest_template_version_number: 2, standard_reference: 'Synthetic Procedure v1', audit_type: 'INTERNAL' });
+    expect(d!.criteria.map(c => c.label)).toEqual(criteria.map(c => c.label));
+    const td = await m.auditTemplates.getAuditTemplateDetail(adminA, t.id);
+    expect(td!.versions.map(v => [v.version_number, v.audit_count])).toEqual([[2, 0], [1, 1]]);
+    // A new audit planned now binds to whichever version is chosen (v2 here).
+    const b = await m.audits.createAudit(mgrA, { title: 'Bound to v2', scope: 's', templateVersionId: v2.id });
+    expect((await m.audits.getAuditDetail(mgrA, b.id))!.criteria.map(c => c.label)).toEqual(['Only criterion in v2']);
+  });
+
+  it('criterion responses: one per criterion, labels from the version, validation, frozen after completion', async () => {
+    const t = await newTemplate(adminA, 'Response tpl');
+    const a = await m.audits.createAudit(mgrA, { title: 'Responses', scope: 's', templateVersionId: t.version_id });
+    const keys = (await m.audits.getAuditDetail(mgrA, a.id))!.criteria.map(c => c.key);
+    await expectError(m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: keys[0], outcome: 'COMPLIANT' }), 'AssuranceConflictError', /in progress/);
+    await m.audits.startAudit(mgrA, a.id);
+    await expectError(m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: 'not-in-version', outcome: 'COMPLIANT' }), 'AssuranceValidationError');
+    await expectError(m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: keys[0] }), 'AssuranceValidationError', /rating/);
+    await expectError(m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: keys[2], outcome: 'NON_COMPLIANT' }), 'AssuranceValidationError', /gap/);
+    await m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: keys[0], outcome: 'PARTIAL', notes: 'first pass', criterionLabel: 'IGNORED LABEL' });
+    await m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: keys[0], outcome: 'COMPLIANT' });
+    await expect(sql.raw(`INSERT INTO assurance_audit_responses (organisation_id, audit_id, criterion_key, criterion_label, response_type)
+      VALUES ('org-a', '${a.id}', '${keys[0]}', 'dup', 'COMPLIANCE_RATING')`)).rejects.toThrow(/criterion_key_key|duplicate/);
+    const d = await m.audits.getAuditDetail(mgrA, a.id);
+    expect(d!.responses).toHaveLength(1);
+    expect(d!.responses[0]).toMatchObject({ criterion_label: criteria[0].label, outcome: 'COMPLIANT' });
+    const hist = await sql.raw(`SELECT before_state FROM audit_logs WHERE resource_id = '${a.id}' AND action = 'assurance_audit.response_recorded' ORDER BY created_at`) as { before_state: Record<string, unknown> | null }[];
+    expect(hist.map(h => h.before_state?.outcome ?? null)).toEqual([null, 'PARTIAL']);
+    await expectError(m.audits.completeAudit(mgrA, a.id, {}), 'AssuranceConflictError', /required criteria/);
+    await m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: keys[1], outcome: 'COMPLIANT' });
+    await m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: keys[2], outcome: 'NON_COMPLIANT', notes: '6 of 20 missing' });
+    await m.audits.completeAudit(mgrA, a.id, { summary: 'One gap', recommendations: 'Digitise pre-starts' });
+    await expectError(m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: keys[3], outcome: 'NOT_APPLICABLE' }), 'AssuranceConflictError');
+    // A non-compliant rating never creates a finding by itself.
+    const done = await m.audits.getAuditDetail(mgrA, a.id);
+    expect(done!.findings).toEqual([]);
+    expect(done!.audit).toMatchObject({ status: 'COMPLETED', recommendations: 'Digitise pre-starts' });
+  });
+
+  it('findings: raised explicitly through the shared service, linked, frozen criterion, no auto-closure either way', async () => {
+    const a = await m.audits.createAudit(mgrA, { title: 'Finding links', scope: 's', auditType: 'COMPLIANCE', standardReference: 'Std' });
+    await m.audits.startAudit(mgrA, a.id);
+    const key = 'adhoc-pre-start-000001';
+    await m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: key, criterionLabel: 'Pre-start checks', outcome: 'NON_COMPLIANT', notes: 'missing' });
+    await expectError(m.findings.createFinding(mgrA, { findingType: 'NON_CONFORMANCE', title: 'x', description: 'y', auditId: a.id, auditCriterionKey: 'adhoc-missing-000000' }), 'AssuranceValidationError');
+    const f = await m.findings.createFinding(mgrA, { findingType: 'NON_CONFORMANCE', title: 'Pre-starts missing', description: 'missing', auditId: a.id, auditCriterionKey: key });
+    const link = await sql.raw(`SELECT count(*)::int AS n FROM assurance_audit_findings WHERE audit_id = '${a.id}' AND finding_id = '${f.id}'`) as { n: number }[];
+    expect(link[0].n).toBe(1);
+    const d = await m.audits.getAuditDetail(mgrA, a.id);
+    expect(d!.findings).toEqual([expect.objectContaining({ id: f.id, source_criterion_key: key })]);
+    expect((await m.findings.getFindingDetail(mgrA, f.id))!.sources).toEqual([{ kind: 'audit', id: a.id, reference: expect.stringMatching(/^AUD-/) }]);
+    expect((await m.findings.listFindings(mgrA, { source: 'audit' })).some(r => r.id === f.id)).toBe(true);
+    await expectError(m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: key, criterionLabel: 'Pre-start checks', outcome: 'COMPLIANT' }), 'AssuranceConflictError', /no longer be changed/);
+
+    // Link an existing finding; duplicates refused.
+    const other = await m.findings.createFinding(mgrA, { findingType: 'HAZARD', title: 'Existing repeat issue', description: 'd' });
+    await m.audits.linkFindingToAudit(mgrA, a.id, { findingId: other.id });
+    await expectError(m.audits.linkFindingToAudit(mgrA, a.id, { findingId: other.id }), 'AssuranceConflictError', /already linked/);
+    await expectError(m.audits.linkFindingToAudit(mgrB, a.id, { findingId: other.id }), 'AssuranceNotFoundError');
+
+    // Corrective work goes through the finding; completing the audit changes nothing downstream.
+    const act = await m.actions.createAction(mgrA, { findingIds: [f.id], actionType: 'CORRECTIVE', title: 'Digital pre-starts', evidenceRequired: false, verificationRequired: false });
+    await m.audits.completeAudit(mgrA, a.id, {});
+    expect((await m.findings.getFindingDetail(mgrA, f.id))!.finding.status).toBe('OPEN');
+    expect((await m.actions.getActionDetail(mgrA, act.id))!.action.status).toBe('OPEN');
+    // ...and closing the finding does not change the audit.
+    await m.actions.completeActionWork(mgrA, act.id);
+    await m.actions.closeAction(mgrA, act.id);
+    await m.findings.transitionFinding(mgrA, f.id, { status: 'UNDER_REVIEW' });
+    await m.findings.transitionFinding(mgrA, f.id, { status: 'CLOSED' });
+    expect((await m.audits.getAuditDetail(mgrA, a.id))!.audit.status).toBe('COMPLETED');
+
+    // A cancelled audit accepts no new findings or evidence.
+    const c = await m.audits.createAudit(mgrA, { title: 'To cancel', scope: 's', auditType: 'SITE', standardReference: 'Std' });
+    await expectError(m.audits.cancelAudit(mgrA, c.id, {}), 'AssuranceValidationError', /Reason/);
+    await m.audits.cancelAudit(mgrA, c.id, { reason: 'Rescheduled into Q4 programme' });
+    await expectError(m.findings.createFinding(mgrA, { findingType: 'DEFECT', title: 't', description: 'd', auditId: c.id }), 'AssuranceConflictError');
+    await expectError(m.evidence.createEvidence(mgrA, { evidenceType: 'PHOTO', title: 'x', target: 'audit', targetId: c.id }), 'AssuranceConflictError', /finished/);
+  });
+
+  it('evidence on audits: link, soft unlink with reason, relink — history kept', async () => {
+    const a = await m.audits.createAudit(mgrA, { title: 'Evidence audit', scope: 's', auditType: 'SITE', standardReference: 'Std' });
+    const ev = await m.evidence.createEvidence(mgrA, { evidenceType: 'DOCUMENT', title: 'Working papers', target: 'audit', targetId: a.id });
+    const link = (await m.audits.getAuditDetail(mgrA, a.id))!.evidence[0];
+    await m.evidence.unlinkEvidence(mgrA, { target: 'audit', linkId: link.link_id, reason: 'Wrong file' });
+    await m.evidence.linkEvidence(mgrA, ev.id, { target: 'audit', targetId: a.id, purpose: 'Correct file' });
+    const d = await m.audits.getAuditDetail(mgrA, a.id);
+    expect(d!.evidence.map(e => [!!e.removed_at, e.removal_reason])).toEqual([[false, null], [true, 'Wrong file']]);
+    const evd = await m.evidence.getEvidenceDetail(mgrA, ev.id);
+    expect(evd!.links.filter(l => l.kind === 'audit')).toHaveLength(2);
+    expect((await m.evidence.listEvidence(mgrA, { q: 'Working papers' }))[0].links.map(l => l.kind)).toEqual(['audit']);
+  });
+
+  it('restricted-parent inheritance: audit detail never shows findings/evidence hidden by a restricted incident', async () => {
+    const secret = await m.incidents.createIncident(adminA, incidentInput({ title: 'Audit restricted parent', restricted: true }));
+    const a = await m.audits.createAudit(mgrA, { title: 'Inheritance audit', scope: 's', auditType: 'SITE', standardReference: 'Std' });
+    const f = await m.findings.createFinding(adminA, { findingType: 'HAZARD', title: 'Sensitive finding', description: 'd', incidentId: secret.id });
+    await m.audits.linkFindingToAudit(adminA, a.id, { findingId: f.id });
+    const hiddenEv = await m.evidence.createEvidence(adminA, { evidenceType: 'STATEMENT', title: 'Sensitive statement', target: 'incident', targetId: secret.id });
+    await m.evidence.linkEvidence(adminA, hiddenEv.id, { target: 'audit', targetId: a.id });
+    const forOther = await m.audits.getAuditDetail(mgr2A, a.id);
+    expect(forOther!.findings).toEqual([]);
+    expect(forOther!.hiddenFindingCount).toBe(1);
+    expect(forOther!.evidence).toEqual([]);
+    expect(JSON.stringify(forOther)).not.toMatch(/Sensitive/);
+    expect((await m.audits.listAudits(mgr2A, { q: 'Inheritance audit' }))[0].finding_count).toBe(0);
+    expect((await m.audits.getAuditDetail(adminA, a.id))!.findings).toHaveLength(1);
+    // Linking a finding the viewer cannot see is refused as not found.
+    const a2 = await m.audits.createAudit(mgr2A, { title: 'Probe', scope: 's', auditType: 'SITE', standardReference: 'Std' });
+    await expectError(m.audits.linkFindingToAudit(mgr2A, a2.id, { findingId: f.id }), 'AssuranceNotFoundError');
+  });
+
+  it('dashboard audit counts come from real rows', async () => {
+    const before = (await m.dashboard.getDashboardData(mgrA)).counts;
+    const due = await m.audits.createAudit(mgrA, { title: 'Due soon', scope: 's', auditType: 'SITE', standardReference: 'Std', scheduledAt: future(5) });
+    await m.audits.createAudit(mgrA, { title: 'Far away', scope: 's', auditType: 'SITE', standardReference: 'Std', scheduledAt: future(60) });
+    const running = await m.audits.createAudit(mgrA, { title: 'Running', scope: 's', auditType: 'SITE', standardReference: 'Std' });
+    await m.audits.startAudit(mgrA, running.id);
+    const after = await m.dashboard.getDashboardData(mgrA);
+    expect(after.counts.audits_due - before.audits_due).toBe(1);
+    expect(after.counts.audits_in_progress - before.audits_in_progress).toBe(1);
+    expect(after.inspectionsDue.some(w => w.kind === 'audit' && w.id === due.id)).toBe(true);
+    expect((await m.audits.listAudits(mgrA, { view: 'due' })).some(r => r.id === due.id)).toBe(true);
+    expect((await m.dashboard.getDashboardData(mgrB)).counts.audits_due).toBe(0);
+  });
+});
+
+describe('synthetic demo fixture — audit chain', () => {
+  const demoAdmin = V('assurance-demo-org', 'assurance-demo-coordinator', 'admin');
+  const id = (n: string) => `a55de000-0000-4000-8000-000000000${n}`;
+  it('AUD-DEMO-001 shows each rating, and the non-compliant criterion leads Finding -> Action -> Evidence -> Verification', async () => {
+    const d = await m.audits.getAuditDetail(demoAdmin, id('411'));
+    expect(d!.audit).toMatchObject({ audit_reference: 'AUD-DEMO-001', status: 'COMPLETED', standard_reference: 'Synthetic Waste Operations Procedure v1', template_version_number: 1 });
+    expect(Object.fromEntries(d!.responses.map(r => [r.criterion_key, r.outcome]))).toMatchObject({
+      '01-route-sheets': 'COMPLIANT', '02-contamination-reports': 'PARTIAL', '03-pre-start-checks': 'NON_COMPLIANT', '04-hazardous-waste': 'NOT_APPLICABLE',
+    });
+    expect(d!.findings).toEqual([expect.objectContaining({ finding_reference: 'FND-DEMO-004', source_criterion_key: '03-pre-start-checks' })]);
+    expect(d!.evidence.map(e => e.evidence_reference)).toEqual(['EVD-DEMO-007']);
+    const f = await m.findings.getFindingDetail(demoAdmin, id('704'));
+    expect(f!.sources.map(s => s.reference)).toEqual(['AUD-DEMO-001']);
+    const act = await m.actions.getActionDetail(demoAdmin, id('804'));
+    expect(act!.verifications.map(v => v.result)).toEqual(['ACCEPTED']);
+    expect(act!.readiness.canClose).toBe(true);
+    expect(act!.action.status).toBe('AWAITING_VERIFICATION'); // verified is not closed
+    const planned = await m.audits.getAuditDetail(demoAdmin, id('412'));
+    expect(planned!.audit).toMatchObject({ status: 'PLANNED', template_version_id: null, external_organisation_name: 'Demo Civil Contractors Pty Ltd (SYNTHETIC)' });
   });
 });

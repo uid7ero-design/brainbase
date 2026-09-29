@@ -21,8 +21,7 @@
 -- REQUIRED GUARD — run this in the SAME session first, deliberately:
 --   SET assurance.demo_fixture = 'disposable-only';
 --
--- Prerequisites: A0.1B + A0.1C + A0.1D-1/2/3 applied. Does NOT need or
--- touch A0.1E-1 Audit. Registers the 'assurance' module key (idempotent)
+-- Prerequisites: A0.1B + A0.1C + A0.1D-1/2/3 + A0.1E-1 (Audit) applied. Registers the 'assurance' module key (idempotent)
 -- and enables it for the demo organisation only.
 --
 -- Scenario (dates are relative to now()):
@@ -45,6 +44,11 @@
 --      car-park lighting inspection in progress with an observation and an
 --      open finding; a RESTRICTED security incident; a closed
 --      environmental incident; a newly reported missed-collection incident.
+--   4. Audit chain (A0.1E-1): AUD-DEMO-001 against "Synthetic Waste Operations
+--      Procedure v1" rates criteria Compliant / Partial / Non-compliant / N/A /
+--      Observation; the non-compliant criterion was raised as FND-DEMO-004 ->
+--      ACT-DEMO-004 -> evidence -> independent verification (accepted, action
+--      not yet closed). AUD-DEMO-002 is a planned ad hoc contractor audit.
 
 BEGIN;
 
@@ -58,6 +62,9 @@ BEGIN
   END IF;
   IF to_regclass('public.assurance_inspection_template_versions') IS NULL THEN
     RAISE EXCEPTION 'Assurance A0.1D-3 schema is missing; apply A0.1B..A0.1D-3 first.';
+  END IF;
+  IF to_regclass('public.assurance_audit_template_versions') IS NULL THEN
+    RAISE EXCEPTION 'Assurance A0.1E-1 Audit schema is missing; apply A0.1B..A0.1E-1 first.';
   END IF;
 END $$;
 
@@ -360,6 +367,107 @@ INSERT INTO assurance_inspection_findings (organisation_id, inspection_id, findi
 VALUES ('assurance-demo-org', 'a55de000-0000-4000-8000-000000000403', 'a55de000-0000-4000-8000-000000000703', 'assurance-demo-inspector', now() - interval '85 minutes');
 INSERT INTO assurance_timeframes (id, organisation_id, finding_id, timeframe_type, original_due_at, current_due_at, status, created_by, created_at)
 VALUES ('a55de000-0000-4000-8000-000000000c05', 'assurance-demo-org', 'a55de000-0000-4000-8000-000000000703', 'CLOSURE', now() + interval '14 days', now() + interval '14 days', 'ACTIVE', 'assurance-demo-inspector', now() - interval '85 minutes');
+
+-- ── Scenario 4: Audit -> Finding -> Action -> Evidence -> Verification (A0.1E-1) ─
+-- AUD-DEMO-001 is a completed internal audit against a synthetic procedure.
+-- One criterion was rated NON_COMPLIANT and the auditor chose to raise
+-- FND-DEMO-004, whose corrective action has been independently verified and
+-- is ready for explicit closure. Another PARTIAL criterion deliberately has
+-- no finding (the auditor judged the recommendation sufficient).
+
+INSERT INTO assurance_audit_templates (id, organisation_id, template_reference, name, audit_type, description, created_by, created_at, updated_at)
+VALUES ('a55de000-0000-4000-8000-000000000321', 'assurance-demo-org', 'ATP-DEMO-001', 'Waste Operations Compliance Audit', 'INTERNAL',
+        'Annual internal audit of kerbside waste operations against the (synthetic) procedure.', 'assurance-demo-coordinator',
+        now() - interval '45 days', now() - interval '45 days');
+
+INSERT INTO assurance_audit_template_versions (id, organisation_id, template_id, version_number, title, standard_reference, instructions, criteria, effective_from, created_by, created_at)
+VALUES ('a55de000-0000-4000-8000-000000000331', 'assurance-demo-org', 'a55de000-0000-4000-8000-000000000321', 1,
+        'Waste Operations Compliance Audit', 'Synthetic Waste Operations Procedure v1',
+        'Sample at least 20 records per criterion. Note the records sighted.',
+        '[{"key":"01-route-sheets","label":"Collection route sheets are completed and filed for every shift","responseType":"COMPLIANCE_RATING","guidance":"Procedure s.3.1","required":true,"options":[]},
+          {"key":"02-contamination-reports","label":"Bin contamination is reported to customers within 5 business days","responseType":"COMPLIANCE_RATING","guidance":"Procedure s.4.2","required":true,"options":[]},
+          {"key":"03-pre-start-checks","label":"Vehicle pre-start checks are recorded before every shift","responseType":"COMPLIANCE_RATING","guidance":"Procedure s.5.1 — sample pre-start books","required":true,"options":[]},
+          {"key":"04-hazardous-waste","label":"Hazardous waste found in kerbside bins is handled by a licensed contractor","responseType":"COMPLIANCE_RATING","guidance":"Procedure s.6.4","required":true,"options":[]},
+          {"key":"05-driver-induction","label":"New drivers complete the route induction before driving solo","responseType":"COMPLIANCE_RATING","guidance":"Procedure s.2.3","required":false,"options":[]}]'::jsonb,
+        now() - interval '45 days', 'assurance-demo-coordinator', now() - interval '45 days');
+
+INSERT INTO assurance_audits (id, organisation_id, audit_reference, template_version_id, audit_type, title, scope, standard_reference, status, auditor_user_id,
+                              scheduled_at, started_at, completed_at, location_id, summary, recommendations, created_by, created_at, updated_at) VALUES
+  ('a55de000-0000-4000-8000-000000000411', 'assurance-demo-org', 'AUD-DEMO-001', 'a55de000-0000-4000-8000-000000000331', 'INTERNAL',
+   'Internal Waste Operations Compliance Audit',
+   'Kerbside waste collection operations run from the Northern Works Depot, July–September records (synthetic). Excludes commercial collections.',
+   'Synthetic Waste Operations Procedure v1', 'COMPLETED', 'assurance-demo-whs',
+   now() - interval '10 days', now() - interval '9 days', now() - interval '8 days',
+   'a55de000-0000-4000-8000-000000000201',
+   'Largely compliant. Pre-start checks were missing for 6 of 20 sampled shifts; contamination reporting is sometimes late.',
+   'Consider a weekly supervisor spot-check of contamination notices. Move pre-start checks to a digital form with sign-off.',
+   'assurance-demo-coordinator', now() - interval '20 days', now() - interval '8 days'),
+  ('a55de000-0000-4000-8000-000000000412', 'assurance-demo-org', 'AUD-DEMO-002', NULL, 'CONTRACTOR',
+   'Contractor WHS compliance audit — Demo Civil Contractors',
+   'Site safety documentation for the wash bay coating works (synthetic).',
+   'Synthetic Contractor WHS Requirements v2', 'PLANNED', 'assurance-demo-whs',
+   now() + interval '10 days', NULL, NULL,
+   'a55de000-0000-4000-8000-000000000201', NULL, NULL,
+   'assurance-demo-coordinator', now() - interval '1 day', now() - interval '1 day');
+UPDATE assurance_audits SET external_organisation_id = 'a55de000-0000-4000-8000-000000000221'
+WHERE organisation_id = 'assurance-demo-org' AND id = 'a55de000-0000-4000-8000-000000000412';
+
+INSERT INTO assurance_audit_responses (organisation_id, audit_id, criterion_key, criterion_label, response_type, outcome, notes, responded_by, responded_at) VALUES
+  ('assurance-demo-org', 'a55de000-0000-4000-8000-000000000411', '01-route-sheets', 'Collection route sheets are completed and filed for every shift', 'COMPLIANCE_RATING', 'COMPLIANT', '20 of 20 sampled route sheets complete.', 'assurance-demo-whs', now() - interval '9 days' + interval '1 hour'),
+  ('assurance-demo-org', 'a55de000-0000-4000-8000-000000000411', '02-contamination-reports', 'Bin contamination is reported to customers within 5 business days', 'COMPLIANCE_RATING', 'PARTIAL', '16 of 20 notices sent within 5 days; 4 sent in 6–8 days during a staff shortage.', 'assurance-demo-whs', now() - interval '9 days' + interval '2 hours'),
+  ('assurance-demo-org', 'a55de000-0000-4000-8000-000000000411', '03-pre-start-checks', 'Vehicle pre-start checks are recorded before every shift', 'COMPLIANCE_RATING', 'NON_COMPLIANT', 'No pre-start record for 6 of 20 sampled shifts (trucks WC-04 and WC-07).', 'assurance-demo-whs', now() - interval '9 days' + interval '3 hours'),
+  ('assurance-demo-org', 'a55de000-0000-4000-8000-000000000411', '04-hazardous-waste', 'Hazardous waste found in kerbside bins is handled by a licensed contractor', 'COMPLIANCE_RATING', 'NOT_APPLICABLE', 'No hazardous waste events in the audit period.', 'assurance-demo-whs', now() - interval '9 days' + interval '4 hours'),
+  ('assurance-demo-org', 'a55de000-0000-4000-8000-000000000411', '05-driver-induction', 'New drivers complete the route induction before driving solo', 'COMPLIANCE_RATING', 'OBSERVATION', 'Inductions complete, but sign-off sheets are kept in two different places.', 'assurance-demo-whs', now() - interval '9 days' + interval '5 hours');
+
+INSERT INTO assurance_findings (id, organisation_id, finding_reference, finding_type, title, description, status, risk_level_id, responsible_user_id, identified_at, location_id, created_by, created_at, updated_at)
+VALUES ('a55de000-0000-4000-8000-000000000704', 'assurance-demo-org', 'FND-DEMO-004', 'NON_CONFORMANCE', 'Vehicle pre-start checks not recorded for every shift',
+        'AUD-DEMO-001 criterion 3 (Procedure s.5.1): no pre-start record for 6 of 20 sampled shifts on trucks WC-04 and WC-07 (synthetic).',
+        'AWAITING_VERIFICATION', 'a55de000-0000-4000-8000-000000000233', 'assurance-demo-supervisor', now() - interval '9 days' + interval '3 hours',
+        'a55de000-0000-4000-8000-000000000201', 'assurance-demo-whs', now() - interval '9 days' + interval '3 hours', now() - interval '2 days');
+INSERT INTO assurance_audit_findings (organisation_id, audit_id, finding_id, created_by, created_at)
+VALUES ('assurance-demo-org', 'a55de000-0000-4000-8000-000000000411', 'a55de000-0000-4000-8000-000000000704', 'assurance-demo-whs', now() - interval '9 days' + interval '3 hours');
+
+INSERT INTO assurance_actions (id, organisation_id, action_reference, action_type, title, description, priority, status, owner_user_id, evidence_required, verification_required, work_completed_at, work_completed_by, created_by, created_at, updated_at)
+VALUES ('a55de000-0000-4000-8000-000000000804', 'assurance-demo-org', 'ACT-DEMO-004', 'CORRECTIVE', 'Move vehicle pre-start checks to a digital form with supervisor sign-off',
+        'Replace paper pre-start books with the (synthetic) fleet app form; supervisor reviews completion daily.', 'HIGH', 'AWAITING_VERIFICATION',
+        'assurance-demo-supervisor', true, true, now() - interval '3 days', 'assurance-demo-supervisor',
+        'assurance-demo-whs', now() - interval '8 days', now() - interval '2 days');
+INSERT INTO assurance_action_findings (organisation_id, action_id, finding_id, created_by, created_at)
+VALUES ('assurance-demo-org', 'a55de000-0000-4000-8000-000000000804', 'a55de000-0000-4000-8000-000000000704', 'assurance-demo-whs', now() - interval '8 days');
+INSERT INTO assurance_timeframes (id, organisation_id, action_id, timeframe_type, original_due_at, current_due_at, status, created_by, created_at)
+VALUES ('a55de000-0000-4000-8000-000000000c06', 'assurance-demo-org', 'a55de000-0000-4000-8000-000000000804', 'ACTION', now() + interval '6 days', now() + interval '6 days', 'ACTIVE', 'assurance-demo-whs', now() - interval '8 days');
+
+INSERT INTO assurance_evidence (id, organisation_id, evidence_reference, evidence_type, title, description, captured_by, captured_at, location_id, metadata, created_by, created_at, updated_at) VALUES
+  ('a55de000-0000-4000-8000-000000000906', 'assurance-demo-org', 'EVD-DEMO-006', 'SYSTEM_RECORD', 'Fleet app pre-start completion report (14 days)',
+   '100% of shifts have a completed digital pre-start with supervisor sign-off (synthetic).', 'assurance-demo-supervisor', now() - interval '3 days',
+   'a55de000-0000-4000-8000-000000000201', '{"source":"assurance-demo-fixture","held_at":"Fleet app report DEMO-FA-0931 (synthetic)"}', 'assurance-demo-supervisor', now() - interval '3 days', now() - interval '3 days'),
+  ('a55de000-0000-4000-8000-000000000907', 'assurance-demo-org', 'EVD-DEMO-007', 'DOCUMENT', 'Audit sample: pre-start books WC-04 and WC-07',
+   'Scans of the sampled pages showing the missing entries (synthetic).', 'assurance-demo-whs', now() - interval '9 days' + interval '3 hours',
+   'a55de000-0000-4000-8000-000000000201', '{"source":"assurance-demo-fixture","held_at":"Audit working papers DEMO-AWP-001 (synthetic)"}', 'assurance-demo-whs', now() - interval '9 days', now() - interval '9 days');
+INSERT INTO assurance_evidence_audits (organisation_id, evidence_id, audit_id, purpose, created_by, created_at)
+VALUES ('assurance-demo-org', 'a55de000-0000-4000-8000-000000000907', 'a55de000-0000-4000-8000-000000000411', 'Audit sample', 'assurance-demo-whs', now() - interval '9 days');
+INSERT INTO assurance_evidence_findings (organisation_id, evidence_id, finding_id, purpose, created_by, created_at)
+VALUES ('assurance-demo-org', 'a55de000-0000-4000-8000-000000000907', 'a55de000-0000-4000-8000-000000000704', 'Shows the gap', 'assurance-demo-whs', now() - interval '9 days');
+INSERT INTO assurance_evidence_actions (organisation_id, evidence_id, action_id, purpose, created_by, created_at)
+VALUES ('assurance-demo-org', 'a55de000-0000-4000-8000-000000000906', 'a55de000-0000-4000-8000-000000000804', 'Shows the fix in operation', 'assurance-demo-supervisor', now() - interval '3 days');
+
+-- Independent verification by the coordinator (not the owner / work completer).
+INSERT INTO assurance_verifications (id, organisation_id, action_id, attempt_number, result, verified_by, verified_at, notes, created_at)
+VALUES ('a55de000-0000-4000-8000-000000000953', 'assurance-demo-org', 'a55de000-0000-4000-8000-000000000804', 1, 'ACCEPTED', 'assurance-demo-coordinator',
+        now() - interval '2 days', 'Spot-checked 10 shifts in the fleet app: all pre-starts present and signed off.', now() - interval '2 days');
+INSERT INTO assurance_evidence_verifications (organisation_id, evidence_id, verification_id, purpose, created_by, created_at)
+VALUES ('assurance-demo-org', 'a55de000-0000-4000-8000-000000000906', 'a55de000-0000-4000-8000-000000000953', 'Verification evidence', 'assurance-demo-coordinator', now() - interval '2 days');
+
+INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state, created_at) VALUES
+  ('assurance-demo-audit-101', 'assurance-demo-org', 'assurance-demo-coordinator', 'assurance_audit.created', 'assurance_audit', 'a55de000-0000-4000-8000-000000000411', NULL, '{"fixture":"assurance-demo","status":"PLANNED"}', now() - interval '20 days'),
+  ('assurance-demo-audit-102', 'assurance-demo-org', 'assurance-demo-whs', 'assurance_audit.started', 'assurance_audit', 'a55de000-0000-4000-8000-000000000411', '{"status":"PLANNED"}', '{"fixture":"assurance-demo","status":"IN_PROGRESS"}', now() - interval '9 days'),
+  ('assurance-demo-audit-103', 'assurance-demo-org', 'assurance-demo-whs', 'assurance_finding.created', 'assurance_finding', 'a55de000-0000-4000-8000-000000000704', NULL, '{"fixture":"assurance-demo","status":"OPEN","audit_id":"a55de000-0000-4000-8000-000000000411","audit_criterion_key":"03-pre-start-checks"}', now() - interval '9 days' + interval '3 hours'),
+  ('assurance-demo-audit-104', 'assurance-demo-org', 'assurance-demo-whs', 'assurance_audit.completed', 'assurance_audit', 'a55de000-0000-4000-8000-000000000411', '{"status":"IN_PROGRESS"}', '{"fixture":"assurance-demo","status":"COMPLETED"}', now() - interval '8 days'),
+  ('assurance-demo-audit-105', 'assurance-demo-org', 'assurance-demo-whs', 'assurance_action.created', 'assurance_action', 'a55de000-0000-4000-8000-000000000804', NULL, '{"fixture":"assurance-demo","status":"OPEN"}', now() - interval '8 days'),
+  ('assurance-demo-audit-106', 'assurance-demo-org', 'assurance-demo-supervisor', 'assurance_action.work_completed', 'assurance_action', 'a55de000-0000-4000-8000-000000000804', '{"status":"IN_PROGRESS"}', '{"fixture":"assurance-demo","status":"AWAITING_VERIFICATION"}', now() - interval '3 days'),
+  ('assurance-demo-audit-107', 'assurance-demo-org', 'assurance-demo-coordinator', 'assurance_action.verification_recorded', 'assurance_action', 'a55de000-0000-4000-8000-000000000804', NULL, '{"fixture":"assurance-demo","result":"ACCEPTED","attempt_number":1}', now() - interval '2 days'),
+  ('assurance-demo-audit-108', 'assurance-demo-org', 'assurance-demo-coordinator', 'assurance_audit.created', 'assurance_audit', 'a55de000-0000-4000-8000-000000000412', NULL, '{"fixture":"assurance-demo","status":"PLANNED"}', now() - interval '1 day'),
+  ('assurance-demo-audit-109', 'assurance-demo-org', 'assurance-demo-coordinator', 'assurance_audit_template.created', 'assurance_audit_template', 'a55de000-0000-4000-8000-000000000321', NULL, '{"fixture":"assurance-demo","version_number":1}', now() - interval '45 days');
 
 -- ── History (audit_logs) so the detail pages show a timeline ─────────────
 -- after_state carries identifiers/statuses only, tagged fixture=assurance-demo.
