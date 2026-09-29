@@ -12,8 +12,7 @@ import ActionPanel from '../../_components/ActionPanel';
 import { EvidenceSection, FindingsTable, NextStepButtons, raiseFindingFields } from '../../_components/shared';
 import {
   Badge, Breadcrumbs, Card, DataTable, DateCell, Dim, HistoryList, KeyValues, Notice, PageHeader, Prose, RecordLink,
-  RestrictedTag, Row, Section, enumOptions, td,
-} from '../../_components/ui';
+  RestrictedTag, Row, Section, enumOptions, td, assuranceStyles as styles, tableStyles } from '../../_components/ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,8 +36,8 @@ export default async function InvestigationDetailPage({ params }: { params: Prom
     <div style={{ maxWidth: 1100 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/investigations', label: 'Investigations' }, { label: inv.investigation_reference }]} />
       <PageHeader
-        eyebrow={<span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 12, color: 'var(--brand-brainbase-accent)' }}>{inv.investigation_reference}</span>
+        eyebrow={<span className={styles.eyebrowRow}>
+          <span className={styles.refEyebrow}>{inv.investigation_reference}</span>
           <Badge value={inv.status} />
           {inv.restricted && <RestrictedTag />}
         </span>}
@@ -87,7 +86,7 @@ export default async function InvestigationDetailPage({ params }: { params: Prom
                 <Row key={l.link_id} last={i === detail.incidents.length - 1}>
                   <td style={td}>{l.visible && l.id
                     ? <RecordLink href={`/assurance/incidents/${l.id}`} reference={l.incident_reference ?? ''} title={l.title} />
-                    : <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}><RestrictedTag /><Dim>Restricted incident</Dim></span>}
+                    : <span className={styles.eyebrowRow}><RestrictedTag /><Dim>Restricted incident</Dim></span>}
                   </td>
                   <td style={td}><Badge value={l.relationship} tone={l.relationship === 'PRIMARY' ? 'accent' : 'neutral'} /></td>
                   <td style={td}>{l.visible ? <Badge value={l.status} /> : <Dim>—</Dim>}</td>
@@ -112,7 +111,7 @@ export default async function InvestigationDetailPage({ params }: { params: Prom
           <DataTable headers={['Person', 'Role', 'Notes']} minWidth={520}>
             {detail.people.map((p, i) => (
               <Row key={p.id} last={i === detail.people.length - 1}>
-                <td style={td}><span style={{ color: 'var(--text-primary)' }}>{p.display_name}</span>{p.job_title && <div style={{ fontSize: 11 }}>{p.job_title}</div>}</td>
+                <td style={td}><span style={{ color: 'var(--text-primary)' }}>{p.display_name}</span>{p.job_title && <div className={tableStyles.meta}>{p.job_title}</div>}</td>
                 <td style={td}>{assuranceLabel(p.role)}</td>
                 <td style={td}>{p.notes ?? <Dim>—</Dim>}</td>
               </Row>
@@ -150,4 +149,4 @@ export default async function InvestigationDetailPage({ params }: { params: Prom
   );
 }
 
-const subhead = { fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 6 } as const;
+const subhead = { fontSize: '0.6875rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 6 } as const;

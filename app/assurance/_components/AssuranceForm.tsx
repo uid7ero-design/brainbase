@@ -1,6 +1,8 @@
 'use client';
-import { useState, type CSSProperties, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { Button, Field, FormError, fieldControlClassName } from '@/components/ui/app';
+import styles from './assurance.module.css';
 
 // Generic Assurance form: renders server-supplied field definitions and
 // POSTs JSON to an /api/assurance/** route. The server is the only
@@ -32,12 +34,6 @@ type Props = {
   danger?: boolean;
 };
 
-const control: CSSProperties = {
-  width: '100%', padding: '9px 11px', background: 'var(--bg-base)', border: '1px solid var(--border)', borderRadius: 8,
-  color: 'var(--text-primary)', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box',
-};
-const labelStyle: CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 5 };
-const helpStyle: CSSProperties = { fontSize: 11, color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.45 };
 
 function localNow(): string {
   const d = new Date();
@@ -90,65 +86,57 @@ export default function AssuranceForm({ endpoint, method = 'POST', fields, submi
   }
 
   return (
-    <form onSubmit={onSubmit} style={{ display: 'grid', gap: compact ? 10 : 14 }} noValidate={false}>
+    <form onSubmit={onSubmit} className={styles.form} data-compact={compact || undefined} noValidate={false}>
       {fields.map(f => {
         if (f.kind === 'hidden') return <input key={f.name} type="hidden" name={f.name} value={f.value} />;
         const id = `af-${f.name}`;
         if (f.kind === 'checkbox') {
           return (
             <div key={f.name}>
-              <label htmlFor={id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: 'var(--text-primary)', cursor: 'pointer' }}>
-                <input id={id} type="checkbox" name={f.name} defaultChecked={f.defaultChecked} style={{ marginTop: 2 }} />
+              <label htmlFor={id} className={styles.check}>
+                <input id={id} type="checkbox" name={f.name} defaultChecked={f.defaultChecked} aria-describedby={f.help ? `${id}-helper` : undefined} />
                 <span>{f.label}</span>
               </label>
-              {f.help && <div style={{ ...helpStyle, marginLeft: 22 }}>{f.help}</div>}
+              {f.help && <p id={`${id}-helper`} className={styles.dim} style={{ margin: '4px 0 0 22px', fontSize: '0.75rem', lineHeight: 1.5 }}>{f.help}</p>}
             </div>
           );
         }
+        const required = 'required' in f && !!f.required;
         return (
-          <div key={f.name}>
-            <label htmlFor={id} style={labelStyle}>
-              {f.label}{'required' in f && f.required ? <span aria-hidden style={{ color: 'var(--bb-danger)' }}> *</span> : null}
-            </label>
-            {f.kind === 'text' && (
-              <input id={id} name={f.name} type="text" required={f.required} placeholder={f.placeholder} maxLength={f.maxLength ?? 200} defaultValue={f.defaultValue} style={control} />
+          <Field key={f.name} id={id} label={f.label} required={required} helper={'help' in f ? f.help : undefined}>
+            {control => (
+              <>
+                {f.kind === 'text' && (
+                  <input {...control} name={f.name} type="text" required={f.required} placeholder={f.placeholder} maxLength={f.maxLength ?? 200} defaultValue={f.defaultValue} className={fieldControlClassName} />
+                )}
+                {f.kind === 'textarea' && (
+                  <textarea {...control} name={f.name} required={f.required} placeholder={f.placeholder} rows={f.rows ?? 4} defaultValue={f.defaultValue} className={fieldControlClassName} />
+                )}
+                {f.kind === 'select' && (
+                  <select {...control} name={f.name} required={f.required} defaultValue={f.defaultValue ?? ''} className={fieldControlClassName}>
+                    <option value="">{f.emptyLabel ?? (f.required ? 'Choose…' : 'None')}</option>
+                    {f.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                )}
+                {f.kind === 'multiselect' && (
+                  <select {...control} name={f.name} multiple required={f.required} defaultValue={f.defaultValues ?? []} size={Math.min(6, Math.max(3, f.options.length))} className={fieldControlClassName}>
+                    {f.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                )}
+                {f.kind === 'datetime' && (
+                  <input {...control} name={f.name} type="datetime-local" required={f.required} defaultValue={f.defaultNow ? nowDefault : undefined} className={fieldControlClassName} />
+                )}
+                {f.kind === 'date' && <input {...control} name={f.name} type="date" required={f.required} className={fieldControlClassName} />}
+              </>
             )}
-            {f.kind === 'textarea' && (
-              <textarea id={id} name={f.name} required={f.required} placeholder={f.placeholder} rows={f.rows ?? 4} defaultValue={f.defaultValue} style={{ ...control, resize: 'vertical' }} />
-            )}
-            {f.kind === 'select' && (
-              <select id={id} name={f.name} required={f.required} defaultValue={f.defaultValue ?? ''} style={control}>
-                <option value="">{f.emptyLabel ?? (f.required ? 'Choose…' : 'None')}</option>
-                {f.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            )}
-            {f.kind === 'multiselect' && (
-              <select id={id} name={f.name} multiple required={f.required} defaultValue={f.defaultValues ?? []} size={Math.min(6, Math.max(3, f.options.length))} style={control}>
-                {f.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            )}
-            {f.kind === 'datetime' && (
-              <input id={id} name={f.name} type="datetime-local" required={f.required} defaultValue={f.defaultNow ? nowDefault : undefined} style={control} />
-            )}
-            {f.kind === 'date' && <input id={id} name={f.name} type="date" required={f.required} style={control} />}
-            {'help' in f && f.help && <div style={helpStyle}>{f.help}</div>}
-          </div>
+          </Field>
         );
       })}
-      {error && <div role="alert" style={{ fontSize: 13, color: 'var(--bb-danger)', background: 'var(--bb-danger-soft)', padding: '8px 12px', borderRadius: 8 }}>{error}</div>}
+      {error && <FormError>{error}</FormError>}
       <div>
-        <button
-          type="submit"
-          disabled={busy}
-          style={{
-            padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: busy ? 'wait' : 'pointer',
-            background: danger ? 'transparent' : 'var(--purple-600)', color: danger ? 'var(--bb-danger)' : '#fff',
-            border: danger ? '1px solid color-mix(in srgb, var(--bb-danger) 45%, transparent)' : '1px solid transparent',
-            opacity: busy ? 0.7 : 1,
-          }}
-        >
+        <Button type="submit" variant={danger ? 'danger' : 'primary'} disabled={busy} aria-busy={busy || undefined}>
           {busy ? 'Saving…' : submitLabel}
-        </button>
+        </Button>
       </div>
     </form>
   );

@@ -7,8 +7,7 @@ import { AUDIT_STATUSES, AUDIT_TYPES, assuranceLabel, isPast } from '@/lib/assur
 import { firstParam } from '@/lib/assurance/input';
 import { resolvePageViewer } from '../_components/pageAccess';
 import {
-  Badge, DataTable, DateCell, Dim, FilterBar, LinkButton, PageHeader, RecordLink, Row, enumOptions, td,
-} from '../_components/ui';
+  Badge, DataTable, DateCell, Dim, FilterBar, LinkButton, PageHeader, RecordLink, Row, enumOptions, td, assuranceStyles as styles, tableStyles } from '../_components/ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,14 +49,12 @@ export default async function AuditsPage({ searchParams }: { searchParams: SP })
           {viewerCan(viewer, 'record') && <LinkButton href="/assurance/audits/new">Plan audit</LinkButton>}
         </>}
       />
-      <nav aria-label="Audit views" style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+      <nav aria-label="Audit views" className={styles.viewTabs}>
         {VIEWS.map(v => {
           const active = (f.view ?? '') === v.value;
           return (
             <Link key={v.value} href={v.value ? `/assurance/audits?view=${v.value}` : '/assurance/audits'} aria-current={active ? 'page' : undefined}
-              style={{ fontSize: 12, padding: '6px 11px', borderRadius: 999, textDecoration: 'none', border: '1px solid var(--border)',
-                color: active ? 'var(--brand-brainbase-accent)' : 'var(--text-secondary)',
-                background: active ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)' : 'transparent' }}>
+              className={styles.viewTab}>
               {v.label}
             </Link>
           );
@@ -84,7 +81,7 @@ export default async function AuditsPage({ searchParams }: { searchParams: SP })
           <Row key={r.id} last={i === rows.length - 1}>
             <td style={{ ...td, maxWidth: 300 }}>
               <RecordLink href={`/assurance/audits/${r.id}`} reference={r.audit_reference} title={r.title} />
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{r.template_name ? `${r.template_name} · v${r.template_version_number}` : 'Ad hoc'}</div>
+              <div className={tableStyles.meta}>{r.template_name ? `${r.template_name} · v${r.template_version_number}` : 'Ad hoc'}</div>
             </td>
             <td style={td}>{assuranceLabel(r.audit_type)}</td>
             <td style={td}><Badge value={r.status} /></td>
@@ -93,14 +90,14 @@ export default async function AuditsPage({ searchParams }: { searchParams: SP })
             <td style={td}><DateCell value={r.scheduled_at} overdue={r.status === 'PLANNED' && isPast(r.scheduled_at)} /></td>
             <td style={td}>
               {r.location_name ?? <Dim>—</Dim>}
-              {r.external_organisation_name && <div style={{ fontSize: 11 }}>{r.external_organisation_name}</div>}
+              {r.external_organisation_name && <div className={tableStyles.meta}>{r.external_organisation_name}</div>}
             </td>
             <td style={{ ...td, fontSize: 12, whiteSpace: 'nowrap' }}>
               {r.response_count === 0 ? <Dim>—</Dim> : (
                 <>
                   {r.response_count} assessed
-                  {r.non_compliant_count > 0 && <span style={{ color: 'var(--bb-danger)', fontWeight: 600 }}> · {r.non_compliant_count} non-compliant</span>}
-                  {r.partial_count > 0 && <span style={{ color: 'var(--bb-warning)' }}> · {r.partial_count} partial</span>}
+                  {r.non_compliant_count > 0 && <span style={{ color: 'var(--status-danger)', fontWeight: 600 }}> · {r.non_compliant_count} non-compliant</span>}
+                  {r.partial_count > 0 && <span style={{ color: 'var(--status-warning)' }}> · {r.partial_count} partial</span>}
                   {r.finding_count > 0 && <div>{r.finding_count} finding{r.finding_count === 1 ? '' : 's'}</div>}
                 </>
               )}

@@ -5,7 +5,7 @@ import type { RiskLevelOption, NamedOption } from '@/lib/assurance/lookups';
 import type { OrgUserOption } from '@/lib/assurance/users';
 import ActionPanel from './ActionPanel';
 import type { FormField } from './AssuranceForm';
-import { Badge, BORDER, Card, DataTable, DateCell, Dim, RecordLink, Row, enumOptions, td } from './ui';
+import { Badge, Card, DataTable, DateCell, Dim, RecordLink, Row, assuranceStyles as styles, enumOptions, tableStyles, td } from './ui';
 
 // Detail-page building blocks shared by Incident / Investigation /
 // Inspection / Finding / Action pages.
@@ -16,7 +16,7 @@ export function EvidenceSection({ rows, target, targetId, canRecord, locked }: {
   const active = rows.filter(r => !r.removed_at);
   const removed = rows.filter(r => r.removed_at);
   return (
-    <div style={{ display: 'grid', gap: 10 }}>
+    <div className={styles.stackTight}>
       {active.length === 0 ? (
         <Card><Dim>No evidence is linked.</Dim></Card>
       ) : (
@@ -26,7 +26,7 @@ export function EvidenceSection({ rows, target, targetId, canRecord, locked }: {
               <td style={td}><RecordLink href={`/assurance/evidence/${r.evidence_id}`} reference={r.evidence_reference} title={r.title} /></td>
               <td style={td}>{assuranceLabel(r.evidence_type)}</td>
               <td style={td}>{r.purpose ?? <Dim>—</Dim>}</td>
-              <td style={td}><DateCell value={r.linked_at} /><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{r.linked_by_name ?? ''}</div></td>
+              <td style={td}><DateCell value={r.linked_at} /><div className={tableStyles.meta}>{r.linked_by_name ?? ''}</div></td>
               <td style={{ ...td, width: 1 }}>
                 {canRecord && !locked && target !== 'verification' && (
                   <ActionPanel label="Remove link" variant="danger" endpoint="/api/assurance/evidence/unlink"
@@ -41,12 +41,12 @@ export function EvidenceSection({ rows, target, targetId, canRecord, locked }: {
         </DataTable>
       )}
       {removed.length > 0 && (
-        <details style={{ fontSize: 13 }}>
-          <summary style={{ cursor: 'pointer', color: 'var(--text-secondary)' }}>{removed.length} removed link{removed.length === 1 ? '' : 's'} (history)</summary>
-          <ul style={{ listStyle: 'none', padding: 0, margin: '8px 0 0' }}>
+        <details className={styles.details}>
+          <summary>{removed.length} removed link{removed.length === 1 ? '' : 's'} (history)</summary>
+          <ul className={styles.history}>
             {removed.map(r => (
-              <li key={r.link_id} style={{ padding: '6px 0', borderBottom: `1px solid ${BORDER}`, color: 'var(--text-secondary)' }}>
-                <Link href={`/assurance/evidence/${r.evidence_id}`} style={{ color: 'var(--text-secondary)' }}>{r.evidence_reference}</Link>
+              <li key={r.link_id} style={{ color: 'var(--text-secondary)', display: 'block' }}>
+                <Link href={`/assurance/evidence/${r.evidence_id}`} className={tableStyles.link}>{r.evidence_reference}</Link>
                 {' '}removed <DateCell value={r.removed_at} /> by {r.removed_by_name ?? 'unknown'} — <em>{r.removal_reason}</em>
               </li>
             ))}
@@ -79,7 +79,7 @@ export function FindingsTable({ rows, hiddenCount, emptyText }: {
   hiddenCount: number; emptyText: string;
 }) {
   return (
-    <div style={{ display: 'grid', gap: 8 }}>
+    <div className={styles.stackTight}>
       {rows.length === 0 ? <Card><Dim>{emptyText}</Dim></Card> : (
         <DataTable headers={['Finding', 'Type', 'Status', 'Identified']} minWidth={560}>
           {rows.map((f, i) => (
@@ -114,7 +114,7 @@ export function raiseFindingFields(opts: {
 export function NextStepButtons({ endpoint, options }: { endpoint: string; options: { status: string; label: string; fields?: FormField[]; variant?: 'primary' | 'secondary' | 'danger'; description?: string }[] }) {
   if (options.length === 0) return null;
   return (
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+    <div className={styles.row}>
       {options.map(o => (
         <ActionPanel key={o.status} label={o.label} endpoint={endpoint} extraBody={{ status: o.status }} fields={o.fields}
           variant={o.variant ?? 'secondary'} description={o.description} submitLabel={o.label} />

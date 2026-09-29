@@ -7,7 +7,7 @@ import { viewerCan } from '@/lib/assurance/authorize';
 import { assuranceLabel, formatAssuranceDateTime } from '@/lib/assurance/domain';
 import { resolvePageViewer } from '../../_components/pageAccess';
 import ActionPanel from '../../_components/ActionPanel';
-import { Badge, Breadcrumbs, Card, DataTable, DateCell, Dim, HistoryList, KeyValues, PageHeader, Prose, Row, Section, td } from '../../_components/ui';
+import { Badge, Breadcrumbs, Card, DataTable, DateCell, Dim, HistoryList, KeyValues, PageHeader, Prose, Row, Section, td, assuranceStyles as styles, tableStyles } from '../../_components/ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,8 +32,8 @@ export default async function EvidenceDetailPage({ params }: { params: Promise<{
     <div style={{ maxWidth: 1000 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/evidence', label: 'Evidence' }, { label: e.evidence_reference }]} />
       <PageHeader
-        eyebrow={<span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 12, color: 'var(--brand-brainbase-accent)' }}>{e.evidence_reference}</span>
+        eyebrow={<span className={styles.eyebrowRow}>
+          <span className={styles.refEyebrow}>{e.evidence_reference}</span>
           <Badge value={e.evidence_type} tone="neutral" />
         </span>}
         title={e.title ?? assuranceLabel(e.evidence_type)}
@@ -59,10 +59,10 @@ export default async function EvidenceDetailPage({ params }: { params: Promise<{
             <DataTable headers={['Record', 'Kind', 'Purpose', 'Linked', 'State']} minWidth={720}>
               {detail.links.map((l, i) => (
                 <Row key={`${l.kind}-${l.link_id}`} last={i === detail.links.length - 1}>
-                  <td style={td}><Link href={`${HREF[l.kind]}/${l.target_id}`} style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 12, color: 'var(--brand-brainbase-accent)', textDecoration: 'none' }}>{l.reference}</Link></td>
+                  <td style={td}><Link href={`${HREF[l.kind]}/${l.target_id}`} className={styles.refChip}>{l.reference}</Link></td>
                   <td style={td}>{assuranceLabel(l.kind.toUpperCase())}</td>
                   <td style={td}>{l.purpose ?? <Dim>—</Dim>}</td>
-                  <td style={td}><DateCell value={l.linked_at} /><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{l.linked_by_name ?? ''}</div></td>
+                  <td style={td}><DateCell value={l.linked_at} /><div className={tableStyles.meta}>{l.linked_by_name ?? ''}</div></td>
                   <td style={td}>
                     {l.removed_at ? (
                       <span style={{ fontSize: 12 }}>

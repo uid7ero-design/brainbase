@@ -3,7 +3,7 @@ import { viewerCan } from '@/lib/assurance/authorize';
 import { assuranceLabel } from '@/lib/assurance/domain';
 import { resolvePageViewer } from '../../_components/pageAccess';
 import ChecklistBuilder from '../../_components/ChecklistBuilder';
-import { Badge, Breadcrumbs, DataTable, DateCell, Dim, Notice, PageHeader, RecordLink, Row, Section, td } from '../../_components/ui';
+import { Badge, Breadcrumbs, DataTable, DateCell, Dim, Notice, PageHeader, RecordLink, Row, Section, td, assuranceStyles as styles } from '../../_components/ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,9 +40,9 @@ export default async function AuditTemplatesPage() {
         <Section title="New template">
           {!canAdminister && <Notice>Only organisation admins can create or version audit templates.</Notice>}
           {canAdminister && (
-            <details>
-              <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)' }}>Open the criteria builder</summary>
-              <div style={{ marginTop: 12, padding: 16, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg-surface)' }}>
+            <details className={styles.details}>
+              <summary>Open the criteria builder</summary>
+              <div className={styles.disclosure} style={{ maxWidth: 'none', marginTop: 0 }}>
                 <ChecklistBuilder variant="audit" mode="template" />
               </div>
             </details>

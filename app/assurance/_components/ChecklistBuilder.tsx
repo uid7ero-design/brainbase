@@ -1,9 +1,11 @@
 'use client';
-import { useState, type CSSProperties } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   AUDIT_RESPONSE_TYPES, AUDIT_TYPES, INSPECTION_RESPONSE_TYPES, INSPECTION_TYPES, assuranceLabel,
 } from '@/lib/assurance/domain';
+import { Button, Field, FormError, fieldControlClassName } from '@/components/ui/app';
+import styles from './assurance.module.css';
 
 // Builds the checklist (inspections) or criteria (audits) for a NEW
 // template, or a NEW version of an existing template. It never edits an
@@ -50,9 +52,6 @@ const CONFIG = {
   },
 } as const;
 
-const control: CSSProperties = { padding: '8px 10px', background: 'var(--bg-base)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' };
-const label: CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 5 };
-const smallBtn: CSSProperties = { padding: '4px 9px', borderRadius: 6, fontSize: 12, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', cursor: 'pointer' };
 
 export default function ChecklistBuilder(props: Props) {
   const variant: Variant = props.variant ?? 'inspection';
@@ -104,66 +103,74 @@ export default function ChecklistBuilder(props: Props) {
     }
   }
 
+  const control = fieldControlClassName;
   return (
-    <div style={{ display: 'grid', gap: 14 }}>
+    <div className={styles.form}>
       {props.mode === 'template' ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-          <div><label htmlFor="tpl-name" style={label}>Template name *</label><input id="tpl-name" value={name} onChange={e => setName(e.target.value)} style={control} /></div>
-          <div>
-            <label htmlFor="tpl-type" style={label}>{cfg.typeLabel} *</label>
-            <select id="tpl-type" value={type} onChange={e => setType(e.target.value)} style={control}>
-              {cfg.types.map(t => <option key={t} value={t}>{assuranceLabel(t)}</option>)}
-            </select>
-          </div>
-          <div style={{ gridColumn: '1 / -1' }}><label htmlFor="tpl-desc" style={label}>Description</label><input id="tpl-desc" value={description} onChange={e => setDescription(e.target.value)} style={control} /></div>
+        <div className={styles.formGrid}>
+          <Field id="tpl-name" label="Template name" required>
+            {c => <input {...c} value={name} onChange={e => setName(e.target.value)} className={control} />}
+          </Field>
+          <Field id="tpl-type" label={cfg.typeLabel} required>
+            {c => (
+              <select {...c} value={type} onChange={e => setType(e.target.value)} className={control}>
+                {cfg.types.map(t => <option key={t} value={t}>{assuranceLabel(t)}</option>)}
+              </select>
+            )}
+          </Field>
+          <Field id="tpl-desc" label="Description" className={styles.spanAll}>
+            {c => <input {...c} value={description} onChange={e => setDescription(e.target.value)} className={control} />}
+          </Field>
         </div>
       ) : (
-        <div><label htmlFor="ver-title" style={label}>Version title *</label><input id="ver-title" value={title} onChange={e => setTitle(e.target.value)} style={control} /></div>
+        <Field id="ver-title" label="Version title" required>
+          {c => <input {...c} value={title} onChange={e => setTitle(e.target.value)} className={control} />}
+        </Field>
       )}
       {variant === 'audit' && (
-        <div>
-          <label htmlFor="tpl-standard" style={label}>Standard / reference</label>
-          <input id="tpl-standard" value={standard} onChange={e => setStandard(e.target.value)} placeholder="e.g. Waste Operations Procedure v3, ISO 45001 cl. 8.1" style={control} />
-        </div>
+        <Field id="tpl-standard" label="Standard / reference">
+          {c => <input {...c} value={standard} onChange={e => setStandard(e.target.value)} placeholder="e.g. Waste Operations Procedure v3, ISO 45001 cl. 8.1" className={control} />}
+        </Field>
       )}
-      <div><label htmlFor="tpl-instr" style={label}>Instructions</label><textarea id="tpl-instr" value={instructions} onChange={e => setInstructions(e.target.value)} rows={2} style={{ ...control, resize: 'vertical' }} /></div>
+      <Field id="tpl-instr" label="Instructions">
+        {c => <textarea {...c} value={instructions} onChange={e => setInstructions(e.target.value)} rows={2} className={control} />}
+      </Field>
 
-      <fieldset style={{ border: 'none', padding: 0, margin: 0, display: 'grid', gap: 10 }}>
-        <legend style={{ fontSize: 13, fontWeight: 650, marginBottom: 8 }}>{cfg.listLegend}</legend>
+      <fieldset className={styles.fieldset}>
+        <legend className={styles.legend}>{cfg.listLegend}</legend>
         {items.map((it, i) => (
-          <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12, display: 'grid', gap: 8 }}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: 'var(--text-muted)', minWidth: 22 }}>{i + 1}.</span>
-              <input aria-label={`${noun} ${i + 1} label`} placeholder={cfg.itemPlaceholder} value={it.label} onChange={e => update(i, { label: e.target.value })} style={control} />
+          <div key={i} className={styles.itemCard}>
+            <div className={styles.row} style={{ alignItems: 'center', flexWrap: 'nowrap' }}>
+              <span className={styles.itemIndex}>{i + 1}.</span>
+              <input aria-label={`${noun} ${i + 1} label`} placeholder={cfg.itemPlaceholder} value={it.label} onChange={e => update(i, { label: e.target.value })} className={control} />
             </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <select aria-label={`${noun} ${i + 1} response type`} value={it.responseType} onChange={e => update(i, { responseType: e.target.value })} style={{ ...control, width: 'auto' }}>
+            <div className={styles.row} style={{ alignItems: 'center' }}>
+              <select aria-label={`${noun} ${i + 1} response type`} value={it.responseType} onChange={e => update(i, { responseType: e.target.value })} className={control} style={{ width: 'auto' }}>
                 {cfg.responseTypes.map(t => <option key={t} value={t}>{assuranceLabel(t)}</option>)}
               </select>
               {(cfg.multiOptionTypes as readonly string[]).includes(it.responseType) && (
-                <input aria-label={`${noun} ${i + 1} options`} placeholder="Options, comma-separated" value={it.options} onChange={e => update(i, { options: e.target.value })} style={{ ...control, width: 240 }} />
+                <input aria-label={`${noun} ${i + 1} options`} placeholder="Options, comma-separated" value={it.options} onChange={e => update(i, { options: e.target.value })} className={control} style={{ width: 240, maxWidth: '100%' }} />
               )}
-              <label style={{ fontSize: 12, display: 'inline-flex', gap: 5, alignItems: 'center', color: 'var(--text-secondary)' }}>
+              <label className={styles.inlineCheck}>
                 <input type="checkbox" checked={it.required} onChange={e => update(i, { required: e.target.checked })} /> Required
               </label>
-              <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-                <button type="button" aria-label={`Move ${noun} ${i + 1} up`} onClick={() => move(i, -1)} style={smallBtn}>↑</button>
-                <button type="button" aria-label={`Move ${noun} ${i + 1} down`} onClick={() => move(i, 1)} style={smallBtn}>↓</button>
-                <button type="button" aria-label={`Remove ${noun} ${i + 1}`} onClick={() => setItems(list => list.length > 1 ? list.filter((_, j) => j !== i) : list)} style={smallBtn}>Remove</button>
+              <span className={styles.row} style={{ marginLeft: 'auto', gap: 4 }}>
+                <Button size="sm" variant="ghost" aria-label={`Move ${noun} ${i + 1} up`} onClick={() => move(i, -1)}>↑</Button>
+                <Button size="sm" variant="ghost" aria-label={`Move ${noun} ${i + 1} down`} onClick={() => move(i, 1)}>↓</Button>
+                <Button size="sm" variant="ghost" aria-label={`Remove ${noun} ${i + 1}`} onClick={() => setItems(list => list.length > 1 ? list.filter((_, j) => j !== i) : list)}>Remove</Button>
               </span>
             </div>
-            <input aria-label={`${noun} ${i + 1} guidance`} placeholder={variant === 'audit' ? 'What evidence satisfies this criterion? (optional)' : 'Guidance for the inspector (optional)'} value={it.guidance} onChange={e => update(i, { guidance: e.target.value })} style={control} />
+            <input aria-label={`${noun} ${i + 1} guidance`} placeholder={variant === 'audit' ? 'What evidence satisfies this criterion? (optional)' : 'Guidance for the inspector (optional)'} value={it.guidance} onChange={e => update(i, { guidance: e.target.value })} className={control} />
           </div>
         ))}
-        <div><button type="button" onClick={() => setItems(list => [...list, blank()])} style={smallBtn}>+ Add {noun}</button></div>
+        <div><Button size="sm" onClick={() => setItems(list => [...list, blank()])}>+ Add {noun}</Button></div>
       </fieldset>
 
-      {error && <div role="alert" style={{ fontSize: 13, color: 'var(--bb-danger)', background: 'var(--bb-danger-soft)', padding: '8px 12px', borderRadius: 8 }}>{error}</div>}
+      {error && <FormError>{error}</FormError>}
       <div>
-        <button type="button" onClick={submit} disabled={busy}
-          style={{ padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: 'var(--purple-600)', color: '#fff', border: 'none', cursor: 'pointer', opacity: busy ? 0.7 : 1 }}>
+        <Button variant="primary" onClick={submit} disabled={busy} aria-busy={busy || undefined}>
           {busy ? 'Saving…' : props.mode === 'template' ? 'Create template (version 1)' : 'Publish new version'}
-        </button>
+        </Button>
       </div>
     </div>
   );

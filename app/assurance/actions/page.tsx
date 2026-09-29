@@ -4,7 +4,7 @@ import { listOrgUserOptions } from '@/lib/assurance/users';
 import { ACTION_PRIORITIES, ACTION_STATUSES, ACTION_TYPES, isPast } from '@/lib/assurance/domain';
 import { firstParam } from '@/lib/assurance/input';
 import { resolvePageViewer } from '../_components/pageAccess';
-import { Badge, DataTable, DateCell, Dim, FilterBar, PageHeader, RecordLink, RefChip, Row, enumOptions, td } from '../_components/ui';
+import { Badge, DataTable, DateCell, Dim, FilterBar, PageHeader, RecordLink, RefChip, Row, enumOptions, td, assuranceStyles as styles } from '../_components/ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,14 +37,12 @@ export default async function ActionsPage({ searchParams }: { searchParams: SP }
         title="Corrective actions"
         subtitle="Controlled responses to findings. Work completion, evidence, independent verification and closure are each explicit steps."
       />
-      <nav aria-label="Action views" style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+      <nav aria-label="Action views" className={styles.viewTabs}>
         {VIEWS.map(v => {
           const active = (f.view ?? '') === v.value;
           return (
             <Link key={v.value} href={v.value ? `/assurance/actions?view=${v.value}` : '/assurance/actions'} aria-current={active ? 'page' : undefined}
-              style={{ fontSize: 12, padding: '6px 11px', borderRadius: 999, textDecoration: 'none', border: '1px solid var(--border)',
-                color: active ? 'var(--brand-brainbase-accent)' : 'var(--text-secondary)',
-                background: active ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)' : 'transparent' }}>
+              className={styles.viewTab}>
               {v.label}
             </Link>
           );
@@ -75,7 +73,7 @@ export default async function ActionsPage({ searchParams }: { searchParams: SP }
               <td style={td}>{r.owner_name ?? <Dim>Unassigned</Dim>}</td>
               <td style={td}><DateCell value={r.due_at} overdue={open && isPast(r.due_at)} /></td>
               <td style={td}>{r.findings.map(x => <RefChip key={x.id} href={`/assurance/findings/${x.id}`} reference={x.reference} kind="finding" />)}</td>
-              <td style={td}>{r.evidence_required ? (r.active_evidence_count > 0 ? `${r.active_evidence_count} linked` : <span style={{ color: 'var(--bb-warning)' }}>Required</span>) : (r.active_evidence_count > 0 ? `${r.active_evidence_count} linked` : <Dim>—</Dim>)}</td>
+              <td style={td}>{r.evidence_required ? (r.active_evidence_count > 0 ? `${r.active_evidence_count} linked` : <span style={{ color: 'var(--status-warning)' }}>Required</span>) : (r.active_evidence_count > 0 ? `${r.active_evidence_count} linked` : <Dim>—</Dim>)}</td>
               <td style={td}>{r.latest_verification_result ? <Badge value={r.latest_verification_result} /> : r.verification_required ? <Dim>Pending</Dim> : <Dim>Not required</Dim>}</td>
             </Row>
           );

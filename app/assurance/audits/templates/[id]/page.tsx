@@ -5,7 +5,7 @@ import { assuranceLabel, formatAssuranceDate, formatAssuranceDateTime } from '@/
 import { resolvePageViewer } from '../../../_components/pageAccess';
 import ActionPanel from '../../../_components/ActionPanel';
 import ChecklistBuilder from '../../../_components/ChecklistBuilder';
-import { Badge, Breadcrumbs, Card, Dim, HistoryList, KeyValues, Notice, PageHeader, Section } from '../../../_components/ui';
+import { Badge, Breadcrumbs, Card, Dim, HistoryList, KeyValues, Notice, PageHeader, Section, assuranceStyles as styles } from '../../../_components/ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,8 +23,8 @@ export default async function AuditTemplateDetailPage({ params }: { params: Prom
     <div style={{ maxWidth: 1000 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/audits', label: 'Audits' }, { href: '/assurance/audits/templates', label: 'Templates' }, { label: t.template_reference }]} />
       <PageHeader
-        eyebrow={<span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 12, color: 'var(--brand-brainbase-accent)' }}>{t.template_reference}</span>
+        eyebrow={<span className={styles.eyebrowRow}>
+          <span className={styles.refEyebrow}>{t.template_reference}</span>
           <Badge value={t.is_active ? 'ACTIVE' : 'INACTIVE'} tone={t.is_active ? 'success' : 'neutral'} label={t.is_active ? 'Active' : 'Inactive'} />
         </span>}
         title={t.name}
@@ -50,7 +50,7 @@ export default async function AuditTemplateDetailPage({ params }: { params: Prom
               { label: 'Used by', value: `${v.audit_count} audit${v.audit_count === 1 ? '' : 's'}` },
             ]} />
             {v.instructions && <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '12px 0 0' }}>{v.instructions}</p>}
-            {v.invalid_criteria_count > 0 && <p style={{ fontSize: 12, color: 'var(--bb-warning)' }}>{v.invalid_criteria_count} unreadable criteria not shown.</p>}
+            {v.invalid_criteria_count > 0 && <p style={{ fontSize: 12, color: 'var(--status-warning)' }}>{v.invalid_criteria_count} unreadable criteria not shown.</p>}
             <div style={{ marginTop: 12 }}>
               {v.criteria.length === 0 ? <Dim>No criteria.</Dim> : (
                 <ol style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 6 }}>
@@ -70,9 +70,9 @@ export default async function AuditTemplateDetailPage({ params }: { params: Prom
 
       {canAdminister && latest && (
         <Section title="Edit (publishes a new version)">
-          <details>
-            <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)' }}>Start version {latest.version_number + 1} from version {latest.version_number}</summary>
-            <div style={{ marginTop: 12, padding: 16, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg-surface)' }}>
+          <details className={styles.details}>
+            <summary>Start version {latest.version_number + 1} from version {latest.version_number}</summary>
+            <div className={styles.disclosure} style={{ maxWidth: 'none', marginTop: 0 }}>
               <ChecklistBuilder
                 variant="audit"
                 mode="version"

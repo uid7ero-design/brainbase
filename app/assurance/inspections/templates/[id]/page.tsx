@@ -4,7 +4,7 @@ import { viewerCan } from '@/lib/assurance/authorize';
 import { assuranceLabel, formatAssuranceDateTime } from '@/lib/assurance/domain';
 import { resolvePageViewer } from '../../../_components/pageAccess';
 import ActionPanel from '../../../_components/ActionPanel';
-import { Badge, Breadcrumbs, Card, Dim, HistoryList, Notice, PageHeader, Section } from '../../../_components/ui';
+import { Badge, Breadcrumbs, Card, Dim, HistoryList, Notice, PageHeader, Section, assuranceStyles as styles } from '../../../_components/ui';
 import ChecklistBuilder from '../../../_components/ChecklistBuilder';
 
 export const dynamic = 'force-dynamic';
@@ -23,8 +23,8 @@ export default async function TemplateDetailPage({ params }: { params: Promise<{
     <div style={{ maxWidth: 1000 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/inspections', label: 'Inspections' }, { href: '/assurance/inspections/templates', label: 'Templates' }, { label: t.template_reference }]} />
       <PageHeader
-        eyebrow={<span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 12, color: 'var(--brand-brainbase-accent)' }}>{t.template_reference}</span>
+        eyebrow={<span className={styles.eyebrowRow}>
+          <span className={styles.refEyebrow}>{t.template_reference}</span>
           <Badge value={t.is_active ? 'ACTIVE' : 'INACTIVE'} tone={t.is_active ? 'success' : 'neutral'} label={t.is_active ? 'Active' : 'Inactive'} />
         </span>}
         title={t.name}
@@ -46,7 +46,7 @@ export default async function TemplateDetailPage({ params }: { params: Promise<{
               {v.title} · published {formatAssuranceDateTime(v.created_at)}{v.created_by_name ? ` by ${v.created_by_name}` : ''} · used by {v.inspection_count} inspection{v.inspection_count === 1 ? '' : 's'}
             </div>
             {v.instructions && <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 10px' }}>{v.instructions}</p>}
-            {v.invalid_item_count > 0 && <p style={{ fontSize: 12, color: 'var(--bb-warning)' }}>{v.invalid_item_count} unreadable item(s) not shown.</p>}
+            {v.invalid_item_count > 0 && <p style={{ fontSize: 12, color: 'var(--status-warning)' }}>{v.invalid_item_count} unreadable item(s) not shown.</p>}
             {v.items.length === 0 ? <Dim>No checklist items.</Dim> : (
               <ol style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 6 }}>
                 {v.items.map(it => (
@@ -64,9 +64,9 @@ export default async function TemplateDetailPage({ params }: { params: Promise<{
 
       {canAdminister && latest && (
         <Section title="Publish a new version">
-          <details>
-            <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)' }}>Start from version {latest.version_number}</summary>
-            <div style={{ marginTop: 12, padding: 16, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg-surface)' }}>
+          <details className={styles.details}>
+            <summary>Start from version {latest.version_number}</summary>
+            <div className={styles.disclosure} style={{ maxWidth: 'none', marginTop: 0 }}>
               <ChecklistBuilder
                 mode="version"
                 templateId={t.id}

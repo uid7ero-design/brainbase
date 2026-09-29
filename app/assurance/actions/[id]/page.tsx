@@ -8,8 +8,7 @@ import ActionPanel from '../../_components/ActionPanel';
 import { EvidenceSection } from '../../_components/shared';
 import {
   Badge, Breadcrumbs, Card, ChainStrip, DataTable, DateCell, Dim, HistoryList, KeyValues, Notice, PageHeader, Prose, RecordLink,
-  Row, Section, enumOptions, td, type ChainStep,
-} from '../../_components/ui';
+  Row, Section, enumOptions, td, type ChainStep, assuranceStyles as styles, tableStyles } from '../../_components/ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,8 +43,8 @@ export default async function ActionDetailPage({ params }: { params: Promise<{ i
     <div style={{ maxWidth: 1100 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/actions', label: 'Actions' }, { label: a.action_reference }]} />
       <PageHeader
-        eyebrow={<span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 12, color: 'var(--brand-brainbase-accent)' }}>{a.action_reference}</span>
+        eyebrow={<span className={styles.eyebrowRow}>
+          <span className={styles.refEyebrow}>{a.action_reference}</span>
           <Badge value={a.status} />
           <Badge value={a.priority} />
         </span>}
@@ -172,7 +171,7 @@ export default async function ActionDetailPage({ params }: { params: Promise<{ i
                 <td style={td}><Badge value={v.result} /></td>
                 <td style={td}>{v.verified_by_name ?? <Dim>—</Dim>}</td>
                 <td style={td}><DateCell value={v.verified_at} withTime /></td>
-                <td style={td}>{v.evidence.length === 0 ? <Dim>—</Dim> : v.evidence.map(e => <div key={e.id}><Link href={`/assurance/evidence/${e.id}`} style={{ color: 'var(--text-secondary)' }}>{e.reference}</Link></div>)}</td>
+                <td style={td}>{v.evidence.length === 0 ? <Dim>—</Dim> : v.evidence.map(e => <div key={e.id}><Link href={`/assurance/evidence/${e.id}`} className={tableStyles.link}>{e.reference}</Link></div>)}</td>
                 <td style={{ ...td, maxWidth: 280, whiteSpace: 'pre-wrap' }}>{v.notes ?? <Dim>—</Dim>}</td>
               </Row>
             ))}
@@ -190,4 +189,4 @@ export default async function ActionDetailPage({ params }: { params: Promise<{ i
   );
 }
 
-const subhead = { fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 6 } as const;
+const subhead = { fontSize: '0.6875rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 6 } as const;

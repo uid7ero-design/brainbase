@@ -9,8 +9,7 @@ import { resolvePageViewer } from '../../_components/pageAccess';
 import ActionPanel from '../../_components/ActionPanel';
 import { EvidenceSection, FindingsTable, raiseFindingFields } from '../../_components/shared';
 import {
-  Badge, Breadcrumbs, Card, DateCell, Dim, HistoryList, KeyValues, Notice, PageHeader, Prose, Section,
-} from '../../_components/ui';
+  Badge, Breadcrumbs, Card, DateCell, Dim, HistoryList, KeyValues, Notice, PageHeader, Prose, Section, assuranceStyles as styles, tableStyles } from '../../_components/ui';
 import InspectionRunner, { type RunnerFinding, type RunnerResponse } from './InspectionRunner';
 
 export const dynamic = 'force-dynamic';
@@ -36,8 +35,8 @@ export default async function InspectionDetailPage({ params }: { params: Promise
     <div style={{ maxWidth: 1100 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/inspections', label: 'Inspections' }, { label: ins.inspection_reference }]} />
       <PageHeader
-        eyebrow={<span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 12, color: 'var(--brand-brainbase-accent)' }}>{ins.inspection_reference}</span>
+        eyebrow={<span className={styles.eyebrowRow}>
+          <span className={styles.refEyebrow}>{ins.inspection_reference}</span>
           <Badge value={ins.status} />
           <Badge value={adHoc ? 'AD_HOC' : 'TEMPLATE'} tone="neutral" label={adHoc ? 'Ad hoc' : 'Template'} />
         </span>}
@@ -74,7 +73,7 @@ export default async function InspectionDetailPage({ params }: { params: Promise
             {
               label: 'Checklist',
               value: adHoc ? 'Ad hoc (items recorded during the inspection)' : (
-                <Link href={`/assurance/inspections/templates/${ins.template_id}`} style={{ color: 'var(--brand-brainbase-accent)', textDecoration: 'none' }}>
+                <Link href={`/assurance/inspections/templates/${ins.template_id}`} className={tableStyles.link}>
                   {ins.template_name} · v{ins.template_version_number}
                 </Link>
               ),
@@ -123,4 +122,4 @@ export default async function InspectionDetailPage({ params }: { params: Promise
   );
 }
 
-const subhead = { fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 6 } as const;
+const subhead = { fontSize: '0.6875rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 6 } as const;

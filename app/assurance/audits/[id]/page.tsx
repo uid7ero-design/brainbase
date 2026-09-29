@@ -10,8 +10,7 @@ import { resolvePageViewer } from '../../_components/pageAccess';
 import ActionPanel from '../../_components/ActionPanel';
 import { EvidenceSection, FindingsTable, raiseFindingFields } from '../../_components/shared';
 import {
-  Badge, Breadcrumbs, Card, DateCell, Dim, HistoryList, KeyValues, Notice, PageHeader, Prose, Section,
-} from '../../_components/ui';
+  Badge, Breadcrumbs, Card, DateCell, Dim, HistoryList, KeyValues, Notice, PageHeader, Prose, Section, assuranceStyles as styles, tableStyles } from '../../_components/ui';
 import AuditRunner, { type AuditRunnerFinding, type AuditRunnerResponse } from './AuditRunner';
 
 export const dynamic = 'force-dynamic';
@@ -44,8 +43,8 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ id
     <div style={{ maxWidth: 1100 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/audits', label: 'Audits' }, { label: au.audit_reference }]} />
       <PageHeader
-        eyebrow={<span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 12, color: 'var(--brand-brainbase-accent)' }}>{au.audit_reference}</span>
+        eyebrow={<span className={styles.eyebrowRow}>
+          <span className={styles.refEyebrow}>{au.audit_reference}</span>
           <Badge value={au.status} />
           <Badge value={adHoc ? 'AD_HOC' : 'TEMPLATE'} tone="neutral" label={adHoc ? 'Ad hoc' : 'Template'} />
         </span>}
@@ -98,7 +97,7 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ id
             {
               label: 'Criteria',
               value: adHoc ? 'Ad hoc (criteria recorded during the audit)' : (
-                <Link href={`/assurance/audits/templates/${au.template_id}`} style={{ color: 'var(--brand-brainbase-accent)', textDecoration: 'none' }}>
+                <Link href={`/assurance/audits/templates/${au.template_id}`} className={tableStyles.link}>
                   {au.template_name} · v{au.template_version_number}
                 </Link>
               ),
@@ -170,4 +169,4 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ id
   );
 }
 
-const subhead = { fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 6 } as const;
+const subhead = { fontSize: '0.6875rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 6 } as const;

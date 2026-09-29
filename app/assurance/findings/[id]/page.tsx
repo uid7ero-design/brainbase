@@ -9,8 +9,7 @@ import ActionPanel from '../../_components/ActionPanel';
 import { EvidenceSection, NextStepButtons } from '../../_components/shared';
 import {
   Badge, Breadcrumbs, Card, ChainStrip, DataTable, DateCell, Dim, HistoryList, KeyValues, PageHeader, Prose, RecordLink,
-  RefChip, Row, Section, enumOptions, td, type ChainStep,
-} from '../../_components/ui';
+  RefChip, Row, Section, enumOptions, td, type ChainStep, assuranceStyles as styles } from '../../_components/ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,8 +51,8 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
     <div style={{ maxWidth: 1100 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/findings', label: 'Findings' }, { label: f.finding_reference }]} />
       <PageHeader
-        eyebrow={<span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 12, color: 'var(--brand-brainbase-accent)' }}>{f.finding_reference}</span>
+        eyebrow={<span className={styles.eyebrowRow}>
+          <span className={styles.refEyebrow}>{f.finding_reference}</span>
           <Badge value={f.status} />
           <Badge value={f.finding_type} tone="neutral" />
         </span>}
@@ -122,7 +121,7 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
                 <td style={td}><Badge value={a.status} /></td>
                 <td style={td}>{a.owner_name ?? <Dim>Unassigned</Dim>}</td>
                 <td style={td}><DateCell value={a.due_at} overdue={a.status !== 'CLOSED' && a.status !== 'CANCELLED' && isPast(a.due_at)} /></td>
-                <td style={td}>{a.evidence_required ? (a.active_evidence_count > 0 ? `${a.active_evidence_count} linked` : <span style={{ color: 'var(--bb-warning)' }}>Required</span>) : <Dim>Optional</Dim>}</td>
+                <td style={td}>{a.evidence_required ? (a.active_evidence_count > 0 ? `${a.active_evidence_count} linked` : <span style={{ color: 'var(--status-warning)' }}>Required</span>) : <Dim>Optional</Dim>}</td>
                 <td style={td}>{a.latest_verification_result ? <Badge value={a.latest_verification_result} /> : a.verification_required ? <Dim>Pending</Dim> : <Dim>Not required</Dim>}</td>
               </Row>
             ))}
@@ -146,4 +145,4 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
   );
 }
 
-const subhead = { fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 6 } as const;
+const subhead = { fontSize: '0.6875rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 6 } as const;

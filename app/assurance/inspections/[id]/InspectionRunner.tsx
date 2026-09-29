@@ -1,5 +1,5 @@
 'use client';
-import { useState, type CSSProperties } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -8,6 +8,8 @@ import {
 } from '@/lib/assurance/domain';
 import ActionPanel from '../../_components/ActionPanel';
 import type { FormField } from '../../_components/AssuranceForm';
+import { Button, fieldControlClassName } from '@/components/ui/app';
+import styles from '../../_components/assurance.module.css';
 
 // Checklist execution. Items come from the inspection's bound, immutable
 // template version (or are defined ad hoc). Each save posts ONE response
@@ -31,14 +33,16 @@ type Props = {
   findingFields: FormField[];
 };
 
-const OUTCOMES: { value: InspectionOutcome; label: string; color: string }[] = [
-  { value: 'PASS', label: 'Pass', color: 'var(--bb-success)' },
-  { value: 'FAIL', label: 'Fail', color: 'var(--bb-danger)' },
-  { value: 'OBSERVATION', label: 'Observation', color: 'var(--bb-warning)' },
-  { value: 'NOT_APPLICABLE', label: 'N/A', color: 'var(--text-secondary)' },
+type OutcomeTone = 'success' | 'danger' | 'warning' | 'info' | 'neutral';
+
+const OUTCOMES: { value: InspectionOutcome; label: string; tone: OutcomeTone }[] = [
+  { value: 'PASS', label: 'Pass', tone: 'success' },
+  { value: 'FAIL', label: 'Fail', tone: 'danger' },
+  { value: 'OBSERVATION', label: 'Observation', tone: 'warning' },
+  { value: 'NOT_APPLICABLE', label: 'N/A', tone: 'neutral' },
 ];
 
-const control: CSSProperties = { padding: '8px 10px', background: 'var(--bg-base)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' };
+const control = fieldControlClassName;
 
 export default function InspectionRunner({ inspectionId, editable, canRaiseFindings, adHoc, checklist, responses, findings, findingFields }: Props) {
   const byKey = new Map(responses.map(r => [r.item_key, r]));
@@ -50,17 +54,17 @@ export default function InspectionRunner({ inspectionId, editable, canRaiseFindi
   const failed = responses.filter(r => r.outcome === 'FAIL').length;
 
   return (
-    <div style={{ display: 'grid', gap: 10 }}>
-      <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+    <div className={styles.stackTight}>
+      <div className={styles.runnerSummary}>
         {answered} of {items.length} item{items.length === 1 ? '' : 's'} answered
-        {failed > 0 && <span style={{ color: 'var(--bb-danger)', fontWeight: 600 }}> · {failed} failed</span>}
+        {failed > 0 && <span className={styles.outcomeText} data-tone="danger"> · {failed} failed</span>}
       </div>
       {items.length === 0 && (
-        <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '18px 0' }}>
+        <div className={styles.dim} style={{ fontSize: 13, padding: '18px 0' }}>
           {adHoc ? 'No items recorded yet. Add the first item below.' : 'This template version has no readable checklist items.'}
         </div>
       )}
-      <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 10 }}>
+      <ol className={styles.runnerList}>
         {items.map((item, idx) => (
           <ItemRow
             key={item.key}
@@ -120,64 +124,59 @@ function ItemRow({ index, item, response, inspectionId, editable, adHoc, canRais
   const raisable = canRaiseFindings && response && (response.outcome === 'FAIL' || response.outcome === 'OBSERVATION');
 
   return (
-    <li style={{ border: '1px solid var(--border)', borderLeft: `3px solid ${outcomeStyle?.color ?? 'var(--border)'}`, borderRadius: 10, padding: '12px 14px', background: 'var(--bg-surface)' }}>
+    <li className={styles.runnerItem} data-tone={outcomeStyle?.tone}>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+          <div className={styles.runnerLabel}>
             {index + 1}. {item.label}
-            {item.required && !adHoc && <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontSize: 11 }}> · required</span>}
+            {item.required && !adHoc && <span className={styles.runnerRequired}> · required</span>}
           </div>
-          {item.guidance && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>{item.guidance}</div>}
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>{assuranceLabel(item.responseType)}{item.options.length > 0 ? ` · ${item.options.join(' / ')}` : ''}</div>
+          {item.guidance && <div className={styles.runnerGuidance}>{item.guidance}</div>}
+          <div className={styles.runnerMeta}>{assuranceLabel(item.responseType)}{item.options.length > 0 ? ` · ${item.options.join(' / ')}` : ''}</div>
         </div>
         {response && !showEditor && (
           <div style={{ textAlign: 'right' }}>
-            {response.outcome && <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: outcomeStyle?.color }}>{assuranceLabel(response.outcome)}</span>}
+            {response.outcome && <span className={styles.outcomeLabel} data-tone={outcomeStyle?.tone}>{assuranceLabel(response.outcome)}</span>}
             {response.response_value !== null && response.response_value !== undefined && (
-              <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>{displayValue(response.response_value)}</div>
+              <div className={styles.runnerValue}>{displayValue(response.response_value)}</div>
             )}
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{response.responded_by_name ?? 'Unknown'} · {formatAssuranceDateTime(response.responded_at)}</div>
+            <div className={styles.runnerMeta} style={{ marginTop: 0 }}>{response.responded_by_name ?? 'Unknown'} · {formatAssuranceDateTime(response.responded_at)}</div>
           </div>
         )}
       </div>
-      {response?.notes && !showEditor && <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 8, whiteSpace: 'pre-wrap' }}>{response.notes}</div>}
+      {response?.notes && !showEditor && <div className={styles.runnerNotes}>{response.notes}</div>}
 
       {showEditor && (
         <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-          <div role="radiogroup" aria-label={`Outcome for ${item.label}`} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <div role="radiogroup" aria-label={`Outcome for ${item.label}`} className={styles.row} style={{ gap: 6 }}>
             {OUTCOMES.map(o => (
-              <button key={o.value} type="button" role="radio" aria-checked={outcome === o.value} onClick={() => setOutcome(o.value)}
-                style={{ padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                  border: `1px solid ${outcome === o.value ? o.color : 'var(--border)'}`,
-                  background: outcome === o.value ? `color-mix(in srgb, ${o.color} 14%, transparent)` : 'transparent',
-                  color: outcome === o.value ? o.color : 'var(--text-secondary)' }}>
+              <button key={o.value} type="button" role="radio" aria-checked={outcome === o.value} onClick={() => setOutcome(o.value)} className={styles.outcomeChip} data-tone={o.tone}>
                 {o.label}
               </button>
             ))}
           </div>
           {needsValue && <ValueInput type={item.responseType} options={item.options} value={value} onChange={setValue} label={item.label} />}
           <textarea aria-label={`Notes for ${item.label}`} placeholder={outcome === 'FAIL' ? 'Describe the failure (required)' : 'Notes (optional)'}
-            value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...control, resize: 'vertical' }} />
-          {error && <div role="alert" style={{ fontSize: 12, color: 'var(--bb-danger)' }}>{error}</div>}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button type="button" onClick={save} disabled={busy}
-              style={{ padding: '7px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: 'var(--purple-600)', color: '#fff', border: 'none', cursor: 'pointer', opacity: busy ? 0.7 : 1 }}>
+            value={notes} onChange={e => setNotes(e.target.value)} rows={2} className={control} />
+          {error && <div role="alert" className={styles.actionError}>{error}</div>}
+          <div className={styles.row}>
+            <Button variant="primary" onClick={save} disabled={busy} aria-busy={busy || undefined}>
               {busy ? 'Saving…' : response ? 'Update response' : 'Save response'}
-            </button>
-            {response && <button type="button" onClick={() => setEditing(false)} style={{ padding: '7px 12px', borderRadius: 8, fontSize: 13, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', cursor: 'pointer' }}>Cancel</button>}
+            </Button>
+            {response && <Button variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>}
           </div>
         </div>
       )}
 
       {(findings.length > 0 || raisable || (editable && response && !showEditor)) && (
-        <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <div className={styles.row} style={{ marginTop: 10 }}>
           {findings.map(f => (
-            <Link key={f.id} href={`/assurance/findings/${f.id}`} style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', color: 'var(--text-primary)', textDecoration: 'none' }}>
+            <Link key={f.id} href={`/assurance/findings/${f.id}`} className={styles.refChip} style={{ fontFamily: 'inherit', fontSize: '0.75rem', padding: '4px 8px' }}>
               Finding {f.finding_reference} · {assuranceLabel(f.status)}
             </Link>
           ))}
           {editable && response && !showEditor && (
-            <button type="button" onClick={() => setEditing(true)} style={{ padding: '5px 10px', borderRadius: 7, fontSize: 12, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', cursor: 'pointer' }}>Revise</button>
+            <Button size="sm" onClick={() => setEditing(true)}>Revise</Button>
           )}
           {raisable && (
             <ActionPanel
@@ -207,24 +206,24 @@ function withDefaults(fields: FormField[], item: ChecklistItem, response: Runner
 }
 
 function ValueInput({ type, options, value, onChange, label }: { type: InspectionResponseType; options: string[]; value: string; onChange: (v: string) => void; label: string }) {
-  if (type === 'NUMBER') return <input aria-label={`Value for ${label}`} type="number" step="any" value={value} onChange={e => onChange(e.target.value)} style={control} />;
-  if (type === 'DATE') return <input aria-label={`Value for ${label}`} type="date" value={value} onChange={e => onChange(e.target.value)} style={control} />;
+  if (type === 'NUMBER') return <input aria-label={`Value for ${label}`} type="number" step="any" value={value} onChange={e => onChange(e.target.value)} className={control} />;
+  if (type === 'DATE') return <input aria-label={`Value for ${label}`} type="date" value={value} onChange={e => onChange(e.target.value)} className={control} />;
   if (type === 'BOOLEAN') {
     return (
-      <select aria-label={`Value for ${label}`} value={value} onChange={e => onChange(e.target.value)} style={control}>
+      <select aria-label={`Value for ${label}`} value={value} onChange={e => onChange(e.target.value)} className={control}>
         <option value="">—</option><option value="true">Yes</option><option value="false">No</option>
       </select>
     );
   }
   if (type === 'CHOICE' && options.length > 0) {
     return (
-      <select aria-label={`Value for ${label}`} value={value} onChange={e => onChange(e.target.value)} style={control}>
+      <select aria-label={`Value for ${label}`} value={value} onChange={e => onChange(e.target.value)} className={control}>
         <option value="">Choose…</option>{options.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
     );
   }
   return <input aria-label={`Value for ${label}`} type="text" value={value} onChange={e => onChange(e.target.value)}
-    placeholder={type === 'MULTI_CHOICE' ? 'Comma-separated' : 'Response'} style={control} />;
+    placeholder={type === 'MULTI_CHOICE' ? 'Comma-separated' : 'Response'} className={control} />;
 }
 
 function displayValue(v: unknown): string {
@@ -265,25 +264,24 @@ function AddAdHocItem({ inspectionId }: { inspectionId: string }) {
   }
 
   return (
-    <div style={{ border: '1px dashed var(--border)', borderRadius: 10, padding: 14, display: 'grid', gap: 8 }}>
-      <div style={{ fontSize: 13, fontWeight: 600 }}>Add an item</div>
-      <input aria-label="Item" placeholder="What was checked?" value={label} onChange={e => setLabel(e.target.value)} style={control} />
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <select aria-label="Response type" value={type} onChange={e => setType(e.target.value as InspectionResponseType)} style={{ ...control, width: 'auto' }}>
+    <div className={styles.runnerAdd}>
+      <div className={styles.legend} style={{ margin: 0 }}>Add an item</div>
+      <input aria-label="Item" placeholder="What was checked?" value={label} onChange={e => setLabel(e.target.value)} className={control} />
+      <div className={styles.row}>
+        <select aria-label="Response type" value={type} onChange={e => setType(e.target.value as InspectionResponseType)} className={control} style={{ width: 'auto' }}>
           {INSPECTION_RESPONSE_TYPES.filter(t => t === 'PASS_FAIL' || t === 'TEXT' || t === 'NUMBER').map(t => <option key={t} value={t}>{assuranceLabel(t)}</option>)}
         </select>
-        <select aria-label="Outcome" value={outcome} onChange={e => setOutcome(e.target.value as InspectionOutcome | '')} style={{ ...control, width: 'auto' }}>
+        <select aria-label="Outcome" value={outcome} onChange={e => setOutcome(e.target.value as InspectionOutcome | '')} className={control} style={{ width: 'auto' }}>
           <option value="">Outcome…</option>
           {OUTCOMES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </div>
-      <textarea aria-label="Notes" placeholder="Notes" value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...control, resize: 'vertical' }} />
-      {error && <div role="alert" style={{ fontSize: 12, color: 'var(--bb-danger)' }}>{error}</div>}
+      <textarea aria-label="Notes" placeholder="Notes" value={notes} onChange={e => setNotes(e.target.value)} rows={2} className={control} />
+      {error && <div role="alert" className={styles.actionError}>{error}</div>}
       <div>
-        <button type="button" onClick={add} disabled={busy || !label.trim()}
-          style={{ padding: '7px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: 'var(--purple-600)', color: '#fff', border: 'none', cursor: 'pointer', opacity: busy || !label.trim() ? 0.6 : 1 }}>
+        <Button variant="primary" onClick={add} disabled={busy || !label.trim()} aria-busy={busy || undefined}>
           {busy ? 'Adding…' : 'Add item'}
-        </button>
+        </Button>
       </div>
     </div>
   );

@@ -2,7 +2,7 @@ import { listRecentVerifications, listVerificationQueue } from '@/lib/assurance/
 import { viewerCan } from '@/lib/assurance/authorize';
 import { isPast } from '@/lib/assurance/domain';
 import { resolvePageViewer } from '../_components/pageAccess';
-import { Badge, DataTable, DateCell, Dim, Notice, PageHeader, RecordLink, Row, Section, td } from '../_components/ui';
+import { Badge, DataTable, DateCell, Dim, Notice, PageHeader, RecordLink, Row, Section, td, tableStyles } from '../_components/ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,8 +28,8 @@ export default async function VerificationPage() {
               <td style={{ ...td, maxWidth: 300 }}><RecordLink href={`/assurance/actions/${q.id}#verification`} reference={q.action_reference} title={q.title} /></td>
               <td style={td}><Badge value={q.priority} /></td>
               <td style={td}>{q.owner_name ?? <Dim>Unassigned</Dim>}</td>
-              <td style={td}><DateCell value={q.work_completed_at} />{q.work_completed_by_name && <div style={{ fontSize: 11 }}>{q.work_completed_by_name}</div>}</td>
-              <td style={td}>{q.active_evidence_count > 0 ? `${q.active_evidence_count} linked` : <span style={{ color: 'var(--bb-warning)' }}>None</span>}</td>
+              <td style={td}><DateCell value={q.work_completed_at} />{q.work_completed_by_name && <div className={tableStyles.meta}>{q.work_completed_by_name}</div>}</td>
+              <td style={td}>{q.active_evidence_count > 0 ? `${q.active_evidence_count} linked` : <span style={{ color: 'var(--status-warning)' }}>None</span>}</td>
               <td style={td}>{q.attempt_count}</td>
               <td style={td}><DateCell value={q.due_at} overdue={isPast(q.due_at)} /></td>
               <td style={td}>{!canVerify ? <Dim>—</Dim> : q.can_verify ? <Badge value="YES" tone="success" label="Yes" /> : <span title="You own this action or completed its work"><Badge value="NO" tone="neutral" label="Not independent" /></span>}</td>

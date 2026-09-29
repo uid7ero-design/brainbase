@@ -6,8 +6,7 @@ import { INSPECTION_STATUSES, INSPECTION_TYPES, assuranceLabel, isPast } from '@
 import { firstParam } from '@/lib/assurance/input';
 import { resolvePageViewer } from '../_components/pageAccess';
 import {
-  Badge, DataTable, DateCell, Dim, FilterBar, LinkButton, PageHeader, RecordLink, Row, enumOptions, td,
-} from '../_components/ui';
+  Badge, DataTable, DateCell, Dim, FilterBar, LinkButton, PageHeader, RecordLink, Row, enumOptions, td, assuranceStyles as styles, tableStyles } from '../_components/ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,15 +42,13 @@ export default async function InspectionsPage({ searchParams }: { searchParams: 
           {viewerCan(viewer, 'record') && <LinkButton href="/assurance/inspections/new">Plan inspection</LinkButton>}
         </>}
       />
-      <nav aria-label="Inspection views" style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+      <nav aria-label="Inspection views" className={styles.viewTabs}>
         {VIEWS.map(v => {
           const active = (f.view ?? '') === v.value;
           return (
             <Link key={v.value} href={v.value ? `/assurance/inspections?view=${v.value}` : '/assurance/inspections'}
               aria-current={active ? 'page' : undefined}
-              style={{ fontSize: 12, padding: '6px 11px', borderRadius: 999, textDecoration: 'none', border: '1px solid var(--border)',
-                color: active ? 'var(--brand-brainbase-accent)' : 'var(--text-secondary)',
-                background: active ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)' : 'transparent' }}>
+              className={styles.viewTab}>
               {v.label}
             </Link>
           );
@@ -76,7 +73,7 @@ export default async function InspectionsPage({ searchParams }: { searchParams: 
           <Row key={r.id} last={i === rows.length - 1}>
             <td style={{ ...td, maxWidth: 320 }}>
               <RecordLink href={`/assurance/inspections/${r.id}`} reference={r.inspection_reference} title={r.title} />
-              {r.location_name && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{r.location_name}</div>}
+              {r.location_name && <div className={tableStyles.meta}>{r.location_name}</div>}
             </td>
             <td style={td}>{assuranceLabel(r.inspection_type)}</td>
             <td style={td}><Badge value={r.status} /></td>
@@ -87,8 +84,8 @@ export default async function InspectionsPage({ searchParams }: { searchParams: 
               {r.response_count === 0 ? <Dim>—</Dim> : (
                 <>
                   {r.response_count} answered
-                  {r.fail_count > 0 && <span style={{ color: 'var(--bb-danger)', fontWeight: 600 }}> · {r.fail_count} fail</span>}
-                  {r.observation_count > 0 && <span style={{ color: 'var(--bb-warning)' }}> · {r.observation_count} obs.</span>}
+                  {r.fail_count > 0 && <span style={{ color: 'var(--status-danger)', fontWeight: 600 }}> · {r.fail_count} fail</span>}
+                  {r.observation_count > 0 && <span style={{ color: 'var(--status-warning)' }}> · {r.observation_count} obs.</span>}
                   {r.finding_count > 0 && <div>{r.finding_count} finding{r.finding_count === 1 ? '' : 's'}</div>}
                 </>
               )}

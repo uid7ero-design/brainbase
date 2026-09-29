@@ -1,5 +1,5 @@
 'use client';
-import { useState, type CSSProperties } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -8,6 +8,8 @@ import {
 } from '@/lib/assurance/domain';
 import ActionPanel from '../../_components/ActionPanel';
 import type { FormField } from '../../_components/AssuranceForm';
+import { Button, fieldControlClassName } from '@/components/ui/app';
+import styles from '../../_components/assurance.module.css';
 
 // Audit execution. Criteria come from the Audit's bound, immutable template
 // version (or are defined ad hoc). Each save posts ONE response; the server
@@ -34,15 +36,17 @@ type Props = {
   findingFields: FormField[];
 };
 
-const OUTCOMES: { value: AuditOutcome; label: string; help: string; color: string }[] = [
-  { value: 'COMPLIANT', label: 'Compliant', help: 'Fully meets the requirement', color: 'var(--bb-success)' },
-  { value: 'PARTIAL', label: 'Partially compliant', help: 'Meets some of the requirement', color: 'var(--bb-warning)' },
-  { value: 'NON_COMPLIANT', label: 'Non-compliant', help: 'Does not meet the requirement', color: 'var(--bb-danger)' },
-  { value: 'NOT_APPLICABLE', label: 'Not applicable', help: 'Requirement does not apply here', color: 'var(--text-secondary)' },
-  { value: 'OBSERVATION', label: 'Observation', help: 'Worth noting; not a breach', color: 'var(--bb-info)' },
+type OutcomeTone = 'success' | 'danger' | 'warning' | 'info' | 'neutral';
+
+const OUTCOMES: { value: AuditOutcome; label: string; help: string; tone: OutcomeTone }[] = [
+  { value: 'COMPLIANT', label: 'Compliant', help: 'Fully meets the requirement', tone: 'success' },
+  { value: 'PARTIAL', label: 'Partially compliant', help: 'Meets some of the requirement', tone: 'warning' },
+  { value: 'NON_COMPLIANT', label: 'Non-compliant', help: 'Does not meet the requirement', tone: 'danger' },
+  { value: 'NOT_APPLICABLE', label: 'Not applicable', help: 'Requirement does not apply here', tone: 'neutral' },
+  { value: 'OBSERVATION', label: 'Observation', help: 'Worth noting; not a breach', tone: 'info' },
 ];
 
-const control: CSSProperties = { padding: '8px 10px', background: 'var(--bg-base)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' };
+const control = fieldControlClassName;
 
 export default function AuditRunner({ auditId, editable, canRaiseFindings, adHoc, criteria, responses, findings, findingFields }: Props) {
   const byKey = new Map(responses.map(r => [r.criterion_key, r]));
@@ -53,17 +57,17 @@ export default function AuditRunner({ auditId, editable, canRaiseFindings, adHoc
   const tally = OUTCOMES.map(o => ({ ...o, n: responses.filter(r => r.outcome === o.value).length })).filter(o => o.n > 0);
 
   return (
-    <div style={{ display: 'grid', gap: 10 }}>
-      <div style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+    <div className={styles.stackTight}>
+      <div className={styles.runnerSummary}>
         <span>{answered} of {items.length} criteri{items.length === 1 ? 'on' : 'a'} assessed</span>
-        {tally.map(t => <span key={t.value} style={{ color: t.color, fontWeight: 600 }}>{t.n} {t.label.toLowerCase()}</span>)}
+        {tally.map(t => <span key={t.value} className={styles.outcomeText} data-tone={t.tone}>{t.n} {t.label.toLowerCase()}</span>)}
       </div>
       {items.length === 0 && (
-        <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '18px 0' }}>
+        <div className={styles.dim} style={{ fontSize: 13, padding: '18px 0' }}>
           {adHoc ? 'No criteria assessed yet. Add the first criterion below.' : 'This template version has no readable criteria.'}
         </div>
       )}
-      <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 10 }}>
+      <ol className={styles.runnerList}>
         {items.map((c, idx) => (
           <CriterionRow key={c.key} index={idx} criterion={c} response={byKey.get(c.key) ?? null} auditId={auditId}
             editable={editable} adHoc={adHoc} canRaiseFindings={canRaiseFindings}
@@ -115,66 +119,61 @@ function CriterionRow({ index, criterion, response, auditId, editable, adHoc, ca
   const raisable = canRaiseFindings && response?.outcome && AUDIT_FINDING_OUTCOMES.includes(response.outcome);
 
   return (
-    <li style={{ border: '1px solid var(--border)', borderLeft: `3px solid ${o?.color ?? 'var(--border)'}`, borderRadius: 10, padding: '12px 14px', background: 'var(--bg-surface)' }}>
+    <li className={styles.runnerItem} data-tone={o?.tone}>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+          <div className={styles.runnerLabel}>
             {index + 1}. {criterion.label}
-            {criterion.required && !adHoc && <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontSize: 11 }}> · required</span>}
+            {criterion.required && !adHoc && <span className={styles.runnerRequired}> · required</span>}
           </div>
-          {criterion.guidance && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>{criterion.guidance}</div>}
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>{assuranceLabel(criterion.responseType)}{criterion.options.length > 0 ? ` · ${criterion.options.join(' / ')}` : ''}</div>
+          {criterion.guidance && <div className={styles.runnerGuidance}>{criterion.guidance}</div>}
+          <div className={styles.runnerMeta}>{assuranceLabel(criterion.responseType)}{criterion.options.length > 0 ? ` · ${criterion.options.join(' / ')}` : ''}</div>
         </div>
         {response && !showEditor && (
           <div style={{ textAlign: 'right' }}>
-            {response.outcome && <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: o?.color }}>{o?.label ?? assuranceLabel(response.outcome)}</span>}
+            {response.outcome && <span className={styles.outcomeLabel} data-tone={o?.tone}>{o?.label ?? assuranceLabel(response.outcome)}</span>}
             {response.response_value !== null && response.response_value !== undefined && (
-              <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>{displayValue(response.response_value)}</div>
+              <div className={styles.runnerValue}>{displayValue(response.response_value)}</div>
             )}
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{response.responded_by_name ?? 'Unknown'} · {formatAssuranceDateTime(response.responded_at)}</div>
+            <div className={styles.runnerMeta} style={{ marginTop: 0 }}>{response.responded_by_name ?? 'Unknown'} · {formatAssuranceDateTime(response.responded_at)}</div>
           </div>
         )}
       </div>
-      {response?.notes && !showEditor && <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 8, whiteSpace: 'pre-wrap' }}>{response.notes}</div>}
+      {response?.notes && !showEditor && <div className={styles.runnerNotes}>{response.notes}</div>}
 
       {showEditor && (
         <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-          <div role="radiogroup" aria-label={`Rating for ${criterion.label}`} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <div role="radiogroup" aria-label={`Rating for ${criterion.label}`} className={styles.row} style={{ gap: 6 }}>
             {OUTCOMES.map(x => (
-              <button key={x.value} type="button" role="radio" aria-checked={outcome === x.value} title={x.help} onClick={() => setOutcome(x.value)}
-                style={{ padding: '6px 11px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                  border: `1px solid ${outcome === x.value ? x.color : 'var(--border)'}`,
-                  background: outcome === x.value ? `color-mix(in srgb, ${x.color} 14%, transparent)` : 'transparent',
-                  color: outcome === x.value ? x.color : 'var(--text-secondary)' }}>
+              <button key={x.value} type="button" role="radio" aria-checked={outcome === x.value} title={x.help} onClick={() => setOutcome(x.value)} className={styles.outcomeChip} data-tone={x.tone}>
                 {x.label}
               </button>
             ))}
           </div>
-          {outcome && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{OUTCOMES.find(x => x.value === outcome)?.help}</div>}
+          {outcome && <div className={styles.runnerMeta} style={{ marginTop: 0 }}>{OUTCOMES.find(x => x.value === outcome)?.help}</div>}
           {needsValue && <ValueInput type={criterion.responseType} options={criterion.options} value={value} onChange={setValue} label={criterion.label} />}
           <textarea aria-label={`Notes for ${criterion.label}`}
             placeholder={outcome === 'NON_COMPLIANT' || outcome === 'PARTIAL' ? 'Describe the gap against the requirement (required)' : 'Notes / evidence sighted (optional)'}
-            value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...control, resize: 'vertical' }} />
-          {error && <div role="alert" style={{ fontSize: 12, color: 'var(--bb-danger)' }}>{error}</div>}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button type="button" onClick={save} disabled={busy}
-              style={{ padding: '7px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: 'var(--purple-600)', color: '#fff', border: 'none', cursor: 'pointer', opacity: busy ? 0.7 : 1 }}>
+            value={notes} onChange={e => setNotes(e.target.value)} rows={2} className={control} />
+          {error && <div role="alert" className={styles.actionError}>{error}</div>}
+          <div className={styles.row}>
+            <Button variant="primary" onClick={save} disabled={busy} aria-busy={busy || undefined}>
               {busy ? 'Saving…' : response ? 'Update response' : 'Save response'}
-            </button>
-            {response && <button type="button" onClick={() => setEditing(false)} style={{ padding: '7px 12px', borderRadius: 8, fontSize: 13, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', cursor: 'pointer' }}>Cancel</button>}
+            </Button>
+            {response && <Button variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>}
           </div>
         </div>
       )}
 
       {(findings.length > 0 || raisable || (editable && response && !showEditor && !frozen)) && (
-        <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <div className={styles.row} style={{ marginTop: 10 }}>
           {findings.map(f => (
-            <Link key={f.id} href={`/assurance/findings/${f.id}`} style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', color: 'var(--text-primary)', textDecoration: 'none' }}>
+            <Link key={f.id} href={`/assurance/findings/${f.id}`} className={styles.refChip} style={{ fontFamily: 'inherit', fontSize: '0.75rem', padding: '4px 8px' }}>
               Finding {f.finding_reference} · {assuranceLabel(f.status)}
             </Link>
           ))}
           {editable && response && !showEditor && !frozen && (
-            <button type="button" onClick={() => setEditing(true)} style={{ padding: '5px 10px', borderRadius: 7, fontSize: 12, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', cursor: 'pointer' }}>Revise</button>
+            <Button size="sm" onClick={() => setEditing(true)}>Revise</Button>
           )}
           {raisable && (
             <ActionPanel
@@ -206,22 +205,22 @@ function withDefaults(fields: FormField[], criterion: AuditCriterion, response: 
 }
 
 function ValueInput({ type, options, value, onChange, label }: { type: AuditResponseType; options: string[]; value: string; onChange: (v: string) => void; label: string }) {
-  if (type === 'NUMBER') return <input aria-label={`Value for ${label}`} type="number" step="any" value={value} onChange={e => onChange(e.target.value)} style={control} />;
+  if (type === 'NUMBER') return <input aria-label={`Value for ${label}`} type="number" step="any" value={value} onChange={e => onChange(e.target.value)} className={control} />;
   if (type === 'BOOLEAN') {
     return (
-      <select aria-label={`Value for ${label}`} value={value} onChange={e => onChange(e.target.value)} style={control}>
+      <select aria-label={`Value for ${label}`} value={value} onChange={e => onChange(e.target.value)} className={control}>
         <option value="">—</option><option value="true">Yes</option><option value="false">No</option>
       </select>
     );
   }
   if (type === 'CHOICE' && options.length > 0) {
     return (
-      <select aria-label={`Value for ${label}`} value={value} onChange={e => onChange(e.target.value)} style={control}>
+      <select aria-label={`Value for ${label}`} value={value} onChange={e => onChange(e.target.value)} className={control}>
         <option value="">Choose…</option>{options.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
     );
   }
-  return <input aria-label={`Value for ${label}`} type="text" value={value} onChange={e => onChange(e.target.value)} placeholder="Response" style={control} />;
+  return <input aria-label={`Value for ${label}`} type="text" value={value} onChange={e => onChange(e.target.value)} placeholder="Response" className={control} />;
 }
 
 function displayValue(v: unknown): string {
@@ -262,25 +261,24 @@ function AddAdHocCriterion({ auditId }: { auditId: string }) {
   }
 
   return (
-    <div style={{ border: '1px dashed var(--border)', borderRadius: 10, padding: 14, display: 'grid', gap: 8 }}>
-      <div style={{ fontSize: 13, fontWeight: 600 }}>Assess another criterion</div>
-      <input aria-label="Criterion" placeholder="Requirement being assessed" value={label} onChange={e => setLabel(e.target.value)} style={control} />
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <select aria-label="Response type" value={type} onChange={e => setType(e.target.value as AuditResponseType)} style={{ ...control, width: 'auto' }}>
+    <div className={styles.runnerAdd}>
+      <div className={styles.legend} style={{ margin: 0 }}>Assess another criterion</div>
+      <input aria-label="Criterion" placeholder="Requirement being assessed" value={label} onChange={e => setLabel(e.target.value)} className={control} />
+      <div className={styles.row}>
+        <select aria-label="Response type" value={type} onChange={e => setType(e.target.value as AuditResponseType)} className={control} style={{ width: 'auto' }}>
           {AUDIT_RESPONSE_TYPES.filter(t => t === 'COMPLIANCE_RATING' || t === 'TEXT' || t === 'NUMBER').map(t => <option key={t} value={t}>{assuranceLabel(t)}</option>)}
         </select>
-        <select aria-label="Rating" value={outcome} onChange={e => setOutcome(e.target.value as AuditOutcome | '')} style={{ ...control, width: 'auto' }}>
+        <select aria-label="Rating" value={outcome} onChange={e => setOutcome(e.target.value as AuditOutcome | '')} className={control} style={{ width: 'auto' }}>
           <option value="">Rating…</option>
           {OUTCOMES.map(x => <option key={x.value} value={x.value}>{x.label}</option>)}
         </select>
       </div>
-      <textarea aria-label="Notes" placeholder="Notes / evidence sighted" value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...control, resize: 'vertical' }} />
-      {error && <div role="alert" style={{ fontSize: 12, color: 'var(--bb-danger)' }}>{error}</div>}
+      <textarea aria-label="Notes" placeholder="Notes / evidence sighted" value={notes} onChange={e => setNotes(e.target.value)} rows={2} className={control} />
+      {error && <div role="alert" className={styles.actionError}>{error}</div>}
       <div>
-        <button type="button" onClick={add} disabled={busy || !label.trim()}
-          style={{ padding: '7px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: 'var(--purple-600)', color: '#fff', border: 'none', cursor: 'pointer', opacity: busy || !label.trim() ? 0.6 : 1 }}>
+        <Button variant="primary" onClick={add} disabled={busy || !label.trim()} aria-busy={busy || undefined}>
           {busy ? 'Adding…' : 'Add criterion'}
-        </button>
+        </Button>
       </div>
     </div>
   );

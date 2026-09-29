@@ -2,7 +2,7 @@ import { listTemplates } from '@/lib/assurance/templates';
 import { viewerCan } from '@/lib/assurance/authorize';
 import { assuranceLabel } from '@/lib/assurance/domain';
 import { resolvePageViewer } from '../../_components/pageAccess';
-import { Badge, Breadcrumbs, DataTable, DateCell, Dim, Notice, PageHeader, RecordLink, Row, Section, td } from '../../_components/ui';
+import { Badge, Breadcrumbs, DataTable, DateCell, Dim, Notice, PageHeader, RecordLink, Row, Section, td, assuranceStyles as styles } from '../../_components/ui';
 import ChecklistBuilder from '../../_components/ChecklistBuilder';
 
 export const dynamic = 'force-dynamic';
@@ -39,9 +39,9 @@ export default async function InspectionTemplatesPage() {
         <Section title="New template">
           {!canAdminister && <Notice>Only organisation admins can create or version inspection templates.</Notice>}
           {canAdminister && (
-            <details>
-              <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)' }}>Open the checklist builder</summary>
-              <div style={{ marginTop: 12, padding: 16, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg-surface)' }}>
+            <details className={styles.details}>
+              <summary>Open the checklist builder</summary>
+              <div className={styles.disclosure} style={{ maxWidth: 'none', marginTop: 0 }}>
                 <ChecklistBuilder mode="template" />
               </div>
             </details>
