@@ -494,8 +494,17 @@ describe('6.2D3A — no runtime consumer; XLSX mapping/confirm/import remain dis
     // governed identity its column rules target and why v1 documents must
     // remain valid forever — legitimate prose, not a new runtime consumer.
     const D4C_A_PROFILE_DOCUMENT_CONTRACT = path.join('lib', 'data-hub', 'schemaProfiles', 'profileDocument.ts')
+    // 6.2D4C-B2A — two further authorized consumers: the pure normalization
+    // finding/plan contracts. Neither imports Prisma or touches the DB at
+    // all (proven independently by this phase's own purity containment
+    // test); they are flagged here purely because their doc comments name
+    // SourceSchemaColumn/WorksheetMappingProfileVersion to explain the
+    // governed identity a normalization rule targets — legitimate prose,
+    // not a new runtime consumer.
+    const D4C_B2A_NORMALIZATION_CONTRACTS = path.join('lib', 'data-hub', 'normalization', 'contracts.ts')
+    const D4C_B2A_NORMALIZATION_PLAN = path.join('lib', 'data-hub', 'normalization', 'plan.ts')
     const offenders = runtimeFiles.filter(f => forbidden.test(fs.readFileSync(f, 'utf-8'))).map(f => path.relative(REPO_ROOT, f))
-    expect(offenders.sort()).toEqual([D3D_LINEAGE_PIN_SERVICE, D4B_STAGING_RUN_SERVICE, D4B_ELIGIBILITY_SERVICE, D3C_READ_ONLY_LOADER, D4C_A_PROFILE_DOCUMENT_CONTRACT].sort())
+    expect(offenders.sort()).toEqual([D3D_LINEAGE_PIN_SERVICE, D4B_STAGING_RUN_SERVICE, D4B_ELIGIBILITY_SERVICE, D3C_READ_ONLY_LOADER, D4C_A_PROFILE_DOCUMENT_CONTRACT, D4C_B2A_NORMALIZATION_CONTRACTS, D4C_B2A_NORMALIZATION_PLAN].sort())
     const loader = readSource(D3C_READ_ONLY_LOADER)
     expect(loader).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\$transaction|\$executeRaw|\$queryRaw/)
     expect([...loader.matchAll(/prisma\.(\w+)\.(\w+)\(/g)].map(m => `${m[1]}.${m[2]}`)).toEqual([
