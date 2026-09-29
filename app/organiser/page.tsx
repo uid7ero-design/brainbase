@@ -10,7 +10,10 @@ import { useAppStore } from "@/lib/state/useAppStore";
 import { describeActivityEvent, describeBoardActivityEvent, type ActivityEventLike } from "@/lib/organiser/activityFormat";
 import { enqueueCoalesced, type CoalescingQueueMap } from "@/lib/organiser/coalescingMutationQueue";
 import { createNotesAutosaveTimer, type NotesAutosaveTimer } from "@/lib/organiser/notesAutosave";
+import { moveInOrderedList, type ReorderMove } from "@/lib/organiser/keyboardReorder";
+import { ReorderHandle } from "@/components/organiser/ReorderHandle";
 import { PageHeader, StateMessage, buttonProps, fieldControlClassName } from "@/components/ui/app";
+import { LiveRegion } from "@/components/ui/semantic";
 import { useDialogFocus } from "@/components/ui/app/useDialogFocus";
 import styles from "@/components/organiser/Organiser.module.css";
 
@@ -673,7 +676,7 @@ function ColumnOptionsEditor({ column, onSave, onClose }: { column: OrganiserCol
 // ── ITEM ROW ─────────────────────────────────────────────────────────────────
 
 function ItemRow({
-  item, depth, columns, onUpdate, onDelete, onOpenDrawer, hasChildren, collapsed, onToggleCollapse, saveStatus, onItemDragHandleStart,
+  item, depth, columns, onUpdate, onDelete, onOpenDrawer, hasChildren, collapsed, onToggleCollapse, saveStatus, onItemDragHandleStart, onKeyReorder,
 }: {
   item: OrganiserItem; depth: number; columns: OrganiserColumn[];
   onUpdate: (id: string, patch: Record<string, unknown>) => void;
@@ -681,6 +684,10 @@ function ItemRow({
   onOpenDrawer: (item: OrganiserItem) => void;
   hasChildren: boolean; collapsed: boolean; onToggleCollapse: () => void;
   onItemDragHandleStart?: () => void;
+  // D.4.7F — always supplied together with onItemDragHandleStart (both are
+  // set or both omitted at every call site); ReorderHandle's own onMove is
+  // wired to this whenever the drag handle itself is rendered.
+  onKeyReorder?: (move: ReorderMove) => void;
   // D.4.7B — keyed by `item:<id>:<field>`, same convention as ItemDrawer's
   // Field-level indicators; only this row's own item id's entries are
   // ever relevant, looked up per field below.
@@ -696,17 +703,13 @@ function ItemRow({
     >
       <div className={styles.nameCell}>
         {onItemDragHandleStart && (
-          <span
-            draggable
-            onDragStart={e => { e.dataTransfer.effectAllowed = "move"; onItemDragHandleStart(); }}
+          <ReorderHandle
+            size="item"
             title="Drag to reorder item"
-            role="button"
-            tabIndex={0}
-            aria-label="Reorder item"
-            style={{ width: 12, height: 16, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "grab", color: "var(--text-muted)" }}
-          >
-            <svg width="8" height="12" viewBox="0 0 8 12" fill="currentColor" aria-hidden="true"><circle cx="2" cy="2" r="1.2" /><circle cx="6" cy="2" r="1.2" /><circle cx="2" cy="6" r="1.2" /><circle cx="6" cy="6" r="1.2" /><circle cx="2" cy="10" r="1.2" /><circle cx="6" cy="10" r="1.2" /></svg>
-          </span>
+            ariaLabel="Reorder item"
+            onDragStart={e => { e.dataTransfer.effectAllowed = "move"; onItemDragHandleStart(); }}
+            onMove={move => onKeyReorder?.(move)}
+          />
         )}
         {hasChildren ? (
           <button
@@ -813,7 +816,7 @@ function ItemRow({
 
 function GroupSection({
   group, items, columns, onUpdateItem, onDeleteItem, onAddItem, onOpenDrawer, onRenameGroup, onDeleteGroup,
-  onAddColumn, onRenameColumn, onDeleteColumn, onEditColumnOptions, saveStatus, onGroupDragHandleStart, onReorderTopLevelItems, onReorderSubitems,
+  onAddColumn, onRenameColumn, onDeleteColumn, onEditColumnOptions, saveStatus, onGroupDragHandleStart, onGroupKeyReorder, onReorderTopLevelItems, onReorderSubitems, onAnnounce,
 }: {
   group: OrganiserGroup | null; items: OrganiserItem[]; columns: OrganiserColumn[];
   onUpdateItem: (id: string, patch: Record<string, unknown>) => void;
@@ -832,8 +835,14 @@ function GroupSection({
   // its own, so it must never become a drag source or be counted as part
   // of the reorderable scope. Only present for a real group.
   onGroupDragHandleStart?: () => void;
+  // D.4.7F — always supplied together with onGroupDragHandleStart (both
+  // set or both omitted at every call site), same "no group" exclusion.
+  onGroupKeyReorder?: (move: ReorderMove) => void;
   onReorderTopLevelItems: (groupId: string | null, orderedItemIds: string[]) => void;
   onReorderSubitems: (parentItemId: string, orderedItemIds: string[]) => void;
+  // D.4.7F — polite screen-reader announcement for a successful KEYBOARD
+  // move only (never for pointer drag, which is already visually evident).
+  onAnnounce: (message: string) => void;
 }) {
   const [open, setOpen] = useState(true);
   const [collapsedParents, setCollapsedParents] = useState<Set<string>>(new Set());
@@ -887,6 +896,40 @@ function GroupSection({
     onReorderSubitems(parentItemId, [...currentIds.filter(id => id !== dragged.itemId), dragged.itemId]);
   }
 
+  // D.4.7F — keyboard-triggered same-group top-level item reorder.
+  // moveInOrderedList computes the new order against THIS group's own
+  // current id list (never boardData.items broadly) — the same containment
+  // handleTopLevelItemDrop already gets structurally, for free, from only
+  // ever indexing into `topLevel`. Terminates in the exact same
+  // onReorderTopLevelItems prop pointer drop already calls — no new
+  // mutation path. A null result (boundary no-op) makes no call and
+  // announces nothing.
+  function handleTopLevelItemKeyReorder(itemId: string, move: ReorderMove) {
+    const currentIds = topLevel.map(i => i.id);
+    const reordered = moveInOrderedList(currentIds, itemId, move);
+    if (!reordered) return;
+    const item = topLevel.find(i => i.id === itemId);
+    if (item) onAnnounce(`Moved ${item.name} to position ${reordered.indexOf(itemId) + 1} of ${reordered.length}`);
+    onReorderTopLevelItems(group?.id ?? null, reordered);
+  }
+
+  // D.4.7F — keyboard-triggered same-parent subitem reorder. Scoped to
+  // `parentItemId` by construction (childrenOf already filters to that
+  // parent) — no cross-parent movement is representable here.
+  function handleSubitemKeyReorder(parentItemId: string, itemId: string, move: ReorderMove) {
+    const siblings = childrenOf(parentItemId);
+    const currentIds = siblings.map(i => i.id);
+    const reordered = moveInOrderedList(currentIds, itemId, move);
+    if (!reordered) return;
+    const item = siblings.find(i => i.id === itemId);
+    const parent = topLevel.find(i => i.id === parentItemId);
+    if (item) {
+      const suffix = parent ? ` in ${parent.name}` : "";
+      onAnnounce(`Moved ${item.name} to position ${reordered.indexOf(itemId) + 1} of ${reordered.length}${suffix}`);
+    }
+    onReorderSubitems(parentItemId, reordered);
+  }
+
   // The group colour is user data (a category marker) — shown as a swatch
   // only, never as a tinted header wash. Neutral when unset.
   const color = group?.color || "var(--text-subtle)";
@@ -896,17 +939,13 @@ function GroupSection({
     <section className={styles.group} aria-label={groupLabel}>
       <div className={styles.groupHeader} data-collapsed={open ? undefined : ""}>
         {onGroupDragHandleStart && (
-          <span
-            draggable
-            onDragStart={e => { e.dataTransfer.effectAllowed = "move"; onGroupDragHandleStart(); }}
+          <ReorderHandle
+            size="group"
             title="Drag to reorder"
-            role="button"
-            tabIndex={0}
-            aria-label="Reorder group"
-            style={{ width: 14, height: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "grab", color: "var(--text-muted)" }}
-          >
-            <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor" aria-hidden="true"><circle cx="2.5" cy="2.5" r="1.4" /><circle cx="7.5" cy="2.5" r="1.4" /><circle cx="2.5" cy="7" r="1.4" /><circle cx="7.5" cy="7" r="1.4" /><circle cx="2.5" cy="11.5" r="1.4" /><circle cx="7.5" cy="11.5" r="1.4" /></svg>
-          </span>
+            ariaLabel="Reorder group"
+            onDragStart={e => { e.dataTransfer.effectAllowed = "move"; onGroupDragHandleStart(); }}
+            onMove={move => onGroupKeyReorder?.(move)}
+          />
         )}
         <button
           type="button"
@@ -966,6 +1005,7 @@ function GroupSection({
                     onToggleCollapse={() => setCollapsedParents(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; })}
                     saveStatus={saveStatus}
                     onItemDragHandleStart={() => setDraggingItemId(item.id)}
+                    onKeyReorder={move => handleTopLevelItemKeyReorder(item.id, move)}
                   />
                   {!collapsed && kids.map(child => (
                     <div
@@ -990,6 +1030,7 @@ function GroupSection({
                         hasChildren={false} collapsed={false} onToggleCollapse={() => {}}
                         saveStatus={saveStatus}
                         onItemDragHandleStart={() => setDraggingSubitem({ parentId: item.id, itemId: child.id })}
+                        onKeyReorder={move => handleSubitemKeyReorder(item.id, child.id, move)}
                       />
                     </div>
                   ))}
@@ -1983,6 +2024,15 @@ function OrganiserPageContent() {
     setPageNotice(message);
     setTimeout(() => setPageNotice(prev => (prev === message ? null : prev)), 4000);
   }
+  // D.4.7F — polite screen-reader announcement for a successful keyboard
+  // reorder move (group/item/subitem). Set synchronously at the point the
+  // new order is computed (before the network call resolves), matching
+  // this page's existing optimistic-first UI — a screen reader should not
+  // lag behind a row that has already visibly moved. Never set on a
+  // pointer-driven reorder (already visually evident) or on a boundary
+  // no-op (nothing moved). A 409/failure during a keyboard move is left to
+  // the existing pageNotice error banner above, not duplicated here.
+  const [announcement, setAnnouncement] = useState("");
   // Phase D.4.6P — organisation members for the assignee picker. Loaded
   // once per mount (membership doesn't change per-board, unlike
   // boardData) — never re-fetched on every board switch.
@@ -2250,6 +2300,22 @@ function OrganiserPageContent() {
     if (currentIds.length === 0 || currentIds[currentIds.length - 1] === draggedId) return;
     const without = currentIds.filter(id => id !== draggedId);
     reorderGroups([...without, draggedId]);
+  }
+
+  // D.4.7F — keyboard-triggered group reorder. moveInOrderedList computes
+  // against boardData.groups' own current array order (never a scope any
+  // wider) and terminates in the exact same reorderGroups(...) function
+  // pointer drop already calls — no new mutation path. Only reachable for
+  // a real group: GroupSection omits onGroupKeyReorder entirely for the
+  // synthetic "No group" instance, mirroring onGroupDragHandleStart.
+  function handleGroupKeyReorder(groupId: string, move: ReorderMove) {
+    if (!boardData) return;
+    const currentIds = boardData.groups.map(g => g.id);
+    const reordered = moveInOrderedList(currentIds, groupId, move);
+    if (!reordered) return;
+    const group = boardData.groups.find(g => g.id === groupId);
+    if (group) setAnnouncement(`Moved ${group.name} to position ${reordered.indexOf(groupId) + 1} of ${reordered.length}`);
+    reorderGroups(reordered);
   }
 
   // D.4.7B — addItem now returns a boolean success indicator (used by
@@ -2708,6 +2774,10 @@ function OrganiserPageContent() {
                 </div>
               )}
 
+              {/* D.4.7F — visually hidden; announces a successful keyboard
+                  reorder move (see the `announcement` state's own comment). */}
+              <LiveRegion message={announcement} />
+
               {sheetChoices && pendingImportFile && (
                 <SheetPicker
                   fileName={pendingImportFile.name}
@@ -2733,8 +2803,10 @@ function OrganiserPageContent() {
                         onAddColumn={addColumn} onRenameColumn={renameColumn} onDeleteColumn={deleteColumn} onEditColumnOptions={setEditingColumn}
                         saveStatus={saveStatus}
                         onGroupDragHandleStart={() => setDraggingGroupId(g.id)}
+                        onGroupKeyReorder={move => handleGroupKeyReorder(g.id, move)}
                         onReorderTopLevelItems={reorderTopLevelItems}
                         onReorderSubitems={reorderSubitems}
+                        onAnnounce={setAnnouncement}
                       />
                     </div>
                   ))}
@@ -2765,6 +2837,7 @@ function OrganiserPageContent() {
                       saveStatus={saveStatus}
                       onReorderTopLevelItems={reorderTopLevelItems}
                       onReorderSubitems={reorderSubitems}
+                      onAnnounce={setAnnouncement}
                     />
                   )}
 

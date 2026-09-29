@@ -3,14 +3,26 @@ import fs from 'fs'
 import path from 'path'
 
 // Phase D.4.7E (Slice E2) — group reorder UI wiring. Static source-text
-// containment only (this repo has no jsdom/RTL harness — see AGENTS.md/
-// CLAUDE.md). The transaction/persistence correctness this UI calls into
-// is proven separately in organiserReorderTransaction.integration.test.ts
-// (real Postgres) and organiserGroupReorderRoute.test.ts (mocked route).
+// containment for app/organiser/page.tsx itself (this repo has no jsdom/
+// RTL harness FOR THAT FILE specifically — see AGENTS.md/CLAUDE.md; the
+// design-system/public-site components project does have one, and as of
+// D.4.7F, tests/components/app/Organiser.test.tsx also renders the real
+// OrganiserPage end-to-end for keyboard-reorder coverage). The
+// transaction/persistence correctness this UI calls into is proven
+// separately in organiserReorderTransaction.integration.test.ts (real
+// Postgres) and organiserGroupReorderRoute.test.ts (mocked route).
 // This file only proves: the drag handle is a distinct hit target from
 // every other GroupSection control, it's never rendered for the synthetic
 // "No group" bucket, the optimistic-apply/rollback shape is present, and
 // D.4.7B/C/D's own prior-phase surfaces are untouched by this addition.
+//
+// D.4.7F — the group handle's own draggable/title/aria-label markup moved
+// into components/organiser/ReorderHandle.tsx (see that file and its own
+// real rendered test, tests/components/organiser/ReorderHandle.test.tsx,
+// for direct proof of its rendered behaviour). What THIS file can still
+// prove at the source-text level is the WIRING: page.tsx renders
+// <ReorderHandle> with the right props, at the right conditional gate,
+// calling the right callbacks — not the component's own internals.
 
 const root = path.resolve(__dirname, '../..')
 const read = (p: string) => fs.readFileSync(path.join(root, p), 'utf8').replace(/\r\n/g, '\n')
@@ -35,6 +47,7 @@ const trailingDropZoneBlock = () => block('{boardData && boardData.groups.length
 const tableViewLoopBlock = () => block('{view === "table" && (', '{view === "board" && boardData && (')
 const itemRowBlock = () => block('function ItemRow(', '\nfunction GroupSection(')
 const inlineTextBlock = () => block('function InlineText(', '\nfunction CustomCell(')
+const handleGroupKeyReorderBlock = () => block('function handleGroupKeyReorder(', '\n  async function reorderTopLevelItems(')
 
 describe('GroupSection drag handle', () => {
   it('only renders when onGroupDragHandleStart is supplied — omitted entirely for the synthetic "No group" bucket', () => {
@@ -42,24 +55,24 @@ describe('GroupSection drag handle', () => {
     expect(b).toMatch(/\{onGroupDragHandleStart && \(/)
   })
 
-  it('is draggable and has its own onDragStart — a distinct hit target from the collapse chevron', () => {
+  it('renders <ReorderHandle> — a distinct hit target from the collapse chevron, with onDragStart wired through', () => {
     const b = groupSectionBlock()
     const handleIdx = b.indexOf('{onGroupDragHandleStart && (')
     const chevronIdx = b.indexOf('onClick={() => setOpen(o => !o)}')
     expect(handleIdx).toBeGreaterThan(-1)
     expect(chevronIdx).toBeGreaterThan(handleIdx) // handle precedes the chevron in source order (left of it in the row)
     const handleRegion = b.slice(handleIdx, chevronIdx)
-    expect(handleRegion).toMatch(/draggable/)
+    expect(handleRegion).toMatch(/<ReorderHandle/)
     expect(handleRegion).toMatch(/onDragStart=/)
   })
 
-  it('has an accessible title and aria-label (minimum keyboard/screen-reader discoverability, per the D.4.7E discovery report\'s own recommendation)', () => {
+  it('passes the group-specific title/aria-label wording through to ReorderHandle (minimum keyboard/screen-reader discoverability, per the D.4.7E discovery report\'s own recommendation)', () => {
     const b = groupSectionBlock()
     const handleIdx = b.indexOf('{onGroupDragHandleStart && (')
     const chevronIdx = b.indexOf('onClick={() => setOpen(o => !o)}')
     const handleRegion = b.slice(handleIdx, chevronIdx)
     expect(handleRegion).toMatch(/title="Drag to reorder"/)
-    expect(handleRegion).toMatch(/aria-label="Reorder group"/)
+    expect(handleRegion).toMatch(/ariaLabel="Reorder group"/)
   })
 
   it('onDragStart calls onGroupDragHandleStart() — never mutates state directly inside GroupSection itself (ordering decisions live in the parent, which owns boardData)', () => {
@@ -68,6 +81,52 @@ describe('GroupSection drag handle', () => {
     const chevronIdx = b.indexOf('onClick={() => setOpen(o => !o)}')
     const handleRegion = b.slice(handleIdx, chevronIdx)
     expect(handleRegion).toMatch(/onGroupDragHandleStart\(\)/)
+  })
+})
+
+describe('D.4.7F — GroupSection keyboard reorder wiring', () => {
+  it('ReorderHandle\'s onMove is wired to onGroupKeyReorder, optional-chained so it is a safe no-op if ever omitted', () => {
+    const b = groupSectionBlock()
+    const handleIdx = b.indexOf('{onGroupDragHandleStart && (')
+    const chevronIdx = b.indexOf('onClick={() => setOpen(o => !o)}')
+    const handleRegion = b.slice(handleIdx, chevronIdx)
+    expect(handleRegion).toMatch(/onMove=\{move => onGroupKeyReorder\?\.\(move\)\}/)
+  })
+
+  it('onGroupKeyReorder is declared optional, matching onGroupDragHandleStart\'s own "omitted for No group" shape', () => {
+    const b = groupSectionBlock()
+    expect(b).toMatch(/onGroupKeyReorder\?: \(move: ReorderMove\) => void;/)
+  })
+})
+
+describe('D.4.7F — handleGroupKeyReorder', () => {
+  it('computes the new order via moveInOrderedList against boardData.groups\' own current ids — never a wider scope', () => {
+    const b = handleGroupKeyReorderBlock()
+    expect(b).toMatch(/const currentIds = boardData\.groups\.map\(g => g\.id\);/)
+    expect(b).toMatch(/const reordered = moveInOrderedList\(currentIds, groupId, move\);/)
+  })
+
+  it('is a true no-op on a boundary move — no reorderGroups call, no announcement — before it ever touches confirmedOrder/network state', () => {
+    const b = handleGroupKeyReorderBlock()
+    const guardIdx = b.indexOf('if (!reordered) return;')
+    expect(guardIdx).toBeGreaterThan(-1)
+    const afterGuard = b.slice(guardIdx)
+    const announceIdx = afterGuard.indexOf('setAnnouncement(')
+    const reorderIdx = afterGuard.indexOf('reorderGroups(reordered)')
+    expect(announceIdx).toBeGreaterThan(-1)
+    expect(reorderIdx).toBeGreaterThan(announceIdx) // both come strictly after the boundary guard
+  })
+
+  it('terminates in the exact same reorderGroups(...) function pointer drop already calls — exactly one call, no new mutation path', () => {
+    const b = handleGroupKeyReorderBlock()
+    const calls = b.match(/reorderGroups\(/g) ?? []
+    expect(calls.length).toBe(1)
+    expect(b).not.toMatch(/fetch\(/)
+  })
+
+  it('announces with the entity type, moved-to position and total — matching the approved design\'s exact message shape', () => {
+    const b = handleGroupKeyReorderBlock()
+    expect(b).toMatch(/`Moved \$\{group\.name\} to position \$\{reordered\.indexOf\(groupId\) \+ 1\} of \$\{reordered\.length\}`/)
   })
 })
 
@@ -84,11 +143,20 @@ describe('parent render loop — drag wiring scoped to real groups only', () => 
     expect(realGroupRegion).toMatch(/onGroupDragHandleStart=\{\(\) => setDraggingGroupId\(g\.id\)\}/)
   })
 
-  it('the "No group" GroupSection instance receives no onGroupDragHandleStart prop at all', () => {
+  it('each real group also passes onGroupKeyReorder, wired to handleGroupKeyReorder(g.id, move)', () => {
+    const loop = tableViewLoopBlock()
+    const mapIdx = loop.indexOf('boardData?.groups.map(g =>')
+    const noGroupIdx = loop.indexOf('group={null}')
+    const realGroupRegion = loop.slice(mapIdx, noGroupIdx)
+    expect(realGroupRegion).toMatch(/onGroupKeyReorder=\{move => handleGroupKeyReorder\(g\.id, move\)\}/)
+  })
+
+  it('the "No group" GroupSection instance receives no onGroupDragHandleStart or onGroupKeyReorder prop at all', () => {
     const loop = tableViewLoopBlock()
     const noGroupIdx = loop.indexOf('group={null}')
     const afterNoGroup = loop.slice(noGroupIdx, noGroupIdx + 700)
     expect(afterNoGroup).not.toMatch(/onGroupDragHandleStart/)
+    expect(afterNoGroup).not.toMatch(/onGroupKeyReorder/)
   })
 })
 
