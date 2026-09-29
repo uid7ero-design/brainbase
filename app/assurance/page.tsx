@@ -69,7 +69,9 @@ export default async function AssuranceDashboardPage() {
 
       <section aria-labelledby="attention-counts" style={{ marginBottom: 24 }}>
         <h2 id="attention-counts" className="bb-visually-hidden">What needs attention</h2>
-        <MetricStrip>
+        {/* Eight counts: an even 4 × 2 on wide screens, 2 per row on phones
+            (never a lone count on its own row). */}
+        <MetricStrip style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(max(148px, calc((100% - 1px) / 4)), 1fr))' }}>
           {tiles.map(t => (
             <Metric
               key={t.label}
