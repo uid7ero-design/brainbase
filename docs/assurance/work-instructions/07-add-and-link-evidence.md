@@ -43,13 +43,15 @@ Users with **manager** access or higher.
 
 **Reuse existing evidence**
 
-8. Open the evidence record. Select **Link to incident** or **Link to
-   finding**, choose the record, enter **Why it is linked**, then select
-   **Link**.
+8. Open the evidence record and select **Link to a record**.
+9. Choose the **Record type** — Incident, Investigation, Inspection, Audit,
+   Finding or Action — then the record. Only records you can see, that are
+   still open and not already linked to this evidence, are listed.
+10. Optionally enter **Why it is linked**, then select **Link**.
 
 **Remove a link**
 
-9. In the record's **Evidence** section, or on the evidence page, select
+11. In the record's **Evidence** section, or on the evidence page, select
    **Remove link**. Enter the **Reason for removal**, then confirm.
 
 ## What happens next
@@ -77,7 +79,9 @@ Users with **manager** access or higher.
 |---|---|
 | "This record is finished; its evidence … can no longer be changed." | Expected; the record is closed or cancelled. |
 | "This evidence is already linked to that record." | No action needed. |
-| Want to reuse evidence on an action, inspection, audit or investigation | Not yet possible from the evidence page. Use **Add evidence** on that record and reference the same original. |
+| The record isn't in the list | It is closed, completed or cancelled, already linked, or restricted from you. For a closed incident or completed investigation, **Add evidence** on that record still works. |
+| "…already used on other records. Linking it to a restricted record…" | Record new evidence for the restricted record instead. |
+| Want to link evidence to a verification | Choose it as **Evidence relied on** when recording the verification. |
 | Need to attach the file | File upload is not available yet. Record where it is held. |
 
 ## Related records / next steps

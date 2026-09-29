@@ -71,7 +71,9 @@ restricted investigation stays visible, and shows the investigation only as a
 
 To protect restricted material, evidence already used on other records
 cannot be linked to a restricted record. The user is asked to record new
-evidence instead.
+evidence instead. In the same way, a finding that everyone can see cannot be linked
+to a restricted incident or investigation with **Link existing finding** — a
+new finding must be raised from the restricted record.
 
 ## Same-organisation users
 
@@ -104,8 +106,9 @@ for the steps.
 - Each inspection or audit is bound to the version current when it was
   planned, and keeps it permanently — even after new versions are published,
   or after the template is deactivated.
-- **Deactivate** removes a template from the choices offered when planning.
-  Existing inspections and audits are unaffected. **Reactivate** offers it
+- **Deactivate** removes a template from the choices offered when planning
+  (after a confirmation step). Existing inspections and audits are unaffected.
+  **Reactivate** (also confirmed) offers it
   again.
 
 ## Reference data
@@ -155,10 +158,11 @@ Rules:
 | Area | Limitation |
 |---|---|
 | Evidence | **No file upload.** Evidence records describe the proof and where the original is held. |
-| Evidence reuse | An existing evidence record can be linked to more records from its own page only for **incidents and findings**. On other records, **Add evidence** records new evidence. |
 | People | People on incidents and investigations are displayed, but cannot be added or edited from Assurance screens. |
 | Due dates | Extensions are displayed on actions, but cannot be requested or approved in the UI. |
-| Findings | Findings are raised from a source record. There is no "new finding" button on the Findings register, and extra sources can be linked afterwards only for audits (**Link existing finding**). |
+| Findings | Findings are raised from a source record, and can be linked to further incidents, investigations, inspections and audits. There is no standalone "new finding" button. |
 | Reference data | No Assurance screens for risk levels, locations, assets or external organisations. |
-| Inspections | **Cancel inspection** does not ask for a reason (audits and actions do). |
 | Scheduling | No recurring or automatically scheduled inspections or audits. |
+| Evidence after closure | Evidence can still be added to a **closed incident** or a **completed investigation** (it is frozen only on closed or cancelled findings and actions, and cancelled inspections and audits). This is current behaviour pending a policy decision. |
+| Record editing | Records cannot be edited after creation (for example an action's due date or description). |
+| Access | The Analyst role has no Assurance access. |

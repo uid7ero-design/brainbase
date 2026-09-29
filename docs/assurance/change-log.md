@@ -10,6 +10,24 @@ Newest first.
 
 ## First release foundation (not yet released to Production users)
 
+### Reconciliation — shared record workflows
+
+- **Evidence:** an evidence record's page now has **Link to a record**, which
+  reuses it on any supported record type — Incident, Investigation,
+  Inspection, Audit, Finding or Action — from one selector. This replaces the
+  separate **Link to incident** and **Link to finding** buttons.
+- **Findings:** **Link existing finding** is now available on incidents,
+  investigations and inspections as well as audits, for repeat issues. A
+  finding visible to everyone cannot be linked to a restricted incident or
+  investigation.
+- **Inspections:** **Cancel inspection** now requires a **Reason**, entered in a
+  confirmation form, as audits and actions already do.
+- **History:** a recorded reason (for example for a cancellation) is shown
+  under the history entry.
+- **Templates:** **Deactivate** and **Reactivate** now ask for confirmation.
+- **Wording:** the Findings register description now includes audits.
+- No change to statuses, closure or verification rules.
+
 ### Visual update — BrainBase redesign
 
 - Assurance now uses the same look as the rest of BrainBase: shared
@@ -80,6 +98,4 @@ Newest first.
 - No evidence file upload.
 - People on incidents and investigations cannot be edited in the UI.
 - Due-date extensions cannot be requested in the UI.
-- Existing evidence can be linked onward from its own page only to
-  incidents and findings.
 - No recurring inspections or audits.

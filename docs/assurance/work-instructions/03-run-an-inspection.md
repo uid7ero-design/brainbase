@@ -51,6 +51,16 @@ For a planned, template-based inspection, or an ad hoc check in the field.
 11. Select **Complete inspection**. Optionally add a **Summary**, then
     submit.
 
+**Link an existing finding** (repeat issue)
+
+12. In **Findings** select **Link existing finding**, choose the finding and
+    select **Link finding**. This links the whole inspection, not an item.
+
+**Cancel** (if the inspection will not go ahead)
+
+13. Select **Cancel inspection**, enter the **Reason**, then confirm with
+    **Cancel inspection**. (Select **Cancel** instead to back out.)
+
 ## What happens next
 
 - The inspection moves Planned → In progress → Completed.
@@ -68,10 +78,9 @@ For a planned, template-based inspection, or an ad hoc check in the field.
 - Once a finding is raised from an item, that item's response is locked.
 - Completion is refused until every **required** item has a response. An
   ad hoc inspection needs at least one item.
-- **Cancel inspection** is available only while planned or in progress. It
-  asks for no reason. If the reason matters, record it **before** cancelling
-  (for example with **Add evidence** on the inspection): evidence on a
-  cancelled inspection can no longer be changed.
+- **Cancel inspection** is available only while planned or in progress, and
+  needs a **Reason**, which is kept in the inspection's history. A cancelled
+  inspection's responses and evidence can no longer be changed.
 
 ## Common issues
 
@@ -82,6 +91,7 @@ For a planned, template-based inspection, or an ad hoc check in the field.
 | "A finding has been raised from this item, so its response can no longer be changed." | Expected; the response is part of the finding's record. |
 | "Start the inspection to record responses." | Select **Start inspection** first. |
 | No templates offered | No active templates exist. Ask an admin, or run it ad hoc. |
+| "Reason is required." when cancelling | Enter why the inspection is being cancelled. |
 
 ## Related records / next steps
 

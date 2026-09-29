@@ -57,6 +57,8 @@ their versions, but cannot change them.
 **Deactivate or reactivate**
 
 12. On the template page, select **Deactivate** or **Reactivate**.
+13. Read the confirmation, then select **Deactivate template** or
+    **Reactivate template**. (Select **Cancel** to back out; nothing changes.)
 
 ## What happens next
 

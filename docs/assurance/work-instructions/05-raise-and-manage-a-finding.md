@@ -43,18 +43,24 @@ something that needs formal follow-up.
    organisation**.
 4. Select **Raise finding**. The new finding opens.
 
+**Link an existing finding to another record** (repeat issue)
+
+5. On the incident, investigation, inspection or audit, in its **Findings**
+   section select **Link existing finding**, choose the **Finding**, then
+   select **Link finding**.
+
 **Manage**
 
-5. Use **Next step** to record where the finding is:
+6. Use **Next step** to record where the finding is:
    - **Move to under review**
    - **Move to action required**
    - **Move to action in progress**
    - **Move to awaiting verification**
-6. Add corrective work with **Add corrective action**
+7. Add corrective work with **Add corrective action**
    (see [work instruction 06](06-create-and-manage-an-action.md)).
-7. Watch the **Assurance chain** strip at the top: Source → Finding → Action
+8. Watch the **Assurance chain** strip at the top: Source → Finding → Action
    → Evidence → Verification → Closure.
-8. When the finding is resolved, select **Close finding**
+9. When the finding is resolved, select **Close finding**
    (see [work instruction 09](09-close-actions-and-findings.md)).
 
 ## What happens next
@@ -66,7 +72,11 @@ something that needs formal follow-up.
 
 ## Important rules
 
-- One source per finding at the time it is raised.
+- One source per finding at the time it is raised; further sources are
+  added with **Link existing finding**. Linking changes no statuses.
+- Only open findings can be linked, and only to open records.
+- A finding visible to everyone cannot be linked to a restricted incident or
+  investigation (it would become hidden). Raise a new finding there instead.
 - Findings cannot be raised from a closed, completed or cancelled incident or
   investigation, or from a cancelled inspection or audit.
 - **Resolve by** cannot be in the past.
@@ -83,6 +93,9 @@ something that needs formal follow-up.
 | "That checklist item has no recorded response on this inspection." | Save the item's response first. |
 | **Raise finding** not shown on an item | The outcome is Pass or N/A (or Compliant), or you lack manager access. |
 | No "new finding" button on the Findings register | Findings are raised from their source record. |
+| "That finding is already linked to this …" | It is already linked; no action needed. |
+| "…Linking it to a restricted … would hide it…" | Raise a new finding from the restricted record. |
+| **Link existing finding** not shown | No open findings are available to link, the record is finished, or you have viewer access. |
 
 ## Related records / next steps
 

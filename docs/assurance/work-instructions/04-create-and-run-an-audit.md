@@ -86,7 +86,7 @@ audits — from an audit template or ad hoc.
 | "An ad hoc audit needs the standard or reference it is audited against." | Enter **Standard / reference**. |
 | "Add a note explaining the gap against the requirement." | Add notes for Non-compliant / Partially compliant. |
 | "N required criteria have no response yet." | Rate the remaining criteria. |
-| **Link existing finding** not shown | There are no open findings to link, or the audit is cancelled. |
+| **Link existing finding** not shown | There are no open findings to link (not already linked), or the audit is cancelled. |
 
 ## Related records / next steps
 

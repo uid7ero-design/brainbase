@@ -24,7 +24,9 @@ step-by-step procedures, use the [work instructions](work-instructions/).
   status and (if relevant) a **Restricted** tag.
 - The **Next step** section appears only when there is something you are
   allowed to do next.
-- Every detail page ends with **History**: who did what, and when.
+- Every detail page ends with **History**: who did what, and when. Where a
+  reason was recorded (for example when an action, audit or inspection was
+  cancelled), it is shown under the entry.
 - Registers have filters above the table. Choose values, then select
   **Apply**. **Reset** clears them.
 
@@ -142,6 +144,9 @@ example injured person, witness, responder) with their role and notes.
 
 - **Raise finding** in the **Findings** section creates a finding linked to
   this incident. It is available until the incident is closed or cancelled.
+- **Link existing finding** (next to **Raise finding**) attaches a finding
+  that already exists — for a repeat issue already being managed. It offers
+  open findings you can see that are not already linked.
 - **Start investigation** in the **Investigations** section opens a new
   investigation with this incident already chosen as the primary incident.
 - The **Investigations** table shows each linked investigation, its
@@ -205,6 +210,8 @@ findings.
 
 **Raise finding** creates a finding linked to the investigation. It is
 available until the investigation is completed or cancelled.
+**Link existing finding** attaches a finding that already exists (for
+example one first raised from an incident).
 
 ---
 
@@ -269,8 +276,17 @@ cancelled one.
   required checklist item has a response. An ad hoc inspection needs at least
   one item. Completing locks the responses. It never creates or closes
   findings.
-- **Cancel inspection** (manager access) is a single button with no reason
-  field. It works only on a planned or in-progress inspection.
+- **Cancel inspection** (manager access) opens a confirmation form. A
+  **Reason** is required and is kept in the inspection's history. It works
+  only on a planned or in-progress inspection. Once cancelled, responses and
+  evidence can no longer be changed.
+
+### Linking an existing finding
+
+In the inspection's **Findings** section, **Link existing finding** attaches
+a finding that already exists (for example a repeat defect found again). This
+links the finding to the inspection as a whole, not to a checklist item, so
+it does not lock any response. It is not available on a cancelled inspection.
 
 ---
 
@@ -349,6 +365,18 @@ A finding is raised from a source record: an incident, an investigation, an
 inspection item, or an audit criterion. Use the **Raise finding** button on
 that record. Each finding is raised from one source at a time.
 
+A finding can afterwards be linked to **further** incidents, investigations,
+inspections or audits with **Link existing finding** on that record (for a
+repeat issue). Only open findings can be linked, and only to a record that
+is still open (not a closed or cancelled incident, a completed or cancelled
+investigation, or a cancelled inspection or audit). Linking changes no
+statuses. A finding that everyone in your organisation can see cannot be
+linked to a **restricted** incident or investigation — that would hide it,
+its actions and its evidence from everyone else; raise a new finding from the
+restricted record instead.
+
+There is no "new finding" button on the Findings register.
+
 ### Source provenance
 
 The finding's **Source** shows where it came from, with a link back. For
@@ -356,6 +384,10 @@ inspection items and audit criteria, the exact item or criterion is
 recorded. The Findings register can filter by source: **From incidents**,
 **From investigations**, **From inspections**, **From audits** or
 **No source**.
+
+"No source" findings cannot be created from the Assurance screens, but they
+can exist — for example from data loaded through other supported paths — so
+the filter is kept.
 
 A finding cannot be raised from a closed, completed or cancelled incident or
 investigation, or from a cancelled inspection or audit.
@@ -480,8 +512,12 @@ Completing a task **never** completes, verifies or closes the action.
   step. **Why it is linked here** records the purpose.
 - On the **Evidence** register, **Record evidence** creates evidence that is
   not linked yet.
-- On an evidence record's own page, **Link to incident** and **Link to
-  finding** reuse it on other records.
+- On an evidence record's own page, **Link to a record** reuses it on another
+  record: choose the **Record type** (Incident, Investigation, Inspection,
+  Audit, Finding or Action), then the record, and optionally **Why it is
+  linked**. The list offers records you can see that are still open and not
+  already linked to this evidence. (Evidence for a verification is chosen when
+  the verification is recorded, not linked here.)
 - Evidence already used on other records cannot be linked to a restricted
   record. Record new evidence for the restricted record instead.
 
@@ -501,6 +537,10 @@ Evidence can no longer be added or removed once its record is finished:
 
 Evidence recorded with a verification is part of that verification and
 cannot be removed.
+
+Evidence can currently still be added to a **closed incident** or a
+**completed investigation** with **Add evidence** on that record. This is the
+implemented behaviour pending a later policy decision.
 
 ---
 
