@@ -17,6 +17,9 @@ function block(startMarker: string, endMarker: string): string {
 
 const groupSectionBlock = () => block('function GroupSection(', '\nfunction KanbanView(')
 const reorderSubitemsBlock = () => block('async function reorderSubitems(', '\n  async function addItem(')
+// D.4.7F — handleSubitemKeyReorder lives inside GroupSection, right after
+// handleTopLevelItemKeyReorder.
+const handleSubitemKeyReorderBlock = () => block('function handleSubitemKeyReorder(', '\n  }')
 
 describe('E4 same-parent subitem drag wiring', () => {
   it('gives subitems the existing dedicated drag handle without reusing top-level drag state', () => {
@@ -69,6 +72,44 @@ describe('E4 same-parent subitem drag wiring', () => {
   })
 })
 
+describe('D.4.7F — same-parent subitem keyboard reorder wiring', () => {
+  it('the subitem ItemRow call site passes onKeyReorder wired to handleSubitemKeyReorder(item.id, child.id, move)', () => {
+    const b = groupSectionBlock()
+    expect(b).toMatch(/onKeyReorder=\{move => handleSubitemKeyReorder\(item\.id, child\.id, move\)\}/)
+  })
+
+  it('handleSubitemKeyReorder computes via moveInOrderedList against THIS parent\'s own children only — no cross-parent movement is representable', () => {
+    const b = handleSubitemKeyReorderBlock()
+    expect(b).toMatch(/const siblings = childrenOf\(parentItemId\);/)
+    expect(b).toMatch(/const currentIds = siblings\.map\(i => i\.id\);/)
+    expect(b).toMatch(/const reordered = moveInOrderedList\(currentIds, itemId, move\);/)
+  })
+
+  it('is a true no-op on a boundary move before any announcement or reorder call', () => {
+    const b = handleSubitemKeyReorderBlock()
+    const guardIdx = b.indexOf('if (!reordered) return;')
+    const announceIdx = b.indexOf('onAnnounce(')
+    const reorderIdx = b.indexOf('onReorderSubitems(')
+    expect(guardIdx).toBeGreaterThan(-1)
+    expect(announceIdx).toBeGreaterThan(guardIdx)
+    expect(reorderIdx).toBeGreaterThan(announceIdx)
+  })
+
+  it('terminates in the exact same onReorderSubitems prop pointer drop already calls — exactly one call, no new mutation path', () => {
+    const b = handleSubitemKeyReorderBlock()
+    const calls = b.match(/onReorderSubitems\(/g) ?? []
+    expect(calls.length).toBe(1)
+    expect(b).not.toMatch(/fetch\(/)
+  })
+
+  it('announcement includes the parent item\'s own name for context, matching the approved design\'s exact message shape', () => {
+    const b = handleSubitemKeyReorderBlock()
+    expect(b).toMatch(/const parent = topLevel\.find\(i => i\.id === parentItemId\);/)
+    expect(b).toMatch(/const suffix = parent \? ` in \$\{parent\.name\}` : "";/)
+    expect(b).toMatch(/`Moved \$\{item\.name\} to position \$\{reordered\.indexOf\(itemId\) \+ 1\} of \$\{reordered\.length\}\$\{suffix\}`/)
+  })
+})
+
 describe('E4 reorderSubitems optimistic reliability', () => {
   it('keys the coalescing queue per board and parent scope', () => {
     const b = reorderSubitemsBlock()
@@ -112,5 +153,12 @@ describe('E4 reorderSubitems optimistic reliability', () => {
     const calendar = block('function CalendarView(', '\nfunction ')
     expect(kanban).not.toMatch(/reorderSubitems|handleSubitemDrop|setDraggingSubitem/)
     expect(calendar).not.toMatch(/reorderSubitems|handleSubitemDrop|setDraggingSubitem/)
+  })
+
+  it('D.4.7F — does not add subitem keyboard reorder behavior to Kanban or Calendar either', () => {
+    const kanban = block('function KanbanView(', '\nfunction CalendarView(')
+    const calendar = block('function CalendarView(', '\nfunction ')
+    expect(kanban).not.toMatch(/onKeyReorder|handleSubitemKeyReorder|moveInOrderedList|ReorderHandle/)
+    expect(calendar).not.toMatch(/onKeyReorder|handleSubitemKeyReorder|moveInOrderedList|ReorderHandle/)
   })
 })
