@@ -131,7 +131,7 @@ echo "PASS: Data Hub 6.2D4B2A normalization executor integration suite."
 RUN_TS="$REPO_ROOT/lib/data-hub/normalizationExecution/dataHubNormalizationRun.ts"
 BACKUP="$(mktemp 2>/dev/null || echo "/tmp/dataHubNormalizationRun.ts.bak.$$")"
 cp "$RUN_TS" "$BACKUP"
-restore_run_ts() { cp "$BACKUP" "$RUN_TS"; rm -f "$BACKUP"; }
+restore_run_ts() { [ -f "$BACKUP" ] && cp "$BACKUP" "$RUN_TS" && rm -f "$BACKUP"; return 0; }
 trap 'restore_run_ts; cleanup' EXIT
 
 echo ""
@@ -174,6 +174,87 @@ if ! grep -q "active-pointer immunity across resume > moving the active profile 
   cat "$DIAG_OUT"
 fi
 echo "  PASS (fail-loud): mutation proof confirms the active-pointer-immunity tests actually depend on resume never reading the active pointer."
+
+# ─────────────────────────────────────────────────────────────────────
+# MUTATION PROOF (blocker 1) — strip the terminal-disposition block back
+# to the original bug: return the failure code WITHOUT durably failing
+# the run, proving the "terminal disposition" tests (A-E) actually depend
+# on it and would otherwise leave a stranded live RUNNING lease.
+# ─────────────────────────────────────────────────────────────────────
+echo ""
+echo "=== MUTATION PROOF — resume returns a pinned-context failure WITHOUT durably failing the run (blocker 1 regression) ==="
+awk '
+  /TERMINAL_DISPOSITION_BEGIN/ {
+    print;
+    print "  return { ok: false, code };";
+    skip=1;
+    next
+  }
+  /TERMINAL_DISPOSITION_END/ { print; skip=0; next }
+  skip==1 { next }
+  { print }
+' "$BACKUP" > "$RUN_TS"
+
+if grep -q "return { ok: false, code };" "$RUN_TS"; then
+  echo "  Mutation applied. Re-running the terminal-disposition suite (expecting tests A-E to FAIL)..."
+else
+  echo "ERROR: mutation failed to apply (marker not found)." >&2
+  exit 2
+fi
+
+npx vitest run --config vitest.integration.config.ts scripts/tests/dataHubNormalizationExecutor.integration.test.ts -t "terminal disposition" >"$DIAG_OUT" 2>&1
+MUTATION_RESULT=$?
+if [ $MUTATION_RESULT -eq 0 ]; then
+  echo "FAIL (mutation proof): the terminal-disposition tests WRONGLY passed under the mutated (no-disposition) code." >&2
+  cat "$DIAG_OUT"
+  restore_run_ts
+  exit 1
+fi
+if ! grep -qE "Test A\]|Test B\]|Test C\]|Test D\]|Test E\]" "$DIAG_OUT"; then
+  echo "WARNING: mutation proof failed for an unexpected reason (not clearly tests A-E) -- inspect output:" >&2
+  cat "$DIAG_OUT"
+fi
+echo "  PASS (fail-loud): mutation proof confirms tests A-E actually depend on the run being durably FAILED, not just returning a failure code."
+
+# ─────────────────────────────────────────────────────────────────────
+# MUTATION PROOF (blocker 2) — strip the create-race translation back to
+# a bare re-throw, proving the strengthened race test actually depends on
+# it and would otherwise observe a raw/rejected Prisma exception.
+# ─────────────────────────────────────────────────────────────────────
+echo ""
+echo "=== MUTATION PROOF — create-race unique-conflict translation removed, bare re-throw restored (blocker 2 regression) ==="
+awk '
+  /CREATE_RACE_TRANSLATION_BEGIN/ {
+    print;
+    print "    throw err;";
+    skip=1;
+    next
+  }
+  /CREATE_RACE_TRANSLATION_END/ { print; skip=0; next }
+  skip==1 { next }
+  { print }
+' "$BACKUP" > "$RUN_TS"
+
+if grep -q "throw err;" "$RUN_TS"; then
+  echo "  Mutation applied. Re-running the blocker-2 race tests (expecting the deterministic test to observe a rejected/raw Prisma outcome)..."
+else
+  echo "ERROR: mutation failed to apply (marker not found)." >&2
+  exit 2
+fi
+
+npx vitest run --config vitest.integration.config.ts scripts/tests/dataHubNormalizationExecutor.integration.test.ts -t "blocker 2" >"$DIAG_OUT" 2>&1
+MUTATION_RESULT=$?
+if [ $MUTATION_RESULT -eq 0 ]; then
+  echo "FAIL (mutation proof): the blocker-2 race tests WRONGLY passed under the mutated (re-throw) code." >&2
+  cat "$DIAG_OUT"
+  restore_run_ts
+  exit 1
+fi
+if ! grep -qE "rejected|PrismaClientKnownRequestError|Unique constraint failed" "$DIAG_OUT"; then
+  echo "WARNING: mutation proof failed for an unexpected reason (not clearly a leaked Prisma exception) -- inspect output:" >&2
+  cat "$DIAG_OUT"
+fi
+echo "  PASS (fail-loud): mutation proof confirms the deterministic race test actually depends on the unique-conflict translation, not a bare re-throw."
 
 echo ""
 echo "Restoring the real (unmutated) dataHubNormalizationRun.ts and re-running the FULL suite for a clean round-trip..."

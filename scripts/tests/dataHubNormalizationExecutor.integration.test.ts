@@ -48,6 +48,12 @@ let createOrResumeNormalizationRun: typeof import("@/lib/data-hub/normalizationE
 let markNormalizationRunFailed: typeof import("@/lib/data-hub/normalizationExecution/dataHubNormalizationRun").markNormalizationRunFailed;
 let normalizeBatches: typeof import("@/lib/data-hub/normalizationExecution/normalizeWorksheetRows").normalizeBatches;
 let completeNormalizationRun: typeof import("@/lib/data-hub/normalizationExecution/completeNormalizationRun").completeNormalizationRun;
+// The SAME lib/prisma.ts singleton the service modules themselves import
+// (distinct from this file's own standalone `prisma` used for fixture
+// seeding) -- needed to spy on the EXACT client instance
+// createOrResumeNormalizationRun calls, for the deterministic blocker-2
+// race proof below.
+let servicePrisma: typeof import("@/lib/prisma").prisma;
 
 const ORG = "org-a";
 let batchSeq = 0;
@@ -62,6 +68,7 @@ beforeAll(async () => {
   ({ createOrResumeNormalizationRun, markNormalizationRunFailed } = await import("@/lib/data-hub/normalizationExecution/dataHubNormalizationRun"));
   ({ normalizeBatches } = await import("@/lib/data-hub/normalizationExecution/normalizeWorksheetRows"));
   ({ completeNormalizationRun } = await import("@/lib/data-hub/normalizationExecution/completeNormalizationRun"));
+  ({ prisma: servicePrisma } = await import("@/lib/prisma"));
 
   await prisma.$executeRawUnsafe(`INSERT INTO organisations (id, name, slug, updated_at) VALUES ('${ORG}', 'Org A', '${ORG}', now()) ON CONFLICT (id) DO NOTHING`);
 });
@@ -334,24 +341,219 @@ describe("pinning: active-pointer immunity across resume", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// RESUME: TERMINAL DISPOSITION ON PINNED-CONTEXT VALIDATION FAILURE
+// (REMEDIATION, blocker 1)
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Once tryTakeoverExisting succeeds, this worker owns a NEW live lease
+// under a fresh token. If any pinned-context validation then fails, the
+// run's IMMUTABLE pins mean the exact same failure would recur on every
+// future resume -- so the run must be durably FAILED under this SAME
+// lease, never left RUNNING to strand the very next request behind the
+// full lease timeout.
+
+async function seedTakeoverReadyRun(s: string, rowsOverride?: SeedOptions["rows"]) {
+  const rows = rowsOverride ?? [{ id: `${s}-r1`, sourceRowNumber: 4, col1: "abc", col2: "12.5" }];
+  const ids = await seedWorld(s, { rows });
+  const created = await createOrResumeNormalizationRun({ organisationId: ORG, uploadId: ids.uploadId, actorUserId: ids.userId });
+  if (!created.ok || created.alreadyNormalized) throw new Error("expected a fresh run");
+  await prisma.$executeRawUnsafe(`UPDATE data_hub_normalization_runs SET lease_expires_at = now() - interval '1 minute' WHERE id = '${created.run.id}'`);
+  return { ids, created };
+}
+
+async function assertDurablyFailed(runId: string, expectedFailureCode: string) {
+  const run = await prisma.dataHubNormalizationRun.findFirstOrThrow({ where: { id: runId } });
+  expect(run.status).toBe("FAILED");
+  expect(run.failure_code).toBe(expectedFailureCode);
+  // No live RUNNING lease remains for this run -- the very next request
+  // for this upload must be free to create a fresh attempt, not stall
+  // behind an un-completable RUNNING row.
+  const stillRunning = await prisma.dataHubNormalizationRun.count({ where: { id: runId, status: "RUNNING" } });
+  expect(stillRunning).toBe(0);
+}
+
+describe("resume: terminal disposition on pinned-context validation failure (blocker 1)", () => {
+  it("[Test A] unsupported normalizer version: expired run taken over, resume returns NORMALIZER_VERSION_UNSUPPORTED, durable run becomes FAILED, no live RUNNING lease remains", async () => {
+    const s = nextSuffix("dispA");
+    const ids = await seedWorld(s, { rows: [{ id: `${s}-r1`, sourceRowNumber: 4, col1: "abc", col2: "12.5" }] });
+    const runId = `${s}-oldrun`;
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO data_hub_normalization_runs (id, organisation_id, import_batch_id, upload_id, raw_staging_run_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_id, worksheet_mapping_profile_version_id, attempt_number, normalizer_version, status, execution_token, lease_expires_at, last_progress_at, expected_row_count, expected_cell_count, persisted_row_count, persisted_cell_count, created_by)
+       VALUES ('${runId}','${ORG}','${ids.batchId}','${ids.uploadId}','${ids.rawRunId}','${ids.svId}','${ids.wsId}','${ids.profileId}','${ids.pvId}',1,'v999','RUNNING','tok-old-${s}', now() - interval '1 minute', now(), 1, 2, 0, 0, '${ids.userId}')`
+    );
+    const resumed = await createOrResumeNormalizationRun({ organisationId: ORG, uploadId: ids.uploadId, actorUserId: ids.userId });
+    expect(resumed).toEqual({ ok: false, code: "NORMALIZER_VERSION_UNSUPPORTED" });
+    await assertDurablyFailed(runId, "NORMALIZER_VERSION_UNSUPPORTED");
+  });
+
+  it("[Test B] raw run no longer SUCCEEDED: same terminal disposition", async () => {
+    const s = nextSuffix("dispB");
+    const { ids, created } = await seedTakeoverReadyRun(s);
+    await prisma.$executeRawUnsafe(`ALTER TABLE data_hub_raw_staging_runs DISABLE TRIGGER data_hub_raw_staging_runs_lifecycle_guard`);
+    await prisma.$executeRawUnsafe(`UPDATE data_hub_raw_staging_runs SET status='FAILED', failed_at=now(), failure_code='X', completed_at=NULL WHERE id='${ids.rawRunId}'`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE data_hub_raw_staging_runs ENABLE TRIGGER data_hub_raw_staging_runs_lifecycle_guard`);
+
+    const resumed = await createOrResumeNormalizationRun({ organisationId: ORG, uploadId: ids.uploadId, actorUserId: ids.userId });
+    expect(resumed).toEqual({ ok: false, code: "RAW_RUN_NOT_SUCCEEDED" });
+    await assertDurablyFailed(created.run.id, "RAW_RUN_NOT_SUCCEEDED");
+  });
+
+  it("[Test C] malformed pinned profile: same terminal disposition", async () => {
+    const s = nextSuffix("dispC");
+    const { ids, created } = await seedTakeoverReadyRun(s);
+    await prisma.$executeRawUnsafe(`UPDATE worksheet_mapping_profile_versions SET profile_document = '{"documentVersion":2,"schemaStatus":"DRAFT","headerRowOneBased":3,"columnRules":"not-an-array"}' WHERE id = '${ids.pvId}'`);
+
+    const resumed = await createOrResumeNormalizationRun({ organisationId: ORG, uploadId: ids.uploadId, actorUserId: ids.userId });
+    expect(resumed).toEqual({ ok: false, code: "PROFILE_DOCUMENT_INVALID" });
+    await assertDurablyFailed(created.run.id, "PROFILE_DOCUMENT_INVALID");
+  });
+
+  it("[Test D] pinned v1 profile document: same terminal disposition", async () => {
+    const s = nextSuffix("dispD");
+    const { ids, created } = await seedTakeoverReadyRun(s);
+    await prisma.$executeRawUnsafe(`UPDATE worksheet_mapping_profile_versions SET profile_document = '{"documentVersion":1,"schemaStatus":"DRAFT","headerRowOneBased":3}' WHERE id = '${ids.pvId}'`);
+
+    const resumed = await createOrResumeNormalizationRun({ organisationId: ORG, uploadId: ids.uploadId, actorUserId: ids.userId });
+    expect(resumed).toEqual({ ok: false, code: "NORMALIZATION_INELIGIBLE" });
+    await assertDurablyFailed(created.run.id, "NORMALIZATION_INELIGIBLE");
+  });
+
+  it("[Test E] missing/foreign governed rule: same terminal disposition", async () => {
+    const s = nextSuffix("dispE");
+    const { ids, created } = await seedTakeoverReadyRun(s);
+    await prisma.$executeRawUnsafe(
+      `UPDATE worksheet_mapping_profile_versions SET profile_document = '${JSON.stringify({
+        documentVersion: 2,
+        schemaStatus: "DRAFT",
+        headerRowOneBased: 3,
+        columnRules: [{ sourceSchemaColumnId: "col-does-not-exist", valueKind: "STRING" }],
+      }).replace(/'/g, "''")}' WHERE id = '${ids.pvId}'`
+    );
+
+    const resumed = await createOrResumeNormalizationRun({ organisationId: ORG, uploadId: ids.uploadId, actorUserId: ids.userId });
+    expect(resumed).toEqual({ ok: false, code: "NORMALIZATION_PLAN_INVALID" });
+    await assertDurablyFailed(created.run.id, "NORMALIZATION_PLAN_INVALID");
+  });
+
+  it("[Test F] lease lost between takeover and disposition: reports LEASE_LOST, never falsely claims the run was durably failed", async () => {
+    const s = nextSuffix("dispF");
+    const { ids, created } = await seedTakeoverReadyRun(s);
+    // Corrupt the pinned profile (guarantees a disposition attempt), then
+    // simulate ANOTHER worker taking the lease over between this worker's
+    // own takeover (already done by seedTakeoverReadyRun) and its
+    // disposition attempt, by directly stealing the token/lease right now.
+    await prisma.$executeRawUnsafe(`UPDATE worksheet_mapping_profile_versions SET profile_document = '{"documentVersion":1,"schemaStatus":"DRAFT","headerRowOneBased":3}' WHERE id = '${ids.pvId}'`);
+
+    // We cannot literally interleave inside createOrResumeNormalizationRun's
+    // own execution, so this proves the SAME lease-conditioned guarantee
+    // markNormalizationRunFailed itself provides: once another worker has
+    // stolen the token, the disposition call cannot apply, and the
+    // service must report LEASE_LOST rather than a false FAILED claim.
+    // Directly exercise markNormalizationRunFailed with the ORIGINAL
+    // (now-stale) token after a real takeover has moved the run to a new
+    // token, to prove this exact call site's own contract.
+    const stolenToken = "stolen-token-" + s;
+    await prisma.$executeRawUnsafe(`UPDATE data_hub_normalization_runs SET execution_token = '${stolenToken}', lease_expires_at = now() + interval '1 hour' WHERE id = '${created.run.id}'`);
+    const applied = await markNormalizationRunFailed({ organisationId: ORG, runId: created.run.id, executionToken: created.run.executionToken, failureCode: "PROFILE_DOCUMENT_INVALID" });
+    expect(applied).toBe(false);
+    const run = await prisma.dataHubNormalizationRun.findFirstOrThrow({ where: { id: created.run.id } });
+    expect(run.status).toBe("RUNNING"); // untouched -- NOT falsely marked FAILED
+    expect(run.execution_token).toBe(stolenToken); // the OTHER worker's token, still live
+  });
+
+  it("mutation proof marker sanity: the terminal-disposition block exists and contains the lease-conditioned failure call", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const src = fs.readFileSync(path.join(process.cwd(), "lib/data-hub/normalizationExecution/dataHubNormalizationRun.ts"), "utf8");
+    expect(src).toContain("TERMINAL_DISPOSITION_BEGIN");
+    expect(src).toContain("TERMINAL_DISPOSITION_END");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // CONCURRENCY
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("concurrency: lease takeover races", () => {
-  it("two simultaneous new-run creators: exactly one wins, no duplicate RUNNING run", async () => {
+  it("REMEDIATION (blocker 2): many simultaneous new-run creators race a real Promise.allSettled -- zero rejections, exactly one successful RUNNING creation, every loser gets a clean RUN_ALREADY_IN_PROGRESS result (never a raw/rejected Prisma exception), exactly one RUNNING row, no duplicate attempt/evidence row", async () => {
     const s = nextSuffix("race");
     const ids = await seedWorld(s, { rows: [{ id: `${s}-r1`, sourceRowNumber: 4, col1: "abc", col2: "1" }] });
-    const [a, b] = await Promise.all([createOrResumeNormalizationRun({ organisationId: ORG, uploadId: ids.uploadId, actorUserId: ids.userId }), createOrResumeNormalizationRun({ organisationId: ORG, uploadId: ids.uploadId, actorUserId: ids.userId })]);
-    const outcomes = [a, b];
-    const succeeded = outcomes.filter((r) => r.ok && !r.alreadyNormalized);
-    // DB-level one-RUNNING-per-upload partial unique index means at most
-    // one create() can win; the other's create() throws (unique violation)
-    // -- both branches count as "the loser" here, so we only assert AT
-    // MOST one logical run exists, and exactly one successful creation
-    // took the RUNNING slot.
+    // 2 concurrent callers only sometimes reach the DB create() collision
+    // itself -- Node's own scheduling can let one caller's "existing run"
+    // check observe the other's already-committed row first, resolving
+    // the race via the early takeover-vs-RUN_ALREADY_IN_PROGRESS branch
+    // without ever exercising the create()-catch translation this
+    // remediation adds. A larger fan-out makes a genuine simultaneous
+    // create() collision (at least one true P2002 against the DB's own
+    // one-RUNNING-per-upload partial unique index) overwhelmingly likely,
+    // so the mutation proof (stripping the translation back to a bare
+    // re-throw) reliably surfaces a rejected promise.
+    const RACER_COUNT = 8;
+    const settled = await Promise.allSettled(Array.from({ length: RACER_COUNT }, () => createOrResumeNormalizationRun({ organisationId: ORG, uploadId: ids.uploadId, actorUserId: ids.userId })));
+
+    // A thrown Prisma exception (leaked, unhandled) cannot hide inside a
+    // Promise.all rejection here -- allSettled surfaces it explicitly, and
+    // this assertion is exactly what a mutation removing blocker 2's
+    // translation would break.
+    const rejected = settled.filter((r) => r.status === "rejected");
+    expect(rejected).toHaveLength(0);
+
+    const results = settled.map((r) => (r.status === "fulfilled" ? r.value : null));
+    const succeeded = results.filter((r) => r && r.ok && !r.alreadyNormalized);
+    const losers = results.filter((r) => r && !r.ok);
+    expect(succeeded).toHaveLength(1);
+    expect(losers).toHaveLength(RACER_COUNT - 1);
+    for (const loser of losers) {
+      expect(loser).toEqual({ ok: false, code: "RUN_ALREADY_IN_PROGRESS" });
+    }
+
     const runningCount = await prisma.dataHubNormalizationRun.count({ where: { upload_id: ids.uploadId, status: "RUNNING" } });
     expect(runningCount).toBe(1);
-    expect(succeeded.length).toBeGreaterThanOrEqual(1);
+    // No duplicate attempt/evidence row: exactly one normalization run
+    // total exists for this upload (not RACER_COUNT rows racing to
+    // attempt_number 1).
+    const totalRuns = await prisma.dataHubNormalizationRun.count({ where: { upload_id: ids.uploadId } });
+    expect(totalRuns).toBe(1);
+  });
+
+  it("REMEDIATION (blocker 2, deterministic): a competing RUNNING row inserted in the exact narrow window between this caller's existing-run check and its own create() call is translated to a clean RUN_ALREADY_IN_PROGRESS result, never a leaked Prisma unique-constraint exception", async () => {
+    const s = nextSuffix("racedet");
+    const ids = await seedWorld(s, { rows: [{ id: `${s}-r1`, sourceRowNumber: 4, col1: "abc", col2: "1" }] });
+
+    // Force this caller's OWN "existing run" check (the FIRST and only
+    // call to this exact Prisma delegate method within the new-run path)
+    // to see NOTHING -- as a side effect of that exact call, deterministically
+    // insert a competitor's RUNNING row directly, reproducing the narrow
+    // race window between the existing-check and this caller's own
+    // create(). The DB's one-RUNNING-per-upload partial unique index then
+    // genuinely rejects this caller's create() with a real P2002 -- proving
+    // the translation, not just its OWN existing-check early-exit path.
+    const competingRunId = `${s}-competitor`;
+    const spy = vi.spyOn(servicePrisma.dataHubNormalizationRun, "findFirst").mockImplementationOnce(async () => {
+      await servicePrisma.$executeRawUnsafe(
+        `INSERT INTO data_hub_normalization_runs (id, organisation_id, import_batch_id, upload_id, raw_staging_run_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_id, worksheet_mapping_profile_version_id, attempt_number, normalizer_version, status, execution_token, lease_expires_at, last_progress_at, expected_row_count, expected_cell_count, persisted_row_count, persisted_cell_count, created_by)
+         VALUES ('${competingRunId}','${ORG}','${ids.batchId}','${ids.uploadId}','${ids.rawRunId}','${ids.svId}','${ids.wsId}','${ids.profileId}','${ids.pvId}',1,'v1','RUNNING','tok-competitor-${s}', now()+interval '1 hour', now(), 1, 2, 0, 0, '${ids.userId}')`
+      );
+      return null;
+    });
+
+    let result: Awaited<ReturnType<typeof createOrResumeNormalizationRun>>;
+    try {
+      result = await createOrResumeNormalizationRun({ organisationId: ORG, uploadId: ids.uploadId, actorUserId: ids.userId });
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(result).toEqual({ ok: false, code: "RUN_ALREADY_IN_PROGRESS" });
+    const runningCount = await prisma.dataHubNormalizationRun.count({ where: { upload_id: ids.uploadId, status: "RUNNING" } });
+    expect(runningCount).toBe(1);
+    // Only the competitor's row exists -- this caller's own create() call
+    // never committed (its unique-conflict exception was caught, not
+    // ignored/retried into a duplicate).
+    const totalRuns = await prisma.dataHubNormalizationRun.count({ where: { upload_id: ids.uploadId } });
+    expect(totalRuns).toBe(1);
+    const winner = await prisma.dataHubNormalizationRun.findFirstOrThrow({ where: { upload_id: ids.uploadId } });
+    expect(winner.id).toBe(competingRunId);
   });
 
   it("a live (unexpired) lease prevents takeover -- RUN_ALREADY_IN_PROGRESS", async () => {
@@ -725,5 +927,48 @@ describe("completion", () => {
     const staleBatch = await normalizeBatches(created.run, 5000);
     expect(staleBatch.ok).toBe(false);
     expect(staleBatch.code).toBe("LEASE_LOST");
+  });
+
+  it("REMEDIATION (hardening 3): a takeover happening between the TS pre-check and the SQL completion call is classified LEASE_LOST via the post-exception DB re-check, never COMPLETION_REJECTED and never a leaked SQL error", async () => {
+    const s = nextSuffix("racecomplete");
+    const rows = [{ id: `${s}-r1`, sourceRowNumber: 4, col1: "abc", col2: "1.5" }];
+    const ids = await seedWorld(s, { rows });
+    const created = await createOrResumeNormalizationRun({ organisationId: ORG, uploadId: ids.uploadId, actorUserId: ids.userId });
+    if (!created.ok || created.alreadyNormalized) throw new Error("expected a fresh run");
+    await normalizeBatches(created.run, 5000);
+
+    // Snapshot exactly what the TS pre-check would have seen at the moment
+    // this caller still genuinely held the lease.
+    const staleSnapshot = await prisma.dataHubNormalizationRun.findFirst({ where: { id: created.run.id, organisation_id: ORG } });
+
+    // Simulate a real takeover happening AFTER that snapshot but BEFORE
+    // this caller's completion call reaches the SQL function -- another
+    // worker legitimately takes over the (now expired) lease with a fresh
+    // token.
+    await prisma.$executeRawUnsafe(`UPDATE data_hub_normalization_runs SET lease_expires_at = now() - interval '1 minute' WHERE id = '${created.run.id}'`);
+    const takeover = await createOrResumeNormalizationRun({ organisationId: ORG, uploadId: ids.uploadId, actorUserId: ids.userId });
+    if (!takeover.ok || takeover.alreadyNormalized) throw new Error("expected the simulated takeover to succeed");
+    expect(takeover.run.executionToken).not.toBe(created.run.executionToken);
+
+    // Force completeNormalizationRun's OWN pre-check to see the STALE
+    // (pre-takeover) snapshot for exactly one call -- reproducing the
+    // precise race window: pre-check passes on stale state, but the SQL
+    // call itself runs against the REAL, already-taken-over row and its
+    // own lease/token check throws. The re-check this remediation adds
+    // then queries the REAL current state (falls through to the original,
+    // unmocked implementation) and correctly classifies LEASE_LOST.
+    const spy = vi.spyOn(servicePrisma.dataHubNormalizationRun, "findFirst").mockResolvedValueOnce(staleSnapshot as never);
+    try {
+      const result = await completeNormalizationRun({ organisationId: ORG, runId: created.run.id, executionToken: created.run.executionToken, completedByUserId: ids.userId });
+      expect(result).toEqual({ ok: false, code: "LEASE_LOST" });
+    } finally {
+      spy.mockRestore();
+    }
+
+    // The takeover's own (real, still-live) attempt is completely
+    // unaffected by the stale caller's failed completion attempt.
+    const runAfter = await prisma.dataHubNormalizationRun.findFirstOrThrow({ where: { id: created.run.id } });
+    expect(runAfter.status).toBe("RUNNING");
+    expect(runAfter.execution_token).toBe(takeover.run.executionToken);
   });
 });

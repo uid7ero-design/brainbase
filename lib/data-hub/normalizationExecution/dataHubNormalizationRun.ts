@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../prisma";
 import sql from "../../db";
 import { buildNormalizationPlan } from "../normalization/plan";
@@ -48,7 +49,9 @@ export type CreateOrResumeNormalizationFailureCode =
   | "PROFILE_DOCUMENT_INVALID"
   | "NORMALIZATION_PLAN_INVALID"
   | "NORMALIZER_VERSION_UNSUPPORTED"
-  | "RUN_ALREADY_IN_PROGRESS";
+  | "RUN_ALREADY_IN_PROGRESS"
+  | "LEASE_LOST"
+  | "PERSISTENCE_FAILURE";
 
 export interface ActiveNormalizationRun {
   id: string;
@@ -85,6 +88,43 @@ async function tryTakeoverExisting(existingRunId: string, organisationId: string
     RETURNING id
   `) as unknown as { id: string }[];
   return rows.length === 1;
+}
+
+// REMEDIATION (review, blocker 1) — a resumed run's pinned-context
+// validation (normalizer_version / pinned raw run still SUCCEEDED / pinned
+// profile still parses to a valid plan) can fail AFTER this worker has
+// already taken over the lease with a fresh token. Returning a failure
+// code at that point without also disposing of the run would leave a
+// live, un-completable RUNNING lease stranded for the full lease duration
+// -- a self-inflicted lease stall, since the run's IMMUTABLE pins can
+// never change, so the very next resume attempt would hit the exact same
+// validation failure forever. This durably transitions the run to FAILED
+// under the SAME live lease this worker just took over (never a NEW
+// lease), using the closed failure code itself as failure_code and a
+// fixed/NULL failure_detail (never profile contents, raw values, DB text,
+// or exception text). If that FAILED transition cannot be applied because
+// the lease was lost between takeover and this disposition (e.g. another
+// worker's lease-expiry sweep or a concurrent operation), this reports
+// LEASE_LOST instead of falsely claiming the run was durably failed by
+// this call.
+async function failResumedRunAndReturn(
+  organisationId: string,
+  runId: string,
+  executionToken: string,
+  code: Exclude<CreateOrResumeNormalizationFailureCode, "RUN_ALREADY_IN_PROGRESS" | "RAW_STAGING_NOT_COMPLETE" | "LEASE_LOST" | "PERSISTENCE_FAILURE">
+): Promise<CreateOrResumeNormalizationResult> {
+  // TERMINAL_DISPOSITION_BEGIN (mutation-proof harness marker — do not remove or rename; scripts/tests/verify-datahub-normalization-executor.sh's mutation-proof phase replaces exactly this block to prove the lease-stall tests actually depend on it)
+  const failed = await markNormalizationRunFailed({
+    organisationId,
+    runId,
+    executionToken,
+    failureCode: code,
+  });
+  if (!failed) {
+    return { ok: false, code: "LEASE_LOST" };
+  }
+  return { ok: false, code };
+  // TERMINAL_DISPOSITION_END
 }
 
 type ResolvePlanFailureCode = "INVALID_STATE" | "PROFILE_DOCUMENT_INVALID" | "NORMALIZATION_INELIGIBLE" | "NORMALIZATION_PLAN_INVALID";
@@ -174,14 +214,16 @@ export async function createOrResumeNormalizationRun(context: {
     });
 
     if (run.normalizer_version !== NORMALIZER_VERSION) {
-      return { ok: false, code: "NORMALIZER_VERSION_UNSUPPORTED" };
+      return failResumedRunAndReturn(organisationId, run.id, newToken, "NORMALIZER_VERSION_UNSUPPORTED");
     }
 
     const rawRun = await prisma.dataHubRawStagingRun.findFirst({
       where: { id: run.raw_staging_run_id, organisation_id: organisationId },
       select: { status: true },
     });
-    if (!rawRun || rawRun.status !== "SUCCEEDED") return { ok: false, code: "RAW_RUN_NOT_SUCCEEDED" };
+    if (!rawRun || rawRun.status !== "SUCCEEDED") {
+      return failResumedRunAndReturn(organisationId, run.id, newToken, "RAW_RUN_NOT_SUCCEEDED");
+    }
 
     // PINNED_RESUME_PLAN_BEGIN (mutation-proof harness marker — do not remove or rename; scripts/tests/verify-datahub-normalization-executor.sh's mutation-proof phase replaces exactly this block to prove the pinning tests actually depend on it)
     const planResult = await resolvePlanForPinnedVersion({
@@ -191,7 +233,9 @@ export async function createOrResumeNormalizationRun(context: {
       sourceSchemaWorksheetId: run.source_schema_worksheet_id,
     });
     // PINNED_RESUME_PLAN_END
-    if (!planResult.ok) return { ok: false, code: planResult.code };
+    if (!planResult.ok) {
+      return failResumedRunAndReturn(organisationId, run.id, newToken, planResult.code);
+    }
 
     return {
       ok: true,
@@ -265,30 +309,57 @@ export async function createOrResumeNormalizationRun(context: {
   const attemptNumber = (attemptAgg._max.attempt_number ?? 0) + 1;
 
   const runId = randomUUID();
-  await prisma.dataHubNormalizationRun.create({
-    data: {
-      id: runId,
-      organisation_id: organisationId,
-      import_batch_id: rawRun.import_batch_id,
-      upload_id: uploadId,
-      raw_staging_run_id: upload.raw_staging_run_id,
-      source_schema_version_id: rawRun.source_schema_version_id,
-      source_schema_worksheet_id: rawRun.source_schema_worksheet_id,
-      worksheet_mapping_profile_id: rawRun.worksheet_mapping_profile_id,
-      worksheet_mapping_profile_version_id: rawRun.worksheet_mapping_profile_version_id,
-      attempt_number: attemptNumber,
-      normalizer_version: NORMALIZER_VERSION,
-      status: "RUNNING",
-      execution_token: newToken,
-      lease_expires_at: new Date(Date.now() + leaseSeconds * 1000),
-      last_progress_at: new Date(),
-      expected_row_count: expectedRowCount,
-      expected_cell_count: expectedCellCount,
-      persisted_row_count: 0,
-      persisted_cell_count: 0,
-      created_by: actorUserId,
-    },
-  });
+  try {
+    await prisma.dataHubNormalizationRun.create({
+      data: {
+        id: runId,
+        organisation_id: organisationId,
+        import_batch_id: rawRun.import_batch_id,
+        upload_id: uploadId,
+        raw_staging_run_id: upload.raw_staging_run_id,
+        source_schema_version_id: rawRun.source_schema_version_id,
+        source_schema_worksheet_id: rawRun.source_schema_worksheet_id,
+        worksheet_mapping_profile_id: rawRun.worksheet_mapping_profile_id,
+        worksheet_mapping_profile_version_id: rawRun.worksheet_mapping_profile_version_id,
+        attempt_number: attemptNumber,
+        normalizer_version: NORMALIZER_VERSION,
+        status: "RUNNING",
+        execution_token: newToken,
+        lease_expires_at: new Date(Date.now() + leaseSeconds * 1000),
+        last_progress_at: new Date(),
+        expected_row_count: expectedRowCount,
+        expected_cell_count: expectedCellCount,
+        persisted_row_count: 0,
+        persisted_cell_count: 0,
+        created_by: actorUserId,
+      },
+    });
+  } catch (err) {
+    // CREATE_RACE_TRANSLATION_BEGIN (mutation-proof harness marker — do not remove or rename; scripts/tests/verify-datahub-normalization-executor.sh's mutation-proof phase replaces exactly this block to prove the race test actually depends on it)
+    // REMEDIATION (review, blocker 2) — a true new-run race: two callers
+    // can both observe no RUNNING row, both validate eligibility/plan, and
+    // both reach this create() call; the DB's own one-RUNNING-per-upload
+    // partial unique index (data_hub_normalization_runs_one_active_per_
+    // upload) permits only one to succeed. Use Prisma's typed known-
+    // request-error mechanism (never string-matching raw driver text) to
+    // detect a unique-constraint conflict (P2002), then INDEPENDENTLY
+    // verify a RUNNING run now exists for this exact organisation+upload
+    // before concluding this was the expected race -- never blindly map
+    // every create() failure to RUN_ALREADY_IN_PROGRESS, since a P2002 on
+    // some OTHER constraint (or any other exception entirely) is a
+    // genuine, distinct persistence problem, not a race outcome.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      const nowRunning = await prisma.dataHubNormalizationRun.findFirst({
+        where: { organisation_id: organisationId, upload_id: uploadId, status: "RUNNING" },
+        select: { id: true },
+      });
+      if (nowRunning) {
+        return { ok: false, code: "RUN_ALREADY_IN_PROGRESS" };
+      }
+    }
+    return { ok: false, code: "PERSISTENCE_FAILURE" };
+    // CREATE_RACE_TRANSLATION_END
+  }
 
   return {
     ok: true,

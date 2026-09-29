@@ -458,3 +458,111 @@ describe("6.2D4B2A -- B2A contracts consumed verbatim (sanity cross-check agains
     expect(CONTRACTS_TS).toMatch(/export const NORMALIZER_VERSION = "v1" as const/);
   });
 });
+
+describe("6.2D4B2A REMEDIATION (blocker 1) -- resume pinned-context failures durably dispose of the run", () => {
+  it("LEASE_LOST and PERSISTENCE_FAILURE are part of the closed failure-code union", () => {
+    const typeIdx = RUN_CODE.indexOf("export type CreateOrResumeNormalizationFailureCode =");
+    const typeEnd = RUN_CODE.indexOf(";", typeIdx);
+    const region = RUN_CODE.slice(typeIdx, typeEnd);
+    expect(region).toContain("LEASE_LOST");
+    expect(region).toContain("PERSISTENCE_FAILURE");
+  });
+
+  it("failResumedRunAndReturn durably fails the run via markNormalizationRunFailed, and reports LEASE_LOST if that transition cannot apply", () => {
+    const fnStart = RUN_CODE.indexOf("async function failResumedRunAndReturn(");
+    const fnEnd = RUN_CODE.indexOf("\n}\n", fnStart);
+    const fnBody = RUN_CODE.slice(fnStart, fnEnd);
+    expect(fnStart).toBeGreaterThan(-1);
+    expect(fnBody).toContain("markNormalizationRunFailed({");
+    expect(fnBody).toMatch(/if \(!failed\) \{\s*return \{ ok: false, code: "LEASE_LOST" \};/);
+    // failureDetail is never passed -- no profile contents, raw values, or
+    // exception text; the closed failure code is the ONLY signal recorded.
+    expect(fnBody).not.toContain("failureDetail");
+  });
+
+  it("all three pinned-context validation failure sites in the resume branch route through failResumedRunAndReturn, never a bare return", () => {
+    const existingBranchStart = RUN_CODE.indexOf("if (existing) {");
+    const newRunSectionIdx = RUN_CODE.indexOf("upload.raw_staged_at === null", existingBranchStart);
+    const existingBranchBody = RUN_CODE.slice(existingBranchStart, newRunSectionIdx);
+    const occurrences = (existingBranchBody.match(/failResumedRunAndReturn\(/g) ?? []).length;
+    expect(occurrences).toBe(3); // normalizer_version, raw run status, plan resolution
+    // No bare `return { ok: false, code: ... }` for any of these three
+    // checks -- every one goes through the durable-disposition helper.
+    expect(existingBranchBody).not.toMatch(/normalizer_version !== NORMALIZER_VERSION\) \{\s*return \{ ok: false/);
+    expect(existingBranchBody).not.toMatch(/RAW_RUN_NOT_SUCCEEDED" \};\s*\}\s*\n\s*\/\/ PINNED_RESUME_PLAN_BEGIN/);
+  });
+
+  it("mutation proof: the TERMINAL_DISPOSITION markers bound exactly the durable-failure logic -- stripping between them (as the live harness mutation does) removes the markNormalizationRunFailed call entirely", () => {
+    const beginIdx = RUN_TS.indexOf("// TERMINAL_DISPOSITION_BEGIN");
+    const endIdx = RUN_TS.indexOf("// TERMINAL_DISPOSITION_END");
+    expect(beginIdx).toBeGreaterThan(-1);
+    expect(endIdx).toBeGreaterThan(beginIdx);
+    const insideBlock = RUN_TS.slice(beginIdx, endIdx);
+    expect(insideBlock).toContain("markNormalizationRunFailed(");
+    const outsideBlock = RUN_TS.slice(0, beginIdx) + RUN_TS.slice(endIdx);
+    // markNormalizationRunFailed's own DEFINITION (further down the file)
+    // still legitimately contains "markNormalizationRunFailed" in its own
+    // `export async function markNormalizationRunFailed(` signature -- so
+    // this asserts the CALL SITE specifically (with parens immediately
+    // after, matching a function invocation) is gone outside the block.
+    expect(outsideBlock).not.toMatch(/[^n]\bmarkNormalizationRunFailed\(\{/);
+  });
+});
+
+describe("6.2D4B2A REMEDIATION (blocker 2) -- new-run create-race is translated, never leaked", () => {
+  it("imports Prisma's typed known-request-error mechanism, never string-matches raw driver text", () => {
+    expect(RUN_CODE).toMatch(/import\s*{\s*Prisma\s*}\s*from\s*["']@prisma\/client["']/);
+    expect(RUN_CODE).toContain("err instanceof Prisma.PrismaClientKnownRequestError");
+    expect(RUN_CODE).toContain('err.code === "P2002"');
+  });
+
+  it("the create() call is wrapped in try/catch, and a P2002 is INDEPENDENTLY verified against current DB state before concluding RUN_ALREADY_IN_PROGRESS", () => {
+    const createIdx = RUN_CODE.indexOf("await prisma.dataHubNormalizationRun.create(");
+    const catchIdx = RUN_CODE.indexOf("} catch (err) {", createIdx);
+    expect(createIdx).toBeGreaterThan(-1);
+    expect(catchIdx).toBeGreaterThan(createIdx);
+    const catchBody = RUN_CODE.slice(catchIdx, RUN_CODE.indexOf("\n  }", catchIdx));
+    expect(catchBody).toMatch(/prisma\.dataHubNormalizationRun\.findFirst\(\{\s*where:\s*\{\s*organisation_id:\s*organisationId,\s*upload_id:\s*uploadId,\s*status:\s*"RUNNING"/);
+    expect(catchBody).toContain('code: "RUN_ALREADY_IN_PROGRESS"');
+  });
+
+  it("never blindly maps every create() failure to RUN_ALREADY_IN_PROGRESS -- a P2002 without a confirmed RUNNING row, or any other exception, falls through to PERSISTENCE_FAILURE", () => {
+    const catchIdx = RUN_CODE.indexOf("} catch (err) {");
+    const catchBody = RUN_CODE.slice(catchIdx, RUN_CODE.indexOf("\n  }", catchIdx));
+    // The RUN_ALREADY_IN_PROGRESS return sits INSIDE the `if (nowRunning)`
+    // branch; the function's own final statement (reached whenever that
+    // branch doesn't return) is the PERSISTENCE_FAILURE fallback.
+    const nowRunningIdx = catchBody.indexOf("if (nowRunning)");
+    const fallbackIdx = catchBody.lastIndexOf('code: "PERSISTENCE_FAILURE"');
+    expect(nowRunningIdx).toBeGreaterThan(-1);
+    expect(fallbackIdx).toBeGreaterThan(nowRunningIdx);
+  });
+
+  it("mutation proof: the CREATE_RACE_TRANSLATION markers bound exactly the P2002-translation logic -- stripping between them (as the live harness mutation does) removes the typed-error check entirely", () => {
+    const beginIdx = RUN_TS.indexOf("// CREATE_RACE_TRANSLATION_BEGIN");
+    const endIdx = RUN_TS.indexOf("// CREATE_RACE_TRANSLATION_END");
+    expect(beginIdx).toBeGreaterThan(-1);
+    expect(endIdx).toBeGreaterThan(beginIdx);
+    const insideBlock = RUN_TS.slice(beginIdx, endIdx);
+    expect(insideBlock).toContain("Prisma.PrismaClientKnownRequestError");
+    expect(insideBlock).toContain('"RUN_ALREADY_IN_PROGRESS"');
+  });
+});
+
+describe("6.2D4B2A REMEDIATION (hardening 3) -- completion race window classifies via a DB re-check, never SQL-error text", () => {
+  it("on a caught completion exception, re-reads the run by exact organisation+run id (never parses/inspects the caught error's own text)", () => {
+    const catchIdx = COMPLETE_CODE.indexOf("} catch {");
+    expect(catchIdx).toBeGreaterThan(-1);
+    const catchBody = COMPLETE_CODE.slice(catchIdx);
+    expect(catchBody).toMatch(/prisma\.dataHubNormalizationRun\.findFirst\(\{\s*where:\s*\{\s*id:\s*runId,\s*organisation_id:\s*organisationId\s*\}/);
+  });
+
+  it("classifies LEASE_LOST when the re-read state no longer proves this caller owns the lease, COMPLETION_REJECTED otherwise -- the DB function remains the sole reconciliation authority (no local count/blocking-finding logic)", () => {
+    const catchIdx = COMPLETE_CODE.indexOf("} catch {");
+    const catchBody = COMPLETE_CODE.slice(catchIdx);
+    expect(catchBody).toMatch(/current\.status !== "RUNNING" \|\| current\.execution_token !== executionToken \|\| current\.lease_expires_at\.getTime\(\) <= Date\.now\(\)/);
+    expect(catchBody).toContain('code: "LEASE_LOST"');
+    expect(catchBody).toContain('code: "COMPLETION_REJECTED"');
+    expect(COMPLETE_CODE).not.toMatch(/actual_row_count|expected_row_count|blocking_finding_count/);
+  });
+});

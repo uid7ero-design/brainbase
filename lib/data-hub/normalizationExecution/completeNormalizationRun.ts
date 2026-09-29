@@ -38,11 +38,24 @@ export async function completeNormalizationRun(context: { organisationId: string
     `) as unknown as { row_count: number; cell_count: number }[];
     return { ok: true, rowCount: rows[0].row_count, cellCount: rows[0].cell_count };
   } catch {
-    // Never leak the raw DB error text -- the TS-level pre-check above
-    // already screened out ordinary lease loss, so an exception reaching
-    // here is either a genuine data-shape/count-mismatch problem or a
-    // last-instant lease loss between the pre-check and this call; either
-    // way, COMPLETION_REJECTED is the safe, stable, non-leaking code.
+    // REMEDIATION (review, hardening 3) — there is a race window between
+    // the TS-level pre-check above and this SQL call: the lease can be
+    // lost (taken over by another worker) in between. Never classify by
+    // parsing/exposing the raw SQL exception text -- instead, re-read the
+    // run's CURRENT durable state by exact organisation+run id and use
+    // that (not the caught exception) to decide the classification. If
+    // this caller no longer demonstrably owns a live RUNNING lease under
+    // this exact token, the true reason is LEASE_LOST, not a reconciliation
+    // failure; the DB function itself remains the sole authority for
+    // reconciliation -- this re-check is classification only, never a
+    // second source of truth for whether completion actually happened.
+    const current = await prisma.dataHubNormalizationRun.findFirst({
+      where: { id: runId, organisation_id: organisationId },
+      select: { status: true, execution_token: true, lease_expires_at: true },
+    });
+    if (!current || current.status !== "RUNNING" || current.execution_token !== executionToken || current.lease_expires_at.getTime() <= Date.now()) {
+      return { ok: false, code: "LEASE_LOST" };
+    }
     return { ok: false, code: "COMPLETION_REJECTED" };
   }
 }
