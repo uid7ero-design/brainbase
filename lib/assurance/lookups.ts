@@ -1,0 +1,112 @@
+import 'server-only';
+import sql from '@/lib/db';
+import { AssuranceValidationError } from './errors';
+
+// BrainBase Assurance — shared BrainBase reference data (risk levels,
+// locations, assets, external organisations, People). Assurance never
+// duplicates these entities; it only reads them, tenant scoped.
+//
+// PII minimisation: People options expose display name + job title only.
+// No email, phone, employment or HR fields are selected anywhere in
+// Assurance.
+
+export type RiskLevelOption = { id: string; code: string; name: string; rank: number; requires_verification: boolean };
+export type NamedOption = { id: string; name: string; reference: string | null };
+export type PersonOption = { id: string; display_name: string; job_title: string | null };
+
+export async function listRiskLevels(organisationId: string): Promise<RiskLevelOption[]> {
+  return (await sql`
+    SELECT id, code, name, rank, requires_verification
+    FROM assurance_risk_levels
+    WHERE organisation_id = ${organisationId} AND is_active = true
+    ORDER BY rank DESC
+  `) as RiskLevelOption[];
+}
+
+export async function listLocationOptions(organisationId: string): Promise<NamedOption[]> {
+  return (await sql`
+    SELECT id, name, location_reference AS reference
+    FROM locations
+    WHERE organisation_id = ${organisationId} AND status = 'ACTIVE'
+    ORDER BY name ASC
+    LIMIT 500
+  `) as NamedOption[];
+}
+
+export async function listAssetOptions(organisationId: string): Promise<NamedOption[]> {
+  return (await sql`
+    SELECT id, name, asset_reference AS reference
+    FROM assets
+    WHERE organisation_id = ${organisationId} AND status = 'ACTIVE'
+    ORDER BY name ASC
+    LIMIT 500
+  `) as NamedOption[];
+}
+
+export async function listExternalOrganisationOptions(organisationId: string): Promise<NamedOption[]> {
+  return (await sql`
+    SELECT id, name, reference
+    FROM external_organisations
+    WHERE organisation_id = ${organisationId} AND status = 'ACTIVE'
+    ORDER BY name ASC
+    LIMIT 500
+  `) as NamedOption[];
+}
+
+export async function listPersonOptions(organisationId: string): Promise<PersonOption[]> {
+  return (await sql`
+    SELECT id,
+           COALESCE(NULLIF(btrim(preferred_name), ''), first_name) || ' ' || last_name AS display_name,
+           job_title
+    FROM hr_people
+    WHERE organisation_id = ${organisationId}
+    ORDER BY last_name ASC, first_name ASC
+    LIMIT 1000
+  `) as PersonOption[];
+}
+
+export type ContextRefs = {
+  riskLevelId?: string | null;
+  locationId?: string | null;
+  assetId?: string | null;
+  externalOrganisationId?: string | null;
+  personIds?: string[];
+};
+
+/**
+ * Confirms every supplied shared-entity id belongs to the organisation.
+ * The composite (organisation_id, id) FKs already make a cross-tenant link
+ * impossible at the DB level; this pre-check turns that into a clear 400
+ * instead of an opaque FK failure, and never reveals whether the id
+ * exists in another tenant.
+ */
+export async function assertContextRefsInOrg(organisationId: string, refs: ContextRefs): Promise<void> {
+  const checks: Array<{ field: string; ok: Promise<boolean> }> = [];
+  const one = (field: string, q: Promise<unknown[]>) =>
+    checks.push({ field, ok: q.then(r => r.length === 1) });
+
+  if (refs.riskLevelId) {
+    one('Risk level', sql`SELECT 1 FROM assurance_risk_levels WHERE organisation_id = ${organisationId} AND id = ${refs.riskLevelId} AND is_active = true` as Promise<unknown[]>);
+  }
+  if (refs.locationId) {
+    one('Location', sql`SELECT 1 FROM locations WHERE organisation_id = ${organisationId} AND id = ${refs.locationId}` as Promise<unknown[]>);
+  }
+  if (refs.assetId) {
+    one('Asset', sql`SELECT 1 FROM assets WHERE organisation_id = ${organisationId} AND id = ${refs.assetId}` as Promise<unknown[]>);
+  }
+  if (refs.externalOrganisationId) {
+    one('External organisation', sql`SELECT 1 FROM external_organisations WHERE organisation_id = ${organisationId} AND id = ${refs.externalOrganisationId}` as Promise<unknown[]>);
+  }
+  if (refs.personIds && refs.personIds.length > 0) {
+    const ids = refs.personIds;
+    checks.push({
+      field: 'Person',
+      ok: (sql`SELECT id FROM hr_people WHERE organisation_id = ${organisationId} AND id = ANY(${ids}::uuid[])` as Promise<unknown[]>)
+        .then(r => r.length === ids.length),
+    });
+  }
+
+  const results = await Promise.all(checks.map(c => c.ok));
+  const failed = checks.find((_, i) => !results[i]);
+  if (failed) throw new AssuranceValidationError(`${failed.field} was not found in your organisation.`);
+}
