@@ -197,9 +197,22 @@ describe('service layer', () => {
 })
 
 describe('navigation', () => {
-  it('TopNav shows Assurance only when the organisation has the assurance capability', () => {
-    const src = stripComments(read('components/nav/TopNav.tsx'))
-    expect(src).toMatch(/const hasAssurance =\s*enabledCapabilities\.includes\(\s*'assurance',?\s*\)/)
-    expect((src.match(/\{hasAssurance && \(\s*<NavItem\s*href="\/assurance"\s*label="Assurance"\s*capability="assurance"/g) ?? []).length).toBe(2)
+  // Consolidated navigation (main PR #297): Assurance is ONE generic Work
+  // descriptor in components/nav/navModel.ts. TopNav renders the model and
+  // holds no Assurance-specific logic; the old flat insertion is gone.
+  it('Assurance is registered once, in the nav model, gated on the assurance capability', () => {
+    const model = stripComments(read('components/nav/navModel.ts'))
+    expect(model.match(/id: 'assurance'/g) ?? []).toHaveLength(1)
+    expect(model).toMatch(/id: 'assurance', label: 'Assurance', href: '\/assurance', match: \['\/assurance'\],[\s\S]{0,200}gate: \{ anyCapability: \['assurance'\], minRole: 'viewer' \}/)
+    expect(model).not.toMatch(/verity/i)
+  })
+  it('TopNav has no Assurance-specific code (no flat pill, no capability check, no shim)', () => {
+    const src = read('components/nav/TopNav.tsx')
+    expect(src).not.toMatch(/assurance|verity/i)
+    expect(src).not.toMatch(/hasAssurance/)
+  })
+  it('no second Assurance route or capability exists', () => {
+    expect(walk('app').some(f => /(^|\/)verity(\/|$)/i.test(f))).toBe(false)
+    expect(read('lib/assurance/authorize.ts')).toMatch(/ASSURANCE_CAPABILITY = 'assurance'/)
   })
 })

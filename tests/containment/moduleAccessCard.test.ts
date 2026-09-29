@@ -95,7 +95,8 @@ describe('ModuleAccessCard — client dashboard "Your Tools" entry', () => {
     // (card: true entries); a future module is one descriptor there.
     expect(navModelSource).toMatch(/export const WORK_ITEMS: readonly NavEntry\[\] = \[/)
     const cardIds = WORK_ITEMS.filter((e): e is NavLink => e.kind === 'link' && e.card === true).map(e => e.id)
-    expect(cardIds).toEqual(['events', 'crm', 'commercial', 'organiser', 'people'])
+    // Assurance was added exactly this way: one WORK_ITEMS descriptor, no card code change.
+    expect(cardIds).toEqual(['events', 'crm', 'commercial', 'organiser', 'people', 'assurance'])
     expect(cardSource).not.toMatch(/const MODULE_ENTRIES/)
   })
 

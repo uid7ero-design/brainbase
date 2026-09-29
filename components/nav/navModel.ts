@@ -10,12 +10,8 @@
 // matching app/organiser/layout.tsx) so the chrome never offers a link the
 // route will reject.
 //
-// Adding a module is one descriptor in WORK_ITEMS — e.g. a future
-//   { kind: 'link', id: 'assurance', label: 'Assurance', href: '/assurance',
-//     match: ['/assurance'], icon: 'assurance', card: true,
-//     gate: { anyCapability: ['assurance'] } }
-// needs no rendering change. (Assurance is intentionally NOT listed here:
-// neither its route nor its capability exists on main yet.)
+// Adding a module is one descriptor in WORK_ITEMS and needs no rendering
+// change — Assurance (below) was added exactly that way.
 
 export type DashboardVariant = 'ld-tennis' | 'brainbase-hq' | null;
 
@@ -130,6 +126,13 @@ export const WORK_ITEMS: readonly NavEntry[] = [
     icon: 'people', card: true, description: 'People, teams and HR records',
     // lib/hr/capability.ts: super_admin bypasses the People capability.
     gate: { anyCapability: ['people'], capabilityBypassRoles: ['super_admin'] },
+  },
+  {
+    kind: 'link', id: 'assurance', label: 'Assurance', href: '/assurance', match: ['/assurance'],
+    icon: 'assurance', card: true, description: 'Incidents, inspections, audits and corrective actions',
+    // lib/assurance/authorize.ts: the 'assurance' capability AND viewer+
+    // (roles outside the order, e.g. analyst, are refused); no role bypass.
+    gate: { anyCapability: ['assurance'], minRole: 'viewer' },
   },
   {
     kind: 'link', id: 'data-hub', label: 'Data Hub', href: '/data-hub/import', match: ['/data-hub'],

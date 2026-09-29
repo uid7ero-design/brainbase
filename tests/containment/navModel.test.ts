@@ -6,6 +6,7 @@ import {
   NAV_ROLE_ORDER,
   WORK_ITEMS,
   activeNavId,
+  containsActive,
   flattenNavLinks,
   isGateOpen,
   navRoleAtLeast,
@@ -187,7 +188,9 @@ describe('capability matrix', () => {
   });
 
   it('dormant / unrelated keys never create entries', () => {
-    expect(summary(ctx('viewer', ['sales', 'expenses', 'budgeting', 'finance_intelligence', 'debtors', 'waste_recycling', 'assurance'])).work).toEqual([]);
+    expect(summary(ctx('viewer', ['sales', 'expenses', 'budgeting', 'finance_intelligence', 'debtors', 'waste_recycling', 'verity'])).work).toEqual([]);
+    // 'assurance' is now a real module key: it creates exactly its own entry.
+    expect(summary(ctx('viewer', ['assurance'])).work).toEqual(['assurance']);
   });
 
   it('Organiser needs BOTH the capability and manager+', () => {
@@ -256,6 +259,8 @@ describe('routes are unchanged — only their placement moved', () => {
   it('never links the out-of-scope routes', () => {
     const nav = resolveNav(ctx('super_admin', ALL_CAPS, 'ld-tennis'));
     const hrefs = flattenNavLinks(nav).map(l => l.href);
+    // '/assurance' is now a canonical, capability-gated module route (see the
+    // Assurance block below); it is absent here only because ALL_CAPS lacks it.
     for (const banned of ['/portal', '/profile', '/app', '/dashboard/service-requests', '/data-hub/sources', '/assurance', '/verity']) {
       expect(hrefs, banned).not.toContain(banned);
     }
@@ -327,19 +332,75 @@ describe('role ordering mirrors the server contract', () => {
   });
 });
 
-describe('Assurance extension point (not live on main)', () => {
-  it('Assurance is not a live entry yet', () => {
-    const all = WORK_ITEMS.flatMap(e => (e.kind === 'group' ? e.children : [e]));
-    expect(all.some(l => l.href === '/assurance' || l.id === 'assurance')).toBe(false);
+describe('Assurance — one generic Work descriptor', () => {
+  const allLinks = () => [...WORK_ITEMS, ...BRAINBASE_ITEMS].flatMap(e => (e.kind === 'group' ? e.children : [e]));
+
+  it('exactly one descriptor, of the approved shape, under Work', () => {
+    const hits = allLinks().filter(l => l.id === 'assurance' || l.href.startsWith('/assurance') || l.label === 'Assurance');
+    expect(hits).toHaveLength(1);
+    const a = WORK_ITEMS.find(e => e.id === 'assurance') as NavLink;
+    expect(a).toEqual({
+      kind: 'link', id: 'assurance', label: 'Assurance', href: '/assurance', match: ['/assurance'],
+      icon: 'assurance', card: true, description: 'Incidents, inspections, audits and corrective actions',
+      gate: { anyCapability: ['assurance'], minRole: 'viewer' },
+    } satisfies NavLink);
+    expect(fs.existsSync(path.join(process.cwd(), 'app/assurance/page.tsx'))).toBe(true);
   });
 
-  it('a capability-gated descriptor of the approved shape plugs in with no rendering change', () => {
-    const assurance: NavLink = {
-      kind: 'link', id: 'assurance', label: 'Assurance', href: '/assurance', match: ['/assurance'],
-      icon: 'assurance', card: true, gate: { anyCapability: ['assurance'] },
-    };
-    expect(isGateOpen(assurance.gate, ctx('viewer', ['assurance']))).toBe(true);
-    expect(isGateOpen(assurance.gate, ctx('viewer', []))).toBe(false);
-    expect(isGateOpen(assurance.gate, ctx('super_admin', []))).toBe(false); // no bypass unless declared
+  it('no second route or capability (/verity, verity) exists anywhere in the model', () => {
+    const all = allLinks();
+    expect(all.some(l => l.href.includes('verity') || l.id.includes('verity'))).toBe(false);
+    expect(all.flatMap(l => l.gate?.anyCapability ?? []).filter(k => /assurance|verity/.test(k))).toEqual(['assurance']);
+  });
+
+  it('visible only with the capability, for every in-order role and variant; no bypass; analyst fails closed', () => {
+    for (const v of [null, 'ld-tennis', 'brainbase-hq'] as const) {
+      for (const role of ['viewer', 'manager', 'admin', 'super_admin']) {
+        expect(summary(ctx(role, [...ALL_CAPS, 'assurance'], v)).work, `${role}/${v} entitled`).toContain('assurance');
+        expect(summary(ctx(role, ALL_CAPS, v)).work, `${role}/${v} not entitled`).not.toContain('assurance');
+      }
+      expect(summary(ctx('analyst', ['assurance'], v)).work, `analyst/${v}`).not.toContain('assurance');
+    }
+    expect(isGateOpen(WORK_ITEMS.find(e => e.id === 'assurance')!.gate, ctx('super_admin', []))).toBe(false);
+  });
+
+  it('generic client, HQ and LD Tennis all get it from the same Work list (no variant branch)', () => {
+    const a = WORK_ITEMS.find(e => e.id === 'assurance')!;
+    expect(a.gate?.variant).toBeUndefined();
+    expect(a.gate?.hideForVariant).toBeUndefined();
+    expect(summary(ctx('viewer', ['assurance'])).work).toEqual(['assurance']);
+    expect(summary(ctx('super_admin', ['assurance'], 'brainbase-hq')).work).toContain('assurance');
+    expect(summary(ctx('manager', ['assurance'], 'ld-tennis')).work).toEqual(['assurance', 'data-hub', TENNIS]);
+    expect(summary(ctx('manager', [], 'ld-tennis')).work).toEqual(['data-hub', TENNIS]);
+  });
+
+  it('is a "Your tools" card only when entitled', () => {
+    expect(workModuleCards(ctx('viewer', ['assurance'])).map(l => l.id)).toEqual(['assurance']);
+    expect(workModuleCards(ctx('viewer', ALL_CAPS)).map(l => l.id)).not.toContain('assurance');
+    expect(workModuleCards(ctx('admin', [...ALL_CAPS, 'assurance'], 'ld-tennis')).map(l => l.id)).toEqual([
+      'events', 'crm', 'commercial', 'organiser', 'people', 'assurance',
+    ]);
+  });
+
+  it('owns every Assurance route (Work is active), including Help', () => {
+    const nav = resolveNav(ctx('super_admin', [...ALL_CAPS, 'assurance'], 'brainbase-hq'));
+    for (const p of [
+      '/assurance', '/assurance/incidents', '/assurance/incidents/new', '/assurance/incidents/0b0c',
+      '/assurance/investigations', '/assurance/inspections', '/assurance/inspections/templates/x',
+      '/assurance/audits', '/assurance/findings', '/assurance/actions', '/assurance/evidence',
+      '/assurance/verification', '/assurance/help', '/assurance/help/user-guide', '/assurance/help/perform-verification',
+    ]) {
+      expect(activeNavId(nav, p), p).toBe('assurance');
+      expect(containsActive(nav.work, activeNavId(nav, p)), p).toBe(true);
+    }
+    expect(activeNavId(nav, '/assurancex')).toBeNull();
+    expect(activeNavId(nav, '/verity')).toBeNull();
+    // Not entitled: the route is simply not claimed by the chrome.
+    expect(activeNavId(resolveNav(ctx('viewer', ALL_CAPS)), '/assurance')).toBeNull();
+  });
+
+  it('TopNav holds no Assurance-specific code — it only renders the model', () => {
+    const src = fs.readFileSync(path.join(process.cwd(), 'components/nav/TopNav.tsx'), 'utf8');
+    expect(src).not.toMatch(/assurance|verity/i);
   });
 });
