@@ -8,6 +8,8 @@ import {
   buttonProps,
   fieldControlClassName,
 } from '@/components/ui/app';
+import { AVATAR_ACCEPT_ATTR, MAX_AVATAR_MB } from '@/lib/account/avatarConstants';
+import { ABOUT_ME_MAX_LENGTH } from '@/lib/account/profileValidation';
 
 const FONT = "var(--font-inter), -apple-system, sans-serif";
 
@@ -45,6 +47,36 @@ function Field({ label, name, value, onChange, type = 'text', placeholder = '', 
       {control => multiline
         ? <textarea {...control} rows={3} name={name} value={value} placeholder={placeholder} onChange={e => onChange(name, e.target.value)} className={fieldControlClassName} style={{ resize: 'vertical' }} />
         : <input {...control} type={type} name={name} value={value} placeholder={placeholder} onChange={e => onChange(name, e.target.value)} className={fieldControlClassName} />}
+    </AppField>
+  );
+}
+
+// About me — a dedicated field (not the generic `Field` helper above)
+// because it needs a maxLength cap and a live character count, matching
+// this phase's own explicit UI requirement to communicate the server-
+// enforced limit rather than let a save fail as the only signal.
+function AboutMeField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const remaining = ABOUT_ME_MAX_LENGTH - value.length;
+  return (
+    <AppField label="About me">
+      {control => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <textarea
+            {...control}
+            rows={3}
+            name="bio"
+            value={value}
+            placeholder="Brief description about yourself"
+            maxLength={ABOUT_ME_MAX_LENGTH}
+            onChange={e => onChange(e.target.value)}
+            className={fieldControlClassName}
+            style={{ resize: 'vertical' }}
+          />
+          <span style={{ fontSize: 11, color: remaining < 0 ? 'var(--status-danger)' : 'var(--text-muted)', alignSelf: 'flex-end' }}>
+            {value.length} / {ABOUT_ME_MAX_LENGTH}
+          </span>
+        </div>
+      )}
     </AppField>
   );
 }
@@ -93,7 +125,16 @@ export default function ProfileClient({ initialUser, org, modules, role }: Props
   async function save() {
     setSaving(true); setError('');
     try {
-      const res  = await fetch('/api/account/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+      // avatar_url is intentionally excluded — it is never editable
+      // through this generic save; it is written only by uploadAvatar()
+      // via the dedicated, validated /api/account/avatar endpoint, and
+      // is already persisted by the time this form is submitted.
+      const {
+        first_name, last_name, display_name, bio,
+        job_title, department, phone, timezone,
+      } = form;
+      const profileFields = { first_name, last_name, display_name, bio, job_title, department, phone, timezone };
+      const res  = await fetch('/api/account/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(profileFields) });
       const data = await res.json() as { success?: boolean; error?: string };
       if (!res.ok || !data.success) { setError(data.error ?? 'Failed to save'); return; }
       setSaved(true);
@@ -124,7 +165,7 @@ export default function ProfileClient({ initialUser, org, modules, role }: Props
   // ── Avatar circle (shared between view + edit) ──────────────────────────────
   const AvatarCircle = ({ size = 80 }: { size?: number }) => (
     <div style={{ position: 'relative', flexShrink: 0 }}>
-      <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" style={{ display: 'none' }} tabIndex={-1} aria-hidden="true"
+      <input ref={fileInputRef} type="file" accept={AVATAR_ACCEPT_ATTR} style={{ display: 'none' }} tabIndex={-1} aria-hidden="true"
         onChange={e => { const f = e.target.files?.[0]; if (f) uploadAvatar(f); e.target.value = ''; }} />
       <button type="button" className="pf-avatar" onClick={() => fileInputRef.current?.click()} title="Change photo" aria-label="Change profile photo"
         style={{
@@ -190,6 +231,9 @@ export default function ProfileClient({ initialUser, org, modules, role }: Props
               <div style={{ minWidth: 0 }}>
                 <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', margin: 0, overflowWrap: 'anywhere' }}>{displayName}</h1>
                 <div style={{ marginTop: 6 }}><RolePill role={role} /></div>
+                <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--text-muted)' }}>
+                  JPEG, PNG or WebP — max {MAX_AVATAR_MB}MB
+                </p>
                 {avatarError && <div style={{ marginTop: 6 }}><FormError>{avatarError}</FormError></div>}
               </div>
             </div>
@@ -203,7 +247,7 @@ export default function ProfileClient({ initialUser, org, modules, role }: Props
                       <Field label="Last Name"  name="last_name"  value={form.last_name}  onChange={update} placeholder="Smith" />
                     </div>
                     <Field label="Display Name" name="display_name" value={form.display_name} onChange={update} placeholder="Jane Smith" />
-                    <Field label="Bio" name="bio" value={form.bio} onChange={update} placeholder="Brief description about yourself" multiline />
+                    <AboutMeField value={form.bio} onChange={v => update('bio', v)} />
                   </div>
                 </Panel>
 

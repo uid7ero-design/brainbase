@@ -162,6 +162,28 @@ model User {
   password          String?
   password_hash     String?
   email_verified    Boolean           @default(true)
+  // Account profile fields — app/api/admin/migrate/route.ts step 16
+  // ("16. User profile fields") already defines these as additive
+  // `ALTER TABLE users ADD COLUMN IF NOT EXISTS` and multiple routes
+  // (app/api/account/profile, app/api/me, app/layout.tsx) already read/
+  // write them directly via raw SQL — this model previously did not
+  // declare them at all, silently diverging from that already-shipped
+  // step. `name` above remains the original, always-present identity
+  // column and is never replaced by these; these are optional richer
+  // profile fields layered on top — see app/api/account/profile/route.ts's
+  // own effective-display-name precedence (display_name, else
+  // first_name+last_name, else `name`).
+  first_name        String?
+  last_name         String?
+  display_name      String?
+  avatar_url        String?
+  bio               String?
+  job_title         String?
+  department        String?
+  phone             String?
+  timezone          String?           @default("Australia/Adelaide")
+  preferences       Json              @default("{}")
+  last_seen_at      DateTime?
   audit_logs        AuditLog[]
   briefings         Briefing[]
   dashboard_configs DashboardConfig[]
