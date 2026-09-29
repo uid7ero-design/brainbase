@@ -227,8 +227,8 @@ describe('wiring', () => {
   })
   it('rendered procedures keep their list markers (the app reset removes them)', () => {
     const css = read('app/assurance/_components/assurance.module.css')
-    expect(css).toMatch(/.helpDoc ol {s*list-style: decimal;/)
-    expect(css).toMatch(/.helpDoc ul {s*list-style: disc;/)
+    expect(css).toMatch(/\.helpDoc ol \{\s*list-style: decimal;/)
+    expect(css).toMatch(/\.helpDoc ul \{\s*list-style: disc;/)
   })
   it('file tracing ships exactly docs/assurance Markdown, scoped to the two Help routes', () => {
     const src = read('next.config.ts') // not comment-stripped: the glob contains '/**/'
