@@ -1,7 +1,8 @@
 'use client';
 import { usePathname } from 'next/navigation';
 import { APP_HEADER_OFFSET_VAR, APP_HEADER_OFFSET_VH_CALC } from '@/lib/layout/headerOffset';
-import { ModuleNavItem, ModuleSidebar } from '@/components/ui/app';
+import Link from 'next/link';
+import { ModuleNavItem, ModuleSidebar, moduleNavFooterItemClassName } from '@/components/ui/app';
 
 // The shared BrainBase module sidebar, exactly as CommercialSidebar uses
 // it (sticky under the app header; a horizontal strip below 768px).
@@ -26,6 +27,14 @@ export default function AssuranceSidebar() {
       title="Assurance"
       label="Assurance"
       style={{ position: 'sticky', top: APP_HEADER_OFFSET_VAR, height: APP_HEADER_OFFSET_VH_CALC }}
+      footer={
+        // In-app Help (guides and work instructions). Outside the nine-section
+        // navigation on purpose: it is a reference, not a workflow section.
+        <Link href="/assurance/help" className={moduleNavFooterItemClassName}
+          aria-current={pathname.startsWith('/assurance/help') ? 'page' : undefined}>
+          Help &amp; work instructions
+        </Link>
+      }
     >
       {NAV_ITEMS.map(item => {
         const active = item.exact ? pathname === item.href : pathname.startsWith(item.href);

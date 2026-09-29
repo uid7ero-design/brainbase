@@ -50,7 +50,7 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
   return (
     <div style={{ maxWidth: 1100 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/findings', label: 'Findings' }, { label: f.finding_reference }]} />
-      <PageHeader
+      <PageHeader help="finding"
         eyebrow={<span className={styles.eyebrowRow}>
           <span className={styles.refEyebrow}>{f.finding_reference}</span>
           <Badge value={f.status} />

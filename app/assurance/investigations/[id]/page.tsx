@@ -36,7 +36,7 @@ export default async function InvestigationDetailPage({ params }: { params: Prom
   return (
     <div style={{ maxWidth: 1100 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/investigations', label: 'Investigations' }, { label: inv.investigation_reference }]} />
-      <PageHeader
+      <PageHeader help="investigation"
         eyebrow={<span className={styles.eyebrowRow}>
           <span className={styles.refEyebrow}>{inv.investigation_reference}</span>
           <Badge value={inv.status} />

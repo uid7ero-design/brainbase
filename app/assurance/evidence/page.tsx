@@ -26,7 +26,7 @@ export default async function EvidencePage({ searchParams }: { searchParams: SP 
 
   return (
     <div style={{ maxWidth: 1240 }}>
-      <PageHeader
+      <PageHeader help="evidence"
         title="Evidence"
         subtitle="Proof, recorded once and reused. Links to incidents, findings, actions and verifications are kept as history — removing a link never deletes the evidence."
         actions={viewerCan(viewer, 'record') ? (

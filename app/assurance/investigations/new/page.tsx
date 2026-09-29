@@ -31,7 +31,7 @@ export default async function NewInvestigationPage({ searchParams }: { searchPar
   return (
     <div style={{ maxWidth: 760 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/investigations', label: 'Investigations' }, { label: 'Start' }]} />
-      <PageHeader title="Start an investigation" subtitle="Link the incident(s) it covers. Completing the investigation later records its conclusion only — incidents and findings are closed separately." />
+      <PageHeader help="investigation-new" title="Start an investigation" subtitle="Link the incident(s) it covers. Completing the investigation later records its conclusion only — incidents and findings are closed separately." />
       <Card>
         <AssuranceForm
           endpoint="/api/assurance/investigations"

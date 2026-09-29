@@ -16,7 +16,7 @@ export default async function AuditTemplatesPage() {
   return (
     <div style={{ maxWidth: 1100 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/audits', label: 'Audits' }, { label: 'Templates' }]} />
-      <PageHeader
+      <PageHeader help="audit-templates"
         title="Audit templates"
         subtitle="A template is a stable identity; its criteria live in numbered versions. Editing always publishes a new version — audits keep the version they used."
       />

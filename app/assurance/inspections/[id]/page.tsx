@@ -38,7 +38,7 @@ export default async function InspectionDetailPage({ params }: { params: Promise
   return (
     <div style={{ maxWidth: 1100 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/inspections', label: 'Inspections' }, { label: ins.inspection_reference }]} />
-      <PageHeader
+      <PageHeader help="inspection"
         eyebrow={<span className={styles.eyebrowRow}>
           <span className={styles.refEyebrow}>{ins.inspection_reference}</span>
           <Badge value={ins.status} />

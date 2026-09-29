@@ -33,7 +33,7 @@ export default async function ActionsPage({ searchParams }: { searchParams: SP }
 
   return (
     <div style={{ maxWidth: 1240 }}>
-      <PageHeader
+      <PageHeader help="actions"
         title="Corrective actions"
         subtitle="Controlled responses to findings. Work completion, evidence, independent verification and closure are each explicit steps."
       />

@@ -25,7 +25,7 @@ export default async function FindingsPage({ searchParams }: { searchParams: SP 
 
   return (
     <div style={{ maxWidth: 1240 }}>
-      <PageHeader
+      <PageHeader help="findings"
         title="Findings"
         subtitle="Identified issues — hazards, defects, non-conformances, service failures and improvement opportunities — from incidents, investigations, inspections and audits."
       />

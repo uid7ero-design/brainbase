@@ -22,7 +22,7 @@ export default async function TemplateDetailPage({ params }: { params: Promise<{
   return (
     <div style={{ maxWidth: 1000 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/inspections', label: 'Inspections' }, { href: '/assurance/inspections/templates', label: 'Templates' }, { label: t.template_reference }]} />
-      <PageHeader
+      <PageHeader help="inspection-templates"
         eyebrow={<span className={styles.eyebrowRow}>
           <span className={styles.refEyebrow}>{t.template_reference}</span>
           <Badge value={t.is_active ? 'ACTIVE' : 'INACTIVE'} tone={t.is_active ? 'success' : 'neutral'} label={t.is_active ? 'Active' : 'Inactive'} />

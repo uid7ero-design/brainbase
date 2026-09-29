@@ -25,7 +25,7 @@ export default async function NewIncidentPage() {
   return (
     <div style={{ maxWidth: 760 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/incidents', label: 'Incidents' }, { label: 'Report' }]} />
-      <PageHeader title="Report an incident" subtitle="Capture what happened. Triage, investigation and corrective action follow as separate, explicit steps." />
+      <PageHeader help="incident-new" title="Report an incident" subtitle="Capture what happened. Triage, investigation and corrective action follow as separate, explicit steps." />
       <Card>
         <AssuranceForm
           endpoint="/api/assurance/incidents"

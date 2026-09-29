@@ -14,7 +14,7 @@ export default async function VerificationPage() {
 
   return (
     <div style={{ maxWidth: 1200 }}>
-      <PageHeader
+      <PageHeader help="verification"
         title="Verification"
         subtitle="Independent confirmation that corrective work genuinely resolved the issue. Verifying never closes an action — closure is a separate, explicit step."
       />

@@ -42,7 +42,7 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ id
   return (
     <div style={{ maxWidth: 1100 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/audits', label: 'Audits' }, { label: au.audit_reference }]} />
-      <PageHeader
+      <PageHeader help="audit"
         eyebrow={<span className={styles.eyebrowRow}>
           <span className={styles.refEyebrow}>{au.audit_reference}</span>
           <Badge value={au.status} />

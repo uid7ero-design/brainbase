@@ -34,7 +34,7 @@ export default async function InspectionsPage({ searchParams }: { searchParams: 
 
   return (
     <div style={{ maxWidth: 1240 }}>
-      <PageHeader
+      <PageHeader help="inspections"
         title="Inspections"
         subtitle="Structured operational checks — planned from a template, or ad hoc in the field."
         actions={<>

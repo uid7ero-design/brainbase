@@ -26,7 +26,7 @@ export default async function InvestigationsPage({ searchParams }: { searchParam
 
   return (
     <div style={{ maxWidth: 1240 }}>
-      <PageHeader
+      <PageHeader help="investigations"
         title="Investigations"
         subtitle="The formal process used to understand what happened. One investigation can cover several incidents, and an incident can be part of several investigations."
         actions={viewerCan(viewer, 'record') ? <LinkButton href="/assurance/investigations/new">Start investigation</LinkButton> : undefined}

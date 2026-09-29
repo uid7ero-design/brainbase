@@ -46,7 +46,7 @@ export default async function AssuranceDashboardPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader
+      <PageHeader help="dashboard"
         title="Assurance"
         subtitle="What needs attention across incidents, investigations, inspections, audits and corrective work."
         actions={canRecord ? (

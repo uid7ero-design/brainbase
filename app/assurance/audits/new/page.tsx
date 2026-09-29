@@ -32,7 +32,7 @@ export default async function NewAuditPage() {
   return (
     <div style={{ maxWidth: 760 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/audits', label: 'Audits' }, { label: 'Plan' }]} />
-      <PageHeader title="Plan an audit" subtitle="Choose a template to bind this audit to its current criteria version, or run an ad hoc audit against a named standard." />
+      <PageHeader help="audit-new" title="Plan an audit" subtitle="Choose a template to bind this audit to its current criteria version, or run an ad hoc audit against a named standard." />
       <Card>
         <AssuranceForm
           endpoint="/api/assurance/audits"

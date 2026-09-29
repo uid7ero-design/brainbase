@@ -24,6 +24,8 @@ import {
   type SemanticState,
 } from '@/components/ui/app';
 import { assuranceLabel, assuranceTone, formatAssuranceDate, formatAssuranceDateTime, type AssuranceTone } from '@/lib/assurance/domain';
+import { HELP_TOPICS, type HelpTopic } from '@/lib/assurance/help/topics';
+import { helpHref } from '@/lib/assurance/help/registry';
 import styles from './assurance.module.css';
 
 export { styles as assuranceStyles, tableStyles };
@@ -69,9 +71,23 @@ export function Breadcrumbs({ items }: { items: { href?: string; label: string }
   );
 }
 
-/** The shared BrainBase page header; `subtitle` maps to its description line. */
-export function PageHeader({ title, subtitle, actions, eyebrow, meta }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; eyebrow?: ReactNode; meta?: ReactNode }) {
-  return <AppPageHeader title={title} description={subtitle} actions={actions} eyebrow={eyebrow} meta={meta} />;
+/**
+ * The shared BrainBase page header; `subtitle` maps to its description line.
+ * `help` adds a contextual link to the most relevant in-app Help page.
+ */
+export function PageHeader({ title, subtitle, actions, eyebrow, meta, help }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; eyebrow?: ReactNode; meta?: ReactNode; help?: HelpTopic }) {
+  const all = help ? <>{actions}<HelpLink topic={help} /></> : actions;
+  return <AppPageHeader title={title} description={subtitle} actions={all} eyebrow={eyebrow} meta={meta} />;
+}
+
+/** Contextual Help link (allow-listed target from lib/assurance/help/topics.ts). */
+export function HelpLink({ topic }: { topic: HelpTopic }) {
+  const t = HELP_TOPICS[topic];
+  return (
+    <Link href={helpHref(t.slug, t.anchor)} {...buttonProps('ghost', 'sm')} aria-label={`Help: ${t.label}`} title={`Help: ${t.label}`}>
+      <span aria-hidden="true">?</span> Help
+    </Link>
+  );
 }
 
 /** A shared BrainBase surface. `padded={false}` for edge-to-edge lists. */

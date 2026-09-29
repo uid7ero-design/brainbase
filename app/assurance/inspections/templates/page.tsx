@@ -16,7 +16,7 @@ export default async function InspectionTemplatesPage() {
   return (
     <div style={{ maxWidth: 1100 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/inspections', label: 'Inspections' }, { label: 'Templates' }]} />
-      <PageHeader
+      <PageHeader help="inspection-templates"
         title="Inspection templates"
         subtitle="Every change to a checklist is published as a new version. Existing versions — and every inspection run against them — never change."
       />

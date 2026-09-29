@@ -42,7 +42,7 @@ export default async function ActionDetailPage({ params }: { params: Promise<{ i
   return (
     <div style={{ maxWidth: 1100 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/actions', label: 'Actions' }, { label: a.action_reference }]} />
-      <PageHeader
+      <PageHeader help="action"
         eyebrow={<span className={styles.eyebrowRow}>
           <span className={styles.refEyebrow}>{a.action_reference}</span>
           <Badge value={a.status} />

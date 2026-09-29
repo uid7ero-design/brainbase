@@ -34,7 +34,7 @@ export default async function IncidentsPage({ searchParams }: { searchParams: SP
 
   return (
     <div style={{ maxWidth: 1240 }}>
-      <PageHeader
+      <PageHeader help="incidents"
         title="Incidents"
         subtitle="What happened — reported events, near misses and service failures."
         actions={viewerCan(viewer, 'record') ? <LinkButton href="/assurance/incidents/new">Report incident</LinkButton> : undefined}

@@ -37,7 +37,7 @@ export default async function EvidenceDetailPage({ params }: { params: Promise<{
   return (
     <div style={{ maxWidth: 1000 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/evidence', label: 'Evidence' }, { label: e.evidence_reference }]} />
-      <PageHeader
+      <PageHeader help="evidence-record"
         eyebrow={<span className={styles.eyebrowRow}>
           <span className={styles.refEyebrow}>{e.evidence_reference}</span>
           <Badge value={e.evidence_type} tone="neutral" />

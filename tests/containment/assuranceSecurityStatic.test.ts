@@ -25,7 +25,9 @@ const apiRoutes = walk('app/api/assurance').filter(f => f.endsWith('/route.ts'))
 const pages = walk('app/assurance').filter(f => f.endsWith('/page.tsx'))
 const uiFiles = walk('app/assurance')
 const libFiles = walk('lib/assurance')
-const CLIENT_SAFE_LIB = ['lib/assurance/domain.ts', 'lib/assurance/input.ts', 'lib/assurance/errors.ts', 'lib/assurance/references.ts']
+// In-app Help's pure modules are zero-import too (content.ts is the server-only loader).
+const CLIENT_SAFE_LIB = ['lib/assurance/domain.ts', 'lib/assurance/input.ts', 'lib/assurance/errors.ts', 'lib/assurance/references.ts',
+  'lib/assurance/help/registry.ts', 'lib/assurance/help/markdown.ts', 'lib/assurance/help/search.ts', 'lib/assurance/help/topics.ts']
 
 describe('API routes', () => {
   it('exist and every one is built from the authorizing factories', () => {

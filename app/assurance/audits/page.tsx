@@ -41,7 +41,7 @@ export default async function AuditsPage({ searchParams }: { searchParams: SP })
 
   return (
     <div style={{ maxWidth: 1280 }}>
-      <PageHeader
+      <PageHeader help="audits"
         title="Audits"
         subtitle="Structured reviews against a standard or requirement. Gaps become Findings only when the auditor raises them."
         actions={<>

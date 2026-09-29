@@ -29,7 +29,7 @@ export default async function NewInspectionPage() {
   return (
     <div style={{ maxWidth: 760 }}>
       <Breadcrumbs items={[{ href: '/assurance', label: 'Assurance' }, { href: '/assurance/inspections', label: 'Inspections' }, { label: 'Plan' }]} />
-      <PageHeader title="Plan an inspection" subtitle="Choose a template to bind this inspection to its current checklist version, or leave it blank for an ad hoc inspection." />
+      <PageHeader help="inspection-new" title="Plan an inspection" subtitle="Choose a template to bind this inspection to its current checklist version, or leave it blank for an ad hoc inspection." />
       <Card>
         <AssuranceForm
           endpoint="/api/assurance/inspections"
