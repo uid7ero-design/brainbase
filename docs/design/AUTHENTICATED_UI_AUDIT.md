@@ -2702,3 +2702,9 @@ Remaining after-exceptions, all classified:
 Other before → after measurements:
 - **Admin at 390:** the content box goes from 306px to 354px, with the AdminAside strip present.
 - **Welcome-back banner in light mode:** before, `rgba(13,13,21,.95)` glass with `blur(16px)`, a violet border and a violet name. After, `--bg-overlay` (white) with a token border, `--text-primary` copy and an accent name. Placement and `pointer-events: none` are unchanged.
+
+### Current state: Organiser keyboard reordering (update, 2026-09-29)
+
+The Organiser keyboard-reordering gap recorded above under the N1–N5 follow-up (PR #248's drag handles had no keyboard way to reorder) is **closed** by PR #293 ("D.4.7F: add accessible keyboard reordering for Organiser"), which main now contains. It is no longer outstanding debt. The historical entries above are left as written.
+
+PR #294 was reconciled with main after PR #293 by a normal merge commit. The two changes share no files; the Organiser visual-convergence pins and PR #293's keyboard-reorder tests both pass on the combined tree.
