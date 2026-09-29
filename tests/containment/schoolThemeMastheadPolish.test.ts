@@ -186,7 +186,18 @@ describe('No business/registration/payment logic touched by this presentation-on
   })
 
   it('TopNav\'s own capability-gated nav logic (AppNav, dashboardVariant classification) is untouched — only the early public-event bail-out was added', () => {
-    expect(topNavCode).toMatch(/dashboardVariant\s*===\s*'ld-tennis'/)
-    expect(topNavCode).toMatch(/dashboardVariant\s*===\s*'brainbase-hq'/)
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // dashboardVariant classification moved out of TopNav into the pure
+    // navModel gates (Tennis group: variant 'ld-tennis'; Requests:
+    // hideForVariant 'brainbase-hq'). AppNav now passes dashboardVariant
+    // straight into resolveNav() and must not re-branch on it itself.
+    const navModelCode = stripComments(read('components/nav/navModel.ts'))
+    expect(topNavCode).toMatch(/function AppNav\(/)
+    expect(topNavCode).toMatch(/resolveNav\(\{ role, enabledCapabilities, dashboardVariant \}\)/)
+    expect(topNavCode).not.toMatch(/dashboardVariant\s*[!=]==/)
+    expect(navModelCode).toMatch(/gate:\s*\{\s*variant:\s*'ld-tennis'\s*\}/)
+    expect(navModelCode).toMatch(/gate:\s*\{\s*hideForVariant:\s*'brainbase-hq'\s*\}/)
+    expect(navModelCode).toMatch(/ctx\.dashboardVariant !== gate\.variant/)
+    expect(navModelCode).toMatch(/ctx\.dashboardVariant === gate\.hideForVariant/)
   })
 })

@@ -168,9 +168,16 @@ describe('Admin — light mode genuinely supported on converted surfaces', () =>
   }
 
   it('the admin shell is on the page-base token, not a hard-coded dark background', () => {
+    // Visual-convergence update (remaining visual islands pass): the admin
+    // shell's inline style moved to app/admin/AdminLayout.module.css, so the
+    // same tokens are asserted on the .shell rule the layout now uses.
     const layout = stripComments(read('app/admin/layout.tsx'))
-    expect(layout).toContain("background: 'var(--bg-base)'")
-    expect(layout).toContain("color: 'var(--text-primary)'")
+    expect(layout).toContain('<div className={styles.shell}>')
+    const css = stripComments(read('app/admin/AdminLayout.module.css'))
+    const shell = css.slice(css.indexOf('.shell {'), css.indexOf('}', css.indexOf('.shell {')))
+    expect(shell).toContain('background: var(--bg-base);')
+    expect(shell).toContain('color: var(--text-primary);')
+    expect(css).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(/i)
   })
 
   it('destructive admin actions use the semantic danger button', () => {

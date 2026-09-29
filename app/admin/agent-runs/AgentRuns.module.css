@@ -1,0 +1,189 @@
+/*
+ * Agent runs dashboard (remaining visual islands pass — residue only).
+ * Tokens only (app/globals.css) for chrome. Agent / route identity hues are
+ * a data encoding, defined per theme so dots and bars keep >= 3:1 on the
+ * surface; labels stay on text tokens.
+ */
+
+.root {
+  --agent-insight: #38bdf8;
+  --agent-action: #b09aff;
+  --agent-briefing: #34d399;
+  --agent-intake: #fbbf24;
+  --agent-chat: #6b8bff;
+
+  max-width: 1100px;
+  min-width: 0;
+}
+
+:global(:root[data-theme='light']) .root {
+  --agent-insight: #0277b0;
+  --agent-action: #6d4cd6;
+  --agent-briefing: #1f8a52;
+  --agent-intake: #a26207;
+  --agent-chat: #3558e0;
+}
+
+.metrics {
+  margin-bottom: 20px;
+}
+
+.dates {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.dateLabel {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.refreshing {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.error {
+  margin-bottom: 20px;
+}
+
+.charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.barHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.barLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 0.75rem;
+  color: var(--text-primary);
+}
+
+.barMeta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.barSub {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.barCount {
+  min-width: 28px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--text-primary);
+}
+
+.track {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--bg-sunken);
+}
+
+.fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--hue);
+  transition: width 0.4s ease;
+}
+
+.noData {
+  padding: 20px 0;
+  font-size: 0.8125rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--hue);
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.shown {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.truncate {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.org {
+  max-width: 140px;
+}
+
+.query {
+  max-width: 260px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fill {
+    transition: none;
+  }
+}

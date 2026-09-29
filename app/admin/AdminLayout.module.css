@@ -1,0 +1,26 @@
+/* Admin section chrome (remaining visual islands pass). Tokens only; the
+   shared sans font instead of a local Inter stack. Below 768px the shared
+   ModuleSidebar becomes a horizontal strip above the content (see
+   components/ui/app/ModuleNav.module.css), so the content padding drops to
+   the standard phone gutter instead of 40px a side (which left ~310px of
+   content at 390). Desktop spacing is unchanged. */
+
+.shell {
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg-base);
+  font-family: var(--bb-font-sans);
+  color: var(--text-primary);
+}
+
+.main {
+  flex: 1;
+  padding: 40px;
+  overflow: auto;
+}
+
+@media (max-width: 767px) {
+  .main {
+    padding: 24px 16px;
+  }
+}

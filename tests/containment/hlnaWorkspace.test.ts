@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
+// Nav consolidation update (feat/authenticated-nav-consolidation): HLNA's
+// destination now lives in the pure nav model.
+import { resolveNav } from '@/components/nav/navModel';
 
 // Phase C.2B / C.2B.1 — dedicated full-screen /hlna conversation workspace.
 // C.2B.1 reworked the page into a two-column "talk to HLNA" layout: Helena
@@ -341,8 +344,21 @@ describe('Phase C.2B/C.2B.1 — routing/navigation containment', () => {
   // assert the new, intentional state rather than the old one.
   it('TopNav.tsx canonical HLNA destination is /hlna (Phase C.2D), never a route into HelenaWorkspace source directly', () => {
     const topNav = fs.readFileSync(path.join(root, 'components/nav/TopNav.tsx'), 'utf-8');
-    expect(topNav).toMatch(/['"]\/hlna['"]/);
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // '/hlna' literal moved from TopNav into navModel.ts HLNA_LINK; TopNav
+    // renders the resolved nav.hlna link. HLNA -> /hlna now holds for EVERY
+    // tenant (LD Tennis no longer points HLNA at /dashboard).
+    const navModel = fs.readFileSync(path.join(root, 'components/nav/navModel.ts'), 'utf-8');
+    expect(navModel).toMatch(/export const HLNA_LINK: NavLink = \{\s*kind: 'link', id: 'hlna', label: 'HLNA', href: '\/hlna', match: \['\/hlna'\],\s*\};/);
+    expect(topNav).toMatch(/import \{[^}]*\bresolveNav\b[^}]*\} from '\.\/navModel';/);
+    expect(topNav).toMatch(/<NavPill link=\{nav\.hlna\}/);
+    for (const dashboardVariant of [null, 'ld-tennis', 'brainbase-hq'] as const) {
+      for (const role of ['viewer', 'manager', 'admin', 'super_admin']) {
+        expect(resolveNav({ role, enabledCapabilities: [], dashboardVariant }).hlna.href).toBe('/hlna');
+      }
+    }
     expect(topNav).not.toContain('HelenaWorkspace');
+    expect(navModel).not.toContain('HelenaWorkspace');
   });
 
   it('LeftSidebar.jsx HLNA entry routes to /hlna (Phase C.2D)', () => {

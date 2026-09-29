@@ -326,8 +326,27 @@ describe('G. ops Sidebar no longer contains Organiser — the capability enforce
     expect(sidebarSource).not.toContain('/organiser')
   })
 
-  it('TopNav carries the new capability-gated Organiser entry instead, using the canonical key — never a substitute for the server-side enforcement proven in sections A/D/E above', () => {
+  it('TopNav carries the new capability-gated Organiser entry instead, using the canonical key — never a substitute for the server-side enforcement proven in sections A/D/E above', async () => {
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // hasOrganiser flag moved from TopNav into the Organiser descriptor of
+    // components/nav/navModel.ts, which TopNav renders via resolveNav().
+    // APPROVED change: the gate is the canonical 'organiser' key AND
+    // manager+, mirroring app/organiser/layout.tsx. Still UX-only — the
+    // server-side enforcement above remains authoritative.
     const topNavSource = read('components/nav/TopNav.tsx')
-    expect(topNavSource).toMatch(/const hasOrganiser =\s*\n?\s*enabledCapabilities\.includes\(\s*\n?\s*'organiser',?\s*\n?\s*\);/)
+    const navModelSource = read('components/nav/navModel.ts')
+    expect(topNavSource).toMatch(/const nav = resolveNav\(\{ role, enabledCapabilities, dashboardVariant \}\);/)
+    expect(navModelSource).toMatch(/label: 'Organiser', href: '\/organiser'[\s\S]{0,300}?gate: \{ anyCapability: \['organiser'\], minRole: 'manager' \},/)
+    const { WORK_ITEMS, resolveNav } = await import('@/components/nav/navModel')
+    const organiser = WORK_ITEMS.find(e => e.id === 'organiser')
+    expect(organiser?.gate).toEqual({ anyCapability: ['organiser'], minRole: 'manager' })
+    const sees = (role: string, caps: string[]) =>
+      resolveNav({ role, enabledCapabilities: caps, dashboardVariant: null }).work.some(
+        e => e.kind === 'link' && e.href === '/organiser',
+      )
+    expect(sees('manager', ['organiser'])).toBe(true)
+    expect(sees('manager', [])).toBe(false)
+    expect(sees('super_admin', [])).toBe(false)
+    expect(sees('viewer', ['organiser'])).toBe(false)
   })
 })

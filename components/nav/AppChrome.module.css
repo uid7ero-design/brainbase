@@ -179,6 +179,13 @@
   color: var(--text-muted);
 }
 
+/* The active fill (--brand-brainbase-accent-muted) darkens the surface under
+   the description: --text-muted drops to 4.11:1 there in dark, so the
+   current item's description uses --text-secondary (6.20 dark, 6.03 light). */
+.menuItem[aria-current='page'] .menuDescription {
+  color: var(--text-secondary);
+}
+
 .menuSeparator {
   height: 1px;
   margin: 4px;
@@ -204,6 +211,156 @@
 
 .menuFooter:focus-visible {
   outline-offset: -2px;
+}
+
+/* Label row of a menu link (optional module icon + label). */
+.menuLabelRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* A labelled group inside a menu (Work › Tennis, Brainbase › Operations …). */
+.menuGroup {
+  display: block;
+}
+
+.menuGroupLabel {
+  margin: 0;
+  padding: 6px 12px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Non-navigation actions inside a menu (theme, sign out). Same row
+   language as .menuItem so links and actions read as one list. */
+.menuButton {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px 8px 10px;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menuButton:hover {
+  background: var(--bg-sunken);
+}
+
+.menuButton:focus-visible {
+  outline-offset: -2px;
+}
+
+/* Who is signed in and which organisation is in view. */
+.accountSummary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.accountName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.accountMeta {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.accountOrg {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.accountOrgLabel {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Visually hidden, still announced. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── Desktop / mobile switch ───────────────────────────────────────────── */
+
+.desktopOnly {
+  display: flex;
+}
+
+.mobileOnly {
+  display: none;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.mobileTrigger {
+  gap: 8px;
+  padding: 0 8px 0 3px;
+}
+
+/* The mobile menu: one panel under the bar with the same tree as the
+   desktop menus. Scrolls inside itself; never widens the page. */
+.mobilePanel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  max-height: calc(100dvh - 52px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 12px 16px;
+  background: var(--bg-overlay);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-menu);
+  font-family: var(--font-inter), 'Inter', -apple-system, sans-serif;
+}
+
+.mobileSection {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.mobileSectionTitle {
+  margin: 0;
+  padding: 2px 12px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 /* ── Right cluster ─────────────────────────────────────────────────────── */
@@ -296,7 +453,18 @@
   background: var(--bg-sunken);
 }
 
-.profile[aria-current='page'] {
+.profile {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.profile[aria-expanded='true'] {
+  background: var(--bg-sunken);
+}
+
+.profile[data-active='true'] {
   box-shadow: inset 0 -2px 0 var(--brand-brainbase-accent);
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
@@ -397,11 +565,12 @@
   .profile {
     padding: 0 3px;
   }
-  /* Branding stays visible (its only entry point); compact like Sign out.
-     The scrollable centre row absorbs the width. */
-  .item.signOut,
-  .item.brandingLink {
-    padding: 0 8px;
+  /* One Menu control replaces the desktop row and Account trigger. */
+  .desktopOnly {
+    display: none;
+  }
+  .mobileOnly {
+    display: flex;
   }
 }
 
@@ -409,7 +578,8 @@
   .item,
   .chevron,
   .iconButton,
-  .profile {
+  .profile,
+  .menuButton {
     transition: none;
   }
 }

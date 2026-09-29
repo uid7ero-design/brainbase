@@ -1,10 +1,22 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useId, useRef } from 'react';
 import { useAppStore } from '../../lib/state/useAppStore';
-import { CYAN } from '../../lib/utils/constants';
+import { buttonProps } from '../ui/app/Button';
+import { useOverlayFocus } from './useOverlayFocus';
+import overlay from './PanelOverlay.module.css';
+import styles from './InboxPanel.module.css';
 
-const GLASS = { background: 'rgba(8,11,20,.90)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)' };
+// Visual (remaining visual islands pass): the glass modal, white-alpha
+// neutrals, Gmail-red chrome and the old violet "CYAN" accent are replaced
+// by app tokens (PanelOverlay.module.css + this module) so the overlay reads
+// in light and dark. Dialog semantics, labelled fields, named icon controls,
+// aria-current on the open message and focus containment/return were added;
+// Escape keeps its existing staged handler. Every fetch URL, method, payload
+// and state transition is unchanged.
+
 const CONTACTS_KEY = 'brainbase:contacts';
+const SECONDARY_SM = buttonProps('secondary', 'sm');
+const COMPOSE_TOGGLE = { ...SECONDARY_SM, className: `${SECONDARY_SM.className} ${styles.toggle}` };
 
 function loadContacts() {
   try { return JSON.parse(localStorage.getItem(CONTACTS_KEY)) ?? []; } catch { return []; }
@@ -56,19 +68,20 @@ function ToField({ value, onChange }) {
   function pick(s) { onChange(s.value); setOpen(false); setSuggestions([]); }
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div className={styles.toField}>
       <input
         value={value}
         onChange={e => handleInput(e.target.value)}
         onBlur={() => setTimeout(() => setOpen(false), 120)}
         onFocus={() => { if (suggestions.length) setOpen(true); }}
         placeholder="To: name or email…"
-        style={{ width: '100%', boxSizing: 'border-box', padding: '7px 10px', borderRadius: 7, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.10)', color: 'rgba(255,255,255,.80)', fontSize: 11, outline: 'none', fontFamily: 'inherit' }}
+        aria-label="To"
+        className={overlay.input}
       />
       {open && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, marginTop: 3, borderRadius: 8, background: 'rgba(12,16,30,.97)', border: '1px solid rgba(255,255,255,.10)', overflow: 'hidden' }}>
+        <div className={styles.suggestions}>
           {suggestions.map((s, i) => (
-            <button key={i} onMouseDown={() => pick(s)} style={{ display: 'block', width: '100%', padding: '8px 12px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontSize: 11, color: 'rgba(255,255,255,.72)', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
+            <button type="button" key={i} onMouseDown={() => pick(s)} className={styles.suggestion}>
               {s.label}
             </button>
           ))}
@@ -103,35 +116,36 @@ function ComposeView({ onClose, onSent }) {
   }
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,.06)', flexShrink: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'rgba(255,255,255,.85)', letterSpacing: '-.02em' }}>New Message</div>
+    <div className={styles.compose}>
+      <div className={styles.composeHeader}>
+        <h3 className={styles.composeTitle}>New Message</h3>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div className={styles.composeBody}>
         <ToField value={to} onChange={setTo} />
         <input
           value={subject}
           onChange={e => setSubject(e.target.value)}
           placeholder="Subject"
-          style={{ width: '100%', boxSizing: 'border-box', padding: '7px 10px', borderRadius: 7, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.10)', color: 'rgba(255,255,255,.80)', fontSize: 11, outline: 'none', fontFamily: 'inherit' }}
+          aria-label="Subject"
+          className={overlay.input}
         />
         <textarea
           value={body}
           onChange={e => setBody(e.target.value)}
           placeholder="Write your message…"
-          style={{ flex: 1, minHeight: 240, width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.09)', color: 'rgba(255,255,255,.78)', fontSize: 11, outline: 'none', resize: 'none', lineHeight: 1.6, fontFamily: 'inherit' }}
+          aria-label="Message"
+          className={`${overlay.textarea} ${styles.composeText}`}
         />
-        {error && <div style={{ fontSize: 10, color: 'rgba(234,67,53,.80)', padding: '6px 10px', borderRadius: 6, background: 'rgba(234,67,53,.08)', border: '1px solid rgba(234,67,53,.18)' }}>{error}</div>}
+        {error && <div className={overlay.notice} data-state="danger" role="alert">{error}</div>}
       </div>
 
-      <div style={{ borderTop: '1px solid rgba(255,255,255,.06)', padding: '12px 16px', display: 'flex', gap: 8, flexShrink: 0 }}>
-        <button onClick={send} disabled={sending || !to.trim() || !body.trim()}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 7, background: 'rgba(234,67,53,.12)', border: '1px solid rgba(234,67,53,.30)', color: 'rgba(234,67,53,.9)', fontSize: 11, fontWeight: 600, cursor: 'pointer', opacity: sending || !to.trim() || !body.trim() ? 0.5 : 1 }}>
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      <div className={overlay.footer}>
+        <button type="button" onClick={send} disabled={sending || !to.trim() || !body.trim()} {...buttonProps('primary', 'sm')}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
           {sending ? 'Sending…' : 'Send'}
         </button>
-        <button onClick={onClose} style={{ padding: '8px 14px', borderRadius: 7, background: 'none', border: '1px solid rgba(255,255,255,.08)', color: 'rgba(255,255,255,.50)', fontSize: 11, cursor: 'pointer' }}>Discard</button>
+        <button type="button" onClick={onClose} {...buttonProps('secondary', 'sm')}>Discard</button>
       </div>
     </div>
   );
@@ -140,6 +154,8 @@ function ComposeView({ onClose, onSent }) {
 // ── Main panel ────────────────────────────────────────────────────────────────
 export function InboxPanel() {
   const { inboxOpen, setInboxOpen, setContactsOpen } = useAppStore();
+  const titleId = useId();
+  const panelRef = useRef(null);
 
   const [gmailConnected, setGmailConnected] = useState(null);
   const [messages,  setMessages]  = useState([]);
@@ -154,6 +170,8 @@ export function InboxPanel() {
   const [sending,   setSending]   = useState(false);
   const [sent,      setSent]      = useState(false);
   const replyRef = useRef(null);
+
+  useOverlayFocus(inboxOpen, panelRef);
 
   useEffect(() => {
     fetch('/api/integrations/gmail/status')
@@ -230,50 +248,59 @@ export function InboxPanel() {
   return (
     <div
       onClick={e => { if (e.target === e.currentTarget) setInboxOpen(false); }}
-      style={{ position: 'fixed', inset: 0, zIndex: 65, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.60)', backdropFilter: 'blur(4px)' }}
+      className={overlay.root}
+      style={{ zIndex: 65 }}
     >
-      <div style={{ width: 'min(900px, 96vw)', height: 'min(700px, 90vh)', borderRadius: 16, border: '1px solid rgba(255,255,255,.10)', ...GLASS, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className={`${overlay.dialog} ${styles.dialog}`}
+      >
 
         {/* Header */}
-        <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,.07)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <div style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(234,67,53,.12)', border: '1px solid rgba(234,67,53,.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="rgba(234,67,53,.8)" strokeWidth="1.8"/><polyline points="22,6 12,13 2,6" stroke="rgba(234,67,53,.8)" strokeWidth="1.8"/></svg>
+        <div className={overlay.header}>
+          <div className={overlay.headerIcon} aria-hidden="true">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
           </div>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'rgba(255,255,255,.90)', letterSpacing: '-.02em' }}>Inbox</div>
-            {gmailConnected && <div style={{ fontSize: 9, color: 'rgba(255,255,255,.52)' }}>{messages.length} messages</div>}
+            <h2 id={titleId} className={overlay.title}>Inbox</h2>
+            {gmailConnected && <p className={overlay.subtitle}>{messages.length} messages</p>}
           </div>
 
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+          <div className={overlay.headerActions}>
             {/* Compose */}
-            <button onClick={() => setView(view === 'compose' ? 'list' : 'compose')}
-              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, background: view === 'compose' ? 'rgba(234,67,53,.12)' : 'rgba(255,255,255,.04)', border: view === 'compose' ? '1px solid rgba(234,67,53,.30)' : '1px solid rgba(255,255,255,.08)', color: view === 'compose' ? 'rgba(234,67,53,.85)' : 'rgba(255,255,255,.55)', fontSize: 10, fontWeight: 600, cursor: 'pointer' }}>
-              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <button type="button" onClick={() => setView(view === 'compose' ? 'list' : 'compose')}
+              aria-pressed={view === 'compose'}
+              {...COMPOSE_TOGGLE}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               Compose
             </button>
             {/* Address book */}
-            <button onClick={() => { setContactsOpen(true); }}
+            <button type="button" onClick={() => { setContactsOpen(true); }}
               title="Address Book"
-              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, background: 'rgba(0,207,234,.04)', border: '1px solid rgba(0,207,234,.14)', color: 'rgba(0,207,234,.65)', fontSize: 10, fontWeight: 600, cursor: 'pointer' }}>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              {...buttonProps('secondary', 'sm')}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
               Contacts
             </button>
             {/* Refresh */}
-            <button onClick={loadInbox} title="Refresh" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'rgba(255,255,255,.52)', display: 'flex' }}>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.95"/></svg>
+            <button type="button" onClick={loadInbox} title="Refresh" aria-label="Refresh" className={overlay.iconButton}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.95"/></svg>
             </button>
             {/* Close */}
-            <button onClick={() => setInboxOpen(false)} style={{ width: 26, height: 26, borderRadius: 6, border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.04)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,.62)' }}>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <button type="button" onClick={() => setInboxOpen(false)} aria-label="Close inbox" className={overlay.iconButton}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
         </div>
 
         {/* Body */}
         {gmailConnected === false ? (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
-            <div style={{ fontSize: 13, color: 'rgba(255,255,255,.62)' }}>Gmail not connected</div>
-            <button onClick={() => setInboxOpen(false)} style={{ fontSize: 11, color: CYAN, background: 'none', border: `1px solid rgba(0,207,234,.25)`, borderRadius: 7, padding: '6px 14px', cursor: 'pointer' }}>
+          <div className={overlay.empty} data-dialog-body="">
+            <p className={styles.notConnected}>Gmail not connected</p>
+            <button type="button" onClick={() => setInboxOpen(false)} {...buttonProps('secondary', 'sm')}>
               Go to Integrations to connect
             </button>
           </div>
@@ -283,38 +310,40 @@ export function InboxPanel() {
             onSent={() => { setView('sent'); setTimeout(() => setView('list'), 2000); }}
           />
         ) : view === 'sent' ? (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 10 }}>
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="rgba(134,239,172,.6)" strokeWidth="1.5"><polyline points="20 6 9 17 4 12"/></svg>
-            <div style={{ fontSize: 13, color: 'rgba(134,239,172,.80)', fontWeight: 600 }}>Message sent</div>
+          <div className={styles.sent} role="status">
+            <svg className={styles.sentIcon} width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+            <div>Message sent</div>
           </div>
         ) : (
-          <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+          <div className={overlay.split}>
 
             {/* Message list */}
-            <div style={{ width: 280, flexShrink: 0, borderRight: '1px solid rgba(255,255,255,.06)', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+            <div className={overlay.listPane} data-width="280" data-dialog-body="">
               {loading ? (
-                <div style={{ padding: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 4, height: 4, borderRadius: '50%', background: 'rgba(234,67,53,.5)', animation: 'agentPulse 1.2s ease-in-out infinite' }} />
-                  <span style={{ fontSize: 10, color: 'rgba(255,255,255,.52)' }}>Loading…</span>
+                <div className={`${overlay.loading} ${styles.listLoading}`} role="status">
+                  <span className={overlay.pulseDot} aria-hidden="true" />
+                  <span>Loading…</span>
                 </div>
               ) : messages.map(msg => {
                 const isActive = selected?.id === msg.id;
                 return (
-                  <button key={msg.id} onClick={() => selectMessage(msg)}
-                    style={{ display: 'block', width: '100%', padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,.04)', background: isActive ? 'rgba(234,67,53,.07)' : 'transparent', border: 'none', borderLeft: isActive ? '2px solid rgba(234,67,53,.6)' : '2px solid transparent', cursor: 'pointer', textAlign: 'left', transition: 'all .15s' }}
+                  <button type="button" key={msg.id} onClick={() => selectMessage(msg)}
+                    aria-current={isActive ? 'true' : undefined}
+                    className={overlay.listRow}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                      {msg.unread && <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'rgba(234,67,53,.85)', flexShrink: 0 }} />}
-                      <span style={{ fontSize: 11, fontWeight: msg.unread ? 600 : 400, color: msg.unread ? 'rgba(255,255,255,.85)' : 'rgba(255,255,255,.55)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div className={styles.rowTop}>
+                      {msg.unread && <span className={styles.unreadDot} aria-hidden="true" />}
+                      <span className={`${styles.sender} ${overlay.truncate}`} data-unread={msg.unread ? 'true' : 'false'}>
+                        {msg.unread && <span className="sr-only">Unread: </span>}
                         {senderName(msg.from)}
                       </span>
-                      <span style={{ fontSize: 9, color: 'rgba(255,255,255,.42)', flexShrink: 0 }}>{msg.time}</span>
+                      <span className={styles.rowTime}>{msg.time}</span>
                     </div>
-                    <div style={{ fontSize: 10, color: isActive ? 'rgba(255,255,255,.65)' : 'rgba(255,255,255,.38)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: msg.unread ? 11 : 0 }}>
+                    <div className={`${styles.rowSubject} ${overlay.truncate} ${msg.unread ? styles.indent : ''}`}>
                       {msg.subject}
                     </div>
                     {msg.snippet && (
-                      <div style={{ fontSize: 9, color: 'rgba(255,255,255,.42)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2, paddingLeft: msg.unread ? 11 : 0 }}>
+                      <div className={`${styles.rowSnippet} ${overlay.truncate} ${msg.unread ? styles.indent : ''}`}>
                         {msg.snippet}
                       </div>
                     )}
@@ -324,73 +353,72 @@ export function InboxPanel() {
             </div>
 
             {/* Email detail */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div className={overlay.detailPane}>
               {!selected && !loadingMsg ? (
-                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8 }}>
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.12)" strokeWidth="1.2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,.62)' }}>Select a message to read</span>
+                <div className={overlay.empty}>
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                  <span>Select a message to read</span>
                 </div>
               ) : loadingMsg ? (
-                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                  <div style={{ width: 4, height: 4, borderRadius: '50%', background: 'rgba(234,67,53,.5)', animation: 'agentPulse 1.2s ease-in-out infinite' }} />
-                  <span style={{ fontSize: 10, color: 'rgba(255,255,255,.52)' }}>Loading message…</span>
+                <div className={overlay.empty} role="status">
+                  <span className={overlay.loading}>
+                    <span className={overlay.pulseDot} aria-hidden="true" />
+                    <span>Loading message…</span>
+                  </span>
                 </div>
               ) : (
                 <>
-                  <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,.06)', flexShrink: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: 'rgba(255,255,255,.88)', marginBottom: 8, lineHeight: 1.3 }}>{selected.subject}</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(234,67,53,.15)', border: '1px solid rgba(234,67,53,.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: 'rgba(234,67,53,.8)', flexShrink: 0 }}>
+                  <div className={styles.detailHeader}>
+                    <h3 className={styles.detailSubject}>{selected.subject}</h3>
+                    <div className={styles.senderRow}>
+                      <div className={styles.avatar} aria-hidden="true">
                         {senderName(selected.from).charAt(0).toUpperCase()}
                       </div>
                       <div>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,.70)' }}>{senderName(selected.from)}</div>
-                        <div style={{ fontSize: 9, color: 'rgba(255,255,255,.52)' }}>{senderEmail(selected.from)}</div>
+                        <div className={styles.senderName}>{senderName(selected.from)}</div>
+                        <div className={styles.senderEmail}>{senderEmail(selected.from)}</div>
                       </div>
-                      <div style={{ marginLeft: 'auto', fontSize: 9, color: 'rgba(255,255,255,.46)' }}>{relativeTime(selected.date)}</div>
+                      <div className={styles.date}>{relativeTime(selected.date)}</div>
                     </div>
                   </div>
 
-                  <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+                  <div className={styles.detailBody}>
                     {sent && (
-                      <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 7, background: 'rgba(134,239,172,.08)', border: '1px solid rgba(134,239,172,.20)', fontSize: 11, color: 'rgba(134,239,172,.80)' }}>
+                      <div className={`${overlay.notice} ${styles.sentNotice}`} data-state="success" role="status">
                         Reply sent successfully.
                       </div>
                     )}
-                    <pre style={{ fontSize: 11, color: 'rgba(255,255,255,.65)', lineHeight: 1.65, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'inherit', margin: 0 }}>
+                    <pre className={styles.messageText}>
                       {selected.body || '(no content)'}
                     </pre>
                   </div>
 
-                  <div style={{ borderTop: '1px solid rgba(255,255,255,.06)', padding: '12px 16px', flexShrink: 0 }}>
+                  <div className={overlay.footer}>
                     {replying ? (
-                      <div>
-                        <div style={{ fontSize: 9, color: 'rgba(255,255,255,.52)', marginBottom: 6 }}>
+                      <div className={styles.reply}>
+                        <div className={styles.replyTo}>
                           Replying to {senderEmail(selected.from)}
                         </div>
                         <textarea ref={replyRef} value={replyBody} onChange={e => setReplyBody(e.target.value)} placeholder="Write your reply…" rows={4}
-                          style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.10)', color: 'rgba(255,255,255,.80)', fontSize: 11, outline: 'none', resize: 'none', lineHeight: 1.5, fontFamily: 'inherit' }} />
-                        <div style={{ display: 'flex', gap: 7, marginTop: 8 }}>
-                          <button onClick={sendReply} disabled={sending || !replyBody.trim()}
-                            style={{ padding: '7px 18px', borderRadius: 7, background: 'rgba(234,67,53,.12)', border: '1px solid rgba(234,67,53,.30)', color: 'rgba(234,67,53,.9)', fontSize: 11, fontWeight: 600, cursor: 'pointer', opacity: sending || !replyBody.trim() ? 0.5 : 1 }}>
+                          aria-label="Reply"
+                          className={overlay.textarea} />
+                        <div className={styles.replyActions}>
+                          <button type="button" onClick={sendReply} disabled={sending || !replyBody.trim()} {...buttonProps('primary', 'sm')}>
                             {sending ? 'Sending…' : 'Send Reply'}
                           </button>
-                          <button onClick={() => { setReplying(false); setReplyBody(''); }}
-                            style={{ padding: '7px 12px', borderRadius: 7, background: 'none', border: '1px solid rgba(255,255,255,.08)', color: 'rgba(255,255,255,.52)', fontSize: 11, cursor: 'pointer' }}>
+                          <button type="button" onClick={() => { setReplying(false); setReplyBody(''); }} {...buttonProps('secondary', 'sm')}>
                             Cancel
                           </button>
                         </div>
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', gap: 7 }}>
-                        <button onClick={() => setReplying(true)}
-                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 7, background: 'rgba(234,67,53,.08)', border: '1px solid rgba(234,67,53,.22)', color: 'rgba(234,67,53,.8)', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
+                      <div className={styles.actions}>
+                        <button type="button" onClick={() => setReplying(true)} {...buttonProps('primary', 'sm')}>
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
                           Reply
                         </button>
-                        <button onClick={() => { setView('compose'); }}
-                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 7, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', color: 'rgba(255,255,255,.52)', fontSize: 11, cursor: 'pointer' }}>
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                        <button type="button" onClick={() => { setView('compose'); }} {...buttonProps('secondary', 'sm')}>
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
                           Forward / New
                         </button>
                       </div>

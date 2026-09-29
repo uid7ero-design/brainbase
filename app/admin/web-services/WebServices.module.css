@@ -1,0 +1,534 @@
+/*
+ * Web Systems deployment pipeline (remaining visual islands pass).
+ * Tokens only (app/globals.css) for chrome; light and dark first-class.
+ *
+ * Pipeline stage colours are a genuine data encoding (one hue per stage),
+ * defined here per theme so each hue keeps >= 3:1 against the surfaces it
+ * sits on. Hues are only ever used on dots, borders, rules and faint tints;
+ * all text stays on the text / status tokens.
+ */
+
+.page {
+  --stage-new: #38bdf8;
+  --stage-discovery: #6b8bff;
+  --stage-qualified: #8f88ff;
+  --stage-proposal-sent: #b09aff;
+  --stage-proposal-approved: #d98bf0;
+  --stage-onboarding: #eaa53a;
+  --stage-in-deployment: #f7894a;
+  --stage-active-client: #3fbf7f;
+  --stage-paused: #8a94a6;
+  --stage-lost: #8a8580;
+
+  min-height: 100vh;
+  min-width: 0;
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+:global(:root[data-theme='light']) .page {
+  --stage-new: #0277b0;
+  --stage-discovery: #3558e0;
+  --stage-qualified: #5b50d6;
+  --stage-proposal-sent: #6d4cd6;
+  --stage-proposal-approved: #a23cbe;
+  --stage-onboarding: #a26207;
+  --stage-in-deployment: #c2410c;
+  --stage-active-client: #1f8a52;
+  --stage-paused: #64748b;
+  --stage-lost: #78716c;
+}
+
+/* ── Sticky toolbar ─────────────────────────────────────────────────── */
+
+.toolbarBar {
+  padding: 10px 0 2px;
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+.toolbarBar > * {
+  margin-bottom: 8px;
+}
+
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.segment {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-transform: capitalize;
+  cursor: pointer;
+}
+
+.segment:hover {
+  color: var(--text-primary);
+}
+
+.segment[aria-pressed='true'] {
+  background: var(--bg-surface);
+  border-color: var(--brand-brainbase-accent-border);
+  color: var(--brand-brainbase-accent);
+}
+
+/* ── Kanban ─────────────────────────────────────────────────────────── */
+
+.kanban {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 4px 4px 16px;
+  border-radius: var(--radius-lg);
+}
+
+.kanban:focus-visible {
+  outline-offset: 2px;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 6px;
+  width: 252px;
+}
+
+.columnHeader {
+  padding: 10px 12px;
+  margin-bottom: 2px;
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--stage);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.column[data-over='true'] .columnHeader {
+  border-color: var(--stage);
+  background: color-mix(in srgb, var(--stage) 10%, var(--bg-surface));
+}
+
+.columnTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.columnTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.stageDot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--stage);
+}
+
+.count {
+  min-width: 24px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.columnGroup {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.dropIndicator {
+  height: 3px;
+  margin-bottom: 2px;
+  border-radius: 2px;
+  background: var(--stage);
+}
+
+.dropEmpty {
+  padding: 20px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  font-size: 0.75rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.card {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--stage);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.card:hover {
+  border-color: var(--border-strong);
+  border-left-color: var(--stage);
+  background: var(--bg-raised);
+}
+
+.card[data-dragging='true'] {
+  opacity: 0.4;
+}
+
+.cardTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.cardName {
+  margin-bottom: 2px;
+  overflow: hidden;
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+}
+
+.cardSub {
+  overflow: hidden;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-secondary);
+}
+
+.cardMeta {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.score {
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.tag {
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.cardFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.budget {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.date {
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.snippet {
+  display: -webkit-box;
+  margin-top: 8px;
+  padding-top: 8px;
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* ── Priority (semantic, never colour alone: the label is always shown) ── */
+
+.priority {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.priorityDot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+/* ── List view ──────────────────────────────────────────────────────── */
+
+.listRow {
+  cursor: pointer;
+}
+
+.stagePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* ── Drawer ─────────────────────────────────────────────────────────── */
+
+.drawerSub {
+  margin: -4px 0 16px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.chip[data-stage] {
+  border-color: var(--stage);
+  background: color-mix(in srgb, var(--stage) 10%, var(--bg-surface));
+}
+
+.section {
+  margin-bottom: 20px;
+}
+
+.sectionLabel {
+  margin: 0 0 8px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.stageButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.stageButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.stageButton:hover:not(:disabled) {
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+}
+
+.stageButton:disabled {
+  cursor: default;
+}
+
+.stageButton[aria-current='true'] {
+  border-color: var(--stage);
+  background: color-mix(in srgb, var(--stage) 12%, var(--bg-surface));
+  color: var(--text-primary);
+}
+
+.stageButtons[data-saving='true'] .stageButton {
+  opacity: 0.6;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin-bottom: 20px;
+}
+
+.grow {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.prioritySegments {
+  display: flex;
+}
+
+.prioritySegments .segment {
+  flex: 1;
+}
+
+.scoreInput {
+  width: 96px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fieldBlock {
+  margin-bottom: 18px;
+}
+
+.fieldBlock[data-compact='true'] {
+  flex: 1 1 160px;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.fieldValue {
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.contactList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.contactLink {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.contactLink:hover {
+  text-decoration-color: currentColor;
+}
+
+.contactLink[data-kind='web'] {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.noteBlock {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.noteActions {
+  display: flex;
+}
+
+.meta {
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+
+.danger {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.confirmRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.confirmText {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    transition: none;
+  }
+}

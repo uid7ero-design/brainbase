@@ -10,8 +10,14 @@ import Step5KeyQuestions from './steps/Step5KeyQuestions';
 import Step6SuccessMetrics from './steps/Step6SuccessMetrics';
 import Step7Review from './steps/Step7Review';
 import { APP_HEADER_OFFSET_VAR } from '@/lib/layout/headerOffset';
+import { buttonProps } from '@/components/ui/app';
+import styles from './Onboarding.module.css';
 
-const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
+// Visual (remaining visual islands pass): the wizard is one workflow surface
+// styled from Onboarding.module.css with tokens only — flat header, a token
+// progress track, shared step shell. The wizard's own header is no longer a
+// second sticky bar at top:0 (it slid over the app TopNav); the progress bar
+// still sticks directly below the shared app header offset.
 
 const STEPS = [
   { id: 1, label: 'Organisation' },
@@ -129,119 +135,90 @@ export default function OnboardingWizard({ organisationId, userId }: { organisat
   const percent = ((step - 1) / (STEPS.length - 1)) * 100;
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', fontFamily: FONT }}>
+    <div className={styles.page}>
       {/* Minimal header */}
-      <header style={{
-        height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0 28px', borderBottom: '1px solid rgba(255,255,255,.06)',
-        background: 'rgba(7,8,11,.92)', backdropFilter: 'blur(16px)',
-        position: 'sticky', top: 0, zIndex: 100,
-      }}>
-        <Link href="/" style={{ fontWeight: 700, fontSize: 14, color: '#F5F7FA', textDecoration: 'none', letterSpacing: '.04em' }}>
-          BR<span style={{ color: '#A78BFA' }}>Λ</span>INBASE
+      <header className={styles.header}>
+        <Link href="/" className={styles.brand}>
+          BR<span className={styles.brandMark}>Λ</span>INBASE
         </Link>
-        <span style={{ fontSize: 12, color: 'rgba(255,255,255,.3)', letterSpacing: '.08em', textTransform: 'uppercase' }}>
-          Onboarding
-        </span>
+        <h1 className={styles.headerTitle}>Onboarding</h1>
       </header>
 
-      {/* Progress bar */}
-      <div style={{
-        position: 'sticky', top: APP_HEADER_OFFSET_VAR, zIndex: 90,
-        background: 'rgba(7,8,11,.96)', backdropFilter: 'blur(12px)',
-        borderBottom: '1px solid rgba(255,255,255,.05)',
-        padding: '16px 28px 14px',
-      }}>
-        {/* Track */}
-        <div style={{ maxWidth: 680, margin: '0 auto', position: 'relative' }}>
-          <div style={{ position: 'relative', height: 2, background: 'rgba(255,255,255,.08)', borderRadius: 2, margin: '14px 0 10px' }}>
-            <div style={{
-              position: 'absolute', top: 0, left: 0, height: '100%',
-              width: `${percent}%`, background: 'linear-gradient(90deg, #6D28D9, #A78BFA)',
-              borderRadius: 2, transition: 'width .4s cubic-bezier(.4,0,.2,1)',
-            }} />
-            {STEPS.map((s, i) => {
-              const pos = (i / (STEPS.length - 1)) * 100;
-              const done = step > s.id;
-              const active = step === s.id;
-              return (
-                <div key={s.id} style={{ position: 'absolute', top: '50%', left: `${pos}%`, transform: 'translate(-50%, -50%)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <div style={{
-                    width: active ? 28 : 20, height: active ? 28 : 20,
-                    borderRadius: '50%',
-                    background: done ? '#7C3AED' : active ? '#7C3AED' : 'rgba(255,255,255,.08)',
-                    border: active ? '2px solid #A78BFA' : done ? 'none' : '1px solid rgba(255,255,255,.12)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    transition: 'all .25s',
-                    boxShadow: active ? '0 0 12px rgba(124,58,237,.5)' : 'none',
-                    zIndex: 1,
-                  }}>
+      <main>
+        {/* Progress bar */}
+        <div className={styles.progress} style={{ top: APP_HEADER_OFFSET_VAR }}>
+          <div className={styles.progressInner}>
+            {/* Track — decorative; the step list below carries the semantics */}
+            <div className={styles.track} aria-hidden="true">
+              <div className={styles.trackFill} style={{ width: `${percent}%` }} />
+              {STEPS.map((s, i) => {
+                const pos = (i / (STEPS.length - 1)) * 100;
+                const done = step > s.id;
+                const active = step === s.id;
+                return (
+                  <div
+                    key={s.id}
+                    className={styles.marker}
+                    data-state={done ? 'done' : active ? 'current' : 'upcoming'}
+                    style={{ left: `${pos}%` }}
+                  >
                     {done ? (
                       <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                        <path d="M2 5l2.5 2.5L8 3" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                     ) : (
-                      <span style={{ fontSize: active ? 11 : 9, fontWeight: 600, color: active ? '#fff' : 'rgba(255,255,255,.4)' }}>
-                        {s.id}
-                      </span>
+                      <span>{s.id}</span>
                     )}
                   </div>
-                </div>
-              );
-            })}
-          </div>
-          {/* Labels – hidden on small screens via overflow hidden */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', overflow: 'hidden' }}>
-            {STEPS.map(s => (
-              <div key={s.id} style={{
-                fontSize: 10, fontWeight: 500, letterSpacing: '.04em', textTransform: 'uppercase',
-                color: step === s.id ? '#A78BFA' : step > s.id ? 'rgba(167,139,250,.5)' : 'rgba(255,255,255,.2)',
-                transition: 'color .2s', whiteSpace: 'nowrap',
-                width: `${100 / STEPS.length}%`, textAlign: 'center',
-              }}>
-                {s.label}
-              </div>
-            ))}
+                );
+              })}
+            </div>
+            <ol className={styles.steps} aria-label={`Onboarding progress, step ${step} of ${STEPS.length}`}>
+              {STEPS.map(s => (
+                <li
+                  key={s.id}
+                  className={styles.stepLabel}
+                  data-state={step > s.id ? 'done' : step === s.id ? 'current' : 'upcoming'}
+                  aria-current={step === s.id ? 'step' : undefined}
+                >
+                  {s.label}
+                  {step > s.id && <span className="bb-visually-hidden"> (completed)</span>}
+                </li>
+              ))}
+            </ol>
           </div>
         </div>
-      </div>
 
-      {/* Step content */}
-      <div style={{
-        maxWidth: 680, margin: '0 auto', padding: '40px 20px 80px',
-        opacity: visible ? 1 : 0, transition: 'opacity .18s ease',
-      }}>
-        {step === 1 && <Step1OrgInfo data={formData.org} onNext={d => handleNext({ org: d })} />}
-        {step === 2 && <Step2DataSources data={formData.sources} onNext={d => handleNext({ sources: d })} onBack={handleBack} />}
-        {step === 3 && <Step3WasteMapping data={formData.wasteMapping} onNext={d => handleNext({ wasteMapping: d })} onBack={handleBack} />}
-        {step === 4 && <Step4FleetMapping data={formData.fleetMapping} onNext={d => handleNext({ fleetMapping: d })} onBack={handleBack} />}
-        {step === 5 && <Step5KeyQuestions data={formData.questions} onNext={d => handleNext({ questions: d })} onBack={handleBack} />}
-        {step === 6 && <Step6SuccessMetrics data={formData.metrics} onNext={d => handleNext({ metrics: d })} onBack={handleBack} />}
-        {step === 7 && <Step7Review formData={formData} onBack={handleBack} onSubmit={handleSubmit} submitting={submitting} />}
-      </div>
+        {/* Step content */}
+        <div className={styles.content} data-visible={visible ? 'true' : 'false'}>
+          {step === 1 && <Step1OrgInfo data={formData.org} onNext={d => handleNext({ org: d })} />}
+          {step === 2 && <Step2DataSources data={formData.sources} onNext={d => handleNext({ sources: d })} onBack={handleBack} />}
+          {step === 3 && <Step3WasteMapping data={formData.wasteMapping} onNext={d => handleNext({ wasteMapping: d })} onBack={handleBack} />}
+          {step === 4 && <Step4FleetMapping data={formData.fleetMapping} onNext={d => handleNext({ fleetMapping: d })} onBack={handleBack} />}
+          {step === 5 && <Step5KeyQuestions data={formData.questions} onNext={d => handleNext({ questions: d })} onBack={handleBack} />}
+          {step === 6 && <Step6SuccessMetrics data={formData.metrics} onNext={d => handleNext({ metrics: d })} onBack={handleBack} />}
+          {step === 7 && <Step7Review formData={formData} onBack={handleBack} onSubmit={handleSubmit} submitting={submitting} />}
+        </div>
+      </main>
     </div>
   );
 }
 
 function SuccessScreen() {
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: FONT, padding: 24, textAlign: 'center' }}>
-      <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(34,197,94,.15)', border: '1px solid rgba(34,197,94,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-          <path d="M5 13l4 4L19 7" stroke="#22C55E" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <main className={styles.success}>
+      <div className={styles.successIcon} aria-hidden="true">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+          <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </div>
-      <h1 style={{ fontSize: 26, fontWeight: 700, color: '#F4F4F5', margin: '0 0 12px' }}>You're all set!</h1>
-      <p style={{ fontSize: 15, color: '#A1A1AA', maxWidth: 400, margin: '0 0 32px', lineHeight: 1.6 }}>
+      <h1 className={styles.successTitle}>You're all set!</h1>
+      <p className={styles.successCopy}>
         HLNA has everything it needs to get started. Your data mappings are saved and your dashboard is ready.
       </p>
-      <Link href="/dashboard/overview" style={{
-        display: 'inline-block', padding: '12px 28px', borderRadius: 8, background: '#7C3AED',
-        color: '#fff', fontWeight: 600, fontSize: 14, textDecoration: 'none',
-        transition: 'background .15s',
-      }}>
+      <Link href="/dashboard/overview" {...buttonProps('primary')}>
         Go to Dashboard
       </Link>
-    </div>
+    </main>
   );
 }

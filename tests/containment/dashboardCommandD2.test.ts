@@ -117,7 +117,10 @@ describe('Organisation dashboard — shared system and reading order', () => {
     const card = stripComments(read('components/dashboard/ModuleAccessCard.tsx'))
     expect(card).toContain('<ul className={styles.list}>')
     expect(card).not.toMatch(/onMouseEnter|useState/)
-    expect(card).toContain('<CapabilityIcon capability={entry.key} size="sm" />')
+    // Nav consolidation update (feat/authenticated-nav-consolidation): rows
+    // now come from navModel.workModuleCards; the icon key is the
+    // descriptor's `icon` (entry.icon), not a local MODULE_ENTRIES key.
+    expect(card).toContain('<CapabilityIcon capability={entry.icon} size="sm" />')
   })
 })
 

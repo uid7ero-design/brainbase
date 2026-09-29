@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import fs from 'fs'
 import path from 'path'
+import { resolveNav } from '@/components/nav/navModel'
 
 const source = fs.readFileSync(path.resolve(__dirname, '../../components/nav/TopNav.tsx'),'utf-8').replace(/\r\n/g,'\n')
+// Nav consolidation update (feat/authenticated-nav-consolidation): route and
+// visibility descriptors now live in the pure nav model.
+const navModel = fs.readFileSync(path.resolve(__dirname, '../../components/nav/navModel.ts'),'utf-8').replace(/\r\n/g,'\n')
 const chromeCss = fs.readFileSync(path.resolve(__dirname, '../../components/nav/AppChrome.module.css'),'utf-8')
 
 describe('B.1 TopNav design-system migration after main convergence', () => {
@@ -13,7 +17,42 @@ describe('B.1 TopNav design-system migration after main convergence', () => {
     expect(source + chromeCss).not.toMatch(/--purple-\d/)
   })
   it('preserves routing and capability visibility', () => {
-    for (const text of ["const hasOrganiser =","const hasCrm =","const hasPeople =","const hasCommercial =",'href="/organiser"','href="/commercial"','href="/people"','href="/data-hub/import"','href="/reports"','href="/data"']) expect(source).toContain(text)
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // hasOrganiser/hasCrm/hasPeople/hasCommercial checks and the literal hrefs
+    // moved from TopNav into navModel.ts descriptors; TopNav renders
+    // resolveNav(). Each route is pinned on the model with its gate, and
+    // visibility is asserted behaviourally.
+    expect(source).toContain('const nav = resolveNav({ role, enabledCapabilities, dashboardVariant });')
+    for (const [href, gate] of [
+      ['/organiser', "gate: { anyCapability: ['organiser'], minRole: 'manager' }"],
+      ['/crm', "gate: { anyCapability: ['crm'] }"],
+      ['/people', "gate: { anyCapability: ['people'], capabilityBypassRoles: ['super_admin'] }"],
+      ['/commercial', "gate: { anyCapability: ['quotes', 'invoicing', 'purchasing'] }"],
+      ['/data-hub/import', "gate: { minRole: 'manager' }"],
+    ]) {
+      const at = navModel.indexOf(`href: '${href}'`)
+      expect(at, href).toBeGreaterThan(-1)
+      expect(navModel.slice(at, navModel.indexOf('\n  },', at)), href).toContain(gate)
+    }
+    expect(navModel).toContain("label: 'Reports', href: '/reports'")
+    expect(navModel).toContain("label: 'Data', href: '/data'")
+
+    const hrefs = (role: string, caps: string[]) => {
+      const nav = resolveNav({ role, enabledCapabilities: caps, dashboardVariant: null })
+      return [...nav.work, ...nav.brainbase].flatMap(e => (e.kind === 'group' ? e.children.map(c => c.href) : [e.href]))
+    }
+    const all = ['events', 'crm', 'quotes', 'organiser', 'people']
+    for (const href of ['/organiser', '/commercial', '/people', '/data-hub/import', '/reports', '/data', '/crm']) {
+      expect(hrefs('super_admin', all), href).toContain(href)
+    }
+    // Capability-gated routes disappear without their capability; internal
+    // Data/Reports never reach a non-super_admin.
+    const managerNoCaps = hrefs('manager', [])
+    for (const href of ['/organiser', '/commercial', '/crm', '/reports', '/data']) {
+      expect(managerNoCaps, href).not.toContain(href)
+    }
+    expect(managerNoCaps).toEqual(['/data-hub/import'])
+    expect(hrefs('viewer', all)).not.toContain('/data-hub/import')
   })
   it('preserves dropdown portals and the certified overflow strategy', () => {
     expect(source.match(/createPortal\(/g)?.length).toBe(2)
@@ -33,5 +72,11 @@ describe('B.1 TopNav design-system migration after main convergence', () => {
     expect(source).not.toContain('localStorage')
     expect(source).not.toContain('sessionStorage')
     expect(source).not.toContain('sql`')
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // same no-backend/no-persistence rule now also covers the nav model that
+    // TopNav imports (it must stay pure and client-safe).
+    expect(navModel).not.toMatch(/^import /m)
+    expect(navModel).not.toContain('localStorage')
+    expect(navModel).not.toContain('sessionStorage')
   })
 })

@@ -40,6 +40,8 @@ type SRRow = { status: string; count: number; avg_days: number };
 interface Props {
   orgName?: string;
   enabledCapabilities: string[];
+  /** Real signed-in role — lets "Your tools" offer role-gated modules. */
+  role?: string;
   waste: OperationalRow;
   fleet: OperationalRow;
   serviceRequests: SRRow[];
@@ -54,7 +56,7 @@ function fmt(n: number) {
 
 type Exception = { key: string; state: 'error' | 'warning'; label: string; text: string };
 
-export default function OrganisationDashboard({ orgName, enabledCapabilities, waste, fleet, serviceRequests }: Props) {
+export default function OrganisationDashboard({ orgName, enabledCapabilities, role, waste, fleet, serviceRequests }: Props) {
   const wasteCost    = Number(waste.total_cost ?? 0);
   const totalTonnes  = Number(waste.total_tonnes ?? 0);
   const avgContam    = Number(waste.avg_contamination ?? 0);
@@ -143,7 +145,7 @@ export default function OrganisationDashboard({ orgName, enabledCapabilities, wa
       {/* ── Your Tools (capability-gated module entry points) ── */}
       {hasAnyCapability && (
         <div className={styles.section}>
-          <ModuleAccessCard enabledCapabilities={enabledCapabilities} />
+          <ModuleAccessCard enabledCapabilities={enabledCapabilities} role={role} />
         </div>
       )}
     </div>

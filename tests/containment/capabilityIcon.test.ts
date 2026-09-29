@@ -1,6 +1,17 @@
 import fs from 'fs'
 import path from 'path'
 import { describe, it, expect } from 'vitest'
+import {
+  BRAINBASE_ITEMS,
+  HLNA_LINK,
+  HOME_LINK,
+  MANAGE_ITEMS,
+  REQUESTS_LINK,
+  WORK_ITEMS,
+  ACCOUNT_PROFILE_LINK,
+  type NavEntry,
+  type NavLink,
+} from '@/components/nav/navModel'
 
 // Phase D.4 — proof-of-concept only. CapabilityIcon maps a canonical
 // capability id to a small icon+container treatment. It must never become a
@@ -158,13 +169,13 @@ describe('CapabilityIcon — production wiring boundary (Phase D.4.3: + Events/C
 describe('CapabilityIcon — Phase D.4.3 secondary-surface audit boundary', () => {
   // Phase D.4.4E superseded the "deliberately left unimplemented" note
   // below: Organiser is now a first-class TopNav item (capability="organiser"
-  // on the NavItem, asserted in the TopNav section further down) and has
+  // on the Work menu entry (navModel descriptor), asserted in the TopNav section further down) and has
   // its own dedicated identity treatment in its rail header — see
   // components/organiser/OrganiserRail.tsx and organiserShellBoundary.test.ts.
   // app/organiser/page.tsx itself still does not import CapabilityIcon
   // directly (the identity lives in OrganiserRail/TopNav, not the page
   // body) — that narrower claim still holds and is asserted below.
-  it('app/organiser/page.tsx does not import CapabilityIcon directly — the module identity now lives in OrganiserRail\'s header and TopNav\'s NavItem, not the page body itself', () => {
+  it('app/organiser/page.tsx does not import CapabilityIcon directly — the module identity now lives in OrganiserRail\'s header and TopNav\'s Work menu, not the page body itself', () => {
     const src = read('app/organiser/page.tsx')
     expect(src).not.toMatch(/CapabilityIcon/)
   })
@@ -243,13 +254,37 @@ describe('CapabilityIcon — TopNav wiring specifics (Phase D.4.2)', () => {
   // HR-1 People Foundation — adds a fifth mirrored item, People (gated
   // on 'people'), matching the Events/CRM/Organiser/Commercial pattern
   // exactly (LD Tennis + generic branches) — count grows from 8 to 10.
-  // BrainBase Assurance — adds a sixth mirrored item, Assurance (gated on
-  // 'assurance'), same pattern in both branches — count grows from 10 to 12.
-  it('TopNav only ever passes a capability icon to genuinely capability-gated items — exactly 12 call sites (LD Tennis Events/CRM/Commercial/Organiser/People/Assurance + generic Events & Ticketing/CRM/Commercial/Organiser/People/Assurance), never an unlisted capability id', () => {
-    const capabilityProps = topNavCode.match(/capability="[a-z]+"/g) ?? []
-    expect(capabilityProps).toHaveLength(12)
-    for (const prop of capabilityProps) {
-      expect(['capability="events"', 'capability="crm"', 'capability="organiser"', 'capability="quotes"', 'capability="people"', 'capability="assurance"']).toContain(prop)
+  // Nav consolidation update (feat/authenticated-nav-consolidation): the 10
+  // hard-coded capability="…" props (5 per tenant branch) collapsed into ONE
+  // generic call site in MenuLink that renders `link.icon` from the navModel
+  // descriptor, only when the caller opts in (withIcons — Work menus only).
+  // The "only genuinely capability-gated items, never a sixth id" contract
+  // now lives on the descriptors: exactly 5 icon-bearing descriptors, each
+  // gated by anyCapability, with icon keys drawn only from the approved set.
+  const walkLinks = (entries: readonly NavEntry[]): NavLink[] =>
+    entries.flatMap(e => (e.kind === 'group' ? [...e.children] : [e]))
+  const allDescriptorLinks: NavLink[] = [
+    HOME_LINK, HLNA_LINK, REQUESTS_LINK, ACCOUNT_PROFILE_LINK,
+    ...walkLinks(WORK_ITEMS), ...walkLinks(MANAGE_ITEMS), ...walkLinks(BRAINBASE_ITEMS),
+  ]
+
+  it('TopNav only ever passes a capability icon to genuinely capability-gated items — exactly 10 call sites (LD Tennis Events/CRM/Commercial/Organiser/People + generic Events & Ticketing/CRM/Commercial/Organiser/People), never a sixth capability id', () => {
+    // No literal capability ids in TopNav any more — one generic call site.
+    expect(topNavCode.match(/capability="[a-z]+"/g) ?? []).toHaveLength(0)
+    expect(topNavCode.match(/<CapabilityIcon\b/g) ?? []).toHaveLength(1)
+    expect(topNavCode).toMatch(/\{withIcon && link\.icon && \(\s*<CapabilityIcon\s*capability=\{link\.icon\}/)
+    // Icons are opted into only for the Work menu (desktop + mobile).
+    const withIconsUses = topNavCode.match(/<MenuEntries[^>]*\bwithIcons\b[^>]*\/>/g) ?? []
+    expect(withIconsUses).toHaveLength(2)
+    for (const use of withIconsUses) expect(use).toContain('entries={nav.work}')
+    // Descriptor-level contract: exactly the five gated modules carry icons.
+    const iconed = allDescriptorLinks.filter(l => l.icon !== undefined)
+    expect(iconed.map(l => `${l.id}:${l.icon}`)).toEqual([
+      'events:events', 'crm:crm', 'commercial:quotes', 'organiser:organiser', 'people:people',
+    ])
+    for (const l of iconed) {
+      expect(['events', 'crm', 'organiser', 'quotes', 'people']).toContain(l.icon)
+      expect(l.gate?.anyCapability?.length ?? 0).toBeGreaterThan(0)
     }
   })
 
@@ -261,57 +296,74 @@ describe('CapabilityIcon — TopNav wiring specifics (Phase D.4.2)', () => {
   })
 
   it('HLNA is never rendered via CapabilityIcon — HlnaItem keeps its own distinct wordmark identity', () => {
-    const start = topNavCode.indexOf('function HlnaItem(')
-    const end = topNavCode.indexOf('\n}', start)
-    const hlnaItemBody = topNavCode.slice(start, end)
-    expect(hlnaItemBody).not.toMatch(/CapabilityIcon/)
+    // Nav consolidation update (feat/authenticated-nav-consolidation):
+    // HlnaItem became NavPill with the `hlna` flag (its own styles.hlna
+    // treatment). The old slice silently matched nothing once HlnaItem was
+    // removed; this pins the new component non-vacuously.
+    const start = topNavCode.indexOf('function NavPill(')
+    expect(start).toBeGreaterThan(-1)
+    const end = topNavCode.indexOf('\n}\n', start)
+    const pillBody = topNavCode.slice(start, end)
+    expect(pillBody).toContain('styles.hlna')
+    expect(pillBody).not.toMatch(/CapabilityIcon/)
+    expect(topNavCode).toMatch(/<NavPill link=\{nav\.hlna\} active=\{activeId === nav\.hlna\.id\} hlna \/>/)
+    expect(HLNA_LINK.icon).toBeUndefined()
   })
 
-  // For a given label, find every <NavItem ... label="X" .../> block (a
-  // label may legitimately appear more than once — e.g. "Requests" exists
-  // in both the LD Tennis and generic branches) and assert none of them
-  // carry a capability prop.
-  function allNavItemBlocksForLabel(label: string): string[] {
-    const blocks: string[] = []
-    let searchFrom = 0
-    for (;;) {
-      const labelIdx = topNavCode.indexOf(`label="${label}"`, searchFrom)
-      if (labelIdx === -1) break
-      const blockStart = topNavCode.lastIndexOf('<NavItem', labelIdx)
-      const blockEnd = topNavCode.indexOf('/>', labelIdx)
-      blocks.push(topNavCode.slice(blockStart, blockEnd))
-      searchFrom = labelIdx + label.length
-    }
-    return blocks
+  // Nav consolidation update (feat/authenticated-nav-consolidation): the
+  // per-label <NavItem …/> blocks no longer exist — labels live on navModel
+  // descriptors and TopNav renders them generically. "Never receives a
+  // capability prop" is now "descriptor has no `icon`" (the only source of
+  // MenuLink's capability prop), and the menus holding these items are
+  // rendered without withIcons. 'Dashboard' was renamed 'Home' (approved).
+  function descriptorsForLabel(label: string): NavLink[] {
+    return allDescriptorLinks.filter(l => l.label === label)
   }
 
   it('Dashboard, Requests, and every HQ-only item (Founder OS, Command, Reports, Data, Clients) never receive a capability prop', () => {
-    for (const label of ['Dashboard', 'Requests', 'Founder OS', 'Command', 'Reports', 'Data', 'Clients']) {
-      const blocks = allNavItemBlocksForLabel(label)
-      expect(blocks.length).toBeGreaterThan(0)
-      for (const block of blocks) {
-        expect(block).not.toMatch(/capability=/)
+    for (const label of ['Home', 'Requests', 'Founder OS', 'Command', 'Reports', 'Data', 'Clients']) {
+      const links = descriptorsForLabel(label)
+      expect(links.length, label).toBeGreaterThan(0)
+      for (const link of links) {
+        expect(link.icon, label).toBeUndefined()
       }
     }
+    // Home/HLNA/Requests are NavPills (no icon slot at all); Manage and
+    // Brainbase menus (desktop + mobile) never opt into icons.
+    const pillStart = topNavCode.indexOf('function NavPill(')
+    expect(topNavCode.slice(pillStart, topNavCode.indexOf('\n}\n', pillStart))).not.toMatch(/CapabilityIcon/)
+    const nonWorkMenus = topNavCode.match(/<MenuEntries entries=\{nav\.(manage|brainbase)\}[^>]*\/>/g) ?? []
+    expect(nonWorkMenus).toHaveLength(4)
+    for (const use of nonWorkMenus) expect(use).not.toMatch(/withIcons/)
   })
 
   it('LD Tennis bespoke items (Leads, Sessions, Blog) never receive a capability prop', () => {
-    for (const label of ['Leads', 'Sessions', 'Blog']) {
-      const blocks = allNavItemBlocksForLabel(label)
-      expect(blocks.length).toBeGreaterThan(0)
-      for (const block of blocks) {
-        expect(block).not.toMatch(/capability=/)
+    for (const label of ['Leads', 'Sessions', 'Blog', 'Squad']) {
+      const links = descriptorsForLabel(label)
+      expect(links.length, label).toBeGreaterThan(0)
+      for (const link of links) {
+        expect(link.icon, label).toBeUndefined()
       }
     }
-    // SquadItem is its own component (not NavItem) and was not touched.
-    expect(topNavCode).not.toMatch(/<SquadItem[\s\S]{0,80}capability=/)
+    // Group children (the Tennis group) are rendered by MenuLink WITHOUT
+    // withIcon, even inside the icon-enabled Work menu.
+    expect(topNavCode).toMatch(/group\.children\.map\(link => \(\s*<MenuLink key=\{link\.id\} link=\{link\} activeId=\{activeId\} onNavigate=\{onNavigate\} \/>/)
+    expect(topNavCode).not.toMatch(/SquadItem/)
   })
 
   it('OpsDropdown\'s own internal CRM shortcut (Brainbase HQ-internal Operations panel) was audited and deliberately left as a text-only row — a structurally different dropdown-row pattern, not a top-level nav pill, so it is out of this phase\'s scope', () => {
-    const opsStart = topNavCode.indexOf('const OPS_ITEMS')
-    const opsEnd = topNavCode.indexOf('function OpsDropdown')
-    const opsItemsBlock = topNavCode.slice(opsStart, opsEnd)
-    expect(opsItemsBlock).toMatch(/capabilityKey:\s*'crm'/)
-    expect(opsItemsBlock).not.toMatch(/CapabilityIcon/)
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // Operations panel's duplicate CRM shortcut was removed (approved — CRM
+    // lives once, in Work). Pin: OPS_ITEMS/OpsDropdown are gone, the
+    // Brainbase Operations group has no CRM entry and no icons, and CRM
+    // exists exactly once in the whole descriptor tree.
+    expect(topNavCode).not.toMatch(/const OPS_ITEMS|function OpsDropdown|capabilityKey/)
+    const ops = BRAINBASE_ITEMS.find(e => e.id === 'operations')
+    expect(ops?.kind).toBe('group')
+    const opsChildren = ops && ops.kind === 'group' ? ops.children : []
+    expect(opsChildren.map(c => c.label)).toEqual(['Waste', 'Fleet', 'Social', 'All dashboards'])
+    for (const c of opsChildren) expect(c.icon).toBeUndefined()
+    const crmLinks = allDescriptorLinks.filter(l => l.label === 'CRM' || l.href === '/crm')
+    expect(crmLinks.map(l => l.id)).toEqual(['crm'])
   })
 })

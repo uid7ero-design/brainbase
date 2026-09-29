@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { MetricsData } from '../OnboardingWizard';
 import { StepShell, NavButtons } from './Step1OrgInfo';
-
-const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
+import { CheckMark } from './Step2DataSources';
+import styles from '../Onboarding.module.css';
 
 const GOALS = [
   { id: 'reduce_contamination',   emoji: '♻️', label: 'Reduce contamination',          desc: 'Improve recycling quality' },
@@ -40,47 +40,30 @@ export default function Step6SuccessMetrics({ data, onNext, onBack }: {
         title="What does success look like?"
         subtitle="Select the goals that matter most. HLNA will weight its insights accordingly."
       >
-        <div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
+        <div role="group" aria-label="Success goals">
+          <div className={styles.goalGrid}>
             {GOALS.map(g => {
               const checked = form.goals.includes(g.id);
               return (
                 <button
                   key={g.id}
                   type="button"
+                  aria-pressed={checked}
+                  className={styles.option}
                   onClick={() => setForm(f => ({ ...f, goals: toggle(f.goals, g.id) }))}
-                  style={{
-                    padding: '14px 16px', borderRadius: 10, textAlign: 'left', cursor: 'pointer',
-                    border: checked ? '1px solid rgba(124,58,237,.6)' : '1px solid rgba(255,255,255,.07)',
-                    background: checked ? 'rgba(124,58,237,.1)' : 'rgba(255,255,255,.02)',
-                    fontFamily: FONT, transition: 'all .15s', position: 'relative',
-                  }}
-                  onMouseEnter={e => { if (!checked) e.currentTarget.style.borderColor = 'rgba(255,255,255,.15)'; }}
-                  onMouseLeave={e => { if (!checked) e.currentTarget.style.borderColor = 'rgba(255,255,255,.07)'; }}
                 >
-                  {checked && (
-                    <div style={{
-                      position: 'absolute', top: 10, right: 10,
-                      width: 16, height: 16, borderRadius: '50%',
-                      background: '#7C3AED', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}>
-                      <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-                        <path d="M1.5 4l2 2L6.5 2" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    </div>
-                  )}
-                  <div style={{ fontSize: 20, marginBottom: 8 }}>{g.emoji}</div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: checked ? '#C4B5FD' : '#F4F4F5', marginBottom: 3 }}>
-                    {g.label}
-                  </div>
-                  <div style={{ fontSize: 11, color: '#52525B', lineHeight: 1.4 }}>{g.desc}</div>
+                  <CheckMark />
+                  <span className={styles.optionText}>
+                    <span className={styles.optionLabel}>{g.label}</span>
+                    <span className={styles.optionDesc}>{g.desc}</span>
+                  </span>
                 </button>
               );
             })}
           </div>
 
           {form.goals.length > 0 && (
-            <p style={{ margin: '14px 0 0', fontSize: 12, color: '#71717A' }}>
+            <p className={styles.hint} style={{ marginTop: 14 }}>
               {form.goals.length} goal{form.goals.length > 1 ? 's' : ''} selected
             </p>
           )}

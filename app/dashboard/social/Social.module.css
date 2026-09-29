@@ -1,0 +1,515 @@
+/* Social Intelligence dashboard (remaining visual islands pass). Theme
+   tokens only; sentiment / confidence use the semantic status tokens and
+   are always written as text as well. */
+
+.page {
+  min-height: 100vh;
+  min-width: 0;
+  padding-bottom: 60px;
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+.header {
+  padding: 24px clamp(16px, 4vw, 36px) 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.headerInner,
+.body {
+  max-width: 80rem;
+  min-width: 0;
+  margin: 0 auto;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px clamp(16px, 4vw, 36px);
+}
+
+.synced {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.notice {
+  margin: 12px 0 0;
+  padding: 8px 14px;
+  border: 1px solid var(--status-success-border);
+  border-radius: var(--radius-md);
+  background: var(--status-success-muted);
+  font-size: 0.8125rem;
+  color: var(--status-success);
+}
+
+.notice[data-tone='danger'] {
+  border-color: var(--status-danger-border);
+  background: var(--status-danger-muted);
+  color: var(--status-danger);
+}
+
+/* ── Empty state ─────────────────────────────────────────────────── */
+
+.empty {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: 72px 16px;
+  text-align: center;
+}
+
+.emptyGlyph {
+  margin-bottom: 12px;
+  font-size: 2.5rem;
+  opacity: 0.5;
+}
+
+.emptyTitle {
+  margin: 0 0 8px;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.emptyText {
+  margin: 0 0 24px;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: var(--text-secondary);
+}
+
+.emptyActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+/* ── Tabs ─────────────────────────────────────────────────────────── */
+
+.tabList {
+  display: flex;
+  gap: 2px;
+  max-width: 100%;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  margin-bottom: -1px;
+  padding: 8px 16px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--text-primary);
+}
+
+.tab[aria-selected='true'] {
+  border-bottom-color: var(--brand-brainbase-accent);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.narrow {
+  max-width: 46rem;
+  min-width: 0;
+}
+
+.stackList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.panelEmpty {
+  padding: 48px 0;
+}
+
+/* ── Insight card ────────────────────────────────────────────────── */
+
+.insight {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.insight[data-open='true'] {
+  border-color: var(--border-strong);
+}
+
+.insightToggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.insightToggle:hover {
+  background: var(--bg-raised);
+}
+
+.insightGlyph {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.insightTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+
+.chevron {
+  flex-shrink: 0;
+  font-size: 0.625rem;
+  color: var(--text-muted);
+  transition: transform 150ms ease;
+}
+
+.chevron[data-open='true'] {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
+}
+
+.insightBody {
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.insightSummary {
+  margin: 12px 0 0;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: var(--text-secondary);
+}
+
+.evidence {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.evidence li {
+  margin-bottom: 3px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.recommend {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--brand-brainbase-accent-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.recommendLabel {
+  margin: 0 0 3px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.recommendText {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+/* ── Post card ───────────────────────────────────────────────────── */
+
+.feed {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.post {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.postMain {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+}
+
+.thumb {
+  position: relative;
+  flex-shrink: 0;
+  width: 72px;
+  height: 72px;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumbEmpty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 1.25rem;
+  opacity: 0.4;
+}
+
+.videoTag {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-overlay);
+  color: var(--text-primary);
+  font-size: 0.5rem;
+}
+
+.postContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.caption {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.postStats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.score {
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.score[data-tone='success'] {
+  color: var(--status-success);
+}
+
+.score[data-tone='warning'] {
+  color: var(--status-warning);
+}
+
+.date {
+  color: var(--text-muted);
+}
+
+.permalink {
+  margin-left: auto;
+  color: var(--brand-brainbase-accent);
+  text-decoration: none;
+}
+
+.permalink:hover {
+  text-decoration: underline;
+}
+
+.engTrack {
+  height: 3px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--bg-sunken);
+}
+
+.engFill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--bb-inactive-dot);
+}
+
+.engFill[data-tone='success'] {
+  background: var(--bb-success-dot);
+}
+
+.engFill[data-tone='warning'] {
+  background: var(--bb-warning-dot);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .engFill {
+    transition: width 0.6s ease;
+  }
+}
+
+.commentsToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 12px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.commentsToggle:hover {
+  background: var(--bg-raised);
+}
+
+.urgentFlag {
+  margin-left: 6px;
+  font-weight: 600;
+  color: var(--status-warning);
+}
+
+.commentList {
+  margin: 0;
+  padding: 0 12px 10px;
+  list-style: none;
+}
+
+.comment {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.comment:last-child {
+  border-bottom: 0;
+}
+
+.commentHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.author {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.when {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.commentText {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+/* ── Attention list ──────────────────────────────────────────────── */
+
+.attentionHead {
+  margin: 0 0 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.attention {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--status-inactive-muted);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.attention[data-state='warning'] {
+  border-left-color: var(--status-warning-border);
+}
+
+.attention[data-state='error'] {
+  border-left-color: var(--status-danger-border);
+}
+
+.attention[data-state='success'] {
+  border-left-color: var(--status-success-border);
+}
+
+.attentionText {
+  margin: 6px 0 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.suggest {
+  margin: 8px 0 0;
+  font-size: 0.75rem;
+  font-style: italic;
+  color: var(--text-muted);
+}

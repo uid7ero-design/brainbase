@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'fs'
 import path from 'path'
+// Nav consolidation update (feat/authenticated-nav-consolidation): TopNav's
+// Home destination now lives in the pure nav model.
+import { resolveNav } from '@/components/nav/navModel'
 
 // Super_admin org switcher — restore/expose UI.
 //
@@ -145,8 +148,21 @@ describe('OrgSwitcher — reuses the existing /api/admin/impersonate backend exc
   })
 
   it('/dashboard is the SAME existing generic client-landing route TopNav\'s own "Dashboard" nav link already points to — not a new or bespoke destination', () => {
-    const topNavSource = read('components/nav/TopNav.tsx')
-    expect((topNavSource.match(/href="\/dashboard"/g) ?? []).length).toBeGreaterThanOrEqual(2) // shared branch + isLdTennis branch
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the two
+    // href="/dashboard" JSX literals (shared branch + isLdTennis branch) became
+    // ONE descriptor, navModel.ts HOME_LINK ("Home" -> /dashboard), rendered by
+    // TopNav's single universal path — so every tenant variant and role is
+    // proven to land on /dashboard via resolveNav() instead of by counting.
+    const topNavSource = stripComments(read('components/nav/TopNav.tsx'))
+    const navModelSource = stripComments(read('components/nav/navModel.ts'))
+    expect(navModelSource).toMatch(/export const HOME_LINK: NavLink = \{\s*kind: 'link', id: 'home', label: 'Home', href: '\/dashboard', match: \['\/dashboard'\], exact: true,\s*\};/)
+    expect(topNavSource).toMatch(/<NavPill link=\{nav\.home\}/)
+    expect(topNavSource).not.toMatch(/dashboardVariant\s*===/)
+    for (const dashboardVariant of [null, 'ld-tennis', 'brainbase-hq'] as const) {
+      for (const role of ['viewer', 'manager', 'admin', 'super_admin']) {
+        expect(resolveNav({ role, enabledCapabilities: [], dashboardVariant }).home.href).toBe('/dashboard')
+      }
+    }
   })
 
   it('never redirects to /clients/[id] — that page is a read-only founder summary, never the impersonated app itself', () => {

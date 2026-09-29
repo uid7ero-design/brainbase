@@ -8,14 +8,28 @@ const source = fs.readFileSync(
 )
 
 describe('A.3 Reports reference-screen migration', () => {
-  it('uses the initial shared primitives and canonical BrainBase tokens', () => {
-    expect(source).toContain("import { Badge, SectionHeader, Surface } from '@/components/ui'")
-    expect(source).toContain('<SectionHeader')
-    expect(source).toContain('<Surface')
-    expect(source).toContain('<Badge')
-    expect(source).toContain("background: 'var(--bb-canvas)'")
-    expect(source).toContain("color: 'var(--bb-text-primary)'")
-    expect(source).toContain("fontFamily: 'var(--bb-font-sans)'")
+  // Visual-convergence update (remaining visual islands pass): the A.3
+  // reference primitives (SectionHeader / Surface / Badge on --bb-canvas)
+  // were superseded by the authenticated-app primitives. The pin now
+  // asserts the converged contract instead: the shared PageHeader (single
+  // h1), the table contract, the shared empty state, and a tokens-only CSS
+  // module whose page surface is --bg-base with --text-primary and the
+  // shared sans font.
+  it('uses the authenticated-app primitives and canonical theme tokens', () => {
+    expect(source).toContain("import { PageHeader, StateMessage, TableContainer, tableStyles } from '@/components/ui/app'")
+    expect(source).toContain("import styles from './Reports.module.css'")
+    expect(source).toContain('<PageHeader')
+    expect(source).toContain('title="Reports"')
+    expect(source).toContain('<TableContainer label="Reports"')
+    expect(source).toContain('className={tableStyles.table}')
+    expect(source).toContain('<StateMessage')
+    expect(source).not.toMatch(/<h1\b/)
+    expect(source).not.toMatch(/style=\{\{\s*(background|color|fontFamily)\s*:\s*['"`]/)
+    const css = fs.readFileSync(path.resolve(__dirname, '../../app/reports/Reports.module.css'), 'utf-8')
+    const page = css.slice(css.indexOf('.page {'), css.indexOf('}', css.indexOf('.page {')))
+    expect(page).toContain('background: var(--bg-base)')
+    expect(page).toContain('color: var(--text-primary)')
+    expect(page).toContain('font-family: var(--bb-font-sans)')
   })
 
   it('preserves authentication and unauthenticated redirect behaviour', () => {

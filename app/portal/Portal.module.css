@@ -1,0 +1,332 @@
+/* Client portal — Support & Requests (remaining visual islands pass,
+   phase 4C). Tokens only (app/globals.css) so it reads in light and dark:
+   no white-alpha text/borders, no indigo/violet literals, no pill chrome,
+   no outline suppression. Request and booking status meaning comes from
+   the shared semantic Badge (text + dot, never colour alone). */
+
+.page {
+  width: 100%;
+  max-width: 700px;
+  min-width: 0;
+  margin: 0 auto;
+  box-sizing: border-box;
+  padding: 32px 16px 80px;
+  color: var(--text-primary);
+  font-family: var(--bb-font-sans);
+}
+
+/* ── New request form ────────────────────────────────────────────────── */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 20px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.typeGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  width: fit-content;
+  max-width: 100%;
+  margin-bottom: 6px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.typeButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.typeButton:hover {
+  color: var(--text-primary);
+}
+.typeButton[aria-pressed='true'] {
+  background: var(--bg-surface);
+  border-color: var(--brand-brainbase-accent-border);
+  color: var(--brand-brainbase-accent);
+  font-weight: 600;
+}
+
+.textarea {
+  resize: none;
+  line-height: 1.6;
+}
+
+.formActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.error {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--status-danger);
+}
+
+/* ── Request list ────────────────────────────────────────────────────── */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+.card[data-attention='booking'] {
+  border-color: var(--status-info-border);
+  border-left: 3px solid var(--status-info);
+}
+.card[data-attention='awaiting'] {
+  border-color: var(--status-warning-border);
+  border-left: 3px solid var(--status-warning);
+}
+
+.cardToggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cardToggle:hover {
+  background: var(--bg-sunken);
+}
+
+.typeIcon {
+  flex-shrink: 0;
+  font-size: 0.9375rem;
+  color: var(--text-muted);
+}
+
+.cardText {
+  display: block;
+  flex: 1;
+  min-width: 0;
+}
+
+.cardTitle {
+  display: block;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardAge {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.cardBadges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.chevron {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.cardBody {
+  padding: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.description {
+  margin: 0 0 16px;
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* ── Booking ─────────────────────────────────────────────────────────── */
+
+.booking {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--status-inactive);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+.booking[data-status='pending_confirmation'],
+.booking[data-status='reschedule_requested'] {
+  border-left-color: var(--status-warning);
+}
+.booking[data-status='confirmed'] {
+  border-left-color: var(--status-success);
+}
+
+.bookingHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.bookingEyebrow {
+  margin: 0 0 4px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.bookingDate {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.bookingTime {
+  margin: 2px 0 0;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.bookingActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.reschedule {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* ── Thread ──────────────────────────────────────────────────────────── */
+
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.threadNote {
+  margin: 0 0 16px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.message[data-author='founder'] {
+  align-items: flex-end;
+}
+
+.bubble {
+  max-width: 80%;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-sunken);
+}
+.message[data-author='founder'] .bubble {
+  border-color: var(--brand-brainbase-accent-border);
+  background: var(--brand-brainbase-accent-muted);
+}
+
+.bubbleBody {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bubbleMeta {
+  margin: 6px 0 0;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+/* ── Reply ───────────────────────────────────────────────────────────── */
+
+.awaiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--status-warning-border);
+  border-radius: var(--radius-md);
+  background: var(--status-warning-muted);
+}
+
+.awaitingText {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.reply[data-attention='true'] {
+  border-color: var(--status-warning);
+}
+
+.sendError {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  color: var(--status-danger);
+}
+
+.sendRow {
+  margin-top: 8px;
+}
