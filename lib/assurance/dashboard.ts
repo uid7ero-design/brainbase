@@ -22,10 +22,14 @@ export type DashboardCounts = {
   overdue_actions: number;
   awaiting_verification: number;
   awaiting_evidence: number;
+  audits_due: number;
+  audits_in_progress: number;
+  audits_completed_30d: number;
+  open_audit_findings: number;
 };
 
 export type DashboardWorkItem = {
-  kind: 'action' | 'finding' | 'investigation' | 'inspection' | 'incident';
+  kind: 'action' | 'finding' | 'investigation' | 'inspection' | 'audit' | 'incident';
   id: string; reference: string; title: string; status: string;
   due_at: AssuranceTimestamp | null; owner_name: string | null; detail: string | null;
 };
@@ -91,7 +95,17 @@ export async function getDashboardData(viewer: AssuranceViewer): Promise<Dashboa
         (SELECT count(*) FROM assurance_actions a
           WHERE a.organisation_id = ${org} AND a.status = 'AWAITING_VERIFICATION' AND ${actionVisibleSql(viewer)})::int AS awaiting_verification,
         (SELECT count(*) FROM assurance_actions a
-          WHERE a.organisation_id = ${org} AND a.status = 'AWAITING_EVIDENCE' AND ${actionVisibleSql(viewer)})::int AS awaiting_evidence
+          WHERE a.organisation_id = ${org} AND a.status = 'AWAITING_EVIDENCE' AND ${actionVisibleSql(viewer)})::int AS awaiting_evidence,
+        (SELECT count(*) FROM assurance_audits au
+          WHERE au.organisation_id = ${org} AND au.status = 'PLANNED'
+            AND au.scheduled_at IS NOT NULL AND au.scheduled_at < now() + interval '14 days')::int AS audits_due,
+        (SELECT count(*) FROM assurance_audits au
+          WHERE au.organisation_id = ${org} AND au.status = 'IN_PROGRESS')::int AS audits_in_progress,
+        (SELECT count(*) FROM assurance_audits au
+          WHERE au.organisation_id = ${org} AND au.status = 'COMPLETED' AND au.completed_at > now() - interval '30 days')::int AS audits_completed_30d,
+        (SELECT count(DISTINCT f.id) FROM assurance_audit_findings af
+           JOIN assurance_findings f ON f.organisation_id = af.organisation_id AND f.id = af.finding_id
+          WHERE af.organisation_id = ${org} AND f.status NOT IN ('CLOSED', 'CANCELLED') AND ${findingVisibleSql(viewer)})::int AS open_audit_findings
     `,
     sql`
       SELECT 'action' AS kind, a.id, a.action_reference AS reference, a.title, a.status, t.current_due_at AS due_at,
@@ -160,8 +174,16 @@ export async function getDashboardData(viewer: AssuranceViewer): Promise<Dashboa
       LEFT JOIN locations loc ON loc.organisation_id = i.organisation_id AND loc.id = i.location_id
       WHERE i.organisation_id = ${org}
         AND (i.status = 'IN_PROGRESS' OR (i.status = 'PLANNED' AND i.scheduled_at IS NOT NULL AND i.scheduled_at < now() + interval '7 days'))
-      ORDER BY CASE i.status WHEN 'IN_PROGRESS' THEN 0 ELSE 1 END, i.scheduled_at ASC NULLS LAST
-      LIMIT 6
+      UNION ALL
+      SELECT 'audit' AS kind, au.id, au.audit_reference AS reference, au.title, au.status, au.scheduled_at AS due_at,
+             uu.name AS owner_name, COALESCE(au.standard_reference, loc.name) AS detail
+      FROM assurance_audits au
+      LEFT JOIN users uu ON uu.id = au.auditor_user_id AND uu.organisation_id = au.organisation_id
+      LEFT JOIN locations loc ON loc.organisation_id = au.organisation_id AND loc.id = au.location_id
+      WHERE au.organisation_id = ${org}
+        AND (au.status = 'IN_PROGRESS' OR (au.status = 'PLANNED' AND au.scheduled_at IS NOT NULL AND au.scheduled_at < now() + interval '14 days'))
+      ORDER BY 5 ASC, 6 ASC NULLS LAST -- status: IN_PROGRESS sorts before PLANNED
+      LIMIT 8
     `,
     sql`
       SELECT 'incident' AS kind, inc.id, inc.incident_reference AS reference, inc.title, inc.status, inc.occurred_at AS due_at,
@@ -199,6 +221,7 @@ export async function getDashboardData(viewer: AssuranceViewer): Promise<Dashboa
     .slice(0, 10);
   const isEmpty = counts.open_incidents === 0 && counts.active_investigations === 0 && counts.open_findings === 0
     && counts.open_actions === 0 && counts.inspections_due === 0 && counts.inspections_in_progress === 0
+    && counts.audits_due === 0 && counts.audits_in_progress === 0
     && (recent as unknown[]).length === 0;
 
   return {

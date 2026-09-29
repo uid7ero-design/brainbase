@@ -10,6 +10,8 @@ export const REFERENCE_PREFIX = {
   incident: 'INC',
   investigation: 'INV',
   inspection: 'INS',
+  audit: 'AUD',
+  auditTemplate: 'ATP',
   template: 'TPL',
   finding: 'FND',
   action: 'ACT',

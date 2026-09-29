@@ -97,11 +97,66 @@ export const VERIFICATION_RESULTS = [
 ] as const;
 export type VerificationResult = (typeof VERIFICATION_RESULTS)[number];
 
+// ── Audits (A0.1E-1) ──────────────────────────────────────────────────────
+
+export const AUDIT_TYPES = [
+  'INTERNAL', 'CONTRACTOR', 'SITE', 'PROCESS', 'FACILITY', 'POLICY', 'COMPLIANCE', 'OTHER',
+] as const;
+export type AuditType = (typeof AUDIT_TYPES)[number];
+
+export const AUDIT_STATUSES = ['PLANNED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const;
+export type AuditStatus = (typeof AUDIT_STATUSES)[number];
+
+export const AUDIT_RESPONSE_TYPES = ['COMPLIANCE_RATING', 'BOOLEAN', 'TEXT', 'NUMBER', 'CHOICE', 'OTHER'] as const;
+export type AuditResponseType = (typeof AUDIT_RESPONSE_TYPES)[number];
+
+export const AUDIT_OUTCOMES = ['COMPLIANT', 'PARTIAL', 'NON_COMPLIANT', 'NOT_APPLICABLE', 'OBSERVATION'] as const;
+export type AuditOutcome = (typeof AUDIT_OUTCOMES)[number];
+
+/** Outcomes for which the UI OFFERS (never auto-creates) a Finding. */
+export const AUDIT_FINDING_OUTCOMES: readonly AuditOutcome[] = ['NON_COMPLIANT', 'PARTIAL', 'OBSERVATION'];
+
+export type AuditCriterion = {
+  key: string;
+  label: string;
+  responseType: AuditResponseType;
+  guidance: string | null;
+  required: boolean;
+  options: string[];
+};
+
+export type ParsedCriteria = { items: AuditCriterion[]; invalidCount: number };
+
+/** Tolerant reader for assurance_audit_template_versions.criteria (same rules as parseChecklist). */
+export function parseCriteria(raw: unknown): ParsedCriteria {
+  const items: AuditCriterion[] = [];
+  let invalidCount = 0;
+  if (!Array.isArray(raw)) return { items, invalidCount: 0 };
+  const seen = new Set<string>();
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) { invalidCount++; continue; }
+    const e = entry as Record<string, unknown>;
+    const key = typeof e.key === 'string' ? e.key.trim() : '';
+    const label = typeof e.label === 'string' ? e.label.trim() : '';
+    if (!key || !label || seen.has(key)) { invalidCount++; continue; }
+    seen.add(key);
+    items.push({
+      key,
+      label,
+      responseType: isOneOf(AUDIT_RESPONSE_TYPES, e.responseType) ? e.responseType : 'COMPLIANCE_RATING',
+      guidance: typeof e.guidance === 'string' && e.guidance.trim() ? e.guidance.trim() : null,
+      required: e.required !== false,
+      options: Array.isArray(e.options) ? e.options.filter((o): o is string => typeof o === 'string' && o.trim() !== '') : [],
+    });
+  }
+  return { items, invalidCount };
+}
+
 // The explicit, workflow-specific evidence link tables. Evidence is never
 // linked through a generic entity_type/entity_id pair — each target has
 // its own table with composite tenant FKs.
 export const EVIDENCE_LINK_TARGETS = [
-  'incident', 'investigation', 'inspection', 'finding', 'action', 'verification',
+  'incident', 'investigation', 'inspection', 'audit', 'finding', 'action', 'verification',
 ] as const;
 export type EvidenceLinkTarget = (typeof EVIDENCE_LINK_TARGETS)[number];
 
@@ -122,6 +177,10 @@ const SPECIAL_LABELS: Record<string, string> = {
   IMMEDIATE_CONTROL: 'Immediate control',
   TECHNICAL_ADVISER: 'Technical adviser',
   LEAD_INVESTIGATOR: 'Lead investigator',
+  COMPLIANT: 'Compliant',
+  PARTIAL: 'Partially compliant',
+  NON_COMPLIANT: 'Non-compliant',
+  COMPLIANCE_RATING: 'Compliance rating',
 };
 
 /** Human label for any UPPER_SNAKE vocabulary value. Pure; never throws. */
@@ -150,6 +209,7 @@ const TONE_BY_VALUE: Record<string, AssuranceTone> = {
   CLOSED: 'success', COMPLETED: 'success', CANCELLED: 'neutral',
   // outcomes / results
   PASS: 'success', FAIL: 'danger', OBSERVATION: 'warning', NOT_APPLICABLE: 'neutral',
+  COMPLIANT: 'success', PARTIAL: 'warning', NON_COMPLIANT: 'danger',
   ACCEPTED: 'success', REJECTED: 'danger', PARTIALLY_ACCEPTED: 'warning',
   MORE_EVIDENCE_REQUIRED: 'warning',
   // priority

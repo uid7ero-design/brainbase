@@ -30,6 +30,7 @@ const LINK_TABLES: Record<EvidenceLinkTarget, { table: string; column: string }>
   incident: { table: 'assurance_evidence_incidents', column: 'incident_id' },
   investigation: { table: 'assurance_evidence_investigations', column: 'investigation_id' },
   inspection: { table: 'assurance_evidence_inspections', column: 'inspection_id' },
+  audit: { table: 'assurance_evidence_audits', column: 'audit_id' },
   finding: { table: 'assurance_evidence_findings', column: 'finding_id' },
   action: { table: 'assurance_evidence_actions', column: 'action_id' },
   verification: { table: 'assurance_evidence_verifications', column: 'verification_id' },
@@ -89,6 +90,10 @@ function activeLinksSql(viewer: AssuranceViewer) {
       FROM assurance_evidence_inspections x JOIN assurance_inspections i ON i.organisation_id = x.organisation_id AND i.id = x.inspection_id
       WHERE x.organisation_id = e.organisation_id AND x.evidence_id = e.id AND x.removed_at IS NULL
       UNION ALL
+      SELECT json_build_object('kind', 'audit', 'id', au.id, 'reference', au.audit_reference)::jsonb
+      FROM assurance_evidence_audits x JOIN assurance_audits au ON au.organisation_id = x.organisation_id AND au.id = x.audit_id
+      WHERE x.organisation_id = e.organisation_id AND x.evidence_id = e.id AND x.removed_at IS NULL
+      UNION ALL
       SELECT json_build_object('kind', 'finding', 'id', f.id, 'reference', f.finding_reference)::jsonb
       FROM assurance_evidence_findings x JOIN assurance_findings f ON f.organisation_id = x.organisation_id AND f.id = x.finding_id
       WHERE x.organisation_id = e.organisation_id AND x.evidence_id = e.id AND x.removed_at IS NULL AND ${findingVisibleSql(viewer)}
@@ -113,6 +118,7 @@ function linkCountsSql() {
       SELECT removed_at FROM assurance_evidence_incidents x WHERE x.organisation_id = e.organisation_id AND x.evidence_id = e.id
       UNION ALL SELECT removed_at FROM assurance_evidence_investigations x WHERE x.organisation_id = e.organisation_id AND x.evidence_id = e.id
       UNION ALL SELECT removed_at FROM assurance_evidence_inspections x WHERE x.organisation_id = e.organisation_id AND x.evidence_id = e.id
+      UNION ALL SELECT removed_at FROM assurance_evidence_audits x WHERE x.organisation_id = e.organisation_id AND x.evidence_id = e.id
       UNION ALL SELECT removed_at FROM assurance_evidence_findings x WHERE x.organisation_id = e.organisation_id AND x.evidence_id = e.id
       UNION ALL SELECT removed_at FROM assurance_evidence_actions x WHERE x.organisation_id = e.organisation_id AND x.evidence_id = e.id
       UNION ALL SELECT removed_at FROM assurance_evidence_verifications x WHERE x.organisation_id = e.organisation_id AND x.evidence_id = e.id
@@ -167,6 +173,10 @@ export async function getEvidenceDetail(viewer: AssuranceViewer, id: string): Pr
         UNION ALL
         SELECT x.id, 'inspection', i.id, i.inspection_reference, x.purpose, x.created_at, x.removed_at, x.removal_reason, x.created_by, x.removed_by
         FROM assurance_evidence_inspections x JOIN assurance_inspections i ON i.organisation_id = x.organisation_id AND i.id = x.inspection_id
+        WHERE x.organisation_id = ${org} AND x.evidence_id = ${id}::uuid
+        UNION ALL
+        SELECT x.id, 'audit', au.id, au.audit_reference, x.purpose, x.created_at, x.removed_at, x.removal_reason, x.created_by, x.removed_by
+        FROM assurance_evidence_audits x JOIN assurance_audits au ON au.organisation_id = x.organisation_id AND au.id = x.audit_id
         WHERE x.organisation_id = ${org} AND x.evidence_id = ${id}::uuid
         UNION ALL
         SELECT x.id, 'finding', f.id, f.finding_reference, x.purpose, x.created_at, x.removed_at, x.removal_reason, x.created_by, x.removed_by
@@ -244,6 +254,12 @@ async function loadTarget(viewer: AssuranceViewer, target: EvidenceLinkTarget, t
         WHERE i.organisation_id = ${org} AND i.id = ${targetId}::uuid
       `) as typeof rows;
       break;
+    case 'audit':
+      rows = (await sql`
+        SELECT au.status, true AS public_visible FROM assurance_audits au
+        WHERE au.organisation_id = ${org} AND au.id = ${targetId}::uuid
+      `) as typeof rows;
+      break;
     case 'finding':
       rows = (await sql`
         SELECT f.status, ${findingVisibleSql(pub)} AS public_visible FROM assurance_findings f
@@ -268,7 +284,8 @@ function assertEvidenceNotFrozen(target: EvidenceLinkTarget, status: string): vo
   const frozen =
     (target === 'action' && (status === 'CLOSED' || status === 'CANCELLED'))
     || (target === 'finding' && (status === 'CLOSED' || status === 'CANCELLED'))
-    || (target === 'inspection' && status === 'CANCELLED');
+    || (target === 'inspection' && status === 'CANCELLED')
+    || (target === 'audit' && status === 'CANCELLED');
   if (frozen) throw new AssuranceConflictError('This record is finished; its evidence is part of the closure record and can no longer be changed.');
 }
 
@@ -283,6 +300,9 @@ function notFrozenSql(viewer: AssuranceViewer, target: EvidenceLinkTarget, targe
   if (target === 'inspection') {
     return sql`NOT EXISTS (SELECT 1 FROM assurance_inspections g WHERE g.organisation_id = ${viewer.organisationId} AND g.id = ${targetId}::uuid AND g.status = 'CANCELLED')`;
   }
+  if (target === 'audit') {
+    return sql`NOT EXISTS (SELECT 1 FROM assurance_audits g WHERE g.organisation_id = ${viewer.organisationId} AND g.id = ${targetId}::uuid AND g.status = 'CANCELLED')`;
+  }
   return sql`true`;
 }
 
@@ -291,6 +311,7 @@ function lockTargetSql(viewer: AssuranceViewer, target: EvidenceLinkTarget, targ
   if (target === 'action') return sql`SELECT id FROM assurance_actions WHERE organisation_id = ${viewer.organisationId} AND id = ${targetId}::uuid FOR UPDATE`;
   if (target === 'finding') return sql`SELECT id FROM assurance_findings WHERE organisation_id = ${viewer.organisationId} AND id = ${targetId}::uuid FOR UPDATE`;
   if (target === 'inspection') return sql`SELECT id FROM assurance_inspections WHERE organisation_id = ${viewer.organisationId} AND id = ${targetId}::uuid FOR UPDATE`;
+  if (target === 'audit') return sql`SELECT id FROM assurance_audits WHERE organisation_id = ${viewer.organisationId} AND id = ${targetId}::uuid FOR UPDATE`;
   return sql`SELECT 1`;
 }
 
@@ -387,6 +408,7 @@ export async function linkEvidence(viewer: AssuranceViewer, evidenceId: string, 
         (SELECT count(*) FROM assurance_evidence_incidents x WHERE x.organisation_id = ${viewer.organisationId} AND x.evidence_id = ${evidenceId}::uuid)
         + (SELECT count(*) FROM assurance_evidence_investigations x WHERE x.organisation_id = ${viewer.organisationId} AND x.evidence_id = ${evidenceId}::uuid)
         + (SELECT count(*) FROM assurance_evidence_inspections x WHERE x.organisation_id = ${viewer.organisationId} AND x.evidence_id = ${evidenceId}::uuid)
+        + (SELECT count(*) FROM assurance_evidence_audits x WHERE x.organisation_id = ${viewer.organisationId} AND x.evidence_id = ${evidenceId}::uuid)
         + (SELECT count(*) FROM assurance_evidence_findings x WHERE x.organisation_id = ${viewer.organisationId} AND x.evidence_id = ${evidenceId}::uuid)
         + (SELECT count(*) FROM assurance_evidence_actions x WHERE x.organisation_id = ${viewer.organisationId} AND x.evidence_id = ${evidenceId}::uuid)
         + (SELECT count(*) FROM assurance_evidence_verifications x WHERE x.organisation_id = ${viewer.organisationId} AND x.evidence_id = ${evidenceId}::uuid)

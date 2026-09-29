@@ -22,6 +22,8 @@ export type AssuranceAuditResource =
   | 'assurance_investigation'
   | 'assurance_inspection'
   | 'assurance_inspection_template'
+  | 'assurance_audit'
+  | 'assurance_audit_template'
   | 'assurance_finding'
   | 'assurance_action'
   | 'assurance_evidence'

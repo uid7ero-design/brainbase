@@ -10,6 +10,7 @@ import { withFreshReference } from './references';
 import { assertIncidentVisible } from './incidents';
 import { assertInvestigationVisible } from './investigations';
 import { assertInspectionExists } from './inspections';
+import { assertAuditExists } from './audits';
 import type { EvidenceLinkRow } from './incidents';
 import { FINDING_STATUSES, FINDING_TYPES, type FindingStatus, type FindingType } from './domain';
 import {
@@ -29,10 +30,10 @@ export type FindingListFilters = {
   state?: 'open' | 'closed' | 'overdue' | 'all';
   findingType?: string;
   riskLevelId?: string;
-  source?: 'incident' | 'investigation' | 'inspection' | 'none';
+  source?: 'incident' | 'investigation' | 'inspection' | 'audit' | 'none';
 };
 
-export type SourceRef = { kind: 'incident' | 'investigation' | 'inspection'; id: string; reference: string };
+export type SourceRef = { kind: 'incident' | 'investigation' | 'inspection' | 'audit'; id: string; reference: string };
 
 export type FindingListRow = {
   id: string; finding_reference: string; title: string; finding_type: FindingType; status: FindingStatus;
@@ -46,7 +47,7 @@ export async function listFindings(viewer: AssuranceViewer, filters: FindingList
   const type = FINDING_TYPES.includes(filters.findingType as FindingType) ? filters.findingType! : null;
   const riskLevelId = isUuid(filters.riskLevelId) ? filters.riskLevelId : null;
   const state = filters.state && ['open', 'closed', 'overdue'].includes(filters.state) ? filters.state : 'all';
-  const source = filters.source && ['incident', 'investigation', 'inspection', 'none'].includes(filters.source) ? filters.source : null;
+  const source = filters.source && ['incident', 'investigation', 'inspection', 'audit', 'none'].includes(filters.source) ? filters.source : null;
 
   return (await sql`
     SELECT f.id, f.finding_reference, f.title, f.finding_type, f.status, f.identified_at,
@@ -80,10 +81,12 @@ export async function listFindings(viewer: AssuranceViewer, filters: FindingList
            OR (${source}::text = 'incident' AND EXISTS (SELECT 1 FROM assurance_incident_findings s WHERE s.organisation_id = f.organisation_id AND s.finding_id = f.id))
            OR (${source}::text = 'investigation' AND EXISTS (SELECT 1 FROM assurance_investigation_findings s WHERE s.organisation_id = f.organisation_id AND s.finding_id = f.id))
            OR (${source}::text = 'inspection' AND EXISTS (SELECT 1 FROM assurance_inspection_findings s WHERE s.organisation_id = f.organisation_id AND s.finding_id = f.id))
+           OR (${source}::text = 'audit' AND EXISTS (SELECT 1 FROM assurance_audit_findings s WHERE s.organisation_id = f.organisation_id AND s.finding_id = f.id))
            OR (${source}::text = 'none'
                AND NOT EXISTS (SELECT 1 FROM assurance_incident_findings s WHERE s.organisation_id = f.organisation_id AND s.finding_id = f.id)
                AND NOT EXISTS (SELECT 1 FROM assurance_investigation_findings s WHERE s.organisation_id = f.organisation_id AND s.finding_id = f.id)
-               AND NOT EXISTS (SELECT 1 FROM assurance_inspection_findings s WHERE s.organisation_id = f.organisation_id AND s.finding_id = f.id)))
+               AND NOT EXISTS (SELECT 1 FROM assurance_inspection_findings s WHERE s.organisation_id = f.organisation_id AND s.finding_id = f.id)
+               AND NOT EXISTS (SELECT 1 FROM assurance_audit_findings s WHERE s.organisation_id = f.organisation_id AND s.finding_id = f.id)))
       AND (${pattern}::text IS NULL OR f.finding_reference ILIKE ${pattern} OR f.title ILIKE ${pattern})
     ORDER BY CASE WHEN f.status IN ('CLOSED', 'CANCELLED') THEN 1 ELSE 0 END, tf.current_due_at ASC NULLS LAST, f.identified_at DESC
     LIMIT 200
@@ -107,6 +110,11 @@ function findingSourcesSql(viewer: AssuranceViewer) {
       SELECT json_build_object('kind', 'inspection', 'id', ins.id, 'reference', ins.inspection_reference)::jsonb
       FROM assurance_inspection_findings s
       JOIN assurance_inspections ins ON ins.organisation_id = s.organisation_id AND ins.id = s.inspection_id
+      WHERE s.organisation_id = f.organisation_id AND s.finding_id = f.id
+      UNION ALL
+      SELECT json_build_object('kind', 'audit', 'id', au.id, 'reference', au.audit_reference)::jsonb
+      FROM assurance_audit_findings s
+      JOIN assurance_audits au ON au.organisation_id = s.organisation_id AND au.id = s.audit_id
       WHERE s.organisation_id = f.organisation_id AND s.finding_id = f.id
     ) q
   )`;
@@ -252,15 +260,18 @@ export async function createFinding(viewer: AssuranceViewer, raw: Record<string,
     investigationId: optionalUuid(raw.investigationId, 'Investigation'),
     inspectionId: optionalUuid(raw.inspectionId, 'Inspection'),
     inspectionItemKey: optionalText(raw.inspectionItemKey, 'Checklist item', 120),
+    auditId: optionalUuid(raw.auditId, 'Audit'),
+    auditCriterionKey: optionalText(raw.auditCriterionKey, 'Audit criterion', 120),
   };
-  const sourceCount = [input.incidentId, input.investigationId, input.inspectionId].filter(Boolean).length;
+  const sourceCount = [input.incidentId, input.investigationId, input.inspectionId, input.auditId].filter(Boolean).length;
   if (sourceCount > 1) throw new AssuranceValidationError('Raise a finding from one source at a time; link further sources afterwards.');
   if (input.inspectionItemKey && !input.inspectionId) throw new AssuranceValidationError('A checklist item needs its inspection.');
+  if (input.auditCriterionKey && !input.auditId) throw new AssuranceValidationError('An audit criterion needs its audit.');
   if (input.dueAt && new Date(input.dueAt).getTime() < Date.now() - 24 * 3600_000) {
     throw new AssuranceValidationError('Due date cannot be in the past.');
   }
 
-  const [, , incident, investigation, inspection] = await Promise.all([
+  const [, , incident, investigation, inspection, auditRec] = await Promise.all([
     assertSameOrgUsers(viewer.organisationId, [{ field: 'Responsible person', userId: input.responsibleUserId }]),
     assertContextRefsInOrg(viewer.organisationId, {
       riskLevelId: input.riskLevelId, locationId: input.locationId, assetId: input.assetId,
@@ -269,12 +280,14 @@ export async function createFinding(viewer: AssuranceViewer, raw: Record<string,
     input.incidentId ? assertIncidentVisible(viewer, input.incidentId) : null,
     input.investigationId ? assertInvestigationVisible(viewer, input.investigationId) : null,
     input.inspectionId ? assertInspectionExists(viewer, input.inspectionId) : null,
+    input.auditId ? assertAuditExists(viewer, input.auditId) : null,
   ]);
   // A finished source cannot gain new findings (that would silently reopen
   // work behind a closed record). Enforced here, not only in the UI.
   if ((incident && (incident.status === 'CLOSED' || incident.status === 'CANCELLED'))
     || (investigation && (investigation.status === 'COMPLETED' || investigation.status === 'CANCELLED'))
-    || (inspection && inspection.status === 'CANCELLED')) {
+    || (inspection && inspection.status === 'CANCELLED')
+    || (auditRec && auditRec.status === 'CANCELLED')) {
     throw new AssuranceConflictError('Findings cannot be raised from a closed, completed or cancelled record.');
   }
   if (input.inspectionId && input.inspectionItemKey) {
@@ -283,6 +296,13 @@ export async function createFinding(viewer: AssuranceViewer, raw: Record<string,
       WHERE organisation_id = ${viewer.organisationId} AND inspection_id = ${input.inspectionId}::uuid AND item_key = ${input.inspectionItemKey}
     `) as { outcome: string | null }[];
     if (!r[0]) throw new AssuranceValidationError('That checklist item has no recorded response on this inspection.');
+  }
+  if (input.auditId && input.auditCriterionKey) {
+    const r = (await sql`
+      SELECT outcome FROM assurance_audit_responses
+      WHERE organisation_id = ${viewer.organisationId} AND audit_id = ${input.auditId}::uuid AND criterion_key = ${input.auditCriterionKey}
+    `) as { outcome: string | null }[];
+    if (!r[0]) throw new AssuranceValidationError('That criterion has no recorded response on this audit.');
   }
 
   const id = crypto.randomUUID();
@@ -296,14 +316,18 @@ export async function createFinding(viewer: AssuranceViewer, raw: Record<string,
       ? sql`SELECT id FROM assurance_investigations WHERE organisation_id = ${org} AND id = ${input.investigationId}::uuid FOR SHARE`
       : input.inspectionId
         ? sql`SELECT id FROM assurance_inspections WHERE organisation_id = ${org} AND id = ${input.inspectionId}::uuid FOR SHARE`
-        : sql`SELECT 1`;
+        : input.auditId
+          ? sql`SELECT id FROM assurance_audits WHERE organisation_id = ${org} AND id = ${input.auditId}::uuid FOR SHARE`
+          : sql`SELECT 1`;
   const sourceOpen = input.incidentId
     ? sql`EXISTS (SELECT 1 FROM assurance_incidents s WHERE s.organisation_id = ${org} AND s.id = ${input.incidentId}::uuid AND s.status NOT IN ('CLOSED', 'CANCELLED'))`
     : input.investigationId
       ? sql`EXISTS (SELECT 1 FROM assurance_investigations s WHERE s.organisation_id = ${org} AND s.id = ${input.investigationId}::uuid AND s.status NOT IN ('COMPLETED', 'CANCELLED'))`
       : input.inspectionId
         ? sql`EXISTS (SELECT 1 FROM assurance_inspections s WHERE s.organisation_id = ${org} AND s.id = ${input.inspectionId}::uuid AND s.status <> 'CANCELLED')`
-        : sql`true`;
+        : input.auditId
+          ? sql`EXISTS (SELECT 1 FROM assurance_audits s WHERE s.organisation_id = ${org} AND s.id = ${input.auditId}::uuid AND s.status <> 'CANCELLED')`
+          : sql`true`;
   return withFreshReference('finding', async reference => {
     const statements = [
       lock,
@@ -327,6 +351,10 @@ export async function createFinding(viewer: AssuranceViewer, raw: Record<string,
       INSERT INTO assurance_investigation_findings (organisation_id, investigation_id, finding_id, created_by)
       SELECT ${org}, ${input.investigationId}::uuid, ${id}::uuid, ${viewer.userId} WHERE ${sourceOpen}
     `);
+    if (input.auditId) statements.push(sql`
+      INSERT INTO assurance_audit_findings (organisation_id, audit_id, finding_id, created_by)
+      SELECT ${org}, ${input.auditId}::uuid, ${id}::uuid, ${viewer.userId} WHERE ${sourceOpen}
+    `);
     if (input.inspectionId) statements.push(sql`
       INSERT INTO assurance_inspection_findings (organisation_id, inspection_id, finding_id, created_by)
       SELECT ${org}, ${input.inspectionId}::uuid, ${id}::uuid, ${viewer.userId} WHERE ${sourceOpen}
@@ -342,6 +370,7 @@ export async function createFinding(viewer: AssuranceViewer, raw: Record<string,
                finding_reference: reference, finding_type: input.findingType, status: 'OPEN',
                incident_id: input.incidentId, investigation_id: input.investigationId,
                inspection_id: input.inspectionId, inspection_item_key: input.inspectionItemKey,
+               audit_id: input.auditId, audit_criterion_key: input.auditCriterionKey,
              })}::jsonb
       WHERE ${sourceOpen}
     `);
