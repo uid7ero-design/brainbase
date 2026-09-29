@@ -70,6 +70,12 @@ BEGIN
     RAISE EXCEPTION 'datahub_complete_normalization_run: run has no expected counts (normalization_run_id=%)', p_normalization_run_id;
   END IF;
 
+  -- REMEDIATION (pre-PR review) — ACTOR TENANT SAFETY, defense in depth:
+  -- the Upload trigger (datahub_guard_upload_normalization_metadata) is the
+  -- authoritative enforcement point, but this function validates
+  -- p_completed_by BEFORE touching any run/upload state, so a direct
+  -- function call fails clearly and no partial state change is ever
+  -- attempted for a cross-tenant actor. Never echoes the actor id/value.
   IF NOT EXISTS (
     SELECT 1 FROM public.users WHERE id = p_completed_by AND organisation_id = p_organisation_id
   ) THEN
