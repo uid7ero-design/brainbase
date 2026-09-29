@@ -146,6 +146,7 @@ export default async function DashboardPage() {
         todaysSessions={todaysInstances as Parameters<typeof TennisDashboard>[0]['todaysSessions']}
         sessionTypes={sessionTypes as Parameters<typeof TennisDashboard>[0]['sessionTypes']}
         enabledCapabilities={enabledCapabilities}
+        role={session.role}
       />
     )
   }
@@ -193,6 +194,7 @@ export default async function DashboardPage() {
     <OrganisationDashboard
       orgName={(orgRow[0] as { name?: string } | undefined)?.name}
       enabledCapabilities={enabledCapabilities}
+      role={session.role}
       waste={(wasteRows[0] ?? {}) as Record<string, number>}
       fleet={(fleetRows[0] ?? {}) as Record<string, number>}
       serviceRequests={srRows as { status: string; count: number; avg_days: number }[]}

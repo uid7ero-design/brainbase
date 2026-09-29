@@ -29,6 +29,9 @@ function read(relPath: string): string {
 const pageSource = read('app/dashboard/page.tsx');
 const dashSource = read('components/dashboard/OrganisationDashboard.tsx');
 const cardSource = read('components/dashboard/ModuleAccessCard.tsx');
+// Nav consolidation update (feat/authenticated-nav-consolidation): module
+// keys/routes/gates now live in the shared pure nav model.
+const navModelSource = read('components/nav/navModel.ts');
 
 describe('Phase C.2C — /dashboard routing matrix', () => {
   it('brainbase-hq + super_admin still redirects to /admin/founder', () => {
@@ -251,14 +254,23 @@ describe('Phase C.2C — real, organisation-scoped data only', () => {
 describe('Phase C.2C — Events & Ticketing / module discoverability', () => {
   it('OrganisationDashboard renders ModuleAccessCard, gated on genuinely enabled capabilities', () => {
     expect(dashSource).toMatch(/import \{ ModuleAccessCard \} from '\.\/ModuleAccessCard'/);
-    expect(dashSource).toMatch(/<ModuleAccessCard enabledCapabilities=\{enabledCapabilities\} \/>/);
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // card now also receives the real role so role-gated modules (Organiser:
+    // manager+) mirror their route guard; still the same capability list.
+    expect(dashSource).toMatch(/<ModuleAccessCard enabledCapabilities=\{enabledCapabilities\} role=\{role\} \/>/);
+    expect(pageSource).toMatch(/<OrganisationDashboard[\s\S]{0,400}role=\{session\.role\}/);
     expect(dashSource).toMatch(/\{hasAnyCapability && \(/);
   });
 
   it('ModuleAccessCard covers every real capability key that exists in modules today (events, crm, organiser) — verified real routes, not guessed', () => {
-    expect(cardSource).toMatch(/key: 'events'[\s\S]*?href: '\/events'/);
-    expect(cardSource).toMatch(/key: 'crm'[\s\S]*?href: '\/crm'/);
-    expect(cardSource).toMatch(/key: 'organiser'[\s\S]*?href: '\/organiser'/);
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // key→route rows moved from ModuleAccessCard's MODULE_ENTRIES to the
+    // navModel WORK_ITEMS descriptors, which the card consumes via
+    // workModuleCards(). Same keys, same real routes, each capability-gated.
+    expect(cardSource).toMatch(/workModuleCards\(/);
+    expect(navModelSource).toMatch(/id: 'events'[\s\S]*?href: '\/events'[\s\S]*?gate: \{ anyCapability: \['events'\] \}/);
+    expect(navModelSource).toMatch(/id: 'crm'[\s\S]*?href: '\/crm'[\s\S]*?gate: \{ anyCapability: \['crm'\] \}/);
+    expect(navModelSource).toMatch(/id: 'organiser'[\s\S]*?href: '\/organiser'[\s\S]*?gate: \{ anyCapability: \['organiser'\], minRole: 'manager' \}/);
   });
 
   it('ModuleAccessCard renders nothing when no configured capability is enabled', () => {
@@ -272,8 +284,13 @@ describe('Phase C.2C — Events & Ticketing / module discoverability', () => {
   // arrived correctly rather than pinning the pre-C.2D gap.
   it('the global TopNav Events entry landed in C.2D, capability-gated, alongside this dashboard-local card', () => {
     const topNav = read('components/nav/TopNav.tsx');
-    expect(topNav).toMatch(/['"]\/events['"]/);
-    expect(topNav).toMatch(/hasEvents/);
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // '/events' literal and the local hasEvents flag moved into the navModel
+    // 'events' descriptor (capability-gated); TopNav renders it through
+    // resolveNav() inside the Work menu.
+    expect(topNav).toMatch(/resolveNav\(\{ role, enabledCapabilities, dashboardVariant \}\)/);
+    expect(topNav).toMatch(/entries=\{nav\.work\}/);
+    expect(navModelSource).toMatch(/href: '\/events'[\s\S]{0,200}gate: \{ anyCapability: \['events'\] \}/);
   });
 });
 
