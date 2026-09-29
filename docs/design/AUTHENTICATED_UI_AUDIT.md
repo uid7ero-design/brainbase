@@ -2705,6 +2705,7 @@ Other before → after measurements:
 
 ### Current state: Organiser keyboard reordering (update, 2026-09-29)
 
-The Organiser keyboard-reordering gap recorded above under the N1–N5 follow-up (PR #248's drag handles had no keyboard way to reorder) is **closed** by PR #293 ("D.4.7F: add accessible keyboard reordering for Organiser"), which main now contains. It is no longer outstanding debt. The historical entries above are left as written.
-
-PR #294 was reconciled with main after PR #293 by a normal merge commit. The two changes share no files; the Organiser visual-convergence pins and PR #293's keyboard-reorder tests both pass on the combined tree.
+- **Closed.** The Organiser keyboard-reordering accessibility gap (PR #248's drag handles had no keyboard way to reorder) is closed by PR #293 ("D.4.7F: add accessible keyboard reordering for Organiser"). It is no longer outstanding debt.
+- **Current main** includes accessible keyboard reordering for the Organiser.
+- **The historical entry above** under the N1–N5 follow-up is intentionally unchanged, because it accurately records the state at that time.
+- **PR #294 does not implement this fix.** It only reconciles with a main branch that already contains PR #293, via a normal merge commit. The two changes share no files. The Organiser visual-convergence pins and PR #293's keyboard-reorder tests both pass on the combined tree.
