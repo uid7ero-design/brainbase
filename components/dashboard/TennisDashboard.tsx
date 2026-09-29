@@ -59,6 +59,8 @@ export type Props = {
   todaysSessions: TodaySessionInstance[]
   sessionTypes: SessionTypeRow[]
   enabledCapabilities?: string[]
+  /** Real signed-in role — lets "Your tools" offer role-gated modules. */
+  role?: string
 }
 
 type Tone = 'accent' | 'success' | 'warning' | 'info'
@@ -179,6 +181,7 @@ export default function TennisDashboard({
   todaysSessions,
   sessionTypes,
   enabledCapabilities = [],
+  role,
 }: Props) {
   const todayLabel = new Date().toLocaleDateString('en-AU', {
     weekday: 'long',
@@ -249,7 +252,7 @@ export default function TennisDashboard({
         {/* Module access — capability-gated entry points (e.g. Events &
             Ticketing). Renders nothing when no module is enabled — see
             ModuleAccessCard's own comment. */}
-        <ModuleAccessCard enabledCapabilities={enabledCapabilities} />
+        <ModuleAccessCard enabledCapabilities={enabledCapabilities} role={role} />
 
         {/* KPIs */}
         <section className={styles.kpiGrid} aria-label="Key figures">

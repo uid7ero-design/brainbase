@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
+// Nav consolidation update (feat/authenticated-nav-consolidation): pure nav
+// model, safe to import in a node test.
+import { WORK_ITEMS, resolveNav, type NavContext, type NavEntry, type NavLink } from '@/components/nav/navModel';
 
 // HR-1 — static proof that People is a genuine, independently-enableable
 // capability, not a hardcoded/unconditional feature: (1) app/people/
@@ -53,37 +56,78 @@ describe('app/people/layout.tsx — module gating', () => {
   });
 });
 
+// Nav consolidation update (feat/authenticated-nav-consolidation): TopNav no
+// longer computes hasPeople/isSuperAdmin or renders a People <NavItem>; the
+// People entry is one descriptor in components/nav/navModel.ts WORK_ITEMS,
+// gated { anyCapability: ['people'], capabilityBypassRoles: ['super_admin'] }
+// (the HR-2 bypass, mirroring lib/hr/capability.ts), and TopNav renders the
+// resolved tree. Pins below assert that descriptor (source + object) and its
+// resolved behaviour for every role × variant.
 describe('components/nav/TopNav.tsx — People nav item is capability-gated, never unconditional', () => {
   const src = read('components/nav/TopNav.tsx');
+  const model = read('components/nav/navModel.ts').replace(/\r\n/g, '\n');
+  const flat = (entries: readonly NavEntry[]): NavLink[] =>
+    entries.flatMap(e => (e.kind === 'group' ? [...e.children] : [e]));
+  const people = flat(WORK_ITEMS).find(l => l.id === 'people');
+  const seesPeople = (role: string, caps: string[], dashboardVariant: NavContext['dashboardVariant'] = null) => {
+    const nav = resolveNav({ role, enabledCapabilities: caps, dashboardVariant });
+    return [...flat(nav.work), ...flat(nav.manage), ...flat(nav.brainbase)].some(l => l.href === '/people');
+  };
+  const VARIANTS = [null, 'ld-tennis', 'brainbase-hq'] as const;
 
   it('computes hasPeople from enabledCapabilities, the same projection every other capability flag uses', () => {
-    expect(src).toMatch(/const hasPeople\s*=\s*\n?\s*(?:isSuperAdmin\s*\|\|\s*\n?\s*)?enabledCapabilities\.includes\(\s*\n?\s*'people',?\s*\n?\s*\);/);
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // same anyCapability projection CRM/Organiser/Commercial use.
+    expect(people?.href).toBe('/people');
+    expect(people?.gate?.anyCapability).toEqual(['people']);
+    expect(model).toMatch(/gate: \{ anyCapability: \['people'\], capabilityBypassRoles: \['super_admin'\] \},/);
+    expect(model).toMatch(/const enabled = gate\.anyCapability\.some\(key => ctx\.enabledCapabilities\.includes\(key\)\);/);
+    for (const v of VARIANTS) {
+      for (const role of ['viewer', 'manager', 'admin', 'analyst']) {
+        expect(seesPeople(role, ['people'], v), `${role}/${v}`).toBe(true);
+      }
+    }
   });
 
   it('HR-2 — hasPeople is true for super_admin via the already-existing isSuperAdmin flag, regardless of enabledCapabilities', () => {
-    const start = src.indexOf('const hasPeople');
-    const end = src.indexOf(';', start);
-    const block = src.slice(start, end);
-    expect(block).toMatch(/isSuperAdmin\s*\|\|/);
-    // isSuperAdmin itself must be the same flag other super_admin-only
-    // nav items already use in this function scope — not a re-derivation.
-    expect(src).toMatch(/const isSuperAdmin\s*=\s*\n?\s*role === 'super_admin';/);
-    expect(src.indexOf('const isSuperAdmin')).toBeLessThan(start);
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // isSuperAdmin flag is now capabilityBypassRoles: ['super_admin'], keyed
+    // on the REAL role (exact match, no role-order inheritance).
+    expect(people?.gate).toEqual({ anyCapability: ['people'], capabilityBypassRoles: ['super_admin'] });
+    expect(model).toMatch(/const bypass = gate\.capabilityBypassRoles\?\.includes\(ctx\.role\) \?\? false;/);
+    expect(model).toMatch(/if \(!bypass && !enabled\) return false;/);
+    for (const v of VARIANTS) {
+      expect(seesPeople('super_admin', [], v), `super_admin/${v}`).toBe(true);
+      // The bypass is super_admin-only — admin and below get no bypass.
+      for (const role of ['viewer', 'manager', 'admin', 'analyst', '']) {
+        expect(seesPeople(role, [], v), `${role}/${v}`).toBe(false);
+      }
+    }
   });
 
   it('the People NavItem is wrapped in {hasPeople && (...)}, matching hasCrm/hasOrganiser/hasCommercial\'s own pattern exactly', () => {
-    expect(src).toMatch(/\{hasPeople && \(\s*<NavItem\s*\n\s*href="\/people"/);
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // shared pattern is now "a gated WORK_ITEMS descriptor" — People sits
+    // alongside CRM/Organiser/Commercial, each with its own gate.
+    const peopleIdx = WORK_ITEMS.findIndex(e => e.id === 'people');
+    expect(peopleIdx).toBeGreaterThan(-1);
+    for (const id of ['crm', 'organiser', 'commercial', 'people']) {
+      const entry = WORK_ITEMS.find(e => e.id === id);
+      expect(entry?.gate?.anyCapability?.length, id).toBeGreaterThan(0);
+    }
+    expect(model).toMatch(/id: 'people', label: 'People', href: '\/people', match: \['\/people'\],/);
   });
 
   it('there is no unconditional (always-rendered) People/HR nav entry anywhere in the file', () => {
-    // Every literal "/people" href in the file must be inside a
-    // hasPeople-gated block — approximated by requiring the ONLY
-    // occurrences of the href are the ones already matched above.
-    const peopleHrefs = [...src.matchAll(/href="\/people"/g)];
-    expect(peopleHrefs.length).toBeGreaterThan(0);
-    for (const match of peopleHrefs) {
-      const before = src.slice(Math.max(0, match.index! - 200), match.index);
-      expect(before).toMatch(/hasPeople && \(/);
+    // Nav consolidation update (feat/authenticated-nav-consolidation): TopNav
+    // carries no /people literal at all; the model declares it exactly once
+    // (gated, as above), and no Manage/Brainbase/Account entry points at it.
+    expect(src).not.toMatch(/\/people/);
+    expect((model.match(/href: '\/people'/g) ?? []).length).toBe(1);
+    expect(people?.gate).toBeDefined();
+    for (const v of VARIANTS) {
+      expect(seesPeople('viewer', [], v), String(v)).toBe(false);
+      expect(seesPeople('admin', ['events', 'crm', 'quotes', 'organiser'], v), String(v)).toBe(false);
     }
   });
 });

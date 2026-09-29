@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import fs from 'fs'
 import path from 'path'
+import { resolveNav } from '@/components/nav/navModel'
 
 const topNav = fs.readFileSync(
   path.resolve(__dirname, '../../components/nav/TopNav.tsx'),
@@ -24,6 +25,13 @@ const sidebar = fs.readFileSync(
 
 const shell = fs.readFileSync(
   path.resolve(__dirname, '../../components/ops/WorkspaceShell.tsx'),
+  'utf-8',
+).replace(/\r\n/g, '\n')
+
+// Nav consolidation update (feat/authenticated-nav-consolidation): visibility
+// rules now live in the pure nav model; read its source and use resolveNav().
+const navModel = fs.readFileSync(
+  path.resolve(__dirname, '../../components/nav/navModel.ts'),
   'utf-8',
 ).replace(/\r\n/g, '\n')
 
@@ -104,35 +112,63 @@ describe('B.4 shared responsive navigation design-system migration', () => {
   })
 
   it('preserves capability-driven authenticated navigation exactly', () => {
-    for (const text of [
-      'const hasEvents =',
-      "enabledCapabilities.includes(\n      'events'",
-      'const hasCrm =',
-      "enabledCapabilities.includes(\n      'crm'",
-      'const hasOrganiser =',
-      "enabledCapabilities.includes(\n      'organiser'",
-      'const hasCommercial =',
-      "'quotes',",
-      "'invoicing',",
-      "'purchasing',",
-      'const hasPeople =',
-      "'people',",
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // hasEvents/hasCrm/... capability checks moved out of TopNav into
+    // navModel.ts WORK_ITEMS gates (TopNav now only renders resolveNav()).
+    // Each capability → href pairing is pinned on its descriptor AND
+    // behaviourally. APPROVED change: Organiser additionally requires
+    // manager+ (matching app/organiser/layout.tsx).
+    for (const [href, gate] of [
+      ['/events', "gate: { anyCapability: ['events'] }"],
+      ['/crm', "gate: { anyCapability: ['crm'] }"],
+      ['/commercial', "gate: { anyCapability: ['quotes', 'invoicing', 'purchasing'] }"],
+      ['/organiser', "gate: { anyCapability: ['organiser'], minRole: 'manager' }"],
+      ['/people', "gate: { anyCapability: ['people'], capabilityBypassRoles: ['super_admin'] }"],
     ]) {
-      expect(topNav).toContain(text)
+      const at = navModel.indexOf(`href: '${href}'`)
+      expect(at, href).toBeGreaterThan(-1)
+      expect(navModel.slice(at, navModel.indexOf('\n  },', at)), href).toContain(gate)
     }
+    expect(topNav).toContain('const nav = resolveNav({ role, enabledCapabilities, dashboardVariant });')
+    expect(topNav).not.toMatch(/enabledCapabilities\.includes\(/)
 
-    for (const href of ['/events', '/crm', '/organiser', '/commercial', '/people']) {
-      expect(topNav).toContain('href="' + href + '"')
+    const hrefs = (role: string, caps: string[]) =>
+      resolveNav({ role, enabledCapabilities: caps, dashboardVariant: null }).work.flatMap(e =>
+        e.kind === 'group' ? e.children.map(c => c.href) : [e.href])
+    expect(hrefs('manager', [])).toEqual(['/data-hub/import'])
+    expect(hrefs('manager', ['events'])).toEqual(['/events', '/data-hub/import'])
+    expect(hrefs('manager', ['crm'])).toEqual(['/crm', '/data-hub/import'])
+    for (const cap of ['quotes', 'invoicing', 'purchasing']) {
+      expect(hrefs('manager', [cap])).toEqual(['/commercial', '/data-hub/import'])
     }
+    expect(hrefs('manager', ['organiser'])).toEqual(['/organiser', '/data-hub/import'])
+    expect(hrefs('viewer', ['organiser'])).toEqual([])
+    expect(hrefs('manager', ['people'])).toEqual(['/people', '/data-hub/import'])
   })
 
   it('preserves role visibility and super-admin-specific navigation boundaries', () => {
-    expect(topNav).toContain("const isSuperAdmin =\n    role === 'super_admin'")
-    expect(topNav).toContain("const isManagerPlus =\n    ['manager', 'admin', 'super_admin'].includes(")
-    expect(topNav).toContain('{isSuperAdmin && (')
-    expect(topNav).toContain('<AdminDropdown')
-    expect(topNav).toContain("(role === 'admin' || role === 'super_admin')")
-    expect(topNav).toContain('href="/settings/branding"')
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // isSuperAdmin / isManagerPlus / admin-or-super_admin checks moved from
+    // TopNav into navModel.ts (NAV_ROLE_ORDER + gates). Super-admin tools
+    // (formerly AdminDropdown) are the Brainbase menu, internal-gated on the
+    // REAL role; Branding keeps its admin+ floor (super_admin via role order).
+    expect(navModel).toContain("export const NAV_ROLE_ORDER = ['viewer', 'manager', 'admin', 'super_admin'] as const;")
+    expect(navModel).toContain("if (gate.internal && ctx.role !== 'super_admin') return false;")
+    expect(navModel).toMatch(/label: 'Branding', href: '\/settings\/branding',[\s\S]*?gate: \{ minRole: 'admin' \}/)
+    expect(topNav).toContain('{nav.brainbase.length > 0 && (')
+    expect(topNav).toContain('<NavMenu label="Brainbase"')
+    expect(topNav).not.toContain('<AdminDropdown')
+
+    const nav = (role: string) => resolveNav({ role, enabledCapabilities: [], dashboardVariant: null })
+    const manageHrefs = (role: string) => nav(role).manage.flatMap(e => (e.kind === 'link' ? [e.href] : []))
+    expect(nav('super_admin').brainbase.length).toBeGreaterThan(0)
+    for (const role of ['viewer', 'manager', 'admin', 'analyst']) {
+      expect(nav(role).brainbase, role).toEqual([])
+    }
+    expect(manageHrefs('viewer')).toEqual([])
+    expect(manageHrefs('manager')).toEqual(['/dashboard/integrations'])
+    expect(manageHrefs('admin')).toEqual(['/dashboard/integrations', '/settings/branding'])
+    expect(manageHrefs('super_admin')).toEqual(['/dashboard/integrations', '/settings/branding'])
   })
 
   it('preserves profile, logout, and responsive system-cluster interactions', () => {
@@ -140,9 +176,17 @@ describe('B.4 shared responsive navigation design-system migration', () => {
     // inline chrome styling. The reviewed Phase B (TopNav / AppChrome.module.css) and Phase D1
     // (OpBar / Sidebar) implementations supersede that presentation, so this assertion now pins
     // the reviewed equivalent. Behavioural assertions in this file are unchanged.
-    expect(topNav).toContain('href="/account/profile"')
-    expect(topNav).toContain("await import(\n                '@/app/actions/auth'")
+    // Nav consolidation update (feat/authenticated-nav-consolidation): My
+    // profile is now the Account menu's model link (ACCOUNT_PROFILE_LINK,
+    // rendered via MenuLink href={link.href}); Sign out keeps the same dynamic
+    // import of logout, now inside SignOutMenuItem (one level shallower, so
+    // the indentation changed). Both are in AccountEntries, used by the
+    // desktop Account menu AND the mobile menu.
+    expect(navModel).toContain("label: 'My profile', href: '/account/profile'")
+    expect(topNav).toContain('<MenuLink link={nav.account.profile}')
+    expect(topNav).toContain("await import(\n              '@/app/actions/auth'")
     expect(topNav).toContain('await logout()')
+    expect((topNav.match(/<AccountEntries nav=\{nav\}/g) ?? []).length).toBe(2)
     expect(topNav).toContain('flexShrink: 0')
 
   })
@@ -152,9 +196,15 @@ describe('B.4 shared responsive navigation design-system migration', () => {
     // inline chrome styling. The reviewed Phase B (TopNav / AppChrome.module.css) and Phase D1
     // (OpBar / Sidebar) implementations supersede that presentation, so this assertion now pins
     // the reviewed equivalent. Behavioural assertions in this file are unchanged.
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the 2
+    // portals are now the generic NavMenu (every desktop menu) + MobileMenu;
+    // the measured `rect.bottom + 6` offset lives once, in NavMenu.
     expect(topNav.match(/createPortal\(/g)?.length).toBe(2)
     expect(topNav).toContain("overflowX: 'auto'")
-    expect(topNav.match(/top: rect\.bottom \+ 6/g)?.length).toBe(2)
+    expect(topNav.match(/top: rect\.bottom \+ 6/g)?.length).toBe(1)
+    const navMenu = topNav.slice(topNav.indexOf('function NavMenu('), topNav.indexOf('\nfunction ', topNav.indexOf('function NavMenu(') + 1))
+    expect(navMenu).toContain('top: rect.bottom + 6')
+    expect(navMenu).toMatch(/createPortal\([\s\S]*?document\.body,/)
 
   })
 

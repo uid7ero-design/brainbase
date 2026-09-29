@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'fs'
 import path from 'path'
+// Nav consolidation update (feat/authenticated-nav-consolidation): pure nav
+// model, safe to import in a node test.
+import {
+  BRAINBASE_ITEMS,
+  WORK_ITEMS,
+  resolveNav,
+  type NavEntry,
+  type NavLink,
+} from '@/components/nav/navModel'
 
 // Modular Platform Foundation Phase F.7J — restores CRM as a real,
 // standalone BrainBase product surface. Phase F.7I established that
@@ -37,27 +46,50 @@ const CRM_PAGE_SOURCES = [CRM_OVERVIEW_SOURCE, CRM_COMPANIES_SOURCE, CRM_CONTACT
 
 // ── 1. Operations -> CRM canonical destination ─────────────────────────────
 
+// Nav consolidation update (feat/authenticated-nav-consolidation): OPS_ITEMS /
+// OpsDropdown no longer exist. The nav tree lives in components/nav/navModel.ts;
+// the retired Operations CRM duplicate is gone (APPROVED: CRM lives in Work
+// only) and the Operations group now sits in the internal Brainbase menu. The
+// intent — the CRM nav entry targets the standalone /crm product, never
+// /admin/founder, and Waste/Fleet/Social are unchanged — is pinned against the
+// model below.
+const NAVMODEL_SOURCE = fs.readFileSync(path.resolve(__dirname, '../../components/nav/navModel.ts'), 'utf-8').replace(/\r\n/g, '\n')
+const flatLinks = (entries: readonly NavEntry[]): NavLink[] =>
+  entries.flatMap(e => (e.kind === 'group' ? [...e.children] : [e]))
+const OPERATIONS_GROUP = BRAINBASE_ITEMS.find(e => e.id === 'operations')
+const OPERATIONS_CHILDREN = OPERATIONS_GROUP?.kind === 'group' ? OPERATIONS_GROUP.children : []
+
 describe('Operations -> CRM nav item targets the standalone CRM product', () => {
   it('the OPS_ITEMS CRM entry href is /crm', () => {
-    const opsBlockStart = TOPNAV_SOURCE.indexOf('const OPS_ITEMS = [')
-    const opsBlockEnd = TOPNAV_SOURCE.indexOf('];', opsBlockStart)
-    const opsBlock = TOPNAV_SOURCE.slice(opsBlockStart, opsBlockEnd)
-    const crmEntryStart = opsBlock.indexOf("label: 'CRM'")
-    const crmEntry = opsBlock.slice(crmEntryStart, opsBlock.indexOf('},', crmEntryStart))
-    expect(crmEntry).toContain("href: '/crm'")
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the one
+    // CRM nav entry (Work) targets /crm; no CRM entry exists anywhere else.
+    const crmEntries = [...flatLinks(WORK_ITEMS), ...flatLinks(BRAINBASE_ITEMS)].filter(l => l.label === 'CRM')
+    expect(crmEntries.map(l => l.href)).toEqual(['/crm'])
+    expect(NAVMODEL_SOURCE).toMatch(/label: 'CRM', href: '\/crm',/)
+    expect(OPERATIONS_CHILDREN.some(l => l.label === 'CRM' || l.href === '/crm')).toBe(false)
   })
 
   it('no OPS_ITEMS entry (CRM or otherwise) targets /admin/founder', () => {
-    const opsBlockStart = TOPNAV_SOURCE.indexOf('const OPS_ITEMS = [')
-    const opsBlockEnd = TOPNAV_SOURCE.indexOf('];', opsBlockStart)
-    const opsBlock = TOPNAV_SOURCE.slice(opsBlockStart, opsBlockEnd)
-    expect(opsBlock).not.toContain('/admin/founder')
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // Operations group replaces OPS_ITEMS; Founder OS is its own Brainbase
+    // entry, never an Operations child and never a CRM destination.
+    expect(OPERATIONS_GROUP?.kind).toBe('group')
+    expect(OPERATIONS_CHILDREN.map(l => l.href)).not.toContain('/admin/founder')
+    expect(flatLinks(WORK_ITEMS).map(l => l.href)).not.toContain('/admin/founder')
+    expect(TOPNAV_SOURCE).not.toMatch(/OPS_ITEMS/)
   })
 
   it('Waste, Fleet, and Social entries are unchanged — this was a scoped fix, not a broad nav redesign', () => {
-    expect(TOPNAV_SOURCE).toContain("href: '/dashboard/wste'")
-    expect(TOPNAV_SOURCE).toContain("href: '/dashboard/fleet'")
-    expect(TOPNAV_SOURCE).toContain("href: '/dashboard/social'")
+    // Nav consolidation update (feat/authenticated-nav-consolidation): same
+    // three destinations, now declared in the model's Operations group.
+    expect(NAVMODEL_SOURCE).toContain("href: '/dashboard/wste'")
+    expect(NAVMODEL_SOURCE).toContain("href: '/dashboard/fleet'")
+    expect(NAVMODEL_SOURCE).toContain("href: '/dashboard/social'")
+    expect(OPERATIONS_CHILDREN.map(l => [l.label, l.href]).slice(0, 3)).toEqual([
+      ['Waste', '/dashboard/wste'],
+      ['Fleet', '/dashboard/fleet'],
+      ['Social', '/dashboard/social'],
+    ])
   })
 })
 
@@ -65,23 +97,33 @@ describe('Operations -> CRM nav item targets the standalone CRM product', () => 
 
 describe('Operations -> CRM visibility is capability-aware', () => {
   it('the CRM OPS_ITEMS entry carries a capabilityKey of "crm"', () => {
-    const opsBlockStart = TOPNAV_SOURCE.indexOf('const OPS_ITEMS = [')
-    const opsBlockEnd = TOPNAV_SOURCE.indexOf('];', opsBlockStart)
-    const opsBlock = TOPNAV_SOURCE.slice(opsBlockStart, opsBlockEnd)
-    const crmEntryStart = opsBlock.indexOf("label: 'CRM'")
-    const crmEntry = opsBlock.slice(crmEntryStart, opsBlock.indexOf('},', crmEntryStart))
-    expect(crmEntry).toContain("capabilityKey: 'crm'")
+    // Nav consolidation update (feat/authenticated-nav-consolidation):
+    // capabilityKey → the descriptor gate { anyCapability: ['crm'] }.
+    const crm = flatLinks(WORK_ITEMS).find(l => l.id === 'crm')
+    expect(crm?.gate).toEqual({ anyCapability: ['crm'] })
+    expect(NAVMODEL_SOURCE).toMatch(/label: 'CRM', href: '\/crm'[\s\S]{0,200}?gate: \{ anyCapability: \['crm'\] \},/)
   })
 
   it('OpsDropdown filters items by capabilityKey against enabledCapabilities — an item with a key is shown only when present', () => {
-    expect(TOPNAV_SOURCE).toContain('!item.capabilityKey ||')
-    expect(TOPNAV_SOURCE).toContain('enabledCapabilities.includes(')
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // filter is isGateOpen's anyCapability check; an ungated entry always
+    // passes it (`if (!gate) return true`), a gated one only when present.
+    expect(NAVMODEL_SOURCE).toContain('if (!gate) return true;')
+    expect(NAVMODEL_SOURCE).toContain('ctx.enabledCapabilities.includes(')
+    for (const v of [null, 'ld-tennis', 'brainbase-hq'] as const) {
+      for (const role of ['viewer', 'manager', 'admin', 'super_admin']) {
+        const hrefs = (caps: string[]) =>
+          flatLinks(resolveNav({ role, enabledCapabilities: caps, dashboardVariant: v }).work).map(l => l.href)
+        expect(hrefs(['crm']), `${role}/${v}`).toContain('/crm')
+        expect(hrefs([]), `${role}/${v}`).not.toContain('/crm')
+      }
+    }
   })
 
   it('OpsDropdown receives enabledCapabilities as a prop from its caller', () => {
-    const dropdownCallStart = TOPNAV_SOURCE.indexOf('<OpsDropdown')
-    const dropdownCall = TOPNAV_SOURCE.slice(dropdownCallStart, TOPNAV_SOURCE.indexOf('/>', dropdownCallStart) + 2)
-    expect(dropdownCall).toContain('enabledCapabilities')
+    // Nav consolidation update (feat/authenticated-nav-consolidation): TopNav
+    // hands the session's enabledCapabilities to resolveNav().
+    expect(TOPNAV_SOURCE).toContain('const nav = resolveNav({ role, enabledCapabilities, dashboardVariant });')
   })
 
   it('the Session type and the /api/me response mapping both carry enabledCapabilities, matching the established enabledModules pattern', () => {

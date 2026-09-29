@@ -90,32 +90,66 @@ describe('Authenticated chrome — one active-state language, not colour alone',
 
   it('nav items expose aria-current rather than a colour-only active style', () => {
     const topNav = source['components/nav/TopNav.tsx']
-    const itemFns = ['function NavItem(', 'function HlnaItem(', 'function SquadItem(']
+    // Nav consolidation update (feat/authenticated-nav-consolidation):
+    // NavItem/HlnaItem/SquadItem were replaced by NavPill (top-level Home,
+    // HLNA, Requests) and MenuLink (every menu destination, incl. the Tennis
+    // Squad link). Same contract on both; menu triggers additionally carry a
+    // non-colour "(current section)" text cue.
+    const itemFns = ['function NavPill(', 'function MenuLink(']
     for (const fn of itemFns) {
       const body = fnBody(topNav, fn)
       expect(body, fn).toContain("aria-current={active ? 'page' : undefined}")
       expect(body, fn).toContain('className=')
       expect(body, fn).not.toMatch(/onMouseEnter|onMouseLeave/)
     }
+    expect(topNav).not.toMatch(/function (NavItem|HlnaItem|SquadItem)\(/)
+    const navMenu = fnBody(topNav, 'function NavMenu(')
+    expect(navMenu).toContain("data-active={active ? 'true' : undefined}")
+    expect(navMenu).toContain('{active && <span className={styles.srOnly}> (current section)</span>}')
   })
 })
 
 describe('Authenticated chrome — menus are keyboard-operable', () => {
   const topNav = source['components/nav/TopNav.tsx']
 
-  for (const fn of ['OpsDropdown', 'AdminDropdown']) {
-    it(`${fn}: the trigger is a real button with aria-expanded, click and keyboard handlers`, () => {
-      const start = topNav.indexOf(`function ${fn}(`)
-      const body = topNav.slice(start, topNav.indexOf('\nfunction ', start + 1))
-      const trigger = body.slice(body.indexOf('<button'), body.indexOf('</button>'))
-      expect(trigger).toContain('type="button"')
-      expect(trigger).toContain('aria-expanded={open}')
-      expect(trigger).toContain('onClick={handleTriggerClick}')
-      expect(trigger).toContain('onKeyDown={handleTriggerKeyDown}')
-      expect(body).toContain('useMenuDismissal(')
-      expect(body).toContain('onKeyDown={e => handleMenuKeyDown(')
-    })
-  }
+  // Nav consolidation update (feat/authenticated-nav-consolidation):
+  // OpsDropdown and AdminDropdown were replaced by ONE generic NavMenu that
+  // renders every desktop menu (Work, Manage, Brainbase, Account); the
+  // ≤767px MobileMenu is the second menu implementation. Each is pinned.
+  it('NavMenu: the trigger is a real button with aria-expanded, click and keyboard handlers', () => {
+    const start = topNav.indexOf('function NavMenu(')
+    expect(start).toBeGreaterThan(-1)
+    const body = topNav.slice(start, topNav.indexOf('\nfunction ', start + 1))
+    const trigger = body.slice(body.indexOf('<button'), body.indexOf('</button>'))
+    expect(trigger).toContain('type="button"')
+    expect(trigger).toContain('aria-expanded={open}')
+    expect(trigger).toContain('aria-controls={open ? panelId : undefined}')
+    expect(trigger).toContain('onClick={handleTriggerClick}')
+    expect(trigger).toContain('onKeyDown={handleTriggerKeyDown}')
+    expect(body).toContain('useMenuDismissal(')
+    expect(body).toContain('onKeyDown={e => handleMenuKeyDown(')
+    expect(topNav).not.toMatch(/function (OpsDropdown|AdminDropdown)\(/)
+    // Every desktop menu goes through this one keyboard-operable NavMenu.
+    for (const label of ['Work', 'Manage', 'Brainbase']) {
+      expect(topNav).toContain(`<NavMenu label="${label}" panelLabel="${label}"`)
+    }
+    expect(topNav).toMatch(/<NavMenu\s*\n\s*panelLabel="Account"/)
+  })
+
+  it('MobileMenu: the trigger is a real button with aria-expanded; Escape returns focus and Tab stays inside the open panel', () => {
+    const start = topNav.indexOf('function MobileMenu(')
+    expect(start).toBeGreaterThan(-1)
+    const body = topNav.slice(start, topNav.indexOf('\nfunction ', start + 1))
+    const trigger = body.slice(body.indexOf('<button'), body.indexOf('</button>'))
+    expect(trigger).toContain('type="button"')
+    expect(trigger).toContain('aria-expanded={open}')
+    expect(trigger).toContain('aria-controls={open ? panelId : undefined}')
+    expect(trigger).toContain('<span>Menu</span>')
+    expect(body).toContain("if (e.key === 'Escape') {")
+    expect(body).toContain('triggerRef.current?.focus()')
+    expect(body).toContain("if (e.key !== 'Tab') return;")
+    expect(body).toContain("addEventListener('pointerdown'")
+  })
 
   it('dismissal handles Escape (returning focus to the trigger), outside press and focus leaving', () => {
     const body = fnBody(topNav, 'function useMenuDismissal(')
@@ -127,7 +161,16 @@ describe('Authenticated chrome — menus are keyboard-operable', () => {
 
   it('menus are clamped inside the viewport', () => {
     expect(topNav).toMatch(/function clampMenuLeft\(/)
-    expect((topNav.match(/left: clampMenuLeft\(rect\.left\)/g) ?? []).length).toBe(2)
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the one
+    // generic NavMenu clamps for both alignments (start: rect.left; end —
+    // Account: rect.right - width) and passes its own width.
+    expect((topNav.match(/clampMenuLeft\(/g) ?? []).length).toBe(2) // definition + single call site
+    expect(fnBody(topNav, 'function NavMenu(')).toContain(
+      "left: clampMenuLeft(align === 'end' ? rect.right - width : rect.left, width),",
+    )
+    expect(fnBody(topNav, 'function clampMenuLeft(')).toContain(
+      'return Math.max(8, Math.min(left, window.innerWidth - width - 8));',
+    )
   })
 })
 
@@ -136,18 +179,37 @@ describe('Authenticated chrome — theme control, identity and brand', () => {
 
   it('a named theme control uses the existing ThemeProvider (persistence and pre-paint unchanged)', () => {
     expect(topNav).toContain("import { useTheme } from '@/components/theme/ThemeProvider';")
-    const body = fnBody(topNav, 'function ThemeControl(')
-    expect(body).toContain('toggleTheme')
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // theme control moved into the Account menu as ThemeMenuItem (was the
+    // standalone ThemeControl). Same ThemeProvider/toggleTheme, same name.
+    const body = fnBody(topNav, 'function ThemeMenuItem(')
+    expect(body).toContain('const { theme, toggleTheme } = useTheme();')
+    expect(body).toContain('onClick={toggleTheme}')
     expect(body).toContain('aria-label={`Switch to ${next} theme`}')
-    expect(topNav).toContain('<ThemeControl />')
+    expect(fnBody(topNav, 'function AccountEntries(')).toContain('<ThemeMenuItem />')
+    expect(topNav).not.toContain('<ThemeControl />')
   })
 
   it('Branding (its only authenticated entry point) is never hidden at any width', () => {
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // standalone .brandingLink was removed; Branding is now a Manage entry in
+    // navModel.ts (/settings/branding, admin+). It is reachable at every
+    // width because Manage is rendered both by the desktop NavMenu and by
+    // the ≤767px MobileMenu (the two swap via .desktopOnly/.mobileOnly).
     const css = source['components/nav/AppChrome.module.css']
     const rules = css.match(/[^{}]*\{[^{}]*\}/g) ?? []
     const hiding = rules.filter(r => /brandingLink/.test(r.slice(0, r.indexOf('{'))) && /display:\s*none/.test(r))
     expect(hiding).toEqual([])
-    expect(topNav).toContain('href="/settings/branding"')
+    expect(css).not.toContain('.brandingLink')
+    const model = stripComments(read('components/nav/navModel.ts'))
+    const manageStart = model.indexOf('export const MANAGE_ITEMS')
+    const manage = model.slice(manageStart, model.indexOf('\n];', manageStart))
+    expect(manage).toMatch(/label: 'Branding', href: '\/settings\/branding',[\s\S]*?gate: \{ minRole: 'admin' \}/)
+    expect(fnBody(topNav, 'function AppNav(')).toContain('<MenuEntries entries={nav.manage}')
+    expect(fnBody(topNav, 'function MobileMenu(')).toContain('<MenuEntries entries={nav.manage}')
+    const mobileRule = css.slice(css.indexOf('@media (max-width: 767px)'))
+    expect(mobileRule).toMatch(/\.mobileOnly \{\s*display: flex;\s*\}/)
+    expect(fnBody(topNav, 'function MobileMenu(')).toContain('<div className={styles.mobileOnly}>')
   })
 
   it('the avatar image is decorative beside the visible name (no alt="avatar")', () => {

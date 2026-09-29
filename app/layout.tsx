@@ -126,6 +126,7 @@ export default async function RootLayout({
     avatarUrl?: string;
     enabledCapabilities?: string[];
     dashboardVariant?: 'ld-tennis' | 'brainbase-hq' | null;
+    organisationName?: string | null;
   } | null = null;
 
   let secureMode = false;
@@ -198,12 +199,29 @@ export default async function RootLayout({
       /* UX projection only — fail closed to no bespoke variant. */
     }
 
+    // Name of the organisation in view (the impersonated one for a
+    // super_admin), shown in TopNav's Account menu. Display only; same
+    // fail-closed discipline as the projections above.
+    let organisationName: string | null = null;
+    try {
+      const [orgRow] = await sql`
+        SELECT name
+        FROM organisations
+        WHERE id = ${session.organisationId}
+        LIMIT 1
+      `;
+      organisationName = (orgRow?.name as string | undefined) ?? null;
+    } catch {
+      /* UX projection only — fail closed to no organisation name. */
+    }
+
     serverSession = {
       role: session.role,
       name: session.name,
       avatarUrl,
       enabledCapabilities,
       dashboardVariant,
+      organisationName,
     };
   }
 

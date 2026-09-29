@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'fs'
 import path from 'path'
+// Nav consolidation update (feat/authenticated-nav-consolidation): pure nav
+// model, safe to import in a node test.
+import { WORK_ITEMS, resolveNav, type NavContext } from '@/components/nav/navModel'
 
 // Phase C7.2 — repository-confirmed C6 follow-up: the global "Commercial"
 // top-nav pill (components/nav/TopNav.tsx) was gated on `hasCommercial =
@@ -26,24 +29,49 @@ const topNavSource = stripComments(
   fs.readFileSync(path.join(process.cwd(), 'components/nav/TopNav.tsx'), 'utf8').replace(/\r\n/g, '\n'),
 )
 
-const hasCommercialStart = topNavSource.indexOf('const hasCommercial =')
-const hasCommercialEnd = topNavSource.indexOf(';', hasCommercialStart)
-const hasCommercialBody = topNavSource.slice(hasCommercialStart, hasCommercialEnd)
+// Nav consolidation update (feat/authenticated-nav-consolidation): the
+// `hasCommercial` flag moved out of TopNav into the Commercial descriptor of
+// components/nav/navModel.ts; these pins now read that descriptor (source +
+// imported object) and resolve it with the pure resolveNav().
+const navModelSource = stripComments(
+  fs.readFileSync(path.join(process.cwd(), 'components/nav/navModel.ts'), 'utf8').replace(/\r\n/g, '\n'),
+)
+const commercialStart = navModelSource.indexOf("id: 'commercial'")
+const commercialEnd = navModelSource.indexOf("id: 'organiser'", commercialStart)
+const commercialDescriptorBody = navModelSource.slice(commercialStart, commercialEnd)
+const commercialDescriptor = WORK_ITEMS.find(e => e.id === 'commercial')
+
+function sees(caps: string[], role = 'viewer', dashboardVariant: NavContext['dashboardVariant'] = null): boolean {
+  return resolveNav({ role, enabledCapabilities: caps, dashboardVariant }).work.some(
+    e => e.kind === 'link' && e.href === '/commercial',
+  )
+}
 
 const layoutSource = fs.readFileSync(path.join(process.cwd(), 'app/commercial/layout.tsx'), 'utf8')
 
 describe('Phase C7.2 — Commercial top-nav pill visibility matches the server-side capability gate it links to', () => {
   it('hasCommercial checks quotes, invoicing, AND purchasing — not quotes alone', () => {
-    expect(hasCommercialBody).toMatch(/enabledCapabilities\.includes\(\s*'quotes',?\s*\)/)
-    expect(hasCommercialBody).toMatch(/enabledCapabilities\.includes\(\s*'invoicing',?\s*\)/)
-    expect(hasCommercialBody).toMatch(/enabledCapabilities\.includes\(\s*'purchasing',?\s*\)/)
+    // Nav consolidation update (feat/authenticated-nav-consolidation).
+    expect(commercialStart).toBeGreaterThan(-1)
+    expect(commercialDescriptorBody).toMatch(/gate: \{ anyCapability: \['quotes', 'invoicing', 'purchasing'\] \},/)
+    expect(commercialDescriptor?.gate).toEqual({ anyCapability: ['quotes', 'invoicing', 'purchasing'] })
   })
 
   it('the three checks are OR-combined, not AND-combined (an organisation with only one of the three must still see the pill)', () => {
-    // Between each `.includes(...)` call there must be `||`, never `&&`.
-    const orCount = (hasCommercialBody.match(/\|\|/g) ?? []).length
-    expect(orCount).toBeGreaterThanOrEqual(2)
-    expect(hasCommercialBody).not.toMatch(/&&/)
+    // Nav consolidation update (feat/authenticated-nav-consolidation):
+    // anyCapability is OR semantics (`.some`); proven for each single key,
+    // across every variant, and absent with none of the three.
+    expect(navModelSource).toMatch(/const enabled = gate\.anyCapability\.some\(key => ctx\.enabledCapabilities\.includes\(key\)\);/)
+    expect(navModelSource).not.toMatch(/anyCapability\.every\(/)
+    for (const v of [null, 'ld-tennis', 'brainbase-hq'] as const) {
+      expect(sees(['quotes'], 'viewer', v), `quotes/${v}`).toBe(true)
+      expect(sees(['invoicing'], 'viewer', v), `invoicing/${v}`).toBe(true)
+      expect(sees(['purchasing'], 'viewer', v), `purchasing/${v}`).toBe(true)
+      expect(sees([], 'viewer', v), `none/${v}`).toBe(false)
+      expect(sees(['crm', 'events'], 'viewer', v), `unrelated/${v}`).toBe(false)
+      // No bypass: even super_admin needs one of the three.
+      expect(sees([], 'super_admin', v), `sa-none/${v}`).toBe(false)
+    }
   })
 
   it('app/commercial/layout.tsx (the actual page this pill links to) checks the same three capabilities and only blocks when none are allowed — the pill\'s visibility now matches its own destination\'s real gate', () => {
@@ -54,13 +82,22 @@ describe('Phase C7.2 — Commercial top-nav pill visibility matches the server-s
   })
 
   it('the pill still renders exactly two <NavItem href="/commercial" ...> call sites (shared branch + LD Tennis branch) — the fix only changed the gating condition, not how many places render the pill', () => {
-    const matches = topNavSource.match(/href="\/commercial"/g) ?? []
-    expect(matches.length).toBe(2)
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the two
+    // JSX call sites collapse into ONE descriptor rendered by the universal
+    // path; TopNav has no /commercial literal, and a resolved tree holds
+    // exactly one Commercial entry for every variant.
+    expect((navModelSource.match(/href: '\/commercial'/g) ?? []).length).toBe(1)
+    expect(topNavSource).not.toMatch(/\/commercial/)
+    for (const v of [null, 'ld-tennis', 'brainbase-hq'] as const) {
+      const work = resolveNav({ role: 'admin', enabledCapabilities: ['quotes', 'invoicing', 'purchasing'], dashboardVariant: v }).work
+      expect(work.filter(e => e.kind === 'link' && e.href === '/commercial').length, String(v)).toBe(1)
+    }
   })
 
   it('the capability prop on the Commercial NavItem is untouched (still "quotes") — icon-choice cosmetics are a separate, deliberately out-of-scope concern from this visibility fix', () => {
-    const idx = topNavSource.indexOf('href="/commercial"')
-    const block = topNavSource.slice(idx, topNavSource.indexOf('/>', idx))
-    expect(block).toContain('capability="quotes"')
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // icon key is the descriptor's `icon`, still 'quotes'.
+    expect(commercialDescriptorBody).toMatch(/icon: 'quotes',/)
+    expect(commercialDescriptor?.kind === 'link' ? commercialDescriptor.icon : undefined).toBe('quotes')
   })
 })

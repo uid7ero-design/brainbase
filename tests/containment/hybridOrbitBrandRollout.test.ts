@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { describe, it, expect } from 'vitest'
+import { resolveNav } from '@/components/nav/navModel'
 
 // Phase D.1 — Hybrid Orbit brand rollout, global assets + core surfaces.
 // Static source-text containment per this repo's convention (no jsdom/RTL
@@ -10,6 +11,9 @@ const root = path.resolve(__dirname, '../..')
 const read = (p: string) => fs.readFileSync(path.join(root, p), 'utf8').replace(/\r\n/g, '\n')
 
 const topNavSource = read('components/nav/TopNav.tsx')
+// Nav consolidation update (feat/authenticated-nav-consolidation): tenant
+// classification now lives in the pure nav model.
+const navModelSource = read('components/nav/navModel.ts')
 const wordmarkSource = read('components/brand/BrainBaseWordmark.tsx')
 const hlnaWorkspaceSource = read('components/helena/HelenaWorkspace.jsx')
 const loginSource = read('app/login/page.tsx')
@@ -114,12 +118,29 @@ describe('Phase D.1 — /hlna keeps HelenaOrbital for the living assistant; the 
 
 describe('Phase D.1 — tenant-aware nav remains intact', () => {
   it('isLdTennis / isBrainbaseHQ classification, Dashboard/HLNA/Events entries, and the dropdown positioning fix are all still present', () => {
-    expect(topNavSource).toMatch(/dashboardVariant\s*===\s*'ld-tennis'/)
-    expect(topNavSource).toMatch(/dashboardVariant\s*===\s*'brainbase-hq'/)
-    expect(topNavSource).toContain('href="/dashboard"')
-    expect(topNavSource).toMatch(/<HlnaItem\s*\n\s*href="\/hlna"/)
-    expect(topNavSource).toContain('href="/events"')
-    expect(topNavSource).toContain('hasEvents')
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // isLdTennis / isBrainbaseHQ branches and literal Dashboard/HLNA/Events
+    // hrefs moved into the pure navModel (single universal render path).
+    // Pin the classification as model gates + resolved behaviour, and pin
+    // that TopNav renders the model rather than re-branching on variant.
+    expect(topNavSource).toMatch(/resolveNav\(\{ role, enabledCapabilities, dashboardVariant \}\)/)
+    expect(topNavSource).not.toMatch(/dashboardVariant\s*[!=]==/)
+    expect(topNavSource).not.toMatch(/isLdTennis|isBrainbaseHQ/)
+    expect(navModelSource).toMatch(/gate:\s*\{\s*variant:\s*'ld-tennis'\s*\}/)
+    expect(navModelSource).toMatch(/gate:\s*\{\s*hideForVariant:\s*'brainbase-hq'\s*\}/)
+    expect(topNavSource).toMatch(/<NavPill link=\{nav\.home\}/)
+    expect(topNavSource).toMatch(/<NavPill link=\{nav\.hlna\} active=\{activeId === nav\.hlna\.id\} hlna \/>/)
+    for (const dashboardVariant of [null, 'ld-tennis', 'brainbase-hq'] as const) {
+      const nav = resolveNav({ role: 'viewer', enabledCapabilities: ['events'], dashboardVariant })
+      expect(nav.home.href).toBe('/dashboard')
+      // Approved: HLNA → /hlna for every tenant (LD Tennis included).
+      expect(nav.hlna.href).toBe('/hlna')
+      expect(nav.work.some(e => e.kind === 'link' && e.id === 'events' && e.href === '/events')).toBe(true)
+      expect(nav.work.some(e => e.id === 'tennis')).toBe(dashboardVariant === 'ld-tennis')
+      expect(nav.requests === null).toBe(dashboardVariant === 'brainbase-hq')
+      const noEvents = resolveNav({ role: 'viewer', enabledCapabilities: [], dashboardVariant })
+      expect(noEvents.work.some(e => e.id === 'events')).toBe(false)
+    }
     // Dropdown positioning fix — superseded during the D.2.3 origin/main
     // reconciliation: C.2F's own plain-position:'fixed' implementation
     // (panelPos/triggerRef) was replaced with origin/main's independently-
