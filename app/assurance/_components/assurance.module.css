@@ -860,6 +860,20 @@
 .helpDoc li {
   margin: 4px 0;
 }
+/* The app reset removes list markers; procedures need their numbers back. */
+.helpDoc ul {
+  list-style: disc;
+}
+.helpDoc ul ul {
+  list-style: circle;
+}
+.helpDoc ol {
+  list-style: decimal;
+}
+.helpDoc li::marker {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
 .helpDoc li > ul,
 .helpDoc li > ol,
 .helpDoc li > p {
