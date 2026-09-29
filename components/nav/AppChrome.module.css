@@ -179,6 +179,13 @@
   color: var(--text-muted);
 }
 
+/* The active fill (--brand-brainbase-accent-muted) darkens the surface under
+   the description: --text-muted drops to 4.11:1 there in dark, so the
+   current item's description uses --text-secondary (6.20 dark, 6.03 light). */
+.menuItem[aria-current='page'] .menuDescription {
+  color: var(--text-secondary);
+}
+
 .menuSeparator {
   height: 1px;
   margin: 4px;
