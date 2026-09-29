@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { transformValue } from "@/lib/data-hub/normalization/transformValue";
+import { parseUtcOffsetToMinutes } from "@/lib/data-hub/normalization/dateTime";
 import type { ColumnRuleV2, RawCellInput } from "@/lib/data-hub/normalization/contracts";
 import { VALUE_KINDS } from "@/lib/data-hub/schemaProfiles/profileDocument";
 
@@ -276,6 +277,21 @@ describe("6.2D4C-B2A transformValue — DATETIME", () => {
     const r = rule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "SOURCE_OFFSET" } });
     expectBlocked(transformValue(r, S("2026-09-28T14:30:00")), "MISSING_SOURCE_OFFSET");
   });
+  it("SOURCE_OFFSET: accepts every valid numeric offset, including the +14:00/-14:00 extremes and +00:00/-00:00", () => {
+    const r = rule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "SOURCE_OFFSET" } });
+    expectOk(transformValue(r, S("2026-09-28T14:30:00+00:00")), "2026-09-28T14:30:00Z");
+    expectOk(transformValue(r, S("2026-09-28T14:30:00-00:00")), "2026-09-28T14:30:00Z");
+    expectOk(transformValue(r, S("2026-09-28T14:30:00+09:30")), "2026-09-28T05:00:00Z");
+    expectOk(transformValue(r, S("2026-09-28T14:30:00-05:00")), "2026-09-28T19:30:00Z");
+    expectOk(transformValue(r, S("2026-09-28T14:30:00+14:00")), "2026-09-28T00:30:00Z");
+    expectOk(transformValue(r, S("2026-09-28T14:30:00-14:00")), "2026-09-29T04:30:00Z");
+  });
+  it("SOURCE_OFFSET: rejects every out-of-range numeric offset as INVALID_UTC_OFFSET, never reaching Date.UTC arithmetic", () => {
+    const r = rule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "SOURCE_OFFSET" } });
+    for (const bad of ["+14:01", "-14:01", "+15:00", "-15:00", "+23:00", "+09:60", "+99:99"]) {
+      expectBlocked(transformValue(r, S(`2026-09-28T14:30:00${bad}`)), "INVALID_UTC_OFFSET");
+    }
+  });
   it("IANA: ordinary conversion, using a non-Australian synthetic zone (proves no Adelaide hard-code)", () => {
     const r = rule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "IANA", zone: "America/New_York" } });
     expectOk(transformValue(r, S("2026-07-15T12:00:00")), "2026-07-15T16:00:00Z");
@@ -311,6 +327,28 @@ describe("6.2D4C-B2A transformValue — DATETIME", () => {
   it("rejects non-STRING raw", () => {
     const r = rule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "UTC" } });
     expectBlocked(transformValue(r, N(1)), "UNSUPPORTED_RAW_TYPE_FOR_VALUE_KIND");
+  });
+});
+
+describe("6.2D4C-B2A parseUtcOffsetToMinutes — the single centralized numeric-offset range validator", () => {
+  it("accepts every valid offset: Z, +00:00, -00:00, +09:30, -05:00, +14:00, -14:00", () => {
+    expect(parseUtcOffsetToMinutes("Z")).toEqual({ ok: true, minutes: 0 });
+    expect(parseUtcOffsetToMinutes("+00:00")).toEqual({ ok: true, minutes: 0 });
+    expect(parseUtcOffsetToMinutes("-00:00")).toEqual({ ok: true, minutes: 0 });
+    expect(parseUtcOffsetToMinutes("+09:30")).toEqual({ ok: true, minutes: 570 });
+    expect(parseUtcOffsetToMinutes("-05:00")).toEqual({ ok: true, minutes: -300 });
+    expect(parseUtcOffsetToMinutes("+14:00")).toEqual({ ok: true, minutes: 840 });
+    expect(parseUtcOffsetToMinutes("-14:00")).toEqual({ ok: true, minutes: -840 });
+  });
+  it("rejects every invalid offset: +14:01, -14:01, +15:00, -15:00, +23:00, +09:60, +99:99", () => {
+    for (const bad of ["+14:01", "-14:01", "+15:00", "-15:00", "+23:00", "+09:60", "+99:99"]) {
+      expect(parseUtcOffsetToMinutes(bad)).toEqual({ ok: false });
+    }
+  });
+  it("rejects malformed non-offset-shaped strings too", () => {
+    for (const bad of ["+9:30", "0900", "+09:3", "", "+00:00:00"]) {
+      expect(parseUtcOffsetToMinutes(bad)).toEqual({ ok: false });
+    }
   });
 });
 

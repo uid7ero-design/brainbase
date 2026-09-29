@@ -172,6 +172,47 @@ export function parseStrictDateTime(raw: string, datePolicy: DatePolicy): DateTi
 }
 
 // ---------------------------------------------------------------------------
+// Numeric UTC offset validation (single source of truth — never duplicated
+// in transformValue.ts or anywhere else)
+// ---------------------------------------------------------------------------
+
+const NUMERIC_OFFSET_RE = /^([+-])([0-9]{2}):([0-9]{2})$/;
+
+export type UtcOffsetParseResult = { ok: true; minutes: number } | { ok: false };
+
+/**
+ * The single, centralized parser/validator for a numeric UTC offset (or
+ * "Z"). A real-world UTC offset ranges from -14:00 through +14:00
+ * inclusive (this governed contract treats both signs symmetrically, per
+ * its own explicit design decision — it does not attempt to encode the
+ * asymmetric real-world convention where -14:00 is not actually observed
+ * by any timezone); minutes must be 00-59; and when the hour component is
+ * exactly 14, the minute component must be exactly 00 (there is no
+ * "+14:30"). A syntactically offset-shaped string outside this range
+ * (e.g. "+09:99", "+25:00", "+15:00") is never treated as valid — it must
+ * never reach Date.UTC arithmetic.
+ */
+export function parseUtcOffsetToMinutes(offset: string): UtcOffsetParseResult {
+  if (offset === "Z") return { ok: true, minutes: 0 };
+  const m = NUMERIC_OFFSET_RE.exec(offset);
+  if (!m) return { ok: false };
+  const [, sign, hh, mm] = m;
+  const hours = Number(hh);
+  const minutes = Number(mm);
+  if (hours > 14) return { ok: false };
+  if (minutes > 59) return { ok: false };
+  if (hours === 14 && minutes !== 0) return { ok: false };
+  const totalMinutes = hours * 60 + minutes;
+  // "+00:00" and "-00:00" both explicitly resolve to the same plain `0` —
+  // never `-0` (which is a distinct, surprising value under strict
+  // equality despite behaving identically in arithmetic) — since both
+  // represent the same instant regardless of which sign character was
+  // used.
+  if (totalMinutes === 0) return { ok: true, minutes: 0 };
+  return { ok: true, minutes: sign === "-" ? -totalMinutes : totalMinutes };
+}
+
+// ---------------------------------------------------------------------------
 // IANA timezone instant resolution (native Intl only; no dependency added)
 // ---------------------------------------------------------------------------
 

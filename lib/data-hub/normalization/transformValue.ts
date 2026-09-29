@@ -11,7 +11,7 @@ import type { ColumnRuleV2, NormalizationFinding, RawCellInput, TransformValueRe
 import { blockingFinding } from "./contracts";
 import { compareExactDecimal, convertExactUnit, decimalToCanonicalString, exactDecimalFromFiniteNumber, parseStrictDecimalString, parseStrictIntegerString } from "./decimal";
 import type { ExactDecimal } from "./decimal";
-import { calendarDateToIsoString, clockTimeToCanonicalString, isValidIanaTimeZone, localWallClockToUtcInstant, parseStrictDate, parseStrictDateTime, parseStrictTime, utcInstantToCanonicalString } from "./dateTime";
+import { calendarDateToIsoString, clockTimeToCanonicalString, isValidIanaTimeZone, localWallClockToUtcInstant, parseStrictDate, parseStrictDateTime, parseStrictTime, parseUtcOffsetToMinutes, utcInstantToCanonicalString } from "./dateTime";
 
 const LATITUDE_MIN = parseStrictIntegerString("-90")!;
 const LATITUDE_MAX = parseStrictIntegerString("90")!;
@@ -163,16 +163,15 @@ function transformDateTime(rule: ColumnRuleV2, raw: RawCellInput): TransformValu
 
   if (policy.kind === "SOURCE_OFFSET") {
     if (offset === null) return one("MISSING_SOURCE_OFFSET", rule);
-    if (offset === "Z") {
-      const utcMs = Date.UTC(date.year, date.month - 1, date.day, time.hour, time.minute, time.second);
-      return succeed(rule, utcInstantToCanonicalString(utcMs, time.fraction));
-    }
-    const offsetMatch = /^([+-])([0-9]{2}):([0-9]{2})$/.exec(offset);
-    if (!offsetMatch) return one("MALFORMED_DATETIME_STRING", rule);
-    const [, sign, oh, om] = offsetMatch;
-    const offsetMinutes = (sign === "-" ? -1 : 1) * (Number(oh) * 60 + Number(om));
+    // The single, centralized range check (parseUtcOffsetToMinutes, in
+    // dateTime.ts) is the only place that validates a numeric offset —
+    // never re-derived here. A syntactically offset-shaped but
+    // out-of-range string (e.g. "+09:99", "+25:00", "+15:00") is rejected
+    // as INVALID_UTC_OFFSET and never reaches Date.UTC arithmetic.
+    const parsedOffset = parseUtcOffsetToMinutes(offset);
+    if (!parsedOffset.ok) return one("INVALID_UTC_OFFSET", rule);
     const localAsUtcMs = Date.UTC(date.year, date.month - 1, date.day, time.hour, time.minute, time.second);
-    const utcMs = localAsUtcMs - offsetMinutes * 60_000;
+    const utcMs = localAsUtcMs - parsedOffset.minutes * 60_000;
     return succeed(rule, utcInstantToCanonicalString(utcMs, time.fraction));
   }
 
