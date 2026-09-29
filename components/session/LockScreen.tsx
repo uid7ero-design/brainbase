@@ -1,12 +1,25 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useId } from 'react';
 import { Lock, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { Button } from '@/components/ui/app/Button';
+import styles from './LockScreen.module.css';
 
 interface Props {
   name: string;
   onUnlock: () => void;
 }
+
+// Visual-convergence (remaining visual islands pass): the lock screen is a
+// calm, theme-aware modal dialog on an opaque page surface — one focus
+// point (the password field), no glass/blur/glow/gradient chrome. Unlock
+// behaviour is unchanged: same /api/auth/verify-lock request, same attempt
+// counting, same messages, same delayed autofocus and onUnlock callback.
+// There is deliberately no Escape-to-close: a locked session can only be
+// left by unlocking (or signing in again).
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), [tabindex]:not([tabindex="-1"])';
 
 export default function LockScreen({ name, onUnlock }: Props) {
   const [password, setPassword] = useState('');
@@ -15,6 +28,12 @@ export default function LockScreen({ name, onUnlock }: Props) {
   const [loading, setLoading] = useState(false);
   const [attempts, setAttempts] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const uid = useId();
+  const titleId = `${uid}-title`;
+  const descId = `${uid}-desc`;
+  const inputId = `${uid}-password`;
+  const errorId = `${uid}-error`;
 
   useEffect(() => {
     const t = setTimeout(() => inputRef.current?.focus(), 350);
@@ -50,211 +69,106 @@ export default function LockScreen({ name, onUnlock }: Props) {
     }
   }
 
+  // Keep keyboard focus inside the lock dialog (aria-modal): Tab and
+  // Shift+Tab cycle through its own controls only.
+  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== 'Tab' || !cardRef.current) return;
+    const items = Array.from(cardRef.current.querySelectorAll<HTMLElement>(FOCUSABLE));
+    if (items.length === 0) {
+      e.preventDefault();
+      cardRef.current.focus();
+      return;
+    }
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey && (active === first || active === cardRef.current)) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+
   const firstName = name.split(' ')[0];
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 9999,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      {/* Blurred backdrop */}
+    <div className={styles.overlay}>
       <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          backdropFilter: 'blur(24px) saturate(0.6) brightness(0.35)',
-          WebkitBackdropFilter: 'blur(24px) saturate(0.6) brightness(0.35)',
-          background: 'rgba(8, 9, 12, 0.78)',
-        }}
-      />
-
-      {/* Card */}
-      <div
-        style={{
-          position: 'relative',
-          width: '100%',
-          maxWidth: '400px',
-          margin: '0 24px',
-          padding: '48px 40px',
-          borderRadius: '24px',
-          background: 'linear-gradient(160deg, rgba(17,17,30,0.97) 0%, rgba(13,13,21,0.99) 100%)',
-          border: '1px solid rgba(109,40,217,0.28)',
-          boxShadow: '0 0 80px rgba(109,40,217,0.14), 0 40px 80px rgba(0,0,0,0.65)',
-          animation: 'lockIn .38s cubic-bezier(0.34,1.56,0.64,1)',
-          textAlign: 'center',
-          fontFamily: 'var(--font-geist-sans), var(--font-inter), sans-serif',
-        }}
+        ref={cardRef}
+        className={styles.card}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descId}
+        tabIndex={-1}
+        onKeyDown={handleKeyDown}
       >
-        {/* Ambient glow */}
-        <div
-          aria-hidden
-          style={{
-            position: 'absolute',
-            top: '-80px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            width: '300px',
-            height: '200px',
-            borderRadius: '50%',
-            background: 'radial-gradient(ellipse, rgba(109,40,217,0.22) 0%, transparent 70%)',
-            filter: 'blur(20px)',
-            pointerEvents: 'none',
-          }}
-        />
-
-        {/* Lock icon */}
-        <div
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 56,
-            height: 56,
-            borderRadius: '16px',
-            background: 'rgba(109,40,217,0.15)',
-            border: '1px solid rgba(109,40,217,0.35)',
-            marginBottom: '24px',
-            color: '#A78BFA',
-          }}
-        >
-          <Lock size={24} />
+        <div className={styles.icon} aria-hidden="true">
+          <Lock size={20} />
         </div>
 
-        <h2
-          style={{
-            fontSize: '20px',
-            fontWeight: 700,
-            color: '#F4F4F5',
-            margin: '0 0 10px',
-            letterSpacing: '-0.02em',
-          }}
-        >
+        <h2 id={titleId} className={styles.title}>
           Session Locked
         </h2>
-        <p
-          style={{
-            fontSize: '14px',
-            color: '#52525B',
-            margin: '0 0 32px',
-            lineHeight: 1.6,
-          }}
-        >
+        <p id={descId} className={styles.description}>
           Locked due to inactivity.
           <br />
           Continue as{' '}
-          <span style={{ color: '#A1A1AA', fontWeight: 500 }}>{firstName}</span>
+          <span className={styles.name}>{firstName}</span>
         </p>
 
-        <form onSubmit={handleUnlock} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <div style={{ position: 'relative' }}>
+        <form onSubmit={handleUnlock} className={styles.form} aria-busy={loading || undefined}>
+          <div className={styles.inputWrap}>
+            <label htmlFor={inputId} className={styles.visuallyHidden}>
+              Password
+            </label>
             <input
+              id={inputId}
               ref={inputRef}
               type={showPw ? 'text' : 'password'}
               value={password}
               onChange={e => setPassword(e.target.value)}
               placeholder="Enter your password"
               autoComplete="current-password"
-              style={{
-                width: '100%',
-                padding: '13px 48px 13px 16px',
-                borderRadius: '12px',
-                background: 'rgba(255,255,255,0.04)',
-                border: `1px solid ${error ? 'rgba(239,68,68,0.4)' : 'rgba(255,255,255,0.08)'}`,
-                color: '#F4F4F5',
-                fontSize: '15px',
-                outline: 'none',
-                boxSizing: 'border-box',
-                fontFamily: 'inherit',
-                transition: 'border-color .2s',
-              }}
-              onFocus={e => {
-                if (!error) e.currentTarget.style.borderColor = 'rgba(109,40,217,0.5)';
-              }}
-              onBlur={e => {
-                if (!error) e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
-              }}
+              className={styles.input}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? errorId : undefined}
             />
             <button
               type="button"
               onClick={() => setShowPw(s => !s)}
-              tabIndex={-1}
-              style={{
-                position: 'absolute',
-                right: '14px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: '#52525B',
-                padding: '4px',
-                display: 'flex',
-                alignItems: 'center',
-              }}
+              className={styles.toggle}
+              aria-label="Show password"
+              aria-pressed={showPw}
+              aria-controls={inputId}
             >
-              {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+              {showPw ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
             </button>
           </div>
 
           {error && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '10px 14px',
-                borderRadius: '10px',
-                background: 'rgba(239,68,68,0.08)',
-                border: '1px solid rgba(239,68,68,0.18)',
-                color: '#F87171',
-                fontSize: '13px',
-                textAlign: 'left',
-              }}
-            >
-              <AlertCircle size={14} style={{ flexShrink: 0 }} />
+            <p id={errorId} className={styles.error} role="alert">
+              <AlertCircle size={14} className={styles.errorIcon} aria-hidden="true" />
               {error}
-            </div>
+            </p>
           )}
 
-          <button
+          <Button
             type="submit"
+            variant="primary"
+            className={styles.submit}
             disabled={loading || !password}
-            style={{
-              padding: '14px',
-              borderRadius: '12px',
-              border: 'none',
-              cursor: loading || !password ? 'not-allowed' : 'pointer',
-              background:
-                loading || !password
-                  ? 'rgba(109,40,217,0.25)'
-                  : 'linear-gradient(135deg, #6D28D9, #7C3AED)',
-              color: loading || !password ? 'rgba(196,181,253,0.4)' : '#fff',
-              fontSize: '15px',
-              fontWeight: 600,
-              transition: 'all .2s',
-              fontFamily: 'inherit',
-              letterSpacing: '0.01em',
-            }}
           >
             {loading ? 'Verifying…' : 'Unlock Session'}
-          </button>
+          </Button>
         </form>
 
         {attempts >= 3 && (
-          <p style={{ marginTop: '20px', fontSize: '12px', color: '#52525B' }}>
+          <p className={styles.help}>
             Forgotten your password?{' '}
-            <a
-              href="/login"
-              style={{ color: '#A78BFA', textDecoration: 'none', fontWeight: 500 }}
-            >
-              Sign in again
-            </a>
+            <a href="/login">Sign in again</a>
           </p>
         )}
       </div>

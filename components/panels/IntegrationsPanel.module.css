@@ -1,0 +1,195 @@
+/* Integrations overlay (the /dashboard fallback) — remaining visual islands
+   pass. Tokens only; the Spotify mark keeps its brand fill (inline SVG). */
+
+.dialog {
+  width: 520px;
+  max-height: 82vh;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px 20px;
+}
+
+.group {
+  margin-top: 6px;
+}
+
+.card {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+}
+.cardHeader[data-divided='true'] {
+  border-bottom: 1px solid var(--border);
+}
+
+.cardIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+  font-size: 1rem;
+}
+
+.cardText {
+  flex: 1;
+  min-width: 0;
+}
+
+.cardName {
+  margin: 0 0 2px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.cardStatus {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--status-inactive);
+}
+.statusDot[data-state='success'] {
+  background: var(--status-success);
+}
+
+.cardActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inbox {
+  padding: 10px 14px 14px;
+}
+
+.inboxHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.count {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.message {
+  padding: 8px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+}
+.message[data-unread='true'] {
+  border-color: var(--status-info-border);
+  background: var(--status-info-muted);
+}
+
+.messageTop {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.unreadDot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--status-info);
+}
+
+.subject {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+.message[data-unread='true'] .subject {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.time {
+  flex-shrink: 0;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.from {
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+.message[data-unread='true'] .from {
+  padding-left: 12px;
+}
+
+.emptyNote {
+  margin: 0;
+  font-size: 0.75rem;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.more {
+  margin-top: 8px;
+}
+
+.soonGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.soonCard {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.soonNote {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}

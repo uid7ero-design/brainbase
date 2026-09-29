@@ -1,0 +1,54 @@
+/* Welcome-back toast (remaining visual islands pass). A floating overlay on
+   tokens for both themes: --bg-overlay surface, thin border, the shared
+   popover shadow. No blur, glow, violet chrome or local font. Position,
+   stacking, pointer-events and the fade-in-up entrance are unchanged; the
+   entrance is switched off under prefers-reduced-motion. */
+
+.banner {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9998;
+  padding: 12px 16px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-popover);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--bb-font-sans);
+  animation: welcomeBackIn 0.3s ease;
+  pointer-events: none;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand-brainbase-accent);
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.name {
+  color: var(--brand-brainbase-accent);
+}
+
+/* Same motion as the global fadeIn keyframes (module-local name). */
+@keyframes welcomeBackIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .banner {
+    animation: none;
+  }
+}

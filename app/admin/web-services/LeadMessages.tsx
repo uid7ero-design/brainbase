@@ -1,8 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
+import { Badge, Field, fieldControlClassName, buttonProps } from '@/components/ui/app';
+import styles from './LeadMessages.module.css';
 
-const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
+// Visual-convergence (remaining visual islands pass): the lead email
+// composer and outbound history use the shared field / button / badge
+// primitives and theme tokens. Fetching, sending and the warning / error
+// handling below are unchanged.
 
 type Message = {
   id: string;
@@ -32,6 +37,7 @@ export default function LeadMessages({ leadId, leadEmail }: {
   const [sending, setSending]   = useState(false);
   const [error, setError]       = useState<string | null>(null);
   const [warning, setWarning]   = useState<string | null>(null);
+  const headingId = useId();
 
   useEffect(() => {
     let cancelled = false;
@@ -81,111 +87,97 @@ export default function LeadMessages({ leadId, leadEmail }: {
   }
 
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'rgba(255,255,255,.38)', textTransform: 'uppercase', marginBottom: 8 }}>
+    <section className={styles.root} aria-labelledby={headingId}>
+      <h3 id={headingId} className={styles.heading}>
         Email this Lead
+      </h3>
+
+      <div className={styles.to}>
+        <span className={styles.toLabel}>To</span>
+        <span className={styles.toValue}>{leadEmail}</span>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '52px 1fr', gap: 8, alignItems: 'center', fontSize: 13, marginBottom: 10 }}>
-        <span style={{ fontSize: 11, color: 'rgba(255,255,255,.35)' }}>To</span>
-        <span style={{ color: 'rgba(226,232,240,.75)' }}>{leadEmail}</span>
+      <div className={styles.form}>
+        <Field label="Subject">
+          {control => (
+            <input
+              {...control}
+              value={subject}
+              onChange={e => setSubject(e.target.value)}
+              placeholder="Subject"
+              maxLength={200}
+              className={fieldControlClassName}
+            />
+          )}
+        </Field>
+        <Field label="Message">
+          {control => (
+            <textarea
+              {...control}
+              value={body}
+              onChange={e => setBody(e.target.value)}
+              placeholder="Write your message…"
+              rows={4}
+              maxLength={5000}
+              className={fieldControlClassName}
+            />
+          )}
+        </Field>
+
+        {error && (
+          <p className={styles.notice} data-tone="danger" role="alert">
+            {error}
+          </p>
+        )}
+        {warning && (
+          <p className={styles.notice} data-tone="warning" role="status">
+            {warning}
+          </p>
+        )}
+
+        <div>
+          <button
+            type="button"
+            disabled={sending || !subject.trim() || !body.trim()}
+            onClick={send}
+            {...buttonProps('primary', 'sm')}
+          >
+            {sending ? 'Sending…' : 'Send Email'}
+          </button>
+        </div>
       </div>
 
-      <input
-        value={subject}
-        onChange={e => setSubject(e.target.value)}
-        placeholder="Subject"
-        maxLength={200}
-        style={{
-          width: '100%', padding: '9px 12px', borderRadius: 8, fontSize: 13, marginBottom: 8,
-          background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.10)',
-          color: '#F5F7FA', fontFamily: FONT, outline: 'none', boxSizing: 'border-box',
-        }}
-      />
-      <textarea
-        value={body}
-        onChange={e => setBody(e.target.value)}
-        placeholder="Write your message…"
-        rows={4}
-        maxLength={5000}
-        style={{
-          width: '100%', padding: '10px 12px', borderRadius: 8, fontSize: 13, resize: 'vertical',
-          background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.10)',
-          color: '#F5F7FA', fontFamily: FONT, outline: 'none', boxSizing: 'border-box',
-          lineHeight: 1.55, marginBottom: 8,
-        }}
-      />
-
-      {error && (
-        <div style={{
-          padding: '8px 12px', borderRadius: 7, marginBottom: 8, fontSize: 12,
-          background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.22)',
-          color: 'rgba(252,165,165,.90)',
-        }}>
-          {error}
-        </div>
-      )}
-      {warning && (
-        <div style={{
-          padding: '8px 12px', borderRadius: 7, marginBottom: 8, fontSize: 12,
-          background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.25)',
-          color: 'rgba(253,224,171,.90)',
-        }}>
-          {warning}
-        </div>
-      )}
-
-      <button
-        disabled={sending || !subject.trim() || !body.trim()}
-        onClick={send}
-        style={{
-          padding: '7px 16px', borderRadius: 7, fontSize: 12, fontWeight: 600,
-          background: 'rgba(99,102,241,.18)', border: '1px solid rgba(99,102,241,.35)',
-          color: '#A78BFA', cursor: sending ? 'not-allowed' : 'pointer', fontFamily: FONT,
-          opacity: sending || !subject.trim() || !body.trim() ? 0.5 : 1,
-        }}
-      >
-        {sending ? 'Sending…' : 'Send Email'}
-      </button>
-
-      <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,.06)' }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'rgba(255,255,255,.38)', textTransform: 'uppercase', marginBottom: 4 }}>
+      <div className={styles.history}>
+        <h3 className={styles.heading}>
           Message History
-        </div>
-        <p style={{ fontSize: 11, color: 'rgba(255,255,255,.28)', margin: '0 0 10px' }}>
+        </h3>
+        <p className={styles.historyNote}>
           Outbound only — replies from this lead are not captured in BrainBase yet.
         </p>
 
         {loading ? (
-          <p style={{ fontSize: 12, color: 'rgba(255,255,255,.30)' }}>Loading…</p>
+          <p className={styles.state} role="status">Loading…</p>
         ) : messages.length === 0 ? (
-          <p style={{ fontSize: 12, color: 'rgba(255,255,255,.30)' }}>No messages sent yet.</p>
+          <p className={styles.state}>No messages sent yet.</p>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <ul className={styles.list}>
             {messages.map(m => (
-              <div key={m.id} style={{
-                padding: '10px 12px', borderRadius: 8,
-                background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 5, flexWrap: 'wrap' }}>
-                  <span style={{
-                    fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-                    background: 'rgba(59,130,246,.12)', color: '#60A5FA', border: '1px solid rgba(59,130,246,.25)',
-                    textTransform: 'uppercase', letterSpacing: '.04em',
-                  }}>
+              <li key={m.id} className={styles.message}>
+                <div className={styles.messageHead}>
+                  <Badge state="info" dot={false} className={styles.direction}>
                     {m.direction}
-                  </span>
-                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,.28)' }}>
+                  </Badge>
+                  <span className={styles.timestamp}>
                     {fmt(m.created_at)}{m.sender_name ? ` · ${m.sender_name}` : ''}
                   </span>
                 </div>
-                <p style={{ fontSize: 13, fontWeight: 600, color: '#F0F2F5', margin: '0 0 4px' }}>{m.subject}</p>
-                <p style={{ fontSize: 13, color: 'rgba(226,232,240,.60)', whiteSpace: 'pre-wrap', lineHeight: 1.55, margin: 0 }}>{m.body}</p>
-              </div>
+                <p className={styles.subject}>{m.subject}</p>
+                <p className={styles.body}>{m.body}</p>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </div>
-    </div>
+    </section>
   );
 }

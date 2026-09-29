@@ -109,7 +109,13 @@ describe('app/admin/web-services/page.tsx — sticky toolbar offset fix (top-cli
   it('does not modify the shared admin layout or AdminAside', () => {
     const layout = fs.readFileSync(path.resolve(__dirname, '../../app/admin/layout.tsx'), 'utf-8')
     const aside = fs.readFileSync(path.resolve(__dirname, '../../components/admin/AdminAside.tsx'), 'utf-8')
-    expect(layout).toContain("overflow: 'auto'")
+    // Visual-convergence update (remaining visual islands pass): the admin
+    // <main> inline style moved to app/admin/AdminLayout.module.css; its
+    // overflow: auto (what this fix relies on) is asserted there instead.
+    expect(layout).toContain('<main className={styles.main}>')
+    const layoutCss = fs.readFileSync(path.resolve(__dirname, '../../app/admin/AdminLayout.module.css'), 'utf-8')
+    const mainRule = layoutCss.slice(layoutCss.indexOf('.main {'), layoutCss.indexOf('}', layoutCss.indexOf('.main {')))
+    expect(mainRule).toContain('overflow: auto;')
     // Phase D.4.5C-W2 — AdminAside's own header-offset mechanism moved
     // from a hardcoded `top: 52` literal to the shared
     // --app-header-offset custom property (see

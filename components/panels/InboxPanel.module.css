@@ -1,0 +1,251 @@
+/* Inbox overlay (the /dashboard fallback) — remaining visual islands pass.
+   Tokens only; shared frame lives in PanelOverlay.module.css. */
+
+.dialog {
+  width: min(900px, 96vw);
+  height: min(700px, 90vh);
+}
+
+/* Compose toggle — selected = raised surface + accent edge + accent text. */
+.toggle[aria-pressed='true'] {
+  background: var(--bg-surface);
+  border-color: var(--brand-brainbase-accent-border);
+  color: var(--brand-brainbase-accent);
+}
+
+.compose {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.composeHeader {
+  flex-shrink: 0;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.composeTitle {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.composeBody {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.composeText {
+  flex: 1;
+  min-height: 240px;
+}
+
+.toField {
+  position: relative;
+}
+
+.suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  margin-top: 3px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-overlay);
+  box-shadow: var(--shadow-menu);
+}
+
+.suggestion {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border-light);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+}
+.suggestion:hover {
+  background: var(--bg-sunken);
+}
+
+.sent {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.sentIcon {
+  color: var(--status-success);
+}
+
+.listLoading {
+  padding: 20px;
+}
+
+.rowTop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+
+.unreadDot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--status-info);
+}
+
+.sender {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+.sender[data-unread='true'] {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.rowTime {
+  flex-shrink: 0;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.rowSubject {
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+.rowSnippet {
+  margin-top: 2px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.indent {
+  padding-left: 12px;
+}
+
+.detailHeader {
+  flex-shrink: 0;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.detailSubject {
+  margin: 0 0 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+
+.senderRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.senderName {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.senderEmail {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.date {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.detailBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.sentNotice {
+  margin-bottom: 12px;
+}
+
+.messageText {
+  margin: 0;
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-primary);
+}
+
+.replyTo {
+  margin-bottom: 6px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.replyActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.reply {
+  width: 100%;
+}
+
+.notConnected {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}

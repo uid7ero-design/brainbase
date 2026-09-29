@@ -9,6 +9,7 @@ import {
   useState,
 } from 'react';
 import LockScreen from './LockScreen';
+import bannerStyles from './WelcomeBackBanner.module.css';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -176,42 +177,15 @@ export default function SessionProvider({ children, hasSession, name, secureMode
 
 function WelcomeBackBanner({ name }: { name: string }) {
   const firstName = name.split(' ')[0];
+  // Visual (remaining visual islands pass): tokens via the CSS module instead
+  // of the dark glass / violet glow chrome. Copy, placement, stacking and
+  // pointer-events are unchanged; the dot is decorative.
   return (
-    <div
-      style={{
-        position: 'fixed',
-        bottom: '24px',
-        right: '24px',
-        zIndex: 9998,
-        padding: '14px 20px',
-        borderRadius: '14px',
-        background: 'rgba(13,13,21,0.95)',
-        border: '1px solid rgba(109,40,217,0.3)',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(109,40,217,0.08)',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '10px',
-        fontFamily: 'var(--font-geist-sans), var(--font-inter), sans-serif',
-        animation: 'fadeIn .3s ease',
-        pointerEvents: 'none',
-      }}
-    >
-      <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: '50%',
-          background: '#A78BFA',
-          boxShadow: '0 0 8px rgba(167,139,250,0.7)',
-          flexShrink: 0,
-          display: 'inline-block',
-        }}
-      />
-      <span style={{ fontSize: '14px', color: '#F4F4F5', fontWeight: 500 }}>
+    <div className={bannerStyles.banner}>
+      <span aria-hidden="true" className={bannerStyles.dot} />
+      <span className={bannerStyles.text}>
         Welcome back,{' '}
-        <span style={{ color: '#C4B5FD' }}>{firstName}</span>
+        <span className={bannerStyles.name}>{firstName}</span>
       </span>
     </div>
   );

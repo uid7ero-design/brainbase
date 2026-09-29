@@ -4,8 +4,13 @@ import { useState } from 'react';
 import { useAppStore } from '@/lib/state/useAppStore';
 import { getDeptConfig } from '@/lib/hlna/departmentConfigs';
 import { HLNA_MODULES } from '@/lib/hlna/modules';
+import styles from './CommandSuggestions.module.css';
 
-const FONT = "var(--font-inter), -apple-system, sans-serif";
+// Visual (remaining visual islands pass): the white-alpha pill chips, violet
+// hover/active glow and the local Inter stack are replaced by bordered chips
+// on app tokens (CommandSuggestions.module.css); hover lives in CSS instead
+// of inline style mutation. Chip selection, fireHelena + setChatOpen and the
+// 2s active reset are unchanged.
 
 const MAX_PANEL = 4;
 
@@ -35,68 +40,32 @@ export function CommandSuggestions({ panelMode = false }: Props) {
   }
 
   return (
-    <div style={{ fontFamily: FONT, width: '100%' }}>
+    <div className={styles.root}>
       {!panelMode && (
-        <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '.12em', color: 'rgba(255,255,255,.25)', textTransform: 'uppercase', marginBottom: 9, textAlign: 'center' }}>
+        <div className={styles.heading}>
           Command Suggestions
         </div>
       )}
-      <div style={{
-        display: 'flex', flexWrap: 'wrap',
-        gap: panelMode ? 5 : 7,
-        justifyContent: panelMode ? 'flex-start' : 'center',
-      }}>
+      <div className={styles.chips} data-panel={panelMode ? 'true' : 'false'} role="group" aria-label="Command suggestions">
         {visible.map((chip, i) => {
           const isActive = active === i;
           return (
             <button
+              type="button"
               key={i}
               onClick={() => send(i, chip.command)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 5,
-                padding: panelMode ? '5px 10px' : '6px 14px',
-                borderRadius: 20,
-                fontSize: panelMode ? 10 : 11,
-                fontWeight: 600,
-                background: isActive ? 'rgba(124,58,237,.18)' : 'rgba(255,255,255,.04)',
-                border: `1px solid ${isActive ? 'rgba(124,58,237,.45)' : 'rgba(255,255,255,.09)'}`,
-                color: isActive ? '#C4B5FD' : 'rgba(230,237,243,.60)',
-                cursor: 'pointer', fontFamily: FONT,
-                transition: 'all .18s', letterSpacing: '-0.01em',
-                boxShadow: isActive ? '0 0 12px rgba(124,58,237,.22)' : 'none',
-              }}
-              onMouseEnter={e => {
-                if (isActive) return;
-                e.currentTarget.style.background = 'rgba(124,58,237,.14)';
-                e.currentTarget.style.borderColor = 'rgba(124,58,237,.38)';
-                e.currentTarget.style.color = '#C4B5FD';
-                e.currentTarget.style.boxShadow = '0 0 12px rgba(124,58,237,.16)';
-              }}
-              onMouseLeave={e => {
-                if (isActive) return;
-                e.currentTarget.style.background = 'rgba(255,255,255,.04)';
-                e.currentTarget.style.borderColor = 'rgba(255,255,255,.09)';
-                e.currentTarget.style.color = 'rgba(230,237,243,.60)';
-                e.currentTarget.style.boxShadow = 'none';
-              }}
+              className={styles.chip}
+              data-active={isActive ? 'true' : 'false'}
             >
-              <span style={{ fontSize: panelMode ? 10 : 12 }}>{chip.icon}</span>
+              <span className={styles.icon} aria-hidden="true">{chip.icon}</span>
               <span>{chip.label}</span>
             </button>
           );
         })}
 
         {overflow > 0 && (
-          <span style={{
-            display: 'flex', alignItems: 'center',
-            padding: '5px 10px', borderRadius: 20, fontSize: 10, fontWeight: 700,
-            background: 'rgba(255,255,255,.03)',
-            border: '1px solid rgba(255,255,255,.07)',
-            color: 'rgba(255,255,255,.28)',
-            letterSpacing: '.02em',
-            userSelect: 'none',
-          }}>
-            +{overflow}
+          <span className={styles.overflow}>
+            +{overflow}<span className="sr-only"> more suggestions</span>
           </span>
         )}
       </div>

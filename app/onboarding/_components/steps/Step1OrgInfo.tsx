@@ -2,28 +2,8 @@
 
 import { useState } from 'react';
 import { OrgData } from '../OnboardingWizard';
-
-const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
-
-const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '11px 14px',
-  background: 'rgba(255,255,255,.04)',
-  border: '1px solid rgba(255,255,255,.08)',
-  borderRadius: 8, color: '#F4F4F5', fontSize: 14,
-  outline: 'none', boxSizing: 'border-box',
-  fontFamily: FONT, transition: 'border-color .15s',
-};
-
-function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <label style={{ fontSize: 12, fontWeight: 500, color: '#A1A1AA', letterSpacing: '.03em' }}>
-        {label}{required && <span style={{ color: '#EF4444', marginLeft: 3 }}>*</span>}
-      </label>
-      {children}
-    </div>
-  );
-}
+import { Button, Field, fieldControlClassName } from '@/components/ui/app';
+import styles from '../Onboarding.module.css';
 
 export default function Step1OrgInfo({ data, onNext }: { data: OrgData; onNext: (d: OrgData) => void }) {
   const [form, setForm] = useState<OrgData>(data);
@@ -59,43 +39,43 @@ export default function Step1OrgInfo({ data, onNext }: { data: OrgData; onNext: 
         title="Tell us about your organisation"
         subtitle="This helps HLNA personalise your experience from day one."
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <Field label="Council / Organisation Name" required>
-            <input
-              style={{ ...inputStyle, ...(errors.councilName ? { borderColor: 'rgba(239,68,68,.5)' } : {}) }}
-              placeholder="e.g. City of Adelaide"
-              value={form.councilName}
-              onChange={set('councilName')}
-              onFocus={e => { e.currentTarget.style.borderColor = 'rgba(124,58,237,.5)'; }}
-              onBlur={e => { e.currentTarget.style.borderColor = errors.councilName ? 'rgba(239,68,68,.5)' : 'rgba(255,255,255,.08)'; }}
-            />
-            {errors.councilName && <span style={{ fontSize: 11, color: '#EF4444' }}>{errors.councilName}</span>}
+        <div className={styles.stack}>
+          <Field label="Council / Organisation Name" required error={errors.councilName || undefined}>
+            {control => (
+              <input
+                {...control}
+                className={fieldControlClassName}
+                placeholder="e.g. City of Adelaide"
+                value={form.councilName}
+                onChange={set('councilName')}
+              />
+            )}
           </Field>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <Field label="Primary Contact Name" required>
-              <input
-                style={{ ...inputStyle, ...(errors.contactName ? { borderColor: 'rgba(239,68,68,.5)' } : {}) }}
-                placeholder="Jane Smith"
-                value={form.contactName}
-                onChange={set('contactName')}
-                onFocus={e => { e.currentTarget.style.borderColor = 'rgba(124,58,237,.5)'; }}
-                onBlur={e => { e.currentTarget.style.borderColor = errors.contactName ? 'rgba(239,68,68,.5)' : 'rgba(255,255,255,.08)'; }}
-              />
-              {errors.contactName && <span style={{ fontSize: 11, color: '#EF4444' }}>{errors.contactName}</span>}
+          <div className={styles.twoCol}>
+            <Field label="Primary Contact Name" required error={errors.contactName || undefined}>
+              {control => (
+                <input
+                  {...control}
+                  className={fieldControlClassName}
+                  placeholder="Jane Smith"
+                  value={form.contactName}
+                  onChange={set('contactName')}
+                />
+              )}
             </Field>
 
-            <Field label="Contact Email" required>
-              <input
-                type="email"
-                style={{ ...inputStyle, ...(errors.contactEmail ? { borderColor: 'rgba(239,68,68,.5)' } : {}) }}
-                placeholder="jane@council.gov.au"
-                value={form.contactEmail}
-                onChange={set('contactEmail')}
-                onFocus={e => { e.currentTarget.style.borderColor = 'rgba(124,58,237,.5)'; }}
-                onBlur={e => { e.currentTarget.style.borderColor = errors.contactEmail ? 'rgba(239,68,68,.5)' : 'rgba(255,255,255,.08)'; }}
-              />
-              {errors.contactEmail && <span style={{ fontSize: 11, color: '#EF4444' }}>{errors.contactEmail}</span>}
+            <Field label="Contact Email" required error={errors.contactEmail || undefined}>
+              {control => (
+                <input
+                  {...control}
+                  type="email"
+                  className={fieldControlClassName}
+                  placeholder="jane@council.gov.au"
+                  value={form.contactEmail}
+                  onChange={set('contactEmail')}
+                />
+              )}
             </Field>
           </div>
         </div>
@@ -108,18 +88,18 @@ export default function Step1OrgInfo({ data, onNext }: { data: OrgData; onNext: 
 
 // ── Shared primitives ──────────────────────────────────────────────────────
 
-export function StepShell({ icon, title, subtitle, children }: {
+// Visual (remaining visual islands pass): StepShell and NavButtons keep their
+// props API (every step still passes `icon`), but the emoji is a decorative
+// glyph and is no longer rendered — the shell is a flat token surface with
+// the step title as the h2 under the wizard's page h1.
+export function StepShell({ title, subtitle, children }: {
   icon: string; title: string; subtitle: string; children: React.ReactNode;
 }) {
   return (
-    <div style={{
-      background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)',
-      borderRadius: 16, padding: '36px 32px', display: 'flex', flexDirection: 'column', gap: 28,
-    }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <span style={{ fontSize: 28, lineHeight: 1 }}>{icon}</span>
-        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#F4F4F5', fontFamily: FONT }}>{title}</h2>
-        <p style={{ margin: 0, fontSize: 14, color: '#71717A', lineHeight: 1.5 }}>{subtitle}</p>
+    <div className={styles.shell}>
+      <div className={styles.shellHead}>
+        <h2 className={styles.shellTitle}>{title}</h2>
+        <p className={styles.shellSubtitle}>{subtitle}</p>
       </div>
       {children}
     </div>
@@ -130,37 +110,15 @@ export function NavButtons({ next = 'Continue', onBack, nextDisabled }: {
   next?: string; onBack?: () => void; nextDisabled?: boolean;
 }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8 }}>
+    <div className={styles.nav}>
       {onBack ? (
-        <button
-          type="button"
-          onClick={onBack}
-          style={{
-            padding: '10px 20px', borderRadius: 8, border: '1px solid rgba(255,255,255,.1)',
-            background: 'transparent', color: '#A1A1AA', fontSize: 13, fontWeight: 500,
-            cursor: 'pointer', fontFamily: FONT, transition: 'all .15s',
-          }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,.05)'; e.currentTarget.style.color = '#F4F4F5'; }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#A1A1AA'; }}
-        >
-          ← Back
-        </button>
+        <Button variant="secondary" onClick={onBack}>
+          <span aria-hidden="true">←</span> Back
+        </Button>
       ) : <div />}
-      <button
-        type="submit"
-        disabled={nextDisabled}
-        style={{
-          padding: '10px 24px', borderRadius: 8, border: 'none',
-          background: nextDisabled ? 'rgba(124,58,237,.3)' : '#7C3AED',
-          color: nextDisabled ? 'rgba(255,255,255,.4)' : '#fff',
-          fontSize: 13, fontWeight: 600, cursor: nextDisabled ? 'not-allowed' : 'pointer',
-          fontFamily: FONT, transition: 'background .15s',
-        }}
-        onMouseEnter={e => { if (!nextDisabled) e.currentTarget.style.background = '#6D28D9'; }}
-        onMouseLeave={e => { if (!nextDisabled) e.currentTarget.style.background = '#7C3AED'; }}
-      >
-        {next} →
-      </button>
+      <Button type="submit" variant="primary" disabled={nextDisabled}>
+        {next} <span aria-hidden="true">→</span>
+      </Button>
     </div>
   );
 }

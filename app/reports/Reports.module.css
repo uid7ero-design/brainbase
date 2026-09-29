@@ -1,0 +1,79 @@
+/* Reports list (remaining visual islands pass, phase 4D). Tokens only
+   (app/globals.css). Report-type hues are a data encoding: they colour the
+   small identity dot only; the type label sits on a theme text token so it
+   reads in light and dark. */
+
+.page {
+  width: 100%;
+  min-width: 0;
+  min-height: calc(100vh - 52px);
+  box-sizing: border-box;
+  padding: 32px 24px 64px;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--bb-font-sans);
+}
+
+.inner {
+  max-width: 900px;
+  margin: 0 auto;
+  min-width: 0;
+}
+
+.empty {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.emptyLink {
+  color: var(--brand-brainbase-accent);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+.emptyLink:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.title {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.type {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.typeDot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.allData {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

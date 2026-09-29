@@ -3,13 +3,12 @@
 import { useState, useEffect, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { getOrganisationCapabilities, setOrganisationCapability, type OrganisationCapability } from '@/app/actions/orgModules';
-import { Button, Dialog, PageHeader, StateMessage, TableContainer, buttonProps, tableStyles } from '@/components/ui/app';
+import { Button, Dialog, PageHeader, StateMessage, TableContainer, buttonProps, fieldControlClassName, tableStyles } from '@/components/ui/app';
 
 type Org  = { id: string; name: string; slug: string; created_at: string };
 type User = { id: string; username: string; name: string; email: string; role: string; organisation_id: string; org_name: string };
 type CrmClient = { organisation_id?: string | null; stage?: string; estimated_value?: number | null; next_action?: string | null; org?: string };
 
-const FONT  = "var(--font-inter), -apple-system, sans-serif";
 const ROLES = ['viewer', 'manager', 'admin', 'super_admin'];
 
 function fmt(ts: string) {
@@ -223,16 +222,13 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
   }
 
   // ── Styles ──────────────────────────────────────────────────
-  const inp: React.CSSProperties = {
-    width: '100%', padding: '8px 12px',
-    background: 'var(--bg-sunken)', border: '1px solid var(--border)',
-    borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontSize: 13,
-    boxSizing: 'border-box', fontFamily: FONT,
-  };
-  const sel: React.CSSProperties = { ...inp, cursor: 'pointer' };
+  // Visual-convergence (remaining visual islands pass): form controls use
+  // the shared field control (3:1 edge, theme tokens, inherited app font).
+  const inp = fieldControlClassName;
+  const sel = fieldControlClassName;
 
   return (
-    <div style={{ color: 'var(--text-primary)', fontFamily: FONT }}>
+    <div style={{ color: 'var(--text-primary)' }}>
       <div style={{ maxWidth: 1040, margin: '0 auto' }}>
 
         <PageHeader title="Administration" description="Super admin panel — manage organisations and users." />
@@ -244,16 +240,15 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
               padding: '9px 18px', background: 'none', border: 'none',
               borderBottom: tab === t ? '2px solid var(--brand-brainbase-accent)' : '2px solid transparent',
               color: tab === t ? 'var(--brand-brainbase-accent)' : 'var(--text-secondary)',
-              fontSize: 13, fontWeight: tab === t ? 600 : 400, cursor: 'pointer',
-              textTransform: 'capitalize', transition: 'all 0.15s', fontFamily: FONT,
+              font: 'inherit', fontSize: 13, fontWeight: tab === t ? 600 : 400, cursor: 'pointer',
             }}>
               {t === 'orgs' ? `Organisations (${orgs.length})` : `Users (${users.length})`}
             </button>
           ))}
         </div>
 
-        {error   && <div style={{ padding: '10px 14px', background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', borderRadius: 8, fontSize: 13, color: 'var(--status-danger)', marginBottom: 14 }}>{error} <button onClick={() => setError('')} style={{ background: 'none', border: 'none', color: 'var(--status-danger)', cursor: 'pointer', marginLeft: 8, fontFamily: FONT }}>×</button></div>}
-        {success && <div style={{ padding: '10px 14px', background: 'var(--status-success-muted)', border: '1px solid var(--status-success-border)', borderRadius: 8, fontSize: 13, color: 'var(--status-success)', marginBottom: 14 }}>{success} <button onClick={() => setSuccess('')} style={{ background: 'none', border: 'none', color: 'var(--status-success)', cursor: 'pointer', marginLeft: 8, fontFamily: FONT }}>×</button></div>}
+        {error   && <div role="alert" style={{ padding: '10px 14px', background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', borderRadius: 'var(--radius-md)', fontSize: 13, color: 'var(--status-danger)', marginBottom: 14 }}>{error} <button type="button" aria-label="Dismiss message" onClick={() => setError('')} style={DISMISS}><span aria-hidden="true">×</span></button></div>}
+        {success && <div role="status" style={{ padding: '10px 14px', background: 'var(--status-success-muted)', border: '1px solid var(--status-success-border)', borderRadius: 'var(--radius-md)', fontSize: 13, color: 'var(--status-success)', marginBottom: 14 }}>{success} <button type="button" aria-label="Dismiss message" onClick={() => setSuccess('')} style={DISMISS}><span aria-hidden="true">×</span></button></div>}
 
         {/* ── ORGANISATIONS tab ── */}
         {tab === 'orgs' && (
@@ -264,7 +259,7 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
               {orgs.length === 0 ? (
                 <StateMessage kind="empty" title="No organisations yet." />
               ) : (
-                <TableContainer label="Organisations" minWidth={620}>
+                <TableContainer label="Organisations table" minWidth={620}>
                   <table className={tableStyles.table}>
                     <thead>
                       <tr>
@@ -282,24 +277,27 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
                         // Founder OS (STAGE_FG), kept as-is rather than forced into
                         // generic semantic states.
                         const STAGE_C: Record<string, string> = { lead: '#94A3B8', contacted: '#60A5FA', demo: '#A78BFA', trial: '#FCD34D', proposal: '#FDE68A', paid: '#4ADE80', lost: '#F87171' };
-                        const stageColor = crm?.stage ? (STAGE_C[crm.stage] ?? '#94A3B8') : undefined;
+                        const stageColor = crm?.stage ? (STAGE_C[crm.stage] ?? STAGE_C.lead) : undefined;
                         return (
                           <tr key={o.id}>
                             <td className={tableStyles.primary}>{o.name}</td>
-                            <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{o.slug}</td>
+                            <td style={{ fontFamily: 'var(--bb-font-mono)', fontSize: 12 }}>{o.slug}</td>
                             <td style={{ fontSize: 11 }}>
                               {crm ? (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                    <span style={{ padding: '1px 5px', borderRadius: 3, fontSize: 9, fontWeight: 700, background: `${stageColor}18`, color: stageColor, border: `1px solid ${stageColor}30` }}>
+                                    {/* Stage hue on the dot + a light tint; the label stays on
+                                        --text-primary so it reads in both themes (as Founder OS). */}
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '1px 5px', borderRadius: 'var(--radius-sm)', fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', background: `color-mix(in srgb, ${stageColor} 14%, transparent)`, color: 'var(--text-primary)', border: `1px solid color-mix(in srgb, ${stageColor} 45%, transparent)` }}>
+                                      <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: stageColor, flexShrink: 0 }} />
                                       {(crm.stage ?? '').toUpperCase()}
                                     </span>
                                     {crm.estimated_value != null && (
-                                      <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace' }}>${crm.estimated_value.toLocaleString()}/mo</span>
+                                      <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>${crm.estimated_value.toLocaleString()}/mo</span>
                                     )}
                                   </div>
                                   {crm.next_action && (
-                                    <span style={{ fontSize: 10, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{crm.next_action}</span>
+                                    <span style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{crm.next_action}</span>
                                   )}
                                   <button
                                     type="button"
@@ -332,12 +330,12 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
 
             {/* Create org form */}
             <form onSubmit={createOrg} style={{ ...SIDE_FORM, gap: 12 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 4 }}>New Organisation</div>
+              <h2 style={{ ...SECTION_HEADING, marginBottom: 4 }}>New Organisation</h2>
               <Label text="Name">
-                <input required value={orgForm.name} onChange={e => setOrgForm(f => ({ ...f, name: e.target.value, slug: slugify(e.target.value) }))} placeholder="City of Springfield" style={inp} />
+                <input required value={orgForm.name} onChange={e => setOrgForm(f => ({ ...f, name: e.target.value, slug: slugify(e.target.value) }))} placeholder="City of Springfield" className={inp} />
               </Label>
               <Label text="Slug">
-                <input required value={orgForm.slug} onChange={e => setOrgForm(f => ({ ...f, slug: slugify(e.target.value) }))} placeholder="city-of-springfield" style={inp} />
+                <input required value={orgForm.slug} onChange={e => setOrgForm(f => ({ ...f, slug: slugify(e.target.value) }))} placeholder="city-of-springfield" className={inp} />
               </Label>
               <PrimaryBtn disabled={saving}>{saving ? 'Creating…' : 'Create Organisation'}</PrimaryBtn>
             </form>
@@ -353,7 +351,7 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
               {users.length === 0 ? (
                 <StateMessage kind="empty" title="No users yet." />
               ) : (
-                <TableContainer label="Users" minWidth={560}>
+                <TableContainer label="Users table" minWidth={560}>
                   <table className={tableStyles.table}>
                     <thead>
                       <tr>
@@ -367,10 +365,10 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
                     <tbody>
                       {users.map(u => (
                         <tr key={u.id}>
-                          <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{u.username}</td>
+                          <td style={{ fontFamily: 'var(--bb-font-mono)', fontSize: 12 }}>{u.username}</td>
                           <td className={tableStyles.primary}>{u.name}</td>
                           <td>
-                            <span style={{ padding: '2px 7px', borderRadius: 'var(--radius-sm)', fontSize: 10, fontWeight: 700, background: u.role === 'super_admin' ? 'var(--status-danger-muted)' : 'var(--brand-brainbase-accent-muted)', color: u.role === 'super_admin' ? 'var(--status-danger)' : 'var(--brand-brainbase-accent)', border: `1px solid ${u.role === 'super_admin' ? 'var(--status-danger-border)' : 'var(--brand-brainbase-accent-border)'}` }}>
+                            <span style={{ padding: '2px 7px', borderRadius: 'var(--radius-sm)', fontSize: 10, fontWeight: 700, background: u.role === 'super_admin' ? 'var(--status-danger-muted)' : 'var(--bg-sunken)', color: u.role === 'super_admin' ? 'var(--status-danger)' : 'var(--text-secondary)', border: `1px solid ${u.role === 'super_admin' ? 'var(--status-danger-border)' : 'var(--border)'}` }}>
                               {u.role}
                             </span>
                           </td>
@@ -391,7 +389,7 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
 
             {/* Create user form */}
             <form onSubmit={createUser} style={{ ...SIDE_FORM, gap: 11 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 4 }}>New User</div>
+              <h2 style={{ ...SECTION_HEADING, marginBottom: 4 }}>New User</h2>
               {([
                 { label: 'Full Name', key: 'name',     type: 'text',     ph: 'Jane Smith' },
                 { label: 'Username',  key: 'username', type: 'text',     ph: 'jane.smith' },
@@ -405,17 +403,17 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
                     placeholder={f.ph}
                     value={(userForm as Record<string, string>)[f.key]}
                     onChange={e => setUserForm(p => ({ ...p, [f.key]: e.target.value }))}
-                    style={inp}
+                    className={inp}
                   />
                 </Label>
               ))}
               <Label text="Role">
-                <select value={userForm.role} onChange={e => setUserForm(p => ({ ...p, role: e.target.value }))} style={sel}>
+                <select value={userForm.role} onChange={e => setUserForm(p => ({ ...p, role: e.target.value }))} className={sel}>
                   {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
               </Label>
               <Label text="Organisation">
-                <select required value={userForm.organisationId} onChange={e => setUserForm(p => ({ ...p, organisationId: e.target.value }))} style={sel}>
+                <select required value={userForm.organisationId} onChange={e => setUserForm(p => ({ ...p, organisationId: e.target.value }))} className={sel}>
                   <option value="">Select organisation…</option>
                   {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
                 </select>
@@ -432,24 +430,24 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
         <Modal title={`Edit — ${editOrg.name}`} onClose={() => setEditOrg(null)}>
           <form onSubmit={saveOrg} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <Label text="Organisation Name">
-              <input required value={editOrgForm.name} onChange={e => setEditOrgForm(f => ({ ...f, name: e.target.value }))} style={inp} />
+              <input required value={editOrgForm.name} onChange={e => setEditOrgForm(f => ({ ...f, name: e.target.value }))} className={inp} />
             </Label>
             <Label text="Slug">
-              <input required value={editOrgForm.slug} onChange={e => setEditOrgForm(f => ({ ...f, slug: slugify(e.target.value) }))} style={inp} />
+              <input required value={editOrgForm.slug} onChange={e => setEditOrgForm(f => ({ ...f, slug: slugify(e.target.value) }))} className={inp} />
             </Label>
             <PrimaryBtn disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</PrimaryBtn>
           </form>
 
           {/* ── Capabilities (Phase F.6I) ── */}
           <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border)' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 10 }}>
+            <h3 style={{ ...SECTION_HEADING, marginBottom: 10 }}>
               Capabilities
-            </div>
+            </h3>
             {capabilitiesError && (
-              <div style={{ fontSize: 12, color: 'var(--status-danger)', marginBottom: 8 }}>{capabilitiesError}</div>
+              <div role="alert" style={{ fontSize: 12, color: 'var(--status-danger)', marginBottom: 8 }}>{capabilitiesError}</div>
             )}
             {capabilities.length === 0 && !capabilitiesError ? (
-              <div style={{ fontSize: 12, color: 'var(--text-subtle)' }}>No registered capabilities.</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No registered capabilities.</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, opacity: isCapabilityPending ? 0.6 : 1 }}>
                 {capabilities.map(c => (
@@ -462,7 +460,7 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
                     />
                     <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{c.name}</span>
                     {!c.active && (
-                      <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-muted)', background: 'var(--bg-sunken)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 5px' }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-muted)', background: 'var(--bg-sunken)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '1px 5px' }}>
                         Inactive
                       </span>
                     )}
@@ -479,24 +477,24 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
         <Modal title={`Edit — ${editUser.username}`} onClose={() => setEditUser(null)}>
           <form onSubmit={saveUser} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <Label text="Full Name">
-              <input required value={editUserForm.name} onChange={e => setEditUserForm(f => ({ ...f, name: e.target.value }))} style={inp} />
+              <input required value={editUserForm.name} onChange={e => setEditUserForm(f => ({ ...f, name: e.target.value }))} className={inp} />
             </Label>
             <Label text="Email">
-              <input type="email" value={editUserForm.email} onChange={e => setEditUserForm(f => ({ ...f, email: e.target.value }))} placeholder="Leave blank to clear" style={inp} />
+              <input type="email" value={editUserForm.email} onChange={e => setEditUserForm(f => ({ ...f, email: e.target.value }))} placeholder="Leave blank to clear" className={inp} />
             </Label>
             <Label text="Role">
-              <select value={editUserForm.role} onChange={e => setEditUserForm(f => ({ ...f, role: e.target.value }))} style={sel}>
+              <select value={editUserForm.role} onChange={e => setEditUserForm(f => ({ ...f, role: e.target.value }))} className={sel}>
                 {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
             </Label>
             <Label text="Organisation">
-              <select required value={editUserForm.organisationId} onChange={e => setEditUserForm(f => ({ ...f, organisationId: e.target.value }))} style={sel}>
+              <select required value={editUserForm.organisationId} onChange={e => setEditUserForm(f => ({ ...f, organisationId: e.target.value }))} className={sel}>
                 <option value="">Select organisation…</option>
                 {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
               </select>
             </Label>
             <Label text="New Password (leave blank to keep)">
-              <input type="password" value={editUserForm.password} onChange={e => setEditUserForm(f => ({ ...f, password: e.target.value }))} placeholder="8+ characters" style={inp} />
+              <input type="password" value={editUserForm.password} onChange={e => setEditUserForm(f => ({ ...f, password: e.target.value }))} placeholder="8+ characters" className={inp} />
             </Label>
             <PrimaryBtn disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</PrimaryBtn>
           </form>
@@ -517,7 +515,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 function Label({ text, children }: { text: string; children: React.ReactNode }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{text}</span>
+      <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>{text}</span>
       {children}
     </label>
   );
@@ -532,4 +530,5 @@ function PrimaryBtn({ children, disabled }: { children: React.ReactNode; disable
 }
 
 const SECTION_HEADING: React.CSSProperties = { margin: '0 0 8px', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)' };
+const DISMISS: React.CSSProperties = { background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', marginLeft: 8, font: 'inherit', padding: '0 4px', borderRadius: 'var(--radius-sm)' };
 const SIDE_FORM: React.CSSProperties = { flex: '1 1 300px', maxWidth: 420, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 18, display: 'flex', flexDirection: 'column' };

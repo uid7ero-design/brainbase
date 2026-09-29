@@ -1,0 +1,205 @@
+/* Address book overlay (the /dashboard fallback) — remaining visual islands
+   pass. Tokens only; shared frame lives in PanelOverlay.module.css. */
+
+.dialog {
+  width: min(760px, 94vw);
+  height: min(660px, 88vh);
+}
+
+.search {
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.avatarLarge {
+  width: 52px;
+  height: 52px;
+  font-size: 1.125rem;
+}
+
+.rowText {
+  flex: 1;
+  min-width: 0;
+}
+
+.rowName {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.rowMeta {
+  display: block;
+  margin-top: 1px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.form {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 20px;
+}
+
+.formGroup {
+  margin-bottom: 14px;
+}
+
+.formGroupLast {
+  margin-bottom: 18px;
+}
+
+.inputRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.socialIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+  font-size: 0.625rem;
+  font-weight: 700;
+}
+
+.formActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.detail {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+}
+
+.identity {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.name {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+
+.primaryEmail {
+  margin-top: 3px;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+.detailActions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.section {
+  margin-bottom: 18px;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+}
+
+.sectionRows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.copyRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.copyLabel {
+  min-width: 64px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.copyValue {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.75rem;
+  color: var(--text-primary);
+}
+
+.copyLink {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.75rem;
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 2px;
+}
+.copyLink:hover {
+  text-decoration-color: currentColor;
+}
+
+.copied {
+  color: var(--status-success);
+}
+
+.noDetails {
+  margin: 0;
+  font-size: 0.75rem;
+  font-style: italic;
+  color: var(--text-muted);
+}

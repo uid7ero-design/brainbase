@@ -294,6 +294,10 @@ export default function BrainBase({ enabledCapabilities = [], isSuperAdmin = fal
       background: "var(--bg-base)", color: "var(--text-primary)",
       fontFamily: "var(--bb-font-sans)", position: "relative", display: "flex", flexDirection: "column",
     }}>
+      {/* Page heading for assistive tech: this /dashboard fallback shell has no
+          other h1 (the header shows the wordmark). Visually hidden, so layout is
+          unchanged. */}
+      <h1 className="bb-visually-hidden">Dashboard</h1>
 
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <header style={{

@@ -2465,3 +2465,240 @@ A small follow-up for the five non-blocking issues recorded during the authentic
   - PR #248's new organiser drag handles (focusable `role="button"`) have no keyboard way to reorder; reordering is native HTML drag only. This is a functional accessibility gap for a separate pass.
   - Out-of-scope observation: the default public event theme's input placeholder is `rgba(226,232,240,.32)`. It was not measured, because placeholders were excluded from the probe.
 - **Verification sources:** harness verification only, not authenticated routes. Real components were rendered in a real Chrome in before (main ca3daa6) and after worktrees, with fixtures and a scratch-only SQL/session shim for the leads pages, at 1440, 1024 and 390, light and dark.
+
+## Remaining authenticated visual islands — base main ecb5b03
+
+The follow-up to the backlog recorded under decision 9. It started from a fresh inventory. Visual and accessibility-semantic changes only. Routes, APIs, fetch URLs, methods and payloads, auth, permissions, tenant isolation, state, calculations and visible copy are unchanged, except where decorative emoji glyphs were removed. The shared primitives, tokens, `app/globals.css`, `lib/**` and navigation were not edited.
+
+### Scope and classification
+
+- **Converged (live authenticated consumers):**
+  - LockScreen.
+  - Admin: `/admin/web-services` (+ LeadMessages), `/admin/deployments`, `/admin/agent-runs` (residue only) and `/admin/orgs` AdminClient (residue only).
+  - Operations modules: `/dashboard/wste` (WSTEClient, ServiceTimeline, PropertyClient), `/dashboard/service-requests`, `/dashboard/social` and `/dashboard/integrations`.
+  - `/briefings`, `/data`, `/portal`, and the `/reports` list and `/reports/[id]` chrome.
+  - `/dashboards` and the `/onboarding` wizard with all seven steps.
+  - The BrainBase no-session fallback panels (Activity, Contacts, Inbox, Integrations, Memory, News; MorningBriefing, CommandSuggestions, RecommendedActions).
+  - The BrainGraphPanel chrome.
+- **Excluded by classification:**
+  - `/connect` is PUBLIC. It is listed in the middleware `PUBLIC` array and is a pre-auth marketing conversion page with a fixed dark brand background, the wordmark and an orbital background. It was stopped and classified, not converted.
+  - `app/admin/orgs/OrgsClient.tsx` and `components/hlna/SuggestedQuestions.tsx` are orphans with no importers, so they were not touched.
+- **Untouched by rule:**
+  - Generated report and evidence content inside ReportView. Only the page chrome changed.
+  - The BrainGraphPanel three.js engine. `buildScene` is byte-identical and sha256-pinned.
+  - `BrainBase.jsx` and `LeftSidebar.jsx`.
+  - The unedited server wrappers (`onboarding/page.tsx`, `briefings/page.tsx`, `data/page.tsx`, WSTE pages, `agent-runs/page.tsx`, `orgs/page.tsx`).
+
+### What changed (summary)
+
+- **Styling and theme:**
+  - Every converged surface now uses tokens in CSS modules (27 new modules) instead of local dark palettes, white-alpha text and borders, near-black slabs, glass/blur, gradient chrome, glow and local Inter font stacks.
+  - Both themes are first-class.
+- **Shared primitives are reused where they fit:** PageHeader (one h1), Panel, Button, Field, TableContainer/tableStyles, StateMessage, Dialog, Badge and MetricStrip.
+- **Chart colours:**
+  - Service Requests reads the shared chart chrome (`useDashboardChart`). The `dashboardShellVisual` guard now lists it as a chart-kit consumer held to every rule.
+  - Other JS colours use `chartPalette`.
+- **Data encodings are kept but made readable:** hues move to dots, bars, borders and tints, and label text sits on `--text-primary` or status tokens. The encodings are:
+  - the Founder CRM stage map (shared with Founder OS STAGE_FG)
+  - web-services pipeline stages
+  - Briefings agent identity
+  - `/dashboards` module identity
+  - Service Requests service-type hues (icon only)
+  - the WSTE asset status
+- **Selected states** are raised segments with a border, never an outline, so the global `:focus-visible` ring still applies.
+- **New helper `components/panels/useOverlayFocus.js`:** focus trap, initial focus and focus return for the fallback overlays, *without* owning Escape. The shared `useDialogFocus` stops Escape propagation, which would have changed the existing BrainBase-level Escape behaviour.
+
+### Accessibility corrections
+
+- **Headings:**
+  - One page h1 via PageHeader on every converged page.
+  - `/dashboards` has a visually hidden h1, because its hero is not a heading.
+  - `/onboarding` gains an h1.
+  - The Reports pages no longer emit raw h1s outside PageHeader.
+- **Overlays:** the fallback panels, the Data report dialog (now the shared Dialog) and the Contacts, Memory and News sheets get `role="dialog"`, `aria-modal`, `aria-labelledby`, initial focus, a Tab trap and focus return.
+- **Buttons and controls:**
+  - Clickable divs became buttons or links with the same handlers: onboarding upload tiles, recommended actions and panel rows.
+  - Icon-only buttons are named. The harness went from 15 unnamed buttons to 0.
+  - Inputs are associated with labels (Field or `htmlFor`) with names and values unchanged.
+  - Segmented controls and filters expose `aria-pressed`.
+  - The LockScreen password visibility toggle is a real button with `aria-pressed` and a name, back in the tab order.
+- **Status and motion:**
+  - Status is never colour-only: the text label is always present.
+  - `prefers-reduced-motion` is honoured for kept animations.
+
+### Tests, pins and mutation checks
+
+- New containment guards (consumer-aware, comments stripped, narrow allow-lists, preserved behaviour pinned):
+  - `remainingVisualIslandsA.test.ts`
+  - `wsteSocialServiceIntegrationsVisual.test.ts`
+  - `remainingVisualIslandsC.test.ts`
+  - `dashboardsOnboardingVisual.test.ts`
+  - `dashboardFallbackPanelsVisual.test.ts`
+- New jsdom and axe render tests, light and dark: `RemainingIslandsA`, `WsteSocialServiceIntegrations`, `RemainingIslandsC`, `DashboardsLibrary`, `OnboardingWizard`, `DashboardFallbackPanels`.
+- Pins updated:
+  - `reportsReferenceScreen.test.ts`: the superseded A.3 primitives (SectionHeader, Surface, Badge on `--bb-canvas`) were replaced by an equal-or-stronger contract. It now asserts the PageHeader and table contract, StateMessage, no raw h1, no inline colour, font or background, and a `.page` rule on `--bg-base`, `--text-primary` and `--bb-font-sans`.
+  - `dashboardShellVisual.test.ts`: the Service Requests chart-kit consumer was registered.
+- Mutation checks: 123 of 123 behaved as expected (A 21, B 22, C 21, D 31, E 28). This includes the `main` version of every touched file, which is caught, and at least two passing controls per set. Every restore was hash-verified.
+
+### Harness measurements (harness verification, not authenticated routes)
+
+Real components were rendered in real Chrome from before (`main` ecb5b03) and after scratch worktrees. They used synthetic fixtures and a fetch stub, with 31 surfaces × 1440, 1024 and 390 × light and dark, giving 186 renders per side and 7,626 text nodes checked after. The root layout's public nav, which renders because the harness has no session, is identical on both sides and excluded.
+
+| Per theme (93 renders) | Before light | Before dark | After light | After dark |
+| --- | --- | --- | --- | --- |
+| Text contrast failures (excl. graph engine labels) | 1,983 | 1,404 | 0 | 0 |
+| Backdrop blur | 120 | 120 | 0 | 0 |
+| Gradient chrome | 97 | 97 | 0 | 0 |
+| Old-violet elements | 600 | 600 | 15 | 15 |
+| Dark slabs in light mode | 111 | — | 3 | — |
+| Unnamed buttons | 15 | 15 | 0 | 0 |
+| Surfaces with a page h1 | 13 | 13 | 21 | 21 |
+| Page-level horizontal overflow | 0 | 0 | 0 | 0 |
+
+Every remaining exception is classified:
+
+- The 15 violet elements are the Founder CRM "demo" stage dot on `/admin/orgs` and the Briefings agent-identity icons and dots. Both are kept data encodings: aria-hidden dots or icons whose text label is on `--text-primary`.
+- The 3 dark slabs are the BrainGraphPanel well (`#06070b`), a theme-invariant dark canvas.
+- The 60 remaining contrast failures (20 per width) are three.js CSS2D node labels. Their colour and opacity (`rgba(210,170,255,.22)`) are set by the untouched engine.
+
+Surfaces without an h1 are components rather than pages: the LockScreen overlay, LeadMessages, the fallback panels and the HLNA fallback cards.
+
+### Documented functional issues (not fixed)
+
+- **Onboarding:**
+  - no feedback when submit fails
+  - raw IDs in the Step 7 review
+  - an unused `userId`
+  - native email validation pre-empts the custom message
+  - a timeout is not cleared
+- **`/dashboards`:** the hero buttons have no handlers.
+- **Briefings:**
+  - delete has no confirmation or error handling
+  - `/briefings` redirects to `/`
+- **Data:** silent failures.
+- **Portal:**
+  - submit has no catch
+  - confirm and reschedule are local-only
+- **ReportView:**
+  - PDF errors only reach the console
+  - a markdown `#` produces an h1 inside report content
+  - report-type labels are inconsistent
+- **WSTE:**
+  - address lookup uses `Math.random`
+  - PropertyClient has a status mismatch
+  - unknown slugs fall back to the default property
+- **Social:**
+  - it calls `res.json` before checking the response
+  - loading can hang
+- **Integrations:** it ignores `res.ok`.
+- **Index keys:** several lists use array indices as keys.
+- **Deployments:**
+  - ProposalCard selection is dead
+  - there are unused variables
+  - the sticky offset is likely wrong inside the admin `<main>`
+- **Web-services:**
+  - search has no debounce
+  - `patchLead` has no catch
+- **Fallback panels:**
+  - InlineBrainGraph has zero height in LeftSidebar
+  - NewsPanel has no Escape handler
+  - ActivityPanel buttons have no handlers
+  - Inbox suggestions are mouse-only
+  - the graph is mouse-only
+  - contact delete has no confirmation
+  - Escape also closes the chat
+  - the Spotify check is quirky
+
+### Remaining live legacy (outside this pass)
+
+- **SessionProvider's WelcomeBackBanner:** violet, blur, glow and a local font.
+- **The admin layout chrome:** a local font, and 40px padding that leaves about 310px of content at 390.
+- **Data and CSS leftovers:**
+  - BrainBase `MODULE_COLORS` `#818CF8` (a data encoding)
+  - the `lib/data/activities` `PANEL_SECTIONS` hexes
+  - the unused `lockIn` keyframes in `globals.css`
+- **Pre-auth pages:** `/connect` and the other public pages are classified as out of the authenticated scope.
+
+### Residue follow-up and independent review (overnight, same branch)
+
+**Residue classification** (A = legacy authenticated chrome, fixed; B = data/category identity, kept; C = dead, removed; D = engine-owned, deferred; E = public, excluded):
+
+| Item | Class | Result |
+| --- | --- | --- |
+| SessionProvider WelcomeBackBanner | A | On tokens via `WelcomeBackBanner.module.css`: overlay surface, thin border, popover shadow, accent dot and name. Blur, glow, violet and the local font are gone. Everything before the banner function is byte-identical to base (sha256-pinned); copy, placement, z-index, `pointer-events: none`, the 5-minute threshold and the 3.5 s dismiss are unchanged. The entrance uses module-local keyframes identical to the global `fadeIn`, off under reduced motion. |
+| Admin layout chrome | A | `AdminLayout.module.css`. The local Inter stack is replaced by `--bb-font-sans`. Content padding stays 40px on desktop and drops to 24px/16px below 768px, where the shared ModuleSidebar already stacks above the content (it was 310px of content at 390). The gate, AdminAside and `overflow: auto` are unchanged. |
+| BrainBase `MODULE_COLORS` (`#818CF8` = utilities) | B | Kept. It colours exactly two aria-hidden 6px dots; guarded by occurrence count. |
+| `lib/data/activities` `PANEL_SECTIONS` | B | Kept. Type dots only (aria-hidden); guarded. |
+| `lockIn` keyframes (globals.css) | C | Removed. Base LockScreen used them; this pass's LockScreen uses module keyframes, so nothing in app/, components/, lib/ or styles/ references them now. The removal is only valid together with the LockScreen change. |
+| BrainGraph CSS2D label contrast | D | Deferred. The failing value is the engine's `dim` state (`rgba(210,170,255,.22)`), one of four label states set inside `buildScene`. AA would need about .6, which collapses the dim/bright distinction and edits pinned engine lines. A CSS override cannot tell the states apart. The four state lines are pinned. Correction: `buildScene` is byte-identical to base *except* the single `div.style.cssText` label-style line (the app font, and a dark legibility halo instead of the purple glow). The engine pin excludes exactly that line. |
+| `/connect`, public pages | E | Excluded. |
+| BrainBase `/dashboard` fallback h1 | — | BrainBase renders only when `getAuthSession()` throws. Neither it, the dashboard layout nor TopNav has an h1, so it now has one visually hidden `<h1>Dashboard</h1>` (absolute, so no layout change). |
+
+**Independent review.** Five fresh reviewers compared every file against ecb5b03 and wrote contract tests whose expected values were derived from the base code:
+- `ContractsG1`–`G5` (render)
+- `contractsG1`, `G3`, `G5` (source)
+
+They found **no behavioural deltas**: fetch URLs, methods, bodies, server-action arguments, hrefs, calculations, chart inputs, timers, confirm texts, Escape ownership, the report renderer and the PDF sequence all match base. G2 also ran its contract suite against extracted base files (35/35).
+
+Fixed from the review:
+- **Overlay focus could escape** (medium). Initial focus could land on a transient control (Integrations' GmailCard "Connect") that unmounts and drops focus to `<body>`. `useOverlayFocus` now re-homes focus to the panel when a focused control unmounts, and Tab from outside the panel is pulled back in.
+- **Memory tabs:** a roving tabindex and arrows/Home/End. Initial focus is the selected tab (via `data-initial-focus`), never the destructive "Clear long-term".
+- **Dangling `aria-controls`:**
+  - Deployments now always renders its tabpanel, with the loading state inside it.
+  - WSTE references only the rendered panel.
+  - The Integrations add toggle references its form only while it is open.
+- **Onboarding dropzones:** a nested `role="status"` inside the dropzone buttons was removed. The button still exposes "Parsing file…" with `aria-busy`.
+- **ReportView:** content `h1` is pinned at 2em, the size it had in base's `<div>`, now that it sits in an `<article>`.
+- **CSS cleanup:**
+  - Unused classes removed: `.metrics` (web-services), `.muted` and `.cardPad` (WSTE), and `.muted` (panel overlay).
+  - A className override in the Integrations "more" button was fixed.
+- **Documentation:** the `useOverlayFocus` comment now describes Escape ownership accurately.
+
+Accepted and documented (low severity):
+- The web-services drawer is now the shared SlidePanel: Escape also closes it, the slide-out animation is gone, and the width is 440px, down from 480px.
+- Only the Deployments tab bar is sticky; the rest of the header is no longer sticky.
+- Region names are now "Organisations table" and "Users table".
+- The Step 1 Field shows "Required" as text in place of `*`.
+- Review answers keep their line breaks.
+- On phones, the current step label is left-aligned.
+- `aria-selected` on table rows comes from the shared table contract.
+
+**Windows-only Data Hub failure** (pre-existing; not changed): `dataHubNormalizedStagingFoundation.test.ts` fails 3 of 72 on Windows.
+- The test and its 4 SQL files are byte-identical to origin/main, and nothing this pass touched is read by it.
+- On a pristine origin/main worktree it fails the same 3 with the default CRLF checkout, and passes 72/72 once those SQL files are checked out with LF endings.
+- Cause: the test slices on `"RETURN NEW;\n"`. CI (Linux, LF) is unaffected.
+
+Also from the second harness round: disclosure toggles (ServiceTimeline events, Social insights and comments) now set `aria-controls` only while their region is rendered. This matches the WSTE tabs and the Integrations toggle.
+
+**Harness round two** (harness verification, not authenticated routes). Real Chrome, a pristine ecb5b03 worktree against the current tree, the same fixtures and fetch stub.
+- 38 surfaces: the original 31, the welcome-back banner (driven through SessionProvider's real away-and-return path), the BrainBase fallback, and the five admin surfaces rendered inside the **real** `app/admin/layout.tsx` (AdminAside plus main), using a scratch-only session shim.
+- 1440, 1024 and 390 × light and dark, giving 228 renders per side.
+- The root layout's public nav, which renders because the harness has no session, is excluded on both sides.
+- Focus rings are resolved statically from the `:focus-visible` rules that apply to each control, including inline `outline: none`. This is because `:focus-visible` cannot be triggered in a backgrounded window.
+
+| Per theme (114 renders) | Before light | Before dark | After light | After dark |
+| --- | --- | --- | --- | --- |
+| Text contrast failures (excl. graph engine labels) | 2,481 | 1,713 | 3 | 0 |
+| Backdrop blur | 129 | 129 | 0 | 0 |
+| Gradient chrome | 118 | 118 | 6 | 6 |
+| Old-violet elements | 738 | 738 | 24 | 24 |
+| Dark slabs in light mode | 129 | — | 3 | — |
+| Local-font elements | 45 | 45 | 0 | 0 |
+| Unnamed buttons | 18 | 18 | 0 | 0 |
+| Dialogs (all with aria-modal + a resolvable name) | 0 | 0 | 21 | 21 |
+| Focusable controls without a focus-visible ring | 0 / 1,092 | 0 / 1,092 | 0 / 1,185 | 0 / 1,185 |
+| Surfaces with exactly one h1 | 18 | 18 | 27 | 27 |
+| Page-level horizontal overflow | 0 | 0 | 0 | 0 |
+
+The dangling ARIA references found in this round (9 per theme) were fixed. A re-probe gives 0 at every width in both themes, and each reference resolves once its region is expanded.
+
+Remaining after-exceptions, all classified:
+- **Violet:** the Founder CRM "demo" stage dot (admin-orgs, in both render modes), the Briefings agent-identity icons and dots, and the BrainBase fallback's PANEL_SECTIONS "digest" type dot. All are B.
+- **Gradients:** the Helena orb on the BrainBase fallback, which an earlier pass classified as a functional state visual.
+- **Dark slabs:** the BrainGraph well.
+- **The 3 light contrast failures:** all are BrainBase.jsx's own selected "◈ Exec" segment (4.35:1), which is identical on base. It is pre-existing, and BrainBase.jsx is not restyled here.
+- **The 60 graph failures:** the engine's dim label state (D).
+
+Other before → after measurements:
+- **Admin at 390:** the content box goes from 306px to 354px, with the AdminAside strip present.
+- **Welcome-back banner in light mode:** before, `rgba(13,13,21,.95)` glass with `blur(16px)`, a violet border and a violet name. After, `--bg-overlay` (white) with a token border, `--text-primary` copy and an accent name. Placement and `pointer-events: none` are unchanged.
