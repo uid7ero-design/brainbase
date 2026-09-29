@@ -141,6 +141,7 @@ export type FindingDetail = {
 
 export async function getFindingDetail(viewer: AssuranceViewer, id: string): Promise<FindingDetail | null> {
   if (!isUuid(id)) return null;
+  id = id.toLowerCase(); // canonical form: audit_logs/resource ids are stored lowercase
   const org = viewer.organisationId;
   const rows = (await sql`
     SELECT f.id, f.finding_reference, f.title, f.description, f.finding_type, f.status, f.identified_at, f.closed_at,
@@ -307,17 +308,19 @@ export async function createFinding(viewer: AssuranceViewer, raw: Record<string,
 
   const id = crypto.randomUUID();
   const org = viewer.organisationId;
-  // Share-lock the source first (its closure takes FOR UPDATE, so the two
-  // serialise); each insert then re-checks the source is still open with a
+  // Lock the source first — FOR SHARE for incidents/investigations (their
+  // closure takes FOR UPDATE), FOR UPDATE for inspections/audits (serialises
+  // with checklist/criterion response saves, which freeze once a finding is
+  // raised from them); each insert then re-checks the source is still open with a
   // fresh snapshot, so everything is written together or not at all.
   const lock = input.incidentId
     ? sql`SELECT id FROM assurance_incidents WHERE organisation_id = ${org} AND id = ${input.incidentId}::uuid FOR SHARE`
     : input.investigationId
       ? sql`SELECT id FROM assurance_investigations WHERE organisation_id = ${org} AND id = ${input.investigationId}::uuid FOR SHARE`
       : input.inspectionId
-        ? sql`SELECT id FROM assurance_inspections WHERE organisation_id = ${org} AND id = ${input.inspectionId}::uuid FOR SHARE`
+        ? sql`SELECT id FROM assurance_inspections WHERE organisation_id = ${org} AND id = ${input.inspectionId}::uuid FOR UPDATE`
         : input.auditId
-          ? sql`SELECT id FROM assurance_audits WHERE organisation_id = ${org} AND id = ${input.auditId}::uuid FOR SHARE`
+          ? sql`SELECT id FROM assurance_audits WHERE organisation_id = ${org} AND id = ${input.auditId}::uuid FOR UPDATE`
           : sql`SELECT 1`;
   const sourceOpen = input.incidentId
     ? sql`EXISTS (SELECT 1 FROM assurance_incidents s WHERE s.organisation_id = ${org} AND s.id = ${input.incidentId}::uuid AND s.status NOT IN ('CLOSED', 'CANCELLED'))`

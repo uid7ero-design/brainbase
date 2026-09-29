@@ -70,6 +70,7 @@ type RawVersionRow = Omit<TemplateVersionView, 'items' | 'invalid_item_count'> &
 
 export async function getTemplateDetail(viewer: AssuranceViewer, id: string): Promise<TemplateDetail | null> {
   if (!isUuid(id)) return null;
+  id = id.toLowerCase(); // canonical form: audit_logs/resource ids are stored lowercase
   const org = viewer.organisationId;
   const rows = (await sql`
     SELECT id, template_reference, name, inspection_type, description, is_active, created_at

@@ -134,6 +134,7 @@ export type EvidenceLinkRow = {
 
 export async function getIncidentDetail(viewer: AssuranceViewer, id: string): Promise<IncidentDetail | null> {
   if (!isUuid(id)) return null;
+  id = id.toLowerCase(); // canonical form: audit_logs/resource ids are stored lowercase
   const org = viewer.organisationId;
 
   const rows = (await sql`

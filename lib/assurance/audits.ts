@@ -134,6 +134,7 @@ export type AuditDetail = {
 
 export async function getAuditDetail(viewer: AssuranceViewer, id: string): Promise<AuditDetail | null> {
   if (!isUuid(id)) return null;
+  id = id.toLowerCase(); // canonical form: audit_logs/resource ids are stored lowercase
   const org = viewer.organisationId;
   const rows = (await sql`
     SELECT au.id, au.audit_reference, au.title, au.audit_type, au.status, au.scope, au.standard_reference,
@@ -178,7 +179,7 @@ export async function getAuditDetail(viewer: AssuranceViewer, id: string): Promi
              (SELECT l.after_state->>'audit_criterion_key' FROM audit_logs l
                WHERE l.organisation_id = f.organisation_id AND l.resource_type = 'assurance_finding'
                  AND l.resource_id = f.id::text AND l.action = 'assurance_finding.created'
-                 AND l.after_state->>'audit_id' = ${id}
+                 AND lower(l.after_state->>'audit_id') = lower(${id})
                ORDER BY l.created_at ASC LIMIT 1) AS source_criterion_key
       FROM assurance_audit_findings lx
       JOIN assurance_findings f ON f.organisation_id = lx.organisation_id AND f.id = lx.finding_id
@@ -219,6 +220,9 @@ export async function getAuditDetail(viewer: AssuranceViewer, id: string): Promi
     history,
   };
 }
+
+/** Ad hoc audits define criteria as they go; bound the row set. */
+const MAX_AD_HOC_CRITERIA = 200;
 
 type AuditState = { id: string; status: AuditStatus; template_version_id: string | null; criteria: unknown };
 
@@ -359,9 +363,15 @@ function normaliseValue(type: AuditResponseType, value: unknown, criterion: Audi
 export async function recordAuditResponse(viewer: AssuranceViewer, auditId: string, raw: Record<string, unknown>): Promise<{ id: string }> {
   if (!viewerCan(viewer, 'record')) throw new AssuranceForbiddenError();
   const state = await getAuditState(viewer, auditId);
+  auditId = state.id; // canonical (lowercase) id from the database — never the raw request form
   if (state.status !== 'IN_PROGRESS') throw new AssuranceConflictError('Responses can only be recorded while the audit is in progress.');
 
   const criterionKey = requiredText(raw.criterionKey, 'Criterion', 120);
+  const previous = (await sql`
+    SELECT criterion_label, response_type FROM assurance_audit_responses
+    WHERE organisation_id = ${viewer.organisationId} AND audit_id = ${auditId}::uuid AND criterion_key = ${criterionKey}
+  `) as { criterion_label: string; response_type: AuditResponseType }[];
+
   let criterion: AuditCriterion | null = null;
   let label: string;
   let responseType: AuditResponseType;
@@ -370,10 +380,19 @@ export async function recordAuditResponse(viewer: AssuranceViewer, auditId: stri
     if (!criterion) throw new AssuranceValidationError('That criterion is not part of this audit\'s template version.');
     label = criterion.label;
     responseType = criterion.responseType;
+  } else if (previous[0]) {
+    // An ad hoc criterion's label and type are fixed by its first save;
+    // a revision is validated against them, never re-typed by the request.
+    label = previous[0].criterion_label;
+    responseType = previous[0].response_type;
   } else {
     if (!/^adhoc-[a-z0-9-]{1,80}$/.test(criterionKey)) throw new AssuranceValidationError('Invalid ad hoc criterion key.');
     label = requiredText(raw.criterionLabel, 'Criterion', 500);
     responseType = requiredEnum(AUDIT_RESPONSE_TYPES, raw.responseType ?? 'COMPLIANCE_RATING', 'Response type');
+    const count = (await sql`
+      SELECT count(*)::int AS n FROM assurance_audit_responses WHERE organisation_id = ${viewer.organisationId} AND audit_id = ${auditId}::uuid
+    `) as { n: number }[];
+    if (count[0].n >= MAX_AD_HOC_CRITERIA) throw new AssuranceValidationError(`An audit can have at most ${MAX_AD_HOC_CRITERIA} criteria.`);
   }
   const outcome = optionalEnum(AUDIT_OUTCOMES, raw.outcome, 'Outcome');
   const value = normaliseValue(responseType, raw.value, criterion);
@@ -384,30 +403,32 @@ export async function recordAuditResponse(viewer: AssuranceViewer, auditId: stri
     throw new AssuranceValidationError('Add a note explaining the gap against the requirement.');
   }
 
-  const [previous, raisedFrom] = await Promise.all([
-    sql`
-      SELECT outcome, response_value, notes FROM assurance_audit_responses
-      WHERE organisation_id = ${viewer.organisationId} AND audit_id = ${auditId}::uuid AND criterion_key = ${criterionKey}
-    `.then(r => r as { outcome: string | null; response_value: unknown; notes: string | null }[]),
-    sql`
-      SELECT 1 FROM audit_logs
-      WHERE organisation_id = ${viewer.organisationId} AND resource_type = 'assurance_finding' AND action = 'assurance_finding.created'
-        AND after_state->>'audit_id' = ${auditId} AND after_state->>'audit_criterion_key' = ${criterionKey}
-      LIMIT 1
-    `.then(r => r as unknown[]),
-  ]);
-  if (raisedFrom.length > 0) {
+  // "A finding was raised from this criterion" — the freeze predicate. Ids
+  // are compared case-insensitively (as text, so an unrelated audit_logs row
+  // can never make a uuid cast fail) — no textual form of the id dodges it.
+  const raisedFromSql = sql`EXISTS (
+    SELECT 1 FROM audit_logs l
+    WHERE l.organisation_id = ${viewer.organisationId} AND l.resource_type = 'assurance_finding'
+      AND l.action = 'assurance_finding.created'
+      AND lower(l.after_state->>'audit_id') = lower(${auditId})
+      AND l.after_state->>'audit_criterion_key' = ${criterionKey}
+  )`;
+  if (((await sql`SELECT ${raisedFromSql} AS frozen`) as { frozen: boolean }[])[0].frozen) {
     throw new AssuranceConflictError('A finding has been raised from this criterion, so its response can no longer be changed.');
   }
-  const before = previous[0]
-    ? { outcome: previous[0].outcome, value: previous[0].response_value ?? null, notes: previous[0].notes }
-    : null;
 
   const responseId = crypto.randomUUID();
+  // Lock the audit row FOR UPDATE (raising a finding from a criterion takes
+  // the same lock), then re-check "in progress" and "not frozen" inside the
+  // write with a fresh snapshot. The previous value for the audit trail is
+  // read inside the same statement, so it is never stale.
   const results = await sql.transaction([
-    sql`SELECT id FROM assurance_audits WHERE organisation_id = ${viewer.organisationId} AND id = ${auditId}::uuid FOR SHARE`,
+    sql`SELECT id FROM assurance_audits WHERE organisation_id = ${viewer.organisationId} AND id = ${auditId}::uuid FOR UPDATE`,
     sql`
-    WITH ins AS (
+    WITH prev AS (
+      SELECT outcome, response_value, notes FROM assurance_audit_responses
+      WHERE organisation_id = ${viewer.organisationId} AND audit_id = ${auditId}::uuid AND criterion_key = ${criterionKey}
+    ), ins AS (
       INSERT INTO assurance_audit_responses (
         id, organisation_id, audit_id, criterion_key, criterion_label, response_type, response_value, outcome, notes, responded_by, responded_at
       )
@@ -415,6 +436,7 @@ export async function recordAuditResponse(viewer: AssuranceViewer, auditId: stri
              ${value === null ? null : JSON.stringify(value)}::jsonb, ${outcome}, ${notes}, ${viewer.userId}, now()
       FROM assurance_audits au
       WHERE au.organisation_id = ${viewer.organisationId} AND au.id = ${auditId}::uuid AND au.status = 'IN_PROGRESS'
+        AND NOT ${raisedFromSql}
       ON CONFLICT (organisation_id, audit_id, criterion_key) DO UPDATE
         SET response_value = EXCLUDED.response_value,
             outcome = EXCLUDED.outcome,
@@ -425,7 +447,8 @@ export async function recordAuditResponse(viewer: AssuranceViewer, auditId: stri
     ), aud AS (
       INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
       SELECT gen_random_uuid()::text, ${viewer.organisationId}, ${viewer.userId}, 'assurance_audit.response_recorded',
-             'assurance_audit', ins.audit_id::text, ${before ? JSON.stringify(before) : null}::jsonb,
+             'assurance_audit', ins.audit_id::text,
+             (SELECT jsonb_build_object('outcome', prev.outcome, 'value', prev.response_value, 'notes', prev.notes) FROM prev),
              jsonb_build_object('criterion_key', ${criterionKey}::text, 'outcome', ${outcome}::text, 'response_id', ins.id,
                                 'value', ${value === null ? null : JSON.stringify(value)}::jsonb, 'notes', ${notes}::text)
       FROM ins
@@ -434,7 +457,9 @@ export async function recordAuditResponse(viewer: AssuranceViewer, auditId: stri
   `,
   ]);
   const rows = results[1] as { id: string }[];
-  if (!rows[0]) throw new AssuranceConflictError('This audit is no longer in progress.');
+  if (!rows[0]) {
+    throw new AssuranceConflictError('This response could not be saved: the audit is no longer in progress, or a finding has just been raised from this criterion.');
+  }
   return rows[0];
 }
 
@@ -510,6 +535,7 @@ export async function linkFindingToAudit(viewer: AssuranceViewer, auditId: strin
   if (!viewerCan(viewer, 'record')) throw new AssuranceForbiddenError();
   const findingId = requiredUuid(raw.findingId, 'Finding');
   const state = await getAuditState(viewer, auditId);
+  auditId = state.id;
   if (state.status === 'CANCELLED') throw new AssuranceConflictError('Findings cannot be linked to a cancelled audit.');
   const f = (await sql`
     SELECT f.id, f.status FROM assurance_findings f
@@ -522,12 +548,15 @@ export async function linkFindingToAudit(viewer: AssuranceViewer, auditId: strin
   try {
     const results = await sql.transaction([
       sql`SELECT id FROM assurance_audits WHERE organisation_id = ${viewer.organisationId} AND id = ${auditId}::uuid FOR SHARE`,
+      sql`SELECT id FROM assurance_findings WHERE organisation_id = ${viewer.organisationId} AND id = ${findingId}::uuid FOR SHARE`,
       sql`
         WITH ins AS (
           INSERT INTO assurance_audit_findings (organisation_id, audit_id, finding_id, created_by)
           SELECT ${viewer.organisationId}, ${auditId}::uuid, ${findingId}::uuid, ${viewer.userId}
           WHERE EXISTS (SELECT 1 FROM assurance_audits a WHERE a.organisation_id = ${viewer.organisationId}
                           AND a.id = ${auditId}::uuid AND a.status <> 'CANCELLED')
+            AND EXISTS (SELECT 1 FROM assurance_findings f WHERE f.organisation_id = ${viewer.organisationId}
+                          AND f.id = ${findingId}::uuid AND f.status NOT IN ('CLOSED', 'CANCELLED'))
           RETURNING audit_id AS id
         ), aud AS (
           INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
@@ -538,7 +567,7 @@ export async function linkFindingToAudit(viewer: AssuranceViewer, auditId: strin
         SELECT id FROM ins
       `,
     ]);
-    if ((results[1] as unknown[]).length === 0) throw new AssuranceConflictError('This audit has been cancelled.');
+    if ((results[2] as unknown[]).length === 0) throw new AssuranceConflictError('This audit has been cancelled, or the finding has just been closed.');
   } catch (err) {
     if ((err as { code?: string }).code === '23505') throw new AssuranceConflictError('That finding is already linked to this audit.');
     throw err;

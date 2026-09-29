@@ -41,7 +41,10 @@ export function assurancePostWithId(
     const auth = await authorizeAssuranceRequest(ASSURANCE_MIN_ROLE[operation]);
     if (!auth.ok) return auth.response;
     try {
-      const { id } = await ctx.params;
+      const { id: rawId } = await ctx.params;
+      // Canonicalise UUID path ids so every text comparison (audit_logs
+      // resource ids, finding provenance) sees the same form the services write.
+      const id = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawId) ? rawId.toLowerCase() : rawId;
       const body = await readJsonObject(req);
       const result = await handler(auth.viewer, id, body);
       return NextResponse.json(result ?? { ok: true });

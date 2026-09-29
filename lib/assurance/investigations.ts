@@ -104,6 +104,7 @@ export type InvestigationDetail = {
 
 export async function getInvestigationDetail(viewer: AssuranceViewer, id: string): Promise<InvestigationDetail | null> {
   if (!isUuid(id)) return null;
+  id = id.toLowerCase(); // canonical form: audit_logs/resource ids are stored lowercase
   const org = viewer.organisationId;
   const rows = (await sql`
     SELECT inv.id, inv.investigation_reference, inv.title, inv.scope, inv.status, inv.restricted, inv.started_at,

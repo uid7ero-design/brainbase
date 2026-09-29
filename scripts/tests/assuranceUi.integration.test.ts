@@ -990,3 +990,108 @@ describe('synthetic demo fixture — audit chain', () => {
     expect(planned!.audit).toMatchObject({ status: 'PLANNED', template_version_id: null, external_organisation_name: 'Demo Civil Contractors Pty Ltd (SYNTHETIC)' });
   });
 });
+
+// ── Audit security review remediation ─────────────────────────────────────
+describe('audit security review remediation', () => {
+  async function inProgressAdHoc(title: string) {
+    const a = await m.audits.createAudit(mgrA, { title, scope: 's', auditType: 'SITE', standardReference: 'Std' });
+    await m.audits.startAudit(mgrA, a.id);
+    return a;
+  }
+
+  it('A-M1: an uppercase id cannot dodge the "frozen after a finding" guard (audits and inspections)', async () => {
+    const a = await inProgressAdHoc('Uppercase probe');
+    const key = 'adhoc-upper-000001';
+    await m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: key, criterionLabel: 'c', outcome: 'NON_COMPLIANT', notes: 'gap' });
+    await m.findings.createFinding(mgrA, { findingType: 'NON_CONFORMANCE', title: 't', description: 'd', auditId: a.id, auditCriterionKey: key });
+    await expectError(m.audits.recordAuditResponse(mgrA, a.id.toUpperCase(), { criterionKey: key, outcome: 'COMPLIANT' }), 'AssuranceConflictError', /no longer be changed/);
+    const upper = await m.audits.getAuditDetail(mgrA, a.id.toUpperCase());
+    expect(upper!.findings[0].source_criterion_key).toBe(key);
+    expect(upper!.history.length).toBeGreaterThan(0);
+
+    const ins = await m.inspections.createInspection(mgrA, { title: 'Uppercase inspection', inspectionType: 'SITE' });
+    await m.inspections.startInspection(mgrA, ins.id);
+    const ik = 'adhoc-upper-item-000001';
+    await m.inspections.recordInspectionResponse(mgrA, ins.id, { itemKey: ik, itemLabel: 'i', outcome: 'FAIL', notes: 'broken' });
+    await m.findings.createFinding(mgrA, { findingType: 'DEFECT', title: 't', description: 'd', inspectionId: ins.id, inspectionItemKey: ik });
+    await expectError(m.inspections.recordInspectionResponse(mgrA, ins.id.toUpperCase(), { itemKey: ik, outcome: 'PASS' }), 'AssuranceConflictError', /no longer be changed/);
+    expect((await m.inspections.getInspectionDetail(mgrA, ins.id.toUpperCase()))!.findings[0].source_item_key).toBe(ik);
+  });
+
+  it('A-L1: a response save racing a finding raise cannot overwrite the frozen criterion', async () => {
+    const { Client } = await import('pg');
+    const a = await inProgressAdHoc('Freeze race');
+    const key = 'adhoc-race-000001';
+    await m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: key, criterionLabel: 'c', outcome: 'NON_COMPLIANT', notes: 'gap' });
+    const c = new Client({ connectionString: DATABASE_URL });
+    await c.connect();
+    try {
+      // A finding raise in flight: holds the audit lock and has written its provenance row.
+      await c.query('BEGIN');
+      await c.query('SELECT id FROM assurance_audits WHERE id = $1 FOR UPDATE', [a.id]);
+      await c.query(`INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, after_state)
+        VALUES (gen_random_uuid()::text, 'org-a', 'a-mgr', 'assurance_finding.created', 'assurance_finding', gen_random_uuid()::text,
+                jsonb_build_object('audit_id', $1::text, 'audit_criterion_key', $2::text))`, [a.id, key]);
+      const save = m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: key, outcome: 'COMPLIANT' }).then(() => 'saved', e => (e as Error).name);
+      await new Promise(r => setTimeout(r, 300));
+      await c.query('COMMIT');
+      expect(await save).toBe('AssuranceConflictError');
+    } finally {
+      await c.end();
+    }
+    const d = await m.audits.getAuditDetail(mgrA, a.id);
+    expect(d!.responses.find(r => r.criterion_key === key)!.outcome).toBe('NON_COMPLIANT');
+  });
+
+  it('A-L2: an ad hoc criterion keeps its type on revision (no drift into an invalid row)', async () => {
+    const a = await inProgressAdHoc('Type drift');
+    const key = 'adhoc-drift-000001';
+    await m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: key, criterionLabel: 'Rated criterion', responseType: 'COMPLIANCE_RATING', outcome: 'COMPLIANT' });
+    await expectError(m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: key, criterionLabel: 'Renamed', responseType: 'TEXT', value: 'x' }), 'AssuranceValidationError', /rating/);
+    const r = (await m.audits.getAuditDetail(mgrA, a.id))!.responses.find(x => x.criterion_key === key)!;
+    expect(r).toMatchObject({ response_type: 'COMPLIANCE_RATING', outcome: 'COMPLIANT', criterion_label: 'Rated criterion' });
+  });
+
+  it('A-L3: the revision audit row records the value it actually replaced', async () => {
+    const a = await inProgressAdHoc('Before state');
+    const key = 'adhoc-before-000001';
+    await m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: key, criterionLabel: 'c', outcome: 'PARTIAL', notes: 'v1' });
+    await Promise.all([
+      m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: key, outcome: 'PARTIAL', notes: 'v2' }),
+      m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: key, outcome: 'PARTIAL', notes: 'v3' }),
+    ]);
+    const rows = await sql.raw(`SELECT before_state->>'notes' AS b, after_state->>'notes' AS a FROM audit_logs
+      WHERE resource_id = '${a.id}' AND action = 'assurance_audit.response_recorded' ORDER BY created_at`) as { b: string | null; a: string }[];
+    // Serialised by the audit lock: each revision's "before" is the previous "after".
+    expect(rows[0]).toEqual({ b: null, a: 'v1' });
+    expect(rows[2].b).toBe(rows[1].a);
+  });
+
+  it('A-L4: linking a finding racing its closure cannot link a closed finding', async () => {
+    const { Client } = await import('pg');
+    const a = await inProgressAdHoc('Link race');
+    const f = await m.findings.createFinding(mgrA, { findingType: 'HAZARD', title: 'Racing finding', description: 'd' });
+    const c = new Client({ connectionString: DATABASE_URL });
+    await c.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SELECT id FROM assurance_findings WHERE id = $1 FOR UPDATE', [f.id]);
+      await c.query("UPDATE assurance_findings SET status = 'CLOSED', closed_at = now() WHERE id = $1", [f.id]);
+      const link = m.audits.linkFindingToAudit(mgrA, a.id, { findingId: f.id }).then(() => 'linked', e => (e as Error).name);
+      await new Promise(r => setTimeout(r, 300));
+      await c.query('COMMIT');
+      expect(await link).toBe('AssuranceConflictError');
+    } finally {
+      await c.end();
+    }
+    const n = await sql.raw(`SELECT count(*)::int AS n FROM assurance_audit_findings WHERE audit_id = '${a.id}'`) as { n: number }[];
+    expect(n[0].n).toBe(0);
+  });
+
+  it('A-Info: ad hoc criteria are capped', async () => {
+    const a = await inProgressAdHoc('Cap probe');
+    await sql.raw(`INSERT INTO assurance_audit_responses (organisation_id, audit_id, criterion_key, criterion_label, response_type, outcome)
+      SELECT 'org-a', '${a.id}', 'adhoc-bulk-' || g, 'bulk ' || g, 'COMPLIANCE_RATING', 'COMPLIANT' FROM generate_series(1, 200) g`);
+    await expectError(m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: 'adhoc-one-more-000001', criterionLabel: 'x', outcome: 'COMPLIANT' }), 'AssuranceValidationError', /at most 200/);
+  });
+});

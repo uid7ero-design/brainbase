@@ -154,6 +154,7 @@ export function computeActionReadiness(a: {
 
 export async function getActionDetail(viewer: AssuranceViewer, id: string): Promise<ActionDetail | null> {
   if (!isUuid(id)) return null;
+  id = id.toLowerCase(); // canonical form: audit_logs/resource ids are stored lowercase
   const org = viewer.organisationId;
   const rows = (await sql`
     SELECT a.id, a.action_reference, a.title, a.description, a.action_type, a.priority, a.status,

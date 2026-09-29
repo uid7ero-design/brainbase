@@ -116,6 +116,7 @@ export type InspectionDetail = {
 
 export async function getInspectionDetail(viewer: AssuranceViewer, id: string): Promise<InspectionDetail | null> {
   if (!isUuid(id)) return null;
+  id = id.toLowerCase(); // canonical form: audit_logs/resource ids are stored lowercase
   const org = viewer.organisationId;
   const rows = (await sql`
     SELECT i.id, i.inspection_reference, i.title, i.inspection_type, i.status, i.scheduled_at, i.started_at, i.completed_at,
@@ -158,6 +159,7 @@ export async function getInspectionDetail(viewer: AssuranceViewer, id: string): 
              (SELECT l.after_state->>'inspection_item_key' FROM audit_logs l
                WHERE l.organisation_id = f.organisation_id AND l.resource_type = 'assurance_finding'
                  AND l.resource_id = f.id::text AND l.action = 'assurance_finding.created'
+                 AND lower(l.after_state->>'inspection_id') = lower(${id})
                ORDER BY l.created_at ASC LIMIT 1) AS source_item_key
       FROM assurance_inspection_findings lx
       JOIN assurance_findings f ON f.organisation_id = lx.organisation_id AND f.id = lx.finding_id
@@ -198,6 +200,9 @@ export async function getInspectionDetail(viewer: AssuranceViewer, id: string): 
     history,
   };
 }
+
+/** Ad hoc inspections define items as they go; bound the row set. */
+const MAX_AD_HOC_ITEMS = 200;
 
 async function getInspectionState(viewer: AssuranceViewer, id: string) {
   if (!isUuid(id)) throw new AssuranceNotFoundError('Inspection');
@@ -341,9 +346,15 @@ function normaliseResponseValue(type: InspectionResponseType, value: unknown, it
 export async function recordInspectionResponse(viewer: AssuranceViewer, inspectionId: string, raw: Record<string, unknown>): Promise<{ id: string }> {
   if (!viewerCan(viewer, 'record')) throw new AssuranceForbiddenError();
   const state = await getInspectionState(viewer, inspectionId);
+  inspectionId = state.id; // canonical (lowercase) id from the database — never the raw request form
   if (state.status !== 'IN_PROGRESS') throw new AssuranceConflictError('Responses can only be recorded while the inspection is in progress.');
 
   const itemKey = requiredText(raw.itemKey, 'Checklist item', 120);
+  const previous = (await sql`
+    SELECT item_label, response_type FROM assurance_inspection_responses
+    WHERE organisation_id = ${viewer.organisationId} AND inspection_id = ${inspectionId}::uuid AND item_key = ${itemKey}
+  `) as { item_label: string; response_type: InspectionResponseType }[];
+
   let item: ChecklistItem | null = null;
   let label: string;
   let responseType: InspectionResponseType;
@@ -352,10 +363,19 @@ export async function recordInspectionResponse(viewer: AssuranceViewer, inspecti
     if (!item) throw new AssuranceValidationError('That item is not part of this inspection\'s checklist version.');
     label = item.label;
     responseType = item.responseType;
+  } else if (previous[0]) {
+    // An ad hoc item's label and type are fixed by its first save; a
+    // revision is validated against them, never re-typed by the request.
+    label = previous[0].item_label;
+    responseType = previous[0].response_type;
   } else {
     if (!/^adhoc-[a-z0-9-]{1,80}$/.test(itemKey)) throw new AssuranceValidationError('Invalid ad hoc item key.');
     label = requiredText(raw.itemLabel, 'Item', 300);
     responseType = requiredEnum(INSPECTION_RESPONSE_TYPES, raw.responseType ?? 'PASS_FAIL', 'Response type');
+    const count = (await sql`
+      SELECT count(*)::int AS n FROM assurance_inspection_responses WHERE organisation_id = ${viewer.organisationId} AND inspection_id = ${inspectionId}::uuid
+    `) as { n: number }[];
+    if (count[0].n >= MAX_AD_HOC_ITEMS) throw new AssuranceValidationError(`An inspection can have at most ${MAX_AD_HOC_ITEMS} items.`);
   }
   const outcome = optionalEnum(INSPECTION_OUTCOMES, raw.outcome, 'Outcome');
   const value = normaliseResponseValue(responseType, raw.value, item);
@@ -363,32 +383,31 @@ export async function recordInspectionResponse(viewer: AssuranceViewer, inspecti
   if (!outcome && value === null) throw new AssuranceValidationError('Choose an outcome or enter a response.');
   if (outcome === 'FAIL' && !notes) throw new AssuranceValidationError('Add a note describing why this item failed.');
 
-  const [previous, raisedFrom] = await Promise.all([
-    sql`
-      SELECT outcome, response_value, notes FROM assurance_inspection_responses
-      WHERE organisation_id = ${viewer.organisationId} AND inspection_id = ${inspectionId}::uuid AND item_key = ${itemKey}
-    `.then(r => r as { outcome: string | null; response_value: unknown; notes: string | null }[]),
-    sql`
-      SELECT 1 FROM audit_logs
-      WHERE organisation_id = ${viewer.organisationId} AND resource_type = 'assurance_finding' AND action = 'assurance_finding.created'
-        AND after_state->>'inspection_id' = ${inspectionId} AND after_state->>'inspection_item_key' = ${itemKey}
-      LIMIT 1
-    `.then(r => r as unknown[]),
-  ]);
-  if (raisedFrom.length > 0) {
+  // "A finding was raised from this item" — the freeze predicate. Ids are
+  // compared case-insensitively as text, so no textual form dodges it.
+  const raisedFromSql = sql`EXISTS (
+    SELECT 1 FROM audit_logs l
+    WHERE l.organisation_id = ${viewer.organisationId} AND l.resource_type = 'assurance_finding'
+      AND l.action = 'assurance_finding.created'
+      AND lower(l.after_state->>'inspection_id') = lower(${inspectionId})
+      AND l.after_state->>'inspection_item_key' = ${itemKey}
+  )`;
+  if (((await sql`SELECT ${raisedFromSql} AS frozen`) as { frozen: boolean }[])[0].frozen) {
     throw new AssuranceConflictError('A finding has been raised from this item, so its response can no longer be changed.');
   }
-  const before = previous[0]
-    ? { outcome: previous[0].outcome, value: previous[0].response_value ?? null, notes: previous[0].notes }
-    : null;
 
   const responseId = crypto.randomUUID();
-  // Share-lock the inspection first (completion/cancellation update it), so
-  // a response cannot land after a concurrent completion.
+  // Lock the inspection FOR UPDATE (raising a finding from an item takes the
+  // same lock; completion/cancellation update the row), then re-check "in
+  // progress" and "not frozen" inside the write. The previous value for the
+  // audit trail is read inside the same statement, so it is never stale.
   const results = await sql.transaction([
-    sql`SELECT id FROM assurance_inspections WHERE organisation_id = ${viewer.organisationId} AND id = ${inspectionId}::uuid FOR SHARE`,
+    sql`SELECT id FROM assurance_inspections WHERE organisation_id = ${viewer.organisationId} AND id = ${inspectionId}::uuid FOR UPDATE`,
     sql`
-    WITH ins AS (
+    WITH prev AS (
+      SELECT outcome, response_value, notes FROM assurance_inspection_responses
+      WHERE organisation_id = ${viewer.organisationId} AND inspection_id = ${inspectionId}::uuid AND item_key = ${itemKey}
+    ), ins AS (
       INSERT INTO assurance_inspection_responses (
         id, organisation_id, inspection_id, item_key, item_label, response_type, response_value, outcome, notes, responded_by, responded_at
       )
@@ -396,6 +415,7 @@ export async function recordInspectionResponse(viewer: AssuranceViewer, inspecti
              ${value === null ? null : JSON.stringify(value)}::jsonb, ${outcome}, ${notes}, ${viewer.userId}, now()
       FROM assurance_inspections i
       WHERE i.organisation_id = ${viewer.organisationId} AND i.id = ${inspectionId}::uuid AND i.status = 'IN_PROGRESS'
+        AND NOT ${raisedFromSql}
       ON CONFLICT (organisation_id, inspection_id, item_key) DO UPDATE
         SET response_value = EXCLUDED.response_value,
             outcome = EXCLUDED.outcome,
@@ -406,7 +426,8 @@ export async function recordInspectionResponse(viewer: AssuranceViewer, inspecti
     ), aud AS (
       INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
       SELECT gen_random_uuid()::text, ${viewer.organisationId}, ${viewer.userId}, 'assurance_inspection.response_recorded',
-             'assurance_inspection', ins.inspection_id::text, ${before ? JSON.stringify(before) : null}::jsonb,
+             'assurance_inspection', ins.inspection_id::text,
+             (SELECT jsonb_build_object('outcome', prev.outcome, 'value', prev.response_value, 'notes', prev.notes) FROM prev),
              jsonb_build_object('item_key', ${itemKey}::text, 'outcome', ${outcome}::text, 'response_id', ins.id,
                                 'value', ${value === null ? null : JSON.stringify(value)}::jsonb, 'notes', ${notes}::text)
       FROM ins
@@ -415,7 +436,9 @@ export async function recordInspectionResponse(viewer: AssuranceViewer, inspecti
   `,
   ]);
   const rows = results[1] as { id: string }[];
-  if (!rows[0]) throw new AssuranceConflictError('This inspection is no longer in progress.');
+  if (!rows[0]) {
+    throw new AssuranceConflictError('This response could not be saved: the inspection is no longer in progress, or a finding has just been raised from this item.');
+  }
   return rows[0];
 }
 
