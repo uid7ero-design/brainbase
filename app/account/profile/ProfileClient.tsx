@@ -13,6 +13,24 @@ import { ABOUT_ME_MAX_LENGTH } from '@/lib/account/profileValidation';
 
 const FONT = "var(--font-inter), -apple-system, sans-serif";
 
+// Hydration-safety: `toLocaleString` with no `timeZone` option resolves the
+// host environment's own local zone — Vercel's server (SSR) and the
+// visitor's browser (hydration) resolve different zones, so the same
+// Date produced different text on each side and tripped React's hydration
+// mismatch check (error #418). An explicit, stable `timeZone` makes the
+// formatted string byte-identical on both sides regardless of where it
+// runs. `isValidTimeZone` only guards against a stored value that isn't a
+// real IANA identifier ever throwing during render.
+function isValidTimeZone(tz: string): boolean {
+  if (!tz) return false;
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const TIMEZONES = [
   'Australia/Adelaide', 'Australia/Sydney', 'Australia/Melbourne',
   'Australia/Brisbane', 'Australia/Perth', 'Australia/Darwin',
@@ -158,8 +176,9 @@ export default function ProfileClient({ initialUser, org, modules, role }: Props
 
   const displayName = form.display_name || `${form.first_name} ${form.last_name}`.trim() || String(initialUser.name ?? 'Your Profile');
   const initials    = displayName.split(' ').map((w: string) => w[0]?.toUpperCase() ?? '').slice(0, 2).join('');
+  const lastSeenTimeZone = isValidTimeZone(String(initialUser.timezone ?? '')) ? String(initialUser.timezone) : 'UTC';
   const lastSeen    = initialUser.last_seen_at
-    ? new Date(String(initialUser.last_seen_at)).toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short' })
+    ? new Date(String(initialUser.last_seen_at)).toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short', timeZone: lastSeenTimeZone })
     : null;
 
   // ── Avatar circle (shared between view + edit) ──────────────────────────────
