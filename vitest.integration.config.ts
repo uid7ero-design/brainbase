@@ -123,6 +123,16 @@ import path from 'path';
 // .integration.test.ts (the application regression over the seeded
 // Brainbase risk scale — see scripts/tests/verify-assurance-risk-bootstrap.sh),
 // same explicit-file-argument isolation.
+//
+// 6.2D4B2A addition: scripts/tests/dataHubNormalizationExecutor
+// .integration.test.ts (the resumable normalization executor service's own
+// real-Postgres concurrency/pinning/transform/resume proof — see
+// scripts/tests/verify-datahub-normalization-executor.sh) is added
+// alongside the existing specs, for the same reason and with the same
+// explicit-file-argument isolation. Like the D.4.6K/C7.3 suites, this one
+// needs no auth seam — createOrResumeNormalizationRun/normalizeBatches/
+// completeNormalizationRun all take already-trusted organisationId/
+// uploadId/actorUserId directly.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -147,6 +157,7 @@ export default defineConfig({
       'scripts/tests/dataHubStageWorksheetRoute.integration.test.ts',
       'scripts/tests/assuranceUi.integration.test.ts',
       'scripts/tests/assuranceRiskBootstrap.integration.test.ts',
+      'scripts/tests/dataHubNormalizationExecutor.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,
