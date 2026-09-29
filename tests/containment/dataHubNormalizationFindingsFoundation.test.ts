@@ -11,7 +11,14 @@ import path from "node:path";
 // file only proves the static shape and the absence of forbidden patterns.
 
 const ROOT = path.resolve(__dirname, "../..");
-const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8");
+// Normalizes CRLF -> LF: this repo's source files are committed as LF, but a
+// Windows checkout (core.autocrlf=true) can re-materialize them as CRLF in
+// the working tree (e.g. after a rebase re-checks-out every commit) without
+// changing the git blob's own content. Several assertions below search for
+// a literal "\n" immediately after specific SQL text; without this
+// normalization those searches become checkout-dependent rather than
+// content-dependent.
+const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8").replace(/\r\n/g, "\n");
 const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/--.*$/gm, "");
 
 const MIGRATION = read("scripts/create-datahub-normalization-findings.sql");
