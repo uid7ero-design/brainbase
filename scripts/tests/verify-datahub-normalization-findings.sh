@@ -270,6 +270,45 @@ expect_success "7c. a WARNING-severity finding on the SAME row as a normalized r
    );"
 
 echo ""
+echo "=== CROSS-CALL ROW CONSISTENCY (6.2D4C-B2B1 REMEDIATION) ==="
+echo "Reuses state from test 6: rr-1 was normalized (nr-1) and rr-2 got a BLOCKING_ERROR finding (find-1) in that SAME earlier call — these two new checks fire on a LATER, separate call."
+expect_failure "7d. [Test A] rr-1 already has a normalized row (nr-1, from test 6) — a LATER call's BLOCKING_ERROR finding for rr-1 is rejected, nothing inserted" \
+  "SELECT * FROM datahub_stage_normalized_batch(
+     'norm-1','org-a','ntok-1',
+     '[]'::jsonb,
+     '[{\"id\":\"find-crosscall-a\",\"rawRowId\":\"rr-1\",\"sourceRowNumber\":4,\"rawCellId\":null,\"sourceSchemaColumnId\":null,\"severity\":\"BLOCKING_ERROR\",\"findingCode\":\"INVALID_RAW_SHAPE\",\"valueKind\":null}]'::jsonb,
+     60
+   );" \
+  "already have a normalized row persisted for this run from an earlier call"
+expect_success "7e. [Test A] the rejected cross-call finding attempt inserted nothing — existing normalized evidence/counts are unchanged" \
+  "SELECT 1/CASE WHEN (SELECT count(*) FROM data_hub_normalization_findings WHERE id='find-crosscall-a') = 0
+       AND (SELECT count(*) FROM data_hub_normalized_rows WHERE id='nr-1') = 1
+       AND (SELECT persisted_row_count=1 AND persisted_cell_count=2 FROM data_hub_normalization_runs WHERE id='norm-1')
+     THEN 1 ELSE 0 END;"
+expect_failure "7f. [Test B] rr-2 already has a BLOCKING_ERROR finding (find-1, from test 6) — a LATER call's normalized row for rr-2 is rejected, nothing inserted" \
+  "SELECT * FROM datahub_stage_normalized_batch(
+     'norm-1','org-a','ntok-1',
+     '[{\"id\":\"nr-crosscall-b\",\"rawRowId\":\"rr-2\",\"sourceRowNumber\":5,\"cells\":[]}]'::jsonb,
+     '[]'::jsonb,
+     60
+   );" \
+  "already have a BLOCKING_ERROR finding persisted for this run from an earlier call"
+expect_success "7g. [Test B] the rejected cross-call normalized-row attempt inserted nothing — find-1 remains, counts unchanged" \
+  "SELECT 1/CASE WHEN (SELECT count(*) FROM data_hub_normalized_rows WHERE id='nr-crosscall-b') = 0
+       AND (SELECT count(*) FROM data_hub_normalization_findings WHERE id='find-1') = 1
+       AND (SELECT persisted_row_count=1 AND persisted_cell_count=2 FROM data_hub_normalization_runs WHERE id='norm-1')
+     THEN 1 ELSE 0 END;"
+expect_success "7h. [Test C] a WARNING finding for rr-1 (already normalized) in a SEPARATE later call IS allowed — only BLOCKING_ERROR severity triggers the cross-call guard" \
+  "SELECT * FROM datahub_stage_normalized_batch(
+     'norm-1','org-a','ntok-1',
+     '[]'::jsonb,
+     '[{\"id\":\"find-crosscall-c-warn\",\"rawRowId\":\"rr-1\",\"sourceRowNumber\":4,\"rawCellId\":\"rc-1a\",\"sourceSchemaColumnId\":\"col-1\",\"severity\":\"WARNING\",\"findingCode\":\"UNSAFE_NUMERIC_VALUE\",\"valueKind\":\"IDENTIFIER\"}]'::jsonb,
+     60
+   );"
+expect_success "7i. [Test C] the WARNING finding for the already-normalized row rr-1 actually persisted" \
+  "SELECT 1/CASE WHEN (SELECT count(*) FROM data_hub_normalization_findings WHERE id='find-crosscall-c-warn' AND severity='WARNING') = 1 THEN 1 ELSE 0 END;"
+
+echo ""
 echo "=== FK TENANT ISOLATION / WRONG-LINEAGE REJECTION ==="
 expect_failure "8. a finding cannot be inserted for org-b while its normalization run is org-a (cross-tenant)" \
   "INSERT INTO data_hub_normalization_findings (id, organisation_id, normalization_run_id, raw_staging_run_id, raw_row_id, source_row_number, raw_cell_id, source_schema_column_id, severity, finding_code, value_kind)
@@ -300,6 +339,39 @@ expect_failure "11. a finding on raw_cell_id=rc-1a (col-1) cannot declare source
   "INSERT INTO data_hub_normalization_findings (id, organisation_id, normalization_run_id, raw_staging_run_id, raw_row_id, source_row_number, raw_cell_id, source_schema_column_id, severity, finding_code, value_kind)
    VALUES ('find-wrongcolumn','org-a','norm-1','run-1','rr-1',4,'rc-1a','col-2','BLOCKING_ERROR','INVALID_RAW_SHAPE',NULL);" \
   "data_hub_normalization_findings_raw_cell_column_fkey"
+
+echo ""
+echo "=== TWO-SHAPE CONTRACT — raw_cell_id/source_schema_column_id (6.2D4C-B2B1 REMEDIATION, Blocker 2) ==="
+echo "Uses rr-2/rc-2a (NOT rr-1) so these direct-INSERT fixture findings never contaminate rr-1's clean state for the later PK-replay test (17)."
+expect_success "11b. [both NULL] a ROW-level finding (raw_cell_id=NULL, source_schema_column_id=NULL) is accepted" \
+  "INSERT INTO data_hub_normalization_findings (id, organisation_id, normalization_run_id, raw_staging_run_id, raw_row_id, source_row_number, raw_cell_id, source_schema_column_id, severity, finding_code, value_kind)
+   VALUES ('find-shape-rowlevel','org-a','norm-1','run-1','rr-2',5,NULL,NULL,'BLOCKING_ERROR','UNKNOWN_RULE_COLUMN',NULL);"
+expect_success "11c. [both present, matching] a CELL-level finding (raw_cell_id=rc-2a, source_schema_column_id=col-1, its real column) is accepted" \
+  "INSERT INTO data_hub_normalization_findings (id, organisation_id, normalization_run_id, raw_staging_run_id, raw_row_id, source_row_number, raw_cell_id, source_schema_column_id, severity, finding_code, value_kind)
+   VALUES ('find-shape-celllevel','org-a','norm-1','run-1','rr-2',5,'rc-2a','col-1','BLOCKING_ERROR','INVALID_RAW_SHAPE','IDENTIFIER');"
+expect_failure "11d. [cell present, column NULL] rejected by the two-shape CHECK constraint" \
+  "INSERT INTO data_hub_normalization_findings (id, organisation_id, normalization_run_id, raw_staging_run_id, raw_row_id, source_row_number, raw_cell_id, source_schema_column_id, severity, finding_code, value_kind)
+   VALUES ('find-shape-cellonly','org-a','norm-1','run-1','rr-2',5,'rc-2a',NULL,'BLOCKING_ERROR','INVALID_RAW_SHAPE',NULL);" \
+  "data_hub_normalization_findings_cell_column_pair_check"
+expect_failure "11e. [cell NULL, column present] rejected by the two-shape CHECK constraint" \
+  "INSERT INTO data_hub_normalization_findings (id, organisation_id, normalization_run_id, raw_staging_run_id, raw_row_id, source_row_number, raw_cell_id, source_schema_column_id, severity, finding_code, value_kind)
+   VALUES ('find-shape-columnonly','org-a','norm-1','run-1','rr-2',5,NULL,'col-1','BLOCKING_ERROR','INVALID_RAW_SHAPE',NULL);" \
+  "data_hub_normalization_findings_cell_column_pair_check"
+echo "  (mismatched-but-both-present cell/column is already proven rejected by the raw-cell-column FK — see test 11 above.)"
+
+echo ""
+echo "=== FINDING LOGICAL-IDENTITY UNIQUENESS / REPLAY REJECTION (6.2D4C-B2B1 REMEDIATION, Replay Review) ==="
+expect_failure "11f. a fresh-id retry duplicating an EXISTING cell-level finding's exact logical identity (run, row, cell, code, severity, value_kind) is rejected" \
+  "INSERT INTO data_hub_normalization_findings (id, organisation_id, normalization_run_id, raw_staging_run_id, raw_row_id, source_row_number, raw_cell_id, source_schema_column_id, severity, finding_code, value_kind)
+   VALUES ('find-shape-celllevel-retry','org-a','norm-1','run-1','rr-2',5,'rc-2a','col-1','BLOCKING_ERROR','INVALID_RAW_SHAPE','IDENTIFIER');" \
+  "idx_data_hub_normalization_findings_logical_identity_unique"
+expect_failure "11g. a fresh-id retry duplicating an EXISTING row-level finding's exact logical identity (raw_cell_id and value_kind both NULL) is ALSO rejected — proves COALESCE makes NULL collide with NULL here, unlike a bare UNIQUE" \
+  "INSERT INTO data_hub_normalization_findings (id, organisation_id, normalization_run_id, raw_staging_run_id, raw_row_id, source_row_number, raw_cell_id, source_schema_column_id, severity, finding_code, value_kind)
+   VALUES ('find-shape-rowlevel-retry','org-a','norm-1','run-1','rr-2',5,NULL,NULL,'BLOCKING_ERROR','UNKNOWN_RULE_COLUMN',NULL);" \
+  "idx_data_hub_normalization_findings_logical_identity_unique"
+expect_success "11h. a genuinely distinct finding (same row/cell, DIFFERENT finding_code) is NOT blocked by the uniqueness index" \
+  "INSERT INTO data_hub_normalization_findings (id, organisation_id, normalization_run_id, raw_staging_run_id, raw_row_id, source_row_number, raw_cell_id, source_schema_column_id, severity, finding_code, value_kind)
+   VALUES ('find-shape-celllevel-distinct','org-a','norm-1','run-1','rr-2',5,'rc-2a','col-1','BLOCKING_ERROR','UNSAFE_NUMERIC_VALUE','IDENTIFIER');"
 
 echo ""
 echo "=== IMMUTABILITY ==="
@@ -430,6 +502,79 @@ expect_failure "21. rollback refuses while data_hub_normalization_findings has r
   "Refusing rollback: data_hub_normalization_findings contains"
 
 echo "Resetting to a fresh database for the clean-rollback proof..."
+reset_database
+
+echo ""
+echo "=== MUTATION PROOF — cross-call guard removed, prove tests 7d/7f would WRONGLY succeed without it (6.2D4C-B2B1 REMEDIATION) ==="
+echo "Rebuilding a mutated migration with the CROSS_CALL_GUARD_BEGIN..CROSS_CALL_GUARD_END block stripped..."
+MUTATED_MIGRATION="$(mktemp 2>/dev/null || echo "/tmp/mutated_b2b1_migration.$$.sql")"
+sed '/-- CROSS_CALL_GUARD_BEGIN/,/-- CROSS_CALL_GUARD_END/d' "$D4C_B2B1_MIGRATION" > "$MUTATED_MIGRATION"
+if grep -q "CROSS_CALL_GUARD_BEGIN" "$MUTATED_MIGRATION"; then
+  echo "ERROR: mutation failed to strip the cross-call guard block." >&2
+  exit 2
+fi
+if grep -q "v_cross_call_a_count > 0" "$MUTATED_MIGRATION"; then
+  echo "ERROR: mutation left the cross-call check logic in place." >&2
+  exit 2
+fi
+
+if ! npx prisma db push --skip-generate --accept-data-loss >"$DIAG_OUT" 2>&1; then
+  echo "ERROR: prisma db push failed (mutation phase)." >&2; sed 's/^/    /' "$DIAG_OUT"; exit 2
+fi
+if ! echo "$DROP_DB_PUSH_OBJECTS" | docker exec -i "$CONTAINER" psql -X -q -U postgres -d postgres -v ON_ERROR_STOP=1 >"$DIAG_OUT" 2>&1; then
+  echo "ERROR: drift normalization failed (mutation phase)." >&2; sed 's/^/    /' "$DIAG_OUT"; exit 2
+fi
+for f in "$D4A_MIGRATION" "$D4B_MIGRATION" "$D4C_B1_MIGRATION" "$MUTATED_MIGRATION"; do
+  if ! docker exec -i "$CONTAINER" psql -X -q -U postgres -d postgres -v ON_ERROR_STOP=1 < "$f" >"$DIAG_OUT" 2>&1; then
+    echo "ERROR: $(basename "$f") failed to apply (mutation phase)." >&2; sed 's/^/    /' "$DIAG_OUT"; exit 2
+  fi
+done
+rm -f "$MUTATED_MIGRATION"
+
+expect_success "M1 setup: minimal fixture world + a SUCCEEDED raw run + RUNNING normalization run, under the MUTATED migration (rr-1 normalized, rr-2 gets a BLOCKING_ERROR finding, in one call)" \
+  "INSERT INTO organisations (id, name, slug, updated_at) VALUES ('org-a','Org A','org-a', now());
+   INSERT INTO users (id, organisation_id, username, email, name, password_hash, role, updated_at) VALUES ('user-a','org-a','user-a','a@x.com','User A','x','MANAGER', now());
+   INSERT INTO source_systems (id, organisation_id, name, updated_at) VALUES ('ss-1','org-a','SS', now());
+   INSERT INTO dataset_types (id, organisation_id, source_system_id, name, updated_at) VALUES ('dt-1','org-a','ss-1','DT', now());
+   INSERT INTO source_schema_versions (id, organisation_id, dataset_type_id, version_number, label) VALUES ('sv-1','org-a','dt-1',1,'v1');
+   INSERT INTO source_schema_worksheets (id, organisation_id, source_schema_version_id, logical_key, expected_name, presence, role, ordinal_hint) VALUES ('ws-1','org-a','sv-1','runs','Runs','OPTIONAL','DATA',0);
+   INSERT INTO source_schema_columns (id, organisation_id, source_schema_worksheet_id, ordinal, source_header, presence, declared_type, sensitivity_class) VALUES ('col-1','org-a','ws-1',0,'Id','OPTIONAL','UNKNOWN','CONFIDENTIAL');
+   INSERT INTO worksheet_mapping_profiles (id, organisation_id, source_schema_worksheet_id, name, active, updated_at) VALUES ('wp-1','org-a','ws-1','treatment', true, now());
+   INSERT INTO worksheet_mapping_profile_versions (id, organisation_id, worksheet_mapping_profile_id, version_number, disposition, profile_document) VALUES ('pv-1','org-a','wp-1',1,'STAGING_DATASET','{\"documentVersion\":1,\"schemaStatus\":\"DRAFT\",\"headerRowOneBased\":3}');
+   UPDATE worksheet_mapping_profiles SET active_profile_version_id='pv-1' WHERE id='wp-1';
+   INSERT INTO import_batches (id, organisation_id, uploaded_by, original_filename, content_type, size_bytes, storage_provider, storage_key, status, sha256, source_schema_version_id, updated_at) VALUES ('batch-1','org-a','user-a','f.xlsx','xlsx',1,'vercel-blob','k1','READY', repeat('a',64), 'sv-1', now());
+   INSERT INTO uploads (id, organisation_id, original_name, stored_path, mimetype, size_bytes, import_batch_id, worksheet_index, worksheet_name, lineage_kind, updated_at) VALUES ('up-1','org-a','f.xlsx','p','x',1,'batch-1',0,'Runs','DATA_HUB', now());
+   INSERT INTO data_hub_raw_staging_runs (id, organisation_id, import_batch_id, upload_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_id, worksheet_mapping_profile_version_id, attempt_number, source_sha256, parser_version, status, execution_token, lease_expires_at, last_progress_at, expected_row_count, expected_cell_count, persisted_row_count, persisted_cell_count, completed_at)
+     VALUES ('run-1','org-a','batch-1','up-1','sv-1','ws-1','wp-1','pv-1',1, repeat('a',64), 'v1', 'SUCCEEDED', 'tok-1', now() + interval '1 hour', now(), 2, 2, 2, 2, now());
+   UPDATE uploads SET raw_staged_at = now(), raw_staged_by='user-a', raw_profile_version_id='pv-1', raw_row_count=2, raw_cell_count=2, raw_staging_run_id='run-1' WHERE id='up-1';
+   INSERT INTO data_hub_raw_rows (id, organisation_id, import_batch_id, upload_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_id, worksheet_mapping_profile_version_id, staging_run_id, source_row_number)
+     VALUES ('rr-1','org-a','batch-1','up-1','sv-1','ws-1','wp-1','pv-1','run-1',4), ('rr-2','org-a','batch-1','up-1','sv-1','ws-1','wp-1','pv-1','run-1',5);
+   INSERT INTO data_hub_raw_cells (id, organisation_id, raw_row_id, source_schema_worksheet_id, source_schema_column_id, column_ordinal, source_header, raw_value, raw_value_type, sensitivity_class, original_unit)
+     VALUES ('rc-1a','org-a','rr-1','ws-1','col-1',0,'Id','\"abc\"','STRING','CONFIDENTIAL', NULL), ('rc-2a','org-a','rr-2','ws-1','col-1',0,'Id','\"def\"','STRING','CONFIDENTIAL', NULL);
+   INSERT INTO data_hub_normalization_runs (id, organisation_id, import_batch_id, upload_id, raw_staging_run_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_id, worksheet_mapping_profile_version_id, attempt_number, normalizer_version, status, execution_token, lease_expires_at, last_progress_at, expected_row_count, expected_cell_count, created_by)
+     VALUES ('norm-m','org-a','batch-1','up-1','run-1','sv-1','ws-1','wp-1','pv-1',1,'v1','RUNNING','ntok-m', now()+interval '1 hour', now(), 2, 2, 'user-a');
+   SELECT * FROM datahub_stage_normalized_batch(
+     'norm-m','org-a','ntok-m',
+     '[{\"id\":\"nr-m1\",\"rawRowId\":\"rr-1\",\"sourceRowNumber\":4,\"cells\":[{\"id\":\"nc-m1a\",\"rawCellId\":\"rc-1a\",\"sourceSchemaColumnId\":\"col-1\",\"valueKind\":\"IDENTIFIER\",\"normalizedValue\":\"abc\",\"sourceUnit\":null,\"normalizedUnit\":null}]}]'::jsonb,
+     '[{\"id\":\"find-m1\",\"rawRowId\":\"rr-2\",\"sourceRowNumber\":5,\"rawCellId\":\"rc-2a\",\"sourceSchemaColumnId\":\"col-1\",\"severity\":\"BLOCKING_ERROR\",\"findingCode\":\"INVALID_RAW_SHAPE\",\"valueKind\":\"IDENTIFIER\"}]'::jsonb,
+     60
+   );"
+expect_success "M2 [Test A mutation proof]: WITHOUT the cross-call guard, a LATER call's BLOCKING_ERROR finding for the ALREADY-normalized rr-1 WRONGLY succeeds — proves the guard (not something else) is what rejects test 7d under the real migration" \
+  "SELECT * FROM datahub_stage_normalized_batch(
+     'norm-m','org-a','ntok-m',
+     '[]'::jsonb,
+     '[{\"id\":\"find-m-mutation-a\",\"rawRowId\":\"rr-1\",\"sourceRowNumber\":4,\"rawCellId\":null,\"sourceSchemaColumnId\":null,\"severity\":\"BLOCKING_ERROR\",\"findingCode\":\"INVALID_RAW_SHAPE\",\"valueKind\":null}]'::jsonb,
+     60
+   );"
+expect_success "M3 [Test B mutation proof]: WITHOUT the cross-call guard, a LATER call's normalized row for the ALREADY-blocking-findinged rr-2 WRONGLY succeeds — proves the guard is what rejects test 7f under the real migration" \
+  "SELECT * FROM datahub_stage_normalized_batch(
+     'norm-m','org-a','ntok-m',
+     '[{\"id\":\"nr-m-mutation-b\",\"rawRowId\":\"rr-2\",\"sourceRowNumber\":5,\"cells\":[]}]'::jsonb,
+     '[]'::jsonb,
+     60
+   );"
+
+echo "Mutation proof complete. Resetting to a fresh database and reapplying the REAL (unmutated) migration..."
 reset_database
 apply_all_migrations
 expect_success "21b. B2B1 migration reapplies cleanly on the fresh reset database" "SELECT 1;"

@@ -37,11 +37,30 @@
 --      batch where the same raw row appears as both a successfully
 --      normalized row and a BLOCKING_ERROR finding — "no partial row
 --      success" is enforced structurally, not left as a caller convention.
+--      This is enforced BOTH within one call (the original same-call
+--      overlap check) AND across separate calls within the same run (the
+--      6.2D4C-B2B1 REMEDIATION cross-call checks added below) — a raw row
+--      can never end up with contradictory immutable evidence ("normalized"
+--      AND "blocking failure") no matter how many separate batch calls a
+--      run's evidence is spread across.
 --   4. Completion requires ZERO blocking findings for the run — enforced
 --      at the DB completion gate (defense in depth), independent of
 --      whatever the future executor's own logic does.
 --   5. No active/current profile pointer (WorksheetMappingProfile.active_
 --      profile_version_id) is read anywhere in this file.
+--   6. A finding is either ROW-level (raw_cell_id IS NULL AND
+--      source_schema_column_id IS NULL) or CELL-level (both NOT NULL) —
+--      never a mix. A drift-checked CHECK constraint enforces this two-shape
+--      contract structurally, closing the MATCH SIMPLE lineage hole where a
+--      finding could otherwise name an arbitrary column from the same
+--      organisation without its raw-cell-column FK ever being evaluated.
+--   7. A finding's own "logical identity" — (organisation_id,
+--      normalization_run_id, raw_row_id, raw_cell_id, finding_code,
+--      severity, value_kind) — is unique per run, via a drift-checked
+--      expression UNIQUE INDEX (COALESCE-normalizing the two nullable
+--      columns, since a bare UNIQUE constraint would treat every NULL as
+--      distinct). See the 6.2D4C-B2B1 REMEDIATION REPLAY REVIEW note below
+--      STEP 1 for the justification.
 --
 -- Creates:
 --   public.data_hub_normalization_findings
@@ -388,13 +407,30 @@ SELECT pg_temp.ensure_check(
   )$sql$
 );
 
--- raw_cell_id and source_schema_column_id must agree: both present or both
--- absent never enforced here on purpose — a row-level finding may name a
--- governed column without a specific cell only if that is ever needed, but
--- MISSING_GOVERNED_RULE/UNKNOWN_RULE_COLUMN style findings always DO have a
--- concrete raw cell in D4B's data model, so in practice both are usually
--- present together; not structurally forced to keep this table usable for
--- genuinely row-only findings without inventing an unused cell reference.
+-- 6.2D4C-B2B1 REMEDIATION (nullable cell/column lineage hole) — raw_cell_id
+-- and source_schema_column_id are MATCH SIMPLE composite-FK columns (see
+-- data_hub_normalization_findings_raw_cell_column_fkey below): MATCH SIMPLE
+-- means that FK is skipped ENTIRELY the moment either column is NULL. Before
+-- this constraint, a caller could set raw_cell_id = NULL and
+-- source_schema_column_id = <any column from this organisation>, and no FK
+-- would ever evaluate that column — the finding could name an arbitrary
+-- column with no proof it belongs to the finding's own raw row/run at all.
+--
+-- The explicit two-shape contract closes that hole structurally:
+--   ROW-level finding:  raw_cell_id IS NULL     AND source_schema_column_id IS NULL
+--   CELL-level finding: raw_cell_id IS NOT NULL AND source_schema_column_id IS NOT NULL
+-- A finding can never have "half" a cell/column identity. Whenever a column
+-- identity is present, the raw-cell-column FK below is now guaranteed to
+-- actually evaluate (both its columns are non-NULL), making it authoritative
+-- rather than silently skippable.
+SELECT pg_temp.ensure_check(
+  'data_hub_normalization_findings',
+  'data_hub_normalization_findings_cell_column_pair_check',
+  'CHECK ((((raw_cell_id IS NULL) AND (source_schema_column_id IS NULL)) OR ((raw_cell_id IS NOT NULL) AND (source_schema_column_id IS NOT NULL))))',
+  $sql$ALTER TABLE public.data_hub_normalization_findings ADD CONSTRAINT data_hub_normalization_findings_cell_column_pair_check CHECK (
+    (raw_cell_id IS NULL AND source_schema_column_id IS NULL) OR (raw_cell_id IS NOT NULL AND source_schema_column_id IS NOT NULL)
+  )$sql$
+);
 
 SELECT pg_temp.ensure_fk(
   'data_hub_normalization_findings', 'data_hub_normalization_findings_organisation_id_fkey',
@@ -490,6 +526,42 @@ SELECT pg_temp.ensure_index(
   'CREATE INDEX idx_data_hub_normalization_findings_raw_row ON public.data_hub_normalization_findings (raw_row_id)'
 );
 
+-- 6.2D4C-B2B1 REMEDIATION REPLAY REVIEW — the PK (id) alone only rejects
+-- reuse of the same caller-generated id; a retry that generates a FRESH id
+-- for what it believes is an unacknowledged call could otherwise duplicate
+-- the same logical finding. Decision: add a natural uniqueness constraint,
+-- because a single legitimate normalization pass can never produce two
+-- findings sharing this exact tuple —
+-- lib/data-hub/normalization/transformValue.ts's transformValue() always
+-- returns AT MOST one finding per call (every failure branch returns
+-- one([code], rule), a single-element array — never multiple findings for
+-- one cell), and lib/data-hub/normalization/transformRow.ts evaluates each
+-- raw cell against its plan rule EXACTLY once per row (transformValue is
+-- called once per {sourceSchemaColumnId, cell} pair; a cell that has no
+-- matching rule short-circuits to a single UNKNOWN_RULE_COLUMN finding and
+-- is never also passed to transformValue). So within one row, one raw cell
+-- can legitimately produce at most one finding, full stop — a second row
+-- matching (run, raw_row, raw_cell, finding_code, severity, value_kind) can
+-- only be a replay artifact, never a legitimate second distinct finding.
+-- The same holds for row-level findings (raw_cell_id NULL): each is
+-- produced from a single deterministic evaluation of one row/plan
+-- combination, never repeated within one legitimate pass.
+--
+-- COALESCE(..., '') normalizes the two nullable columns (raw_cell_id,
+-- value_kind) because a bare UNIQUE constraint/index treats every NULL as
+-- DISTINCT by default — without this, two ROW-level findings sharing every
+-- other field would NOT collide, defeating the point for exactly the
+-- row-level case this migration's own two-shape contract (STEP 1, above)
+-- newly makes possible to detect. organisation_id is included for the same
+-- tenant-scoping-explicitness convention as every other constraint in this
+-- file, even though it is already implied transitively via
+-- normalization_run_id's own FK.
+SELECT pg_temp.ensure_index(
+  'data_hub_normalization_findings', 'idx_data_hub_normalization_findings_logical_identity_unique',
+  'CREATE UNIQUE INDEX idx_data_hub_normalization_findings_logical_identity_unique ON public.data_hub_normalization_findings USING btree (organisation_id, normalization_run_id, raw_row_id, COALESCE(raw_cell_id, ''''::text), finding_code, severity, COALESCE(value_kind, ''''::text))',
+  $sql$CREATE UNIQUE INDEX idx_data_hub_normalization_findings_logical_identity_unique ON public.data_hub_normalization_findings (organisation_id, normalization_run_id, raw_row_id, COALESCE(raw_cell_id, ''), finding_code, severity, COALESCE(value_kind, ''))$sql$
+);
+
 -- ═══════════════════════════════════════════════════════════════════
 -- STEP 2 — findings are immutable after INSERT. Reuses D4C-B1's own
 -- datahub_guard_normalized_evidence_immutable() verbatim (it is already
@@ -539,12 +611,15 @@ CREATE TRIGGER data_hub_normalization_findings_immutable_guard
 --      "severity": "BLOCKING_ERROR"|"WARNING", "findingCode": "...",
 --      "valueKind": "..."|null }]
 --
--- Scope note: this function enforces "no partial row success" WITHIN one
--- call. It does not (and structurally cannot, without an additional
--- cross-call scan this phase does not add) prevent a caller from writing a
--- normalized row for a raw row in one call and a blocking finding for that
--- SAME raw row in a LATER call — that discipline belongs to the future
--- executor, which is explicitly out of scope for B2B1.
+-- Scope note: this function enforces "no partial row success" BOTH within
+-- one call (the original same-call overlap check) AND across separate calls
+-- within the same run (6.2D4C-B2B1 REMEDIATION — see the two cross-call
+-- checks in the body below, run BEFORE any insert in this call): a raw row
+-- that already has a persisted BLOCKING_ERROR finding for this run can never
+-- also be written as a normalized row in a later call, and a raw row that
+-- already has a persisted normalized row for this run can never also be
+-- written as a BLOCKING_ERROR finding in a later call. This is a structural
+-- DB-level guarantee, not deferred to executor discipline.
 -- ═══════════════════════════════════════════════════════════════════
 
 DROP FUNCTION IF EXISTS public.datahub_stage_normalized_batch(text, text, text, jsonb, jsonb, integer);
@@ -567,6 +642,8 @@ DECLARE
   v_raw_staging_run_id text;
   v_raw_status text;
   v_overlap_count int;
+  v_cross_call_a_count int;
+  v_cross_call_b_count int;
 BEGIN
   IF p_lease_seconds IS NULL OR p_lease_seconds <= 0 THEN
     RAISE EXCEPTION 'datahub_stage_normalized_batch: p_lease_seconds must be a positive integer (got %)', p_lease_seconds;
@@ -610,6 +687,45 @@ BEGIN
     RAISE EXCEPTION 'datahub_stage_normalized_batch: % raw row(s) appear in both the normalized payload and a BLOCKING_ERROR finding in this same batch — a blocking finding means that row cannot be represented as successfully normalized',
       v_overlap_count;
   END IF;
+
+  -- CROSS_CALL_GUARD_BEGIN (mutation-proof harness marker — do not remove or rename; scripts/tests/verify-datahub-normalization-findings.sh strips exactly the block between this and CROSS_CALL_GUARD_END to prove the guard, not something else, is what rejects the cross-call tests)
+  -- 6.2D4C-B2B1 REMEDIATION — cross-call row consistency. The same-call
+  -- check above only catches overlap WITHIN this one call; a raw row's
+  -- normalized-row evidence and blocking-finding evidence can also arrive in
+  -- two SEPARATE calls, each individually free of same-call overlap, and
+  -- without this check that would leave immutable contradictory evidence
+  -- ("row successfully normalized" AND "same row has a blocking
+  -- normalization failure") standing for this run. Both checks below are
+  -- scoped by the exact raw row identity (normalization_run_id,
+  -- organisation_id, raw_row_id) and run BEFORE any insert in this call.
+  --
+  -- Check A: reject any normalized-payload raw row that already has a
+  -- persisted BLOCKING_ERROR finding for this run (from an earlier call).
+  SELECT count(*) INTO v_cross_call_a_count
+    FROM (SELECT DISTINCT r ->> 'rawRowId' AS raw_row_id FROM jsonb_array_elements(p_normalized_payload) AS r) nr
+    JOIN public.data_hub_normalization_findings existing_f
+      ON existing_f.raw_row_id = nr.raw_row_id
+     AND existing_f.normalization_run_id = p_normalization_run_id
+     AND existing_f.organisation_id = p_organisation_id
+     AND existing_f.severity = 'BLOCKING_ERROR';
+  IF v_cross_call_a_count > 0 THEN
+    RAISE EXCEPTION 'datahub_stage_normalized_batch: % raw row(s) in this normalized payload already have a BLOCKING_ERROR finding persisted for this run from an earlier call — a raw row with an existing blocking finding can never also become a normalized row',
+      v_cross_call_a_count;
+  END IF;
+
+  -- Check B: reject any BLOCKING_ERROR finding-payload raw row that already
+  -- has a persisted normalized row for this run (from an earlier call).
+  SELECT count(*) INTO v_cross_call_b_count
+    FROM (SELECT DISTINCT f ->> 'rawRowId' AS raw_row_id FROM jsonb_array_elements(p_finding_payload) AS f WHERE f ->> 'severity' = 'BLOCKING_ERROR') bf
+    JOIN public.data_hub_normalized_rows existing_r
+      ON existing_r.raw_row_id = bf.raw_row_id
+     AND existing_r.normalization_run_id = p_normalization_run_id
+     AND existing_r.organisation_id = p_organisation_id;
+  IF v_cross_call_b_count > 0 THEN
+    RAISE EXCEPTION 'datahub_stage_normalized_batch: % raw row(s) in this BLOCKING_ERROR finding payload already have a normalized row persisted for this run from an earlier call — a raw row already normalized can never also receive a blocking finding',
+      v_cross_call_b_count;
+  END IF;
+  -- CROSS_CALL_GUARD_END
 
   -- Step 6: bulk-insert normalized rows.
   INSERT INTO public.data_hub_normalized_rows (id, organisation_id, normalization_run_id, raw_staging_run_id, raw_row_id, source_row_number, created_at)

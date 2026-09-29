@@ -1366,8 +1366,29 @@ model DataHubNormalizedCell {
 // own declared source_row_number is that raw row's own physical row
 // number — never an arbitrary claim.
 //
-// raw_cell_id/source_schema_column_id are nullable: a finding may be
-// row-level (not tied to one specific cell) or cell-level.
+// raw_cell_id/source_schema_column_id are nullable, but never independently:
+// a two-shape contract, enforced by a drift-checked DB CHECK constraint
+// (data_hub_normalization_findings_cell_column_pair_check, not modeled in
+// Prisma — no expression support for cross-column CHECKs here), requires
+// exactly one of —
+//   ROW-level finding:  raw_cell_id IS NULL     AND source_schema_column_id IS NULL
+//   CELL-level finding: raw_cell_id IS NOT NULL AND source_schema_column_id IS NOT NULL
+// This exists because both columns sit in MATCH SIMPLE composite FKs (see
+// raw_cell/source_schema_column relations below): MATCH SIMPLE skips a
+// composite FK entirely the moment either of its own columns is NULL, so
+// without this CHECK a finding could set raw_cell_id = NULL and
+// source_schema_column_id = <any column from this organisation> and no FK
+// would ever evaluate that column reference.
+//
+// 6.2D4C-B2B1 REMEDIATION — a finding's "logical identity" (organisation_id,
+// normalization_run_id, raw_row_id, raw_cell_id, finding_code, severity,
+// value_kind) is additionally unique per run via a drift-checked expression
+// UNIQUE INDEX in the migration (COALESCE-normalizing the two nullable
+// columns to make NULL collide with NULL, since a bare UNIQUE treats every
+// NULL as distinct) — also not modeled here, since Prisma's declarative
+// @@unique cannot express a COALESCE expression index. This rejects a
+// fresh-id retry that would otherwise duplicate the same logical finding;
+// see the migration's own REPLAY REVIEW comment for the full justification.
 model DataHubNormalizationFinding {
   id                      String   @id @default(cuid())
   organisation_id         String

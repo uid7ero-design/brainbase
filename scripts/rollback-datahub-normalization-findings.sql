@@ -17,6 +17,21 @@
 -- D4A/D4B/D4C-B1's own objects/constraints are otherwise left completely
 -- untouched — this migration never modified anything of theirs besides
 -- that one CREATE OR REPLACE.
+--
+-- 6.2D4C-B2B1 REMEDIATION — the two new objects this remediation added
+-- (data_hub_normalization_findings_cell_column_pair_check, the two-shape
+-- CHECK constraint, and idx_data_hub_normalization_findings_logical_identity_
+-- unique, the replay-rejection UNIQUE INDEX) need NO separate DROP
+-- statement: both live entirely on data_hub_normalization_findings, and
+-- `DROP TABLE IF EXISTS public.data_hub_normalization_findings` below
+-- already removes every constraint/index defined on that table along with
+-- it. The two new cross-call checks inside datahub_stage_normalized_batch's
+-- body likewise need no separate handling — the whole function is already
+-- unconditionally DROPped below, exactly as it was before this remediation
+-- (it never existed before B2B1, so there is nothing prior to "restore" it
+-- to). Verified by scripts/tests/verify-datahub-normalization-findings.sh
+-- tests 23-24 (round-trip) confirming to_regclass('public.data_hub_
+-- normalization_findings') IS NULL after rollback.
 
 BEGIN;
 

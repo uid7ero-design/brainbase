@@ -100,6 +100,139 @@ describe("6.2D4C-B2B1 — findings carry ONLY governed metadata/lineage", () => 
   });
 });
 
+describe("6.2D4C-B2B1 REMEDIATION — two-shape lineage contract (Blocker 2)", () => {
+  it("declares the row-level/cell-level two-shape CHECK constraint with the exact expected definition", () => {
+    expect(MIGRATION_CODE).toContain("data_hub_normalization_findings_cell_column_pair_check");
+    const idx = MIGRATION_CODE.indexOf("data_hub_normalization_findings_cell_column_pair_check");
+    const region = MIGRATION_CODE.slice(idx, idx + 700);
+    expect(region).toContain("raw_cell_id IS NULL");
+    expect(region).toContain("source_schema_column_id IS NULL");
+    expect(region).toContain("raw_cell_id IS NOT NULL");
+    expect(region).toContain("source_schema_column_id IS NOT NULL");
+  });
+
+  it("is drift-checked via pg_temp.ensure_check, not a bare CREATE/ALTER", () => {
+    const idx = MIGRATION_CODE.indexOf("data_hub_normalization_findings_cell_column_pair_check");
+    const region = MIGRATION_CODE.slice(Math.max(0, idx - 200), idx);
+    expect(region).toContain("pg_temp.ensure_check(");
+  });
+
+  it("mutation proof: removing either half of the two-shape OR-clause is caught (the check text requires BOTH the NULL/NULL and NOT NULL/NOT NULL shapes to be present together)", () => {
+    const idx = MIGRATION_CODE.indexOf("data_hub_normalization_findings_cell_column_pair_check");
+    const region = MIGRATION_CODE.slice(idx, idx + 700);
+    // A mutated constraint dropping the "OR" (only permitting ROW-level
+    // findings, say) would no longer contain this exact substring — proving
+    // this assertion actually depends on the CELL-level branch surviving.
+    expect(region).toMatch(/raw_cell_id IS NOT NULL AND source_schema_column_id IS NOT NULL/);
+    // Likewise for the ROW-level branch.
+    expect(region).toMatch(/raw_cell_id IS NULL AND source_schema_column_id IS NULL/);
+  });
+
+  it("Prisma's DataHubNormalizationFinding doc comment documents the exact two-shape contract", () => {
+    const idx = PRISMA.indexOf("model DataHubNormalizationFinding {");
+    expect(idx).toBeGreaterThan(-1);
+    const docComment = PRISMA.slice(Math.max(0, idx - 1600), idx);
+    expect(docComment).toContain("data_hub_normalization_findings_cell_column_pair_check");
+    expect(docComment).toMatch(/ROW-level finding/);
+    expect(docComment).toMatch(/CELL-level finding/);
+  });
+});
+
+describe("6.2D4C-B2B1 REMEDIATION — finding logical-identity uniqueness (Replay Review)", () => {
+  it("declares a drift-checked UNIQUE INDEX over the full logical-identity tuple, COALESCE-normalizing the two nullable columns", () => {
+    expect(MIGRATION_CODE).toContain("idx_data_hub_normalization_findings_logical_identity_unique");
+    const idx = MIGRATION_CODE.indexOf("idx_data_hub_normalization_findings_logical_identity_unique");
+    const region = MIGRATION_CODE.slice(idx, idx + 900);
+    expect(region).toContain("CREATE UNIQUE INDEX");
+    expect(region).toContain("organisation_id");
+    expect(region).toContain("normalization_run_id");
+    expect(region).toContain("raw_row_id");
+    expect(region).toContain("COALESCE(raw_cell_id");
+    expect(region).toContain("finding_code");
+    expect(region).toContain("severity");
+    expect(region).toContain("COALESCE(value_kind");
+  });
+
+  it("is drift-checked via pg_temp.ensure_index, not a bare CREATE UNIQUE INDEX", () => {
+    const idx = MIGRATION_CODE.indexOf("idx_data_hub_normalization_findings_logical_identity_unique");
+    const region = MIGRATION_CODE.slice(Math.max(0, idx - 100), idx);
+    expect(region).toContain("pg_temp.ensure_index(");
+  });
+
+  it("the migration's own comment documents WHY a natural uniqueness constraint was added (genuine reasoning, not a bare assertion)", () => {
+    const idx = MIGRATION.indexOf("idx_data_hub_normalization_findings_logical_identity_unique");
+    expect(idx).toBeGreaterThan(-1);
+    const commentRegion = MIGRATION.slice(Math.max(0, idx - 2200), idx);
+    expect(commentRegion).toMatch(/REPLAY REVIEW/);
+    expect(commentRegion).toMatch(/transformValue/);
+    expect(commentRegion).toMatch(/at most one finding/i);
+  });
+});
+
+describe("6.2D4C-B2B1 REMEDIATION — cross-call row consistency (Blocker 1)", () => {
+  function fnBody(): string {
+    const start = MIGRATION_CODE.indexOf("CREATE OR REPLACE FUNCTION public.datahub_stage_normalized_batch(");
+    expect(start).toBeGreaterThan(-1);
+    const end = MIGRATION_CODE.indexOf("\n$fn$;", start);
+    return MIGRATION_CODE.slice(start, end);
+  }
+
+  it("retains the original same-call overlap check as an earlier, clearer guard", () => {
+    const body = fnBody();
+    expect(body).toMatch(/appear in both the normalized payload and a BLOCKING_ERROR finding in this same batch/);
+  });
+
+  it("Check A: rejects a normalized-payload raw row that already has a persisted BLOCKING_ERROR finding for this run, scoped by (normalization_run_id, organisation_id, raw_row_id)", () => {
+    const body = fnBody();
+    expect(body).toMatch(/v_cross_call_a_count/);
+    expect(body).toMatch(/existing_f\.normalization_run_id = p_normalization_run_id/);
+    expect(body).toMatch(/existing_f\.organisation_id = p_organisation_id/);
+    expect(body).toMatch(/existing_f\.severity = 'BLOCKING_ERROR'/);
+    expect(body).toMatch(/already have a BLOCKING_ERROR finding persisted for this run from an earlier call/);
+  });
+
+  it("Check B: rejects a BLOCKING_ERROR finding-payload raw row that already has a persisted normalized row for this run, scoped by (normalization_run_id, organisation_id, raw_row_id)", () => {
+    const body = fnBody();
+    expect(body).toMatch(/v_cross_call_b_count/);
+    expect(body).toMatch(/existing_r\.normalization_run_id = p_normalization_run_id/);
+    expect(body).toMatch(/existing_r\.organisation_id = p_organisation_id/);
+    expect(body).toMatch(/already have a normalized row persisted for this run from an earlier call/);
+  });
+
+  it("both cross-call checks run BEFORE the normalized-row insert AND before the finding insert (structural, same statement/transaction)", () => {
+    const body = fnBody();
+    const checkAIdx = body.indexOf("v_cross_call_a_count");
+    const checkBIdx = body.indexOf("v_cross_call_b_count");
+    const normalizedRowInsertIdx = body.indexOf("INSERT INTO public.data_hub_normalized_rows");
+    const findingInsertIdx = body.indexOf("INSERT INTO public.data_hub_normalization_findings");
+    expect(checkAIdx).toBeGreaterThan(-1);
+    expect(checkBIdx).toBeGreaterThan(checkAIdx);
+    expect(normalizedRowInsertIdx).toBeGreaterThan(checkBIdx);
+    expect(findingInsertIdx).toBeGreaterThan(checkBIdx);
+  });
+
+  it("mutation proof: the guard block is delimited by CROSS_CALL_GUARD_BEGIN/END markers in the real source, and stripping that exact block removes both checks (live-proven against real Postgres in scripts/tests/verify-datahub-normalization-findings.sh's MUTATION PROOF section — this assertion pins the markers the bash harness's sed strip depends on)", () => {
+    expect(MIGRATION).toContain("CROSS_CALL_GUARD_BEGIN");
+    expect(MIGRATION).toContain("CROSS_CALL_GUARD_END");
+    const beginIdx = MIGRATION.indexOf("-- CROSS_CALL_GUARD_BEGIN");
+    const endIdx = MIGRATION.indexOf("-- CROSS_CALL_GUARD_END");
+    expect(endIdx).toBeGreaterThan(beginIdx);
+    const strippedRegion = MIGRATION.slice(beginIdx, endIdx);
+    expect(strippedRegion).toContain("v_cross_call_a_count");
+    expect(strippedRegion).toContain("v_cross_call_b_count");
+    // Everything outside the marked block must NOT contain the guard's own
+    // exception text — i.e. stripping exactly this block removes BOTH
+    // checks in full, with nothing left half-mutated outside the markers.
+    const outsideRegion = MIGRATION.slice(0, beginIdx) + MIGRATION.slice(endIdx);
+    expect(outsideRegion).not.toContain("already have a BLOCKING_ERROR finding persisted for this run from an earlier call");
+    expect(outsideRegion).not.toContain("already have a normalized row persisted for this run from an earlier call");
+  });
+
+  it("the migration's own scope-note comment no longer claims cross-call scanning is unimplemented", () => {
+    expect(MIGRATION).not.toMatch(/structurally cannot, without an additional\s+cross-call scan/);
+  });
+});
+
 describe("6.2D4C-B2B1 — exact tenant/lineage FKs are present", () => {
   const REQUIRED_FKS = [
     "data_hub_normalization_findings_organisation_id_fkey",
@@ -236,6 +369,7 @@ describe("6.2D4C-B2B1 — every index is drift-checked (established convention, 
       "idx_data_hub_normalization_findings_run_severity",
       "idx_data_hub_normalization_findings_org_run",
       "idx_data_hub_normalization_findings_raw_row",
+      "idx_data_hub_normalization_findings_logical_identity_unique",
     ];
     for (const name of REQUIRED_INDEXES) {
       const idx = MIGRATION_CODE.indexOf(name);
@@ -304,5 +438,10 @@ describe("6.2D4C-B2B1 — rollback is guarded and restores the exact prior funct
   it("never touches any D4A/D4B/D4C-B1 object", () => {
     expect(ROLLBACK_CODE).not.toMatch(/DROP TABLE[^;]*data_hub_(raw_rows|raw_cells|raw_staging_runs|normalization_runs|normalized_rows|normalized_cells)\b/i);
     expect(ROLLBACK_CODE).not.toMatch(/datahub_guard_raw_staging_run_lifecycle|datahub_guard_normalization_run_lifecycle/);
+  });
+
+  it("6.2D4C-B2B1 REMEDIATION — needs no separate DROP for the new CHECK/UNIQUE INDEX: dropping the whole findings table removes both, and the migration's own comment documents this reasoning", () => {
+    expect(ROLLBACK_CODE).toMatch(/DROP TABLE IF EXISTS public\.data_hub_normalization_findings/);
+    expect(ROLLBACK).toMatch(/needs? no separate DROP/i);
   });
 });
