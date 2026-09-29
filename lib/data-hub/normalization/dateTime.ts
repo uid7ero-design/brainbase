@@ -5,7 +5,8 @@
 // implementation-defined parsing) or reads the host process's local
 // timezone. Calendar-field arithmetic uses plain integers; the only place
 // `Date`/`Intl` are used at all is as an exact, deterministic calendar
-// calculator (`Date.UTC`) and IANA-tzdata offset lookup — both driven
+// calculator (`utcMillisFromFields`, deliberately NOT `Date.UTC` — see its
+// own doc comment for why) and IANA-tzdata offset lookup — both driven
 // entirely by explicit UTC millisecond instants and an explicit zone
 // argument, never by `Date.now()` or the ambient environment.
 
@@ -25,6 +26,26 @@ export interface ClockTime {
 }
 
 const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/**
+ * Builds a UTC millisecond instant from explicit calendar fields, WITHOUT
+ * `Date.UTC`'s legacy two-digit-year remapping (per the ECMAScript spec,
+ * `Date.UTC(y, ...)` for any integer year 0-99 is silently treated as
+ * 1900+y — e.g. `Date.UTC(1, 0, 1)` means 1901-01-01, not 0001-01-01).
+ * This governed contract accepts calendar years 0001-9999, so that
+ * remapping would silently corrupt any DATETIME instant in years 0-99.
+ *
+ * `setUTCFullYear(year, monthIndex, day)` has no such special-casing at
+ * any year value — this is the standard, documented-safe pattern for
+ * constructing a low-year UTC instant. Never parses a string through
+ * `Date` (this only ever consumes already-validated numeric fields).
+ */
+export function utcMillisFromFields(year: number, monthIndex0Based: number, day: number, hour: number, minute: number, second: number, milliseconds = 0): number {
+  const d = new Date(0);
+  d.setUTCFullYear(year, monthIndex0Based, day);
+  d.setUTCHours(hour, minute, second, milliseconds);
+  return d.getTime();
+}
 
 function isLeapYear(year: number): boolean {
   return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
@@ -337,7 +358,7 @@ const TRANSITION_PROBE_WINDOW_MS = 3 * 60 * 60 * 1000;
  * genuinely ambiguous; anything else is a real, unique instant.
  */
 export function localWallClockToUtcInstant(zone: string, wall: WallClockParts): LocalToInstantResult {
-  const naiveUtcMs = Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute, wall.second);
+  const naiveUtcMs = utcMillisFromFields(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute, wall.second);
 
   const offsetAtNaiveGuess = offsetMinutesAt(zone, naiveUtcMs);
   const approxCandidateMs = naiveUtcMs - offsetAtNaiveGuess * 60_000;

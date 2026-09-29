@@ -11,7 +11,7 @@ import type { ColumnRuleV2, NormalizationFinding, RawCellInput, TransformValueRe
 import { blockingFinding } from "./contracts";
 import { compareExactDecimal, convertExactUnit, decimalToCanonicalString, exactDecimalFromFiniteNumber, parseStrictDecimalString, parseStrictIntegerString } from "./decimal";
 import type { ExactDecimal } from "./decimal";
-import { calendarDateToIsoString, clockTimeToCanonicalString, isValidIanaTimeZone, localWallClockToUtcInstant, parseStrictDate, parseStrictDateTime, parseStrictTime, parseUtcOffsetToMinutes, utcInstantToCanonicalString } from "./dateTime";
+import { calendarDateToIsoString, clockTimeToCanonicalString, isValidIanaTimeZone, localWallClockToUtcInstant, parseStrictDate, parseStrictDateTime, parseStrictTime, parseUtcOffsetToMinutes, utcInstantToCanonicalString, utcMillisFromFields } from "./dateTime";
 
 const LATITUDE_MIN = parseStrictIntegerString("-90")!;
 const LATITUDE_MAX = parseStrictIntegerString("90")!;
@@ -148,6 +148,26 @@ function transformTime(rule: ColumnRuleV2, raw: RawCellInput): TransformValueRes
   return succeed(rule, clockTimeToCanonicalString(result.time));
 }
 
+/**
+ * The single, shared "did we land on a real UTC instant we can canonically
+ * represent" gate for every DATETIME branch that resolves an instant (UTC,
+ * SOURCE_OFFSET, IANA). This governed contract's DATE/DATETIME calendar
+ * years are 0001-9999 (see isValidCalendarDate); a boundary-year local
+ * value combined with a legitimate governed offset (up to +/-14:00, or an
+ * IANA zone's own historical offset) can genuinely shift the resulting UTC
+ * instant's calendar year outside that range — e.g. 9999-12-31T23:59:59
+ * with offset -14:00 normalizes to 10000-01-01T13:59:59Z, and
+ * 0001-01-01T00:00:00 with offset +14:00 normalizes to
+ * 0000-12-31T10:00:00Z. Both are reachable with real, valid governed
+ * input, not merely theoretical — never silently emit an out-of-contract
+ * year; fail closed instead.
+ */
+function succeedWithUtcInstant(rule: ColumnRuleV2, utcMs: number, fraction: string | null): TransformValueResult {
+  const year = new Date(utcMs).getUTCFullYear();
+  if (year < 1 || year > 9999) return one("NORMALIZED_YEAR_OUT_OF_RANGE", rule);
+  return succeed(rule, utcInstantToCanonicalString(utcMs, fraction));
+}
+
 function transformDateTime(rule: ColumnRuleV2, raw: RawCellInput): TransformValueResult {
   if (raw.rawValueType !== "STRING") return one("UNSUPPORTED_RAW_TYPE_FOR_VALUE_KIND", rule);
   const parsed = parseStrictDateTime(raw.rawValue as string, rule.datePolicy!);
@@ -157,8 +177,8 @@ function transformDateTime(rule: ColumnRuleV2, raw: RawCellInput): TransformValu
 
   if (policy.kind === "UTC") {
     if (offset !== null && offset !== "Z") return one("UNEXPECTED_OFFSET_PRESENT", rule);
-    const utcMs = Date.UTC(date.year, date.month - 1, date.day, time.hour, time.minute, time.second);
-    return succeed(rule, utcInstantToCanonicalString(utcMs, time.fraction));
+    const utcMs = utcMillisFromFields(date.year, date.month - 1, date.day, time.hour, time.minute, time.second);
+    return succeedWithUtcInstant(rule, utcMs, time.fraction);
   }
 
   if (policy.kind === "SOURCE_OFFSET") {
@@ -167,12 +187,12 @@ function transformDateTime(rule: ColumnRuleV2, raw: RawCellInput): TransformValu
     // dateTime.ts) is the only place that validates a numeric offset —
     // never re-derived here. A syntactically offset-shaped but
     // out-of-range string (e.g. "+09:99", "+25:00", "+15:00") is rejected
-    // as INVALID_UTC_OFFSET and never reaches Date.UTC arithmetic.
+    // as INVALID_UTC_OFFSET and never reaches instant arithmetic.
     const parsedOffset = parseUtcOffsetToMinutes(offset);
     if (!parsedOffset.ok) return one("INVALID_UTC_OFFSET", rule);
-    const localAsUtcMs = Date.UTC(date.year, date.month - 1, date.day, time.hour, time.minute, time.second);
+    const localAsUtcMs = utcMillisFromFields(date.year, date.month - 1, date.day, time.hour, time.minute, time.second);
     const utcMs = localAsUtcMs - parsedOffset.minutes * 60_000;
-    return succeed(rule, utcInstantToCanonicalString(utcMs, time.fraction));
+    return succeedWithUtcInstant(rule, utcMs, time.fraction);
   }
 
   if (policy.kind === "IANA") {
@@ -180,7 +200,7 @@ function transformDateTime(rule: ColumnRuleV2, raw: RawCellInput): TransformValu
     if (!isValidIanaTimeZone(policy.zone)) return one("INVALID_IANA_ZONE", rule);
     const resolved = localWallClockToUtcInstant(policy.zone, { year: date.year, month: date.month, day: date.day, hour: time.hour, minute: time.minute, second: time.second });
     if (!resolved.ok) return one(resolved.kind === "NONEXISTENT" ? "NONEXISTENT_LOCAL_TIME" : "AMBIGUOUS_LOCAL_TIME", rule);
-    return succeed(rule, utcInstantToCanonicalString(resolved.utcMs, time.fraction));
+    return succeedWithUtcInstant(rule, resolved.utcMs, time.fraction);
   }
 
   // UNSPECIFIED_LOCAL — preserve the exact local wall-clock, never fabricate

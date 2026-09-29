@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { transformValue } from "@/lib/data-hub/normalization/transformValue";
-import { parseUtcOffsetToMinutes } from "@/lib/data-hub/normalization/dateTime";
+import { parseUtcOffsetToMinutes, utcMillisFromFields } from "@/lib/data-hub/normalization/dateTime";
 import type { ColumnRuleV2, RawCellInput } from "@/lib/data-hub/normalization/contracts";
 import { VALUE_KINDS } from "@/lib/data-hub/schemaProfiles/profileDocument";
 
@@ -349,6 +349,61 @@ describe("6.2D4C-B2A parseUtcOffsetToMinutes — the single centralized numeric-
     for (const bad of ["+9:30", "0900", "+09:3", "", "+00:00:00"]) {
       expect(parseUtcOffsetToMinutes(bad)).toEqual({ ok: false });
     }
+  });
+});
+
+describe("6.2D4C-B2A utcMillisFromFields — low-year (0001-0099) correctness, no Date.UTC two-digit-year remapping", () => {
+  it("year 1 is NOT converted to 1901 (the exact Date.UTC legacy remapping bug this helper exists to avoid)", () => {
+    const ms = utcMillisFromFields(1, 0, 1, 0, 0, 0);
+    expect(new Date(ms).getUTCFullYear()).toBe(1);
+    expect(new Date(ms).toISOString()).toBe("0001-01-01T00:00:00.000Z");
+    // Explicitly contrast against what Date.UTC's own remapping would have
+    // produced for the same fields, to make the bug this helper avoids
+    // undeniable rather than merely asserting the correct value in isolation.
+    expect(ms).not.toBe(Date.UTC(1, 0, 1, 0, 0, 0));
+    expect(new Date(Date.UTC(1, 0, 1, 0, 0, 0)).getUTCFullYear()).toBe(1901);
+  });
+
+  it("DATETIME UTC: 0001-01-01T00:00:00 -> 0001-01-01T00:00:00Z", () => {
+    const r = rule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "UTC" } });
+    expectOk(transformValue(r, S("0001-01-01T00:00:00")), "0001-01-01T00:00:00Z");
+  });
+  it("DATETIME UTC: 0099-12-31T23:59:59 -> 0099-12-31T23:59:59Z", () => {
+    const r = rule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "UTC" } });
+    expectOk(transformValue(r, S("0099-12-31T23:59:59")), "0099-12-31T23:59:59Z");
+  });
+  it("DATETIME UTC: 0100-01-01T00:00:00 -> 0100-01-01T00:00:00Z (just past the 0-99 danger zone)", () => {
+    const r = rule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "UTC" } });
+    expectOk(transformValue(r, S("0100-01-01T00:00:00")), "0100-01-01T00:00:00Z");
+  });
+
+  it("DATETIME SOURCE_OFFSET: 0001-01-01T09:30:00+09:30 -> 0001-01-01T00:00:00Z", () => {
+    const r = rule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "SOURCE_OFFSET" } });
+    expectOk(transformValue(r, S("0001-01-01T09:30:00+09:30")), "0001-01-01T00:00:00Z");
+  });
+
+  it("DATETIME IANA: the year-1 fix flows correctly through IANA wall-clock resolution using the 'UTC' zone (a stable, round-minute-offset case Intl reliably supports at year 1)", () => {
+    const r = rule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "IANA", zone: "UTC" } });
+    expectOk(transformValue(r, S("0001-01-01T00:00:00")), "0001-01-01T00:00:00Z");
+  });
+
+  it("known limitation, documented and deliberately not worked around: a real DST-observing zone (America/New_York) at year 1 predates that zone's adoption of standard time, so ICU returns pre-standardized Local Mean Time — a sub-minute-precision offset (e.g. 'GMT-04:56:02') this contract's whole-minute offset parser cannot resolve, and localWallClockToUtcInstant throws rather than returning a controlled finding. This is a pre-existing, broader IANA-historical-offset limitation not introduced by this fix and is out of scope for 'datetime calendar correctness' (see the final report's own note) — asserted here only to pin the exact failure mode so a future phase inherits an accurate account of it, not a silent surprise.", () => {
+    const r = rule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "IANA", zone: "America/New_York" } });
+    expect(() => transformValue(r, S("0001-01-01T12:00:00"))).toThrow();
+  });
+
+  it("upper-bound overflow: a valid 9999 local datetime plus a legitimate negative offset can normalize past year 9999 — fails closed as NORMALIZED_YEAR_OUT_OF_RANGE rather than emitting a 5-digit year", () => {
+    const r = rule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "SOURCE_OFFSET" } });
+    expectBlocked(transformValue(r, S("9999-12-31T23:59:59-14:00")), "NORMALIZED_YEAR_OUT_OF_RANGE");
+  });
+  it("lower-bound underflow: a valid 0001 local datetime plus a legitimate positive offset can normalize before year 0001 — fails closed as NORMALIZED_YEAR_OUT_OF_RANGE rather than emitting year 0000", () => {
+    const r = rule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "SOURCE_OFFSET" } });
+    expectBlocked(transformValue(r, S("0001-01-01T00:00:00+14:00")), "NORMALIZED_YEAR_OUT_OF_RANGE");
+  });
+  it("a boundary case that stays exactly in-range is NOT blocked", () => {
+    const r = rule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "SOURCE_OFFSET" } });
+    expectOk(transformValue(r, S("9999-12-31T23:59:59+00:00")), "9999-12-31T23:59:59Z");
+    expectOk(transformValue(r, S("0001-01-01T00:00:00+00:00")), "0001-01-01T00:00:00Z");
   });
 });
 
