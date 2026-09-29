@@ -489,3 +489,46 @@ export async function unlinkEvidence(viewer: AssuranceViewer, raw: Record<string
     throw new AssuranceConflictError('This evidence link could not be removed — it was already removed, or the record was finished.');
   }
 }
+
+// ── Link-target options (for the evidence detail page) ─────────────────────
+
+export type EvidenceLinkableTarget = Exclude<EvidenceLinkTarget, 'verification'>;
+export type EvidenceLinkTargetOptions = Record<EvidenceLinkableTarget, { id: string; label: string }[]>;
+
+/**
+ * Records existing evidence can be linked to, per target type: only records
+ * the viewer can see, in their own organisation, whose evidence is not
+ * frozen (closed/cancelled findings and actions, cancelled inspections and
+ * audits are excluded; incidents and investigations follow the same "open"
+ * offer as the rest of the UI). linkEvidence() re-checks everything; this
+ * only shapes what the form offers. Verification evidence is attached when
+ * a verification is recorded, never linked afterwards.
+ */
+export async function listEvidenceLinkTargetOptions(viewer: AssuranceViewer): Promise<EvidenceLinkTargetOptions> {
+  const org = viewer.organisationId;
+  const [incident, investigation, inspection, audit, finding, action] = await Promise.all([
+    sql`SELECT inc.id, inc.incident_reference AS ref, inc.title FROM assurance_incidents inc
+        WHERE inc.organisation_id = ${org} AND inc.status NOT IN ('CLOSED', 'CANCELLED') AND ${incidentVisibleSql(viewer)}
+        ORDER BY inc.occurred_at DESC LIMIT 300`,
+    sql`SELECT inv.id, inv.investigation_reference AS ref, inv.title FROM assurance_investigations inv
+        WHERE inv.organisation_id = ${org} AND inv.status NOT IN ('COMPLETED', 'CANCELLED') AND ${investigationVisibleSql(viewer)}
+        ORDER BY inv.created_at DESC LIMIT 300`,
+    sql`SELECT i.id, i.inspection_reference AS ref, i.title FROM assurance_inspections i
+        WHERE i.organisation_id = ${org} AND i.status <> 'CANCELLED'
+        ORDER BY i.created_at DESC LIMIT 300`,
+    sql`SELECT au.id, au.audit_reference AS ref, au.title FROM assurance_audits au
+        WHERE au.organisation_id = ${org} AND au.status <> 'CANCELLED'
+        ORDER BY au.created_at DESC LIMIT 300`,
+    sql`SELECT f.id, f.finding_reference AS ref, f.title FROM assurance_findings f
+        WHERE f.organisation_id = ${org} AND f.status NOT IN ('CLOSED', 'CANCELLED') AND ${findingVisibleSql(viewer)}
+        ORDER BY f.identified_at DESC LIMIT 300`,
+    sql`SELECT a.id, a.action_reference AS ref, a.title FROM assurance_actions a
+        WHERE a.organisation_id = ${org} AND a.status NOT IN ('CLOSED', 'CANCELLED') AND ${actionVisibleSql(viewer)}
+        ORDER BY a.created_at DESC LIMIT 300`,
+  ]);
+  const opts = (rows: unknown) => (rows as { id: string; ref: string; title: string }[]).map(r => ({ id: r.id, label: `${r.ref} — ${r.title}` }));
+  return {
+    incident: opts(incident), investigation: opts(investigation), inspection: opts(inspection),
+    audit: opts(audit), finding: opts(finding), action: opts(action),
+  };
+}

@@ -479,8 +479,14 @@ export async function completeInspection(viewer: AssuranceViewer, id: string, ra
   if (rows.length === 0) throw new AssuranceConflictError('This inspection was changed by someone else. Refresh and try again.');
 }
 
-export async function cancelInspection(viewer: AssuranceViewer, id: string): Promise<void> {
+/**
+ * Cancels a planned or in-progress inspection. The reason is required and
+ * kept in the audit trail (the same pattern as cancelAudit / cancelAction —
+ * no dedicated column); it is shown in the inspection's history.
+ */
+export async function cancelInspection(viewer: AssuranceViewer, id: string, raw: Record<string, unknown>): Promise<void> {
   if (!viewerCan(viewer, 'close')) throw new AssuranceForbiddenError();
+  const reason = requiredText(raw.reason, 'Reason', 2000);
   const state = await getInspectionState(viewer, id);
   if (state.status !== 'PLANNED' && state.status !== 'IN_PROGRESS') {
     throw new AssuranceConflictError('Only a planned or in-progress inspection can be cancelled.');
@@ -493,7 +499,7 @@ export async function cancelInspection(viewer: AssuranceViewer, id: string): Pro
     ), aud AS (
       ${auditFromCte('upd', {
         organisationId: viewer.organisationId, userId: viewer.userId, resourceType: 'assurance_inspection',
-        verb: 'cancelled', before: { status: state.status }, after: { status: 'CANCELLED' },
+        verb: 'cancelled', before: { status: state.status }, after: { status: 'CANCELLED', reason },
       })}
     )
     SELECT id FROM upd

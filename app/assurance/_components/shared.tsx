@@ -122,3 +122,23 @@ export function NextStepButtons({ endpoint, options }: { endpoint: string; optio
     </div>
   );
 }
+
+/**
+ * "Link existing finding" for a source record (incident, investigation,
+ * inspection, audit): for a repeat issue that is already being managed as a
+ * finding. Only open findings the viewer can see are offered, minus those
+ * already linked; the server re-checks tenant, visibility, restriction and
+ * state. Renders nothing when there is nothing to link.
+ */
+export function LinkExistingFinding({ endpoint, options, linkedIds }: {
+  endpoint: string; options: { id: string; label: string }[]; linkedIds: Set<string>;
+}) {
+  const available = options.filter(o => !linkedIds.has(o.id));
+  if (available.length === 0) return null;
+  return (
+    <ActionPanel label="Link existing finding" endpoint={endpoint}
+      description="For a repeat issue already being managed as a finding. Corrective actions stay on the finding."
+      fields={[{ kind: 'select', name: 'findingId', label: 'Finding', required: true, options: available.map(o => ({ value: o.id, label: o.label })) }]}
+      submitLabel="Link finding" />
+  );
+}

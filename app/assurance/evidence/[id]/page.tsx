@@ -1,12 +1,11 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getEvidenceDetail } from '@/lib/assurance/evidence';
-import { listIncidentOptions } from '@/lib/assurance/incidents';
-import { listOpenFindingOptions } from '@/lib/assurance/findings';
+import { getEvidenceDetail, listEvidenceLinkTargetOptions, type EvidenceLinkTargetOptions } from '@/lib/assurance/evidence';
 import { viewerCan } from '@/lib/assurance/authorize';
 import { assuranceLabel, formatAssuranceDateTime } from '@/lib/assurance/domain';
 import { resolvePageViewer } from '../../_components/pageAccess';
 import ActionPanel from '../../_components/ActionPanel';
+import EvidenceLinkPanel from './EvidenceLinkPanel';
 import { Badge, Breadcrumbs, Card, DataTable, DateCell, Dim, HistoryList, KeyValues, PageHeader, Prose, Row, Section, td, assuranceStyles as styles, tableStyles } from '../../_components/ui';
 
 export const dynamic = 'force-dynamic';
@@ -24,9 +23,16 @@ export default async function EvidenceDetailPage({ params }: { params: Promise<{
   if (!detail) notFound();
   const e = detail.evidence;
   const canRecord = viewerCan(viewer, 'record');
-  const [incidents, findings] = canRecord ? await Promise.all([listIncidentOptions(viewer), listOpenFindingOptions(viewer)]) : [[], []];
   const heldAt = typeof e.metadata?.held_at === 'string' ? e.metadata.held_at : null;
   const active = detail.links.filter(l => !l.removed_at);
+  // Offer every supported target type, minus records this evidence is already actively linked to.
+  const linkTargets: EvidenceLinkTargetOptions | null = canRecord ? await listEvidenceLinkTargetOptions(viewer) : null;
+  if (linkTargets) {
+    for (const k of Object.keys(linkTargets) as (keyof EvidenceLinkTargetOptions)[]) {
+      const linked = new Set(active.filter(l => l.kind === k).map(l => l.target_id));
+      linkTargets[k] = linkTargets[k].filter(o => !linked.has(o.id));
+    }
+  }
 
   return (
     <div style={{ maxWidth: 1000 }}>
@@ -80,24 +86,7 @@ export default async function EvidenceDetailPage({ params }: { params: Promise<{
               ))}
             </DataTable>
           )}
-          {canRecord && (incidents.length > 0 || findings.length > 0) && (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-              {incidents.length > 0 && (
-                <ActionPanel label="Link to incident" endpoint={`/api/assurance/evidence/${e.id}/links`} extraBody={{ target: 'incident' }}
-                  fields={[
-                    { kind: 'select', name: 'targetId', label: 'Incident', required: true, options: incidents.map(o => ({ value: o.id, label: o.label })) },
-                    { kind: 'text', name: 'purpose', label: 'Why it is linked', maxLength: 500 },
-                  ]} submitLabel="Link" />
-              )}
-              {findings.length > 0 && (
-                <ActionPanel label="Link to finding" endpoint={`/api/assurance/evidence/${e.id}/links`} extraBody={{ target: 'finding' }}
-                  fields={[
-                    { kind: 'select', name: 'targetId', label: 'Finding', required: true, options: findings.map(o => ({ value: o.id, label: o.label })) },
-                    { kind: 'text', name: 'purpose', label: 'Why it is linked', maxLength: 500 },
-                  ]} submitLabel="Link" />
-              )}
-            </div>
-          )}
+          {linkTargets && <EvidenceLinkPanel evidenceId={e.id} options={linkTargets} />}
         </div>
       </Section>
 

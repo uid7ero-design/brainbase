@@ -262,19 +262,30 @@ export function ChainStrip({ steps }: { steps: ChainStep[] }) {
 
 // ── History ─────────────────────────────────────────────────────────────
 
-export function HistoryList({ entries }: { entries: { id: string; action: string; created_at: string | Date; user_name: string | null }[] }) {
+export function HistoryList({ entries }: { entries: { id: string; action: string; created_at: string | Date; user_name: string | null; after_state?: unknown }[] }) {
   if (entries.length === 0) return <Dim>No recorded history yet.</Dim>;
   return (
     <ol className={styles.history}>
-      {entries.map(e => (
-        <li key={e.id}>
-          <span className={styles.historyWhen}>{formatAssuranceDateTime(e.created_at)}</span>
-          <span className={styles.historyWhat}>{describeAuditAction(e.action)}</span>
-          <span className={styles.historyWho}>{e.user_name ?? 'System'}</span>
-        </li>
-      ))}
+      {entries.map(e => {
+        const reason = historyReason(e.after_state);
+        return (
+          <li key={e.id}>
+            <span className={styles.historyWhen}>{formatAssuranceDateTime(e.created_at)}</span>
+            <span className={styles.historyWhat}>{describeAuditAction(e.action)}</span>
+            <span className={styles.historyWho}>{e.user_name ?? 'System'}</span>
+            {reason && <span className={styles.historyReason}>Reason: {reason}</span>}
+          </li>
+        );
+      })}
     </ol>
   );
+}
+
+/** A cancellation reason recorded in the audit row (actions, audits, inspections). */
+function historyReason(afterState: unknown): string | null {
+  if (!afterState || typeof afterState !== 'object') return null;
+  const r = (afterState as Record<string, unknown>).reason;
+  return typeof r === 'string' && r.trim() ? r : null;
 }
 
 function describeAuditAction(action: string): string {

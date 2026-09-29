@@ -7,7 +7,8 @@ import { viewerCan } from '@/lib/assurance/authorize';
 import { assuranceLabel, formatAssuranceDateTime, isPast } from '@/lib/assurance/domain';
 import { resolvePageViewer } from '../../_components/pageAccess';
 import ActionPanel from '../../_components/ActionPanel';
-import { EvidenceSection, FindingsTable, raiseFindingFields } from '../../_components/shared';
+import { EvidenceSection, FindingsTable, LinkExistingFinding, raiseFindingFields } from '../../_components/shared';
+import { listOpenFindingOptions } from '@/lib/assurance/findings';
 import {
   Badge, Breadcrumbs, Card, DateCell, Dim, HistoryList, KeyValues, Notice, PageHeader, Prose, Section, assuranceStyles as styles, tableStyles } from '../../_components/ui';
 import InspectionRunner, { type RunnerFinding, type RunnerResponse } from './InspectionRunner';
@@ -24,9 +25,12 @@ export default async function InspectionDetailPage({ params }: { params: Promise
   const canRecord = viewerCan(viewer, 'record');
   const canClose = viewerCan(viewer, 'close');
   const adHoc = !ins.template_version_id;
-  const [risks, users, orgs] = canRecord
-    ? await Promise.all([listRiskLevels(viewer.organisationId), listOrgUserOptions(viewer.organisationId), listExternalOrganisationOptions(viewer.organisationId)])
-    : [[], [], []];
+  const [risks, users, orgs, openFindings] = canRecord
+    ? await Promise.all([
+      listRiskLevels(viewer.organisationId), listOrgUserOptions(viewer.organisationId), listExternalOrganisationOptions(viewer.organisationId),
+      ins.status !== 'CANCELLED' ? listOpenFindingOptions(viewer) : [],
+    ])
+    : [[], [], [], []];
   const requiredMissing = detail.checklist.filter(i => i.required && !detail.responses.some(r => r.item_key === i.key)).length;
   const newerVersion = ins.template_version_number !== null && ins.latest_template_version_number !== null
     && ins.latest_template_version_number > ins.template_version_number;
@@ -55,7 +59,11 @@ export default async function InspectionDetailPage({ params }: { params: Promise
                   : 'Completing locks the responses. Findings are never created or closed automatically — raise them from failed items.'}
                 fields={[{ kind: 'textarea', name: 'summary', label: 'Summary', rows: 3 }]} submitLabel="Complete inspection" />
             )}
-            {canClose && <ActionPanel label="Cancel inspection" endpoint={`/api/assurance/inspections/${ins.id}/cancel`} variant="danger" />}
+            {canClose && (
+              <ActionPanel label="Cancel inspection" endpoint={`/api/assurance/inspections/${ins.id}/cancel`} variant="danger"
+                description="Cancelling stops the inspection. Its responses and evidence can no longer be changed. The reason is kept in the history."
+                fields={[{ kind: 'textarea', name: 'reason', label: 'Reason', required: true, rows: 2 }]} submitLabel="Cancel inspection" />
+            )}
           </div>
         </Section>
       )}
@@ -107,7 +115,10 @@ export default async function InspectionDetailPage({ params }: { params: Promise
         </div>
       </Section>
 
-      <Section title="Findings" count={detail.findings.length} id="findings">
+      <Section title="Findings" count={detail.findings.length} id="findings"
+        actions={canRecord && ins.status !== 'CANCELLED' ? (
+          <LinkExistingFinding endpoint={`/api/assurance/inspections/${ins.id}/findings`} options={openFindings} linkedIds={new Set(detail.findings.map(f => f.id))} />
+        ) : undefined}>
         <FindingsTable rows={detail.findings} hiddenCount={detail.hiddenFindingCount} emptyText="No findings have been raised from this inspection." />
       </Section>
 

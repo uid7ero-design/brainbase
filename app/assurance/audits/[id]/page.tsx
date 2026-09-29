@@ -8,7 +8,7 @@ import { viewerCan } from '@/lib/assurance/authorize';
 import { assuranceLabel, formatAssuranceDateTime, isPast } from '@/lib/assurance/domain';
 import { resolvePageViewer } from '../../_components/pageAccess';
 import ActionPanel from '../../_components/ActionPanel';
-import { EvidenceSection, FindingsTable, raiseFindingFields } from '../../_components/shared';
+import { EvidenceSection, FindingsTable, LinkExistingFinding, raiseFindingFields } from '../../_components/shared';
 import {
   Badge, Breadcrumbs, Card, DateCell, Dim, HistoryList, KeyValues, Notice, PageHeader, Prose, Section, assuranceStyles as styles, tableStyles } from '../../_components/ui';
 import AuditRunner, { type AuditRunnerFinding, type AuditRunnerResponse } from './AuditRunner';
@@ -139,11 +139,8 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ id
       </Section>
 
       <Section title="Findings" count={detail.findings.length} id="findings"
-        actions={canRecord && !cancelled && openFindings.length > 0 ? (
-          <ActionPanel label="Link existing finding" endpoint={`/api/assurance/audits/${au.id}/findings`}
-            description="For a repeat issue already being managed as a finding. Corrective actions stay on the finding."
-            fields={[{ kind: 'select', name: 'findingId', label: 'Finding', required: true, options: openFindings.filter(o => !linkedIds.has(o.id)).map(o => ({ value: o.id, label: o.label })) }]}
-            submitLabel="Link finding" />
+        actions={canRecord && !cancelled ? (
+          <LinkExistingFinding endpoint={`/api/assurance/audits/${au.id}/findings`} options={openFindings} linkedIds={linkedIds} />
         ) : undefined}>
         <FindingsTable rows={detail.findings} hiddenCount={detail.hiddenFindingCount} emptyText="No findings have been raised from this audit." />
         <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '8px 0 0' }}>

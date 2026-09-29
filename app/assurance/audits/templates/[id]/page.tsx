@@ -31,7 +31,11 @@ export default async function AuditTemplateDetailPage({ params }: { params: Prom
         subtitle={`${assuranceLabel(t.audit_type)} audit template · ${detail.versions.length} version${detail.versions.length === 1 ? '' : 's'}${t.description ? ` · ${t.description}` : ''}`}
         actions={canAdminister ? (
           <ActionPanel label={t.is_active ? 'Deactivate' : 'Reactivate'} endpoint={`/api/assurance/audit-templates/${t.id}/active`}
-            extraBody={{ active: !t.is_active }} variant={t.is_active ? 'danger' : 'secondary'} />
+            extraBody={{ active: !t.is_active }} variant={t.is_active ? 'danger' : 'secondary'}
+            submitLabel={t.is_active ? 'Deactivate template' : 'Reactivate template'}
+            confirm={t.is_active
+              ? 'Deactivated templates are no longer offered when planning new audits. Existing audits and every published version are unchanged. You can reactivate it later.'
+              : 'The template’s current version will be offered again when planning new audits. Published versions are unchanged.'} />
         ) : undefined}
       />
 

@@ -9,7 +9,8 @@ import {
 } from '@/lib/assurance/domain';
 import { resolvePageViewer } from '../../_components/pageAccess';
 import ActionPanel from '../../_components/ActionPanel';
-import { EvidenceSection, FindingsTable, NextStepButtons, raiseFindingFields } from '../../_components/shared';
+import { EvidenceSection, FindingsTable, LinkExistingFinding, NextStepButtons, raiseFindingFields } from '../../_components/shared';
+import { listOpenFindingOptions } from '@/lib/assurance/findings';
 import {
   Badge, Breadcrumbs, Card, DataTable, DateCell, Dim, HistoryList, KeyValues, Notice, PageHeader, Prose, RecordLink,
   RestrictedTag, Row, Section, enumOptions, td, assuranceStyles as styles, tableStyles } from '../../_components/ui';
@@ -26,9 +27,9 @@ export default async function InvestigationDetailPage({ params }: { params: Prom
   const canRecord = viewerCan(viewer, 'record');
   const canClose = viewerCan(viewer, 'close');
   const finished = inv.status === 'COMPLETED' || inv.status === 'CANCELLED';
-  const [risks, users, incidentOptions] = canRecord && !finished
-    ? await Promise.all([listRiskLevels(viewer.organisationId), listOrgUserOptions(viewer.organisationId), listIncidentOptions(viewer, { openOnly: false })])
-    : [[], [], []];
+  const [risks, users, incidentOptions, openFindings] = canRecord && !finished
+    ? await Promise.all([listRiskLevels(viewer.organisationId), listOrgUserOptions(viewer.organisationId), listIncidentOptions(viewer, { openOnly: false }), listOpenFindingOptions(viewer)])
+    : [[], [], [], []];
   const linkedIds = new Set(detail.incidents.map(l => l.id).filter(Boolean));
   const next = INVESTIGATION_TRANSITIONS[inv.status].filter(s => (s === 'COMPLETED' || s === 'CANCELLED' ? canClose : canRecord));
 
@@ -122,8 +123,11 @@ export default async function InvestigationDetailPage({ params }: { params: Prom
 
       <Section title="Findings" count={detail.findings.length} id="findings"
         actions={canRecord && !finished ? (
-          <ActionPanel label="Raise finding" endpoint="/api/assurance/findings" extraBody={{ investigationId: inv.id }} variant="primary"
-            fields={raiseFindingFields({ risks, users })} submitLabel="Raise finding" redirectTo="/assurance/findings/{id}" />
+          <>
+            <LinkExistingFinding endpoint={`/api/assurance/investigations/${inv.id}/findings`} options={openFindings} linkedIds={new Set(detail.findings.map(f => f.id))} />
+            <ActionPanel label="Raise finding" endpoint="/api/assurance/findings" extraBody={{ investigationId: inv.id }} variant="primary"
+              fields={raiseFindingFields({ risks, users })} submitLabel="Raise finding" redirectTo="/assurance/findings/{id}" />
+          </>
         ) : undefined}>
         <FindingsTable rows={detail.findings} hiddenCount={detail.hiddenFindingCount} emptyText="No findings have been raised by this investigation." />
       </Section>

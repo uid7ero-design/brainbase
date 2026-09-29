@@ -27,7 +27,7 @@ export default async function FindingsPage({ searchParams }: { searchParams: SP 
     <div style={{ maxWidth: 1240 }}>
       <PageHeader
         title="Findings"
-        subtitle="Identified issues — hazards, defects, non-conformances, service failures and improvement opportunities — from incidents, investigations and inspections."
+        subtitle="Identified issues — hazards, defects, non-conformances, service failures and improvement opportunities — from incidents, investigations, inspections and audits."
       />
       <FilterBar
         resetHref="/assurance/findings"

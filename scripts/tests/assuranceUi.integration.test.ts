@@ -1095,3 +1095,222 @@ describe('audit security review remediation', () => {
     await expectError(m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: 'adhoc-one-more-000001', criterionLabel: 'x', outcome: 'COMPLIANT' }), 'AssuranceValidationError', /at most 200/);
   });
 });
+
+// ── Docs-to-product reconciliation ────────────────────────────────────────
+describe('reconciliation: evidence can be linked to every supported target', () => {
+  async function targets() {
+    const inc = await m.incidents.createIncident(mgrA, incidentInput({ title: 'R-evidence incident' }));
+    const inv = await m.investigations.createInvestigation(mgrA, { title: 'R-evidence investigation', scope: 's', primaryIncidentId: inc.id });
+    const ins = await m.inspections.createInspection(mgrA, { title: 'R-evidence inspection', inspectionType: 'SITE' });
+    const aud = await m.audits.createAudit(mgrA, { title: 'R-evidence audit', scope: 's', auditType: 'SITE', standardReference: 'Std' });
+    const fnd = await m.findings.createFinding(mgrA, { findingType: 'HAZARD', title: 'R-evidence finding', description: 'd', incidentId: inc.id });
+    const act = await m.actions.createAction(mgrA, { findingIds: [fnd.id], actionType: 'CORRECTIVE', title: 'R-evidence action' });
+    return { incident: inc.id, investigation: inv.id, inspection: ins.id, audit: aud.id, finding: fnd.id, action: act.id };
+  }
+
+  it('offers all six target types (org-scoped) and links an existing evidence record to each', async () => {
+    const t = await targets();
+    const opts = await m.evidence.listEvidenceLinkTargetOptions(mgrA);
+    expect(Object.keys(opts).sort()).toEqual(['action', 'audit', 'finding', 'incident', 'inspection', 'investigation']);
+    for (const [kind, id] of Object.entries(t)) {
+      expect(opts[kind as keyof typeof opts].some(o => o.id === id), kind).toBe(true);
+    }
+    // Another tenant is offered none of them.
+    const optsB = await m.evidence.listEvidenceLinkTargetOptions(mgrB);
+    for (const [kind, id] of Object.entries(t)) expect(optsB[kind as keyof typeof optsB].some(o => o.id === id), kind).toBe(false);
+
+    const ev = await m.evidence.createEvidence(mgrA, { evidenceType: 'DOCUMENT', title: 'Reusable site plan' });
+    for (const [kind, id] of Object.entries(t)) {
+      await m.evidence.linkEvidence(mgrA, ev.id, { target: kind, targetId: id, purpose: `for ${kind}` });
+    }
+    const d = await m.evidence.getEvidenceDetail(mgrA, ev.id);
+    expect(d!.links.filter(l => !l.removed_at).map(l => l.kind).sort()).toEqual(['action', 'audit', 'finding', 'incident', 'inspection', 'investigation']);
+  });
+
+  it('same-org: evidence cannot be linked to another tenant\'s record, and another tenant cannot link it', async () => {
+    const t = await targets();
+    const evB = await m.evidence.createEvidence(mgrB, { evidenceType: 'PHOTO', title: 'Other tenant photo' });
+    for (const [kind, id] of Object.entries(t)) {
+      await expectError(m.evidence.linkEvidence(mgrB, evB.id, { target: kind, targetId: id }), 'AssuranceNotFoundError');
+    }
+    const evA = await m.evidence.createEvidence(mgrA, { evidenceType: 'PHOTO', title: 'Tenant A photo' });
+    await expectError(m.evidence.linkEvidence(mgrB, evA.id, { target: 'incident', targetId: t.incident }), 'AssuranceNotFoundError');
+  });
+
+  it('frozen and restricted targets stay protected; they are not offered either', async () => {
+    const ins = await m.inspections.createInspection(mgrA, { title: 'R-frozen inspection', inspectionType: 'SITE' });
+    await m.inspections.cancelInspection(mgrA, ins.id, { reason: 'Duplicate booking' });
+    const aud = await m.audits.createAudit(mgrA, { title: 'R-frozen audit', scope: 's', auditType: 'SITE', standardReference: 'Std' });
+    await m.audits.cancelAudit(mgrA, aud.id, { reason: 'Rescheduled' });
+    const ev = await m.evidence.createEvidence(mgrA, { evidenceType: 'PHOTO', title: 'Frozen probe' });
+    await expectError(m.evidence.linkEvidence(mgrA, ev.id, { target: 'inspection', targetId: ins.id }), 'AssuranceConflictError', /finished/);
+    await expectError(m.evidence.linkEvidence(mgrA, ev.id, { target: 'audit', targetId: aud.id }), 'AssuranceConflictError', /finished/);
+    const opts = await m.evidence.listEvidenceLinkTargetOptions(mgrA);
+    expect(opts.inspection.some(o => o.id === ins.id)).toBe(false);
+    expect(opts.audit.some(o => o.id === aud.id)).toBe(false);
+
+    // Restricted incident: evidence already used elsewhere cannot be pulled into it,
+    // and a manager who cannot see it is neither offered it nor able to link to it.
+    const restricted = await m.incidents.createIncident(mgrA, incidentInput({ title: 'R-restricted', restricted: true }));
+    const used = await m.evidence.createEvidence(mgrA, { evidenceType: 'PHOTO', title: 'Used publicly', target: 'inspection',
+      targetId: (await m.inspections.createInspection(mgrA, { title: 'R-public inspection', inspectionType: 'SITE' })).id });
+    await expectError(m.evidence.linkEvidence(mgrA, used.id, { target: 'incident', targetId: restricted.id }), 'AssuranceConflictError', /restricted/);
+    expect((await m.evidence.listEvidenceLinkTargetOptions(mgr2A)).incident.some(o => o.id === restricted.id)).toBe(false);
+    const ev2 = await m.evidence.createEvidence(mgr2A, { evidenceType: 'PHOTO', title: 'Other manager photo' });
+    await expectError(m.evidence.linkEvidence(mgr2A, ev2.id, { target: 'incident', targetId: restricted.id }), 'AssuranceNotFoundError');
+  });
+
+  it('duplicate active links are refused; unlink keeps history and allows a fresh link', async () => {
+    const inv = await m.investigations.createInvestigation(mgrA, { title: 'R-dup investigation', scope: 's' });
+    const ev = await m.evidence.createEvidence(mgrA, { evidenceType: 'STATEMENT', title: 'Witness statement', target: 'investigation', targetId: inv.id });
+    await expectError(m.evidence.linkEvidence(mgrA, ev.id, { target: 'investigation', targetId: inv.id }), 'AssuranceConflictError', /already linked/);
+    const link = (await m.evidence.getEvidenceDetail(mgrA, ev.id))!.links[0];
+    await expectError(m.evidence.unlinkEvidence(mgrA, { target: 'investigation', linkId: link.link_id }), 'AssuranceValidationError');
+    await m.evidence.unlinkEvidence(mgrA, { target: 'investigation', linkId: link.link_id, reason: 'Wrong investigation' });
+    await m.evidence.linkEvidence(mgrA, ev.id, { target: 'investigation', targetId: inv.id, purpose: 'Re-linked' });
+    const links = (await m.evidence.getEvidenceDetail(mgrA, ev.id))!.links.filter(l => l.kind === 'investigation');
+    expect(links).toHaveLength(2);
+    expect(links.find(l => l.removed_at)!.removal_reason).toBe('Wrong investigation');
+    expect(links.filter(l => !l.removed_at)).toHaveLength(1);
+  });
+
+  it('verification is never a linkable target', async () => {
+    const opts = await m.evidence.listEvidenceLinkTargetOptions(mgrA);
+    expect('verification' in opts).toBe(false);
+  });
+});
+
+describe('reconciliation: link an existing finding to incidents, investigations and inspections', () => {
+  async function sources() {
+    const inc = await m.incidents.createIncident(mgrA, incidentInput({ title: 'R-link incident' }));
+    const inv = await m.investigations.createInvestigation(mgrA, { title: 'R-link investigation', scope: 's' });
+    const ins = await m.inspections.createInspection(mgrA, { title: 'R-link inspection', inspectionType: 'SITE' });
+    return { incident: inc.id, investigation: inv.id, inspection: ins.id } as const;
+  }
+  const repeatFinding = async () => m.findings.createFinding(mgrA, { findingType: 'HAZARD', title: 'Repeat hazard', description: 'd' });
+
+  it('links to each schema-supported source, shows on the source, and writes an audit row', async () => {
+    const s = await sources();
+    const f = await repeatFinding();
+    for (const [kind, id] of Object.entries(s)) {
+      await m.findings.linkFindingToSource(mgrA, kind as 'incident', id, { findingId: f.id });
+    }
+    expect((await m.incidents.getIncidentDetail(mgrA, s.incident))!.findings.some(x => x.id === f.id)).toBe(true);
+    expect((await m.investigations.getInvestigationDetail(mgrA, s.investigation))!.findings.some(x => x.id === f.id)).toBe(true);
+    expect((await m.inspections.getInspectionDetail(mgrA, s.inspection))!.findings.some(x => x.id === f.id)).toBe(true);
+    const detail = await m.findings.getFindingDetail(mgrA, f.id);
+    expect(detail!.sources.map(x => x.kind).sort()).toEqual(['incident', 'inspection', 'investigation']);
+    const logs = await sql.raw(`SELECT action FROM audit_logs WHERE after_state->>'finding_id' = '${f.id}' ORDER BY action`) as { action: string }[];
+    expect(logs.map(l => l.action)).toEqual(['assurance_incident.finding_linked', 'assurance_inspection.finding_linked', 'assurance_investigation.finding_linked']);
+    // No status side effects.
+    expect((await m.findings.getFindingDetail(mgrA, f.id))!.finding.status).toBe('OPEN');
+  });
+
+  it('only incident / investigation / inspection (+ the existing audit route) are linkable sources', async () => {
+    const f = await repeatFinding();
+    await expectError(m.findings.linkFindingToSource(mgrA, 'action' as never, f.id, { findingId: f.id }), 'AssuranceValidationError', /incident, investigation, inspection or audit/);
+    await expectError(m.findings.linkFindingToSource(mgrA, 'audit' as never, f.id, { findingId: f.id }), 'AssuranceValidationError');
+  });
+
+  it('duplicate links are refused', async () => {
+    const s = await sources();
+    const f = await repeatFinding();
+    await m.findings.linkFindingToSource(mgrA, 'incident', s.incident, { findingId: f.id });
+    await expectError(m.findings.linkFindingToSource(mgrA, 'incident', s.incident, { findingId: f.id }), 'AssuranceConflictError', /already linked/);
+  });
+
+  it('same-org: neither the finding nor the source may belong to another tenant', async () => {
+    const s = await sources();
+    const fB = await m.findings.createFinding(mgrB, { findingType: 'HAZARD', title: 'Other tenant', description: 'd' });
+    const fA = await repeatFinding();
+    for (const [kind, id] of Object.entries(s)) {
+      await expectError(m.findings.linkFindingToSource(mgrA, kind as 'incident', id, { findingId: fB.id }), 'AssuranceNotFoundError');
+      await expectError(m.findings.linkFindingToSource(mgrB, kind as 'incident', id, { findingId: fA.id }), 'AssuranceNotFoundError');
+    }
+  });
+
+  it('restricted sources: hidden sources are 404, and a public finding cannot be pulled into a restricted source', async () => {
+    const restricted = await m.incidents.createIncident(mgrA, incidentInput({ title: 'R-restricted source', restricted: true }));
+    const rInv = await m.investigations.createInvestigation(mgrA, { title: 'R-restricted inv', scope: 's', restricted: true });
+    const pub = await repeatFinding();
+    await expectError(m.findings.linkFindingToSource(mgr2A, 'incident', restricted.id, { findingId: pub.id }), 'AssuranceNotFoundError');
+    await expectError(m.findings.linkFindingToSource(mgrA, 'incident', restricted.id, { findingId: pub.id }), 'AssuranceConflictError', /restricted/);
+    await expectError(m.findings.linkFindingToSource(mgrA, 'investigation', rInv.id, { findingId: pub.id }), 'AssuranceConflictError', /restricted/);
+    // Still visible to everyone afterwards.
+    expect(await m.findings.getFindingDetail(mgr2A, pub.id)).not.toBeNull();
+    // A finding already inside the same restricted scope may be linked.
+    const inner = await m.findings.createFinding(mgrA, { findingType: 'HAZARD', title: 'Inner', description: 'd', incidentId: restricted.id });
+    await m.findings.linkFindingToSource(mgrA, 'investigation', rInv.id, { findingId: inner.id });
+  });
+
+  it('finished sources and closed findings are refused; viewers are forbidden', async () => {
+    const s = await sources();
+    const f = await repeatFinding();
+    await expectError(m.findings.linkFindingToSource(viewerA, 'incident', s.incident, { findingId: f.id }), 'AssuranceForbiddenError');
+    await m.inspections.cancelInspection(mgrA, s.inspection, { reason: 'Weather' });
+    await expectError(m.findings.linkFindingToSource(mgrA, 'inspection', s.inspection, { findingId: f.id }), 'AssuranceConflictError', /cancelled/);
+    await m.incidents.transitionIncident(mgrA, s.incident, { status: 'CANCELLED' });
+    await expectError(m.findings.linkFindingToSource(mgrA, 'incident', s.incident, { findingId: f.id }), 'AssuranceConflictError', /closed or cancelled/);
+    await m.investigations.transitionInvestigation(mgrA, s.investigation, { status: 'CANCELLED' });
+    await expectError(m.findings.linkFindingToSource(mgrA, 'investigation', s.investigation, { findingId: f.id }), 'AssuranceConflictError', /completed or cancelled/);
+    const s2 = await sources();
+    await m.findings.transitionFinding(mgrA, f.id, { status: 'CANCELLED' });
+    await expectError(m.findings.linkFindingToSource(mgrA, 'incident', s2.incident, { findingId: f.id }), 'AssuranceConflictError', /closed or cancelled finding/);
+  });
+
+  it('an uppercase id cannot dodge the checks', async () => {
+    const s = await sources();
+    const f = await repeatFinding();
+    await m.findings.linkFindingToSource(mgrA, 'incident', s.incident, { findingId: f.id.toUpperCase() });
+    await expectError(m.findings.linkFindingToSource(mgrA, 'incident', s.incident, { findingId: f.id }), 'AssuranceConflictError', /already linked/);
+  });
+});
+
+describe('reconciliation: inspection cancellation requires a reason', () => {
+  it('refuses without a reason, records the reason in the audit trail, and keeps the lifecycle unchanged', async () => {
+    const ins = await m.inspections.createInspection(mgrA, { title: 'R-cancel', inspectionType: 'SITE' });
+    await expectError(m.inspections.cancelInspection(mgrA, ins.id, {}), 'AssuranceValidationError', /Reason/);
+    await expectError(m.inspections.cancelInspection(mgrA, ins.id, { reason: '   ' }), 'AssuranceValidationError', /Reason/);
+    await expectError(m.inspections.cancelInspection(viewerA, ins.id, { reason: 'x' }), 'AssuranceForbiddenError');
+    expect((await m.inspections.getInspectionDetail(mgrA, ins.id))!.inspection.status).toBe('PLANNED');
+
+    await m.inspections.cancelInspection(mgrA, ins.id, { reason: 'Site closed for resurfacing' });
+    const d = await m.inspections.getInspectionDetail(mgrA, ins.id);
+    expect(d!.inspection.status).toBe('CANCELLED');
+    const h = d!.history.find(x => x.action === 'assurance_inspection.cancelled')!;
+    expect(h.after_state).toMatchObject({ status: 'CANCELLED', reason: 'Site closed for resurfacing' });
+    // Cancelled stays terminal; completed inspections still cannot be cancelled.
+    await expectError(m.inspections.cancelInspection(mgrA, ins.id, { reason: 'again' }), 'AssuranceConflictError', /planned or in-progress/);
+    const done = await m.inspections.createInspection(mgrA, { title: 'R-complete', inspectionType: 'SITE' });
+    await m.inspections.startInspection(mgrA, done.id);
+    await m.inspections.recordInspectionResponse(mgrA, done.id, { itemKey: 'adhoc-r-complete-000001', itemLabel: 'i', outcome: 'PASS' });
+    await m.inspections.completeInspection(mgrA, done.id, {});
+    await expectError(m.inspections.cancelInspection(mgrA, done.id, { reason: 'late' }), 'AssuranceConflictError', /planned or in-progress/);
+  });
+});
+
+describe('reconciliation: template activation and version immutability', () => {
+  it('deactivate/reactivate toggles availability only; published versions are unchanged and still immutable', async () => {
+    const t = await m.templates.createTemplate(adminA, { name: 'R-toggle', inspectionType: 'SITE', items: [{ label: 'Check A' }] });
+    const before = await sql.raw(`SELECT id, checklist::text AS c FROM assurance_inspection_template_versions WHERE template_id = '${t.id}'`) as { id: string; c: string }[];
+    await expectError(m.templates.setTemplateActive(mgrA, t.id, false), 'AssuranceForbiddenError');
+    await m.templates.setTemplateActive(adminA, t.id, false);
+    expect((await m.templates.listTemplates(mgrA, { activeOnly: true })).some(x => x.id === t.id)).toBe(false);
+    await m.templates.setTemplateActive(adminA, t.id, true);
+    expect((await m.templates.listTemplates(mgrA, { activeOnly: true })).some(x => x.id === t.id)).toBe(true);
+    const after = await sql.raw(`SELECT id, checklist::text AS c FROM assurance_inspection_template_versions WHERE template_id = '${t.id}'`) as { id: string; c: string }[];
+    expect(after).toEqual(before);
+    let refused = false;
+    try { await sql.raw(`UPDATE assurance_inspection_template_versions SET title = 'tampered' WHERE id = '${before[0].id}'`); } catch { refused = true; }
+    expect(refused).toBe(true);
+
+    const at = await m.auditTemplates.createAuditTemplate(adminA, { name: 'R-audit toggle', auditType: 'SITE', standardReference: 'Std', criteria: [{ label: 'C1' }] });
+    await expectError(m.auditTemplates.setAuditTemplateActive(mgrA, at.id, false), 'AssuranceForbiddenError');
+    await m.auditTemplates.setAuditTemplateActive(adminA, at.id, false);
+    expect((await m.auditTemplates.listAuditTemplates(mgrA, { activeOnly: true })).some(x => x.id === at.id)).toBe(false);
+    await m.auditTemplates.setAuditTemplateActive(adminA, at.id, true);
+    let refusedA = false;
+    try { await sql.raw(`UPDATE assurance_audit_template_versions SET title = 'tampered' WHERE template_id = '${at.id}'`); } catch { refusedA = true; }
+    expect(refusedA).toBe(true);
+  });
+});

@@ -7,7 +7,8 @@ import { viewerCan } from '@/lib/assurance/authorize';
 import { assuranceLabel, formatAssuranceDateTime, type IncidentStatus } from '@/lib/assurance/domain';
 import { resolvePageViewer } from '../../_components/pageAccess';
 import ActionPanel from '../../_components/ActionPanel';
-import { EvidenceSection, FindingsTable, NextStepButtons, raiseFindingFields } from '../../_components/shared';
+import { EvidenceSection, FindingsTable, LinkExistingFinding, NextStepButtons, raiseFindingFields } from '../../_components/shared';
+import { listOpenFindingOptions } from '@/lib/assurance/findings';
 import {
   Badge, Breadcrumbs, Card, DataTable, Dim, HistoryList, KeyValues, LinkButton, Notice, PageHeader, Prose, RecordLink,
   RestrictedTag, Row, Section, td, assuranceStyles as styles, tableStyles } from '../../_components/ui';
@@ -33,7 +34,10 @@ export default async function IncidentDetailPage({ params }: { params: Promise<{
   const { incident: inc } = detail;
   const canRecord = viewerCan(viewer, 'record');
   const canClose = viewerCan(viewer, 'close');
-  const [risks, users] = canRecord ? await Promise.all([listRiskLevels(viewer.organisationId), listOrgUserOptions(viewer.organisationId)]) : [[], []];
+  const incidentOpen = inc.status !== 'CLOSED' && inc.status !== 'CANCELLED';
+  const [risks, users, linkableFindings] = canRecord
+    ? await Promise.all([listRiskLevels(viewer.organisationId), listOrgUserOptions(viewer.organisationId), incidentOpen ? listOpenFindingOptions(viewer) : []])
+    : [[], [], []];
 
   const next = INCIDENT_TRANSITIONS[inc.status].filter(s => (s === 'CLOSED' || s === 'CANCELLED' ? canClose : canRecord));
   const openFindings = detail.findings.filter(f => f.status !== 'CLOSED' && f.status !== 'CANCELLED').length;
@@ -131,9 +135,12 @@ export default async function IncidentDetailPage({ params }: { params: Promise<{
       </Section>
 
       <Section title="Findings" count={detail.findings.length} id="findings"
-        actions={canRecord && inc.status !== 'CLOSED' && inc.status !== 'CANCELLED' ? (
-          <ActionPanel label="Raise finding" endpoint="/api/assurance/findings" extraBody={{ incidentId: inc.id }} variant="primary"
-            fields={raiseFindingFields({ risks, users })} submitLabel="Raise finding" redirectTo="/assurance/findings/{id}" />
+        actions={canRecord && incidentOpen ? (
+          <>
+            <LinkExistingFinding endpoint={`/api/assurance/incidents/${inc.id}/findings`} options={linkableFindings} linkedIds={new Set(detail.findings.map(f => f.id))} />
+            <ActionPanel label="Raise finding" endpoint="/api/assurance/findings" extraBody={{ incidentId: inc.id }} variant="primary"
+              fields={raiseFindingFields({ risks, users })} submitLabel="Raise finding" redirectTo="/assurance/findings/{id}" />
+          </>
         ) : undefined}>
         <FindingsTable rows={detail.findings} hiddenCount={detail.hiddenFindingCount} emptyText="No findings have been raised from this incident." />
       </Section>

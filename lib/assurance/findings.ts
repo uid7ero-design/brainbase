@@ -14,7 +14,7 @@ import { assertAuditExists } from './audits';
 import type { EvidenceLinkRow } from './incidents';
 import { FINDING_STATUSES, FINDING_TYPES, type FindingStatus, type FindingType } from './domain';
 import {
-  isUuid, optionalDateTime, optionalText, optionalUserId, optionalUuid, requiredEnum, requiredText, searchPattern,
+  isUuid, optionalDateTime, optionalText, optionalUserId, optionalUuid, requiredEnum, requiredText, requiredUuid, searchPattern,
 } from './input';
 import { AssuranceConflictError, AssuranceForbiddenError, AssuranceNotFoundError, AssuranceValidationError } from './errors';
 
@@ -450,4 +450,126 @@ export async function transitionFinding(viewer: AssuranceViewer, id: string, raw
   const rows = results[1] as { id: string; status: FindingStatus }[];
   if (!rows[0]) throw new AssuranceConflictError('This finding changed while you were updating it (for example, an action was added). Refresh and try again.');
   return rows[0];
+}
+
+// ── Linking an EXISTING finding to a further source ──────────────────────
+//
+// New findings are raised from a source with createFinding(); an existing
+// finding (e.g. a repeat issue) can additionally be linked to another
+// incident, investigation or inspection through the SAME explicit link
+// tables. (Audits have the equivalent linkFindingToAudit() in audits.ts.)
+// Only the link row and an audit row are written; no status changes.
+
+export type FindingLinkSource = 'incident' | 'investigation' | 'inspection';
+
+const SOURCE_NOUN: Record<FindingLinkSource, string> = { incident: 'incident', investigation: 'investigation', inspection: 'inspection' };
+
+/** "Who could see this if they weren't personally involved?" (see evidence.ts). */
+function publicViewerOf(viewer: AssuranceViewer): AssuranceViewer {
+  return { organisationId: viewer.organisationId, userId: '', role: 'viewer', canViewAllRestricted: false };
+}
+
+export async function linkFindingToSource(
+  viewer: AssuranceViewer,
+  source: FindingLinkSource,
+  sourceId: string,
+  raw: Record<string, unknown>,
+): Promise<void> {
+  if (!viewerCan(viewer, 'record')) throw new AssuranceForbiddenError();
+  // Only sources with an explicit finding link table (audits: linkFindingToAudit).
+  if (!Object.prototype.hasOwnProperty.call(SOURCE_NOUN, source)) throw new AssuranceValidationError('Findings can only be linked to an incident, investigation, inspection or audit.');
+  const findingId = requiredUuid(raw.findingId, 'Finding').toLowerCase();
+  const org = viewer.organisationId;
+  const pub = publicViewerOf(viewer);
+  const noun = SOURCE_NOUN[source];
+
+  // 1. The source: visible to the viewer (404 otherwise), still open, and
+  //    whether it is restricted-scoped (hidden from uninvolved members).
+  let sourceState: { id: string; finished: boolean; publicVisible: boolean };
+  if (source === 'incident') {
+    const s = await assertIncidentVisible(viewer, sourceId);
+    const p = (await sql`SELECT ${incidentVisibleSql(pub)} AS v FROM assurance_incidents inc WHERE inc.organisation_id = ${org} AND inc.id = ${s.id}::uuid`) as { v: boolean }[];
+    sourceState = { id: s.id, finished: s.status === 'CLOSED' || s.status === 'CANCELLED', publicVisible: p[0]?.v === true };
+  } else if (source === 'investigation') {
+    const s = await assertInvestigationVisible(viewer, sourceId);
+    const p = (await sql`SELECT ${investigationVisibleSql(pub)} AS v FROM assurance_investigations inv WHERE inv.organisation_id = ${org} AND inv.id = ${s.id}::uuid`) as { v: boolean }[];
+    sourceState = { id: s.id, finished: s.status === 'COMPLETED' || s.status === 'CANCELLED', publicVisible: p[0]?.v === true };
+  } else {
+    const s = await assertInspectionExists(viewer, sourceId);
+    sourceState = { id: s.id, finished: s.status === 'CANCELLED', publicVisible: true };
+  }
+  if (sourceState.finished) {
+    throw new AssuranceConflictError(source === 'inspection'
+      ? 'Findings cannot be linked to a cancelled inspection.'
+      : `Findings cannot be linked to a ${source === 'incident' ? 'closed or cancelled incident' : 'completed or cancelled investigation'}.`);
+  }
+
+  // 2. The finding: visible to the viewer and still open.
+  const f = (await sql`
+    SELECT f.id, f.status, ${findingVisibleSql(pub)} AS public_visible FROM assurance_findings f
+    WHERE f.organisation_id = ${org} AND f.id = ${findingId}::uuid AND ${findingVisibleSql(viewer)}
+  `) as { id: string; status: string; public_visible: boolean }[];
+  if (!f[0]) throw new AssuranceNotFoundError('Finding');
+  if (f[0].status === 'CLOSED' || f[0].status === 'CANCELLED') {
+    throw new AssuranceConflictError('A closed or cancelled finding cannot be linked.');
+  }
+  // Restriction is inherited downward: linking a finding everyone can see to
+  // a restricted incident/investigation would silently hide it — and its
+  // actions and evidence — from everyone else. Refuse, as evidence does.
+  if (!sourceState.publicVisible && f[0].public_visible === true) {
+    throw new AssuranceConflictError(`This finding is visible to your whole organisation. Linking it to a restricted ${noun} would hide it, its actions and its evidence from everyone else — raise a new finding from the restricted ${noun} instead.`);
+  }
+
+  // 3. Write. Share-lock the source and the finding first (closing either
+  //    takes FOR UPDATE), then re-check both are still open inside the insert.
+  const id = sourceState.id;
+  let lockSource;
+  let insert;
+  if (source === 'incident') {
+    lockSource = sql`SELECT id FROM assurance_incidents WHERE organisation_id = ${org} AND id = ${id}::uuid FOR SHARE`;
+    insert = sql`
+      INSERT INTO assurance_incident_findings (organisation_id, incident_id, finding_id, created_by)
+      SELECT ${org}, ${id}::uuid, ${findingId}::uuid, ${viewer.userId}
+      WHERE EXISTS (SELECT 1 FROM assurance_incidents x WHERE x.organisation_id = ${org} AND x.id = ${id}::uuid AND x.status NOT IN ('CLOSED', 'CANCELLED'))
+        AND EXISTS (SELECT 1 FROM assurance_findings g WHERE g.organisation_id = ${org} AND g.id = ${findingId}::uuid AND g.status NOT IN ('CLOSED', 'CANCELLED'))
+      RETURNING incident_id AS id`;
+  } else if (source === 'investigation') {
+    lockSource = sql`SELECT id FROM assurance_investigations WHERE organisation_id = ${org} AND id = ${id}::uuid FOR SHARE`;
+    insert = sql`
+      INSERT INTO assurance_investigation_findings (organisation_id, investigation_id, finding_id, created_by)
+      SELECT ${org}, ${id}::uuid, ${findingId}::uuid, ${viewer.userId}
+      WHERE EXISTS (SELECT 1 FROM assurance_investigations x WHERE x.organisation_id = ${org} AND x.id = ${id}::uuid AND x.status NOT IN ('COMPLETED', 'CANCELLED'))
+        AND EXISTS (SELECT 1 FROM assurance_findings g WHERE g.organisation_id = ${org} AND g.id = ${findingId}::uuid AND g.status NOT IN ('CLOSED', 'CANCELLED'))
+      RETURNING investigation_id AS id`;
+  } else {
+    lockSource = sql`SELECT id FROM assurance_inspections WHERE organisation_id = ${org} AND id = ${id}::uuid FOR SHARE`;
+    insert = sql`
+      INSERT INTO assurance_inspection_findings (organisation_id, inspection_id, finding_id, created_by)
+      SELECT ${org}, ${id}::uuid, ${findingId}::uuid, ${viewer.userId}
+      WHERE EXISTS (SELECT 1 FROM assurance_inspections x WHERE x.organisation_id = ${org} AND x.id = ${id}::uuid AND x.status <> 'CANCELLED')
+        AND EXISTS (SELECT 1 FROM assurance_findings g WHERE g.organisation_id = ${org} AND g.id = ${findingId}::uuid AND g.status NOT IN ('CLOSED', 'CANCELLED'))
+      RETURNING inspection_id AS id`;
+  }
+  const resourceType = `assurance_${source}`;
+  try {
+    const results = await sql.transaction([
+      lockSource,
+      sql`SELECT id FROM assurance_findings WHERE organisation_id = ${org} AND id = ${findingId}::uuid FOR SHARE`,
+      sql`
+        WITH ins AS (${insert}), aud AS (
+          INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
+          SELECT gen_random_uuid()::text, ${org}, ${viewer.userId}, ${`${resourceType}.finding_linked`},
+                 ${resourceType}, ins.id::text, NULL, jsonb_build_object('finding_id', ${findingId}::text)
+          FROM ins
+        )
+        SELECT id FROM ins
+      `,
+    ]);
+    if ((results[2] as unknown[]).length === 0) {
+      throw new AssuranceConflictError(`This ${noun} has just been finished, or the finding has just been closed. Nothing was saved.`);
+    }
+  } catch (err) {
+    if ((err as { code?: string }).code === '23505') throw new AssuranceConflictError(`That finding is already linked to this ${noun}.`);
+    throw err;
+  }
 }
