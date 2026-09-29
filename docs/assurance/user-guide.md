@@ -16,6 +16,10 @@ step-by-step procedures, use the [work instructions](work-instructions/).
 - Open **Assurance** from the BrainBase top navigation.
 - The left navigation lists the nine sections. On a phone it becomes a
   scrollable strip across the top of the page.
+- **Help & work instructions**, at the bottom of the navigation, opens this
+  guide, the admin guide and the step-by-step work instructions, with
+  search. Every page also has a **Help** link (top right) that opens the most
+  relevant section or work instruction for that screen.
 - Every record has a reference, such as `INC-…` (incident), `INV-…`
   (investigation), `INS-…` (inspection), `AUD-…` (audit), `FND-…` (finding),
   `ACT-…` (action) and `EVD-…` (evidence). Template references start `TPL-…`

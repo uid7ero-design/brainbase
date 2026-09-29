@@ -124,6 +124,13 @@ organisation's shared BrainBase records.
 The dashboard treats an incident as **serious** when its risk level is one of
 the organisation's **two highest-ranked active** risk levels.
 
+## In-app Help
+
+Everyone with Assurance access can open **Help & work instructions** and each
+page's **Help** link. Help is read-only and shows these documents, including
+this admin guide; it contains no organisation data. Nothing needs to be
+enabled separately.
+
 ## Audit trail
 
 Every create, status change, response, link, unlink, verification and closure

@@ -11,6 +11,12 @@ verification. Each step is recorded against a named person and time.
 This folder is the **living documentation** for the module. It describes
 the behaviour that is implemented today — nothing more.
 
+These same files are the **in-app Help**: Assurance → **Help & work
+instructions** (at the bottom of the Assurance navigation) renders them
+directly, with search, and every Assurance page has a **Help** link to the
+most relevant guide section or work instruction. There is no second copy of
+the text.
+
 | Document | For |
 |---|---|
 | [User guide](user-guide.md) | Everyone who uses Assurance day to day |
@@ -124,3 +130,22 @@ phase**, and add a user-facing entry to the [change log](change-log.md).
 Documentation is part of the definition of done for an Assurance change.
 Describe only what is implemented. Deferred features go in the "Current
 limitations" sections, not in procedures.
+
+Because these files are rendered as in-app Help:
+
+- **New document** — register it in `lib/assurance/help/registry.ts` (slug,
+  file, group). A test fails if a Markdown file here is not registered.
+- **Headings are link targets.** Each page's **Help** link points at a
+  heading anchor (`lib/assurance/help/topics.ts`). If you rename or reorder a
+  heading that a topic uses, update the topic — a test fails if any target is
+  missing.
+- **Links** between documents are relative (`user-guide.md`,
+  `work-instructions/07-add-and-link-evidence.md`, `#anchor`). Only
+  registered documents, same-page anchors and `https://` links are
+  rendered as links; a test fails if a written link does not resolve.
+- **Supported formatting only:** headings, paragraphs, `-` and `1.` lists
+  (nested by indentation), tables, `>` notes, fenced code blocks, `---`,
+  **bold**, `code` and links. Anything else (HTML, images, other
+  emphasis) is shown as plain text, never as markup.
+- Never put secrets, credentials or connection strings in these files — they
+  are shown to every user with Assurance access.

@@ -10,6 +10,16 @@ Newest first.
 
 ## First release foundation (not yet released to Production users)
 
+### In-app Help
+
+- **Help & work instructions** is added at the bottom of the Assurance
+  navigation. It shows the overview, user guide, admin guide, the ten work
+  instructions and this change log inside BrainBase, with search.
+- Every Assurance page has a **Help** link to the most relevant guide section
+  or work instruction.
+- Help is available to everyone with Assurance access. It is read-only and
+  shows the same text as the published documentation.
+
 ### Reconciliation — shared record workflows
 
 - **Evidence:** an evidence record's page now has **Link to a record**, which
