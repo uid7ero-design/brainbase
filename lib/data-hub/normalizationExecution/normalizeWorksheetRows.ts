@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "../../prisma";
 import sql from "../../db";
-import { transformRow, type RawCellForColumn } from "./transformRow";
+import { transformRow, type RawCellForColumn } from "../normalization/transformRow";
 import type { ActiveNormalizationRun } from "./dataHubNormalizationRun";
 import { markNormalizationRunFailed, releaseNormalizationLeaseForYield } from "./dataHubNormalizationRun";
 import { resolveLeaseSeconds, resolveTargetCellsPerBatch } from "../staging/stagingConfig";

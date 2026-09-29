@@ -503,8 +503,19 @@ describe('6.2D3A — no runtime consumer; XLSX mapping/confirm/import remain dis
     // not a new runtime consumer.
     const D4C_B2A_NORMALIZATION_CONTRACTS = path.join('lib', 'data-hub', 'normalization', 'contracts.ts')
     const D4C_B2A_NORMALIZATION_PLAN = path.join('lib', 'data-hub', 'normalization', 'plan.ts')
+    // 6.2D4C-B2B2A — two further authorized consumers: the resumable
+    // normalization executor's own run-lifecycle service (resolves the
+    // exact pinned WorksheetMappingProfileVersion + governed
+    // SourceSchemaColumn ids to build a normalization plan, exactly the
+    // same read-only pattern D4B's own eligibility/staging-run services
+    // already use) and its batch transform/persist loop (reads governed
+    // SourceSchemaColumn ids indirectly via the plan it is handed — see
+    // dataHubNormalizationExecutorFoundation.test.ts's own pinned-profile
+    // assertions proving neither ever reads active_profile_version_id).
+    const D4C_B2B2A_NORMALIZATION_RUN_SERVICE = path.join('lib', 'data-hub', 'normalizationExecution', 'dataHubNormalizationRun.ts')
+    const D4C_B2B2A_NORMALIZE_BATCHES_SERVICE = path.join('lib', 'data-hub', 'normalizationExecution', 'normalizeWorksheetRows.ts')
     const offenders = runtimeFiles.filter(f => forbidden.test(fs.readFileSync(f, 'utf-8'))).map(f => path.relative(REPO_ROOT, f))
-    expect(offenders.sort()).toEqual([D3D_LINEAGE_PIN_SERVICE, D4B_STAGING_RUN_SERVICE, D4B_ELIGIBILITY_SERVICE, D3C_READ_ONLY_LOADER, D4C_A_PROFILE_DOCUMENT_CONTRACT, D4C_B2A_NORMALIZATION_CONTRACTS, D4C_B2A_NORMALIZATION_PLAN].sort())
+    expect(offenders.sort()).toEqual([D3D_LINEAGE_PIN_SERVICE, D4B_STAGING_RUN_SERVICE, D4B_ELIGIBILITY_SERVICE, D3C_READ_ONLY_LOADER, D4C_A_PROFILE_DOCUMENT_CONTRACT, D4C_B2A_NORMALIZATION_CONTRACTS, D4C_B2A_NORMALIZATION_PLAN, D4C_B2B2A_NORMALIZATION_RUN_SERVICE, D4C_B2B2A_NORMALIZE_BATCHES_SERVICE].sort())
     const loader = readSource(D3C_READ_ONLY_LOADER)
     expect(loader).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\$transaction|\$executeRaw|\$queryRaw/)
     expect([...loader.matchAll(/prisma\.(\w+)\.(\w+)\(/g)].map(m => `${m[1]}.${m[2]}`)).toEqual([

@@ -44,10 +44,10 @@ async function neonCompatibleSql(strings: TemplateStringsArray, ...values: unkno
 
 vi.doMock("@/lib/db", () => ({ default: neonCompatibleSql }));
 
-let createOrResumeNormalizationRun: typeof import("@/lib/data-hub/normalization/dataHubNormalizationRun").createOrResumeNormalizationRun;
-let markNormalizationRunFailed: typeof import("@/lib/data-hub/normalization/dataHubNormalizationRun").markNormalizationRunFailed;
-let normalizeBatches: typeof import("@/lib/data-hub/normalization/normalizeWorksheetRows").normalizeBatches;
-let completeNormalizationRun: typeof import("@/lib/data-hub/normalization/completeNormalizationRun").completeNormalizationRun;
+let createOrResumeNormalizationRun: typeof import("@/lib/data-hub/normalizationExecution/dataHubNormalizationRun").createOrResumeNormalizationRun;
+let markNormalizationRunFailed: typeof import("@/lib/data-hub/normalizationExecution/dataHubNormalizationRun").markNormalizationRunFailed;
+let normalizeBatches: typeof import("@/lib/data-hub/normalizationExecution/normalizeWorksheetRows").normalizeBatches;
+let completeNormalizationRun: typeof import("@/lib/data-hub/normalizationExecution/completeNormalizationRun").completeNormalizationRun;
 
 const ORG = "org-a";
 let batchSeq = 0;
@@ -59,9 +59,9 @@ let batchSeq = 0;
 const RUN_SALT = Date.now().toString(36).slice(-6);
 
 beforeAll(async () => {
-  ({ createOrResumeNormalizationRun, markNormalizationRunFailed } = await import("@/lib/data-hub/normalization/dataHubNormalizationRun"));
-  ({ normalizeBatches } = await import("@/lib/data-hub/normalization/normalizeWorksheetRows"));
-  ({ completeNormalizationRun } = await import("@/lib/data-hub/normalization/completeNormalizationRun"));
+  ({ createOrResumeNormalizationRun, markNormalizationRunFailed } = await import("@/lib/data-hub/normalizationExecution/dataHubNormalizationRun"));
+  ({ normalizeBatches } = await import("@/lib/data-hub/normalizationExecution/normalizeWorksheetRows"));
+  ({ completeNormalizationRun } = await import("@/lib/data-hub/normalizationExecution/completeNormalizationRun"));
 
   await prisma.$executeRawUnsafe(`INSERT INTO organisations (id, name, slug, updated_at) VALUES ('${ORG}', 'Org A', '${ORG}', now()) ON CONFLICT (id) DO NOTHING`);
 });

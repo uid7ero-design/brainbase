@@ -16,17 +16,17 @@ const ROOT = path.resolve(__dirname, "../..");
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8").replace(/\r\n/g, "\n");
 const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 
-const RUN_TS = read("lib/data-hub/normalization/dataHubNormalizationRun.ts");
+const RUN_TS = read("lib/data-hub/normalizationExecution/dataHubNormalizationRun.ts");
 const RUN_CODE = stripComments(RUN_TS);
-const BATCH_TS = read("lib/data-hub/normalization/normalizeWorksheetRows.ts");
+const BATCH_TS = read("lib/data-hub/normalizationExecution/normalizeWorksheetRows.ts");
 const BATCH_CODE = stripComments(BATCH_TS);
-const COMPLETE_TS = read("lib/data-hub/normalization/completeNormalizationRun.ts");
+const COMPLETE_TS = read("lib/data-hub/normalizationExecution/completeNormalizationRun.ts");
 const COMPLETE_CODE = stripComments(COMPLETE_TS);
 const CONTRACTS_TS = read("lib/data-hub/normalization/contracts.ts");
 
 describe("6.2D4B2A -- module shape / architecture", () => {
   it("adds exactly the three service files, none of them a route/UI/migration", () => {
-    for (const rel of ["lib/data-hub/normalization/dataHubNormalizationRun.ts", "lib/data-hub/normalization/normalizeWorksheetRows.ts", "lib/data-hub/normalization/completeNormalizationRun.ts"]) {
+    for (const rel of ["lib/data-hub/normalizationExecution/dataHubNormalizationRun.ts", "lib/data-hub/normalizationExecution/normalizeWorksheetRows.ts", "lib/data-hub/normalizationExecution/completeNormalizationRun.ts"]) {
       expect(fs.existsSync(path.join(ROOT, rel)), rel).toBe(true);
     }
     expect(fs.existsSync(path.join(ROOT, "app/api/data-hub/normalization"))).toBe(false);
@@ -65,7 +65,7 @@ describe("6.2D4B2A -- module shape / architecture", () => {
 
 describe("6.2D4B2A -- normalizer-version contract", () => {
   it("NORMALIZER_VERSION is imported from the merged B2A contracts module, never redefined", () => {
-    expect(RUN_CODE).toMatch(/import\s*{[^}]*NORMALIZER_VERSION[^}]*}\s*from\s*["']\.\/contracts["']/);
+    expect(RUN_CODE).toMatch(/import\s*{[^}]*NORMALIZER_VERSION[^}]*}\s*from\s*["']\.\.\/normalization\/contracts["']/);
     expect(RUN_CODE).not.toMatch(/const\s+NORMALIZER_VERSION\s*=/);
   });
 
@@ -233,7 +233,7 @@ describe("6.2D4B2A -- raw-row batching / raw-input contract", () => {
 
 describe("6.2D4B2A -- transform/persistence contract", () => {
   it("transforms each raw row via the merged B2A transformRow, never a locally-reimplemented transform", () => {
-    expect(BATCH_CODE).toMatch(/import\s*{\s*transformRow,\s*type RawCellForColumn\s*}\s*from\s*["']\.\/transformRow["']/);
+    expect(BATCH_CODE).toMatch(/import\s*{\s*transformRow,\s*type RawCellForColumn\s*}\s*from\s*["']\.\.\/normalization\/transformRow["']/);
     expect(BATCH_CODE).toContain("transformRow({ rawRowId: rawRow.id, sourceRowNumber: rawRow.sourceRowNumber }, cellsForColumn, run.plan)");
   });
 

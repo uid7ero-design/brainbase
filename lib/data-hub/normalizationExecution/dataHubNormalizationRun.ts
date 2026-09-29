@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "../../prisma";
 import sql from "../../db";
-import { buildNormalizationPlan } from "./plan";
-import { NORMALIZER_VERSION } from "./contracts";
-import type { NormalizationPlan } from "./contracts";
+import { buildNormalizationPlan } from "../normalization/plan";
+import { NORMALIZER_VERSION } from "../normalization/contracts";
+import type { NormalizationPlan } from "../normalization/contracts";
 import { resolveLeaseSeconds } from "../staging/stagingConfig";
 
 // Data Hub 6.2D4B2A — normalization-run lifecycle (create/resume/lease)
@@ -11,6 +11,14 @@ import { resolveLeaseSeconds } from "../staging/stagingConfig";
 // lib/data-hub/staging/dataHubRawStagingRun.ts's createOrResumeStagingRun,
 // applied to data_hub_normalization_runs instead of
 // data_hub_raw_staging_runs.
+//
+// DIRECTORY: deliberately NOT under lib/data-hub/normalization/ (the pure
+// B2A transform library) -- this module imports Prisma and the raw sql
+// client, which would break dataHubNormalizationPurity.test.ts's own
+// guarantee that every file in that directory is import-nothing-from-
+// Prisma/DB/fs/net-and-never-calls-Date.now()/Math.random() pure. Lives in
+// its own sibling directory instead, mirroring D4B's own lib/data-hub/
+// staging/ split from the pure parser/eligibility modules it depends on.
 //
 // AUTH BOUNDARY: accepts an already-resolved trusted context only. Never
 // reads request input, never resolves its own session.

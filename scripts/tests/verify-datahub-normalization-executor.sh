@@ -128,7 +128,7 @@ echo "PASS: Data Hub 6.2D4B2A normalization executor integration suite."
 # "active-pointer immunity across resume" pinning tests actually fail
 # without the real (unmutated) code's own discipline.
 # ─────────────────────────────────────────────────────────────────────
-RUN_TS="$REPO_ROOT/lib/data-hub/normalization/dataHubNormalizationRun.ts"
+RUN_TS="$REPO_ROOT/lib/data-hub/normalizationExecution/dataHubNormalizationRun.ts"
 BACKUP="$(mktemp 2>/dev/null || echo "/tmp/dataHubNormalizationRun.ts.bak.$$")"
 cp "$RUN_TS" "$BACKUP"
 restore_run_ts() { cp "$BACKUP" "$RUN_TS"; rm -f "$BACKUP"; }
