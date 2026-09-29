@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 
 type SP = Promise<Record<string, string | string[] | undefined>>;
 
-const SOURCE_HREF = { incident: '/assurance/incidents', investigation: '/assurance/investigations', inspection: '/assurance/inspections' } as const;
+const SOURCE_HREF = { incident: '/assurance/incidents', investigation: '/assurance/investigations', inspection: '/assurance/inspections', audit: '/assurance/audits' } as const;
 
 export default async function FindingsPage({ searchParams }: { searchParams: SP }) {
   const { viewer, denied } = await resolvePageViewer();
@@ -18,7 +18,7 @@ export default async function FindingsPage({ searchParams }: { searchParams: SP 
   const f = {
     q: firstParam(sp.q), status: firstParam(sp.status), findingType: firstParam(sp.type), riskLevelId: firstParam(sp.risk),
     state: firstParam(sp.state) as 'open' | 'closed' | 'overdue' | 'all' | undefined,
-    source: firstParam(sp.source) as 'incident' | 'investigation' | 'inspection' | 'none' | undefined,
+    source: firstParam(sp.source) as 'incident' | 'investigation' | 'inspection' | 'audit' | 'none' | undefined,
   };
   const [rows, risks] = await Promise.all([listFindings(viewer, f), listRiskLevels(viewer.organisationId)]);
   const filtered = Object.values(f).some(Boolean);
@@ -39,7 +39,7 @@ export default async function FindingsPage({ searchParams }: { searchParams: SP 
           { kind: 'select', name: 'risk', label: 'Any risk', value: f.riskLevelId, options: risks.map(r => ({ value: r.id, label: r.name })) },
           { kind: 'select', name: 'source', label: 'Any source', value: f.source, options: [
             { value: 'incident', label: 'From incidents' }, { value: 'investigation', label: 'From investigations' },
-            { value: 'inspection', label: 'From inspections' }, { value: 'none', label: 'No source' },
+            { value: 'inspection', label: 'From inspections' }, { value: 'audit', label: 'From audits' }, { value: 'none', label: 'No source' },
           ] },
         ]}
       />

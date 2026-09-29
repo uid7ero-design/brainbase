@@ -3,7 +3,7 @@ import { viewerCan } from '@/lib/assurance/authorize';
 import { assuranceLabel } from '@/lib/assurance/domain';
 import { resolvePageViewer } from '../../_components/pageAccess';
 import { Badge, Breadcrumbs, DataTable, DateCell, Dim, Notice, PageHeader, RecordLink, Row, Section, td } from '../../_components/ui';
-import ChecklistBuilder from './ChecklistBuilder';
+import ChecklistBuilder from '../../_components/ChecklistBuilder';
 
 export const dynamic = 'force-dynamic';
 

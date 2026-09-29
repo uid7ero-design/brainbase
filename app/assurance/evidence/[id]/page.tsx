@@ -12,7 +12,7 @@ import { Badge, Breadcrumbs, Card, DataTable, DateCell, Dim, HistoryList, KeyVal
 export const dynamic = 'force-dynamic';
 
 const HREF = {
-  incident: '/assurance/incidents', investigation: '/assurance/investigations', inspection: '/assurance/inspections',
+  incident: '/assurance/incidents', investigation: '/assurance/investigations', inspection: '/assurance/inspections', audit: '/assurance/audits',
   finding: '/assurance/findings', action: '/assurance/actions', verification: '/assurance/actions',
 } as const;
 

@@ -5,7 +5,7 @@ import { assuranceLabel, formatAssuranceDateTime } from '@/lib/assurance/domain'
 import { resolvePageViewer } from '../../../_components/pageAccess';
 import ActionPanel from '../../../_components/ActionPanel';
 import { Badge, Breadcrumbs, Card, Dim, HistoryList, Notice, PageHeader, Section } from '../../../_components/ui';
-import ChecklistBuilder from '../ChecklistBuilder';
+import ChecklistBuilder from '../../../_components/ChecklistBuilder';
 
 export const dynamic = 'force-dynamic';
 

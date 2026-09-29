@@ -14,7 +14,7 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-const SOURCE_HREF = { incident: '/assurance/incidents', investigation: '/assurance/investigations', inspection: '/assurance/inspections' } as const;
+const SOURCE_HREF = { incident: '/assurance/incidents', investigation: '/assurance/investigations', inspection: '/assurance/inspections', audit: '/assurance/audits' } as const;
 
 export default async function FindingDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { viewer, denied } = await resolvePageViewer();

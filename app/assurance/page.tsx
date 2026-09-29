@@ -12,6 +12,7 @@ const HREF: Record<DashboardWorkItem['kind'], string> = {
   finding: '/assurance/findings',
   investigation: '/assurance/investigations',
   inspection: '/assurance/inspections',
+  audit: '/assurance/audits',
   incident: '/assurance/incidents',
 };
 
@@ -52,6 +53,9 @@ export default async function AssuranceDashboardPage() {
         <StatTile label="Open findings" value={c.open_findings} href="/assurance/findings?state=open" tone="info" hint={c.overdue_findings > 0 ? `${c.overdue_findings} overdue` : undefined} />
         <StatTile label="Active investigations" value={c.active_investigations} href="/assurance/investigations?state=active" tone="accent" hint={c.overdue_investigations > 0 ? `${c.overdue_investigations} past target date` : undefined} />
         <StatTile label="Inspections due (7 days)" value={c.inspections_due} href="/assurance/inspections?view=due" tone="info" hint={c.inspections_in_progress > 0 ? `${c.inspections_in_progress} in progress` : undefined} />
+        <StatTile label="Audits due (14 days)" value={c.audits_due} href="/assurance/audits?view=due" tone="info"
+          hint={[c.audits_in_progress > 0 ? `${c.audits_in_progress} in progress` : null, c.audits_completed_30d > 0 ? `${c.audits_completed_30d} completed in 30 days` : null].filter(Boolean).join(' · ') || undefined} />
+        <StatTile label="Open audit findings" value={c.open_audit_findings} href="/assurance/findings?state=open&source=audit" tone="warning" />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 18 }}>
@@ -67,8 +71,8 @@ export default async function AssuranceDashboardPage() {
         <Section title="Active investigations" count={c.active_investigations}>
           <WorkList items={data.activeInvestigations} dueLabel="Target" empty="No investigations are in progress." showOverdue />
         </Section>
-        <Section title="Inspections due or in progress" count={data.inspectionsDue.length}>
-          <WorkList items={data.inspectionsDue} dueLabel="Scheduled" empty="No inspections are scheduled for the next seven days." showOverdue />
+        <Section title="Inspections & audits due or in progress" count={data.inspectionsDue.length}>
+          <WorkList items={data.inspectionsDue} dueLabel="Scheduled" empty="No inspections (next 7 days) or audits (next 14 days) are scheduled." showOverdue />
         </Section>
         <Section title="Recent incidents" actions={<Link href="/assurance/incidents" style={smallLink}>All incidents →</Link>}>
           <WorkList items={data.recentIncidents} dueLabel="Occurred" empty="No incidents have been reported." detailAsLabel />
@@ -104,7 +108,7 @@ function WorkList({ items, dueLabel, empty, showOverdue, detailAsBadge, detailAs
       <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
         {items.map((it, i) => {
           // An in-progress inspection's scheduled time being past is not "overdue".
-          const overdue = showOverdue && isPast(it.due_at) && !(it.kind === 'inspection' && it.status === 'IN_PROGRESS');
+          const overdue = showOverdue && isPast(it.due_at) && !((it.kind === 'inspection' || it.kind === 'audit') && it.status === 'IN_PROGRESS');
           return (
             <li key={`${it.kind}-${it.id}`} style={{ borderBottom: i < items.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
               <Link href={`${HREF[it.kind]}/${it.id}`} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '11px 16px', textDecoration: 'none' }}>

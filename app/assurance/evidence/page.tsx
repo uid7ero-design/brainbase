@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 type SP = Promise<Record<string, string | string[] | undefined>>;
 
 const HREF = {
-  incident: '/assurance/incidents', investigation: '/assurance/investigations', inspection: '/assurance/inspections',
+  incident: '/assurance/incidents', investigation: '/assurance/investigations', inspection: '/assurance/inspections', audit: '/assurance/audits',
   finding: '/assurance/findings', action: '/assurance/actions', verification: '/assurance/actions',
 } as const;
 

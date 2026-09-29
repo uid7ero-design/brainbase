@@ -13,6 +13,7 @@ const NAV_ITEMS: { href: string; label: string; exact?: boolean }[] = [
   { href: '/assurance/incidents', label: 'Incidents' },
   { href: '/assurance/investigations', label: 'Investigations' },
   { href: '/assurance/inspections', label: 'Inspections' },
+  { href: '/assurance/audits', label: 'Audits' },
   { href: '/assurance/findings', label: 'Findings' },
   { href: '/assurance/actions', label: 'Actions' },
   { href: '/assurance/evidence', label: 'Evidence' },
@@ -61,15 +62,6 @@ export default function AssuranceSidebar() {
             </Link>
           );
         })}
-        {/* A0.1E-1 Audit is still in deployment gating — shown disabled, never linked. */}
-        <span
-          aria-disabled="true"
-          title="Audits are coming soon"
-          style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', fontSize: 14, color: 'var(--text-muted)', cursor: 'not-allowed' }}
-        >
-          Audits
-          <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', alignSelf: 'center' }}>Soon</span>
-        </span>
       </nav>
     </aside>
   );
