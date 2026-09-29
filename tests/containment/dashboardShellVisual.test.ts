@@ -72,7 +72,16 @@ const INSIGHTS_FILES = [
 
 const OVERVIEW_FILES = ['app/dashboard/overview/OverviewClient.tsx', 'app/dashboard/overview/OverviewClient.module.css'];
 
-const ALL = [...SHELL_FILES, ...SHELL_CONSUMERS, ...INSIGHTS_FILES, ...OVERVIEW_FILES];
+// Visual-convergence update (remaining visual islands pass): Service Requests
+// now reads the shared chart chrome (useDashboardChart) instead of its own dark
+// palette, which makes it a consumer of components/dashboard/ui. It is held to
+// every rule in this guard, including the no-raw-colour-literal rule.
+const CHART_KIT_CONSUMERS = [
+  'app/dashboard/service-requests/ServiceRequestsClient.tsx',
+  'app/dashboard/service-requests/ServiceRequests.module.css',
+];
+
+const ALL = [...SHELL_FILES, ...SHELL_CONSUMERS, ...INSIGHTS_FILES, ...OVERVIEW_FILES, ...CHART_KIT_CONSUMERS];
 
 const FORCED_DARK = /theme\s*=\s*\{?\s*["'`]dark|colorScheme\s*:\s*["'`]dark|color-scheme\s*:\s*dark/i;
 const WHITE_ALPHA = /rgba?\(\s*2[2-5]\d\s*,\s*2[2-5]\d\s*,\s*2[2-5]\d\s*,/;
@@ -170,7 +179,7 @@ describe('DashboardShell — theme prop no longer forces a palette', () => {
   });
 
   it('every consumer with a recharts chart reads the theme-aware palette', () => {
-    for (const file of [...SHELL_CONSUMERS, ...INSIGHTS_FILES, ...OVERVIEW_FILES]) {
+    for (const file of [...SHELL_CONSUMERS, ...INSIGHTS_FILES, ...OVERVIEW_FILES, ...CHART_KIT_CONSUMERS]) {
       const src = stripComments(read(file));
       if (!/from ['"]recharts['"]/.test(src)) continue;
       expect(src, file).toMatch(/useDashboardChart\(|useChartPalette\(|chart[A-Za-z]*\s*:\s*DashboardChart|DashboardChart\b/);

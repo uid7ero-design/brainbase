@@ -3,18 +3,8 @@
 import { useState } from 'react';
 import { QuestionsData } from '../OnboardingWizard';
 import { StepShell, NavButtons } from './Step1OrgInfo';
-
-const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
-
-const taStyle: React.CSSProperties = {
-  width: '100%', padding: '11px 14px',
-  background: 'rgba(255,255,255,.04)',
-  border: '1px solid rgba(255,255,255,.08)',
-  borderRadius: 8, color: '#F4F4F5', fontSize: 14,
-  outline: 'none', boxSizing: 'border-box', resize: 'vertical',
-  fontFamily: FONT, lineHeight: 1.5, minHeight: 80,
-  transition: 'border-color .15s',
-};
+import { Field, fieldControlClassName } from '@/components/ui/app';
+import styles from '../Onboarding.module.css';
 
 const QUESTIONS: { key: keyof QuestionsData; label: string; placeholder: string }[] = [
   {
@@ -56,22 +46,22 @@ export default function Step5KeyQuestions({ data, onNext, onBack }: {
         title="A few questions for HLNA"
         subtitle="The more context you give, the more relevant your briefings and insights will be."
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div className={styles.stack}>
           {QUESTIONS.map(q => (
-            <div key={q.key} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <label style={{ fontSize: 13, fontWeight: 500, color: '#A1A1AA' }}>{q.label}</label>
-              <textarea
-                style={taStyle}
-                placeholder={q.placeholder}
-                value={form[q.key]}
-                onChange={e => setForm(f => ({ ...f, [q.key]: e.target.value }))}
-                onFocus={e => { e.currentTarget.style.borderColor = 'rgba(124,58,237,.5)'; }}
-                onBlur={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; }}
-                rows={3}
-              />
-            </div>
+            <Field key={q.key} label={q.label}>
+              {control => (
+                <textarea
+                  {...control}
+                  className={fieldControlClassName}
+                  placeholder={q.placeholder}
+                  value={form[q.key]}
+                  onChange={e => setForm(f => ({ ...f, [q.key]: e.target.value }))}
+                  rows={3}
+                />
+              )}
+            </Field>
           ))}
-          <p style={{ margin: 0, fontSize: 12, color: '#52525B' }}>
+          <p className={styles.hint}>
             All fields are optional — answer what's most relevant to you.
           </p>
         </div>

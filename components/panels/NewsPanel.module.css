@@ -1,0 +1,138 @@
+/* News feed sheet (the /dashboard fallback) — remaining visual islands pass.
+   Tokens only; shared frame lives in PanelOverlay.module.css. Category hues
+   (tech / AI / cyber) stay as a data encoding on dots and badge edges; the
+   badge text itself is --text-primary so it reads in both themes. */
+
+.filters {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.filter {
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.filter:hover {
+  color: var(--text-primary);
+}
+.filter[aria-pressed='true'] {
+  background: var(--bg-surface);
+  border-color: var(--brand-brainbase-accent-border);
+  color: var(--brand-brainbase-accent);
+}
+
+.meta {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.articles {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 16px 20px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 120px;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.article {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: inherit;
+  text-decoration: none;
+}
+.article:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-sunken);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--status-inactive);
+}
+.dot[data-category='tech'],
+.badge[data-category='tech'] {
+  --category: var(--status-info);
+}
+.dot[data-category='ai'],
+.badge[data-category='ai'] {
+  --category: var(--brand-brainbase-accent);
+}
+.dot[data-category='cyber'],
+.badge[data-category='cyber'] {
+  --category: var(--status-warning);
+}
+.dot[data-category] {
+  background: var(--category, var(--status-inactive));
+}
+
+.articleText {
+  flex: 1;
+  min-width: 0;
+}
+
+.title {
+  margin: 0 0 6px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+
+.facts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.badge {
+  padding: 1px 6px;
+  border: 1px solid var(--category, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--category, transparent) 12%, transparent);
+  color: var(--text-primary);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.external {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--text-muted);
+}

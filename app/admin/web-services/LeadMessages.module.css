@@ -1,0 +1,128 @@
+/* Web Systems lead email composer + outbound history. Tokens only (app/globals.css). */
+
+.root {
+  margin-bottom: 16px;
+}
+
+.heading {
+  margin: 0 0 8px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.to {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 0.8125rem;
+}
+
+.toLabel {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.toValue {
+  min-width: 0;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.form {
+  display: grid;
+  gap: 10px;
+}
+
+.notice {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--status-danger);
+  background: var(--status-danger-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--status-danger);
+}
+
+.notice[data-tone='warning'] {
+  border-left-color: var(--status-warning);
+  background: var(--status-warning-muted);
+  color: var(--status-warning);
+}
+
+.history {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.history .heading {
+  margin-bottom: 4px;
+}
+
+.historyNote {
+  margin: 0 0 10px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.state {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.message {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-sunken);
+}
+
+.messageHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.direction {
+  text-transform: capitalize;
+}
+
+.timestamp {
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.subject {
+  margin: 0 0 4px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.body {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}

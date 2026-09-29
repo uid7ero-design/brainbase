@@ -3,6 +3,10 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Integration, ConnectorId, TargetTable } from '@/lib/integrations/types';
+import {
+  PageHeader, Button, Field, FormError, fieldControlClassName, Badge, StateMessage, type SemanticState,
+} from '@/components/ui/app';
+import s from './Integrations.module.css';
 
 type ConnectorMeta = { id: string; label: string; description: string };
 
@@ -17,10 +21,11 @@ const TARGET_LABELS: Record<TargetTable, string> = {
   service_requests: 'Service Requests',
 };
 
-const STATUS_COLOURS: Record<string, string> = {
-  success: 'text-green-400',
-  error:   'text-red-400',
-  running: 'text-yellow-400',
+// Last-sync status → semantic state (the status word is always written).
+const STATUS_STATE: Record<string, SemanticState> = {
+  success: 'success',
+  error:   'error',
+  running: 'syncing',
 };
 
 function fmt(ts: string | null) {
@@ -130,213 +135,227 @@ export default function IntegrationsClient({ integrations: initial, connectors }
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white p-6 md:p-10">
-      <div className="max-w-5xl mx-auto">
+    <main className={s.page}>
+      <div className={s.inner}>
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Integrations</h1>
-            <p className="text-sm text-gray-400 mt-1">
-              Connect external data sources. Dashboards sync automatically every night at 2 AM.
-            </p>
-          </div>
-          <button
-            onClick={() => setShowAdd(s => !s)}
-            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-sm font-medium transition-colors"
-          >
-            {showAdd ? 'Cancel' : '+ Add Integration'}
-          </button>
-        </div>
+        <PageHeader
+          title="Integrations"
+          description="Connect external data sources. Dashboards sync automatically every night at 2 AM."
+          actions={
+            <Button
+              variant={showAdd ? 'secondary' : 'primary'}
+              onClick={() => setShowAdd(s => !s)}
+              aria-expanded={showAdd}
+              aria-controls={showAdd ? 'integration-add-form' : undefined}
+            >
+              {showAdd ? 'Cancel' : '+ Add Integration'}
+            </Button>
+          }
+        />
 
         {/* Add form */}
         {showAdd && (
-          <form onSubmit={handleAdd} className="mb-8 p-5 rounded-xl bg-[#13131a] border border-white/10 space-y-4">
-            <h2 className="text-sm font-semibold text-gray-200 mb-2">New Integration</h2>
+          <form id="integration-add-form" onSubmit={handleAdd} className={s.form} aria-labelledby="integration-add-title">
+            <h2 id="integration-add-title" className={s.formTitle}>New Integration</h2>
 
-            {error && <p className="text-sm text-red-400">{error}</p>}
+            {error && <FormError>{error}</FormError>}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className={s.grid2}>
               <Field label="Name">
-                <input
-                  required
-                  value={form.name}
-                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                  placeholder="e.g. Civica Waste API"
-                  className={inputCls}
-                />
+                {control => (
+                  <input
+                    {...control}
+                    required
+                    value={form.name}
+                    onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                    placeholder="e.g. Civica Waste API"
+                    className={fieldControlClassName}
+                  />
+                )}
               </Field>
 
               <Field label="Connector">
-                <select
-                  value={form.connector_id}
-                  onChange={e => setForm(f => ({ ...f, connector_id: e.target.value as ConnectorId }))}
-                  className={inputCls}
-                >
-                  {connectors.map(c => (
-                    <option key={c.id} value={c.id}>{c.label}</option>
-                  ))}
-                </select>
+                {control => (
+                  <select
+                    {...control}
+                    value={form.connector_id}
+                    onChange={e => setForm(f => ({ ...f, connector_id: e.target.value as ConnectorId }))}
+                    className={fieldControlClassName}
+                  >
+                    {connectors.map(c => (
+                      <option key={c.id} value={c.id}>{c.label}</option>
+                    ))}
+                  </select>
+                )}
               </Field>
 
               <Field label="Target Table">
-                <select
-                  value={form.target_table}
-                  onChange={e => setForm(f => ({ ...f, target_table: e.target.value as TargetTable }))}
-                  className={inputCls}
-                >
-                  {(Object.entries(TARGET_LABELS) as [TargetTable, string][]).map(([k, v]) => (
-                    <option key={k} value={k}>{v}</option>
-                  ))}
-                </select>
+                {control => (
+                  <select
+                    {...control}
+                    value={form.target_table}
+                    onChange={e => setForm(f => ({ ...f, target_table: e.target.value as TargetTable }))}
+                    className={fieldControlClassName}
+                  >
+                    {(Object.entries(TARGET_LABELS) as [TargetTable, string][]).map(([k, v]) => (
+                      <option key={k} value={k}>{v}</option>
+                    ))}
+                  </select>
+                )}
               </Field>
 
               {form.connector_id === 'rest' && (
                 <Field label="Method">
-                  <select
-                    value={form.method}
-                    onChange={e => setForm(f => ({ ...f, method: e.target.value }))}
-                    className={inputCls}
-                  >
-                    <option>GET</option>
-                    <option>POST</option>
-                  </select>
+                  {control => (
+                    <select
+                      {...control}
+                      value={form.method}
+                      onChange={e => setForm(f => ({ ...f, method: e.target.value }))}
+                      className={fieldControlClassName}
+                    >
+                      <option>GET</option>
+                      <option>POST</option>
+                    </select>
+                  )}
                 </Field>
               )}
             </div>
 
             <Field label="URL">
-              <input
-                required
-                value={form.url}
-                onChange={e => setForm(f => ({ ...f, url: e.target.value }))}
-                placeholder="https://api.example.com/waste-data"
-                className={inputCls}
-              />
+              {control => (
+                <input
+                  {...control}
+                  required
+                  value={form.url}
+                  onChange={e => setForm(f => ({ ...f, url: e.target.value }))}
+                  placeholder="https://api.example.com/waste-data"
+                  className={`${fieldControlClassName} ${s.mono}`}
+                />
+              )}
             </Field>
 
             {form.connector_id === 'rest' && (
               <Field label="Headers (optional, one per line: Key: Value)">
-                <textarea
-                  value={form.headers}
-                  onChange={e => setForm(f => ({ ...f, headers: e.target.value }))}
-                  rows={3}
-                  placeholder={'Authorization: Bearer TOKEN\nX-API-Version: 2'}
-                  className={inputCls}
-                />
+                {control => (
+                  <textarea
+                    {...control}
+                    value={form.headers}
+                    onChange={e => setForm(f => ({ ...f, headers: e.target.value }))}
+                    rows={3}
+                    placeholder={'Authorization: Bearer TOKEN\nX-API-Version: 2'}
+                    className={`${fieldControlClassName} ${s.textarea}`}
+                  />
+                )}
               </Field>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className={s.grid2}>
               <Field label="Financial Year (optional, e.g. 2025-26)">
-                <input
-                  value={form.financial_year}
-                  onChange={e => setForm(f => ({ ...f, financial_year: e.target.value }))}
-                  placeholder="2025-26"
-                  className={inputCls}
-                />
+                {control => (
+                  <input
+                    {...control}
+                    value={form.financial_year}
+                    onChange={e => setForm(f => ({ ...f, financial_year: e.target.value }))}
+                    placeholder="2025-26"
+                    className={fieldControlClassName}
+                  />
+                )}
               </Field>
               <Field label="Month (optional, e.g. Jan)">
-                <input
-                  value={form.month}
-                  onChange={e => setForm(f => ({ ...f, month: e.target.value }))}
-                  placeholder="Jan"
-                  className={inputCls}
-                />
+                {control => (
+                  <input
+                    {...control}
+                    value={form.month}
+                    onChange={e => setForm(f => ({ ...f, month: e.target.value }))}
+                    placeholder="Jan"
+                    className={fieldControlClassName}
+                  />
+                )}
               </Field>
             </div>
 
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-sm font-medium transition-colors"
-            >
-              {saving ? 'Saving...' : 'Save Integration'}
-            </button>
+            <div>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={saving}
+              >
+                {saving ? 'Saving...' : 'Save Integration'}
+              </Button>
+            </div>
           </form>
         )}
 
         {/* Integrations list */}
         {integrations.length === 0 ? (
-          <div className="text-center py-16 text-gray-500 text-sm">
-            No integrations yet. Add one to start auto-syncing your dashboards.
-          </div>
+          <StateMessage kind="empty" size="page" title="No integrations yet. Add one to start auto-syncing your dashboards." />
         ) : (
-          <div className="space-y-3">
+          <ul className={s.list} aria-label="Integrations">
             {integrations.map(integration => (
-              <div
-                key={integration.id}
-                className="p-4 rounded-xl bg-[#13131a] border border-white/10 flex flex-col md:flex-row md:items-center gap-4"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-sm truncate">{integration.name}</span>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-white/10 text-gray-400 shrink-0">
+              <li key={integration.id} className={s.row}>
+                <div className={s.rowMain}>
+                  <div className={s.nameLine}>
+                    <span className={s.name}>{integration.name}</span>
+                    <span className={`${s.tag} ${s.mono}`}>
                       {integration.connector_id}
                     </span>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-white/10 text-gray-400 shrink-0">
+                    <span className={s.tag}>
                       {TARGET_LABELS[integration.target_table]}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500 truncate mt-0.5">
+                  <p className={s.url}>
                     {(integration.config as { url?: string }).url ?? ''}
                   </p>
-                  <div className="flex items-center gap-3 mt-1.5 text-xs">
-                    <span className="text-gray-500">Last sync: {fmt(integration.last_synced_at)}</span>
+                  <div className={s.syncLine}>
+                    <span>Last sync: {fmt(integration.last_synced_at)}</span>
                     {integration.last_sync_status && (
-                      <span className={STATUS_COLOURS[integration.last_sync_status] ?? 'text-gray-400'}>
+                      <Badge state={STATUS_STATE[integration.last_sync_status] ?? 'inactive'}>
                         {integration.last_sync_status}
                         {integration.last_sync_count != null && ` (${integration.last_sync_count} records)`}
-                      </span>
+                      </Badge>
                     )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className={s.rowActions}>
                   {/* Enable toggle */}
                   <button
+                    type="button"
+                    role="switch"
+                    aria-checked={!!integration.enabled}
+                    aria-label={`Enabled: ${integration.name}`}
                     onClick={() => toggleEnabled(integration)}
                     title={integration.enabled ? 'Disable' : 'Enable'}
-                    className={`w-10 h-5 rounded-full relative transition-colors ${integration.enabled ? 'bg-blue-600' : 'bg-white/20'}`}
+                    className={s.switch}
                   >
-                    <span
-                      className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${integration.enabled ? 'translate-x-5' : 'translate-x-0.5'}`}
-                    />
+                    <span className={s.thumb} aria-hidden="true" />
                   </button>
 
                   {/* Sync now */}
-                  <button
+                  <Button
+                    size="sm"
+                    variant="secondary"
                     onClick={() => triggerSync(integration.id)}
                     disabled={syncing[integration.id] || !integration.enabled}
-                    className="px-3 py-1.5 text-xs rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-40 transition-colors"
                   >
                     {syncing[integration.id] ? 'Syncing…' : 'Sync now'}
-                  </button>
+                  </Button>
 
                   {/* Delete */}
-                  <button
+                  <Button
+                    size="sm"
+                    variant="danger"
                     onClick={() => deleteIntegration(integration.id)}
-                    className="px-3 py-1.5 text-xs rounded-lg bg-white/5 hover:bg-red-900/40 text-gray-400 hover:text-red-400 transition-colors"
                   >
                     Delete
-                  </button>
+                  </Button>
                 </div>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </div>
-    </div>
+    </main>
   );
 }
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="text-xs text-gray-400 mb-1 block">{label}</span>
-      {children}
-    </label>
-  );
-}
-
-const inputCls = 'w-full bg-[#0a0a0f] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500';

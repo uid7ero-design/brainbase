@@ -4,8 +4,8 @@ import { useState, useRef } from 'react';
 import { MappingData } from '../OnboardingWizard';
 import { StepShell, NavButtons } from './Step1OrgInfo';
 import { MappingTable, DataPreview } from './Step3WasteMapping';
-
-const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
+import { Button, FormError } from '@/components/ui/app';
+import styles from '../Onboarding.module.css';
 
 const FLEET_FIELDS: { key: string; label: string; required?: boolean }[] = [
   { key: 'vehicle_id',    label: 'Vehicle ID',      required: true },
@@ -104,48 +104,49 @@ export default function Step4FleetMapping({ data, onNext, onBack }: {
         title="Fleet data mapping"
         subtitle="Upload your fleet export and map the columns. Fields like KM, fuel and maintenance power the cost and efficiency dashboards."
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+        <div className={styles.stackLoose}>
           {/* Upload zone */}
           {!form.headers ? (
-            <div
-              onDragOver={e => { e.preventDefault(); setDragging(true); }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={handleDrop}
-              onClick={() => fileRef.current?.click()}
-              style={{
-                border: `2px dashed ${dragging ? 'rgba(124,58,237,.6)' : 'rgba(255,255,255,.12)'}`,
-                borderRadius: 12, padding: '40px 24px', textAlign: 'center', cursor: 'pointer',
-                background: dragging ? 'rgba(124,58,237,.06)' : 'rgba(255,255,255,.02)',
-                transition: 'all .2s',
-              }}
-            >
-              {uploading ? (
-                <div style={{ color: '#A78BFA', fontSize: 14 }}>Parsing file…</div>
-              ) : (
-                <>
-                  <div style={{ fontSize: 32, marginBottom: 12 }}>📂</div>
-                  <p style={{ margin: '0 0 6px', fontSize: 14, fontWeight: 600, color: '#F4F4F5' }}>
-                    Drop your fleet CSV or XLSX here
-                  </p>
-                  <p style={{ margin: 0, fontSize: 13, color: '#52525B' }}>
-                    or <span style={{ color: '#A78BFA', textDecoration: 'underline' }}>click to browse</span>
-                  </p>
-                </>
-              )}
+            <>
+              <button
+                type="button"
+                className={styles.dropzone}
+                data-dragging={dragging ? 'true' : undefined}
+                aria-busy={uploading || undefined}
+                onDragOver={e => { e.preventDefault(); setDragging(true); }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={handleDrop}
+                onClick={() => fileRef.current?.click()}
+              >
+                {uploading ? (
+                  <span className={styles.dropzoneBusy}>Parsing file…</span>
+                ) : (
+                  <>
+                    <span className={styles.dropzoneTitle}>
+                      Drop your fleet CSV or XLSX here
+                    </span>
+                    <span className={styles.dropzoneHint}>
+                      or <span className={styles.dropzoneLink}>click to browse</span>
+                    </span>
+                  </>
+                )}
+              </button>
               <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }}
                 onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(f); }} />
-            </div>
+            </>
           ) : (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(34,197,94,.08)', border: '1px solid rgba(34,197,94,.2)', borderRadius: 8 }}>
-              <span style={{ fontSize: 13, color: '#22C55E' }}>✓ {form.fileName}</span>
-              <button type="button" onClick={() => setForm(f => ({ ...f, fileId: undefined, fileName: undefined, headers: undefined, rows: undefined, mappings: {} }))}
-                style={{ fontSize: 12, color: '#71717A', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONT }}>
+            <div className={styles.fileRow}>
+              <span className={styles.fileName}>
+                <span className={styles.fileTick} aria-hidden="true">✓</span>
+                <span><span className="bb-visually-hidden">Uploaded: </span>{form.fileName}</span>
+              </span>
+              <Button variant="ghost" size="sm" onClick={() => setForm(f => ({ ...f, fileId: undefined, fileName: undefined, headers: undefined, rows: undefined, mappings: {} }))}>
                 Replace
-              </button>
+              </Button>
             </div>
           )}
 
-          {uploadError && <p style={{ margin: 0, fontSize: 12, color: '#EF4444' }}>{uploadError}</p>}
+          {uploadError && <FormError>{uploadError}</FormError>}
 
           {form.headers && (
             <MappingTable

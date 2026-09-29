@@ -1,9 +1,19 @@
 'use client';
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useId, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { OrbitControls }   from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { useAppStore }     from '../../lib/state/useAppStore';
+import { buttonProps }     from '../ui/app/Button';
+import { useOverlayFocus } from './useOverlayFocus';
+import styles              from './BrainGraphPanel.module.css';
+
+// Visual (remaining visual islands pass): ONLY the chrome around the graph
+// changed — header bar, controls, demo notice, selection panel, hint and the
+// CSS2D label font/halo now use app tokens (BrainGraphPanel.module.css).
+// The THREE scene, shaders, OrbitControls, CSS2D renderer, node/link data,
+// demo fallback, selection, auto-rotation and interaction are untouched.
+// The canvas keeps a theme-invariant dark well (see the CSS header note).
 
 const SPHERE_R = 5.5;
 
@@ -335,7 +345,10 @@ function buildScene(container, nodes, links, onSelect) {
   const labelObjects = nodes.map((node, i) => {
     const div = document.createElement('div');
     div.textContent = node.label.length > 22 ? node.label.slice(0, 21) + '…' : node.label;
-    div.style.cssText = `font:500 9px/1 'Inter',sans-serif;color:rgba(210,170,255,0);letter-spacing:.04em;text-shadow:0 0 8px rgba(168,85,247,.8);transition:color .25s;pointer-events:none;white-space:nowrap;padding:2px 0 0 6px;`;
+    // Label chrome: app font + a dark legibility halo (was a purple glow).
+    // The label colours / states below stay — the labels always sit over the
+    // theme-invariant dark canvas well (BrainGraphPanel.module.css).
+    div.style.cssText = `font:500 9px/1 var(--bb-font-sans),sans-serif;color:rgba(210,170,255,0);letter-spacing:.04em;text-shadow:0 1px 2px rgba(0,0,0,.85);transition:color .25s;pointer-events:none;white-space:nowrap;padding:2px 0 0 6px;`;
     const obj = new CSS2DObject(div);
     obj.position.copy(currPts[i]);
     scene.add(obj);
@@ -592,32 +605,34 @@ export function InlineBrainGraph() {
   }, []);
 
   return (
-    <div style={{ position: 'relative', flex: 1, overflow: 'hidden' }}>
-      <div ref={mountRef} style={{ position: 'absolute', inset: 0 }} />
+    <div className={styles.inlineWell}>
+      <div ref={mountRef} className={styles.mount} />
 
       {!ready && (
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'rgba(180,130,255,.5)', animation: 'agentPulse 1.2s ease-in-out infinite' }} />
+        <div className={styles.loading} role="status">
+          <span className={styles.loadingDot} aria-hidden="true" />
+          <span className="sr-only">Loading brain graph…</span>
         </div>
       )}
 
       {selected && (
-        <div style={{ position: 'absolute', bottom: 10, left: 8, right: 8, borderRadius: 10, background: 'rgba(6,8,20,.94)', border: '1px solid rgba(180,130,255,.22)', backdropFilter: 'blur(12px)', padding: '10px 11px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'rgba(180,130,255,1)', flexShrink: 0 }} />
-            <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,.88)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected.label}</span>
-            <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.22)', cursor: 'pointer', fontSize: 12, padding: 0, lineHeight: 1 }}>✕</button>
+        <div className={styles.selectionInline}>
+          <div className={styles.selectionHead}>
+            <span className={styles.nodeDot} aria-hidden="true" />
+            <span className={`${styles.nodeText} ${styles.nodeLabel}`}>{selected.label}</span>
+            <button type="button" onClick={() => setSelected(null)} aria-label="Clear selection" className={styles.close}><span aria-hidden="true">✕</span></button>
           </div>
           {selected.neighbours?.length > 0 && (
-            <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <ul className={`${styles.neighbourList} ${styles.neighbours}`}>
               {selected.neighbours.slice(0, 3).map((nb, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <div style={{ width: 4, height: 4, borderRadius: '50%', background: `rgba(${Math.round(140 + nb.strength * 60)},${Math.round(60 + nb.strength * 40)},255,0.7)`, flexShrink: 0 }} />
-                  <span style={{ fontSize: 9, color: 'rgba(255,255,255,.42)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nb.label}</span>
-                  <span style={{ fontSize: 9, color: 'rgba(255,255,255,.18)' }}>{Math.round(nb.strength * 100)}%</span>
-                </div>
+                <li key={i} className={styles.neighbour}>
+                  {/* Link-strength ramp — data encoding, dot only. */}
+                  <span className={styles.strengthDot} style={{ background: `rgba(${Math.round(140 + nb.strength * 60)},${Math.round(60 + nb.strength * 40)},255,0.7)` }} aria-hidden="true" />
+                  <span className={styles.neighbourLabel}>{nb.label}</span>
+                  <span className={styles.strength}>{Math.round(nb.strength * 100)}%</span>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
         </div>
       )}
@@ -632,11 +647,15 @@ export function BrainGraphPanel() {
 
   const mountRef = useRef(null);
   const sceneRef = useRef(null);
+  const panelRef = useRef(null);
+  const titleId  = useId();
 
   const [loading,  setLoading]  = useState(false);
   const [stats,    setStats]    = useState(null);
   const [selected, setSelected] = useState(null);
   const [isDemo,   setIsDemo]   = useState(false);
+
+  useOverlayFocus(open, panelRef);
 
   const loadAndBuild = useCallback(async () => {
     if (!mountRef.current) return;
@@ -684,61 +703,66 @@ export function BrainGraphPanel() {
   if (!open) return null;
 
   return (
-    <div style={{ position: 'fixed', top: 52, left: 0, right: 0, bottom: 0, zIndex: 90, background: '#020408', display: 'flex', flexDirection: 'column' }}>
+    <div
+      ref={panelRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      tabIndex={-1}
+      className={styles.overlay}
+      style={{ zIndex: 90 }}
+    >
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,.05)', flexShrink: 0, background: 'rgba(2,4,8,.94)', backdropFilter: 'blur(12px)' }}>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(180,130,255,.8)" strokeWidth="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>
-        <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,.80)', letterSpacing: '.04em' }}>BRAIN</span>
-        {stats && <span style={{ fontSize: 10, color: 'rgba(255,255,255,.22)' }}>{stats.nodes} notes · {stats.links} connections</span>}
-        {loading && <span style={{ fontSize: 10, color: 'rgba(168,85,247,.65)' }}>Building graph…</span>}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button onClick={loadAndBuild} style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(168,85,247,.06)', border: '1px solid rgba(168,85,247,.22)', color: 'rgba(168,85,247,.75)', fontSize: 10, cursor: 'pointer' }}>Refresh</button>
-          <button onClick={() => setOpen(false)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 8, background: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.16)', color: 'rgba(255,255,255,.80)', fontSize: 12, fontWeight: 600, cursor: 'pointer', letterSpacing: '.01em' }}>
-            ← Back to HLNA
+      <div className={styles.bar} data-dialog-body="">
+        <svg className={styles.barIcon} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>
+        <h2 id={titleId} className={styles.title}>BRAIN</h2>
+        {stats && <span className={styles.stats}>{stats.nodes} notes · {stats.links} connections</span>}
+        {loading && <span className={styles.building} role="status">Building graph…</span>}
+        <div className={styles.barActions}>
+          <button type="button" onClick={loadAndBuild} {...buttonProps('secondary', 'sm')}>Refresh</button>
+          <button type="button" onClick={() => setOpen(false)} {...buttonProps('secondary', 'sm')}>
+            <span aria-hidden="true">←</span> Back to HLNA
           </button>
         </div>
       </div>
 
-      <div ref={mountRef} style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+      <div ref={mountRef} className={styles.well}>
 
         {!loading && isDemo && (
-          <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 10, pointerEvents: 'none', whiteSpace: 'nowrap' }}>
-            <div style={{ padding: '5px 12px', borderRadius: 20, background: 'rgba(180,130,255,.08)', border: '1px solid rgba(180,130,255,.22)', fontSize: 10, color: 'rgba(180,130,255,.65)', letterSpacing: '.04em' }}>
-              Demo graph — connect your Obsidian vault in the sidebar to see your real notes
-            </div>
+          <div className={styles.notice}>
+            Demo graph — connect your Obsidian vault in the sidebar to see your real notes
           </div>
         )}
 
         {selected && (
-          <div style={{ position: 'absolute', top: 16, right: 16, width: 220, borderRadius: 12, background: 'rgba(6,8,20,.93)', border: '1px solid rgba(180,130,255,.28)', backdropFilter: 'blur(16px)', overflow: 'hidden' }}>
-            <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'rgba(180,130,255,1)', boxShadow: '0 0 8px rgba(180,130,255,.8)', flexShrink: 0, marginTop: 3 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,.90)', lineHeight: 1.3, wordBreak: 'break-word' }}>{selected.label}</div>
-                  <div style={{ fontSize: 10, color: 'rgba(180,130,255,.65)', marginTop: 3 }}>{selected.chunks} chunk{selected.chunks !== 1 ? 's' : ''} indexed</div>
-                </div>
-                <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.25)', cursor: 'pointer', fontSize: 13, padding: 0, flexShrink: 0 }}>✕</button>
+          <div className={styles.selection} role="region" aria-label="Selected note">
+            <div className={styles.selectionHead}>
+              <span className={styles.nodeDot} aria-hidden="true" />
+              <div className={styles.nodeText}>
+                <h3 className={styles.nodeLabel}>{selected.label}</h3>
+                <div className={styles.nodeMeta}>{selected.chunks} chunk{selected.chunks !== 1 ? 's' : ''} indexed</div>
               </div>
+              <button type="button" onClick={() => setSelected(null)} aria-label="Clear selection" className={styles.close}><span aria-hidden="true">✕</span></button>
             </div>
             {selected.neighbours?.length > 0 && (
-              <div style={{ padding: '10px 14px 12px' }}>
-                <div style={{ fontSize: 9, color: 'rgba(255,255,255,.22)', letterSpacing: '.10em', fontWeight: 600, marginBottom: 8 }}>CONNECTED NOTES</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              <div className={styles.neighbours}>
+                <h4 className={styles.neighboursTitle}>CONNECTED NOTES</h4>
+                <ul className={styles.neighbourList}>
                   {selected.neighbours.map((nb, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                      <div style={{ width: 5, height: 5, borderRadius: '50%', background: `rgba(${Math.round(140 + nb.strength * 60)},${Math.round(60 + nb.strength * 40)},255,0.8)`, flexShrink: 0 }} />
-                      <span style={{ fontSize: 10, color: 'rgba(255,255,255,.55)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nb.label}</span>
-                      <span style={{ fontSize: 9, color: 'rgba(255,255,255,.22)', flexShrink: 0 }}>{Math.round(nb.strength * 100)}%</span>
-                    </div>
+                    <li key={i} className={styles.neighbour}>
+                      {/* Link-strength ramp — data encoding, dot only. */}
+                      <span className={styles.strengthDot} style={{ background: `rgba(${Math.round(140 + nb.strength * 60)},${Math.round(60 + nb.strength * 40)},255,0.8)` }} aria-hidden="true" />
+                      <span className={styles.neighbourLabel}>{nb.label}</span>
+                      <span className={styles.strength}>{Math.round(nb.strength * 100)}%</span>
+                    </li>
                   ))}
-                </div>
+                </ul>
               </div>
             )}
           </div>
         )}
 
-        <div style={{ position: 'absolute', bottom: 18, left: '50%', transform: 'translateX(-50%)', fontSize: 9, color: 'rgba(255,255,255,.13)', letterSpacing: '.06em', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
+        <div className={styles.hint}>
           {selected ? 'CLICK AGAIN TO DESELECT · ESC TO CLOSE' : 'DRAG TO ROTATE · SCROLL TO ZOOM · CLICK A NODE'}
         </div>
       </div>
