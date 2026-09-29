@@ -166,18 +166,39 @@ describe('LockScreen behaviour is unchanged', () => {
   });
 
   it('keeps Tab inside the dialog', async () => {
-    const { user } = renderBrainbase(<LockScreen name="Alex" onUnlock={vi.fn()} />);
-    const input = screen.getByLabelText('Password');
-    await user.type(input, 'x');
-    const toggle = screen.getByRole('button', { name: 'Show password' });
-    const submit = screen.getByRole('button', { name: 'Unlock Session' });
-    submit.focus();
-    await user.tab();
-    expect(input).toHaveFocus();
-    await user.tab({ shift: true });
-    expect(submit).toHaveFocus();
-    await user.tab({ shift: true });
-    expect(toggle).toHaveFocus();
+    // LockScreen focuses the password field from a setTimeout(…, 350) after
+    // mounting (unchanged from base). Under load that real timer could fire in
+    // the middle of the Tab sequence below and move focus. Track it with a
+    // pass-through wrapper (the callback still runs for real) and wait until
+    // it has run before asserting the focus trap.
+    const real = globalThis.setTimeout;
+    const autofocus = { scheduled: 0, fired: 0 };
+    const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: TimerHandler, ms?: number, ...args: unknown[]) => {
+      if (ms === 350 && typeof fn === 'function') {
+        autofocus.scheduled++;
+        return real(() => { (fn as (...a: unknown[]) => void)(...args); autofocus.fired++; }, ms);
+      }
+      return real(fn as never, ms, ...(args as []));
+    }) as unknown as typeof setTimeout);
+    try {
+      const { user } = renderBrainbase(<LockScreen name="Alex" onUnlock={vi.fn()} />);
+      const input = screen.getByLabelText('Password');
+      await waitFor(() => expect(autofocus.scheduled > 0 && autofocus.fired === autofocus.scheduled).toBe(true));
+      // The real timer-driven focus landed on the password field.
+      expect(input).toHaveFocus();
+      await user.type(input, 'x');
+      const toggle = screen.getByRole('button', { name: 'Show password' });
+      const submit = screen.getByRole('button', { name: 'Unlock Session' });
+      submit.focus();
+      await user.tab();
+      expect(input).toHaveFocus();
+      await user.tab({ shift: true });
+      expect(submit).toHaveFocus();
+      await user.tab({ shift: true });
+      expect(toggle).toHaveFocus();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 
