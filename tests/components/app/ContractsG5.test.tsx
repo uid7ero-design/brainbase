@@ -130,6 +130,24 @@ const Activity = ActivityPanel as unknown as ComponentType<Record<string, unknow
 const DANA = { id: 'c1', name: 'Dana Ops', emails: ['dana@example.test'], phones: ['+61 400 000 000'], socials: { website: 'example.test' } };
 const storedContacts = () => localStorage.getItem('brainbase:contacts');
 
+// Base ContactsPanel focuses its search box from a setTimeout(…, 80) after
+// opening. The overlay's initial focus already lands on that box, so waiting
+// for focus is not enough: wait for the base timer itself to have run, or it
+// can pull focus into the search box mid-typing. Pass-through only; install
+// before rendering. Restored by the afterEach restoreAllMocks.
+function trackBaseSearchFocusTimer() {
+  const real = globalThis.setTimeout;
+  const state = { scheduled: 0, fired: 0 };
+  vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: TimerHandler, ms?: number, ...args: unknown[]) => {
+    if (ms === 80 && typeof fn === 'function') {
+      state.scheduled++;
+      return real(() => { (fn as (...a: unknown[]) => void)(...args); state.fired++; }, ms);
+    }
+    return real(fn as never, ms, ...(args as []));
+  }) as unknown as typeof setTimeout);
+  return { settled: () => waitFor(() => expect(state.scheduled > 0 && state.fired === state.scheduled).toBe(true)) };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   resetStore();
@@ -265,17 +283,20 @@ describe('IntegrationsPanel — base fetch contract', () => {
 describe('ContactsPanel — base localStorage CRUD contract (key brainbase:contacts)', () => {
   it('create: appends {id:"c_<Date.now()>", name, emails, phones, socials} in base key order', async () => {
     resetStore({ contactsOpen: true });
+    const searchFocusTimer = trackBaseSearchFocusTimer();
     const { user } = renderBrainbase(<ContactsPanel />);
     const dialog = screen.getByRole('dialog', { name: 'Address Book' });
+    // Let base's 80ms search-box focus run before typing (see trackBaseSearchFocusTimer).
+    await searchFocusTimer.settled();
     await user.click(within(dialog).getByRole('button', { name: 'New Contact' }));
     await user.type(within(dialog).getByLabelText('NAME'), 'Alex Field');
     await user.type(within(dialog).getByRole('textbox', { name: 'Email address 1' }), 'alex@example.test');
     vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
     await user.click(within(dialog).getByRole('button', { name: 'Save Contact' }));
-    expect(storedContacts()).toBe(JSON.stringify([
+    await waitFor(() => expect(storedContacts()).toBe(JSON.stringify([
       DANA,
       { id: 'c_1700000000000', name: 'Alex Field', emails: ['alex@example.test'], phones: [], socials: { twitter: '', linkedin: '', github: '', website: '' } },
-    ]));
+    ])));
   });
 
   it('create: a blank name is not saved', async () => {
@@ -284,20 +305,23 @@ describe('ContactsPanel — base localStorage CRUD contract (key brainbase:conta
     const dialog = screen.getByRole('dialog', { name: 'Address Book' });
     await user.click(within(dialog).getByRole('button', { name: 'New Contact' }));
     await user.click(within(dialog).getByRole('button', { name: 'Save Contact' }));
-    expect(storedContacts()).toBe(JSON.stringify([DANA]));
+    await waitFor(() => expect(storedContacts()).toBe(JSON.stringify([DANA])));
   });
 
   it('update: replaces the contact in place, socials merged over the blank set', async () => {
     resetStore({ contactsOpen: true });
+    const searchFocusTimer = trackBaseSearchFocusTimer();
     const { user } = renderBrainbase(<ContactsPanel />);
     const dialog = screen.getByRole('dialog', { name: 'Address Book' });
+    // Let base's 80ms search-box focus run before typing (see trackBaseSearchFocusTimer).
+    await searchFocusTimer.settled();
     await user.click(await within(dialog).findByRole('button', { name: /Dana Ops/ }));
     await user.click(within(dialog).getByRole('button', { name: 'Edit' }));
     await user.type(within(dialog).getByLabelText('NAME'), '-Smith');
     await user.click(within(dialog).getByRole('button', { name: 'Save Contact' }));
-    expect(storedContacts()).toBe(JSON.stringify([
+    await waitFor(() => expect(storedContacts()).toBe(JSON.stringify([
       { id: 'c1', name: 'Dana Ops-Smith', emails: ['dana@example.test'], phones: ['+61 400 000 000'], socials: { twitter: '', linkedin: '', github: '', website: 'example.test' } },
-    ]));
+    ])));
   });
 
   it('delete: removes the contact immediately (no confirm step, as base)', async () => {
@@ -306,7 +330,7 @@ describe('ContactsPanel — base localStorage CRUD contract (key brainbase:conta
     const dialog = screen.getByRole('dialog', { name: 'Address Book' });
     await user.click(await within(dialog).findByRole('button', { name: /Dana Ops/ }));
     await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
-    expect(storedContacts()).toBe('[]');
+    await waitFor(() => expect(storedContacts()).toBe('[]'));
     expect(within(dialog).getByText('Select a contact')).toBeInTheDocument();
   });
 
