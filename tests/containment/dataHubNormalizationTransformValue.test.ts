@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { transformValue } from "@/lib/data-hub/normalization/transformValue";
-import { parseUtcOffsetToMinutes, utcMillisFromFields } from "@/lib/data-hub/normalization/dateTime";
+import { parseUtcOffsetToMinutes, utcMillisFromFields, parseIntlLongOffsetToSeconds } from "@/lib/data-hub/normalization/dateTime";
 import type { ColumnRuleV2, RawCellInput } from "@/lib/data-hub/normalization/contracts";
 import { VALUE_KINDS } from "@/lib/data-hub/schemaProfiles/profileDocument";
 
@@ -387,9 +387,26 @@ describe("6.2D4C-B2A utcMillisFromFields — low-year (0001-0099) correctness, n
     expectOk(transformValue(r, S("0001-01-01T00:00:00")), "0001-01-01T00:00:00Z");
   });
 
-  it("known limitation, documented and deliberately not worked around: a real DST-observing zone (America/New_York) at year 1 predates that zone's adoption of standard time, so ICU returns pre-standardized Local Mean Time — a sub-minute-precision offset (e.g. 'GMT-04:56:02') this contract's whole-minute offset parser cannot resolve, and localWallClockToUtcInstant throws rather than returning a controlled finding. This is a pre-existing, broader IANA-historical-offset limitation not introduced by this fix and is out of scope for 'datetime calendar correctness' (see the final report's own note) — asserted here only to pin the exact failure mode so a future phase inherits an accurate account of it, not a silent surprise.", () => {
+  it("DATETIME IANA — historical proof: America/New_York at year 1 predates that zone's adoption of standard time, so ICU returns pre-standardized Local Mean Time — a real, authoritative tzdata offset with a non-zero seconds component (this test runtime's ICU reports exactly GMT-04:56:02 for this instant, independently verified before writing this assertion, same discipline as the DST windowed-offset fix). This MUST NOT throw: the transformer resolves the exact historical offset and returns a deterministic, correctly-computed UTC instant rather than either fabricating a round-minute approximation or leaking an exception through a legitimate governed value.", () => {
     const r = rule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "IANA", zone: "America/New_York" } });
-    expect(() => transformValue(r, S("0001-01-01T12:00:00"))).toThrow();
+    // Verified independently (see the accompanying remediation report):
+    // local 0001-01-01T12:00:00 in America/New_York, offset exactly
+    // -04:56:02 (17762 seconds west of UTC) at this instant, unambiguous
+    // (no nearby transition this far back in history) -> UTC instant
+    // 0001-01-01T16:56:02Z exactly.
+    expect(() => transformValue(r, S("0001-01-01T12:00:00"))).not.toThrow();
+    expectOk(transformValue(r, S("0001-01-01T12:00:00")), "0001-01-01T16:56:02Z");
+  });
+
+  it("parseIntlLongOffsetToSeconds — direct internal parser: GMT, GMT+09:30, GMT-04:56:02 (seconds precision), and unexpected forms", () => {
+    expect(parseIntlLongOffsetToSeconds("GMT")).toEqual({ ok: true, seconds: 0 });
+    expect(parseIntlLongOffsetToSeconds("GMT+09:30")).toEqual({ ok: true, seconds: 34200 });
+    expect(parseIntlLongOffsetToSeconds("GMT-04:56:02")).toEqual({ ok: true, seconds: -17762 });
+    expect(parseIntlLongOffsetToSeconds("GMT+00:00")).toEqual({ ok: true, seconds: 0 });
+    expect(parseIntlLongOffsetToSeconds("GMT-00:00")).toEqual({ ok: true, seconds: 0 });
+    for (const bad of ["", "UTC+09:30", "GMT+9:30", "GMT+09:3", "GMT+09", "GMT+99:99", "GMT+09:60:00", "GMT+09:30:60"]) {
+      expect(parseIntlLongOffsetToSeconds(bad)).toEqual({ ok: false });
+    }
   });
 
   it("upper-bound overflow: a valid 9999 local datetime plus a legitimate negative offset can normalize past year 9999 — fails closed as NORMALIZED_YEAR_OUT_OF_RANGE rather than emitting a 5-digit year", () => {

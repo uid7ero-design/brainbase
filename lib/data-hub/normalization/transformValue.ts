@@ -199,7 +199,15 @@ function transformDateTime(rule: ColumnRuleV2, raw: RawCellInput): TransformValu
     if (offset !== null) return one("UNEXPECTED_OFFSET_PRESENT", rule);
     if (!isValidIanaTimeZone(policy.zone)) return one("INVALID_IANA_ZONE", rule);
     const resolved = localWallClockToUtcInstant(policy.zone, { year: date.year, month: date.month, day: date.day, hour: time.hour, minute: time.minute, second: time.second });
-    if (!resolved.ok) return one(resolved.kind === "NONEXISTENT" ? "NONEXISTENT_LOCAL_TIME" : "AMBIGUOUS_LOCAL_TIME", rule);
+    if (!resolved.ok) {
+      // resolved.kind is one of NONEXISTENT | AMBIGUOUS | OFFSET_UNRESOLVABLE
+      // (the last covers a controlled, non-throwing Intl resolution failure
+      // — e.g. an unparseable longOffset shape — never a thrown exception
+      // reaching this far).
+      if (resolved.kind === "NONEXISTENT") return one("NONEXISTENT_LOCAL_TIME", rule);
+      if (resolved.kind === "AMBIGUOUS") return one("AMBIGUOUS_LOCAL_TIME", rule);
+      return one("IANA_OFFSET_UNRESOLVABLE", rule);
+    }
     return succeedWithUtcInstant(rule, resolved.utcMs, time.fraction);
   }
 

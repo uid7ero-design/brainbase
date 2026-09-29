@@ -54,6 +54,7 @@ export const NORMALIZATION_FINDING_CODES = [
   "INVALID_IANA_ZONE",
   "NONEXISTENT_LOCAL_TIME",
   "AMBIGUOUS_LOCAL_TIME",
+  "IANA_OFFSET_UNRESOLVABLE",
 ] as const;
 export type NormalizationFindingCode = (typeof NORMALIZATION_FINDING_CODES)[number];
 

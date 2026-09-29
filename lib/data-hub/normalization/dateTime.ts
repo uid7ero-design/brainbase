@@ -300,16 +300,50 @@ function partsToWallClock(parts: Intl.DateTimeFormatPart[]): WallClockParts {
   return { year: get("year"), month: get("month"), day: get("day"), hour: get("hour"), minute: get("minute"), second: get("second") };
 }
 
-/** Exact UTC offset (in minutes, east-positive) in effect for `zone` at the given UTC instant. */
-export function offsetMinutesAt(zone: string, utcMs: number): number {
+export type IntlOffsetParseResult = { ok: true; seconds: number } | { ok: false };
+
+const INTL_LONG_OFFSET_RE = /^GMT([+-])(\d{2}):(\d{2})(?::(\d{2}))?$/;
+
+/**
+ * Parses the exact string `Intl.DateTimeFormat`'s `timeZoneName: "longOffset"`
+ * option produces for a zone/instant — "GMT", "GMT+HH:MM", "GMT-HH:MM", or
+ * (for a historical/pre-standardization instant, where a zone's offset was
+ * defined by local solar mean time rather than a round number of minutes)
+ * "GMT+HH:MM:SS"/"GMT-HH:MM:SS". Never rounds or truncates a seconds
+ * component — this is the single source of truth for how B2A represents an
+ * IANA zone's offset internally, deliberately independent of the
+ * whole-minute grammar the SOURCE_OFFSET *source string* is governed to use
+ * (see parseUtcOffsetToMinutes) — those are two different concerns: one
+ * validates ungoverned user-facing input, this one trusts authoritative
+ * tzdata output as-is. An unrecognized shape is a controlled `{ok: false}`,
+ * never a thrown exception — this function is called from inside the pure
+ * transformer and must never surprise a caller with an uncaught throw for
+ * legitimate governed input.
+ */
+export function parseIntlLongOffsetToSeconds(raw: string): IntlOffsetParseResult {
+  if (raw === "GMT") return { ok: true, seconds: 0 };
+  const m = INTL_LONG_OFFSET_RE.exec(raw);
+  if (!m) return { ok: false };
+  const [, sign, hh, mm, ss] = m;
+  const hours = Number(hh);
+  const minutes = Number(mm);
+  const seconds = ss === undefined ? 0 : Number(ss);
+  // Sanity bounds only (not the governed +/-14:00 SOURCE_OFFSET range,
+  // which does not apply here — this is real tzdata output, not ungoverned
+  // user input): reject a structurally-shaped but numerically nonsensical
+  // value rather than silently accepting it.
+  if (minutes > 59 || seconds > 59 || hours > 23) return { ok: false };
+  const totalSeconds = hours * 3600 + minutes * 60 + seconds;
+  if (totalSeconds === 0) return { ok: true, seconds: 0 }; // never "-0"
+  return { ok: true, seconds: sign === "-" ? -totalSeconds : totalSeconds };
+}
+
+/** Exact UTC offset, in seconds (east-positive), in effect for `zone` at the given UTC instant. Never throws — an unresolvable Intl output is a controlled `{ok: false}`. */
+function offsetSecondsAt(zone: string, utcMs: number): IntlOffsetParseResult {
   const parts = offsetFormatter(zone).formatToParts(new Date(utcMs));
   const tzPart = parts.find((p) => p.type === "timeZoneName");
-  if (!tzPart) throw new Error("Intl.DateTimeFormat did not produce a timeZoneName part");
-  if (tzPart.value === "GMT") return 0;
-  const m = /^GMT([+-])(\d{2}):(\d{2})$/.exec(tzPart.value);
-  if (!m) throw new Error(`unexpected longOffset value: ${tzPart.value}`);
-  const sign = m[1] === "-" ? -1 : 1;
-  return sign * (Number(m[2]) * 60 + Number(m[3]));
+  if (!tzPart) return { ok: false };
+  return parseIntlLongOffsetToSeconds(tzPart.value);
 }
 
 function wallClockPartsAt(zone: string, utcMs: number): WallClockParts {
@@ -320,7 +354,7 @@ function wallClockEquals(a: WallClockParts, b: WallClockParts): boolean {
   return a.year === b.year && a.month === b.month && a.day === b.day && a.hour === b.hour && a.minute === b.minute && a.second === b.second;
 }
 
-export type LocalToInstantResult = { ok: true; utcMs: number } | { ok: false; kind: "NONEXISTENT" | "AMBIGUOUS" };
+export type LocalToInstantResult = { ok: true; utcMs: number } | { ok: false; kind: "NONEXISTENT" | "AMBIGUOUS" | "OFFSET_UNRESOLVABLE" };
 
 // Comfortably larger than any real-world DST jump (the vast majority are 1
 // hour; a small number of zones, e.g. Lord Howe Island, use 30 minutes) —
@@ -356,18 +390,33 @@ const TRANSITION_PROBE_WINDOW_MS = 3 * 60 * 60 * 1000;
  * zone and checking it reproduces the input wall-clock exactly. Zero
  * matches means the local time doesn't exist; two matches means it's
  * genuinely ambiguous; anything else is a real, unique instant.
+ *
+ * Offset arithmetic is exact-seconds throughout (never whole-minute), since
+ * a sufficiently historical instant (pre-dating a zone's adoption of
+ * standard time) can have a genuine, tzdata-authoritative offset with a
+ * non-zero seconds component — e.g. America/New_York's Local Mean Time
+ * offset of exactly -04:56:02 before 1883. Never rounds or truncates that.
+ *
+ * Every internal offset lookup is failure-safe (never throws): if Intl's
+ * `longOffset` output for a given zone/instant genuinely can't be parsed
+ * (an unrecognized shape, not merely a historical one — those DO parse),
+ * this returns `{ok: false, kind: "OFFSET_UNRESOLVABLE"}` rather than
+ * letting an exception escape the pure transformer for otherwise-valid
+ * governed input.
  */
 export function localWallClockToUtcInstant(zone: string, wall: WallClockParts): LocalToInstantResult {
   const naiveUtcMs = utcMillisFromFields(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute, wall.second);
 
-  const offsetAtNaiveGuess = offsetMinutesAt(zone, naiveUtcMs);
-  const approxCandidateMs = naiveUtcMs - offsetAtNaiveGuess * 60_000;
+  const offsetAtNaiveGuess = offsetSecondsAt(zone, naiveUtcMs);
+  if (!offsetAtNaiveGuess.ok) return { ok: false, kind: "OFFSET_UNRESOLVABLE" };
+  const approxCandidateMs = naiveUtcMs - offsetAtNaiveGuess.seconds * 1000;
 
-  const offsetJustBefore = offsetMinutesAt(zone, approxCandidateMs - TRANSITION_PROBE_WINDOW_MS);
-  const offsetJustAfter = offsetMinutesAt(zone, approxCandidateMs + TRANSITION_PROBE_WINDOW_MS);
+  const offsetJustBefore = offsetSecondsAt(zone, approxCandidateMs - TRANSITION_PROBE_WINDOW_MS);
+  const offsetJustAfter = offsetSecondsAt(zone, approxCandidateMs + TRANSITION_PROBE_WINDOW_MS);
+  if (!offsetJustBefore.ok || !offsetJustAfter.ok) return { ok: false, kind: "OFFSET_UNRESOLVABLE" };
 
-  const candidateOffsets = Array.from(new Set([offsetAtNaiveGuess, offsetJustBefore, offsetJustAfter]));
-  const candidateMsSet = Array.from(new Set(candidateOffsets.map((offset) => naiveUtcMs - offset * 60_000)));
+  const candidateOffsetsSeconds = Array.from(new Set([offsetAtNaiveGuess.seconds, offsetJustBefore.seconds, offsetJustAfter.seconds]));
+  const candidateMsSet = Array.from(new Set(candidateOffsetsSeconds.map((offsetSecondsValue) => naiveUtcMs - offsetSecondsValue * 1000)));
   const validCandidates = candidateMsSet.filter((ms) => wallClockEquals(wallClockPartsAt(zone, ms), wall));
 
   if (validCandidates.length === 0) return { ok: false, kind: "NONEXISTENT" };
