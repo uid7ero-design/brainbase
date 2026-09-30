@@ -22,14 +22,30 @@ import type { CSSProperties } from "react";
  * neighbouring capitals' own cap-height line, with no separate vertical
  * offset/fudge factor needed.
  *
- * The previous attempt at this shape (a CSS `clip-path` on a filled span)
- * used a flat top only ~25% of the glyph's own width — at typical wordmark
- * sizes (13-16px) that is 2-3px, thin enough that anti-aliasing makes it
- * read as a point rather than a flat edge. This path's flat top is 40% of
- * the glyph's width, which stays visibly flat down to the smallest sizes
- * this wordmark is used at.
+ * Shape is an OPTICAL match to the surrounding letters, not just a
+ * bounding-box one — cap-height/baseline alone proved insufficient (a first
+ * pass at this shape, width 100% of height but with thin ~18%-of-width legs
+ * around a deep hollow notch, measured correctly but still read as a
+ * pinched vertical stroke at real wordmark sizes: 12-14px legs that thin
+ * anti-alias into near-invisibility). This path:
+ *   - fills the FULL 100-unit width at the base (both outer legs run all
+ *     the way to the glyph's own left/right edge — as wide as the box
+ *     itself, not inset), so the glyph occupies the same footprint as a
+ *     normal capital rather than a narrow mark centred in extra padding;
+ *   - flat top spans 50% of that width (50 to 75 minus 25, i.e. x=25..75),
+ *     wide enough to read as a horizontal edge rather than a point even at
+ *     11px (the smallest live usage, the platform-map diagram);
+ *   - legs are 32%-of-width thick (vs. the first pass's 18%) — heavier
+ *     stroke mass, closer to the surrounding Geist Mono 600 letterforms —
+ *     with the hollow notch apex at 62% of the height (not deeper), so the
+ *     two legs stay visually distinct as a lambda rather than either
+ *     collapsing into a thin double-line or filling in solid.
+ * Verified by eye at 1x and 6x real render (not just measured) against all
+ * four live usage sizes (public/login nav ~13px, centred login lockup
+ * ~18px, platform-map diagram ~11px) — see the PR description for the
+ * before/after comparison.
  */
-const GLYPH_PATH = "M0 100 L30 0 L70 0 L100 100 L82 100 L50 42 L18 100 Z";
+const GLYPH_PATH = "M0 100 L25 0 L75 0 L100 100 L68 100 L50 62 L32 100 Z";
 
 const SHAPE: CSSProperties = {
   display: "inline-block",
