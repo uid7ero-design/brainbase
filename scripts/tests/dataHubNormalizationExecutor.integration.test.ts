@@ -490,7 +490,12 @@ async function expectTransientFailureThenImmediateRetakeover(runId: string, uplo
   const run = await prisma.dataHubNormalizationRun.findFirstOrThrow({ where: { id: runId } });
   expect(run.status).toBe("RUNNING");
   expect(run.failure_code).toBeNull();
-  expect(run.lease_expires_at.getTime()).toBeLessThanOrEqual(Date.now());
+  // A small tolerance accounts for ordinary clock skew between the test
+  // process's own clock and the disposable Postgres container's clock
+  // (lease_expires_at is set via the DB's own now(), not Date.now()) --
+  // the invariant being proven is "released, not left live for the ~120s
+  // lease window", not sub-millisecond clock parity.
+  expect(run.lease_expires_at.getTime()).toBeLessThanOrEqual(Date.now() + 2000);
 
   // The very next request can immediately take over -- no waiting out the
   // full lease window.
