@@ -405,6 +405,57 @@ describe("GET", () => {
     const body = await bodyOf(res);
     expect(body).toEqual({ ok: true, status: "NOT_STARTED" });
   });
+
+  // ─── Review remediation: GET failure boundary ──────────────────────────
+  // An exception from either the Upload lookup or the status helper must
+  // never escape the handler -- it must be caught by the SAME kind of
+  // narrow top-level boundary POST already has, never leaking driver text,
+  // and always carrying Cache-Control: private, no-store.
+
+  it("Upload lookup throws -> bounded 500, exact fixed safe body, no-store, thrown message never leaks", async () => {
+    uploadFindFirstMock.mockRejectedValue(new Error("password=hunter2 at postgres://internal-host/db raw_value=SECRET-42"));
+    const { req, params } = getRequest();
+    const res = await GET(req, { params });
+    expect(res.status).toBe(500);
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+    const body = await bodyOf(res);
+    expect(body).toEqual({ ok: false, status: "ERROR", error: "Failed to load normalization status." });
+    const raw = JSON.stringify(body);
+    expect(raw).not.toContain("hunter2");
+    expect(raw).not.toContain("postgres://");
+    expect(raw).not.toContain("SECRET-42");
+  });
+
+  it("status helper throws -> bounded 500, exact fixed safe body, no-store, thrown message never leaks", async () => {
+    uploadFindFirstMock.mockResolvedValue({ normalized_at: null, normalized_row_count: null, normalized_cell_count: null });
+    statusMock.mockRejectedValue(new Error("relation \"data_hub_normalization_runs\" violates constraint fk_token=TOKEN-SECRET-xyz"));
+    const { req, params } = getRequest();
+    const res = await GET(req, { params });
+    expect(res.status).toBe(500);
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+    const body = await bodyOf(res);
+    expect(body).toEqual({ ok: false, status: "ERROR", error: "Failed to load normalization status." });
+    const raw = JSON.stringify(body);
+    expect(raw).not.toContain("relation");
+    expect(raw).not.toContain("TOKEN-SECRET-xyz");
+    expect(raw).not.toContain("constraint");
+  });
+
+  it("an unexpected GET exception is never logged itself -- only the fixed, route-owned string", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      uploadFindFirstMock.mockRejectedValue(new Error("super-secret-db-detail-should-never-be-logged"));
+      const { req, params } = getRequest();
+      await GET(req, { params });
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+      expect(consoleErrorSpy).toHaveBeenCalledWith("[GET /api/data-hub/worksheets/[id]/normalize] unexpected failure");
+      const loggedArgs = consoleErrorSpy.mock.calls[0];
+      expect(loggedArgs).toHaveLength(1);
+      expect(JSON.stringify(loggedArgs)).not.toContain("super-secret-db-detail-should-never-be-logged");
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -496,11 +547,21 @@ describe("privacy", () => {
       expect(res.headers.get("Cache-Control")).toBe("private, no-store");
     }
 
-    // 500
+    // 500 (POST)
     createOrResumeMock.mockRejectedValue(new Error("boom"));
     {
       const { req, params } = postRequest();
       const res = await POST(req, { params });
+      expect(res.status).toBe(500);
+      expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+    }
+
+    // 500 (GET) -- the review-remediated GET failure boundary, proven
+    // explicitly here rather than only implied by the POST case above.
+    uploadFindFirstMock.mockRejectedValue(new Error("boom-get"));
+    {
+      const { req, params } = getRequest();
+      const res = await GET(req, { params });
       expect(res.status).toBe(500);
       expect(res.headers.get("Cache-Control")).toBe("private, no-store");
     }

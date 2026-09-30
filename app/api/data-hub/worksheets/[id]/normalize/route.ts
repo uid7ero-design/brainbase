@@ -227,20 +227,28 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   if (session instanceof NextResponse) return session;
   const { id: uploadId } = await params;
 
-  const { prisma } = await import("@/lib/prisma");
-  const upload = await prisma.upload.findFirst({
-    where: { id: uploadId, organisation_id: session.organisationId, lineage_kind: "DATA_HUB" },
-    select: { normalized_at: true, normalized_row_count: true, normalized_cell_count: true },
-  });
-  if (!upload) return NextResponse.json({ error: "Not found" }, { status: 404, headers: CACHE_HEADERS });
-  if (upload.normalized_at) {
-    return NextResponse.json(
-      { ok: true, status: "SUCCEEDED", rowCount: upload.normalized_row_count, cellCount: upload.normalized_cell_count },
-      { status: 200, headers: CACHE_HEADERS }
-    );
-  }
+  try {
+    const { prisma } = await import("@/lib/prisma");
+    const upload = await prisma.upload.findFirst({
+      where: { id: uploadId, organisation_id: session.organisationId, lineage_kind: "DATA_HUB" },
+      select: { normalized_at: true, normalized_row_count: true, normalized_cell_count: true },
+    });
+    if (!upload) return NextResponse.json({ error: "Not found" }, { status: 404, headers: CACHE_HEADERS });
+    if (upload.normalized_at) {
+      return NextResponse.json(
+        { ok: true, status: "SUCCEEDED", rowCount: upload.normalized_row_count, cellCount: upload.normalized_cell_count },
+        { status: 200, headers: CACHE_HEADERS }
+      );
+    }
 
-  const { dataHubNormalizationRunStatus } = await import("@/lib/data-hub/normalizationExecution/dataHubNormalizationRunStatus");
-  const status = await dataHubNormalizationRunStatus({ organisationId: session.organisationId, uploadId });
-  return NextResponse.json(status, { status: 200, headers: CACHE_HEADERS });
+    const { dataHubNormalizationRunStatus } = await import("@/lib/data-hub/normalizationExecution/dataHubNormalizationRunStatus");
+    const status = await dataHubNormalizationRunStatus({ organisationId: session.organisationId, uploadId });
+    return NextResponse.json(status, { status: 200, headers: CACHE_HEADERS });
+  } catch {
+    // Never log the caught error: it may originate from a Prisma/DB
+    // failure whose own message can quote identifiers or driver-internal
+    // text.
+    console.error("[GET /api/data-hub/worksheets/[id]/normalize] unexpected failure");
+    return NextResponse.json({ ok: false, status: "ERROR", error: "Failed to load normalization status." }, { status: 500, headers: CACHE_HEADERS });
+  }
 }
