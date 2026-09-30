@@ -10,6 +10,16 @@ Newest first.
 
 ## First release foundation (not yet released to Production users)
 
+### Risk levels — Brainbase scale
+
+- Brainbase's initial risk scale is **Low / Medium / High / Extreme**. It
+  appears in the **Risk level** choices once the reviewed bootstrap script has
+  been applied.
+- **High** and **Extreme** count as **serious** on the dashboard.
+- The "requires verification" setting on High and Extreme is descriptive
+  only; verification rules are unchanged.
+- There is still no screen for maintaining risk levels (see the admin guide).
+
 ### In-app Help
 
 - **Help & work instructions** is added at the bottom of the Assurance
