@@ -52,16 +52,16 @@ const THEME_AWARE_LOCKUP_SURFACES: ReadonlySet<string> = new Set(['client-operat
 const AUTH_SHELL_SURFACES: ReadonlySet<string> = new Set(['signup'])
 
 describe('Phase D.1 — TopNav uses the approved Hybrid Orbit brand asset', () => {
-  it('Logo renders BrainBaseWordmark, not a raw brainbase-logo-dark.svg Image', () => {
+  it('BrandMark renders BrainBaseWordmark, not a raw brainbase-logo-dark.svg Image', () => {
     expect(topNavSource).toContain("import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark'")
-    const logoFnStart = topNavSource.indexOf('function Logo(')
+    const logoFnStart = topNavSource.indexOf('function BrandMark(')
     const logoFnEnd = topNavSource.indexOf('\n// ─', logoFnStart + 1)
     const logoBody = topNavSource.slice(logoFnStart, logoFnEnd)
     expect(logoBody).toContain('<BrainBaseWordmark')
     expect(logoBody).not.toContain('brainbase-logo-dark.svg')
   })
 
-  it('the old next/image Image import is gone now that Logo no longer uses it directly', () => {
+  it('the old next/image Image import is gone now that BrandMark no longer uses it directly', () => {
     expect(topNavSource).not.toMatch(/import Image from 'next\/image'/)
   })
 

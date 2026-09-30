@@ -230,7 +230,7 @@ describe('Persona 1 — Founder / super_admin: Operations and Admin dropdowns ar
     expect(navModelSource).not.toMatch(/enabledModules/)
     expect(navModelSource).toMatch(/export type NavContext = \{\s*\n\s*role: string;\s*\n\s*enabledCapabilities: readonly string\[\];\s*\n\s*dashboardVariant: DashboardVariant;\s*\n\s*\};/)
     expect(topNavSource).toMatch(/const nav = resolveNav\(\{ role, enabledCapabilities, dashboardVariant \}\);/)
-    const renderers = sliceBetween(topNavSource, 'function NavMenu(', 'function Logo()')
+    const renderers = sliceBetween(topNavSource, 'function NavMenu(', 'function BrandMark()')
     expect(renderers).not.toMatch(/enabledModules/)
   })
 

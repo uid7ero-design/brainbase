@@ -263,70 +263,71 @@ export default function OrgSwitcher({ initialRole }: { initialRole: Role | null 
         if (open && next && !e.currentTarget.contains(next)) setOpen(false);
       }}
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'flex-end',
-        gap: 10,
         fontSize: 12,
         fontFamily: 'var(--font-inter), -apple-system, sans-serif',
         whiteSpace: 'nowrap',
-        position: 'relative',
-        // Dropdown layering fix: this bar sits BEFORE TopNav in normal
-        // document flow (that's what fixed the original invisibility
-        // bug — see the header comment above), but TopNav's own header
-        // has an EXPLICIT zIndex: 100, which makes it establish its own
-        // stacking context. A position:relative ancestor with no
-        // explicit z-index of its own (z-index: auto) does NOT let its
-        // descendants (the dropdown below, zIndex: 50) outrank a LATER
-        // sibling's higher stacking context — z-index only arbitrates
-        // between siblings that both establish one. So the open
-        // dropdown, which extends downward past this bar's own height
-        // into the screen region TopNav occupies, was being painted
-        // UNDER TopNav. Giving THIS wrapper its own explicit z-index
-        // above TopNav's 100 makes the whole bar (and everything
-        // absolutely positioned inside it) its own higher-ranked
-        // stacking context, so the dropdown is no longer clipped —
-        // without moving anything back to position: fixed.
-        zIndex: 110,
       }}
     >
-      {isOverriding ? (
-        <span className={styles.badge}>{contextLabel}</span>
-      ) : (
-        <span className={styles.label}>{contextLabel}</span>
-      )}
-
-      <button
-        ref={triggerRef}
-        type="button"
-        className={styles.trigger}
-        onClick={handleTriggerClick}
-        onKeyDown={handleTriggerKeyDown}
-        disabled={busy}
-        aria-busy={busy || undefined}
-        aria-expanded={open}
-        aria-controls={open ? panelId : undefined}
-        aria-label={`${contextLabel}: ${currentLabel ?? ''}. Switch organisation`}
+      <div
+        className={styles.barInner}
+        style={{
+          position: 'relative',
+          // Dropdown layering fix: this bar sits BEFORE TopNav in normal
+          // document flow (that's what fixed the original invisibility
+          // bug — see the header comment above), but TopNav's own header
+          // has an EXPLICIT zIndex: 100, which makes it establish its own
+          // stacking context. A position:relative ancestor with no
+          // explicit z-index of its own (z-index: auto) does NOT let its
+          // descendants (the dropdown below, zIndex: 50) outrank a LATER
+          // sibling's higher stacking context — z-index only arbitrates
+          // between siblings that both establish one. So the open
+          // dropdown, which extends downward past this bar's own height
+          // into the screen region TopNav occupies, was being painted
+          // UNDER TopNav. Giving THIS wrapper its own explicit z-index
+          // above TopNav's 100 makes the whole bar (and everything
+          // absolutely positioned inside it) its own higher-ranked
+          // stacking context, so the dropdown is no longer clipped —
+          // without moving anything back to position: fixed.
+          zIndex: 110,
+        }}
       >
-        <span className={styles.triggerText}>{currentLabel}</span>
-        <svg className={styles.chevron} width="8" height="8" viewBox="0 0 8 8" fill="currentColor" aria-hidden="true" focusable="false">
-          <path d="M1 2l3 3 3-3" />
-        </svg>
-      </button>
+        {isOverriding ? (
+          <span className={styles.badge}>{contextLabel}</span>
+        ) : (
+          <span className={styles.label}>{contextLabel}</span>
+        )}
 
-      {isOverriding && (
         <button
+          ref={triggerRef}
           type="button"
-          className={styles.returnLink}
-          onClick={() => switchOrg(null)}
+          className={styles.trigger}
+          onClick={handleTriggerClick}
+          onKeyDown={handleTriggerKeyDown}
           disabled={busy}
-          aria-label="Return to Brainbase"
+          aria-busy={busy || undefined}
+          aria-expanded={open}
+          aria-controls={open ? panelId : undefined}
+          aria-label={`${contextLabel}: ${currentLabel ?? ''}. Switch organisation`}
         >
-          Return<span className={styles.returnSuffix}> to Brainbase</span>
+          <span className={styles.triggerText}>{currentLabel}</span>
+          <svg className={styles.chevron} width="8" height="8" viewBox="0 0 8 8" fill="currentColor" aria-hidden="true" focusable="false">
+            <path d="M1 2l3 3 3-3" />
+          </svg>
         </button>
-      )}
 
-      {open && (
+        {isOverriding && (
+          <button
+            type="button"
+            className={styles.returnLink}
+            onClick={() => switchOrg(null)}
+            disabled={busy}
+            aria-label="Return to Brainbase"
+          >
+            Return<span className={styles.returnSuffix}> to Brainbase</span>
+          </button>
+        )}
+
+        {open && (
         <div
           ref={panelRef}
           id={panelId}
@@ -373,7 +374,8 @@ export default function OrgSwitcher({ initialRole }: { initialRole: Role | null 
             </>
           )}
         </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

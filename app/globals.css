@@ -5,7 +5,7 @@
 :root {
   color-scheme: dark;
   /* Phase D.4.5C-W2 — shared app header offset. Defaults to TopNav's
-     own exact height (52px — see lib/layout/headerOffset.ts's
+     own exact height (64px — see lib/layout/headerOffset.ts's
      TOP_NAV_HEIGHT_PX, the single source of truth for that number),
      correct for every non-super_admin session and for the very first
      paint before any client JS runs. Corrected upward at runtime, only
@@ -14,7 +14,7 @@
      sticky consumer that needs to sit immediately below the app's
      header stack should read var(--app-header-offset) — never a bare
      `top: 52` literal. */
-  --app-header-offset: 52px;
+  --app-header-offset: 64px;
 
   /* ── Canonical --bb-* application taxonomy (main A.2A) ──────────────
      Additive semantic names from main's design-token rollout. Where a

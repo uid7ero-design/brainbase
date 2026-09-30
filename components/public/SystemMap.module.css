@@ -31,10 +31,16 @@
   stroke-width: 1;
 }
 .coreLabel {
-  fill: var(--bb-text);
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  height: 100%;
+  color: var(--bb-text);
+  font-family: var(--bb-font-sans);
   font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
+  font-weight: 300;
+  letter-spacing: 0.19em;
+  white-space: nowrap;
 }
 
 .link,

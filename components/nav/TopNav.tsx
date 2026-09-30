@@ -465,12 +465,14 @@ function MenuEntries({
   );
 }
 
-// ─── BRΛINBΛSE logo ──────────────────────────────────────────────────────────
+// ─── BrandMark (canonical BRΛINBΛSE lockup) ──────────────────────────────────
 
-function Logo() {
-  // Full lockup on wide screens, the broken-orbit mark alone on narrow
-  // ones (AppChrome.module.css swaps them). Both are the approved,
-  // theme-aware product geometry; the link carries the accessible name.
+function BrandMark() {
+  // The one product lockup this header renders — width 124px at rest
+  // (118–130px range), shrinking via the .wordmark class's own responsive
+  // overrides at the 960–1279 and <640 bands (AppChrome.module.css). The
+  // link itself is the >=44px click target; the mark inside is decorative,
+  // the link carries the accessible name.
   return (
     <Link
       href="/"
@@ -479,7 +481,8 @@ function Logo() {
     >
       <span className={styles.brandFull} aria-hidden="true">
         <BrainBaseWordmark
-          width={136}
+          width={140}
+          className={styles.wordmark}
         />
       </span>
       <span className={styles.brandMark} aria-hidden="true">
@@ -896,8 +899,6 @@ function AppNav({
       className={styles.nav}
       style={{
         height: TOP_NAV_HEIGHT_PX,
-        display: 'flex',
-        alignItems: 'center',
         position: 'sticky',
         top: 0,
         zIndex: 100,
@@ -905,96 +906,101 @@ function AppNav({
         flexShrink: 0,
       }}
     >
-      {/* Product lockup — leads the bar, compact, never the loudest element. */}
-      <Logo />
+      {/* Three-zone row: BrandMark / PrimaryNav / right-side controls.
+          Width-constrained and centred independently of .nav's own
+          edge-to-edge surface — see .navInner (AppChrome.module.css). */}
+      <div className={styles.navInner}>
+        {/* Product lockup — leads the bar, compact, never the loudest element. */}
+        <BrandMark />
 
-      {/* Centre navigation (desktop). A handful of permanent items; modules
-          live inside Work, so the row no longer grows with every module.
-          overflowX stays as a safety net for very narrow desktop widths. */}
-      <div
-        className={`${styles.navRow} ${styles.desktopOnly}`}
-        // No inline display: .desktopOnly supplies flex and must be able to
-        // hide the row at <=767px (an inline display would override it).
-        style={{
-          alignItems: 'center',
-          justifyContent: 'flex-start',
-          gap: 2,
-          flex: 1,
-          minWidth: 0,
-          overflowX: 'auto',
-          overflowY: 'hidden',
-        }}
-      >
-        <NavPill link={nav.home} active={activeId === nav.home.id} />
-        <NavPill link={nav.hlna} active={activeId === nav.hlna.id} hlna />
+        {/* Centre navigation (desktop). A handful of permanent items; modules
+            live inside Work, so the row no longer grows with every module.
+            overflowX stays as a safety net for very narrow desktop widths. */}
+        <div
+          className={`${styles.navRow} ${styles.desktopOnly}`}
+          // No inline display: .desktopOnly supplies flex and must be able to
+          // hide the row below the mobile-Menu breakpoint (an inline display
+          // would override it).
+          style={{
+            justifyContent: 'center',
+            minWidth: 0,
+            overflowX: 'auto',
+            overflowY: 'hidden',
+          }}
+        >
+          <NavPill link={nav.home} active={activeId === nav.home.id} />
+          <NavPill link={nav.hlna} active={activeId === nav.hlna.id} hlna />
 
-        {nav.work.length > 0 && (
-          <NavMenu label="Work" panelLabel="Work" active={containsActive(nav.work, activeId)}>
-            {close => <MenuEntries entries={nav.work} activeId={activeId} onNavigate={close} withIcons />}
-          </NavMenu>
-        )}
+          {nav.work.length > 0 && (
+            <NavMenu label="Work" panelLabel="Work" active={containsActive(nav.work, activeId)}>
+              {close => <MenuEntries entries={nav.work} activeId={activeId} onNavigate={close} withIcons />}
+            </NavMenu>
+          )}
 
-        {nav.requests && (
-          <NavPill link={nav.requests} active={activeId === nav.requests.id} />
-        )}
+          {nav.requests && (
+            <NavPill link={nav.requests} active={activeId === nav.requests.id} />
+          )}
 
-        {nav.manage.length > 0 && (
-          <NavMenu label="Manage" panelLabel="Manage" active={containsActive(nav.manage, activeId)}>
-            {close => <MenuEntries entries={nav.manage} activeId={activeId} onNavigate={close} />}
-          </NavMenu>
-        )}
+          {nav.manage.length > 0 && (
+            <NavMenu label="Manage" panelLabel="Manage" active={containsActive(nav.manage, activeId)}>
+              {close => <MenuEntries entries={nav.manage} activeId={activeId} onNavigate={close} />}
+            </NavMenu>
+          )}
 
-        {nav.brainbase.length > 0 && (
-          <NavMenu label="Brainbase" panelLabel="Brainbase" active={containsActive(nav.brainbase, activeId)}>
-            {close => <MenuEntries entries={nav.brainbase} activeId={activeId} onNavigate={close} />}
-          </NavMenu>
-        )}
-      </div>
-
-      <div className={`${styles.spacer} ${styles.mobileOnly}`} aria-hidden="true" />
-
-      {/* Far-right system cluster */}
-      <div className={styles.rightCluster}>
-        <Divider className={styles.clockDivider} />
-
-        <Clock />
-
-        <Divider className={styles.clockDivider} />
-
-        <div className={styles.desktopOnly}>
-          <NavMenu
-            panelLabel="Account"
-            align="end"
-            triggerClassName={styles.profile}
-            active={activeId === nav.account.profile.id}
-            trigger={
-              <>
-                <Avatar identity={identity} />
-                <span className={styles.identity}>
-                  <span className={styles.identityName}>
-                    {name.split(' ')[0]}
-                  </span>
-                  {/* Not rendered in the flex column; keeps the accessible
-                      name "Sam Admin", not "SamAdmin". */}
-                  {' '}
-                  <span className={styles.identityRole}>
-                    {formatRole(role)}
-                  </span>
-                </span>
-                <span className={styles.srOnly}>, account menu</span>
-              </>
-            }
-          >
-            {close => (
-              <>
-                <AccountSummary identity={identity} />
-                <AccountEntries nav={nav} activeId={activeId} onNavigate={close} />
-              </>
-            )}
-          </NavMenu>
+          {nav.brainbase.length > 0 && (
+            <NavMenu label="Brainbase" panelLabel="Brainbase" active={containsActive(nav.brainbase, activeId)}>
+              {close => <MenuEntries entries={nav.brainbase} activeId={activeId} onNavigate={close} />}
+            </NavMenu>
+          )}
         </div>
 
-        <MobileMenu nav={nav} activeId={activeId} identity={identity} />
+        <div className={`${styles.spacer} ${styles.mobileOnly}`} aria-hidden="true" />
+
+        {/* Right-side controls: UtilityMeta (clock) → divider → AccountControl.
+            OrganisationSwitcher (super_admin only) is a separate element
+            rendered immediately before this whole header — see
+            app/layout.tsx and components/admin/OrgSwitcher.tsx's own
+            visual-integration styling. */}
+        <div className={styles.rightCluster}>
+          <Clock />
+
+          <Divider className={styles.clockDivider} />
+
+          <div className={styles.desktopOnly}>
+            <NavMenu
+              panelLabel="Account"
+              align="end"
+              triggerClassName={styles.profile}
+              active={activeId === nav.account.profile.id}
+              trigger={
+                <>
+                  <Avatar identity={identity} />
+                  <span className={styles.identity}>
+                    <span className={styles.identityName}>
+                      {name.split(' ')[0]}
+                    </span>
+                    {/* Not rendered in the flex column; keeps the accessible
+                        name "Sam Admin", not "SamAdmin". */}
+                    {' '}
+                    <span className={styles.identityRole}>
+                      {formatRole(role)}
+                    </span>
+                  </span>
+                  <span className={styles.srOnly}>, account menu</span>
+                </>
+              }
+            >
+              {close => (
+                <>
+                  <AccountSummary identity={identity} />
+                  <AccountEntries nav={nav} activeId={activeId} onNavigate={close} />
+                </>
+              )}
+            </NavMenu>
+          </div>
+
+          <MobileMenu nav={nav} activeId={activeId} identity={identity} />
+        </div>
       </div>
     </nav>
   );

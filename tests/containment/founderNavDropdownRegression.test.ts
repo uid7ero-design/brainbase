@@ -207,7 +207,10 @@ describe('TopNav — founder Operations/Admin dropdown clipping fix (integrated 
     // of dashboardVariant and of capability/module counts. The render site is
     // gated on the resolved (non-empty) Brainbase list.
     expect(modelSource).toMatch(/if \(gate\.internal && ctx\.role !== 'super_admin'\) return false;/)
-    expect(topNavSource).toContain('{nav.brainbase.length > 0 && (\n          <NavMenu label="Brainbase"')
+    // Desktop header refinement — one extra nesting level (.navInner, the
+    // three-zone grid row) shifted this block's indentation from 10 to 12
+    // spaces; same JSX, same gating logic.
+    expect(topNavSource).toContain('{nav.brainbase.length > 0 && (\n            <NavMenu label="Brainbase"')
     for (const variant of [null, 'brainbase-hq', 'ld-tennis'] as const) {
       expect(resolveNav(ctx('super_admin', [], variant)).brainbase.length).toBeGreaterThan(0)
       for (const role of ['viewer', 'manager', 'admin', 'analyst']) {

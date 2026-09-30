@@ -89,10 +89,14 @@ describe('B.4 shared responsive navigation design-system migration', () => {
     // inline chrome styling. The reviewed Phase B (TopNav / AppChrome.module.css) and Phase D1
     // (OpBar / Sidebar) implementations supersede that presentation, so this assertion now pins
     // the reviewed equivalent. Behavioural assertions in this file are unchanged.
+    // Desktop header refinement: the centre row is now genuinely centred by
+    // the three-zone CSS grid (>=960px) rather than flex-grown to fill the
+    // remaining width, so `flex: 1` is gone — the horizontal-scroll safety
+    // net (overflowX/Y, minWidth: 0, the themed scrollbar) is unchanged.
     expect(topNav).toContain("overflowX: 'auto'")
     expect(topNav).toContain("overflowY: 'hidden'")
     expect(chromeCss).toMatch(/scrollbar-width: thin/)
-    expect(topNav).toContain('flex: 1')
+    expect(topNav).not.toContain('flex: 1')
     expect(topNav).toContain('minWidth: 0')
 
   })

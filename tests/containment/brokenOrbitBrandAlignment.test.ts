@@ -37,7 +37,12 @@ describe('HLNA Labs broken-orbit alignment', () => {
 
   it('keeps the BrainBase lockup distinct from the parent studio accent', () => {
     expect(lockup).toContain('context="brainbase"');
-    expect(lockup).toContain('BRΛINBΛSE');
+    // Desktop header refinement — the wordmark text is now split around
+    // <LambdaGlyph /> (a drawn, purple, flat-top glyph) instead of the
+    // plain Unicode "Λ" character; see LambdaGlyph.tsx's own header
+    // comment for why a borrowed font glyph could not give the brand's
+    // required cap-height/baseline/flat-top guarantees.
+    expect(lockup).toContain('BR<LambdaGlyph />INB<LambdaGlyph />SE');
     expect(lockup).not.toContain('context="hlna"');
   });
 

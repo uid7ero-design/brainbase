@@ -21,5 +21,5 @@ describe('BrainBase token compatibility after main convergence', () => {
     for (const literal of ['--bg-base:    #F5F3EE;','--text-primary:   #15171B;','--text-secondary: #5F5B55;']) expect(lightBlock).toContain(literal)
 
   })
-  it('preserves the shared app-header offset contract', () => { expect(rootBlock).toContain('--app-header-offset: 52px;') })
+  it('preserves the shared app-header offset contract', () => { expect(rootBlock).toContain('--app-header-offset: 64px;') })
 })
