@@ -18,6 +18,10 @@ const NAV_ITEMS: { href: string; label: string; exact?: boolean }[] = [
   { href: '/assurance/actions', label: 'Actions' },
   { href: '/assurance/evidence', label: 'Evidence' },
   { href: '/assurance/verification', label: 'Verification' },
+  // Configuration (risk levels). Visible to every Assurance user as a
+  // read-only view; only admins get mutation controls, and the API
+  // enforces 'administer' regardless.
+  { href: '/assurance/settings', label: 'Settings' },
 ];
 
 export default function AssuranceSidebar() {
@@ -28,7 +32,7 @@ export default function AssuranceSidebar() {
       label="Assurance"
       style={{ position: 'sticky', top: APP_HEADER_OFFSET_VAR, height: APP_HEADER_OFFSET_VH_CALC }}
       footer={
-        // In-app Help (guides and work instructions). Outside the nine-section
+        // In-app Help (guides and work instructions). Outside the section
         // navigation on purpose: it is a reference, not a workflow section.
         <Link href="/assurance/help" className={moduleNavFooterItemClassName}
           aria-current={pathname.startsWith('/assurance/help') ? 'page' : undefined}>

@@ -15,7 +15,8 @@ export type HelpTopic =
   | 'findings' | 'finding'
   | 'actions' | 'action'
   | 'evidence' | 'evidence-record'
-  | 'verification';
+  | 'verification'
+  | 'settings' | 'risk-levels';
 
 export type HelpTarget = { slug: string; anchor?: string; label: string };
 
@@ -50,4 +51,7 @@ export const HELP_TOPICS: Record<HelpTopic, HelpTarget> = {
   'evidence-record': { slug: 'add-and-link-evidence', label: 'Add and link evidence' },
 
   verification: { slug: 'perform-verification', label: 'Perform verification' },
+
+  settings: { slug: 'admin-guide', anchor: 'assurance-settings', label: 'Assurance settings' },
+  'risk-levels': { slug: 'manage-risk-levels', label: 'Manage risk levels' },
 };

@@ -975,3 +975,222 @@
   gap: 8px;
   margin-top: 16px;
 }
+
+/* ── Settings → Risk levels ─────────────────────────────────────────── */
+/* A table from 640px up; stacked cards below it (no horizontal page
+   scroll at phone width). All colours are theme tokens (light + dark). */
+
+.riskIntro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.riskIntro > .notice {
+  flex: 1 1 320px;
+}
+.riskTable {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  overflow-x: auto;
+}
+.riskTableEl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+.riskTableEl th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.riskTableEl td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  color: var(--text-primary);
+}
+.riskTableEl tbody tr:last-child td {
+  border-bottom: 0;
+}
+.riskTableEl tr[data-inactive='true'] td,
+.riskCard[data-inactive='true'] {
+  color: var(--text-secondary);
+}
+.riskName {
+  font-weight: 600;
+}
+.riskCode {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+}
+.riskDescription {
+  max-width: 320px;
+  margin: 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.riskActions {
+  white-space: nowrap;
+  text-align: right;
+}
+.riskActionButtons {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.riskCards {
+  display: none;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.riskCard {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  padding: 14px;
+  margin-bottom: 10px;
+  min-width: 0;
+}
+.riskCardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.riskCardMeta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0 0 10px;
+  font-size: 0.8125rem;
+}
+.riskCardMeta dt {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.riskCardMeta dd {
+  margin: 2px 0 0;
+}
+.riskCard .riskDescription {
+  max-width: none;
+  font-size: 0.8125rem;
+  margin-bottom: 10px;
+}
+.riskCard .riskActions {
+  text-align: left;
+}
+.riskCard .riskActionButtons {
+  flex-wrap: wrap;
+}
+@media (max-width: 639px) {
+  .riskTable {
+    display: none;
+  }
+  .riskCards {
+    display: block;
+  }
+}
+.riskEmpty {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: 28px 20px;
+  text-align: center;
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+}
+.riskEmptyTitle {
+  margin: 0;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.riskForm {
+  display: grid;
+  gap: 14px;
+}
+.riskCheck {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+.riskCheck input {
+  margin-top: 3px;
+}
+.riskHelp {
+  margin: -8px 0 0;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.riskBody {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--text-primary);
+}
+.riskImpact {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.875rem;
+}
+.riskImpact > div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+}
+.riskImpact dt {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.riskImpact dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.settingsCards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+.settingsCard {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  padding: 18px;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+.settingsCard:hover,
+.settingsCard:focus-visible {
+  border-color: var(--border-strong);
+}
+.settingsCardTitle {
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+.settingsCardBody {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
