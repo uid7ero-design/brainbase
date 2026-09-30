@@ -124,6 +124,41 @@ organisation's shared BrainBase records.
 The dashboard treats an incident as **serious** when its risk level is one of
 the organisation's **two highest-ranked active** risk levels.
 
+### Risk levels
+
+Risk levels are **organisation-scoped**: each organisation has its own scale,
+and a record can only use an **active** risk level of its own organisation.
+Choosing a risk level is optional, but it can only be set when an incident,
+investigation or finding is **created** — it cannot be added or changed
+afterwards.
+
+Brainbase currently uses a **four-level** scale:
+
+| Risk level | Rank | Meaning |
+|---|---|---|
+| **Extreme** | 40 | Severe risk requiring immediate attention and action. |
+| **High** | 30 | Significant risk requiring prompt management attention. |
+| **Medium** | 20 | Moderate risk requiring a planned and monitored response. |
+| **Low** | 10 | Minor risk that can be managed through routine controls. |
+
+- Choices are listed from the highest rank to the lowest.
+- **High** and **Extreme** are currently treated as **serious**, because the
+  dashboard defines serious as the two highest active ranks.
+- Each level also carries a "requires verification" setting (on for High and
+  Extreme). It is **descriptive only** today: it records intended policy and
+  is **not an enforced workflow rule**. Verification works the same way at
+  every risk level.
+
+> Current limitation: risk levels are set up through a controlled bootstrap
+> (a reviewed database script, `scripts/seed-assurance-risk-levels-brainbase.sql`)
+> and maintained by controlled database changes. There is no screen for them
+> yet. The planned future location is **Assurance → Settings → Risk levels**;
+> that screen does not exist yet.
+>
+> Once a risk level is used by a record it is never deleted. A level that is
+> no longer wanted is deactivated (no longer offered) and, if needed,
+> replaced by a new level.
+
 ## In-app Help
 
 Everyone with Assurance access can open **Help & work instructions** and each
@@ -168,7 +203,7 @@ Rules:
 | People | People on incidents and investigations are displayed, but cannot be added or edited from Assurance screens. |
 | Due dates | Extensions are displayed on actions, but cannot be requested or approved in the UI. |
 | Findings | Findings are raised from a source record, and can be linked to further incidents, investigations, inspections and audits. There is no standalone "new finding" button. |
-| Reference data | No Assurance screens for risk levels, locations, assets or external organisations. |
+| Reference data | No Assurance screens for risk levels, locations, assets or external organisations. Risk levels are maintained by controlled database changes (see [Risk levels](#risk-levels)). |
 | Scheduling | No recurring or automatically scheduled inspections or audits. |
 | Evidence after closure | Evidence can still be added to a **closed incident** or a **completed investigation** (it is frozen only on closed or cancelled findings and actions, and cancelled inspections and audits). This is current behaviour pending a policy decision. |
 | Record editing | Records cannot be edited after creation (for example an action's due date or description). |

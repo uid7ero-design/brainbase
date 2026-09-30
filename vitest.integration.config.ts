@@ -118,6 +118,11 @@ import path from 'path';
 // against the real A0.1B..A0.1D-3 migrations — see
 // scripts/tests/verify-assurance-ui-services.sh), same explicit-file-argument
 // isolation as every spec above.
+//
+// Assurance risk bootstrap addition: scripts/tests/assuranceRiskBootstrap
+// .integration.test.ts (the application regression over the seeded
+// Brainbase risk scale — see scripts/tests/verify-assurance-risk-bootstrap.sh),
+// same explicit-file-argument isolation.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -141,6 +146,7 @@ export default defineConfig({
       'scripts/tests/hrLifecycleWorkflowActions.integration.test.ts',
       'scripts/tests/dataHubStageWorksheetRoute.integration.test.ts',
       'scripts/tests/assuranceUi.integration.test.ts',
+      'scripts/tests/assuranceRiskBootstrap.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,
