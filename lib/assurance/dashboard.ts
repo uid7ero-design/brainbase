@@ -3,6 +3,7 @@ import sql from '@/lib/db';
 import type { AssuranceViewer } from './policy';
 import { incidentVisibleSql, investigationVisibleSql, findingVisibleSql, actionVisibleSql } from './access';
 import type { AssuranceTimestamp } from './sqlHelpers';
+import { organisationLevelsSql, seriousRankFloorSql } from './riskLevels';
 
 // Assurance dashboard — operational questions, answered from real,
 // tenant-scoped, restriction-aware queries. No synthetic numbers: an
@@ -52,14 +53,10 @@ export async function getDashboardData(viewer: AssuranceViewer): Promise<Dashboa
 
   // "Serious" = the incident's risk level is one of the organisation's two
   // highest-ranked ACTIVE risk levels. Organisations define their own risk
-  // matrices (assurance_risk_levels), so no fixed code is assumed.
-  const seriousRankFloor = sql`(
-    SELECT min(rank) FROM (
-      SELECT rank FROM assurance_risk_levels
-      WHERE organisation_id = ${org} AND is_active = true
-      ORDER BY rank DESC LIMIT 2
-    ) top_levels
-  )`;
+  // matrices (assurance_risk_levels), so no fixed code is assumed. The rule
+  // lives in ONE place (riskLevels.seriousRankFloorSql), shared with
+  // Settings → Risk levels so its impact preview can never disagree.
+  const seriousRankFloor = seriousRankFloorSql(organisationLevelsSql(org));
 
   const [countsRows, overdueActions, overdueFindings, awaiting, serious, investigations, due, recent, byType, trend] = await Promise.all([
     sql`
