@@ -116,7 +116,21 @@
    exceed the available width. A thin themed scrollbar keeps that overflow
    discoverable. */
 .navRow {
-  align-self: stretch;
+  /* NOT align-self:stretch — measured via getBoundingClientRect (real
+     centreY comparison against BrandMark/Clock/AccountControl), this rail
+     was consistently ~10px higher than every other header control,
+     despite `.navInner`'s own `align-items:center`. Root cause: per the
+     CSS Grid/Box Alignment spec, `align-self:stretch` on a grid item that
+     ALSO has an explicit (non-auto) height cannot actually stretch — the
+     explicit height wins — and the fallback alignment for `stretch` in
+     that case is `start`, not the container's own `align-items`. That
+     silently top-aligned this rail within the 64px header row instead of
+     centering it, for as long as this rail has had an explicit height
+     (i.e. since before this pass). `center` gives the real, requested
+     behaviour. (This rail is `.desktopOnly` — see TopNav.tsx — so this
+     only ever matters in the >=960px grid layout below, never the <960px
+     flex one.) */
+  align-self: center;
   align-items: center;
   height: 44px;
   padding: 4px;
