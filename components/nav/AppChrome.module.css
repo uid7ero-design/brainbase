@@ -90,7 +90,7 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  min-height: 44px;
+  height: 44px;
   text-decoration: none;
   color: var(--text-primary);
   border-radius: var(--radius-sm);
@@ -118,7 +118,7 @@
 .navRow {
   align-self: stretch;
   align-items: center;
-  height: 40px;
+  height: 44px;
   padding: 4px;
   gap: 3px;
   border: 1px solid var(--border);
@@ -140,8 +140,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
-  padding: 0 14px;
+  height: 36px;
+  padding: 0 13px;
   border: 0;
   border-radius: 7px;
   background: transparent;
@@ -172,11 +172,15 @@
 /* Soft purple-tinted fill, not a full solid-purple button or an underline —
    aria-current/data-active are the semantic "current section" signal (see
    the sr-only "(current section)" text on menu triggers below), this is
-   only the visual echo of it. */
+   only the visual echo of it. Deliberately does NOT change font-weight (a
+   heavier weight measurably widens/shifts a monospace-adjacent label,
+   which is exactly what made the active item "feel taller/heavier than
+   inactive items" — height/padding/border/line-height/weight stay
+   IDENTICAL between active and inactive; only colour and background
+   differ). */
 .item[aria-current='page'],
 .item[data-active='true'] {
   color: var(--brand-brainbase-accent);
-  font-weight: 600;
   background: var(--brand-brainbase-accent-muted);
 }
 
@@ -457,11 +461,15 @@
 /* ── Right cluster: OrganisationSwitcher → UtilityMeta → divider →
    AccountControl (see TopNav.tsx's rightCluster render order) ──────────── */
 
+/* Clock -> 14px -> divider -> 14px -> AccountControl (OrganisationSwitcher's
+   own 16px lead-in gap doesn't apply within this flex container — see
+   OrgSwitcher.module.css's own header comment for why that component isn't
+   a flex child here). */
 .rightCluster {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 16px;
+  gap: 14px;
   flex-shrink: 0;
 }
 
@@ -477,7 +485,7 @@
    border/pill of its own. */
 .clock {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 7px;
   font-family: var(--font-geist-mono, 'Geist Mono', monospace);
   letter-spacing: 0.04em;

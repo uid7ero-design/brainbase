@@ -79,16 +79,28 @@ describe('Authenticated chrome — no dark-only or retired colour treatments', (
 describe('Authenticated chrome — one active-state language, not colour alone', () => {
   const css = source['components/nav/AppChrome.module.css']
 
-  it('the active nav item uses the product accent token, weight, and a soft tinted fill — not an underline', () => {
+  it('the active nav item uses the product accent token and a soft tinted fill — not an underline, not colour alone', () => {
     // Desktop header refinement — the active state moved from a 2px
     // underline box-shadow to a soft purple-tinted background fill (still
-    // never colour alone: aria-current/data-active stay the semantic
-    // signal, see the next test).
+    // never colour alone: text colour AND background fill both change
+    // together, and aria-current/data-active stay the semantic signal —
+    // see the next test).
+    //
+    // Nav rhythm refinement — font-weight is deliberately NOT part of this
+    // rule any more. A weight bump on the active item was the actual root
+    // cause of a real, explicitly reported bug ("active Brainbase feels
+    // taller/heavier than inactive items"): active and inactive items must
+    // share IDENTICAL height/padding/border/line-height, and font-weight
+    // is exactly the kind of change that visually (if not technically)
+    // shifts perceived weight/size. Colour + background fill together are
+    // still two non-colour-alone signals beyond aria-current itself, so
+    // dropping the weight change doesn't reopen the "colour alone" concern
+    // this test's name still guards against.
     const start = css.indexOf(".item[aria-current='page'],")
     expect(start).toBeGreaterThan(-1)
     const rule = css.slice(start, css.indexOf('}', start))
     expect(rule).toContain('color: var(--brand-brainbase-accent);')
-    expect(rule).toContain('font-weight: 600;')
+    expect(rule).not.toMatch(/font-weight/)
     expect(rule).toContain('background: var(--brand-brainbase-accent-muted);')
     expect(rule).not.toMatch(/box-shadow/)
   })
