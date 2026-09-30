@@ -481,7 +481,7 @@ function BrandMark() {
     >
       <span className={styles.brandFull} aria-hidden="true">
         <BrainBaseWordmark
-          width={124}
+          width={140}
           className={styles.wordmark}
         />
       </span>

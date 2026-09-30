@@ -3,55 +3,43 @@ import type { CSSProperties } from "react";
 /** The BrainBase wordmark's "Λ" (Greek capital lambda, standing in for "A")
  * in BRΛINBΛSE.
  *
- * This reproduces the lambda geometry from BrainBase's own designer-made
- * brand asset — public/Brand/brainbase-horizontal-color.svg's wordmark path
- * — rather than inventing a new silhouette: that SVG already contains the
- * intended letterform (a genuine Lambda: two legs converging toward a small
- * flat facet at the apex, not a flat-topped A-style trapezoid), hand-drawn
- * by the original brand kit designer. This file extracts that exact path
- * (its two lambda glyphs are byte-identical), translates it to start at
- * (0,0), and rescales it to a 100-unit cap height — no other change to the
- * shape itself.
+ * Reproduces the approved reference wordmark (a thin/light geometric
+ * lockup with generous tracking and a true pointed Lambda apex) as closely
+ * as this codebase's own tools allow: a real font for the letters — not a
+ * hand-approximated letterform — and a single hand-drawn `<path>` for the
+ * two Lambda positions, sized/positioned deterministically against that
+ * font's own measured metrics rather than guessed.
  *
- * A plain Unicode "Λ" character can't be used in its place: it renders with
- * whatever apex/cap-height/baseline the surrounding font happens to give
- * it, not the brand's own drawn letterform, and that varies by font/browser
- * with no way to pin it down. Reproducing the real path as SVG is
- * deterministic regardless of font or browser.
+ * The two prior approaches (a bold flat-topped A-trapezoid, then a
+ * faithful reproduction of the BOLD brand-kit SVG's own lambda) were both
+ * wrong for the SAME underlying reason once the actual reference image was
+ * seen: this wordmark's surrounding letters are a thin/light weight, not
+ * the Geist Mono 600 (semibold monospace) used everywhere before — no
+ * lambda shape drawn at that heavier weight could ever read as "the same
+ * visual stroke weight" as thin letters beside it. This is a thin,
+ * OUTLINED chevron (stroke, not fill) — a simple V from one baseline
+ * corner up to a single pointed apex and back down — matching how a thin
+ * geometric sans actually draws a lambda, rather than the bold two-leg/
+ * hollow-notch construction every previous attempt used.
  *
- * Sizing is calibrated against the wordmark's own font (Geist Mono 600),
- * measured directly via `CanvasRenderingContext2D.measureText('B')
- * .actualBoundingBoxAscent` — the browser's own pixel-accurate ink cap-
- * height, not a guessed em-fraction: at 13.12px that font's cap height is
- * exactly 10px, i.e. 0.7622em, and that ratio is constant across sizes for
- * a given font (font metrics scale linearly with font-size). Height is set
- * to exactly that with `verticalAlign: "baseline"`, which by definition
- * sits the box's bottom edge on the text baseline and its top edge
- * `0.7622em` above it — exactly the neighbouring capitals' own cap-height
- * line. Width follows the source asset's own aspect ratio (0.719 — a
- * genuine letter's proportions, narrower than it is tall, unlike a square
- * A-trapezoid), not a separately guessed number.
- *
- * Two earlier attempts at this shape were both wrong in different ways,
- * kept here as the record of what NOT to do:
- *   1. A CSS `clip-path` on a filled `<span>`, flat top only ~25% of the
- *      glyph's own width — thin enough at 12-14px wordmark sizes that
- *      anti-aliasing erased the flat edge into an apparent point.
- *   2. A hand-drawn "wide flat-topped A" SVG path (full-width legs, 50%
- *      flat top) — fixed the height/point problem but was a genuinely
- *      different, invented silhouette: at real size it read as an A-shaped
- *      wedge, not a Lambda, and lost the brand's actual letterform. This
- *      file replaces that attempt with the real asset's own geometry.
+ * Cap-height is measured the same way as before —
+ * `CanvasRenderingContext2D.measureText('B').actualBoundingBoxAscent` —
+ * but against Geist Sans at weight 300 (this wordmark's own new font/
+ * weight, matching the reference; see BrainbaseLockup.module.css), not
+ * Geist Mono 600: 34px ascent at a 48px test size, i.e. 0.7083em, a
+ * materially different ratio from the old 0.7622em precisely because it's
+ * now a different typeface.
  */
-const GLYPH_PATH = "M0 100 L30 5 L33 0 L42 0 L72 100 L61 100 L38 22 L11 100 Z";
-const GLYPH_ASPECT = 72 / 100;
+const GLYPH_ASPECT = 0.72;
+const CAP_HEIGHT_EM = 0.7083;
 
 const SHAPE: CSSProperties = {
   display: "inline-block",
   flexShrink: 0,
-  width: `${(0.7622 * GLYPH_ASPECT).toFixed(4)}em`,
-  height: "0.7622em",
+  width: `${(CAP_HEIGHT_EM * GLYPH_ASPECT).toFixed(4)}em`,
+  height: `${CAP_HEIGHT_EM}em`,
   verticalAlign: "baseline",
+  overflow: "visible",
 };
 
 export function LambdaGlyph() {
@@ -64,7 +52,14 @@ export function LambdaGlyph() {
       role="presentation"
       pointerEvents="none"
     >
-      <path d={GLYPH_PATH} fill="var(--brand-brainbase-accent)" />
+      <path
+        d="M8 98 L36 3 L64 98"
+        fill="none"
+        stroke="var(--brand-brainbase-accent)"
+        strokeWidth="9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

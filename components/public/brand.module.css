@@ -8,3 +8,14 @@
 .lambda {
   color: var(--bb-accent);
 }
+
+/* BrainBaseMark only (see its own component below) — overrides .mark's
+   typography to match the approved reference wordmark: thin/light Geist
+   Sans with generous tracking, not the Geist Mono 600 every other `.mark`
+   consumer (HlnaMark) still correctly uses — HLNA is a different mark,
+   deliberately untouched. */
+.brainBaseMarkOverride {
+  font-family: var(--bb-font-sans);
+  font-weight: 300;
+  letter-spacing: 0.19em;
+}

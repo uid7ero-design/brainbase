@@ -25,7 +25,10 @@ function Mark({ name, children, className }: { name: string; children: ReactNode
  * treatment exactly. */
 export function BrainBaseMark({ className }: { className?: string }) {
   return (
-    <Mark name="BrainBase" className={className}>
+    <Mark
+      name="BrainBase"
+      className={[styles.brainBaseMarkOverride, className ?? ''].join(' ').trim()}
+    >
       BR<LambdaGlyph />INB<LambdaGlyph />SE
     </Mark>
   );
