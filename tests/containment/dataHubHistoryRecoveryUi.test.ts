@@ -394,6 +394,8 @@ describe("T32/M20: no new backend route", () => {
         "app/api/data-hub/mapping-versions/[id]/route.ts",
         // 6.2D4B addition (governed raw-staging execution):
         "app/api/data-hub/worksheets/[id]/stage/route.ts",
+        // 6.2D4B2B addition (thin manager+ normalization execution/status):
+        "app/api/data-hub/worksheets/[id]/normalize/route.ts",
       ].sort()
     );
   });
