@@ -152,8 +152,16 @@ describe('/web-systems — brand typography', () => {
     const figure = container.querySelector('figure')!;
     expect(figure).toHaveTextContent('BrainBase');
     expect(figure).toHaveTextContent('HLNA ready');
-    const hidden = [...figure.querySelectorAll('[aria-hidden="true"]')].map(n => n.textContent);
-    expect(hidden).toContain('BRΛINBΛSE');
-    expect(hidden).toContain('HLNΛ');
+    const hiddenNodes = [...figure.querySelectorAll('[aria-hidden="true"]')];
+    // BrainBase's "A" positions are the canonical LambdaGlyph (a real SVG
+    // path, not a literal "Λ" character — see its own header comment), so
+    // the hidden node's text is just the surrounding letters, proven
+    // stylised by its 2 glyph SVGs; HLNA's mark is untouched/out of scope
+    // and still renders its literal "Λ" character.
+    const hiddenTexts = hiddenNodes.map(n => n.textContent);
+    expect(hiddenTexts).toContain('BRINBSE');
+    expect(hiddenTexts).toContain('HLNΛ');
+    const brainBaseHidden = hiddenNodes.find(n => n.textContent === 'BRINBSE')!;
+    expect(brainBaseHidden.querySelectorAll('svg')).toHaveLength(2);
   });
 });

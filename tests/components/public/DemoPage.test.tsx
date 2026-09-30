@@ -176,6 +176,13 @@ describe('/demo — brand typography', () => {
     const { container } = renderBrainbase(<DemoPage />)
     const small = container.querySelector('#workspace small')!
     expect(small).toHaveTextContent('BrainBase Platform')
-    expect(small.querySelector('[aria-hidden="true"]')).toHaveTextContent('BRΛINBΛSE')
+    // The stylised mark's "A" positions are the canonical LambdaGlyph (a
+    // real SVG path, not a literal "Λ" character — see its own header
+    // comment) so the hidden node's TEXT content is just the surrounding
+    // letters; the glyph count is what proves both stylised positions
+    // rendered.
+    const hiddenMark = small.querySelector('[aria-hidden="true"]')!
+    expect(hiddenMark).toHaveTextContent('BRINBSE')
+    expect(hiddenMark.querySelectorAll('svg')).toHaveLength(2)
   })
 })

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { LambdaGlyph } from '@/components/brand/LambdaGlyph';
 import styles from './brand.module.css';
 
 // Brand typography rule for the public site:
@@ -18,11 +19,14 @@ function Mark({ name, children, className }: { name: string; children: ReactNode
   );
 }
 
-/** BRΛINBΛSE wordmark text for display contexts. */
+/** BRΛINBΛSE wordmark text for display contexts. Routes the "A" positions
+ * through the canonical LambdaGlyph (see its own header comment) rather
+ * than a font-rendered "Λ" character, so this matches BrainbaseLockup's
+ * treatment exactly. */
 export function BrainBaseMark({ className }: { className?: string }) {
   return (
     <Mark name="BrainBase" className={className}>
-      BR<span className={styles.lambda}>Λ</span>INB<span className={styles.lambda}>Λ</span>SE
+      BR<LambdaGlyph />INB<LambdaGlyph />SE
     </Mark>
   );
 }

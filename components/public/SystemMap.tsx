@@ -1,3 +1,4 @@
+import { LambdaGlyph } from '@/components/brand/LambdaGlyph';
 import styles from './SystemMap.module.css';
 
 // The homepage hero visual: BrainBase's orbital motif redrawn as a calm,
@@ -85,9 +86,16 @@ export function SystemMap({ idPrefix = 'bb-map' }: { idPrefix?: string }) {
       {/* Core */}
       <circle cx={CX} cy={CY} r={30} className={styles.coreRing} />
       <circle cx={CX} cy={CY} r={9} fill="var(--bb-accent)" />
-      <text x={CX} y={CY + 52} textAnchor="middle" className={styles.coreLabel}>
-        BRΛINBΛSE
-      </text>
+      {/* The "A" positions route through the canonical LambdaGlyph (same
+          treatment as BrainbaseLockup/BrainBaseMark), which needs real HTML
+          layout (an inline-block SVG sized in `em` against the surrounding
+          text) — not achievable with a plain SVG `<text>` node — hence the
+          `foreignObject`. */}
+      <foreignObject x={CX - 80} y={CY + 40} width={160} height={20} style={{ overflow: 'visible' }}>
+        <div className={styles.coreLabel}>
+          BR<LambdaGlyph />INB<LambdaGlyph />SE
+        </div>
+      </foreignObject>
 
       {/* HLNA on the inner orbit */}
       <circle cx={hlna.x} cy={hlna.y} r={4.5} className={styles.hlnaNode} />
