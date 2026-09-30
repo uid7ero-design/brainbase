@@ -27,7 +27,8 @@ const uiFiles = walk('app/assurance')
 const libFiles = walk('lib/assurance')
 // In-app Help's pure modules are zero-import too (content.ts is the server-only loader).
 const CLIENT_SAFE_LIB = ['lib/assurance/domain.ts', 'lib/assurance/input.ts', 'lib/assurance/errors.ts', 'lib/assurance/references.ts',
-  'lib/assurance/help/registry.ts', 'lib/assurance/help/markdown.ts', 'lib/assurance/help/search.ts', 'lib/assurance/help/topics.ts']
+  'lib/assurance/help/registry.ts', 'lib/assurance/help/markdown.ts', 'lib/assurance/help/search.ts', 'lib/assurance/help/topics.ts',
+  'lib/assurance/riskLevelRules.ts']
 
 describe('API routes', () => {
   it('exist and every one is built from the authorizing factories', () => {
@@ -87,6 +88,7 @@ describe('pages', () => {
     expect(order).toEqual([
       '/assurance', '/assurance/incidents', '/assurance/investigations', '/assurance/inspections', '/assurance/audits',
       '/assurance/findings', '/assurance/actions', '/assurance/evidence', '/assurance/verification',
+      '/assurance/settings',
     ])
     expect(src).not.toMatch(/aria-disabled/)
     expect(src).not.toMatch(/evaluation|insurance|contractor/i)
@@ -186,7 +188,7 @@ describe('service layer', () => {
     }
   })
   it('every Assurance mutation writes an audit row', () => {
-    for (const f of ['incidents', 'investigations', 'inspections', 'templates', 'audits', 'auditTemplates', 'findings', 'actions', 'evidence', 'verifications']) {
+    for (const f of ['incidents', 'investigations', 'inspections', 'templates', 'audits', 'auditTemplates', 'findings', 'actions', 'evidence', 'verifications', 'riskLevels']) {
       const src = stripComments(read(`lib/assurance/${f}.ts`))
       const writes = (src.match(/\b(INSERT INTO assurance_|UPDATE assurance_)/g) ?? []).length
       const audits = (src.match(/auditInsert\(|auditFromCte\(|INSERT INTO audit_logs/g) ?? []).length
