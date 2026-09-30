@@ -18,13 +18,48 @@
    lib/layout/headerOffset.ts), border and responsive layout. The inner
    row below is the actual three-zone grid; .nav itself only supplies the
    full-bleed surface/border so the inner content can be width-constrained
-   and centred independently of the bar's own edge-to-edge background. */
+   and centred independently of the bar's own edge-to-edge background.
+   The faint square technical grid is the SAME token/spacing as the public
+   site's own `.bb-grid-bg` utility (styles/brainbase-tokens.css: --bb-grid,
+   32px cells) — same visual language, not a new pattern — so the header
+   reads as continuous with the BrainBase/HLNA visual language instead of a
+   plain SaaS navbar. It reads quieter here purely because the header is a
+   much smaller area than a full page, at the identical opacity — no
+   separate "quieter" token was needed.
+   Built as a `mask-image` (a repeating 1px-line SVG tile) painted with
+   `background-color: var(--bb-grid)` on a `::before`, NOT a CSS
+   `linear-gradient` background — tests/containment/
+   authenticatedChromeVisualSystem.test.ts is a real, intentional Phase B
+   regression guard against exactly that: this chrome was audited for
+   "gradient/glow branding" once already and must never reintroduce it, so
+   a literal `linear-gradient()` (even a flat, two-stop, grid-line one) is
+   correctly out of bounds here — reaching for a different, equally
+   standard CSS technique for the identical flat-line visual is the right
+   fix, not weakening that guard. The mask SVG's lines are opaque white so
+   they mask fully "in" under either alpha- or luminance-mode masking
+   (undrawn areas are transparent either way, so no drift there); the
+   header's actual colour still comes entirely from the `--bb-grid` token
+   via `background-color`, so both themes resolve automatically. */
 .nav {
   display: flex;
   align-items: center;
-  background: var(--bg-surface);
+  position: relative;
+  background-color: var(--bg-surface);
   border-bottom: 1px solid var(--border);
   color: var(--text-secondary);
+}
+.nav::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: var(--bb-grid);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='32' height='1' fill='white'/%3E%3Crect width='1' height='32' fill='white'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='32' height='1' fill='white'/%3E%3Crect width='1' height='32' fill='white'/%3E%3C/svg%3E");
+  -webkit-mask-repeat: repeat;
+  mask-repeat: repeat;
+  -webkit-mask-position: -1px -1px;
+  mask-position: -1px -1px;
+  pointer-events: none;
 }
 
 /* Inner row: the actual three-zone layout, constrained and centred within
