@@ -1,0 +1,327 @@
+#!/usr/bin/env bash
+# Data Hub 6.2D4B2A -- real disposable-Postgres integration harness for the
+# resumable normalization executor service (dataHubNormalizationRun.ts,
+# normalizeWorksheetRows.ts, completeNormalizationRun.ts).
+#
+# Extends the exact "prisma db push, drop db-push-created objects, apply the
+# real hand-written migrations in order" methodology established by
+# scripts/tests/verify-datahub-normalization-findings.sh, then runs the
+# service-level (no route, no auth seam) integration suite via
+# `npx vitest run --config vitest.integration.config.ts
+# scripts/tests/dataHubNormalizationExecutor.integration.test.ts`.
+#
+# Never touches Production/Preview/Neon -- DATABASE_URL always points at the
+# disposable container this script itself creates and destroys.
+#
+# USAGE:
+#   bash scripts/tests/verify-datahub-normalization-executor.sh
+
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+D4A_MIGRATION="$REPO_ROOT/scripts/create-datahub-raw-staging.sql"
+D4B_MIGRATION="$REPO_ROOT/scripts/create-datahub-raw-staging-runs.sql"
+D4C_B1_MIGRATION="$REPO_ROOT/scripts/create-datahub-normalized-staging.sql"
+D4C_B2B1_MIGRATION="$REPO_ROOT/scripts/create-datahub-normalization-findings.sql"
+CONTAINER="datahub-6-2d4b2a-executor-harness-$$"
+HOST_PORT=$((20000 + RANDOM % 20000))
+
+cleanup() {
+  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+for f in "$D4A_MIGRATION" "$D4B_MIGRATION" "$D4C_B1_MIGRATION" "$D4C_B2B1_MIGRATION"; do
+  if [ ! -f "$f" ]; then
+    echo "ERROR: required SQL file not found at $f" >&2
+    exit 2
+  fi
+done
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "ERROR: docker is required to run this harness." >&2
+  exit 2
+fi
+
+echo "Starting disposable postgres:16-alpine ($CONTAINER) on host port $HOST_PORT..."
+docker run -d --name "$CONTAINER" \
+  -e POSTGRES_PASSWORD=test -e POSTGRES_DB=testdb \
+  -p "127.0.0.1:${HOST_PORT}:5432" \
+  postgres:16-alpine >/dev/null
+
+READY=0
+for i in $(seq 1 30); do
+  if docker exec "$CONTAINER" pg_isready -U postgres >/dev/null 2>&1; then READY=1; break; fi
+  sleep 1
+done
+if [ "$READY" -ne 1 ]; then
+  echo "ERROR: postgres in $CONTAINER did not become ready within 30s." >&2
+  exit 2
+fi
+
+export DATABASE_URL="postgresql://postgres:test@localhost:${HOST_PORT}/testdb"
+export DIRECT_URL="$DATABASE_URL"
+cd "$REPO_ROOT"
+
+DIAG_OUT="$(mktemp 2>/dev/null || echo "/tmp/harness_6_2d4b2a_last_out.$$.txt")"
+trap 'rm -f "$DIAG_OUT"; cleanup' EXIT
+
+echo "Bootstrapping the full current Prisma schema via db push..."
+if ! npx prisma db push --skip-generate --accept-data-loss >"$DIAG_OUT" 2>&1; then
+  echo "ERROR: prisma db push failed." >&2; cat "$DIAG_OUT"; exit 2
+fi
+
+echo "Dropping db-push-created D4A/D4B/D4C-B1/B2B1 objects imprecisely created by db push..."
+docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1 <<'SQL' >"$DIAG_OUT" 2>&1
+DROP TABLE IF EXISTS data_hub_normalization_findings CASCADE;
+DROP TABLE IF EXISTS data_hub_normalized_cells CASCADE;
+DROP TABLE IF EXISTS data_hub_normalized_rows CASCADE;
+DROP TABLE IF EXISTS data_hub_normalization_runs CASCADE;
+DROP TABLE IF EXISTS data_hub_raw_cells CASCADE;
+DROP TABLE IF EXISTS data_hub_raw_rows CASCADE;
+DROP TABLE IF EXISTS data_hub_raw_staging_runs CASCADE;
+ALTER TABLE uploads DROP COLUMN IF EXISTS raw_staged_at;
+ALTER TABLE uploads DROP COLUMN IF EXISTS raw_staged_by;
+ALTER TABLE uploads DROP COLUMN IF EXISTS raw_profile_version_id;
+ALTER TABLE uploads DROP COLUMN IF EXISTS raw_row_count;
+ALTER TABLE uploads DROP COLUMN IF EXISTS raw_cell_count;
+ALTER TABLE uploads DROP COLUMN IF EXISTS raw_staging_run_id;
+ALTER TABLE uploads DROP COLUMN IF EXISTS normalized_at;
+ALTER TABLE uploads DROP COLUMN IF EXISTS normalized_by;
+ALTER TABLE uploads DROP COLUMN IF EXISTS normalized_profile_version_id;
+ALTER TABLE uploads DROP COLUMN IF EXISTS normalized_row_count;
+ALTER TABLE uploads DROP COLUMN IF EXISTS normalized_cell_count;
+ALTER TABLE uploads DROP COLUMN IF EXISTS normalization_run_id;
+DROP INDEX IF EXISTS import_batches_id_schema_version_organisation_key;
+DROP INDEX IF EXISTS uploads_id_import_batch_organisation_key;
+DROP INDEX IF EXISTS source_schema_worksheets_id_version_organisation_key;
+DROP INDEX IF EXISTS worksheet_mapping_profiles_id_worksheet_organisation_key;
+DROP INDEX IF EXISTS source_schema_columns_id_worksheet_ordinal_organisation_key;
+DROP INDEX IF EXISTS source_schema_columns_raw_evidence_key;
+SQL
+if [ $? -ne 0 ]; then
+  echo "ERROR: drift normalization failed." >&2; cat "$DIAG_OUT"; exit 2
+fi
+
+echo "Applying the real D4A -> D4B -> D4C-B1 -> D4C-B2B1 migrations, unmodified, in order..."
+for f in "$D4A_MIGRATION" "$D4B_MIGRATION" "$D4C_B1_MIGRATION" "$D4C_B2B1_MIGRATION"; do
+  if ! docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1 < "$f" >"$DIAG_OUT" 2>&1; then
+    echo "ERROR: $(basename "$f") failed to apply." >&2; cat "$DIAG_OUT"; exit 2
+  fi
+done
+
+echo "DATABASE_URL=$DATABASE_URL (disposable container only)"
+echo ""
+echo "=== Running the B2B2A executor integration suite ==="
+npx vitest run --config vitest.integration.config.ts scripts/tests/dataHubNormalizationExecutor.integration.test.ts
+RESULT=$?
+
+if [ $RESULT -ne 0 ]; then
+  echo "FAIL: Data Hub 6.2D4B2A normalization executor integration suite (exit $RESULT)."
+  exit $RESULT
+fi
+echo "PASS: Data Hub 6.2D4B2A normalization executor integration suite."
+
+# ─────────────────────────────────────────────────────────────────────
+# MUTATION PROOF (task point 17) — change resume to read the CURRENT
+# active profile pointer instead of the run's own pin, and prove the
+# "active-pointer immunity across resume" pinning tests actually fail
+# without the real (unmutated) code's own discipline.
+# ─────────────────────────────────────────────────────────────────────
+RUN_TS="$REPO_ROOT/lib/data-hub/normalizationExecution/dataHubNormalizationRun.ts"
+BACKUP="$(mktemp 2>/dev/null || echo "/tmp/dataHubNormalizationRun.ts.bak.$$")"
+cp "$RUN_TS" "$BACKUP"
+restore_run_ts() { [ -f "$BACKUP" ] && cp "$BACKUP" "$RUN_TS" && rm -f "$BACKUP"; return 0; }
+trap 'restore_run_ts; cleanup' EXIT
+
+echo ""
+echo "=== MUTATION PROOF — resume reads the CURRENT active profile pointer instead of its own pin ==="
+awk '
+  /PINNED_RESUME_PLAN_BEGIN/ {
+    print;
+    print "    const __mutationTestActiveProfile = await prisma.worksheetMappingProfile.findFirst({ where: { id: run.worksheet_mapping_profile_id, organisation_id: organisationId }, select: { active_profile_version_id: true } });";
+    print "    planResult = await resolvePlanForPinnedVersion({";
+    print "      organisationId,";
+    print "      worksheetMappingProfileId: run.worksheet_mapping_profile_id,";
+    print "      worksheetMappingProfileVersionId: __mutationTestActiveProfile?.active_profile_version_id ?? run.worksheet_mapping_profile_version_id,";
+    print "      sourceSchemaWorksheetId: run.source_schema_worksheet_id,";
+    print "    });";
+    skip=1;
+    next
+  }
+  /PINNED_RESUME_PLAN_END/ { print; skip=0; next }
+  skip==1 { next }
+  { print }
+' "$BACKUP" > "$RUN_TS"
+
+if grep -q "__mutationTestActiveProfile" "$RUN_TS"; then
+  echo "  Mutation applied. Re-running the pinning suite (expecting the active-pointer-immunity tests to FAIL)..."
+else
+  echo "ERROR: mutation failed to apply (marker not found)." >&2
+  exit 2
+fi
+
+npx vitest run --config vitest.integration.config.ts scripts/tests/dataHubNormalizationExecutor.integration.test.ts -t "active-pointer immunity" >"$DIAG_OUT" 2>&1
+MUTATION_RESULT=$?
+if [ $MUTATION_RESULT -eq 0 ]; then
+  echo "FAIL (mutation proof): the active-pointer-immunity tests WRONGLY passed under the mutated (active-pointer-reading) code." >&2
+  cat "$DIAG_OUT"
+  restore_run_ts
+  exit 1
+fi
+if ! grep -q "active-pointer immunity across resume > moving the active profile version AFTER run creation" "$DIAG_OUT"; then
+  echo "WARNING: mutation proof failed for an unexpected reason (not clearly the pinning assertion) -- inspect output:" >&2
+  cat "$DIAG_OUT"
+fi
+echo "  PASS (fail-loud): mutation proof confirms the active-pointer-immunity tests actually depend on resume never reading the active pointer."
+
+# ─────────────────────────────────────────────────────────────────────
+# MUTATION PROOF (blocker 1) — strip the terminal-disposition block back
+# to the original bug: return the failure code WITHOUT durably failing
+# the run, proving the "terminal disposition" tests (A-E) actually depend
+# on it and would otherwise leave a stranded live RUNNING lease.
+# ─────────────────────────────────────────────────────────────────────
+echo ""
+echo "=== MUTATION PROOF — resume returns a pinned-context failure WITHOUT durably failing the run (blocker 1 regression) ==="
+awk '
+  /TERMINAL_DISPOSITION_BEGIN/ {
+    print;
+    print "  return { ok: false, code };";
+    skip=1;
+    next
+  }
+  /TERMINAL_DISPOSITION_END/ { print; skip=0; next }
+  skip==1 { next }
+  { print }
+' "$BACKUP" > "$RUN_TS"
+
+if grep -q "return { ok: false, code };" "$RUN_TS"; then
+  echo "  Mutation applied. Re-running the terminal-disposition suite (expecting tests A-E to FAIL)..."
+else
+  echo "ERROR: mutation failed to apply (marker not found)." >&2
+  exit 2
+fi
+
+npx vitest run --config vitest.integration.config.ts scripts/tests/dataHubNormalizationExecutor.integration.test.ts -t "terminal disposition" >"$DIAG_OUT" 2>&1
+MUTATION_RESULT=$?
+if [ $MUTATION_RESULT -eq 0 ]; then
+  echo "FAIL (mutation proof): the terminal-disposition tests WRONGLY passed under the mutated (no-disposition) code." >&2
+  cat "$DIAG_OUT"
+  restore_run_ts
+  exit 1
+fi
+if ! grep -qE "Test A\]|Test B\]|Test C\]|Test D\]|Test E\]" "$DIAG_OUT"; then
+  echo "WARNING: mutation proof failed for an unexpected reason (not clearly tests A-E) -- inspect output:" >&2
+  cat "$DIAG_OUT"
+fi
+echo "  PASS (fail-loud): mutation proof confirms tests A-E actually depend on the run being durably FAILED, not just returning a failure code."
+
+# ─────────────────────────────────────────────────────────────────────
+# MUTATION PROOF (blocker 2) — strip the create-race translation back to
+# a bare re-throw, proving the strengthened race test actually depends on
+# it and would otherwise observe a raw/rejected Prisma exception.
+# ─────────────────────────────────────────────────────────────────────
+echo ""
+echo "=== MUTATION PROOF — create-race unique-conflict translation removed, bare re-throw restored (blocker 2 regression) ==="
+awk '
+  /CREATE_RACE_TRANSLATION_BEGIN/ {
+    print;
+    print "    throw err;";
+    skip=1;
+    next
+  }
+  /CREATE_RACE_TRANSLATION_END/ { print; skip=0; next }
+  skip==1 { next }
+  { print }
+' "$BACKUP" > "$RUN_TS"
+
+if grep -q "throw err;" "$RUN_TS"; then
+  echo "  Mutation applied. Re-running the blocker-2 race tests (expecting the deterministic test to observe a rejected/raw Prisma outcome)..."
+else
+  echo "ERROR: mutation failed to apply (marker not found)." >&2
+  exit 2
+fi
+
+npx vitest run --config vitest.integration.config.ts scripts/tests/dataHubNormalizationExecutor.integration.test.ts -t "blocker 2" >"$DIAG_OUT" 2>&1
+MUTATION_RESULT=$?
+if [ $MUTATION_RESULT -eq 0 ]; then
+  echo "FAIL (mutation proof): the blocker-2 race tests WRONGLY passed under the mutated (re-throw) code." >&2
+  cat "$DIAG_OUT"
+  restore_run_ts
+  exit 1
+fi
+if ! grep -qE "rejected|PrismaClientKnownRequestError|Unique constraint failed" "$DIAG_OUT"; then
+  echo "WARNING: mutation proof failed for an unexpected reason (not clearly a leaked Prisma exception) -- inspect output:" >&2
+  cat "$DIAG_OUT"
+fi
+echo "  PASS (fail-loud): mutation proof confirms the deterministic race test actually depends on the unique-conflict translation, not a bare re-throw."
+
+# ─────────────────────────────────────────────────────────────────────
+# MUTATION PROOF (final blocker) — strip the post-takeover try/catch back
+# to the original unwrapped reads (the pre-fix bug: a thrown DB/Prisma
+# exception during context resolution propagates straight out of
+# createOrResumeNormalizationRun, unhandled, leaving the freshly-taken-over
+# lease live/stranded), proving the transient-failure tests (1-5) actually
+# depend on the fix.
+# ─────────────────────────────────────────────────────────────────────
+echo ""
+echo "=== MUTATION PROOF — post-takeover context-resolution reads un-wrapped from try/catch (final blocker regression) ==="
+awk '
+  /POST_TAKEOVER_DB_FAILURE_BEGIN/ {
+    print;
+    print "    const run = await prisma.dataHubNormalizationRun.findFirstOrThrow({";
+    print "      where: { id: existing.id, organisation_id: organisationId },";
+    print "    });";
+    print "    const rawRun = await prisma.dataHubRawStagingRun.findFirst({";
+    print "      where: { id: run.raw_staging_run_id, organisation_id: organisationId },";
+    print "      select: { status: true },";
+    print "    });";
+    print "    const planResult = await resolvePlanForPinnedVersion({";
+    print "      organisationId,";
+    print "      worksheetMappingProfileId: run.worksheet_mapping_profile_id,";
+    print "      worksheetMappingProfileVersionId: run.worksheet_mapping_profile_version_id,";
+    print "      sourceSchemaWorksheetId: run.source_schema_worksheet_id,";
+    print "    });";
+    skip=1;
+    next
+  }
+  /POST_TAKEOVER_DB_FAILURE_END/ { print; skip=0; next }
+  skip==1 { next }
+  { print }
+' "$BACKUP" > "$RUN_TS"
+
+if grep -q "const run = await prisma.dataHubNormalizationRun.findFirstOrThrow" "$RUN_TS"; then
+  echo "  Mutation applied. Re-running the transient-failure suite (expecting tests 1-5 to FAIL or throw unhandled)..."
+else
+  echo "ERROR: mutation failed to apply (marker not found)." >&2
+  exit 2
+fi
+
+npx vitest run --config vitest.integration.config.ts scripts/tests/dataHubNormalizationExecutor.integration.test.ts -t "final blocker" >"$DIAG_OUT" 2>&1
+MUTATION_RESULT=$?
+if [ $MUTATION_RESULT -eq 0 ]; then
+  echo "FAIL (mutation proof): the transient-failure tests WRONGLY passed under the mutated (unwrapped-reads) code." >&2
+  cat "$DIAG_OUT"
+  restore_run_ts
+  exit 1
+fi
+if ! grep -qE "simulated (normalization-run reread|pinned raw-run read|pinned-profile|governed-column) failure|unhandled" "$DIAG_OUT"; then
+  echo "WARNING: mutation proof failed for an unexpected reason -- inspect output:" >&2
+  cat "$DIAG_OUT"
+fi
+echo "  PASS (fail-loud): mutation proof confirms the transient-failure tests actually depend on the post-takeover try/catch, and would otherwise observe a stranded live RUNNING lease."
+
+echo ""
+echo "Restoring the real (unmutated) dataHubNormalizationRun.ts and re-running the FULL suite for a clean round-trip..."
+restore_run_ts
+trap 'cleanup' EXIT
+npx vitest run --config vitest.integration.config.ts scripts/tests/dataHubNormalizationExecutor.integration.test.ts
+RESULT=$?
+
+if [ $RESULT -eq 0 ]; then
+  echo "PASS: Data Hub 6.2D4B2A normalization executor integration suite (post-mutation-proof round-trip)."
+else
+  echo "FAIL: Data Hub 6.2D4B2A normalization executor integration suite round-trip (exit $RESULT)."
+fi
+
+exit $RESULT
