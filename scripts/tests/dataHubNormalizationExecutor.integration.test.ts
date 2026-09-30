@@ -471,6 +471,154 @@ describe("resume: terminal disposition on pinned-context validation failure (blo
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// RESUME: TRANSIENT DB/PRISMA FAILURE DURING POST-TAKEOVER CONTEXT
+// RESOLUTION (FINAL REMEDIATION)
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Distinct from blocker 1's tests (A-E): those prove DETERMINISTIC pinned-
+// context INVALIDITY durably fails the run. These prove a purely
+// INFRASTRUCTURE read exception (the database itself, not the run's own
+// semantics) never durably fails the run -- it releases the SAME lease
+// immediately so the very next request can retake it, or reports
+// LEASE_LOST if ownership was already lost in between.
+
+async function expectTransientFailureThenImmediateRetakeover(runId: string, uploadId: string, userId: string) {
+  // The lease was released immediately (lease_expires_at <= now()), not
+  // left live for the full lease duration, and the run's own semantic
+  // status is untouched (still RUNNING, never durably FAILED for a purely
+  // transient infrastructure blip).
+  const run = await prisma.dataHubNormalizationRun.findFirstOrThrow({ where: { id: runId } });
+  expect(run.status).toBe("RUNNING");
+  expect(run.failure_code).toBeNull();
+  expect(run.lease_expires_at.getTime()).toBeLessThanOrEqual(Date.now());
+
+  // The very next request can immediately take over -- no waiting out the
+  // full lease window.
+  const retaken = await createOrResumeNormalizationRun({ organisationId: ORG, uploadId, actorUserId: userId });
+  expect(retaken.ok).toBe(true);
+  if (!retaken.ok || retaken.alreadyNormalized) throw new Error("expected an immediate retakeover");
+  expect(retaken.run.id).toBe(runId);
+}
+
+describe("resume: transient DB/Prisma failure during post-takeover context resolution (final blocker)", () => {
+  it("[Test 1] normalization-run reread throws after takeover -> PERSISTENCE_FAILURE, lease immediately released, next request retakes over immediately", async () => {
+    const s = nextSuffix("transient1");
+    const { ids, created } = await seedTakeoverReadyRun(s);
+    const spy = vi.spyOn(servicePrisma.dataHubNormalizationRun, "findFirstOrThrow").mockImplementationOnce(async () => {
+      throw new Error("simulated normalization-run reread failure");
+    });
+    let result: Awaited<ReturnType<typeof createOrResumeNormalizationRun>>;
+    try {
+      result = await createOrResumeNormalizationRun({ organisationId: ORG, uploadId: ids.uploadId, actorUserId: ids.userId });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(result).toEqual({ ok: false, code: "PERSISTENCE_FAILURE" });
+    await expectTransientFailureThenImmediateRetakeover(created.run.id, ids.uploadId, ids.userId);
+  });
+
+  it("[Test 2] pinned raw-run read throws after takeover -> same result", async () => {
+    const s = nextSuffix("transient2");
+    const { ids, created } = await seedTakeoverReadyRun(s);
+    const spy = vi.spyOn(servicePrisma.dataHubRawStagingRun, "findFirst").mockImplementationOnce(async () => {
+      throw new Error("simulated pinned raw-run read failure");
+    });
+    let result: Awaited<ReturnType<typeof createOrResumeNormalizationRun>>;
+    try {
+      result = await createOrResumeNormalizationRun({ organisationId: ORG, uploadId: ids.uploadId, actorUserId: ids.userId });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(result).toEqual({ ok: false, code: "PERSISTENCE_FAILURE" });
+    await expectTransientFailureThenImmediateRetakeover(created.run.id, ids.uploadId, ids.userId);
+  });
+
+  it("[Test 3] pinned-profile/version resolution throws after takeover -> same result", async () => {
+    const s = nextSuffix("transient3");
+    const { ids, created } = await seedTakeoverReadyRun(s);
+    const spy = vi.spyOn(servicePrisma.worksheetMappingProfileVersion, "findFirst").mockImplementationOnce(async () => {
+      throw new Error("simulated pinned-profile resolution failure");
+    });
+    let result: Awaited<ReturnType<typeof createOrResumeNormalizationRun>>;
+    try {
+      result = await createOrResumeNormalizationRun({ organisationId: ORG, uploadId: ids.uploadId, actorUserId: ids.userId });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(result).toEqual({ ok: false, code: "PERSISTENCE_FAILURE" });
+    await expectTransientFailureThenImmediateRetakeover(created.run.id, ids.uploadId, ids.userId);
+  });
+
+  it("[Test 4] governed-column resolution throws after takeover -> same result", async () => {
+    const s = nextSuffix("transient4");
+    const { ids, created } = await seedTakeoverReadyRun(s);
+    const spy = vi.spyOn(servicePrisma.sourceSchemaColumn, "findMany").mockImplementationOnce(async () => {
+      throw new Error("simulated governed-column resolution failure");
+    });
+    let result: Awaited<ReturnType<typeof createOrResumeNormalizationRun>>;
+    try {
+      result = await createOrResumeNormalizationRun({ organisationId: ORG, uploadId: ids.uploadId, actorUserId: ids.userId });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(result).toEqual({ ok: false, code: "PERSISTENCE_FAILURE" });
+    await expectTransientFailureThenImmediateRetakeover(created.run.id, ids.uploadId, ids.userId);
+  });
+
+  it("[Test 5] ownership lost between takeover and the cleanup-release attempt -> LEASE_LOST, never falsely claims the transient-failure cleanup succeeded", async () => {
+    const s = nextSuffix("transient5");
+    const { ids, created } = await seedTakeoverReadyRun(s);
+    const stolenToken = "stolen-token-" + s;
+    // A single mocked call both throws (forcing this caller into the
+    // transient-failure cleanup path) AND, as a side effect, genuinely
+    // steals the run's lease/token -- reproducing the exact race window
+    // between this worker's takeover and its own cleanup-release attempt.
+    const spy = vi.spyOn(servicePrisma.dataHubRawStagingRun, "findFirst").mockImplementationOnce(async () => {
+      await prisma.$executeRawUnsafe(`UPDATE data_hub_normalization_runs SET execution_token = '${stolenToken}', lease_expires_at = now() + interval '1 hour' WHERE id = '${created.run.id}'`);
+      throw new Error("simulated pinned raw-run read failure (racing a real takeover)");
+    });
+    let result: Awaited<ReturnType<typeof createOrResumeNormalizationRun>>;
+    try {
+      result = await createOrResumeNormalizationRun({ organisationId: ORG, uploadId: ids.uploadId, actorUserId: ids.userId });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(result).toEqual({ ok: false, code: "LEASE_LOST" });
+    // The OTHER worker's real, live claim is completely untouched -- the
+    // failed cleanup-release attempt did not steal it back or expire it.
+    const run = await prisma.dataHubNormalizationRun.findFirstOrThrow({ where: { id: created.run.id } });
+    expect(run.status).toBe("RUNNING");
+    expect(run.execution_token).toBe(stolenToken);
+    expect(run.lease_expires_at.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("[Test 6] deterministic semantic validation failures are UNCHANGED by this remediation -- still durably FAILED, not treated as transient", async () => {
+    // Cross-check against blocker 1's own tests A/B/D (unsupported
+    // version, raw run not SUCCEEDED, pinned v1 profile) -- proving the
+    // post-takeover try/catch this remediation adds does NOT swallow or
+    // reclassify a genuine, deterministic pinned-context invalidity as a
+    // transient PERSISTENCE_FAILURE/LEASE_LOST.
+    const s = nextSuffix("transient6");
+    const { ids, created } = await seedTakeoverReadyRun(s);
+    await prisma.$executeRawUnsafe(`UPDATE worksheet_mapping_profile_versions SET profile_document = '{"documentVersion":1,"schemaStatus":"DRAFT","headerRowOneBased":3}' WHERE id = '${ids.pvId}'`);
+    const result = await createOrResumeNormalizationRun({ organisationId: ORG, uploadId: ids.uploadId, actorUserId: ids.userId });
+    expect(result).toEqual({ ok: false, code: "NORMALIZATION_INELIGIBLE" });
+    const run = await prisma.dataHubNormalizationRun.findFirstOrThrow({ where: { id: created.run.id } });
+    expect(run.status).toBe("FAILED");
+    expect(run.failure_code).toBe("NORMALIZATION_INELIGIBLE");
+  });
+
+  it("mutation proof marker sanity: the post-takeover DB-failure block exists and wraps the three context-resolution reads in try/catch", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const src = fs.readFileSync(path.join(process.cwd(), "lib/data-hub/normalizationExecution/dataHubNormalizationRun.ts"), "utf8");
+    expect(src).toContain("POST_TAKEOVER_DB_FAILURE_BEGIN");
+    expect(src).toContain("POST_TAKEOVER_DB_FAILURE_END");
+    expect(src).toContain("releaseClaimAfterResolutionFailure");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // CONCURRENCY
 // ═══════════════════════════════════════════════════════════════════════
 

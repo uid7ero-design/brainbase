@@ -73,13 +73,21 @@ describe("6.2D4B2A -- normalizer-version contract", () => {
     expect(RUN_CODE).toMatch(/normalizer_version:\s*NORMALIZER_VERSION/);
   });
 
-  it("resume rejects an unsupported normalizer_version BEFORE resolving any plan/context, with a stable code", () => {
+  it("resume rejects an unsupported normalizer_version BEFORE ever returning a successful ActiveNormalizationRun, with a stable code", () => {
+    // FINAL REMEDIATION note: the normalizer_version check now runs AFTER
+    // the post-takeover context-resolution try/catch (which resolves the
+    // plan together with the other reads, so all three share ONE narrow
+    // try/catch -- see the dedicated describe block below), rather than
+    // before the resolvePlanForPinnedVersion call textually. What still
+    // holds, and is asserted here: the version check happens strictly
+    // BEFORE the function can ever return a successful run (an unsupported
+    // version can never slip through to a returned ActiveNormalizationRun).
     const existingBranchStart = RUN_CODE.indexOf("if (existing) {");
     const versionCheckIdx = RUN_CODE.indexOf("run.normalizer_version !== NORMALIZER_VERSION", existingBranchStart);
-    const planResolveIdx = RUN_CODE.indexOf("resolvePlanForPinnedVersion(", existingBranchStart);
+    const successReturnIdx = RUN_CODE.indexOf("alreadyNormalized: false,\n      run: {\n        id: run.id,", existingBranchStart);
     expect(existingBranchStart).toBeGreaterThan(-1);
     expect(versionCheckIdx).toBeGreaterThan(existingBranchStart);
-    expect(planResolveIdx).toBeGreaterThan(versionCheckIdx);
+    expect(successReturnIdx).toBeGreaterThan(versionCheckIdx);
     expect(RUN_CODE).toContain('"NORMALIZER_VERSION_UNSUPPORTED"');
   });
 });
@@ -564,5 +572,52 @@ describe("6.2D4B2A REMEDIATION (hardening 3) -- completion race window classifie
     expect(catchBody).toContain('code: "LEASE_LOST"');
     expect(catchBody).toContain('code: "COMPLETION_REJECTED"');
     expect(COMPLETE_CODE).not.toMatch(/actual_row_count|expected_row_count|blocking_finding_count/);
+  });
+});
+
+describe("6.2D4B2A FINAL REMEDIATION -- post-takeover DB/Prisma read failure never escapes, never falsely durably fails the run", () => {
+  it("declares the narrow releaseClaimAfterResolutionFailure helper, distinct from failResumedRunAndReturn -- releases the SAME lease, never calls markNormalizationRunFailed", () => {
+    const fnStart = RUN_CODE.indexOf("async function releaseClaimAfterResolutionFailure(");
+    const fnEnd = RUN_CODE.indexOf("\n}\n", fnStart);
+    const fnBody = RUN_CODE.slice(fnStart, fnEnd);
+    expect(fnStart).toBeGreaterThan(-1);
+    expect(fnBody).toContain("releaseNormalizationLeaseForYield(");
+    expect(fnBody).not.toContain("markNormalizationRunFailed(");
+    expect(fnBody).toMatch(/if \(!released\) \{\s*return \{ ok: false, code: "LEASE_LOST" \};/);
+    expect(fnBody).toContain('code: "PERSISTENCE_FAILURE"');
+  });
+
+  it("the three post-takeover context-resolution reads (run reread, raw-run read, plan resolution) are wrapped in ONE try/catch that routes exclusively through releaseClaimAfterResolutionFailure", () => {
+    const beginIdx = RUN_TS.indexOf("POST_TAKEOVER_DB_FAILURE_BEGIN");
+    const endIdx = RUN_TS.indexOf("// POST_TAKEOVER_DB_FAILURE_END");
+    expect(beginIdx).toBeGreaterThan(-1);
+    expect(endIdx).toBeGreaterThan(beginIdx);
+    const block = RUN_TS.slice(beginIdx, endIdx);
+    expect(block).toContain("findFirstOrThrow(");
+    expect(block).toContain("dataHubRawStagingRun.findFirst(");
+    expect(block).toContain("resolvePlanForPinnedVersion(");
+    expect(block).toMatch(/try\s*\{/);
+    expect(block).toMatch(/\}\s*catch\s*\{\s*return await releaseClaimAfterResolutionFailure\(organisationId, existing\.id, newToken\);\s*\}/);
+  });
+
+  it("deterministic validation checks (normalizer_version, raw run status, plan result) sit OUTSIDE the try/catch -- a non-throwing failure code is never caught/reclassified as transient", () => {
+    const endIdx = RUN_TS.indexOf("// POST_TAKEOVER_DB_FAILURE_END");
+    const afterBlock = RUN_TS.slice(endIdx, endIdx + 800);
+    expect(afterBlock).toContain("failResumedRunAndReturn(organisationId, run.id, newToken, \"NORMALIZER_VERSION_UNSUPPORTED\")");
+    expect(afterBlock).toContain("failResumedRunAndReturn(organisationId, run.id, newToken, \"RAW_RUN_NOT_SUCCEEDED\")");
+    expect(afterBlock).toContain("failResumedRunAndReturn(organisationId, run.id, newToken, planResult.code)");
+  });
+
+  it("never exposes Prisma/driver/SQL error text -- the catch clause discards the caught error entirely (no error variable, no message interpolation)", () => {
+    const beginIdx = RUN_TS.indexOf("POST_TAKEOVER_DB_FAILURE_BEGIN");
+    const endIdx = RUN_TS.indexOf("// POST_TAKEOVER_DB_FAILURE_END");
+    const block = RUN_TS.slice(beginIdx, endIdx);
+    expect(block).toMatch(/\}\s*catch\s*\{/); // no bound error identifier
+    expect(block).not.toMatch(/catch\s*\(\s*\w+\s*\)/);
+  });
+
+  it("mutation proof marker sanity: the post-takeover DB-failure block markers exist and bound exactly the three reads", () => {
+    expect(RUN_TS).toContain("POST_TAKEOVER_DB_FAILURE_BEGIN");
+    expect(RUN_TS).toContain("POST_TAKEOVER_DB_FAILURE_END");
   });
 });

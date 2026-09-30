@@ -127,6 +127,26 @@ async function failResumedRunAndReturn(
   // TERMINAL_DISPOSITION_END
 }
 
+// REMEDIATION (review, final blocker) — the narrow release helper a
+// post-takeover DB/Prisma read exception routes through (never a broad
+// catch around the whole public function). Releases the SAME lease this
+// worker just took over (conditioned on exact run/organisation/token/
+// RUNNING, via releaseNormalizationLeaseForYield) so the very next request
+// can immediately take over and retry -- the run stays RUNNING and
+// immediately re-acquirable, never durably FAILED for what may be a purely
+// transient infrastructure blip unrelated to the run's own (possibly
+// perfectly valid) semantics. If that release cannot apply because
+// ownership was already lost to another worker between takeover and this
+// failure, reports LEASE_LOST rather than falsely claiming the release
+// succeeded. Never exposes Prisma/driver/SQL error text.
+async function releaseClaimAfterResolutionFailure(organisationId: string, runId: string, executionToken: string): Promise<CreateOrResumeNormalizationResult> {
+  const released = await releaseNormalizationLeaseForYield({ organisationId, runId, executionToken });
+  if (!released) {
+    return { ok: false, code: "LEASE_LOST" };
+  }
+  return { ok: false, code: "PERSISTENCE_FAILURE" };
+}
+
 type ResolvePlanFailureCode = "INVALID_STATE" | "PROFILE_DOCUMENT_INVALID" | "NORMALIZATION_INELIGIBLE" | "NORMALIZATION_PLAN_INVALID";
 
 /**
@@ -209,30 +229,51 @@ export async function createOrResumeNormalizationRun(context: {
     const took = await tryTakeoverExisting(existing.id, organisationId, newToken, leaseSeconds);
     if (!took) return { ok: false, code: "RUN_ALREADY_IN_PROGRESS" };
 
-    const run = await prisma.dataHubNormalizationRun.findFirstOrThrow({
-      where: { id: existing.id, organisation_id: organisationId },
-    });
+    // REMEDIATION (review, final blocker) — once takeover succeeds, this
+    // worker owns a NEW live lease. The reads below (reload the run,
+    // load the pinned raw staging run, resolve the pinned profile version
+    // + governed columns into a plan) can throw for purely INFRASTRUCTURE
+    // reasons (a transient DB/Prisma/provider failure) -- completely
+    // distinct from a DETERMINISTIC pinned-context invalidity (wrong
+    // version / raw run not SUCCEEDED / unparseable profile), which stays
+    // a normal, non-throwing return handled by failResumedRunAndReturn
+    // below. A thrown exception here must NEVER escape this function
+    // (violating the closed service-result contract) and must NEVER be
+    // treated as if the run's own immutable semantics were invalid --
+    // the run may be perfectly valid; the database was merely
+    // unavailable a moment ago. POST_TAKEOVER_DB_FAILURE_BEGIN (mutation-proof harness marker — do not remove or rename; scripts/tests/verify-datahub-normalization-executor.sh's mutation-proof phase replaces exactly this block to prove the transient-failure tests actually depend on it)
+    let run: Awaited<ReturnType<typeof prisma.dataHubNormalizationRun.findFirstOrThrow>>;
+    let rawRun: { status: string } | null;
+    let planResult: Awaited<ReturnType<typeof resolvePlanForPinnedVersion>>;
+    try {
+      run = await prisma.dataHubNormalizationRun.findFirstOrThrow({
+        where: { id: existing.id, organisation_id: organisationId },
+      });
+      rawRun = await prisma.dataHubRawStagingRun.findFirst({
+        where: { id: run.raw_staging_run_id, organisation_id: organisationId },
+        select: { status: true },
+      });
+      // PINNED_RESUME_PLAN_BEGIN (mutation-proof harness marker — do not remove or rename; scripts/tests/verify-datahub-normalization-executor.sh's mutation-proof phase replaces exactly this block to prove the pinning tests actually depend on it)
+      planResult = await resolvePlanForPinnedVersion({
+        organisationId,
+        worksheetMappingProfileId: run.worksheet_mapping_profile_id,
+        worksheetMappingProfileVersionId: run.worksheet_mapping_profile_version_id,
+        sourceSchemaWorksheetId: run.source_schema_worksheet_id,
+      });
+      // PINNED_RESUME_PLAN_END
+    } catch {
+      return await releaseClaimAfterResolutionFailure(organisationId, existing.id, newToken);
+    }
+    // POST_TAKEOVER_DB_FAILURE_END
 
     if (run.normalizer_version !== NORMALIZER_VERSION) {
       return failResumedRunAndReturn(organisationId, run.id, newToken, "NORMALIZER_VERSION_UNSUPPORTED");
     }
 
-    const rawRun = await prisma.dataHubRawStagingRun.findFirst({
-      where: { id: run.raw_staging_run_id, organisation_id: organisationId },
-      select: { status: true },
-    });
     if (!rawRun || rawRun.status !== "SUCCEEDED") {
       return failResumedRunAndReturn(organisationId, run.id, newToken, "RAW_RUN_NOT_SUCCEEDED");
     }
 
-    // PINNED_RESUME_PLAN_BEGIN (mutation-proof harness marker — do not remove or rename; scripts/tests/verify-datahub-normalization-executor.sh's mutation-proof phase replaces exactly this block to prove the pinning tests actually depend on it)
-    const planResult = await resolvePlanForPinnedVersion({
-      organisationId,
-      worksheetMappingProfileId: run.worksheet_mapping_profile_id,
-      worksheetMappingProfileVersionId: run.worksheet_mapping_profile_version_id,
-      sourceSchemaWorksheetId: run.source_schema_worksheet_id,
-    });
-    // PINNED_RESUME_PLAN_END
     if (!planResult.ok) {
       return failResumedRunAndReturn(organisationId, run.id, newToken, planResult.code);
     }
