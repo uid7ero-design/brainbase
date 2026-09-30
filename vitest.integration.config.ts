@@ -119,6 +119,10 @@ import path from 'path';
 // scripts/tests/verify-assurance-ui-services.sh), same explicit-file-argument
 // isolation as every spec above.
 //
+// Settings → Risk levels addition: scripts/tests/assuranceRiskLevelSettings
+// .integration.test.ts (see scripts/tests/verify-assurance-risk-level-settings.sh),
+// same explicit-file-argument isolation.
+//
 // Assurance risk bootstrap addition: scripts/tests/assuranceRiskBootstrap
 // .integration.test.ts (the application regression over the seeded
 // Brainbase risk scale — see scripts/tests/verify-assurance-risk-bootstrap.sh),
@@ -156,6 +160,7 @@ export default defineConfig({
       'scripts/tests/hrLifecycleWorkflowActions.integration.test.ts',
       'scripts/tests/dataHubStageWorksheetRoute.integration.test.ts',
       'scripts/tests/assuranceUi.integration.test.ts',
+      'scripts/tests/assuranceRiskLevelSettings.integration.test.ts',
       'scripts/tests/assuranceRiskBootstrap.integration.test.ts',
       'scripts/tests/dataHubNormalizationExecutor.integration.test.ts',
     ],

@@ -35,7 +35,7 @@ Assurance uses the user's BrainBase role:
 |---|---|
 | **Viewer** | View the dashboard, registers and records they are allowed to see. No recording. |
 | **Manager** | Everything a viewer can, plus: report incidents; start investigations; plan and run inspections and audits; raise findings; create and progress actions; record and link evidence; record verifications (independence rules apply); move statuses; close and cancel records. |
-| **Admin** | Everything a manager can, plus: create, version, deactivate and reactivate inspection and audit templates; see **all** restricted records in the organisation. |
+| **Admin** | Everything a manager can, plus: create, version, deactivate and reactivate inspection and audit templates; create, edit, deactivate and reactivate risk levels (**Settings → Risk levels**); see **all** restricted records in the organisation. |
 | **Super admin** | As admin, and enables the capability for organisations. |
 
 The **Analyst** role has no Assurance access.
@@ -113,26 +113,59 @@ for the steps.
 
 ## Reference data
 
-Risk levels (used as the severity measure and by the dashboard's "serious
-incidents"), locations, assets and external organisations are drawn from the
+Locations, assets and external organisations are drawn from the
 organisation's shared BrainBase records.
 
-> Current limitation: Assurance has no screens for maintaining risk levels,
-> locations, assets or external organisations. They must already exist for
-> the organisation.
+> Current limitation: Assurance has no screens for maintaining locations,
+> assets or external organisations. They must already exist for the
+> organisation.
 
-The dashboard treats an incident as **serious** when its risk level is one of
-the organisation's **two highest-ranked active** risk levels.
+## Assurance settings
+
+**Assurance → Settings** holds Assurance configuration for your
+organisation. Everyone with Assurance access can open it and view the
+settings; only **organisation admins** can change them, and the system
+refuses changes from anyone else. Every change is recorded in the audit
+history. See [work instruction 11](work-instructions/11-manage-risk-levels.md)
+for the steps.
 
 ### Risk levels
 
-Risk levels are **organisation-scoped**: each organisation has its own scale,
-and a record can only use an **active** risk level of its own organisation.
-Choosing a risk level is optional, but it can only be set when an incident,
-investigation or finding is **created** — it cannot be added or changed
-afterwards.
+Risk levels are the organisation's severity scale, managed under
+**Settings → Risk levels**.
 
-Brainbase currently uses a **four-level** scale:
+- **Organisation-scoped.** Each organisation has its own levels. A record can
+  only use an **active** level of its own organisation.
+- **Optional on records, fixed at creation.** Choosing a risk level on an
+  incident, investigation or finding is optional, but it can only be set
+  when the record is **created**.
+- **Code** is a stable identifier (upper-case letters, numbers and
+  underscores). It **cannot be changed** after the level is created.
+- **Rank** orders the scale: higher is more severe, and choices are listed
+  from the highest rank to the lowest. Each rank is **unique** in the
+  organisation, **including inactive levels** (an inactive level keeps its
+  rank).
+- **Active / inactive.** Deactivating a level removes it from the choices for
+  **new** records only. Existing incidents, investigations and findings keep
+  the level and continue to show it; nothing is reassigned or rewritten.
+  A level can be reactivated.
+- **Never deleted.** There is no delete; deactivate a level instead.
+- **Serious.** The dashboard treats an incident as serious when its risk
+  level is one of the organisation's **two highest-ranked active** levels.
+  The Risk levels screen shows each level's classification (**Serious**,
+  **Standard** or **Inactive**). Creating a high-ranked level, changing a
+  rank, deactivating or reactivating can change which levels are serious;
+  the screen shows the serious levels before and after, and asks for
+  confirmation.
+- **Requires verification** is recorded for policy/configuration purposes. It
+  does **not** currently enforce verification automatically: verification
+  works the same way at every level.
+- **Audited.** Creating, editing, deactivating and reactivating a level each
+  write an audit record with the values before and after (and the serious
+  levels when they change). The screen lists recent changes under **Change
+  history**.
+
+Brainbase's initial scale is:
 
 | Risk level | Rank | Meaning |
 |---|---|---|
@@ -141,23 +174,13 @@ Brainbase currently uses a **four-level** scale:
 | **Medium** | 20 | Moderate risk requiring a planned and monitored response. |
 | **Low** | 10 | Minor risk that can be managed through routine controls. |
 
-- Choices are listed from the highest rank to the lowest.
-- **High** and **Extreme** are currently treated as **serious**, because the
-  dashboard defines serious as the two highest active ranks.
-- Each level also carries a "requires verification" setting (on for High and
-  Extreme). It is **descriptive only** today: it records intended policy and
-  is **not an enforced workflow rule**. Verification works the same way at
-  every risk level.
+With this scale, **High** and **Extreme** are serious.
 
-> Current limitation: risk levels are set up through a controlled bootstrap
-> (a reviewed database script, `scripts/seed-assurance-risk-levels-brainbase.sql`)
-> and maintained by controlled database changes. There is no screen for them
-> yet. The planned future location is **Assurance → Settings → Risk levels**;
-> that screen does not exist yet.
->
-> Once a risk level is used by a record it is never deleted. A level that is
-> no longer wanted is deactivated (no longer offered) and, if needed,
-> replaced by a new level.
+> Bootstrap history: Brainbase's initial four levels were created by a
+> reviewed, one-off database script
+> (`scripts/seed-assurance-risk-levels-brainbase.sql`). That script remains
+> as bootstrap tooling only; risk levels are now administered in
+> **Settings → Risk levels**.
 
 ## In-app Help
 
@@ -203,7 +226,7 @@ Rules:
 | People | People on incidents and investigations are displayed, but cannot be added or edited from Assurance screens. |
 | Due dates | Extensions are displayed on actions, but cannot be requested or approved in the UI. |
 | Findings | Findings are raised from a source record, and can be linked to further incidents, investigations, inspections and audits. There is no standalone "new finding" button. |
-| Reference data | No Assurance screens for risk levels, locations, assets or external organisations. Risk levels are maintained by controlled database changes (see [Risk levels](#risk-levels)). |
+| Reference data | No Assurance screens for locations, assets or external organisations. (Risk levels are managed under [Settings → Risk levels](#risk-levels).) |
 | Scheduling | No recurring or automatically scheduled inspections or audits. |
 | Evidence after closure | Evidence can still be added to a **closed incident** or a **completed investigation** (it is frozen only on closed or cancelled findings and actions, and cancelled inspections and audits). This is current behaviour pending a policy decision. |
 | Record editing | Records cannot be edited after creation (for example an action's due date or description). |

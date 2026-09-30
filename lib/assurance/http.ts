@@ -1,11 +1,14 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { AssuranceError } from './errors';
+import { AssuranceConfirmationRequiredError, AssuranceError } from './errors';
 
 // Maps service errors to JSON responses for app/api/assurance/** routes.
 // Unknown errors become a generic 500 — the underlying message (which may
 // contain SQL/constraint detail) is logged server-side, never returned.
 export function assuranceErrorResponse(err: unknown, context: string): Response {
+  if (err instanceof AssuranceConfirmationRequiredError) {
+    return NextResponse.json({ error: err.message, details: err.details }, { status: err.status });
+  }
   if (err instanceof AssuranceError) {
     return NextResponse.json({ error: err.message }, { status: err.status });
   }

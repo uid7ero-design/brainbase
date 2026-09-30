@@ -389,6 +389,7 @@ describe('Assurance — one generic Work descriptor', () => {
       '/assurance/investigations', '/assurance/inspections', '/assurance/inspections/templates/x',
       '/assurance/audits', '/assurance/findings', '/assurance/actions', '/assurance/evidence',
       '/assurance/verification', '/assurance/help', '/assurance/help/user-guide', '/assurance/help/perform-verification',
+      '/assurance/settings', '/assurance/settings/risk-levels',
     ]) {
       expect(activeNavId(nav, p), p).toBe('assurance');
       expect(containsActive(nav.work, activeNavId(nav, p)), p).toBe(true);

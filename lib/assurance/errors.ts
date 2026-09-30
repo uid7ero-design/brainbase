@@ -36,6 +36,20 @@ export class AssuranceConflictError extends AssuranceError {
   }
 }
 
+/**
+ * A valid change whose consequences the user has not yet confirmed. Carries
+ * user-facing `details` (never another tenant's data) that the UI renders in
+ * its confirmation step before resubmitting with an explicit acknowledgement.
+ */
+export class AssuranceConfirmationRequiredError extends AssuranceConflictError {
+  readonly details: Record<string, unknown>;
+  constructor(message: string, details: Record<string, unknown>) {
+    super(message);
+    this.name = 'AssuranceConfirmationRequiredError';
+    this.details = details;
+  }
+}
+
 export class AssuranceForbiddenError extends AssuranceError {
   constructor(message = 'You do not have permission to do that.') {
     super(message, 403);
