@@ -14,8 +14,11 @@ step-by-step procedures, use the [work instructions](work-instructions/).
 ## Finding your way around
 
 - Open **Assurance** from the BrainBase top navigation.
-- The left navigation lists the nine sections. On a phone it becomes a
-  scrollable strip across the top of the page.
+- The left navigation lists the nine work sections, then **Settings**. On a
+  phone it becomes a scrollable strip across the top of the page.
+- **Settings** shows your organisation's Assurance configuration, such as
+  its **Risk levels**. Anyone can view it; only organisation admins can
+  change it.
 - **Help & work instructions**, at the bottom of the navigation, opens this
   guide, the admin guide and the step-by-step work instructions, with
   search. Every page also has a **Help** link (top right) that opens the most
@@ -402,7 +405,8 @@ investigation, or from a cancelled inspection or audit.
   finding, Service failure, Improvement opportunity or Other.
 - **Title** and **Description**.
 - **Risk level** — this is the severity measure, set from your
-  organisation's risk levels.
+  organisation's risk levels. Only **active** levels are offered. A level
+  that an admin later deactivates stays on the records that already use it.
 - **Responsible person** and **Resolve by**. The resolve-by date cannot be
   in the past.
 

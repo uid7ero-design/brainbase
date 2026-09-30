@@ -8,6 +8,27 @@ Newest first.
 
 ---
 
+## Settings → Risk levels
+
+- **Settings** is added to the Assurance navigation, after **Verification**.
+  Everyone with Assurance access can view it; only organisation admins can
+  change settings.
+- **Settings → Risk levels** lists every risk level (active and inactive)
+  from the highest rank to the lowest, with its code, rank, status,
+  "requires verification" setting and classification (**Serious**,
+  **Standard** or **Inactive**).
+- Admins can **create** a level, **edit** its name, description, rank and
+  "requires verification" setting, and **deactivate** or **reactivate** it.
+  The code cannot be changed after creation. There is no delete.
+- Deactivated levels are no longer offered for new records; existing
+  records keep and show them.
+- If a change would alter which levels are serious on the dashboard, the
+  screen shows the serious levels before and after and asks for
+  confirmation.
+- Every change is recorded in the audit history and listed under **Change
+  history**. Risk levels no longer need database maintenance.
+- New [work instruction 11: Manage risk levels](work-instructions/11-manage-risk-levels.md).
+
 ## First release foundation (not yet released to Production users)
 
 ### Risk levels — Brainbase scale
@@ -18,7 +39,8 @@ Newest first.
 - **High** and **Extreme** count as **serious** on the dashboard.
 - The "requires verification" setting on High and Extreme is descriptive
   only; verification rules are unchanged.
-- There is still no screen for maintaining risk levels (see the admin guide).
+- At this point there was no screen for maintaining risk levels; see
+  **Settings → Risk levels** above.
 
 ### In-app Help
 
