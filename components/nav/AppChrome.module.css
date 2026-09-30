@@ -13,21 +13,58 @@
  *   focus   the global :focus-visible ring from app/globals.css
  */
 
+/* ── HeaderShell ───────────────────────────────────────────────────────── */
+/* Owns overall header height (set inline from TOP_NAV_HEIGHT_PX — see
+   lib/layout/headerOffset.ts), border and responsive layout. The inner
+   row below is the actual three-zone grid; .nav itself only supplies the
+   full-bleed surface/border so the inner content can be width-constrained
+   and centred independently of the bar's own edge-to-edge background. */
 .nav {
-  gap: 16px;
-  padding: 0 20px;
+  display: flex;
+  align-items: center;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
   color: var(--text-secondary);
 }
 
+/* Inner row: the actual three-zone layout, constrained and centred within
+   HeaderShell. Flex by default (<960px — brand / spacer / right cluster);
+   becomes the true three-zone grid at >=960px (see the breakpoint below). */
+.navInner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: min(calc(100% - 32px), 1560px);
+  height: 100%;
+  margin-inline: auto;
+  padding: 0 4px;
+}
+
+@media (min-width: 960px) {
+  .navInner {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) auto minmax(280px, 1fr);
+    align-items: center;
+    gap: 0;
+  }
+}
+
+/* ── BrandMark ─────────────────────────────────────────────────────────── */
+
 .brand {
   display: flex;
   align-items: center;
   flex-shrink: 0;
+  min-height: 44px;
   text-decoration: none;
   color: var(--text-primary);
   border-radius: var(--radius-sm);
+}
+
+@media (min-width: 960px) {
+  .brand {
+    justify-self: start;
+  }
 }
 
 .brandFull {
@@ -38,12 +75,28 @@
   display: none;
 }
 
-/* Centre row: scrolls horizontally when a persona's items exceed the
-   width. A thin themed scrollbar keeps that overflow discoverable. */
+/* ── PrimaryNav ────────────────────────────────────────────────────────── */
+/* The centred nav rail. A raised, bordered container (not a flat row of
+   pills) that scrolls horizontally as a safety net when a persona's items
+   exceed the available width. A thin themed scrollbar keeps that overflow
+   discoverable. */
 .navRow {
   align-self: stretch;
+  align-items: center;
+  height: 40px;
+  padding: 4px;
+  gap: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-sunken);
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
+}
+
+@media (min-width: 960px) {
+  .navRow {
+    justify-self: center;
+  }
 }
 
 /* ── Items ─────────────────────────────────────────────────────────────── */
@@ -52,10 +105,10 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 30px;
-  padding: 0 10px;
+  height: 32px;
+  padding: 0 14px;
   border: 0;
-  border-radius: var(--radius-md);
+  border-radius: 7px;
   background: transparent;
   color: var(--text-secondary);
   font: inherit;
@@ -67,7 +120,7 @@
   white-space: nowrap;
   flex-shrink: 0;
   cursor: pointer;
-  transition: color 0.14s, background-color 0.14s, box-shadow 0.14s;
+  transition: color 0.14s, background-color 0.14s;
 }
 
 .item:hover {
@@ -75,24 +128,27 @@
   background: var(--bg-sunken);
 }
 
-/* Inset keeps the ring inside the horizontally scrolling row, which
+/* Inset keeps the ring inside the horizontally scrolling rail, which
    clips anything painted outside it. */
 .item:focus-visible {
   outline-offset: -2px;
 }
 
+/* Soft purple-tinted fill, not a full solid-purple button or an underline —
+   aria-current/data-active are the semantic "current section" signal (see
+   the sr-only "(current section)" text on menu triggers below), this is
+   only the visual echo of it. */
 .item[aria-current='page'],
 .item[data-active='true'] {
   color: var(--brand-brainbase-accent);
   font-weight: 600;
-  box-shadow: inset 0 -2px 0 var(--brand-brainbase-accent);
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
+  background: var(--brand-brainbase-accent-muted);
 }
 
 .item[aria-current='page']:hover,
 .item[data-active='true']:hover {
   color: var(--brand-brainbase-accent-hover);
+  background: var(--brand-brainbase-accent-muted);
 }
 
 .hlna {
@@ -363,13 +419,14 @@
   color: var(--text-muted);
 }
 
-/* ── Right cluster ─────────────────────────────────────────────────────── */
+/* ── Right cluster: OrganisationSwitcher → UtilityMeta → divider →
+   AccountControl (see TopNav.tsx's rightCluster render order) ──────────── */
 
 .rightCluster {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 16px;
   flex-shrink: 0;
 }
 
@@ -380,6 +437,9 @@
   flex-shrink: 0;
 }
 
+/* UtilityMeta (the clock/date). Desktop-only, hidden before the nav
+   collapses — see the narrow-screen rules below. Muted mono, no
+   border/pill of its own. */
 .clock {
   display: flex;
   align-items: baseline;
@@ -390,14 +450,14 @@
 }
 
 .clockTime {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
 
 .clockDate {
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--text-muted);
 }
 
@@ -436,11 +496,14 @@
   display: block;
 }
 
+/* AccountControl: avatar/initials, name, role, chevron. height:44 is the
+   control's own minimum click target (section 11), not a visual size —
+   the avatar circle inside it stays 32px (see .avatar below). */
 .profile {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 34px;
+  gap: 10px;
+  height: 44px;
   padding: 0 8px 0 3px;
   flex-shrink: 0;
   border-radius: var(--radius-md);
@@ -474,15 +537,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
   overflow: hidden;
   border-radius: 50%;
   border: 1px solid var(--brand-brainbase-accent-border);
   background: var(--brand-brainbase-accent-muted);
   color: var(--brand-brainbase-accent);
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -514,35 +577,46 @@
   white-space: nowrap;
 }
 
-/* ── Narrow screens ────────────────────────────────────────────────────── */
+/* ── Responsive bands ──────────────────────────────────────────────────── */
+/* >=1280px: full 64px header, centred rail, full OrganisationSwitcher,
+   time/date visible, account name + role visible — i.e. every rule above
+   this point at its plain desktop value, no override needed here. */
 
-@media (max-width: 1599px) {
-  .clockDate {
-    display: none;
+/* 960–1279px: keep the desktop three-zone grid and nav rail, just
+   tighten spacing — nav item horizontal padding down to 10–12px, a
+   smaller wordmark, a narrower OrganisationSwitcher, and no time/date. */
+@media (max-width: 1279px) and (min-width: 960px) {
+  .item {
+    padding: 0 11px;
   }
-}
-
-@media (max-width: 1279px) {
   .clock,
   .clockDivider {
     display: none;
   }
+  .wordmark {
+    width: 114px !important;
+  }
 }
 
-@media (max-width: 1199px) {
-  .brandFull {
+/* Below 960px the desktop rail and time/date never apply regardless of
+   band — kept as one rule so both bands below the grid threshold agree. */
+@media (max-width: 959px) {
+  .clock,
+  .clockDivider {
     display: none;
-  }
-  .brandMark {
-    display: flex;
   }
   .identityRole {
     display: none;
   }
 }
 
-@media (max-width: 767px) {
-  .nav {
+/* <960px: [Logo] [Menu][Account] — the existing shared mobile/tablet
+   Menu replaces the centred desktop rail and the desktop Account
+   trigger. Same MobileMenu implementation/behaviour as before; only the
+   threshold moved (from 767 to 959) so it now matches the checklist's
+   own breakpoint table instead of the prior ad-hoc cutoff. */
+@media (max-width: 959px) {
+  .navInner {
     padding: 0 12px;
     gap: 10px;
   }
@@ -571,6 +645,20 @@
   }
   .mobileOnly {
     display: flex;
+  }
+}
+
+/* <640px: compact header — smaller wordmark, Menu + account trigger only
+   (no visible time/date, already hidden above). Overrides the inline
+   height (TOP_NAV_HEIGHT_PX, see TopNav.tsx) and the wordmark's own
+   inline width (set via its `width` prop) — an !important author-stylesheet
+   rule is the one thing that legitimately outranks a plain inline style. */
+@media (max-width: 639px) {
+  .nav {
+    height: 56px !important;
+  }
+  .wordmark {
+    width: 96px !important;
   }
 }
 

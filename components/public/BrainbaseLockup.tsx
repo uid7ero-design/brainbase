@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { BrokenOrbitMark } from "@/components/brand/BrokenOrbitMark";
+import { LambdaGlyph } from "@/components/brand/LambdaGlyph";
 import styles from "./BrainbaseLockup.module.css";
 
 type BrainbaseLockupProps = {
@@ -27,8 +28,11 @@ export function BrainbaseLockup({
         : { "aria-hidden": true })}
     >
       <BrokenOrbitMark size={markSize} context="brainbase" />
+      {/* Purple flat-top lambda glyphs stand in for "A" — see LambdaGlyph's
+          own header comment for why a plain "Λ" character can't be used
+          (wrong apex shape, wrong colour, font-dependent baseline). */}
       <span className={styles.wordmark} aria-hidden="true">
-        BRΛINBΛSE
+        BR<LambdaGlyph />INB<LambdaGlyph />SE
       </span>
     </span>
   );

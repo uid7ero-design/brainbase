@@ -26,7 +26,7 @@
 // any client effect runs. OrgSwitcher's own effect corrects it upward
 // only for a resolved super_admin session, once its real rendered
 // height is known.
-export const TOP_NAV_HEIGHT_PX = 52;
+export const TOP_NAV_HEIGHT_PX = 64;
 
 export const APP_HEADER_OFFSET_CSS_VAR = '--app-header-offset';
 export const APP_HEADER_OFFSET_VAR = `var(${APP_HEADER_OFFSET_CSS_VAR})`;

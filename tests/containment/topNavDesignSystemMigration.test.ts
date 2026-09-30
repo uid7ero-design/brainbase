@@ -56,7 +56,11 @@ describe('B.1 TopNav design-system migration after main convergence', () => {
   })
   it('preserves dropdown portals and the certified overflow strategy', () => {
     expect(source.match(/createPortal\(/g)?.length).toBe(2)
-    expect(source).toContain("justifyContent: 'flex-start'")
+    // Desktop header refinement — the centre row is now genuinely centred
+    // (justifyContent: 'center', matching the three-zone grid's own
+    // centring at >=960px) rather than packed to the left; the overflow
+    // safety net for a persona with many items is unchanged.
+    expect(source).toContain("justifyContent: 'center'")
     expect(source).toContain("overflowX: 'auto'")
     expect(source).toContain("overflowY: 'hidden'")
   })

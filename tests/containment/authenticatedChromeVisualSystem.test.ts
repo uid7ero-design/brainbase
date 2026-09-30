@@ -79,13 +79,18 @@ describe('Authenticated chrome — no dark-only or retired colour treatments', (
 describe('Authenticated chrome — one active-state language, not colour alone', () => {
   const css = source['components/nav/AppChrome.module.css']
 
-  it('the active nav item uses the product accent token plus weight and a flat baseline', () => {
+  it('the active nav item uses the product accent token, weight, and a soft tinted fill — not an underline', () => {
+    // Desktop header refinement — the active state moved from a 2px
+    // underline box-shadow to a soft purple-tinted background fill (still
+    // never colour alone: aria-current/data-active stay the semantic
+    // signal, see the next test).
     const start = css.indexOf(".item[aria-current='page'],")
     expect(start).toBeGreaterThan(-1)
     const rule = css.slice(start, css.indexOf('}', start))
     expect(rule).toContain('color: var(--brand-brainbase-accent);')
     expect(rule).toContain('font-weight: 600;')
-    expect(rule).toMatch(/box-shadow: inset 0 -2px 0 var\(--brand-brainbase-accent\);/)
+    expect(rule).toContain('background: var(--brand-brainbase-accent-muted);')
+    expect(rule).not.toMatch(/box-shadow/)
   })
 
   it('nav items expose aria-current rather than a colour-only active style', () => {
@@ -207,7 +212,7 @@ describe('Authenticated chrome — theme control, identity and brand', () => {
     expect(manage).toMatch(/label: 'Branding', href: '\/settings\/branding',[\s\S]*?gate: \{ minRole: 'admin' \}/)
     expect(fnBody(topNav, 'function AppNav(')).toContain('<MenuEntries entries={nav.manage}')
     expect(fnBody(topNav, 'function MobileMenu(')).toContain('<MenuEntries entries={nav.manage}')
-    const mobileRule = css.slice(css.indexOf('@media (max-width: 767px)'))
+    const mobileRule = css.slice(css.indexOf('@media (max-width: 959px)'))
     expect(mobileRule).toMatch(/\.mobileOnly \{\s*display: flex;\s*\}/)
     expect(fnBody(topNav, 'function MobileMenu(')).toContain('<div className={styles.mobileOnly}>')
   })
@@ -217,7 +222,7 @@ describe('Authenticated chrome — theme control, identity and brand', () => {
   })
 
   it('uses only the approved broken-orbit lockup — no legacy logo systems in the chrome', () => {
-    const body = fnBody(topNav, 'function Logo(')
+    const body = fnBody(topNav, 'function BrandMark(')
     expect(body).toContain('<BrainBaseWordmark')
     expect(body).toContain('<BrokenOrbitMark size={24} context="brainbase" />')
     expect(topNav).not.toMatch(/BrandLogo|HlnaOrb|HeroOrbitMark|OrbitalBackground|brainbase-logo/)
