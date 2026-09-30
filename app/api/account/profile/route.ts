@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { requireSession } from '@/lib/org';
+import { createSession } from '@/lib/session';
+import {
+  validateFirstName, validateLastName, validateDisplayName, validateAboutMe,
+  validateJobTitle, validateDepartment, validatePhone, validateTimezone, validatePreferences,
+} from '@/lib/account/profileValidation';
 
 export async function GET() {
   // SEC-1B3: was raw getSession() — the JWT-only claim, never revalidated
@@ -55,10 +60,43 @@ export async function GET() {
   return NextResponse.json({ user, modules });
 }
 
+// avatar_url is deliberately NOT in this allow-list. It is written only
+// by the validated avatar upload endpoint (POST /api/account/avatar),
+// which sniffs real image bytes before ever touching Blob storage — if
+// this generic PUT accepted avatar_url too, a caller could bypass every
+// one of those checks by simply supplying an arbitrary string
+// (including a URL that never resolves to an image at all, or one this
+// app does not own and so can never safely clean up later). id,
+// organisation_id, role, status, password/hash, and username/auth
+// identifiers are likewise never in this list, and never will be —
+// this route only ever updates the CALLER'S OWN row (WHERE id =
+// session.userId, from requireSession(), never request input), so even
+// an attempted role/org field here would only ever "escalate" the
+// caller's own row — it is excluded anyway as defense in depth, not as
+// the only thing preventing cross-account writes.
 const ALLOWED_FIELDS = [
-  'first_name', 'last_name', 'display_name', 'avatar_url', 'bio',
+  'first_name', 'last_name', 'display_name', 'bio',
   'job_title', 'department', 'phone', 'timezone', 'preferences',
 ] as const;
+
+// Fields whose effective value feeds the display name shown in the
+// authenticated chrome (TopNav, via /api/me's `name`, which reads
+// session.name — the JWT claim, not a fresh DB read). Changing any of
+// these without reissuing the session cookie would leave that name
+// stale until the user's next login — see the reissue step below.
+const NAME_AFFECTING_FIELDS = new Set(['first_name', 'last_name', 'display_name']);
+
+const VALIDATORS: Record<(typeof ALLOWED_FIELDS)[number], (value: unknown) => { ok: true; value: unknown } | { ok: false; error: string }> = {
+  first_name: validateFirstName,
+  last_name: validateLastName,
+  display_name: validateDisplayName,
+  bio: validateAboutMe,
+  job_title: validateJobTitle,
+  department: validateDepartment,
+  phone: validatePhone,
+  timezone: validateTimezone,
+  preferences: validatePreferences,
+};
 
 export async function PUT(req: NextRequest) {
   // SEC-1B3: was raw getSession() — see GET's own comment above for the
@@ -66,31 +104,44 @@ export async function PUT(req: NextRequest) {
   let session;
   try { session = await requireSession(); } catch { return NextResponse.json({ error: 'Unauthorised' }, { status: 401 }); }
 
-  const body = await req.json() as Record<string, unknown>;
-
-  // Only allow safe profile fields — never role, organisation_id, etc.
-  const updates: Record<string, unknown> = {};
-  for (const field of ALLOWED_FIELDS) {
-    if (field in body) updates[field] = body[field];
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json() as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
   }
 
-  if (Object.keys(updates).length === 0) {
+  // Only allow safe profile fields — never role, organisation_id,
+  // avatar_url, etc. Every field is independently validated (type +
+  // length, or shape for preferences) server-side — never trusted on
+  // the strength of client-side validation alone.
+  const updates: Record<string, unknown> = {};
+  const touchedFields: string[] = [];
+  for (const field of ALLOWED_FIELDS) {
+    if (!(field in body)) continue;
+    const result = VALIDATORS[field](body[field]);
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+    updates[field] = result.value;
+    touchedFields.push(field);
+  }
+
+  if (touchedFields.length === 0) {
     return NextResponse.json({ error: 'No valid fields provided' }, { status: 400 });
   }
 
-  // Build dynamic SET clause safely using individual column checks
   const {
-    first_name, last_name, display_name, avatar_url, bio,
+    first_name, last_name, display_name, bio,
     job_title, department, phone, timezone, preferences,
-  } = updates as Partial<Record<typeof ALLOWED_FIELDS[number], unknown>>;
+  } = updates as Partial<Record<(typeof ALLOWED_FIELDS)[number], unknown>>;
 
   try {
-    await sql`
+    const [row] = await sql`
       UPDATE users SET
         first_name   = COALESCE(${(first_name as string) ?? null}, first_name),
         last_name    = COALESCE(${(last_name as string) ?? null}, last_name),
         display_name = COALESCE(${(display_name as string) ?? null}, display_name),
-        avatar_url   = COALESCE(${(avatar_url as string) ?? null}, avatar_url),
         bio          = COALESCE(${(bio as string) ?? null}, bio),
         job_title    = COALESCE(${(job_title as string) ?? null}, job_title),
         department   = COALESCE(${(department as string) ?? null}, department),
@@ -99,7 +150,27 @@ export async function PUT(req: NextRequest) {
         preferences  = COALESCE(${preferences != null ? JSON.stringify(preferences) : null}::jsonb, preferences),
         updated_at   = NOW()
       WHERE id = ${session.userId}
+      RETURNING name, first_name, last_name, display_name
     `;
+
+    // Keep the JWT-carried display name (what TopNav/`/api/me` actually
+    // render — see app/layout.tsx and app/api/me/route.ts) in sync with
+    // the DB the instant a name-affecting field changes, exactly the
+    // same mechanism app/actions/profile.ts's own updateProfile() action
+    // already uses for the legacy /profile "Display Name" card — reused
+    // here, not reinvented. Same effective-name precedence the profile
+    // page's own UI already applies: display_name, else first+last,
+    // else the existing `name` column (never touched by this route).
+    if (row && touchedFields.some(f => NAME_AFFECTING_FIELDS.has(f))) {
+      const effectiveName =
+        (row.display_name as string | null) ||
+        [row.first_name, row.last_name].filter(Boolean).join(' ').trim() ||
+        (row.name as string);
+      if (effectiveName) {
+        await createSession(session.userId, session.organisationId, session.role, effectiveName);
+      }
+    }
+
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('[account/profile PUT]', err);

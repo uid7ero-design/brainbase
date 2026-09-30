@@ -30,6 +30,8 @@ describe.each(['light', 'dark'] as const)('Phase E profile surfaces (%s)', theme
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
     expect(screen.getByRole('heading', { level: 2, name: 'Work Details' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Change profile photo' })).toBeInTheDocument();
+    // About me (bio) is shown in view mode when populated.
+    expect(screen.getByText('Runs kerbside operations.')).toBeInTheDocument();
     await expectNoAxeViolations(container);
   });
 
@@ -37,9 +39,12 @@ describe.each(['light', 'dark'] as const)('Phase E profile surfaces (%s)', theme
     const { container, user } = renderBrainbase(
       <AccountProfileClient initialUser={USER} org={ORG} modules={MODULES} role="manager" />, { theme });
     await user.click(screen.getByRole('button', { name: /Edit Profile/ }));
-    for (const name of ['First Name', 'Last Name', 'Display Name', 'Bio', 'Job Title', 'Department', 'Phone', 'Timezone']) {
+    for (const name of ['First Name', 'Last Name', 'Display Name', 'About me', 'Job Title', 'Department', 'Phone', 'Timezone']) {
       expect(screen.getByLabelText(name)).toBeInTheDocument();
     }
+    // Accepted formats + max size are communicated in the UI, not just
+    // enforced silently server-side.
+    expect(screen.getByText(/JPEG, PNG or WebP/)).toBeInTheDocument();
     await expectNoAxeViolations(container);
   });
 
