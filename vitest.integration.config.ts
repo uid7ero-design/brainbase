@@ -112,6 +112,12 @@ import path from 'path';
 // POST -> SUCCEEDED continuation seam against the real, unmodified route
 // handler and the real datahub_stage_raw_batch/datahub_complete_raw_staging_run
 // Postgres functions — see scripts/tests/verify-datahub-stage-worksheet-route.sh.
+//
+// Assurance UI foundation addition: scripts/tests/assuranceUi.integration.test.ts
+// (the Assurance service layer's tenant/restricted/same-org/workflow proof
+// against the real A0.1B..A0.1D-3 migrations — see
+// scripts/tests/verify-assurance-ui-services.sh), same explicit-file-argument
+// isolation as every spec above.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -134,6 +140,7 @@ export default defineConfig({
       'scripts/tests/hrLifecycleTaskActionsApprovals.integration.test.ts',
       'scripts/tests/hrLifecycleWorkflowActions.integration.test.ts',
       'scripts/tests/dataHubStageWorksheetRoute.integration.test.ts',
+      'scripts/tests/assuranceUi.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,

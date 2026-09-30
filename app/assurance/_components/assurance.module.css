@@ -1,0 +1,977 @@
+/*
+ * Assurance-specific presentation that has no shared BrainBase primitive
+ * (the assurance chain, key/value summaries, history, record references,
+ * work lists). Tokens only (app/globals.css) — every value adapts to the
+ * light and dark themes. Everything else uses components/ui/app.
+ */
+
+/* ── Page frame ─────────────────────────────────────────────────────── */
+
+.page {
+  max-width: 1180px;
+  min-width: 0;
+}
+
+.stack {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.stackTight {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+/* Detail layout: main column + side column that stacks below on narrow screens. */
+.detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 320px);
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 1023px) {
+  .detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* ── Section heading (typography, not a box) ───────────────────────── */
+
+.section {
+  margin-bottom: 24px;
+  min-width: 0;
+}
+
+.sectionHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.sectionTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+
+.sectionCount {
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.sectionActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ── Breadcrumbs ───────────────────────────────────────────────────── */
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.crumbs a {
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+.crumbs a:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+/* ── Text helpers ──────────────────────────────────────────────────── */
+
+.dim {
+  color: var(--text-muted);
+}
+
+.prose {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mono {
+  font-family: var(--font-mono), ui-monospace, monospace;
+}
+
+/* ── Key / value summary ───────────────────────────────────────────── */
+
+.kv {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--kv-min, 180px)), 1fr));
+  gap: 14px 20px;
+  margin: 0;
+}
+.kv > div {
+  min-width: 0;
+}
+.kv dt {
+  margin-bottom: 4px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.kv dd {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+/* ── Notice (inline guidance; semantic status tokens) ──────────────── */
+
+.notice {
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--notice-line);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background: var(--notice-soft);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text-primary);
+}
+.notice[data-tone='info'],
+.notice[data-tone='accent'] {
+  --notice-line: var(--status-info-border);
+  --notice-soft: var(--status-info-muted);
+}
+.notice[data-tone='warning'] {
+  --notice-line: var(--status-warning-border);
+  --notice-soft: var(--status-warning-muted);
+}
+.notice[data-tone='danger'] {
+  --notice-line: var(--status-danger-border);
+  --notice-soft: var(--status-danger-muted);
+}
+.notice[data-tone='success'] {
+  --notice-line: var(--status-success-border);
+  --notice-soft: var(--status-success-muted);
+}
+.notice[data-tone='neutral'] {
+  --notice-line: var(--border-strong);
+  --notice-soft: var(--status-inactive-muted);
+}
+.notice ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+/* ── Record references ─────────────────────────────────────────────── */
+
+.recordLink {
+  display: block;
+  min-width: 0;
+  text-decoration: none;
+}
+.recordRef {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.recordTitle {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.recordLink:hover .recordTitle,
+.recordLink:hover .recordRef:only-child {
+  color: var(--brand-brainbase-accent);
+  text-decoration: underline;
+}
+.recordLink:only-child .recordRef:only-child {
+  color: var(--brand-brainbase-accent);
+}
+
+.refChip {
+  display: inline-block;
+  margin: 0 4px 2px 0;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.refChip:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.date {
+  white-space: nowrap;
+}
+.date[data-overdue='true'] {
+  font-weight: 600;
+  color: var(--status-danger);
+}
+.overdueTag {
+  margin-left: 6px;
+  font-size: 0.6875rem;
+}
+
+/* ── Filter form (GET) inside the shared WorkToolbar ───────────────── */
+
+.filterForm {
+  margin-bottom: 12px;
+}
+.filterLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+/* ── The assurance chain ───────────────────────────────────────────── */
+
+.chain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chainItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chainStep {
+  min-width: 96px;
+  padding: 6px 10px;
+  border: 1px solid var(--step-line);
+  border-radius: var(--radius-md);
+  background: var(--step-soft);
+}
+.chainLabel {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--step-fg);
+}
+.chainDetail {
+  margin-top: 2px;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+.chainArrow {
+  font-size: 0.75rem;
+  color: var(--text-subtle);
+}
+.chainStep[data-state='done'] {
+  --step-fg: var(--status-success);
+  --step-line: var(--status-success-border);
+  --step-soft: var(--status-success-muted);
+}
+.chainStep[data-state='current'] {
+  --step-fg: var(--brand-brainbase-accent);
+  --step-line: var(--brand-brainbase-accent-border);
+  --step-soft: var(--brand-brainbase-accent-muted);
+}
+.chainStep[data-state='blocked'] {
+  --step-fg: var(--status-warning);
+  --step-line: var(--status-warning-border);
+  --step-soft: transparent;
+}
+.chainStep[data-state='pending'],
+.chainStep[data-state='na'] {
+  --step-fg: var(--text-muted);
+  --step-line: var(--border);
+  --step-soft: transparent;
+}
+
+/* ── History ───────────────────────────────────────────────────────── */
+
+.history {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.history li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8125rem;
+}
+.history li:last-child {
+  border-bottom: 0;
+}
+.historyWhen {
+  min-width: 150px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.historyWhat {
+  color: var(--text-primary);
+}
+.historyWho {
+  margin-left: auto;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.historyReason {
+  flex-basis: 100%;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* ── Work lists (dashboard / queues) ───────────────────────────────── */
+
+.workList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.workList > li + li {
+  border-top: 1px solid var(--border);
+}
+.workLink {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 11px 16px;
+  text-decoration: none;
+  transition: background-color 0.14s;
+}
+.workLink:hover {
+  background: var(--bg-sunken);
+}
+.workLink:focus-visible {
+  outline-offset: -2px;
+}
+.workMain {
+  flex: 1;
+  min-width: 0;
+}
+.workMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.workTitle {
+  margin-top: 3px;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workSub {
+  margin-top: 2px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+.workDue {
+  flex-shrink: 0;
+  font-size: 0.6875rem;
+  text-align: right;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.workDue[data-overdue='true'] {
+  font-weight: 600;
+  color: var(--status-danger);
+}
+.workDueLabel {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+/* ── Simple charts (single series: accent; empty: neutral) ─────────── */
+
+.bars {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bars li {
+  display: grid;
+  grid-template-columns: minmax(0, 150px) 1fr 32px;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.75rem;
+}
+.barLabel {
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.barTrack {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--bg-sunken);
+}
+.barFill {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--brand-brainbase-accent);
+}
+.barValue {
+  text-align: right;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.trend {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 90px;
+}
+.trendCol {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  height: 100%;
+}
+.trendN {
+  font-size: 0.625rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.trendBar {
+  width: 100%;
+  border-radius: 3px;
+  background: var(--brand-brainbase-accent);
+}
+.trendBar[data-empty='true'] {
+  background: var(--bg-sunken);
+}
+.caption {
+  margin-top: 8px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+/* ── Forms / builders / runners ────────────────────────────────────── */
+
+.form {
+  display: grid;
+  gap: 14px;
+}
+.form[data-compact='true'] {
+  gap: 10px;
+}
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.check input {
+  margin-top: 2px;
+  accent-color: var(--brand-brainbase-accent);
+}
+.inlineCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+.inlineCheck input {
+  accent-color: var(--brand-brainbase-accent);
+}
+
+.disclosure {
+  width: 100%;
+  max-width: 640px;
+  margin-top: 10px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+.disclosureText {
+  margin: 0 0 12px;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+.actionError {
+  max-width: 320px;
+  font-size: 0.75rem;
+  color: var(--status-danger);
+}
+
+.itemCard {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+.itemIndex {
+  min-width: 22px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.legend {
+  margin-bottom: 8px;
+  padding: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.fieldset {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 12px;
+}
+.spanAll {
+  grid-column: 1 / -1;
+}
+
+.details summary {
+  cursor: pointer;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+.details summary:hover {
+  color: var(--text-primary);
+}
+.details[open] summary {
+  margin-bottom: 12px;
+}
+
+/* ── Shell ─────────────────────────────────────────────────────────── */
+
+.shell {
+  display: flex;
+  min-width: 0;
+  min-height: var(--shell-min-height);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-inter), Inter, sans-serif;
+}
+.main {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 36px 40px;
+}
+@media (max-width: 767px) {
+  .main {
+    padding: 20px 16px 32px;
+  }
+}
+.centered {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+}
+
+/* ── Inspection / audit runners ────────────────────────────────────── */
+
+/* Outcome tones map to semantic status tokens; the outcome is always
+   written out as text too, so colour never carries it alone. */
+.outcomeText[data-tone='success'],
+.runnerItem[data-tone='success'],
+.outcomeLabel[data-tone='success'],
+.outcomeChip[data-tone='success'] { --tone: var(--status-success); --tone-line: var(--status-success-border); --tone-soft: var(--status-success-muted); }
+.outcomeText[data-tone='danger'],
+.runnerItem[data-tone='danger'],
+.outcomeLabel[data-tone='danger'],
+.outcomeChip[data-tone='danger'] { --tone: var(--status-danger); --tone-line: var(--status-danger-border); --tone-soft: var(--status-danger-muted); }
+.outcomeText[data-tone='warning'],
+.runnerItem[data-tone='warning'],
+.outcomeLabel[data-tone='warning'],
+.outcomeChip[data-tone='warning'] { --tone: var(--status-warning); --tone-line: var(--status-warning-border); --tone-soft: var(--status-warning-muted); }
+.outcomeText[data-tone='info'],
+.runnerItem[data-tone='info'],
+.outcomeLabel[data-tone='info'],
+.outcomeChip[data-tone='info'] { --tone: var(--status-info); --tone-line: var(--status-info-border); --tone-soft: var(--status-info-muted); }
+.outcomeText[data-tone='neutral'],
+.runnerItem[data-tone='neutral'],
+.outcomeLabel[data-tone='neutral'],
+.outcomeChip[data-tone='neutral'] { --tone: var(--text-secondary); --tone-line: var(--border-strong); --tone-soft: var(--status-inactive-muted); }
+
+.runnerSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.outcomeText {
+  font-weight: 600;
+  color: var(--tone, var(--text-secondary));
+}
+.runnerList {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.runnerItem {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--tone, var(--border));
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+.runnerLabel {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.runnerRequired {
+  font-size: 0.6875rem;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.runnerGuidance {
+  margin-top: 3px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+.runnerMeta {
+  margin-top: 3px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+.runnerValue {
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+}
+.runnerNotes {
+  margin-top: 8px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.outcomeLabel {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tone, var(--text-secondary));
+}
+.outcomeChip {
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.14s, border-color 0.14s, color 0.14s;
+}
+.outcomeChip:hover {
+  color: var(--text-primary);
+  background: var(--bg-sunken);
+}
+.outcomeChip[aria-checked='true'] {
+  border-color: var(--tone);
+  background: var(--tone-soft);
+  color: var(--tone);
+  box-shadow: inset 0 0 0 1px var(--tone);
+}
+.runnerAdd {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .outcomeChip,
+  .workLink {
+    transition: none;
+  }
+}
+
+/* ── Detail eyebrow (record reference + badges) ────────────────────── */
+
+.eyebrowRow {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.refEyebrow {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* ── Register sub-views: the shared module-nav active language ─────── */
+
+.viewTabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: thin;
+}
+.viewTab {
+  flex-shrink: 0;
+  padding: 7px 12px;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.14s, background-color 0.14s;
+}
+.viewTab:hover {
+  color: var(--text-primary);
+  background: var(--bg-sunken);
+}
+.viewTab:focus-visible {
+  outline-offset: -2px;
+}
+.viewTab[aria-current='page'] {
+  color: var(--brand-brainbase-accent);
+  font-weight: 600;
+  background: var(--brand-brainbase-accent-muted);
+  box-shadow: inset 0 -2px 0 var(--brand-brainbase-accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .viewTab {
+    transition: none;
+  }
+}
+
+/* ── In-app Help (rendered Markdown; tokens only, both themes) ─────── */
+
+.helpDoc {
+  max-width: 76ch;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.helpDoc > :first-child {
+  margin-top: 0;
+}
+.helpDoc h2 {
+  margin: 28px 0 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 1.0625rem;
+  font-weight: 650;
+  line-height: 1.3;
+  scroll-margin-top: calc(var(--app-header-offset, 52px) + 16px);
+}
+.helpDoc h2:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+.helpDoc h3,
+.helpDoc h4 {
+  margin: 20px 0 8px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.35;
+  scroll-margin-top: calc(var(--app-header-offset, 52px) + 16px);
+}
+.helpDoc p {
+  margin: 0 0 12px;
+}
+.helpDoc ul,
+.helpDoc ol {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+.helpDoc li {
+  margin: 4px 0;
+}
+/* The app reset removes list markers; procedures need their numbers back. */
+.helpDoc ul {
+  list-style: disc;
+}
+.helpDoc ul ul {
+  list-style: circle;
+}
+.helpDoc ol {
+  list-style: decimal;
+}
+.helpDoc li::marker {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.helpDoc li > ul,
+.helpDoc li > ol,
+.helpDoc li > p {
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+.helpDoc strong {
+  font-weight: 650;
+}
+.helpDoc code {
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.8125em;
+}
+.helpDoc pre {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+.helpDoc pre code {
+  padding: 0;
+  background: none;
+  white-space: pre;
+}
+.helpDoc blockquote {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--status-info-border);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background: var(--status-info-muted);
+}
+.helpDoc blockquote > :last-child {
+  margin-bottom: 0;
+}
+.helpDoc hr {
+  margin: 20px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.helpDoc a {
+  color: var(--brand-brainbase-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.helpDoc a:hover {
+  color: var(--brand-brainbase-accent-hover);
+}
+.helpTable {
+  margin: 0 0 14px;
+}
+.helpSnippet {
+  margin-top: 3px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.helpToc {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+.helpTocTitle {
+  margin-bottom: 6px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.helpToc ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8125rem;
+}
+.helpToc a {
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+.helpToc a:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+.helpPager {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 16px;
+}

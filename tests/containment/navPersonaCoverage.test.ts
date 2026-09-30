@@ -432,9 +432,9 @@ describe('Phase D.4.2 — capability icons across all three personas', () => {
   // capability={link.icon}) only by MenuLink when `withIcon` is set, which
   // TopNav passes only for the Work entries (desktop Work menu + mobile Work
   // section). Same five-icon contract, now over the single shared tree.
-  it('Persona 2/3 (generic + LD Tennis): only the Events, CRM, Commercial, Organiser, and People entries carry an icon — no icon leaked onto a founder-only or LD-Tennis-bespoke item', () => {
+  it('Persona 2/3 (generic + LD Tennis): only the Events, CRM, Commercial, Organiser, People and Assurance entries carry an icon — no icon leaked onto a founder-only or LD-Tennis-bespoke item', () => {
     const iconKeys = (navModelSource.match(/icon: '[a-zA-Z]+'/g) ?? [])
-    expect(iconKeys).toEqual(["icon: 'events'", "icon: 'crm'", "icon: 'quotes'", "icon: 'organiser'", "icon: 'people'"])
+    expect(iconKeys).toEqual(["icon: 'events'", "icon: 'crm'", "icon: 'quotes'", "icon: 'organiser'", "icon: 'people'", "icon: 'assurance'"])
     expect(topNavSource).not.toMatch(/capability="[a-zA-Z]+"/)
     expect((topNavSource.match(/<CapabilityIcon/g) ?? []).length).toBe(1)
     expect(topNavSource).toMatch(/\{withIcon && link\.icon && \(\s*\n\s*<CapabilityIcon\s*\n\s*capability=\{link\.icon\}/)

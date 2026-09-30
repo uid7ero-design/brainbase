@@ -277,13 +277,14 @@ describe('CapabilityIcon — TopNav wiring specifics (Phase D.4.2)', () => {
     const withIconsUses = topNavCode.match(/<MenuEntries[^>]*\bwithIcons\b[^>]*\/>/g) ?? []
     expect(withIconsUses).toHaveLength(2)
     for (const use of withIconsUses) expect(use).toContain('entries={nav.work}')
-    // Descriptor-level contract: exactly the five gated modules carry icons.
+    // Descriptor-level contract: exactly the six gated modules carry icons
+    // (Assurance joined through its single navModel descriptor — no TopNav change).
     const iconed = allDescriptorLinks.filter(l => l.icon !== undefined)
     expect(iconed.map(l => `${l.id}:${l.icon}`)).toEqual([
-      'events:events', 'crm:crm', 'commercial:quotes', 'organiser:organiser', 'people:people',
+      'events:events', 'crm:crm', 'commercial:quotes', 'organiser:organiser', 'people:people', 'assurance:assurance',
     ])
     for (const l of iconed) {
-      expect(['events', 'crm', 'organiser', 'quotes', 'people']).toContain(l.icon)
+      expect(['events', 'crm', 'organiser', 'quotes', 'people', 'assurance']).toContain(l.icon)
       expect(l.gate?.anyCapability?.length ?? 0).toBeGreaterThan(0)
     }
   })
