@@ -524,6 +524,135 @@ CREATE TRIGGER data_hub_dataset_profile_runs_lifecycle_guard
 BEFORE INSERT OR UPDATE OR DELETE ON public.data_hub_dataset_profile_runs
 FOR EACH ROW EXECUTE FUNCTION public.datahub_guard_dataset_profile_run_lifecycle();
 
+-- Idempotent schema-drift verification. CREATE TABLE/INDEX IF NOT EXISTS
+-- alone is insufficient: on re-apply a same-named but wrong-shaped object
+-- must fail loudly rather than being silently accepted.
+DO $$
+DECLARE
+  actual text;
+  actual_valid boolean;
+  missing_columns text[];
+BEGIN
+  SELECT array_agg(req.col ORDER BY req.col) INTO missing_columns
+  FROM (
+    VALUES
+      ('id'),('organisation_id'),('import_batch_id'),('upload_id'),
+      ('normalization_run_id'),('source_schema_version_id'),
+      ('source_schema_worksheet_id'),('worksheet_mapping_profile_version_id'),
+      ('attempt_number'),('profiler_version'),('status'),('created_by'),
+      ('started_at'),('completed_at'),('failed_at'),('failure_code'),('created_at'),
+      ('row_count'),('column_count'),('total_cell_count'),('non_null_cell_count'),
+      ('null_cell_count'),('complete_row_count'),('incomplete_row_count')
+  ) AS req(col)
+  WHERE NOT EXISTS (
+    SELECT 1 FROM information_schema.columns c
+    WHERE c.table_schema='public'
+      AND c.table_name='data_hub_dataset_profile_runs'
+      AND c.column_name=req.col
+  );
+  IF missing_columns IS NOT NULL THEN
+    RAISE EXCEPTION 'Dataset profile migration drift: profile-run columns missing: %', missing_columns;
+  END IF;
+
+  SELECT array_agg(req.col ORDER BY req.col) INTO missing_columns
+  FROM (
+    VALUES
+      ('id'),('organisation_id'),('profile_run_id'),('source_schema_worksheet_id'),
+      ('source_schema_column_id'),('ordinal'),('value_kind'),('source_unit'),
+      ('normalized_unit'),('row_count'),('non_null_count'),('null_count'),
+      ('distinct_non_null_count'),('null_ratio'),('non_null_ratio'),('distinct_ratio'),
+      ('is_constant'),('is_all_null'),('is_unique_among_non_null'),('is_complete'),
+      ('is_sparse'),('min_length'),('max_length'),('total_length'),('mean_length'),
+      ('empty_string_count'),('true_count'),('false_count'),('numeric_min'),
+      ('numeric_max'),('numeric_sum'),('numeric_mean'),('temporal_min'),
+      ('temporal_max'),('created_at')
+  ) AS req(col)
+  WHERE NOT EXISTS (
+    SELECT 1 FROM information_schema.columns c
+    WHERE c.table_schema='public'
+      AND c.table_name='data_hub_dataset_profile_columns'
+      AND c.column_name=req.col
+  );
+  IF missing_columns IS NOT NULL THEN
+    RAISE EXCEPTION 'Dataset profile migration drift: profile-column columns missing: %', missing_columns;
+  END IF;
+
+  -- Pin the important physical types that preserve D4D1A semantics.
+  IF EXISTS (
+    SELECT 1
+    FROM (VALUES
+      ('data_hub_dataset_profile_runs','row_count','bigint'),
+      ('data_hub_dataset_profile_runs','column_count','bigint'),
+      ('data_hub_dataset_profile_runs','total_cell_count','bigint'),
+      ('data_hub_dataset_profile_columns','row_count','bigint'),
+      ('data_hub_dataset_profile_columns','non_null_count','bigint'),
+      ('data_hub_dataset_profile_columns','null_count','bigint'),
+      ('data_hub_dataset_profile_columns','distinct_non_null_count','bigint'),
+      ('data_hub_dataset_profile_columns','null_ratio','text'),
+      ('data_hub_dataset_profile_columns','numeric_min','text'),
+      ('data_hub_dataset_profile_columns','numeric_max','text'),
+      ('data_hub_dataset_profile_columns','numeric_sum','text'),
+      ('data_hub_dataset_profile_columns','numeric_mean','text'),
+      ('data_hub_dataset_profile_columns','temporal_min','text'),
+      ('data_hub_dataset_profile_columns','temporal_max','text')
+    ) AS exp(tbl,col,typ)
+    LEFT JOIN information_schema.columns c
+      ON c.table_schema='public' AND c.table_name=exp.tbl AND c.column_name=exp.col
+    WHERE c.data_type IS DISTINCT FROM exp.typ
+  ) THEN
+    RAISE EXCEPTION 'Dataset profile migration drift: one or more required physical column types do not match';
+  END IF;
+
+  SELECT pg_get_indexdef(i.indexrelid), i.indisvalid INTO actual, actual_valid
+  FROM pg_index i
+  JOIN pg_class ic ON ic.oid=i.indexrelid
+  JOIN pg_namespace n ON n.oid=ic.relnamespace
+  WHERE n.nspname='public'
+    AND ic.relname='idx_data_hub_dataset_profile_runs_one_running_per_normalization';
+
+  IF actual IS DISTINCT FROM
+    'CREATE UNIQUE INDEX idx_data_hub_dataset_profile_runs_one_running_per_normalization ON public.data_hub_dataset_profile_runs USING btree (normalization_run_id) WHERE (status = ''RUNNING''::text)'
+     OR actual_valid IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'Dataset profile migration drift: RUNNING uniqueness index has the wrong shape';
+  END IF;
+
+  FOREACH actual IN ARRAY ARRAY[
+    'data_hub_dataset_profile_runs_status_check',
+    'data_hub_dataset_profile_runs_state_coherence_check',
+    'data_hub_dataset_profile_runs_normalization_lineage_fkey',
+    'data_hub_dataset_profile_columns_kind_stats_check',
+    'data_hub_dataset_profile_columns_run_worksheet_fkey',
+    'data_hub_dataset_profile_columns_source_column_fkey'
+  ]
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint c
+      WHERE c.conname=actual
+        AND c.conrelid IN (
+          'public.data_hub_dataset_profile_runs'::regclass,
+          'public.data_hub_dataset_profile_columns'::regclass
+        )
+        AND c.convalidated
+    ) THEN
+      RAISE EXCEPTION 'Dataset profile migration drift: required validated constraint % is missing', actual;
+    END IF;
+  END LOOP;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgrelid='public.data_hub_dataset_profile_runs'::regclass
+      AND tgname='data_hub_dataset_profile_runs_lifecycle_guard'
+      AND NOT tgisinternal
+  ) OR NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgrelid='public.data_hub_dataset_profile_columns'::regclass
+      AND tgname='data_hub_dataset_profile_columns_immutable_guard'
+      AND NOT tgisinternal
+  ) THEN
+    RAISE EXCEPTION 'Dataset profile migration drift: lifecycle/immutability trigger missing';
+  END IF;
+END $$;
+
 -- Drift guard for the privacy boundary: these names must never appear as
 -- persisted profile columns. This catches accidental future broadening on
 -- rerun as well as on a fresh install.
