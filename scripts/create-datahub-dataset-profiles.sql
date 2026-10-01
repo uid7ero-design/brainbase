@@ -43,7 +43,24 @@ BEGIN
         organisation_id
       );
   END IF;
-END $$;
+END $;
+
+-- Authoritative Upload normalization pointer target. This proves a profile
+-- run cannot select an older/alternate SUCCEEDED normalization attempt for
+-- the same upload: it must be the exact run Upload.normalization_run_id
+-- names as authoritative.
+DO $
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.uploads'::regclass
+      AND conname = 'uploads_id_normalization_run_organisation_key'
+  ) THEN
+    ALTER TABLE public.uploads
+      ADD CONSTRAINT uploads_id_normalization_run_organisation_key
+      UNIQUE (id, normalization_run_id, organisation_id);
+  END IF;
+END $;
 
 CREATE TABLE IF NOT EXISTS public.data_hub_dataset_profile_runs (
   id text PRIMARY KEY,
@@ -169,6 +186,9 @@ CREATE TABLE IF NOT EXISTS public.data_hub_dataset_profile_runs (
   CONSTRAINT data_hub_dataset_profile_runs_upload_fkey
     FOREIGN KEY (upload_id, import_batch_id, organisation_id)
     REFERENCES public.uploads(id, import_batch_id, organisation_id),
+  CONSTRAINT data_hub_dataset_profile_runs_authoritative_normalization_fkey
+    FOREIGN KEY (upload_id, normalization_run_id, organisation_id)
+    REFERENCES public.uploads(id, normalization_run_id, organisation_id),
   CONSTRAINT data_hub_dataset_profile_runs_normalization_lineage_fkey
     FOREIGN KEY (
       normalization_run_id,
@@ -667,6 +687,7 @@ BEGIN
     'data_hub_dataset_profile_runs_state_coherence_check',
     'data_hub_dataset_profile_runs_counts_safe_integer_check',
     'data_hub_dataset_profile_runs_normalization_lineage_fkey',
+    'data_hub_dataset_profile_runs_authoritative_normalization_fkey',
     'data_hub_dataset_profile_columns_kind_stats_check',
     'data_hub_dataset_profile_columns_safe_integer_check',
     'data_hub_dataset_profile_columns_flags_coherence_check',
