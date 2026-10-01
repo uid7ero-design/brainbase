@@ -246,6 +246,56 @@ test.describe('C7.9F Budget export browser flow', () => {
     expect(lines[3]).not.toContain('SIGNED_OFF');
   });
 
+  test('preserves duplicate finance rows in order without collapsing or relabelling reconciliation status', async ({ page }) => {
+    const report = exportFixture();
+    report.financeRows = [
+      {
+        ...report.financeRows[0],
+        externalGlActualCents: '3000',
+        reconciliationVarianceCents: '0',
+        reconciliationStatus: 'SIGNED_OFF',
+        sourceSystemId: 'xero',
+      },
+      {
+        ...report.financeRows[0],
+        externalGlActualCents: '3050',
+        reconciliationVarianceCents: '-50',
+        reconciliationStatus: 'STALE',
+        sourceSystemId: 'xero',
+      },
+    ];
+
+    const { financeRowsCsv } = buildBudgetConsumptionCsvExports(report);
+    await mountControls(page, { legacyAvailable: true, financeAvailable: true });
+    await fulfillCsvDownload(
+      page,
+      'finance',
+      'brainbase-budget-finance.csv',
+      financeRowsCsv,
+    );
+
+    const [, download] = await Promise.all([
+      page.waitForRequest(request =>
+        request.url() === 'http://brainbase.local/api/commercial/budgeting/consumption/export?view=finance',
+      ),
+      page.waitForEvent('download'),
+      page.locator('[data-export-view="finance"]').click(),
+    ]);
+    const body = await readDownloadText(download);
+    const lines = body.replace(/^\uFEFF/, '').trimEnd().split('\r\n');
+
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toContain(
+      'OPEX,Operating costs,FY26,September,AUD,12000,2500,500,3000,7500,10500,3000,0,SIGNED_OFF,xero',
+    );
+    expect(lines[2]).toContain(
+      "OPEX,Operating costs,FY26,September,AUD,12000,2500,500,3000,7500,10500,3050,'-50,STALE,xero",
+    );
+    expect(lines[1].endsWith('SIGNED_OFF,xero')).toBe(true);
+    expect(lines[2].endsWith('STALE,xero')).toBe(true);
+    expect((body.match(/OPEX,Operating costs,FY26,September,AUD/g) ?? []).length).toBe(2);
+  });
+
   test('disabled finance control cannot request or download while legacy remains clickable', async ({ page }) => {
     let financeRequests = 0;
     await page.route(
