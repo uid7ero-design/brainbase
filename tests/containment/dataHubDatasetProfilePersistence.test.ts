@@ -175,3 +175,35 @@ describe("6.2D4D1B1 — Prisma mirror and rollback", () => {
     expect(ROLLBACK).not.toMatch(/ALTER TABLE public\.uploads/i);
   });
 });
+
+
+describe("6.2D4D1B1 — hardened persisted-fact invariants", () => {
+  it("caps persisted counts at D4D1A's Number.MAX_SAFE_INTEGER contract", () => {
+    expect(CODE).toContain("data_hub_dataset_profile_runs_counts_safe_integer_check");
+    expect(CODE).toContain("data_hub_dataset_profile_columns_safe_integer_check");
+    expect(CODE).toContain("9007199254740991");
+  });
+
+  it("requires structural flags to agree exactly with their persisted counts", () => {
+    expect(CODE).toContain("data_hub_dataset_profile_columns_flags_coherence_check");
+    expect(CODE).toContain("is_all_null = (row_count > 0 AND non_null_count = 0)");
+    expect(CODE).toContain("is_complete = (null_count = 0)");
+    expect(CODE).toContain("is_sparse = (row_count > 0 AND non_null_count > 0 AND non_null_count < row_count)");
+    expect(CODE).toContain("is_constant = (distinct_non_null_count = 1)");
+    expect(CODE).toContain("is_unique_among_non_null = (non_null_count > 0 AND distinct_non_null_count = non_null_count)");
+  });
+
+  it("accepts only canonical plain-decimal text for ratios/means/numeric statistics", () => {
+    expect(CODE).toContain("data_hub_dataset_profile_columns_canonical_decimal_text_check");
+    expect(CODE).toContain("numeric_mean IS NULL OR numeric_mean ~");
+    expect(CODE).not.toContain("DOUBLE PRECISION");
+    expect(CODE).not.toContain("REAL");
+  });
+
+  it("contains an explicit idempotent schema-drift verifier and checks the RUNNING partial unique index shape", () => {
+    expect(CODE).toContain("Dataset profile migration drift:");
+    expect(CODE).toContain("pg_get_indexdef");
+    expect(CODE).toContain("RUNNING uniqueness index has the wrong shape");
+    expect(CODE).toContain("required validated constraint");
+  });
+});
