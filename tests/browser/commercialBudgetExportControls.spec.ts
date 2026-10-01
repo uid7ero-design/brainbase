@@ -1,18 +1,23 @@
 import { test, expect, type Download, type Page } from '@playwright/test';
 import { buildBudgetConsumptionCsvExports } from '../../lib/commercial/budgetConsumptionExport';
-import { BUDGET_EXPORT_CONTROLS } from '../../lib/commercial/budgetExportControls';
+import { BUDGET_EXPORT_CONTROLS, budgetFinanceExportHref } from '../../lib/commercial/budgetExportControls';
 
 async function mountControls(
   page: Page,
   props: {
     legacyAvailable: boolean;
     financeAvailable: boolean;
+    sourceSystemId?: string | null;
     disabledReason?: string;
   },
 ) {
   const controls = [
     { ...BUDGET_EXPORT_CONTROLS.legacy, available: props.legacyAvailable },
-    { ...BUDGET_EXPORT_CONTROLS.finance, available: props.financeAvailable },
+    {
+      ...BUDGET_EXPORT_CONTROLS.finance,
+      href: budgetFinanceExportHref(props.sourceSystemId),
+      available: props.financeAvailable,
+    },
   ];
   const markup = controls.map(control => control.available
     ? `<a data-export-view="${control.key}" href="${control.href}" download="${control.filename}">${control.label}</a>`
@@ -29,9 +34,13 @@ async function fulfillCsvDownload(
   view: 'legacy' | 'finance',
   filename: string,
   body: string,
+  sourceSystemId?: string | null,
 ) {
+  const path = view === 'finance'
+    ? budgetFinanceExportHref(sourceSystemId)
+    : BUDGET_EXPORT_CONTROLS.legacy.href;
   await page.route(
-    `http://brainbase.local/api/commercial/budgeting/consumption/export?view=${view}`,
+    `http://brainbase.local${path}`,
     route => route.fulfill({
       status: 200,
       contentType: 'text/csv; charset=utf-8',
@@ -144,6 +153,49 @@ test.describe('C7.9F Budget export browser flow', () => {
     );
     expect(body).toContain(
       'OPEX,Operating costs,FY26,September,AUD,12000,2500,500,3000,7500,10500,,,,',
+    );
+  });
+
+  test('explicit finance source selection is preserved in the browser download request only', async ({ page }) => {
+    const report = exportFixture();
+    report.financeRows[0] = {
+      ...report.financeRows[0],
+      externalGlActualCents: '3050',
+      reconciliationVarianceCents: '-50',
+      reconciliationStatus: 'STALE',
+      sourceSystemId: 'xero au',
+    };
+    const { financeRowsCsv } = buildBudgetConsumptionCsvExports(report);
+    const sourceSystemId = 'xero au';
+
+    await mountControls(page, {
+      legacyAvailable: true,
+      financeAvailable: true,
+      sourceSystemId,
+    });
+    await fulfillCsvDownload(
+      page,
+      'finance',
+      'brainbase-budget-finance.csv',
+      financeRowsCsv,
+      sourceSystemId,
+    );
+
+    const [request, download] = await Promise.all([
+      page.waitForRequest(request =>
+        request.url() === 'http://brainbase.local/api/commercial/budgeting/consumption/export?view=finance&sourceSystemId=xero%20au',
+      ),
+      page.waitForEvent('download'),
+      page.locator('[data-export-view="finance"]').click(),
+    ]);
+    const body = await readDownloadText(download);
+
+    expect(request.method()).toBe('GET');
+    expect(download.suggestedFilename()).toBe('brainbase-budget-finance.csv');
+    expect(body).toContain("'-50,STALE,xero au");
+    await expect(page.locator('[data-export-view="legacy"]')).toHaveAttribute(
+      'href',
+      '/api/commercial/budgeting/consumption/export?view=legacy',
     );
   });
 

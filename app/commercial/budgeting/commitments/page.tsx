@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { formatMoneyCents } from '@/lib/commercial/money';
-import { BUDGET_EXPORT_CONTROLS } from '@/lib/commercial/budgetExportControls';
+import { BUDGET_EXPORT_CONTROLS, budgetFinanceExportHref } from '@/lib/commercial/budgetExportControls';
 
 const CARD = '#0e1014';
 const BORDER = '#1a1d24';
@@ -130,10 +130,39 @@ export default function BudgetCommitmentsPage() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sourceSystemIds, setSourceSystemIds] = useState<string[]>([]);
+  const [sourceSystemsError, setSourceSystemsError] = useState<string | null>(null);
+  const [selectedSourceSystemId, setSelectedSourceSystemId] = useState('');
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
-      const res = await fetch('/api/commercial/budgeting/consumption');
+      const res = await fetch('/api/commercial/budgeting/external-gl/sources');
+      if (cancelled) return;
+      if (!res.ok) {
+        setSourceSystemsError('Unable to load External GL sources.');
+        return;
+      }
+      const data = await res.json() as { sourceSystemIds?: unknown };
+      if (!Array.isArray(data.sourceSystemIds)) {
+        setSourceSystemsError('Unable to load External GL sources.');
+        return;
+      }
+      setSourceSystemIds(data.sourceSystemIds.filter((value): value is string => typeof value === 'string'));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const suffix = selectedSourceSystemId
+        ? `?sourceSystemId=${encodeURIComponent(selectedSourceSystemId)}`
+        : '';
+      const res = await fetch(`/api/commercial/budgeting/consumption${suffix}`);
+      if (cancelled) return;
       if (!res.ok) {
         setError(res.status === 403
           ? 'Budgeting access is required to view Budget consumption.'
@@ -143,9 +172,19 @@ export default function BudgetCommitmentsPage() {
       }
       const data = await res.json();
       setReport(data.report ?? null);
+      setError(null);
       setLoading(false);
     })();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSourceSystemId]);
+
+  function selectSourceSystem(value: string) {
+    setLoading(true);
+    setError(null);
+    setSelectedSourceSystemId(value);
+  }
   const rows = useMemo(() => report?.rows ?? [], [report]);
   const financeRows = useMemo(() => report?.financeRows ?? [], [report]);
   const filteredRows = useMemo(() => rows.filter(row => {
@@ -235,9 +274,16 @@ export default function BudgetCommitmentsPage() {
         </p>
       </div>
 
+      <FinanceSourceSelector
+        sourceSystemIds={sourceSystemIds}
+        selectedSourceSystemId={selectedSourceSystemId}
+        onChange={selectSourceSystem}
+        error={sourceSystemsError}
+      />
       <BudgetExportControls
         legacyAvailable={rows.length > 0}
         financeAvailable={financeRows.length > 0}
+        sourceSystemId={selectedSourceSystemId || null}
       />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(180px, 1fr))', gap: 10, marginBottom: 18 }}>
@@ -384,18 +430,69 @@ export default function BudgetCommitmentsPage() {
   );
 }
 
+export function FinanceSourceSelector({
+  sourceSystemIds,
+  selectedSourceSystemId,
+  onChange,
+  error = null,
+}: {
+  sourceSystemIds: string[];
+  selectedSourceSystemId: string;
+  onChange: (value: string) => void;
+  error?: string | null;
+}) {
+  return (
+    <section
+      aria-label="External GL source"
+      style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}
+    >
+      <label htmlFor="budget-finance-source" style={{ fontSize: 12, color: MUTED }}>
+        Finance source
+      </label>
+      <select
+        id="budget-finance-source"
+        value={selectedSourceSystemId}
+        onChange={event => onChange(event.target.value)}
+        style={{
+          border: `1px solid ${BORDER}`,
+          background: CARD,
+          color: '#d1d5db',
+          borderRadius: 7,
+          padding: '7px 10px',
+          fontSize: 12,
+        }}
+      >
+        <option value="">BrainBase only (no External GL)</option>
+        {sourceSystemIds.map(sourceSystemId => (
+          <option key={sourceSystemId} value={sourceSystemId}>{sourceSystemId}</option>
+        ))}
+      </select>
+      <span style={{ fontSize: 11, color: '#6b7280' }}>
+        Select a source explicitly to include signed-off or stale External GL reconciliation evidence.
+      </span>
+      {error ? <span role="status" style={{ fontSize: 11, color: '#fbbf24' }}>{error}</span> : null}
+    </section>
+  );
+}
+
 export function BudgetExportControls({
   legacyAvailable,
   financeAvailable,
+  sourceSystemId = null,
   disabledReason = null,
 }: {
   legacyAvailable: boolean;
   financeAvailable: boolean;
+  sourceSystemId?: string | null;
   disabledReason?: string | null;
 }) {
   const controls = [
     { ...BUDGET_EXPORT_CONTROLS.legacy, available: legacyAvailable },
-    { ...BUDGET_EXPORT_CONTROLS.finance, available: financeAvailable },
+    {
+      ...BUDGET_EXPORT_CONTROLS.finance,
+      href: budgetFinanceExportHref(sourceSystemId),
+      available: financeAvailable,
+    },
   ];
 
   return (

@@ -13,4 +13,11 @@ export const BUDGET_EXPORT_CONTROLS = {
   },
 } as const;
 
+export function budgetFinanceExportHref(sourceSystemId?: string | null) {
+  const clean = sourceSystemId?.trim();
+  return clean
+    ? `${BUDGET_EXPORT_CONTROLS.finance.href}&sourceSystemId=${encodeURIComponent(clean)}`
+    : BUDGET_EXPORT_CONTROLS.finance.href;
+}
+
 export type BudgetExportView = keyof typeof BUDGET_EXPORT_CONTROLS;

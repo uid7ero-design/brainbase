@@ -22,6 +22,14 @@ describe('C7.9D — external GL schema/domain contract', () => {
     expect(domain).toContain('pg_advisory_xact_lock');
   });
 
+  it('discovers finance source IDs only from tenant-scoped finance evidence', () => {
+    expect(domain).toContain('listExternalGlSourceSystemIds');
+    expect(domain).toContain('FROM commercial_external_gl_account_mappings');
+    expect(domain).toContain('FROM commercial_external_gl_entries');
+    expect(domain).toContain('FROM commercial_finance_reconciliations');
+    expect((domain.match(/WHERE organisation_id=\$\{organisationId\}/g) ?? []).length).toBeGreaterThanOrEqual(3);
+  });
+
   it('contains no fuzzy mapping by names, supplier or description', () => {
     expect(domain).not.toMatch(/levenshtein|similarity\(|fuzzy|supplier.*mapping/i);
     expect(domain).not.toMatch(/ILIKE.*external_gl_account_name/i);

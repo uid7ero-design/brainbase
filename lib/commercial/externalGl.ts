@@ -48,6 +48,31 @@ export interface ExternalGlEntry {
   imported_at: string;
 }
 
+export async function listExternalGlSourceSystemIds(
+  organisationId: string,
+): Promise<string[]> {
+  const rows = await sql`
+    SELECT source_system_id
+    FROM (
+      SELECT source_system_id
+      FROM commercial_external_gl_account_mappings
+      WHERE organisation_id=${organisationId}
+      UNION
+      SELECT source_system_id
+      FROM commercial_external_gl_entries
+      WHERE organisation_id=${organisationId}
+      UNION
+      SELECT source_system_id
+      FROM commercial_finance_reconciliations
+      WHERE organisation_id=${organisationId}
+    ) finance_sources
+    WHERE length(btrim(source_system_id)) > 0
+    ORDER BY lower(source_system_id), source_system_id
+  ` as { source_system_id: string }[];
+
+  return rows.map(row => row.source_system_id);
+}
+
 function cleanRequired(value: string, field: string) {
   const clean = value.trim();
   if (!clean) throw new ExternalGlError('INVALID_INPUT', `${field} is required.`);

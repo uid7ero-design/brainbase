@@ -34,7 +34,8 @@ const sqlMock = Object.assign(
 vi.doMock('@/lib/db',()=>({default:sqlMock}));
 
 const { createExternalGlAccountMapping, retireExternalGlAccountMapping, importExternalGlEntry,
-  assertSameReconciliationCurrency, ExternalGlError } = await import('@/lib/commercial/externalGl');
+  listExternalGlSourceSystemIds, assertSameReconciliationCurrency, ExternalGlError } =
+  await import('@/lib/commercial/externalGl');
 
 const ORG='org-c79d';
 const OTHER='org-c79d-other';
@@ -120,6 +121,31 @@ describe('C7.9D — real PostgreSQL external GL boundary',()=>{
     const second=await importExternalGlEntry({...entryInput(),organisationId:OTHER,userId:OTHER_USER});
     expect(first.entry.id).not.toBe(second.entry.id);
     expect(second.entry.organisation_id).toBe(OTHER);
+  });
+
+  it('lists distinct finance source IDs in sorted order without crossing tenants',async()=>{
+    await createExternalGlAccountMapping({
+      ...mappingInput(),
+      sourceSystemId:'myob',
+      externalAccountCode:'601',
+    });
+    await importExternalGlEntry({
+      ...entryInput(),
+      externalEntryId:`source-list-org-${testSequence}`,
+      sourceSystemId:'xero',
+    });
+    await importExternalGlEntry({
+      ...entryInput(),
+      organisationId:OTHER,
+      userId:OTHER_USER,
+      externalEntryId:`source-list-other-${testSequence}`,
+      sourceSystemId:'sage',
+    });
+
+    expect(await listExternalGlSourceSystemIds(ORG)).toEqual(['myob','xero']);
+    const otherSources=await listExternalGlSourceSystemIds(OTHER);
+    expect(otherSources).toContain('sage');
+    expect(otherSources).not.toContain('myob');
   });
 
   it('preserves source currency and rejects cross-currency reconciliation',async()=>{

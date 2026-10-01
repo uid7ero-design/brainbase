@@ -6,8 +6,9 @@ const page = fs.readFileSync(path.resolve(process.cwd(), 'app/commercial/budgeti
 const overview = fs.readFileSync(path.resolve(process.cwd(), 'app/commercial/page.tsx'), 'utf8');
 
 describe('C7.8D — Budget vs Actual vs Committed UI contract', () => {
-  it('loads the governed combined consumption endpoint', () => {
-    expect(page).toContain("fetch('/api/commercial/budgeting/consumption')");
+  it('loads the governed combined consumption endpoint with only an explicit finance-source query', () => {
+    expect(page).toContain('fetch(`/api/commercial/budgeting/consumption${suffix}`)');
+    expect(page).toContain('?sourceSystemId=${encodeURIComponent(selectedSourceSystemId)}');
     expect(page).not.toContain("fetch('/api/commercial/budgeting/commitments')");
   });
 

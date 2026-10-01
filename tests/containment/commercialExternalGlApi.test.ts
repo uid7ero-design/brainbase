@@ -9,26 +9,33 @@ vi.mock('@/lib/commercial/authorize', async (importOriginal) => {
 const createMappingMock = vi.fn();
 const retireMappingMock = vi.fn();
 const importEntryMock = vi.fn();
+const listSourcesMock = vi.fn();
 class MockExternalGlError extends Error { constructor(public code: string, message: string) { super(message); } }
 vi.mock('@/lib/commercial/externalGl', () => ({
   createExternalGlAccountMapping: (...args: unknown[]) => createMappingMock(...args),
   retireExternalGlAccountMapping: (...args: unknown[]) => retireMappingMock(...args),
   importExternalGlEntry: (...args: unknown[]) => importEntryMock(...args),
+  listExternalGlSourceSystemIds: (...args: unknown[]) => listSourcesMock(...args),
   ExternalGlError: MockExternalGlError,
 }));
 
 const mappingsRoute = await import('@/app/api/commercial/budgeting/external-gl/mappings/route');
 const retireRoute = await import('@/app/api/commercial/budgeting/external-gl/mappings/[id]/retire/route');
 const entriesRoute = await import('@/app/api/commercial/budgeting/external-gl/entries/route');
+const sourcesRoute = await import('@/app/api/commercial/budgeting/external-gl/sources/route');
 
 const ADMIN = { userId: 'admin-a', organisationId: 'org-a', role: 'admin' };
 const ctx = { params: Promise.resolve({ id: 'mapping-1' }) };
 
 beforeEach(() => {
-  authorizeMock.mockReset(); createMappingMock.mockReset(); retireMappingMock.mockReset(); importEntryMock.mockReset();
+  authorizeMock.mockReset();
+  createMappingMock.mockReset();
+  retireMappingMock.mockReset();
+  importEntryMock.mockReset();
+  listSourcesMock.mockReset();
 });
 
-describe('C7.9D — external GL admin APIs', () => {
+describe('C7.9D/C7.9F — external GL APIs', () => {
   it.each([401, 403, 503])('preserves mapping authorization denial %s', async status => {
     authorizeMock.mockResolvedValue({ ok: false, response: new Response(null, { status }) });
     const response = await mappingsRoute.POST(new Request('http://localhost', { method: 'POST', body: '{}' }));
@@ -129,6 +136,29 @@ describe('C7.9D — external GL admin APIs', () => {
       userId:'admin-a',
       externalEntryId:'e-2',
     }));
+  });
+
+  it.each([401, 403, 503])('preserves source-list authorization denial %s', async status => {
+    authorizeMock.mockResolvedValue({ ok: false, response: new Response(null, { status }) });
+
+    const response = await sourcesRoute.GET();
+
+    expect(response.status).toBe(status);
+    expect(authorizeMock).toHaveBeenCalledWith('budgeting', 'viewer');
+    expect(listSourcesMock).not.toHaveBeenCalled();
+  });
+
+  it('lists finance source IDs under budgeting/view using only the session tenant', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: ADMIN });
+    listSourcesMock.mockResolvedValue(['myob', 'xero']);
+
+    const response = await sourcesRoute.GET();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({ sourceSystemIds: ['myob', 'xero'] });
+    expect(authorizeMock).toHaveBeenCalledWith('budgeting', 'viewer');
+    expect(listSourcesMock).toHaveBeenCalledWith('org-a');
   });
 
   it('maps invalid input to 400, not-found to 404, and conflicts to 409', async () => {

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { BudgetExportControls } from '@/app/commercial/budgeting/commitments/page';
+import { BudgetExportControls, FinanceSourceSelector } from '@/app/commercial/budgeting/commitments/page';
 
 const pageSource = fs.readFileSync(
   path.resolve(process.cwd(), 'app/commercial/budgeting/commitments/page.tsx'),
@@ -28,6 +28,36 @@ describe('C7.9F — Budgeting export controls UI', () => {
     );
     expect(html).toContain('download="brainbase-budget-finance.csv"');
     expect(html).toContain('data-export-view="finance"');
+  });
+
+  it('adds only an explicitly selected finance source to the finance export URL', () => {
+    const html = renderToStaticMarkup(createElement(BudgetExportControls, {
+      legacyAvailable: true,
+      financeAvailable: true,
+      sourceSystemId: 'xero au',
+    }));
+
+    expect(html).toContain(
+      'href="/api/commercial/budgeting/consumption/export?view=legacy"',
+    );
+    expect(html).toContain(
+      'href="/api/commercial/budgeting/consumption/export?view=finance&amp;sourceSystemId=xero%20au"',
+    );
+    expect(html).not.toContain('view=legacy&amp;sourceSystemId=');
+  });
+
+  it('renders an explicit BrainBase-only default plus tenant finance source choices', () => {
+    const html = renderToStaticMarkup(createElement(FinanceSourceSelector, {
+      sourceSystemIds: ['myob', 'xero'],
+      selectedSourceSystemId: '',
+      onChange: () => undefined,
+    }));
+
+    expect(html).toContain('aria-label="External GL source"');
+    expect(html).toContain('BrainBase only (no External GL)');
+    expect(html).toContain('<option value="myob">myob</option>');
+    expect(html).toContain('<option value="xero">xero</option>');
+    expect(html).toContain('Select a source explicitly');
   });
 
   it('disables only the unavailable export without emitting a broken href', () => {
@@ -68,5 +98,8 @@ describe('C7.9F — Budgeting export controls UI', () => {
     );
     expect(pageSource).toContain('legacyAvailable={rows.length > 0}');
     expect(pageSource).toContain('financeAvailable={financeRows.length > 0}');
+    expect(pageSource).toContain("fetch('/api/commercial/budgeting/external-gl/sources')");
+    expect(pageSource).toContain('?sourceSystemId=${encodeURIComponent(selectedSourceSystemId)}');
+    expect(pageSource).toContain('sourceSystemId={selectedSourceSystemId || null}');
   });
 });
