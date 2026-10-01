@@ -223,10 +223,19 @@ describe("6.2D4D1B1 — hardened persisted-fact invariants", () => {
     expect(CODE).not.toContain("REAL");
   });
 
-  it("contains an explicit idempotent schema-drift verifier and checks the RUNNING partial unique index shape", () => {
+  it("contains an explicit idempotent schema-drift verifier and checks every D4D1B1 index shape", () => {
     expect(CODE).toContain("Dataset profile migration drift:");
     expect(CODE).toContain("pg_get_indexdef");
     expect(CODE).toContain("RUNNING uniqueness index has the wrong shape");
+    for (const indexName of [
+      "idx_data_hub_dataset_profile_runs_org_upload",
+      "idx_data_hub_dataset_profile_runs_normalization",
+      "idx_data_hub_dataset_profile_columns_org_run",
+      "idx_data_hub_dataset_profile_columns_source_column",
+    ]) {
+      expect(CODE).toContain(indexName);
+    }
+    expect(CODE).toContain("Dataset profile migration drift: index % has the wrong shape");
     expect(CODE).toContain("required validated constraint");
   });
 });
