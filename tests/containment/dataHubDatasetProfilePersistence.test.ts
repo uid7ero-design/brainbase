@@ -52,10 +52,24 @@ describe("6.2D4D1B1 — exact lineage and tenancy", () => {
     expect(runFk).toContain("data_hub_dataset_profile_runs(id, source_schema_worksheet_id, organisation_id)");
 
     const colFk = CODE.slice(CODE.indexOf("data_hub_dataset_profile_columns_source_column_fkey"), CODE.indexOf("data_hub_dataset_profile_columns_source_column_fkey") + 700);
-    expect(colFk).toContain("FOREIGN KEY (source_schema_column_id, source_schema_worksheet_id, ordinal, organisation_id)");
+    expect(colFk).toContain("FOREIGN KEY (source_schema_column_id, source_schema_worksheet_id, source_column_ordinal, organisation_id)");
     expect(colFk).toContain("source_schema_columns(id, source_schema_worksheet_id, ordinal, organisation_id)");
   });
 
+
+
+  it("keeps D4D1A profile order distinct from governed source-column ordinal", () => {
+    expect(CODE).toContain("source_column_ordinal integer NOT NULL");
+    expect(CODE).toContain("UNIQUE (profile_run_id, ordinal)");
+    const fkIdx = CODE.indexOf("data_hub_dataset_profile_columns_source_column_fkey");
+    const fk = CODE.slice(fkIdx, fkIdx + 700);
+    expect(fk).toContain("source_column_ordinal");
+    expect(fk).toContain("REFERENCES public.source_schema_columns(id, source_schema_worksheet_id, ordinal, organisation_id)");
+    const completeIdx = CODE.indexOf("Dataset profile completion ordinal reconciliation failed");
+    const completeRegion = CODE.slice(Math.max(0, completeIdx - 800), completeIdx + 200);
+    expect(completeRegion).toContain("min(ordinal)");
+    expect(completeRegion).not.toContain("source_column_ordinal");
+  });
   it("rejects cross-tenant initiating actors in the DB trigger", () => {
     const fn = CODE.slice(CODE.indexOf("datahub_guard_dataset_profile_run_lifecycle"), CODE.lastIndexOf("$fn$;"));
     expect(fn).toMatch(/NEW\.created_by IS NOT NULL AND NOT EXISTS/);
