@@ -79,7 +79,6 @@ model Organisation {
   data_hub_raw_staging_runs DataHubRawStagingRun[]
   data_hub_normalization_runs DataHubNormalizationRun[]
   data_hub_dataset_profile_runs DataHubDatasetProfileRun[]
-  data_hub_dataset_profile_runs DataHubDatasetProfileRun[]
   data_hub_dataset_profile_columns DataHubDatasetProfileColumn[]
   data_hub_normalized_rows    DataHubNormalizedRow[]
   data_hub_normalized_cells   DataHubNormalizedCell[]
