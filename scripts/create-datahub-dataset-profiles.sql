@@ -306,7 +306,16 @@ CREATE TABLE IF NOT EXISTS public.data_hub_dataset_profile_columns (
     ),
   CONSTRAINT data_hub_dataset_profile_columns_canonical_decimal_text_check
     CHECK (
-      (null_ratio IS NULL OR null_ratio ~ '^(0|-?[1-9][0-9]*|-?0\\.[0-9]*[1-9]|-?[1-9][0-9]*\\.[0-9]*[1-9])  CONSTRAINT data_hub_dataset_profile_columns_ratio_shape_check
+      (null_ratio IS NULL OR null_ratio ~ '^(0|-?[1-9][0-9]*|-?0\.[0-9]*[1-9]|-?[1-9][0-9]*\.[0-9]*[1-9])$')
+      AND (non_null_ratio IS NULL OR non_null_ratio ~ '^(0|-?[1-9][0-9]*|-?0\.[0-9]*[1-9]|-?[1-9][0-9]*\.[0-9]*[1-9])$')
+      AND (distinct_ratio IS NULL OR distinct_ratio ~ '^(0|-?[1-9][0-9]*|-?0\.[0-9]*[1-9]|-?[1-9][0-9]*\.[0-9]*[1-9])$')
+      AND (mean_length IS NULL OR mean_length ~ '^(0|-?[1-9][0-9]*|-?0\.[0-9]*[1-9]|-?[1-9][0-9]*\.[0-9]*[1-9])$')
+      AND (numeric_min IS NULL OR numeric_min ~ '^(0|-?[1-9][0-9]*|-?0\.[0-9]*[1-9]|-?[1-9][0-9]*\.[0-9]*[1-9])$')
+      AND (numeric_max IS NULL OR numeric_max ~ '^(0|-?[1-9][0-9]*|-?0\.[0-9]*[1-9]|-?[1-9][0-9]*\.[0-9]*[1-9])$')
+      AND (numeric_sum IS NULL OR numeric_sum ~ '^(0|-?[1-9][0-9]*|-?0\.[0-9]*[1-9]|-?[1-9][0-9]*\.[0-9]*[1-9])$')
+      AND (numeric_mean IS NULL OR numeric_mean ~ '^(0|-?[1-9][0-9]*|-?0\.[0-9]*[1-9]|-?[1-9][0-9]*\.[0-9]*[1-9])$')
+    ),
+  CONSTRAINT data_hub_dataset_profile_columns_ratio_shape_check
     CHECK (
       (row_count = 0 AND null_ratio IS NULL AND non_null_ratio IS NULL)
       OR
