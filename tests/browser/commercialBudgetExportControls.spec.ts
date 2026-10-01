@@ -381,6 +381,39 @@ test.describe('C7.9F Budget export browser flow', () => {
     expect(body).not.toContain(',@ledger');
   });
 
+  test('preserves UTF-8 finance text through the downloaded CSV', async ({ page }) => {
+    const report = exportFixture();
+    report.financeRows = [{
+      ...report.financeRows[0],
+      budgetAccountCode: 'OPEX-É',
+      budgetAccountName: 'Café – 南 Operations',
+      financialPeriodName: 'Septembre – 九月',
+      sourceSystemId: 'ledger-äu',
+    }];
+
+    const { financeRowsCsv } = buildBudgetConsumptionCsvExports(report);
+    await mountControls(page, { legacyAvailable: true, financeAvailable: true });
+    await fulfillCsvDownload(
+      page,
+      'finance',
+      'brainbase-budget-finance.csv',
+      financeRowsCsv,
+    );
+
+    const [, download] = await Promise.all([
+      page.waitForRequest(request =>
+        request.url() === 'http://brainbase.local/api/commercial/budgeting/consumption/export?view=finance',
+      ),
+      page.waitForEvent('download'),
+      page.locator('[data-export-view="finance"]').click(),
+    ]);
+    const body = await readDownloadText(download);
+
+    expect(body.startsWith('\uFEFF')).toBe(true);
+    expect(body).toContain('OPEX-É,Café – 南 Operations,FY26,Septembre – 九月,AUD');
+    expect(body).toContain('ledger-äu');
+  });
+
   test('disabled finance control cannot request or download while legacy remains clickable', async ({ page }) => {
     let financeRequests = 0;
     await page.route(
