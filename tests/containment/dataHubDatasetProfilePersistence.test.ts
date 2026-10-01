@@ -46,6 +46,14 @@ describe("6.2D4D1B1 — exact lineage and tenancy", () => {
     expect(region).toContain("organisation_id");
   });
 
+  it("pins the profile run to Upload's authoritative normalization_run_id", () => {
+    expect(CODE).toContain("uploads_id_normalization_run_organisation_key");
+    const idx = CODE.indexOf("data_hub_dataset_profile_runs_authoritative_normalization_fkey");
+    const region = CODE.slice(idx, idx + 500);
+    expect(region).toContain("FOREIGN KEY (upload_id, normalization_run_id, organisation_id)");
+    expect(region).toContain("REFERENCES public.uploads(id, normalization_run_id, organisation_id)");
+  });
+
   it("proves each profile column belongs to the pinned worksheet and governed source ordinal", () => {
     const runFk = CODE.slice(CODE.indexOf("data_hub_dataset_profile_columns_run_worksheet_fkey"), CODE.indexOf("data_hub_dataset_profile_columns_run_worksheet_fkey") + 600);
     expect(runFk).toContain("FOREIGN KEY (profile_run_id, source_schema_worksheet_id, organisation_id)");
@@ -185,6 +193,7 @@ describe("6.2D4D1B1 — Prisma mirror and rollback", () => {
     expect(ROLLBACK).toContain("DROP TABLE IF EXISTS public.data_hub_dataset_profile_columns");
     expect(ROLLBACK).toContain("DROP TABLE IF EXISTS public.data_hub_dataset_profile_runs");
     expect(ROLLBACK).toContain("DROP CONSTRAINT IF EXISTS data_hub_normalization_runs_profile_lineage_key");
+    expect(ROLLBACK).toContain("DROP CONSTRAINT IF EXISTS uploads_id_normalization_run_organisation_key");
     expect(ROLLBACK).not.toMatch(/DROP TABLE[^;]*data_hub_normalization_runs/i);
     expect(ROLLBACK).not.toMatch(/ALTER TABLE public\.uploads/i);
   });
