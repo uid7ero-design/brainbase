@@ -137,6 +137,14 @@ import path from 'path';
 // needs no auth seam — createOrResumeNormalizationRun/normalizeBatches/
 // completeNormalizationRun all take already-trusted organisationId/
 // uploadId/actorUserId directly.
+//
+// 6.2D4B2B addition: scripts/tests/dataHubNormalizeWorksheetRoute
+// .integration.test.ts (the thin manager+ normalization API/status route's
+// own real-Postgres proof — see
+// scripts/tests/verify-datahub-normalize-worksheet-route.sh) is added
+// alongside the existing specs, for the same reason and with the same
+// explicit-file-argument isolation. Like the 6.2D4B route suite, this one
+// DOES need the lib/org auth seam (the route itself resolves the session).
 export default defineConfig({
   test: {
     environment: 'node',
@@ -163,6 +171,7 @@ export default defineConfig({
       'scripts/tests/assuranceRiskLevelSettings.integration.test.ts',
       'scripts/tests/assuranceRiskBootstrap.integration.test.ts',
       'scripts/tests/dataHubNormalizationExecutor.integration.test.ts',
+      'scripts/tests/dataHubNormalizeWorksheetRoute.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,
