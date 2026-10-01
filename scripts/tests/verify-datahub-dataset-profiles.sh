@@ -145,6 +145,17 @@ expect_success "1d. remove the bad index and re-apply D4D1B1 cleanly" \
   "DROP INDEX public.idx_data_hub_dataset_profile_runs_one_running_per_normalization;
    $(cat "$D4D1B1")"
 
+expect_success "1e. replace an ordinary D4D1B1 index with a same-named wrong-shaped index" \
+  "DROP INDEX public.idx_data_hub_dataset_profile_columns_source_column;
+   CREATE INDEX idx_data_hub_dataset_profile_columns_source_column
+     ON public.data_hub_dataset_profile_columns(organisation_id);"
+expect_failure "1f. re-applying D4D1B1 fails loudly on wrong ordinary-index shape" \
+  "$(cat "$D4D1B1")" \
+  "Dataset profile migration drift: index idx_data_hub_dataset_profile_columns_source_column has the wrong shape"
+expect_success "1g. remove the bad ordinary index and re-apply D4D1B1 cleanly" \
+  "DROP INDEX public.idx_data_hub_dataset_profile_columns_source_column;
+   $(cat "$D4D1B1")"
+
 echo ""
 echo "=== SCHEMA / PRIVACY CONTRACT ==="
 expect_success "2. both profile tables and partial RUNNING index exist"   "SELECT 1/CASE WHEN to_regclass('public.data_hub_dataset_profile_runs') IS NOT NULL
