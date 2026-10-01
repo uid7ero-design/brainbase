@@ -158,6 +158,15 @@ expect_success "3. forbidden source/example fields do not exist"   "SELECT 1/CAS
        AND column_name IN ('raw_value','normalized_value','sample_value','example_value','source_header','message','failure_detail')
    ) THEN 1 ELSE 0 END;"
 
+expect_success "3b. authoritative Upload normalization composite FK has the exact required shape" \
+  "SELECT 1/CASE WHEN (
+     SELECT pg_get_constraintdef(c.oid)
+     FROM pg_constraint c
+     WHERE c.conrelid='public.data_hub_dataset_profile_runs'::regclass
+       AND c.conname='data_hub_dataset_profile_runs_authoritative_normalization_fkey'
+   ) = 'FOREIGN KEY (upload_id, normalization_run_id, organisation_id) REFERENCES uploads(id, normalization_run_id, organisation_id)'
+   THEN 1 ELSE 0 END;"
+
 echo ""
 echo "=== FIXTURE WORLD + AUTHORITATIVE SUCCEEDED NORMALIZATION ==="
 expect_success "4. seed tenant/schema/profile/import lineage"   "INSERT INTO organisations (id,name,slug,updated_at) VALUES
