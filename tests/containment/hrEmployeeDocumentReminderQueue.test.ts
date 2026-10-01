@@ -1,11 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-type QuerySpec = { text: string; values: unknown[] };
-
-const sqlMock = vi.fn((strings: TemplateStringsArray, ...values: unknown[]): QuerySpec => ({
-  text: strings.join('?'),
-  values,
-}));
+const sqlMock = vi.fn();
 
 const claimMock = vi.fn();
 
