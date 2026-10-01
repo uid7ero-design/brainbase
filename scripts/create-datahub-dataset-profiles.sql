@@ -598,6 +598,8 @@ DECLARE
   actual text;
   actual_valid boolean;
   missing_columns text[];
+  idx_name text;
+  expected_def text;
 BEGIN
   SELECT array_agg(req.col ORDER BY req.col) INTO missing_columns
   FROM (
@@ -681,6 +683,29 @@ BEGIN
      OR actual_valid IS DISTINCT FROM true THEN
     RAISE EXCEPTION 'Dataset profile migration drift: RUNNING uniqueness index has the wrong shape';
   END IF;
+
+  FOR idx_name, expected_def IN
+    SELECT * FROM (VALUES
+      ('idx_data_hub_dataset_profile_runs_org_upload',
+       'CREATE INDEX idx_data_hub_dataset_profile_runs_org_upload ON public.data_hub_dataset_profile_runs USING btree (organisation_id, upload_id)'),
+      ('idx_data_hub_dataset_profile_runs_normalization',
+       'CREATE INDEX idx_data_hub_dataset_profile_runs_normalization ON public.data_hub_dataset_profile_runs USING btree (normalization_run_id)'),
+      ('idx_data_hub_dataset_profile_columns_org_run',
+       'CREATE INDEX idx_data_hub_dataset_profile_columns_org_run ON public.data_hub_dataset_profile_columns USING btree (organisation_id, profile_run_id)'),
+      ('idx_data_hub_dataset_profile_columns_source_column',
+       'CREATE INDEX idx_data_hub_dataset_profile_columns_source_column ON public.data_hub_dataset_profile_columns USING btree (source_schema_column_id)')
+    ) AS expected(idx_name, expected_def)
+  LOOP
+    SELECT pg_get_indexdef(i.indexrelid), i.indisvalid INTO actual, actual_valid
+    FROM pg_index i
+    JOIN pg_class ic ON ic.oid=i.indexrelid
+    JOIN pg_namespace n ON n.oid=ic.relnamespace
+    WHERE n.nspname='public' AND ic.relname=idx_name;
+
+    IF actual IS DISTINCT FROM expected_def OR actual_valid IS DISTINCT FROM true THEN
+      RAISE EXCEPTION 'Dataset profile migration drift: index % has the wrong shape', idx_name;
+    END IF;
+  END LOOP;
 
   FOREACH actual IN ARRAY ARRAY[
     'data_hub_dataset_profile_runs_status_check',
