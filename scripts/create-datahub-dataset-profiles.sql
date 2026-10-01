@@ -215,7 +215,11 @@ CREATE TABLE IF NOT EXISTS public.data_hub_dataset_profile_columns (
   profile_run_id text NOT NULL,
   source_schema_worksheet_id text NOT NULL,
   source_schema_column_id text NOT NULL,
+  -- Contiguous D4D1A output position (0..column_count-1), independent of
+  -- SourceSchemaColumn.ordinal, which is governed source structure and may
+  -- legally contain gaps.
   ordinal integer NOT NULL,
+  source_column_ordinal integer NOT NULL,
 
   value_kind text NOT NULL,
   source_unit text,
@@ -256,7 +260,7 @@ CREATE TABLE IF NOT EXISTS public.data_hub_dataset_profile_columns (
   created_at timestamptz NOT NULL DEFAULT now(),
 
   CONSTRAINT data_hub_dataset_profile_columns_ordinal_nonneg_check
-    CHECK (ordinal >= 0),
+    CHECK (ordinal >= 0 AND source_column_ordinal >= 0),
   CONSTRAINT data_hub_dataset_profile_columns_value_kind_check
     CHECK (value_kind IN (
       'STRING','IDENTIFIER','INTEGER','DECIMAL','BOOLEAN','DATE','TIME',
@@ -386,7 +390,7 @@ CREATE TABLE IF NOT EXISTS public.data_hub_dataset_profile_columns (
     FOREIGN KEY (profile_run_id, source_schema_worksheet_id, organisation_id)
     REFERENCES public.data_hub_dataset_profile_runs(id, source_schema_worksheet_id, organisation_id),
   CONSTRAINT data_hub_dataset_profile_columns_source_column_fkey
-    FOREIGN KEY (source_schema_column_id, source_schema_worksheet_id, ordinal, organisation_id)
+    FOREIGN KEY (source_schema_column_id, source_schema_worksheet_id, source_column_ordinal, organisation_id)
     REFERENCES public.source_schema_columns(id, source_schema_worksheet_id, ordinal, organisation_id)
 );
 
@@ -600,7 +604,7 @@ BEGIN
   FROM (
     VALUES
       ('id'),('organisation_id'),('profile_run_id'),('source_schema_worksheet_id'),
-      ('source_schema_column_id'),('ordinal'),('value_kind'),('source_unit'),
+      ('source_schema_column_id'),('ordinal'),('source_column_ordinal'),('value_kind'),('source_unit'),
       ('normalized_unit'),('row_count'),('non_null_count'),('null_count'),
       ('distinct_non_null_count'),('null_ratio'),('non_null_ratio'),('distinct_ratio'),
       ('is_constant'),('is_all_null'),('is_unique_among_non_null'),('is_complete'),
