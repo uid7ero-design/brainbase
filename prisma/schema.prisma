@@ -1529,7 +1529,10 @@ model DataHubDatasetProfileColumn {
   profile_run_id             String
   source_schema_worksheet_id String
   source_schema_column_id    String
+  // Contiguous D4D1A output order; deliberately distinct from the governed
+  // SourceSchemaColumn.ordinal persisted below as source_column_ordinal.
   ordinal                    Int
+  source_column_ordinal      Int
   value_kind                 String
   source_unit                String?
   normalized_unit            String?
@@ -1570,7 +1573,7 @@ model DataHubDatasetProfileColumn {
 
   organisation Organisation @relation(fields: [organisation_id], references: [id])
   profile_run DataHubDatasetProfileRun @relation(fields: [profile_run_id, source_schema_worksheet_id, organisation_id], references: [id, source_schema_worksheet_id, organisation_id])
-  source_schema_column SourceSchemaColumn @relation(fields: [source_schema_column_id, source_schema_worksheet_id, ordinal, organisation_id], references: [id, source_schema_worksheet_id, ordinal, organisation_id])
+  source_schema_column SourceSchemaColumn @relation(fields: [source_schema_column_id, source_schema_worksheet_id, source_column_ordinal, organisation_id], references: [id, source_schema_worksheet_id, ordinal, organisation_id])
 
   @@unique([profile_run_id, ordinal], map: "data_hub_dataset_profile_columns_run_ordinal_key")
   @@unique([profile_run_id, source_schema_column_id], map: "data_hub_dataset_profile_columns_run_source_column_key")
