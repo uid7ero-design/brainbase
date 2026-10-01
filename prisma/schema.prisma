@@ -587,6 +587,10 @@ model Upload {
   // authoritative raw_staging_run_id (see DataHubNormalizationRun's own
   // comment for the unmodeled proof FK that references this).
   @@unique([id, raw_staging_run_id, organisation_id], map: "uploads_id_raw_staging_run_organisation_key")
+  // 6.2D4D1B1 — additive FK target for the SQL-only authoritative profile
+  // lineage proof: a persisted profile run must use this Upload's exact
+  // completed normalization_run_id, never another historical SUCCEEDED run.
+  @@unique([id, normalization_run_id, organisation_id], map: "uploads_id_normalization_run_organisation_key")
   @@map("uploads")
 }
 
