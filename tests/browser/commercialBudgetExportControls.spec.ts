@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Download, type Page } from '@playwright/test';
+import { buildBudgetConsumptionCsvExports } from '../../lib/commercial/budgetConsumptionExport';
 import { BUDGET_EXPORT_CONTROLS } from '../../lib/commercial/budgetExportControls';
 
 async function mountControls(
@@ -27,6 +28,7 @@ async function fulfillCsvDownload(
   page: Page,
   view: 'legacy' | 'finance',
   filename: string,
+  body: string,
 ) {
   await page.route(
     `http://brainbase.local/api/commercial/budgeting/consumption/export?view=${view}`,
@@ -36,15 +38,65 @@ async function fulfillCsvDownload(
       headers: {
         'Content-Disposition': `attachment; filename="${filename}"`,
       },
-      body: 'header\r\nvalue\r\n',
+      body,
     }),
   );
 }
 
+async function readDownloadText(download: Download) {
+  const stream = await download.createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function exportFixture() {
+  return {
+    rows: [{
+      budgetAccountCode: 'OPEX',
+      budgetAccountName: 'Operating costs',
+      costCentreCode: 'OPS',
+      costCentreName: 'Operations',
+      financialYearName: 'FY26',
+      financialPeriodName: 'September',
+      currency: 'AUD',
+      budgetCents: 12000,
+      actualCents: 2500,
+      committedCents: 7500,
+      exposureCents: 10000,
+      budgetLessActualCents: 9500,
+      budgetLessActualAndCommittedCents: 2000,
+    }],
+    financeRows: [{
+      budgetAccountCode: 'OPEX',
+      budgetAccountName: 'Operating costs',
+      financialYearName: 'FY26',
+      financialPeriodName: 'September',
+      currency: 'AUD',
+      budgetCents: '12000',
+      sourceActualCents: '2500',
+      financeAdjustmentCents: '500',
+      effectiveActualCents: '3000',
+      committedCents: '7500',
+      exposureCents: '10500',
+      externalGlActualCents: null,
+      reconciliationVarianceCents: null,
+      reconciliationStatus: null,
+      sourceSystemId: null,
+    }],
+  };
+}
+
 test.describe('C7.9F Budget export browser flow', () => {
-  test('clicking legacy CSV requests the legacy endpoint and downloads the contracted filename', async ({ page }) => {
+  test('downloads the preserved legacy CSV header and row', async ({ page }) => {
+    const { legacyRowsCsv } = buildBudgetConsumptionCsvExports(exportFixture());
     await mountControls(page, { legacyAvailable: true, financeAvailable: true });
-    await fulfillCsvDownload(page, 'legacy', 'brainbase-budget-consumption.csv');
+    await fulfillCsvDownload(
+      page,
+      'legacy',
+      'brainbase-budget-consumption.csv',
+      legacyRowsCsv,
+    );
 
     const [request, download] = await Promise.all([
       page.waitForRequest(request =>
@@ -53,14 +105,28 @@ test.describe('C7.9F Budget export browser flow', () => {
       page.waitForEvent('download'),
       page.locator('[data-export-view="legacy"]').click(),
     ]);
+    const body = await readDownloadText(download);
 
     expect(request.method()).toBe('GET');
     expect(download.suggestedFilename()).toBe('brainbase-budget-consumption.csv');
+    expect(body).toContain(
+      'Budget account code,Budget account name,Cost centre code,Cost centre name,Financial year,Financial period,Currency,Budget cents,Actual cents,Committed cents,Exposure cents,Budget less Actual cents,Budget less Actual + Committed cents',
+    );
+    expect(body).toContain(
+      'OPEX,Operating costs,OPS,Operations,FY26,September,AUD,12000,2500,7500,10000,9500,2000',
+    );
+    expect(body).not.toContain('Finance Adjustments cents');
   });
 
-  test('clicking finance CSV requests the finance endpoint and downloads the contracted filename', async ({ page }) => {
+  test('downloads finance CSV with finance headers and empty null external GL cells', async ({ page }) => {
+    const { financeRowsCsv } = buildBudgetConsumptionCsvExports(exportFixture());
     await mountControls(page, { legacyAvailable: true, financeAvailable: true });
-    await fulfillCsvDownload(page, 'finance', 'brainbase-budget-finance.csv');
+    await fulfillCsvDownload(
+      page,
+      'finance',
+      'brainbase-budget-finance.csv',
+      financeRowsCsv,
+    );
 
     const [request, download] = await Promise.all([
       page.waitForRequest(request =>
@@ -69,9 +135,51 @@ test.describe('C7.9F Budget export browser flow', () => {
       page.waitForEvent('download'),
       page.locator('[data-export-view="finance"]').click(),
     ]);
+    const body = await readDownloadText(download);
 
     expect(request.method()).toBe('GET');
     expect(download.suggestedFilename()).toBe('brainbase-budget-finance.csv');
+    expect(body).toContain(
+      'Source Actual cents,Finance Adjustments cents,Effective Actual cents,Committed cents,Exposure cents,External GL Actual cents,Reconciliation Variance cents,Reconciliation status,Source system',
+    );
+    expect(body).toContain(
+      'OPEX,Operating costs,FY26,September,AUD,12000,2500,500,3000,7500,10500,,,,',
+    );
+  });
+
+  test('downloads stale finance reconciliation evidence without rewriting its historical values', async ({ page }) => {
+    const report = exportFixture();
+    report.financeRows[0] = {
+      ...report.financeRows[0],
+      externalGlActualCents: '3050',
+      reconciliationVarianceCents: '-50',
+      reconciliationStatus: 'STALE',
+      sourceSystemId: 'xero',
+    };
+    const { financeRowsCsv } = buildBudgetConsumptionCsvExports(report);
+    await mountControls(page, { legacyAvailable: true, financeAvailable: true });
+    await fulfillCsvDownload(
+      page,
+      'finance',
+      'brainbase-budget-finance.csv',
+      financeRowsCsv,
+    );
+
+    const [, download] = await Promise.all([
+      page.waitForRequest(request =>
+        request.url() === 'http://brainbase.local/api/commercial/budgeting/consumption/export?view=finance',
+      ),
+      page.waitForEvent('download'),
+      page.locator('[data-export-view="finance"]').click(),
+    ]);
+    const body = await readDownloadText(download);
+
+    expect(download.suggestedFilename()).toBe('brainbase-budget-finance.csv');
+    expect(body).toContain(
+      'OPEX,Operating costs,FY26,September,AUD,12000,2500,500,3000,7500,10500,3050',
+    );
+    expect(body).toContain("'-50,STALE,xero");
+    expect(body).not.toContain('SIGNED_OFF');
   });
 
   test('disabled finance control cannot request or download while legacy remains clickable', async ({ page }) => {
