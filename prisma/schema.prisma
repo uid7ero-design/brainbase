@@ -79,12 +79,11 @@ model Organisation {
   data_hub_raw_staging_runs DataHubRawStagingRun[]
   data_hub_normalization_runs DataHubNormalizationRun[]
   data_hub_dataset_profile_runs DataHubDatasetProfileRun[]
+  data_hub_dataset_profile_runs DataHubDatasetProfileRun[]
   data_hub_dataset_profile_columns DataHubDatasetProfileColumn[]
   data_hub_normalized_rows    DataHubNormalizedRow[]
   data_hub_normalized_cells   DataHubNormalizedCell[]
   data_hub_normalization_findings DataHubNormalizationFinding[]
-  data_hub_dataset_profile_runs DataHubDatasetProfileRun[]
-  data_hub_dataset_profile_columns DataHubDatasetProfileColumn[]
 
   // stripe_account_id also carries a UNIQUE constraint in the live SQL
   // — a partial index (WHERE NOT NULL), same "Prisma mirrors, raw SQL
@@ -837,7 +836,6 @@ model SourceSchemaVersion {
   dataset_type   DatasetType             @relation(fields: [dataset_type_id, organisation_id], references: [id, organisation_id])
   worksheets     SourceSchemaWorksheet[]
   import_batches ImportBatch[]
-  dataset_profile_runs DataHubDatasetProfileRun[]
 
   // Required by SourceSchemaWorksheet's composite tenant-scoped FK.
   @@unique([id, organisation_id])
@@ -878,6 +876,8 @@ model SourceSchemaWorksheet {
   data_hub_raw_rows DataHubRawRow[]
   data_hub_raw_staging_runs DataHubRawStagingRun[]
   data_hub_normalization_runs DataHubNormalizationRun[]
+  data_hub_dataset_profile_runs DataHubDatasetProfileRun[]
+  data_hub_dataset_profile_columns DataHubDatasetProfileColumn[]
 
   // Required by SourceSchemaColumn's and WorksheetMappingProfile's
   // composite tenant-scoped FKs.
@@ -1133,7 +1133,6 @@ model DataHubRawStagingRun {
   raw_rows           DataHubRawRow[]
   raw_staged_uploads Upload[] @relation("UploadRawStagingRun")
   normalization_runs DataHubNormalizationRun[]
-  dataset_profile_runs DataHubDatasetProfileRun[]
 
   @@unique([id, organisation_id], map: "data_hub_raw_staging_runs_id_organisation_key")
   @@unique([id, upload_id, organisation_id], map: "data_hub_raw_staging_runs_id_upload_organisation_key")
