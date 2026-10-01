@@ -179,7 +179,7 @@ expect_success "4. seed tenant/schema/profile/import lineage"   "INSERT INTO org
      VALUES
      ('col-string','org-a','ws-a',0,'Sensitive Name','REQUIRED','STRING','PERSONALLY_IDENTIFIABLE'),
      ('col-number','org-a','ws-a',1,'Amount','REQUIRED','DECIMAL','CONFIDENTIAL'),
-     ('col-date','org-a','ws-a',2,'Date','OPTIONAL','DATE','INTERNAL'),
+     ('col-date','org-a','ws-a',7,'Date','OPTIONAL','DATE','INTERNAL'),
      ('col-other','org-a','ws-b',0,'Other','OPTIONAL','STRING','INTERNAL');
    INSERT INTO worksheet_mapping_profiles
      (id,organisation_id,source_schema_worksheet_id,name,active,updated_at)
@@ -216,10 +216,10 @@ expect_success "5. seed and complete raw staging"   "INSERT INTO data_hub_raw_st
      VALUES
      ('rc-a10','org-a','rr-a1','ws-a','col-string',0,'Sensitive Name','"Alice"','STRING','PERSONALLY_IDENTIFIABLE',NULL),
      ('rc-a11','org-a','rr-a1','ws-a','col-number',1,'Amount','"10"','STRING','CONFIDENTIAL',NULL),
-     ('rc-a12','org-a','rr-a1','ws-a','col-date',2,'Date','null','NULL','INTERNAL',NULL),
+     ('rc-a12','org-a','rr-a1','ws-a','col-date',7,'Date','null','NULL','INTERNAL',NULL),
      ('rc-a20','org-a','rr-a2','ws-a','col-string',0,'Sensitive Name','"Bob"','STRING','PERSONALLY_IDENTIFIABLE',NULL),
      ('rc-a21','org-a','rr-a2','ws-a','col-number',1,'Amount','"20"','STRING','CONFIDENTIAL',NULL),
-     ('rc-a22','org-a','rr-a2','ws-a','col-date',2,'Date','null','NULL','INTERNAL',NULL);"
+     ('rc-a22','org-a','rr-a2','ws-a','col-date',7,'Date','null','NULL','INTERNAL',NULL);"
 
 expect_success "6. normalize through the real staging/completion functions"   "INSERT INTO data_hub_normalization_runs
      (id,organisation_id,import_batch_id,upload_id,raw_staging_run_id,source_schema_version_id,source_schema_worksheet_id,
@@ -280,60 +280,60 @@ expect_failure "12. duplicate concurrent RUNNING profile for same normalization 
 echo ""
 echo "=== COLUMN SHAPE / LINEAGE / PRIVACY ==="
 expect_success "13. valid STRING, numeric and all-null temporal profile columns accepted"   "INSERT INTO data_hub_dataset_profile_columns
-     (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,value_kind,
+     (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,source_column_ordinal,value_kind,
       source_unit,normalized_unit,row_count,non_null_count,null_count,distinct_non_null_count,
       null_ratio,non_null_ratio,distinct_ratio,is_constant,is_all_null,is_unique_among_non_null,is_complete,is_sparse,
       min_length,max_length,total_length,mean_length,empty_string_count)
      VALUES
-     ('pc-string','org-a','profile-a1','ws-a','col-string',0,'STRING',NULL,NULL,2,2,0,2,'0','1','1',false,false,true,true,false,3,5,8,'4',0);
+     ('pc-string','org-a','profile-a1','ws-a','col-string',0,0,'STRING',NULL,NULL,2,2,0,2,'0','1','1',false,false,true,true,false,3,5,8,'4',0);
    INSERT INTO data_hub_dataset_profile_columns
-     (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,value_kind,
+     (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,source_column_ordinal,value_kind,
       source_unit,normalized_unit,row_count,non_null_count,null_count,distinct_non_null_count,
       null_ratio,non_null_ratio,distinct_ratio,is_constant,is_all_null,is_unique_among_non_null,is_complete,is_sparse,
       numeric_min,numeric_max,numeric_sum,numeric_mean)
      VALUES
-     ('pc-number','org-a','profile-a1','ws-a','col-number',1,'DECIMAL',NULL,NULL,2,2,0,2,'0','1','1',false,false,true,true,false,'10','20','30','15');
+     ('pc-number','org-a','profile-a1','ws-a','col-number',1,1,'DECIMAL',NULL,NULL,2,2,0,2,'0','1','1',false,false,true,true,false,'10','20','30','15');
    INSERT INTO data_hub_dataset_profile_columns
-     (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,value_kind,
+     (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,source_column_ordinal,value_kind,
       source_unit,normalized_unit,row_count,non_null_count,null_count,distinct_non_null_count,
       null_ratio,non_null_ratio,distinct_ratio,is_constant,is_all_null,is_unique_among_non_null,is_complete,is_sparse,
       temporal_min,temporal_max)
      VALUES
-     ('pc-date','org-a','profile-a1','ws-a','col-date',2,'DATE',NULL,NULL,2,0,2,0,'1','0',NULL,false,true,false,false,false,NULL,NULL);"
+     ('pc-date','org-a','profile-a1','ws-a','col-date',2,7,'DATE',NULL,NULL,2,0,2,0,'1','0',NULL,false,true,false,false,false,NULL,NULL);"
 
 expect_failure "14. profile column from a different worksheet is rejected"   "INSERT INTO data_hub_dataset_profile_columns
-     (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,value_kind,
+     (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,source_column_ordinal,value_kind,
       row_count,non_null_count,null_count,distinct_non_null_count,null_ratio,non_null_ratio,distinct_ratio,
       is_constant,is_all_null,is_unique_among_non_null,is_complete,is_sparse,min_length,max_length,total_length,mean_length,empty_string_count)
-     VALUES ('pc-wrongws','org-a','profile-a1','ws-b','col-other',0,'STRING',2,2,0,2,'0','1','1',false,false,true,true,false,1,1,2,'1',0);"   "run_worksheet_fkey|source_column_fkey"
+     VALUES ('pc-wrongws','org-a','profile-a1','ws-b','col-other',0,0,'STRING',2,2,0,2,'0','1','1',false,false,true,true,false,1,1,2,'1',0);"   "run_worksheet_fkey|source_column_fkey"
 
 expect_failure "15. cross-kind statistic contamination is rejected"   "INSERT INTO data_hub_dataset_profile_columns
-     (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,value_kind,
+     (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,source_column_ordinal,value_kind,
       row_count,non_null_count,null_count,distinct_non_null_count,null_ratio,non_null_ratio,distinct_ratio,
       is_constant,is_all_null,is_unique_among_non_null,is_complete,is_sparse,min_length,max_length,total_length,mean_length,empty_string_count,numeric_min)
-     VALUES ('pc-contaminated','org-a','profile-a1','ws-a','col-string',0,'STRING',2,2,0,2,'0','1','1',false,false,true,true,false,3,5,8,'4',0,'10');"   "kind_stats_check|run_ordinal_key|run_source_column_key"
+     VALUES ('pc-contaminated','org-a','profile-a1','ws-a','col-string',0,0,'STRING',2,2,0,2,'0','1','1',false,false,true,true,false,3,5,8,'4',0,'10');"   "kind_stats_check|run_ordinal_key|run_source_column_key"
 
 
 
 expect_failure "15b. malformed/non-canonical decimal text is rejected"   "INSERT INTO data_hub_dataset_profile_columns
-     (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,value_kind,
+     (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,source_column_ordinal,value_kind,
       row_count,non_null_count,null_count,distinct_non_null_count,null_ratio,non_null_ratio,distinct_ratio,
       is_constant,is_all_null,is_unique_among_non_null,is_complete,is_sparse,numeric_min,numeric_max,numeric_sum,numeric_mean)
-     VALUES ('pc-baddecimal','org-a','profile-a1','ws-a','col-number',1,'DECIMAL',
+     VALUES ('pc-baddecimal','org-a','profile-a1','ws-a','col-number',1,1,'DECIMAL',
       2,2,0,2,'0.0','1','1',false,false,true,true,false,'10','20','30','15');"   "canonical_decimal_text_check|run_ordinal_key|run_source_column_key"
 
 expect_failure "15c. contradictory structural flags are rejected"   "INSERT INTO data_hub_dataset_profile_columns
-     (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,value_kind,
+     (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,source_column_ordinal,value_kind,
       row_count,non_null_count,null_count,distinct_non_null_count,null_ratio,non_null_ratio,distinct_ratio,
       is_constant,is_all_null,is_unique_among_non_null,is_complete,is_sparse,min_length,max_length,total_length,mean_length,empty_string_count)
-     VALUES ('pc-badflags','org-a','profile-a1','ws-a','col-string',0,'STRING',
+     VALUES ('pc-badflags','org-a','profile-a1','ws-a','col-string',0,0,'STRING',
       2,2,0,2,'0','1','1',true,false,true,true,false,3,5,8,'4',0);"   "flags_coherence_check|run_ordinal_key|run_source_column_key"
 
 expect_failure "15d. count above D4D1A safe-integer ceiling is rejected"   "INSERT INTO data_hub_dataset_profile_columns
-     (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,value_kind,
+     (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,source_column_ordinal,value_kind,
       row_count,non_null_count,null_count,distinct_non_null_count,null_ratio,non_null_ratio,distinct_ratio,
       is_constant,is_all_null,is_unique_among_non_null,is_complete,is_sparse,min_length,max_length,total_length,mean_length,empty_string_count)
-     VALUES ('pc-unsafe','org-a','profile-a1','ws-a','col-string',0,'STRING',
+     VALUES ('pc-unsafe','org-a','profile-a1','ws-a','col-string',0,0,'STRING',
       9007199254740992,0,9007199254740992,0,'1','0',NULL,false,true,false,false,false,0,0,0,NULL,0);"   "safe_integer_check|run_ordinal_key|run_source_column_key"
 
 expect_success "16. persisted STRING profile contains no source/example value"   "SELECT 1/CASE WHEN (
