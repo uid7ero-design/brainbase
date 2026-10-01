@@ -1,6 +1,10 @@
 import { test, expect, type Download, type Page } from '@playwright/test';
 import { buildBudgetConsumptionCsvExports } from '../../lib/commercial/budgetConsumptionExport';
-import { BUDGET_EXPORT_CONTROLS, budgetFinanceExportHref } from '../../lib/commercial/budgetExportControls';
+import {
+  BUDGET_EXPORT_CONTROLS,
+  budgetFinanceExportHref,
+  resolveBudgetFinanceSourceSystemId,
+} from '../../lib/commercial/budgetExportControls';
 
 async function mountControls(
   page: Page,
@@ -27,6 +31,46 @@ async function mountControls(
     ? `<span role="status">${props.disabledReason}</span>`
     : '';
   await page.setContent(`<base href="http://brainbase.local/"><section aria-label="Budget exports">${markup}${reason}</section>`);
+}
+
+async function mountSourceSelectorControls(
+  page: Page,
+  sourceSystemIds: string[],
+  selectedSourceSystemId?: string | null,
+) {
+  const activeSourceSystemId = resolveBudgetFinanceSourceSystemId(
+    sourceSystemIds,
+    selectedSourceSystemId,
+  );
+  const hrefBySource = Object.fromEntries([
+    ['', budgetFinanceExportHref(null)],
+    ...sourceSystemIds.map(sourceSystemId => [
+      sourceSystemId,
+      budgetFinanceExportHref(sourceSystemId),
+    ]),
+  ]);
+  const options = [
+    '<option value="">BrainBase only (no External GL)</option>',
+    ...sourceSystemIds.map(sourceSystemId =>
+      `<option value="${sourceSystemId}">${sourceSystemId}</option>`
+    ),
+  ].join('');
+
+  await page.setContent(`
+    <base href="http://brainbase.local/">
+    <label for="budget-finance-source">Finance source</label>
+    <select id="budget-finance-source">${options}</select>
+    <a data-export-view="finance" href="${budgetFinanceExportHref(activeSourceSystemId)}">Download finance CSV</a>
+    <script>
+      const hrefBySource = ${JSON.stringify(hrefBySource)};
+      const select = document.getElementById('budget-finance-source');
+      const link = document.querySelector('[data-export-view="finance"]');
+      select.value = ${JSON.stringify(activeSourceSystemId ?? '')};
+      select.addEventListener('change', () => {
+        link.setAttribute('href', hrefBySource[select.value] || hrefBySource['']);
+      });
+    </script>
+  `);
 }
 
 async function fulfillCsvDownload(
@@ -197,6 +241,69 @@ test.describe('C7.9F Budget export browser flow', () => {
       'href',
       '/api/commercial/budgeting/consumption/export?view=legacy',
     );
+  });
+
+  test('empty finance source list keeps BrainBase-only selection and export URL', async ({ page }) => {
+    await mountSourceSelectorControls(page, []);
+
+    const selector = page.locator('#budget-finance-source');
+    await expect(selector.locator('option')).toHaveCount(1);
+    await expect(selector).toHaveValue('');
+    await expect(selector.locator('option')).toHaveText([
+      'BrainBase only (no External GL)',
+    ]);
+    await expect(page.locator('[data-export-view="finance"]')).toHaveAttribute(
+      'href',
+      BUDGET_EXPORT_CONTROLS.finance.href,
+    );
+  });
+
+  test('invalid selected finance source falls back to BrainBase-only and never leaks into the export URL', async ({ page }) => {
+    await mountSourceSelectorControls(page, ['myob', 'xero'], 'not-a-real-source');
+
+    const selector = page.locator('#budget-finance-source');
+    await expect(selector).toHaveValue('');
+    await expect(selector.locator('option[value="not-a-real-source"]')).toHaveCount(0);
+    await expect(page.locator('[data-export-view="finance"]')).toHaveAttribute(
+      'href',
+      BUDGET_EXPORT_CONTROLS.finance.href,
+    );
+    expect(await page.content()).not.toContain('sourceSystemId=not-a-real-source');
+  });
+
+  test('switching between two valid finance sources updates downloads in selection order', async ({ page }) => {
+    const body = buildBudgetConsumptionCsvExports(exportFixture()).financeRowsCsv;
+    await mountSourceSelectorControls(page, ['myob', 'xero'], 'myob');
+    await fulfillCsvDownload(page, 'finance', 'brainbase-budget-finance.csv', body, 'myob');
+    await fulfillCsvDownload(page, 'finance', 'brainbase-budget-finance.csv', body, 'xero');
+
+    const selector = page.locator('#budget-finance-source');
+    const link = page.locator('[data-export-view="finance"]');
+
+    await expect(selector).toHaveValue('myob');
+    await expect(link).toHaveAttribute('href', budgetFinanceExportHref('myob'));
+    const [myobRequest, myobDownload] = await Promise.all([
+      page.waitForRequest(request =>
+        request.url() === 'http://brainbase.local/api/commercial/budgeting/consumption/export?view=finance&sourceSystemId=myob',
+      ),
+      page.waitForEvent('download'),
+      link.click(),
+    ]);
+    expect(myobRequest.method()).toBe('GET');
+    expect(myobDownload.suggestedFilename()).toBe('brainbase-budget-finance.csv');
+
+    await selector.selectOption('xero');
+    await expect(selector).toHaveValue('xero');
+    await expect(link).toHaveAttribute('href', budgetFinanceExportHref('xero'));
+    const [xeroRequest, xeroDownload] = await Promise.all([
+      page.waitForRequest(request =>
+        request.url() === 'http://brainbase.local/api/commercial/budgeting/consumption/export?view=finance&sourceSystemId=xero',
+      ),
+      page.waitForEvent('download'),
+      link.click(),
+    ]);
+    expect(xeroRequest.method()).toBe('GET');
+    expect(xeroDownload.suggestedFilename()).toBe('brainbase-budget-finance.csv');
   });
 
   test('downloads stale finance reconciliation evidence without rewriting its historical values', async ({ page }) => {

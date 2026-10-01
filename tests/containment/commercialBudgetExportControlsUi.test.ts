@@ -99,7 +99,8 @@ describe('C7.9F — Budgeting export controls UI', () => {
     expect(pageSource).toContain('legacyAvailable={rows.length > 0}');
     expect(pageSource).toContain('financeAvailable={financeRows.length > 0}');
     expect(pageSource).toContain("fetch('/api/commercial/budgeting/external-gl/sources')");
-    expect(pageSource).toContain('?sourceSystemId=${encodeURIComponent(selectedSourceSystemId)}');
-    expect(pageSource).toContain('sourceSystemId={selectedSourceSystemId || null}');
+    expect(pageSource).toContain('resolveBudgetFinanceSourceSystemId(');
+    expect(pageSource).toContain('?sourceSystemId=${encodeURIComponent(activeSourceSystemId)}');
+    expect(pageSource).toContain('sourceSystemId={activeSourceSystemId}');
   });
 });

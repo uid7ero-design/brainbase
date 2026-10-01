@@ -13,6 +13,14 @@ export const BUDGET_EXPORT_CONTROLS = {
   },
 } as const;
 
+export function resolveBudgetFinanceSourceSystemId(
+  sourceSystemIds: string[],
+  selectedSourceSystemId?: string | null,
+) {
+  const clean = selectedSourceSystemId?.trim();
+  return clean && sourceSystemIds.includes(clean) ? clean : null;
+}
+
 export function budgetFinanceExportHref(sourceSystemId?: string | null) {
   const clean = sourceSystemId?.trim();
   return clean

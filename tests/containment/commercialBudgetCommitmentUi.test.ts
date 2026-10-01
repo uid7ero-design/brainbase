@@ -8,7 +8,7 @@ const overview = fs.readFileSync(path.resolve(process.cwd(), 'app/commercial/pag
 describe('C7.8D — Budget vs Actual vs Committed UI contract', () => {
   it('loads the governed combined consumption endpoint with only an explicit finance-source query', () => {
     expect(page).toContain('fetch(`/api/commercial/budgeting/consumption${suffix}`)');
-    expect(page).toContain('?sourceSystemId=${encodeURIComponent(selectedSourceSystemId)}');
+    expect(page).toContain('?sourceSystemId=${encodeURIComponent(activeSourceSystemId)}');
     expect(page).not.toContain("fetch('/api/commercial/budgeting/commitments')");
   });
 

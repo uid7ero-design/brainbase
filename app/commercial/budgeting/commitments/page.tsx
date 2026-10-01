@@ -3,7 +3,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { formatMoneyCents } from '@/lib/commercial/money';
-import { BUDGET_EXPORT_CONTROLS, budgetFinanceExportHref } from '@/lib/commercial/budgetExportControls';
+import {
+  BUDGET_EXPORT_CONTROLS,
+  budgetFinanceExportHref,
+  resolveBudgetFinanceSourceSystemId,
+} from '@/lib/commercial/budgetExportControls';
 
 const CARD = '#0e1014';
 const BORDER = '#1a1d24';
@@ -133,6 +137,10 @@ export default function BudgetCommitmentsPage() {
   const [sourceSystemIds, setSourceSystemIds] = useState<string[]>([]);
   const [sourceSystemsError, setSourceSystemsError] = useState<string | null>(null);
   const [selectedSourceSystemId, setSelectedSourceSystemId] = useState('');
+  const activeSourceSystemId = resolveBudgetFinanceSourceSystemId(
+    sourceSystemIds,
+    selectedSourceSystemId,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -158,8 +166,8 @@ export default function BudgetCommitmentsPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const suffix = selectedSourceSystemId
-        ? `?sourceSystemId=${encodeURIComponent(selectedSourceSystemId)}`
+      const suffix = activeSourceSystemId
+        ? `?sourceSystemId=${encodeURIComponent(activeSourceSystemId)}`
         : '';
       const res = await fetch(`/api/commercial/budgeting/consumption${suffix}`);
       if (cancelled) return;
@@ -178,7 +186,7 @@ export default function BudgetCommitmentsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedSourceSystemId]);
+  }, [activeSourceSystemId]);
 
   function selectSourceSystem(value: string) {
     setLoading(true);
@@ -276,14 +284,14 @@ export default function BudgetCommitmentsPage() {
 
       <FinanceSourceSelector
         sourceSystemIds={sourceSystemIds}
-        selectedSourceSystemId={selectedSourceSystemId}
+        selectedSourceSystemId={activeSourceSystemId ?? ''}
         onChange={selectSourceSystem}
         error={sourceSystemsError}
       />
       <BudgetExportControls
         legacyAvailable={rows.length > 0}
         financeAvailable={financeRows.length > 0}
-        sourceSystemId={selectedSourceSystemId || null}
+        sourceSystemId={activeSourceSystemId}
       />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(180px, 1fr))', gap: 10, marginBottom: 18 }}>
