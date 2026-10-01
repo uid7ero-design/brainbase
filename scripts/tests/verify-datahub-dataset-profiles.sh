@@ -133,6 +133,19 @@ reset_database
 expect_success "1. D4D1B1 re-applies idempotently" "$(cat "$D4D1B1")"
 
 echo ""
+echo "=== DRIFT FAIL-LOUD PROOF ==="
+expect_success "1b. replace the RUNNING partial unique index with a same-named wrong-shaped index" \
+  "DROP INDEX public.idx_data_hub_dataset_profile_runs_one_running_per_normalization;
+   CREATE UNIQUE INDEX idx_data_hub_dataset_profile_runs_one_running_per_normalization
+     ON public.data_hub_dataset_profile_runs(upload_id);"
+expect_failure "1c. re-applying D4D1B1 fails loudly on the wrong-shaped existing index" \
+  "$(cat "$D4D1B1")" \
+  "Dataset profile migration drift: RUNNING uniqueness index has the wrong shape"
+expect_success "1d. remove the bad index and re-apply D4D1B1 cleanly" \
+  "DROP INDEX public.idx_data_hub_dataset_profile_runs_one_running_per_normalization;
+   $(cat "$D4D1B1")"
+
+echo ""
 echo "=== SCHEMA / PRIVACY CONTRACT ==="
 expect_success "2. both profile tables and partial RUNNING index exist"   "SELECT 1/CASE WHEN to_regclass('public.data_hub_dataset_profile_runs') IS NOT NULL
      AND to_regclass('public.data_hub_dataset_profile_columns') IS NOT NULL
