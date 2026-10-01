@@ -182,6 +182,70 @@ test.describe('C7.9F Budget export browser flow', () => {
     expect(body).not.toContain('SIGNED_OFF');
   });
 
+  test('keeps partial finance cells empty, preserves row order, and never infers reconciliation status', async ({ page }) => {
+    const report = exportFixture();
+    report.financeRows = [
+      {
+        ...report.financeRows[0],
+        budgetAccountCode: 'FIRST',
+        budgetAccountName: 'Partial row',
+        financeAdjustmentCents: undefined,
+        externalGlActualCents: undefined,
+        reconciliationVarianceCents: undefined,
+        reconciliationStatus: undefined,
+        sourceSystemId: undefined,
+      },
+      {
+        ...report.financeRows[0],
+        budgetAccountCode: 'SECOND',
+        budgetAccountName: 'Stale row',
+        externalGlActualCents: '3050',
+        reconciliationVarianceCents: '-50',
+        reconciliationStatus: 'STALE',
+        sourceSystemId: 'xero',
+      },
+      {
+        ...report.financeRows[0],
+        budgetAccountCode: 'THIRD',
+        budgetAccountName: 'GL without status',
+        externalGlActualCents: '4100',
+        reconciliationVarianceCents: null,
+        reconciliationStatus: null,
+        sourceSystemId: 'xero',
+      },
+    ] as unknown as typeof report.financeRows;
+
+    const { financeRowsCsv } = buildBudgetConsumptionCsvExports(report);
+    await mountControls(page, { legacyAvailable: true, financeAvailable: true });
+    await fulfillCsvDownload(
+      page,
+      'finance',
+      'brainbase-budget-finance.csv',
+      financeRowsCsv,
+    );
+
+    const [, download] = await Promise.all([
+      page.waitForRequest(request =>
+        request.url() === 'http://brainbase.local/api/commercial/budgeting/consumption/export?view=finance',
+      ),
+      page.waitForEvent('download'),
+      page.locator('[data-export-view="finance"]').click(),
+    ]);
+    const body = await readDownloadText(download);
+    const lines = body.replace(/^\uFEFF/, '').trimEnd().split('\r\n');
+
+    expect(lines).toHaveLength(4);
+    expect(lines[1]).toContain('FIRST,Partial row,FY26,September,AUD,12000,2500,,3000,7500,10500,,,,');
+    expect(lines[2]).toContain("SECOND,Stale row,FY26,September,AUD,12000,2500,500,3000,7500,10500,3050,'-50,STALE,xero");
+    expect(lines[3]).toContain('THIRD,GL without status,FY26,September,AUD,12000,2500,500,3000,7500,10500,4100,,,xero');
+
+    expect(lines[1].startsWith('FIRST,')).toBe(true);
+    expect(lines[2].startsWith('SECOND,')).toBe(true);
+    expect(lines[3].startsWith('THIRD,')).toBe(true);
+    expect(lines[3]).not.toContain('STALE');
+    expect(lines[3]).not.toContain('SIGNED_OFF');
+  });
+
   test('disabled finance control cannot request or download while legacy remains clickable', async ({ page }) => {
     let financeRequests = 0;
     await page.route(
