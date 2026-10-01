@@ -341,6 +341,7 @@ model ImportBatch {
   data_hub_raw_rows DataHubRawRow[]
   data_hub_raw_staging_runs DataHubRawStagingRun[]
   data_hub_normalization_runs DataHubNormalizationRun[]
+  data_hub_dataset_profile_runs DataHubDatasetProfileRun[]
   // Composite tenant-scoped FK (MATCH SIMPLE) — a MATCH SIMPLE
   // constraint means a NULL source_system_id (every existing/legacy
   // row) is entirely exempt from this check. For a batch that DOES
