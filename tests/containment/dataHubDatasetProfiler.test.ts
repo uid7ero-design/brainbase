@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { profileDataset } from "@/lib/data-hub/profiling/profileDataset";
 import { DATASET_PROFILER_VERSION, type DatasetProfileInput, type ProfileColumnInput } from "@/lib/data-hub/profiling/contracts";
+import { SafeAccumulator } from "@/lib/data-hub/profiling/safeInt";
 
 // Data Hub 6.2D4D1A — pure dataset profiling engine, comprehensive
 // containment tests. Every scenario here calls profileDataset() directly
@@ -752,6 +753,235 @@ describe("invalid input", () => {
     const result = profileDataset({ rowCount: 1, columns: [column({ valueKind: "DECIMAL", cells: [{ sourceRowNumber: 1, normalizedValue: SECRET }] })] });
     expect(result).toEqual({ ok: false, code: "PROFILE_INPUT_INVALID" });
     expect(JSON.stringify(result)).not.toContain(SECRET);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// CANONICAL TEMPORAL VALIDATION (final review remediation)
+//
+// A regex can only prove a value LOOKS like "YYYY-MM-DD"; it cannot prove
+// the calendar date is real. Every case below is accepted by the OLD
+// shape-only regex but must now be rejected by the real
+// parse-then-re-render-and-compare validation in temporalValidation.ts.
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("canonical temporal validation", () => {
+  it("DATE: an impossible calendar day (2025-02-30) is rejected", () => {
+    expectInvalid(profileDataset({ rowCount: 1, columns: [column({ valueKind: "DATE", cells: [{ sourceRowNumber: 1, normalizedValue: "2025-02-30" }] })] }));
+  });
+
+  it("DATE: an impossible month (2026-13-01) is rejected", () => {
+    expectInvalid(profileDataset({ rowCount: 1, columns: [column({ valueKind: "DATE", cells: [{ sourceRowNumber: 1, normalizedValue: "2026-13-01" }] })] }));
+  });
+
+  it("DATE: year 0000 (outside the governed 0001-9999 range) is rejected", () => {
+    expectInvalid(profileDataset({ rowCount: 1, columns: [column({ valueKind: "DATE", cells: [{ sourceRowNumber: 1, normalizedValue: "0000-01-01" }] })] }));
+  });
+
+  it("DATE: B2A's own raw-source-only midnight-timestamp accommodation is NOT accepted as a normalized DATE value", () => {
+    expectInvalid(profileDataset({ rowCount: 1, columns: [column({ valueKind: "DATE", cells: [{ sourceRowNumber: 1, normalizedValue: "2026-03-15T00:00:00.000Z" }] })] }));
+  });
+
+  it("DATE: a genuinely valid canonical DATE is still accepted", () => {
+    expectOk(profileDataset({ rowCount: 1, columns: [column({ valueKind: "DATE", cells: [{ sourceRowNumber: 1, normalizedValue: "2026-03-15" }] })] }));
+  });
+
+  it("TIME: hour 24 (impossible clock) is rejected", () => {
+    expectInvalid(profileDataset({ rowCount: 1, columns: [column({ valueKind: "TIME", cells: [{ sourceRowNumber: 1, normalizedValue: "24:00:00" }] })] }));
+  });
+
+  it("TIME: minute 60 (impossible clock) is rejected", () => {
+    expectInvalid(profileDataset({ rowCount: 1, columns: [column({ valueKind: "TIME", cells: [{ sourceRowNumber: 1, normalizedValue: "12:60:00" }] })] }));
+  });
+
+  it("TIME: second 60 (impossible clock) is rejected", () => {
+    expectInvalid(profileDataset({ rowCount: 1, columns: [column({ valueKind: "TIME", cells: [{ sourceRowNumber: 1, normalizedValue: "12:00:60" }] })] }));
+  });
+
+  it("TIME: the short 'HH:mm' raw-input form is rejected — B2A's normalized output always includes seconds", () => {
+    expectInvalid(profileDataset({ rowCount: 1, columns: [column({ valueKind: "TIME", cells: [{ sourceRowNumber: 1, normalizedValue: "12:30" }] })] }));
+  });
+
+  it("TIME: a genuine canonical TIME (with fractional seconds) is still accepted", () => {
+    expectOk(profileDataset({ rowCount: 1, columns: [column({ valueKind: "TIME", cells: [{ sourceRowNumber: 1, normalizedValue: "12:30:00.5" }] })] }));
+  });
+
+  it("DATETIME: an impossible calendar day is rejected", () => {
+    expectInvalid(profileDataset({ rowCount: 1, columns: [column({ valueKind: "DATETIME", cells: [{ sourceRowNumber: 1, normalizedValue: "2026-02-30T12:00:00Z" }] })] }));
+  });
+
+  it("DATETIME: an impossible clock time is rejected", () => {
+    expectInvalid(profileDataset({ rowCount: 1, columns: [column({ valueKind: "DATETIME", cells: [{ sourceRowNumber: 1, normalizedValue: "2026-01-01T25:00:00Z" }] })] }));
+  });
+
+  it("DATETIME: a numeric source offset (+09:30) is never accepted as normalized profiler input", () => {
+    expectInvalid(profileDataset({ rowCount: 1, columns: [column({ valueKind: "DATETIME", cells: [{ sourceRowNumber: 1, normalizedValue: "2026-01-01T12:00:00+09:30" }] })] }));
+  });
+
+  it("DATETIME: a different numeric source offset (-05:00) is also rejected", () => {
+    expectInvalid(profileDataset({ rowCount: 1, columns: [column({ valueKind: "DATETIME", cells: [{ sourceRowNumber: 1, normalizedValue: "2026-01-01T12:00:00-05:00" }] })] }));
+  });
+
+  it("DATETIME: malformed canonical output (short time form) is rejected", () => {
+    expectInvalid(profileDataset({ rowCount: 1, columns: [column({ valueKind: "DATETIME", cells: [{ sourceRowNumber: 1, normalizedValue: "2026-01-01T12:00Z" }] })] }));
+  });
+
+  it("DATETIME: a genuinely valid UTC-instant canonical value is still accepted", () => {
+    expectOk(profileDataset({ rowCount: 1, columns: [column({ valueKind: "DATETIME", cells: [{ sourceRowNumber: 1, normalizedValue: "2026-01-01T12:00:00Z" }] })] }));
+  });
+
+  it("DATETIME: a genuinely valid UNSPECIFIED_LOCAL (no trailing Z) canonical value is still accepted", () => {
+    expectOk(profileDataset({ rowCount: 1, columns: [column({ valueKind: "DATETIME", cells: [{ sourceRowNumber: 1, normalizedValue: "2026-01-01T12:00:00" }] })] }));
+  });
+
+  it("DATETIME: a single column mixing trailing-Z and non-Z normalized forms is rejected — one governed timezone policy cannot produce both shapes", () => {
+    expectInvalid(
+      profileDataset({
+        rowCount: 2,
+        columns: [
+          column({
+            valueKind: "DATETIME",
+            cells: [
+              { sourceRowNumber: 1, normalizedValue: "2026-01-01T12:00:00Z" },
+              { sourceRowNumber: 2, normalizedValue: "2026-01-02T08:00:00" },
+            ],
+          }),
+        ],
+      })
+    );
+  });
+
+  it("DATETIME: a column entirely one consistent shape (all-Z) remains valid", () => {
+    expectOk(
+      profileDataset({
+        rowCount: 2,
+        columns: [
+          column({
+            valueKind: "DATETIME",
+            cells: [
+              { sourceRowNumber: 1, normalizedValue: "2026-01-01T12:00:00Z" },
+              { sourceRowNumber: 2, normalizedValue: "2026-01-02T08:00:00Z" },
+            ],
+          }),
+        ],
+      })
+    );
+  });
+
+  it("DATETIME: a column entirely one consistent shape (all-UNSPECIFIED_LOCAL) remains valid", () => {
+    expectOk(
+      profileDataset({
+        rowCount: 2,
+        columns: [
+          column({
+            valueKind: "DATETIME",
+            cells: [
+              { sourceRowNumber: 1, normalizedValue: "2026-01-01T12:00:00" },
+              { sourceRowNumber: 2, normalizedValue: "2026-01-02T08:00:00" },
+            ],
+          }),
+        ],
+      })
+    );
+  });
+
+  it("existing fractional-second comparison behavior is preserved after the canonical-validation tightening", () => {
+    const profile = expectOk(
+      profileDataset({
+        rowCount: 2,
+        columns: [
+          column({
+            valueKind: "TIME",
+            cells: [
+              { sourceRowNumber: 1, normalizedValue: "10:00:00.1" },
+              { sourceRowNumber: 2, normalizedValue: "10:00:00.10" },
+            ],
+          }),
+        ],
+      })
+    );
+    expect(profile.columns[0].distinctNonNullCount).toBe(1);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// SAFE INTEGER / COUNT ARITHMETIC (final review remediation)
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("safe integer / count arithmetic", () => {
+  it("rowCount beyond Number.MAX_SAFE_INTEGER -> PROFILE_INPUT_INVALID, never a thrown error", () => {
+    expect(() => profileDataset({ rowCount: Number.MAX_SAFE_INTEGER + 2, columns: [] })).not.toThrow();
+    expectInvalid(profileDataset({ rowCount: Number.MAX_SAFE_INTEGER + 2, columns: [] }));
+  });
+
+  it("an unsafe (non-integer-representable) sourceRowNumber -> PROFILE_INPUT_INVALID", () => {
+    expectInvalid(
+      profileDataset({
+        rowCount: Number.MAX_SAFE_INTEGER,
+        columns: [column({ cells: [{ sourceRowNumber: Number.MAX_SAFE_INTEGER + 10, normalizedValue: "x" }] })],
+      })
+    );
+  });
+
+  it("a pathological (huge but safe) rowCount never throws RangeError, with or without a populated column", () => {
+    const hugeRowCount = 5_000_000_000; // far too large to allocate an array of this size
+    expect(() => profileDataset({ rowCount: hugeRowCount, columns: [] })).not.toThrow();
+    expect(
+      () =>
+        profileDataset({
+          rowCount: hugeRowCount,
+          columns: [column({ cells: [{ sourceRowNumber: 1, normalizedValue: "x" }] })],
+        })
+    ).not.toThrow();
+  });
+
+  it("a pathological rowCount with zero columns succeeds and reports every row vacuously complete, without allocating a rowCount-sized structure", () => {
+    const hugeRowCount = 5_000_000_000;
+    const profile = expectOk(profileDataset({ rowCount: hugeRowCount, columns: [] }));
+    expect(profile.rowCount).toBe(hugeRowCount);
+    expect(profile.completeRowCount).toBe(hugeRowCount);
+    expect(profile.incompleteRowCount).toBe(0);
+  });
+
+  it("a pathological rowCount with a sparse column still completes, reporting correct small-scale non-null evidence", () => {
+    const hugeRowCount = 5_000_000_000;
+    const profile = expectOk(
+      profileDataset({
+        rowCount: hugeRowCount,
+        columns: [column({ cells: [{ sourceRowNumber: 1, normalizedValue: "x" }, { sourceRowNumber: hugeRowCount, normalizedValue: "y" }] })],
+      })
+    );
+    expect(profile.columns[0].nonNullCount).toBe(2);
+    expect(profile.columns[0].nullCount).toBe(hugeRowCount - 2);
+    // Only row 1 is "complete" (every one of the 1 declared column is
+    // non-null there) -- same for the last row -- every OTHER row has no
+    // evidence at all for this column, so it is incomplete.
+    expect(profile.completeRowCount).toBe(2);
+  });
+
+  it("an unsafe totalCellCount (rowCount * columnCount overflowing Number.MAX_SAFE_INTEGER) fails closed", () => {
+    // rowCount alone is a safe integer, and each of the 10 columns
+    // individually validates fine, but the PRODUCT (rowCount * 10)
+    // exceeds Number.MAX_SAFE_INTEGER by roughly 10x.
+    const hugeRowCount = Number.MAX_SAFE_INTEGER; // ~9.007e15
+    const manyColumns = Array.from({ length: 10 }, (_, i) => column({ sourceSchemaColumnId: `d${i}`, cells: [] }));
+    expect(() => profileDataset({ rowCount: hugeRowCount, columns: manyColumns })).not.toThrow();
+    expectInvalid(profileDataset({ rowCount: hugeRowCount, columns: manyColumns }));
+    // Sanity: the small-scale sibling case (no overflow) still succeeds.
+    const smallRowCount = 100_000_000; // 1e8 * 10 columns = 1e9, safely within range.
+    const sameShapedColumns = Array.from({ length: 10 }, (_, i) => column({ sourceSchemaColumnId: `c${i}`, cells: [] }));
+    expectOk(profileDataset({ rowCount: smallRowCount, columns: sameShapedColumns }));
+  });
+
+  it("a STRING column whose total code-point length would overflow Number.MAX_SAFE_INTEGER fails closed rather than silently losing precision", () => {
+    // Can't realistically allocate enough real cells to overflow in a unit
+    // test, so this proves the SafeAccumulator primitive itself fails
+    // closed at the boundary it is responsible for -- profileColumn.ts
+    // wires it in directly, with no separate/looser arithmetic path.
+    const acc = new SafeAccumulator();
+    acc.add(Number.MAX_SAFE_INTEGER);
+    acc.add(2);
+    expect(acc.result()).toEqual({ ok: false });
   });
 });
 
