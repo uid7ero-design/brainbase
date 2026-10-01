@@ -28,6 +28,8 @@ DROP FUNCTION IF EXISTS public.datahub_guard_dataset_profile_run_lifecycle();
 DROP TABLE IF EXISTS public.data_hub_dataset_profile_columns;
 DROP TABLE IF EXISTS public.data_hub_dataset_profile_runs;
 
+ALTER TABLE public.uploads
+  DROP CONSTRAINT IF EXISTS uploads_id_normalization_run_organisation_key;
 ALTER TABLE public.data_hub_normalization_runs
   DROP CONSTRAINT IF EXISTS data_hub_normalization_runs_profile_lineage_key;
 
