@@ -114,11 +114,8 @@ for the steps.
 ## Reference data
 
 Locations, assets and external organisations are drawn from the
-organisation's shared BrainBase records.
-
-> Current limitation: Assurance has no screens for maintaining locations,
-> assets or external organisations. They must already exist for the
-> organisation.
+organisation's shared BrainBase records. They are managed under
+**Settings → Reference data** (see [below](#reference-data-locations-assets-and-external-organisations)).
 
 ## Assurance settings
 
@@ -182,6 +179,50 @@ With this scale, **High** and **Extreme** are serious.
 > as bootstrap tooling only; risk levels are now administered in
 > **Settings → Risk levels**.
 
+### Reference data: locations, assets and external organisations
+
+**Settings → Reference data** manages the organisation's shared BrainBase
+**Locations**, **Assets** and **External organisations**. See
+[work instruction 12](work-instructions/12-manage-reference-data.md) for the
+steps.
+
+- **Shared BrainBase records, not Assurance copies.** These records belong to
+  the organisation. Assurance records only *reference* them; Assurance never
+  keeps its own location, asset or contractor lists. No other BrainBase
+  screen manages them today, so this is where they are maintained.
+- **External organisations** are broader than contractors: each can carry
+  one or more **roles** (Contractor, Subcontractor, Supplier, Service
+  provider, Consultant, Customer, Partner, Insurer, Other).
+- **Assets** are generic reference records (vehicle, plant, equipment,
+  building and so on) that Assurance records can point at. Assurance does not
+  manage an asset's lifecycle (servicing, fleet operations and the like).
+- **Organisation-scoped.** Every list and change is limited to your own
+  organisation. Another organisation's record is never shown, and changing
+  one by guessing its identifier is refused as "not found".
+- **Reference** is a stable, unique identifier (upper-case letters, numbers,
+  dots, dashes, underscores and slashes). It **cannot be changed** after the
+  record is created and is unique including inactive records.
+- **Active / inactive.** Deactivating removes a record from the choices for
+  **new** records only, and the system refuses an inactive record on a new
+  record even if it is submitted directly. Existing records keep it and
+  continue to show it; nothing is reassigned or cleared. List-page filters
+  still include inactive records, marked "(inactive)". A deactivated record
+  can be reactivated. Records with the shared statuses **Archived** or
+  **Retired** are shown but cannot be reactivated here.
+- **Never deleted.** There is no delete.
+- **Who can change them.** Only **organisation admins**. Everyone with
+  Assurance access can view the lists (usage counts are shown to those who
+  can see every record).
+- **Audited.** Creating, editing, deactivating and reactivating each write
+  an audit record (`location.*`, `asset.*` or `external_organisation.*`)
+  with the reference, name, type or roles and status before and after, and
+  which fields changed. Descriptions, addresses and contact details are not
+  copied into the audit log. Recent changes are listed under **Change
+  history** on each screen.
+- **Concurrent edits** are protected: if someone else changed a record after
+  you opened it, your save is refused with "changed by someone else" instead
+  of overwriting their change.
+
 ## In-app Help
 
 Everyone with Assurance access can open **Help & work instructions** and each
@@ -226,7 +267,7 @@ Rules:
 | People | People on incidents and investigations are displayed, but cannot be added or edited from Assurance screens. |
 | Due dates | Extensions are displayed on actions, but cannot be requested or approved in the UI. |
 | Findings | Findings are raised from a source record, and can be linked to further incidents, investigations, inspections and audits. There is no standalone "new finding" button. |
-| Reference data | No Assurance screens for locations, assets or external organisations. (Risk levels are managed under [Settings → Risk levels](#risk-levels).) |
+| Reference data | Locations, assets and external organisations are managed under **Settings → Reference data** and are never deleted. Archived or retired records cannot be reactivated there, and there is no map or address look-up. |
 | Scheduling | No recurring or automatically scheduled inspections or audits. |
 | Evidence after closure | Evidence can still be added to a **closed incident** or a **completed investigation** (it is frozen only on closed or cancelled findings and actions, and cancelled inspections and audits). This is current behaviour pending a policy decision. |
 | Record editing | Records cannot be edited after creation (for example an action's due date or description). |
