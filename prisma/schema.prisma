@@ -1507,7 +1507,7 @@ model DataHubDatasetProfileRun {
 
   organisation Organisation @relation(fields: [organisation_id], references: [id])
   import_batch ImportBatch @relation(fields: [import_batch_id, source_schema_version_id, organisation_id], references: [id, source_schema_version_id, organisation_id])
-  upload Upload @relation(fields: [upload_id, import_batch_id, organisation_id], references: [id, import_batch_id, organisation_id])
+  upload Upload @relation("UploadDatasetProfileRuns", fields: [upload_id, import_batch_id, organisation_id], references: [id, import_batch_id, organisation_id])
   normalization_run DataHubNormalizationRun @relation("NormalizationDatasetProfileRuns", fields: [normalization_run_id, import_batch_id, upload_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_version_id, organisation_id], references: [id, import_batch_id, upload_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_version_id, organisation_id])
   schema_worksheet SourceSchemaWorksheet @relation(fields: [source_schema_worksheet_id, source_schema_version_id, organisation_id], references: [id, source_schema_version_id, organisation_id])
   profile_version WorksheetMappingProfileVersion @relation(fields: [worksheet_mapping_profile_version_id, organisation_id], references: [id, organisation_id])
