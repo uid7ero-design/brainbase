@@ -588,7 +588,11 @@ export function BudgetExportControls({
       ))}
       {disabledReason ? (
         <span role="status" style={{ fontSize: 11, color: '#fbbf24' }}>{disabledReason}</span>
-      ) : null}
+      ) : (
+        <span data-export-scope="full-report" style={{ fontSize: 11, color: '#6b7280' }}>
+          CSV exports include the full report; table filters do not change exported rows.
+        </span>
+      )}
     </section>
   );
 }

@@ -62,6 +62,16 @@ describe('C7.9F — Budgeting export controls UI', () => {
     expect(html).toContain('Select a source explicitly');
   });
 
+  it('states that CSV exports use the full report rather than current table filters', () => {
+    const html = renderToStaticMarkup(createElement(BudgetExportControls, {
+      legacyAvailable: true,
+      financeAvailable: true,
+    }));
+
+    expect(html).toContain('data-export-scope="full-report"');
+    expect(html).toContain('CSV exports include the full report; table filters do not change exported rows.');
+  });
+
   it('disables only the unavailable export without emitting a broken href', () => {
     const html = renderToStaticMarkup(createElement(BudgetExportControls, {
       legacyAvailable: true,
