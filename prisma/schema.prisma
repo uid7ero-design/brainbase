@@ -378,8 +378,8 @@ model Upload {
   schema_type        SchemaType         @default(UNKNOWN)
   module             Module?
   status             UploadStatus       @default(PENDING)
-  row_count          BigInt?
-  column_count       BigInt?
+  row_count          Int?
+  column_count       Int?
   columns_detected   Json               @default("[]")
   field_mappings     Json               @default("{}")
   validation_errors  Json               @default("[]")
