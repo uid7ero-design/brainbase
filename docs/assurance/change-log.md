@@ -25,7 +25,7 @@ Newest first.
   **Resolve** or **Cancel escalation**. Escalation is manual and does not
   close work, meet a deadline or change a due date.
 - Overdue and due soon use the same rule as the dashboard. Deadline dates are
-  shown in the organisation's time zone.
+  shown in Australia/Adelaide time.
 - New [work instruction 13: Manage deadlines, extensions and escalations](work-instructions/13-manage-deadlines.md).
 
 ## Settings → Reference data

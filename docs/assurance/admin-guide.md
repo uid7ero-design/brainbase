@@ -257,8 +257,9 @@ See [work instruction 13](work-instructions/13-manage-deadlines.md).
 - **Visibility** follows the finding or action: restricted records' deadlines
   are hidden from anyone who cannot see the record, and another
   organisation's deadline, extension or escalation is "not found".
-- **Time zone.** Dates are shown in the organisation's time zone
-  (organisations.timezone), or Australia/Adelaide when none is set.
+- **Time zone.** Deadline dates are shown in Australia/Adelaide time (BrainBase's
+  display convention), whatever the server's own time zone. A per-organisation
+  time zone is a planned platform capability and is not used yet.
 - **Audited.** `assurance_timeframe.extension_requested`, `…extension_approved`,
   `…extension_rejected`, `…extension_cancelled`, and
   `assurance_escalation.created`, `…acknowledged`, `…resolved`, `…cancelled`

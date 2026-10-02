@@ -503,8 +503,7 @@ created; there are no organisation-wide deadline rules.
   Escalated and All. Filter by findings or actions, deadline type, or search.
 - **Overdue** means the effective due date has passed; **due soon** means it
   falls within the next 3 days — the same rule as the dashboard.
-- Dates are shown in your organisation's time zone (Australia/Adelaide unless
-  your organisation has set another).
+- Deadline dates are shown in Australia/Adelaide time.
 - The **original due date** never changes. An approved extension changes only
   the **effective due date**, and the whole request history is kept.
 - **Request extension** (managers and admins) asks for a later date with a

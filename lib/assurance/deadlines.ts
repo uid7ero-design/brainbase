@@ -54,10 +54,17 @@ function parentVisibleSql(viewer: AssuranceViewer) {
 /** The timeframe is still running and its finding/action is still open. */
 const openSql = () => sql`(${timeframeRunningSql('t')} AND coalesce(f.status, a.status) NOT IN ('CLOSED', 'CANCELLED'))`;
 
-/** Organisation display timezone (organisations.timezone, else Australia/Adelaide). */
+/**
+ * Display timezone for Assurance deadline dates: BrainBase's established
+ * explicit Australia/Adelaide convention (as lib/dashboard/greeting.ts), so
+ * dates never render in the server's UTC. A per-organisation canonical
+ * timezone exists only as Platform Phase F.2A schema preparation and is
+ * deliberately not consumed by application code yet; this function is the
+ * single seam to switch over when that phase wires it in.
+ */
 export async function getAssuranceTimeZone(organisationId: string): Promise<string> {
-  const [row] = (await sql`SELECT timezone FROM organisations WHERE id = ${organisationId}`) as { timezone: string | null }[];
-  return safeTimeZone(row?.timezone ?? null);
+  void organisationId;
+  return safeTimeZone(null);
 }
 
 // ── Reads ────────────────────────────────────────────────────────────────

@@ -24,7 +24,7 @@ export const OPEN_TIMEFRAME_STATUSES = ['ACTIVE', 'OVERDUE'] as const;
  */
 export const DUE_SOON_DAYS = 3;
 
-/** Used when an organisation has no timezone set (matches users.timezone's default). */
+/** BrainBase's display timezone convention (also the default user profile timezone). */
 export const DEFAULT_ASSURANCE_TIME_ZONE = 'Australia/Adelaide';
 
 export const EXTENSION_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'] as const;

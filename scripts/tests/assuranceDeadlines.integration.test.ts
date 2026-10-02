@@ -178,9 +178,10 @@ describe('deadline list', () => {
     expect(await m.dl.listRecordTimeframes(adminA, 'finding', S.findingB)).toEqual([]);
     expect(await m.dl.listRecordTimeframes(mgrA, 'finding', 'not-a-uuid')).toEqual([]);
   });
-  it('timezone: unset organisation → Australia/Adelaide; set → used; DST boundary renders the local calendar date', async () => {
+  it('timezone: the explicit Australia/Adelaide convention (never the server UTC); DST boundary renders the local calendar date', async () => {
     expect(await m.dl.getAssuranceTimeZone('dl-org-a')).toBe('Australia/Adelaide');
-    expect(await m.dl.getAssuranceTimeZone('dl-org-b')).toBe('Australia/Sydney');
+    // The per-organisation timezone column is Platform Phase F.2A schema only and deliberately not read yet:
+    expect(await m.dl.getAssuranceTimeZone('dl-org-b')).toBe('Australia/Adelaide');
     expect(m.rules.safeTimeZone('Mars/Olympus')).toBe('Australia/Adelaide');
     // Adelaide DST starts 2026-10-04 02:00 (+09:30 → +10:30). 23:59 local on each side of it:
     const before = '2026-10-03T23:59:00+09:30', after = '2026-10-04T23:59:00+10:30';
