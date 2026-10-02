@@ -8,6 +8,26 @@ Newest first.
 
 ---
 
+## Deadlines, extensions and escalations
+
+- **Deadlines** is added to the Assurance navigation, after **Actions**: a
+  register of the due dates set on findings (closure deadlines) and actions
+  (action deadlines), with views Open, Overdue, Due soon, Awaiting decision,
+  Extended, Escalated and All.
+- Findings and actions gain a **Deadline** section showing the effective and
+  original due dates, the extension history and escalations. A record created
+  without a due date shows **No due date**.
+- **Request extension** (managers and admins), **Approve** / **Reject**
+  (organisation admins, never their own request) and **Withdraw request**.
+  The original due date never changes; every request is kept in the history.
+  (Previously extensions could not be requested in the UI.)
+- **Escalate** (managers and admins) at Level 1–5, then **Acknowledge**,
+  **Resolve** or **Cancel escalation**. Escalation is manual and does not
+  close work, meet a deadline or change a due date.
+- Overdue and due soon use the same rule as the dashboard. Deadline dates are
+  shown in the organisation's time zone.
+- New [work instruction 13: Manage deadlines, extensions and escalations](work-instructions/13-manage-deadlines.md).
+
 ## Settings → Reference data
 
 - **Settings → Reference data** manages your organisation's shared BrainBase

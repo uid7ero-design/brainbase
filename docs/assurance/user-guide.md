@@ -484,11 +484,43 @@ use **Mark work complete again** once it has been redone.
 
 ### Due dates
 
-The **Due** date and **Overdue** marker come from the action's timeframe. If
-a deadline was extended, the overview shows the original and extended dates.
+The **Due** date and **Overdue** marker come from the action's deadline. The
+action's **Deadline** section shows the **effective due date**, the
+**original due date**, any extension request and its history, and any
+escalations. Extensions and escalations are described under
+[Deadlines](#deadlines).
 
-> Current limitation: extensions cannot be requested or approved from the
-> Assurance screens.
+---
+
+## Deadlines
+
+**Assurance → Deadlines** lists the due dates set on findings (their
+**closure deadline**) and actions (their **action deadline**). A deadline
+exists only where a due date was entered when the finding or action was
+created; there are no organisation-wide deadline rules.
+
+- **Views:** Open, Overdue, Due soon, Awaiting decision, Extended,
+  Escalated and All. Filter by findings or actions, deadline type, or search.
+- **Overdue** means the effective due date has passed; **due soon** means it
+  falls within the next 3 days — the same rule as the dashboard.
+- Dates are shown in your organisation's time zone (Australia/Adelaide unless
+  your organisation has set another).
+- The **original due date** never changes. An approved extension changes only
+  the **effective due date**, and the whole request history is kept.
+- **Request extension** (managers and admins) asks for a later date with a
+  reason. Nothing changes until an **organisation admin** approves it. The
+  person who asked cannot approve their own request. A rejected or withdrawn
+  request stays in the history.
+- **Escalate** (managers and admins) flags a deadline for elevated
+  attention, at a numbered level (Level 1–5 — the numbers have no set
+  meaning). An escalation is then **acknowledged**, **resolved** or
+  **cancelled**. Resolving an escalation does not close the finding or
+  action, meet the deadline or change the due date.
+- Once a finding or action is closed or cancelled, its deadline is finished
+  and cannot be extended or escalated.
+
+See [work instruction 13](work-instructions/13-manage-deadlines.md) for the
+steps.
 
 ### Evidence
 
