@@ -358,6 +358,13 @@ CREATE TABLE IF NOT EXISTS public.data_hub_dataset_profile_columns (
       AND (numeric_sum IS NULL OR numeric_sum ~ '^(0|-?[1-9][0-9]*|-?0\.[0-9]*[1-9]|-?[1-9][0-9]*\.[0-9]*[1-9])$')
       AND (numeric_mean IS NULL OR numeric_mean ~ '^(0|-?[1-9][0-9]*|-?0\.[0-9]*[1-9]|-?[1-9][0-9]*\.[0-9]*[1-9])$')
     ),
+  CONSTRAINT data_hub_dataset_profile_columns_ratio_range_check
+    CHECK (
+      (null_ratio IS NULL OR null_ratio::numeric BETWEEN 0 AND 1)
+      AND (non_null_ratio IS NULL OR non_null_ratio::numeric BETWEEN 0 AND 1)
+      AND (distinct_ratio IS NULL OR distinct_ratio::numeric BETWEEN 0 AND 1)
+      AND (mean_length IS NULL OR mean_length::numeric >= 0)
+    ),
   CONSTRAINT data_hub_dataset_profile_columns_ratio_shape_check
     CHECK (
       (row_count = 0 AND null_ratio IS NULL AND non_null_ratio IS NULL)
@@ -474,6 +481,7 @@ LANGUAGE plpgsql AS $fn$
 DECLARE
   v_normalization_status text;
   v_column_count bigint;
+  v_governed_column_count bigint;
   v_min_ordinal integer;
   v_max_ordinal integer;
   v_sum_non_null numeric;
@@ -578,8 +586,19 @@ BEGIN
     FROM public.data_hub_dataset_profile_columns
     WHERE profile_run_id = NEW.id AND organisation_id = NEW.organisation_id;
 
-    IF v_column_count <> NEW.column_count THEN
-      RAISE EXCEPTION 'Dataset profile completion column count reconciliation failed';
+    SELECT count(*) INTO v_governed_column_count
+    FROM public.source_schema_columns
+    WHERE source_schema_worksheet_id = NEW.source_schema_worksheet_id
+      AND organisation_id = NEW.organisation_id;
+
+    -- A successful D4C v2 normalization plan is only valid when every
+    -- governed source column has exactly one rule. D4D1A therefore profiles
+    -- that complete governed set (a column may have zero observed cells,
+    -- but the column itself is never omitted). Do not permit a partial
+    -- profile to declare a smaller column_count and still complete.
+    IF v_column_count <> NEW.column_count
+       OR v_governed_column_count <> NEW.column_count THEN
+      RAISE EXCEPTION 'Dataset profile completion governed column count reconciliation failed';
     END IF;
 
     IF NEW.column_count = 0 THEN
@@ -736,6 +755,7 @@ BEGIN
     'data_hub_dataset_profile_columns_safe_integer_check',
     'data_hub_dataset_profile_columns_flags_coherence_check',
     'data_hub_dataset_profile_columns_canonical_decimal_text_check',
+    'data_hub_dataset_profile_columns_ratio_range_check',
     'data_hub_dataset_profile_columns_run_worksheet_fkey',
     'data_hub_dataset_profile_columns_source_column_fkey'
   ]
