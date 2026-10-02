@@ -1239,3 +1239,101 @@
     flex: 1 1 auto;
   }
 }
+
+/* Deadlines (timeframes, extensions, escalations) */
+.deadlineList {
+  display: grid;
+  gap: 12px;
+}
+.deadlineCard {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  padding: 14px;
+  min-width: 0;
+}
+.deadlineHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.deadlineTitle {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.deadlineBadges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.deadlinePending {
+  margin-top: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: var(--bg-sunken);
+}
+.deadlinePendingTitle {
+  margin: 0 0 8px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+.deadlineImpact {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  font-size: 0.8125rem;
+}
+.deadlineImpact > div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 8px;
+}
+.deadlineImpact dt {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.deadlineImpact dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.deadlineHistory {
+  margin-top: 14px;
+}
+.deadlineSubhead {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.deadlineReason {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.deadlineEmpty {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+}
+.deadlineEmptyTitle {
+  margin: 0 0 4px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.deadlineDue {
+  display: grid;
+  gap: 2px;
+}
+.deadlineOriginal {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}

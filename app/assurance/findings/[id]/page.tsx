@@ -7,6 +7,8 @@ import { ACTION_PRIORITIES, ACTION_TYPES, assuranceLabel, formatAssuranceDateTim
 import { resolvePageViewer } from '../../_components/pageAccess';
 import ActionPanel from '../../_components/ActionPanel';
 import { EvidenceSection, NextStepButtons } from '../../_components/shared';
+import { DeadlineSection } from '../../_components/deadlines';
+import { getAssuranceTimeZone, listRecordTimeframes } from '@/lib/assurance/deadlines';
 import {
   Badge, Breadcrumbs, Card, ChainStrip, DataTable, DateCell, Dim, HistoryList, KeyValues, PageHeader, Prose, RecordLink,
   RefChip, Row, Section, enumOptions, td, type ChainStep, assuranceStyles as styles } from '../../_components/ui';
@@ -28,6 +30,7 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
   const [users, orgs] = canRecord && open
     ? await Promise.all([listOrgUserOptions(viewer.organisationId), listExternalOrganisationOptions(viewer.organisationId)])
     : [[], []];
+  const [timeframes, tz] = await Promise.all([listRecordTimeframes(viewer, 'finding', id), getAssuranceTimeZone(viewer.organisationId)]);
 
   const next = FINDING_TRANSITIONS[f.status].filter(s => (s === 'CLOSED' || s === 'CANCELLED' ? canClose : canRecord));
   const actions = detail.actions;
@@ -87,12 +90,17 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
             { label: 'Risk', value: f.risk_name },
             { label: 'Responsible', value: f.responsible_name ?? <Dim>Unassigned</Dim> },
             { label: 'Responsible organisation', value: f.responsible_external_organisation_name },
-            { label: 'Resolve by', value: due ? <DateCell value={due.current_due_at} overdue={open && isPast(due.current_due_at)} /> : null },
+            { label: 'Resolve by', value: due ? <DateCell value={due.current_due_at} timeZone={tz} overdue={open && isPast(due.current_due_at)} /> : null },
             { label: 'Location', value: f.location_name },
             { label: 'Asset', value: f.asset_name },
           ]} />
           <div style={{ marginTop: 16 }}><div style={subhead}>Description</div><Prose>{f.description}</Prose></div>
         </Card>
+      </Section>
+
+      <Section title="Deadline" count={timeframes.length} id="deadline">
+        <DeadlineSection timeframes={timeframes} recordLabel="finding"
+          caps={{ canRecord, canAdminister: viewerCan(viewer, 'administer'), userId: viewer.userId, timeZone: tz, users: users.map(u => ({ value: u.id, label: u.name })) }} />
       </Section>
 
       <Section title="Corrective actions" count={actions.length} id="actions"

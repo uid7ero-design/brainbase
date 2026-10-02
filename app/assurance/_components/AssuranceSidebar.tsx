@@ -16,6 +16,7 @@ const NAV_ITEMS: { href: string; label: string; exact?: boolean }[] = [
   { href: '/assurance/audits', label: 'Audits' },
   { href: '/assurance/findings', label: 'Findings' },
   { href: '/assurance/actions', label: 'Actions' },
+  { href: '/assurance/deadlines', label: 'Deadlines' },
   { href: '/assurance/evidence', label: 'Evidence' },
   { href: '/assurance/verification', label: 'Verification' },
   // Configuration (risk levels). Visible to every Assurance user as a
