@@ -157,10 +157,26 @@ CREATE TABLE IF NOT EXISTS public.data_hub_dataset_profile_runs (
       )
       OR
       (
-        status IN ('FAILED', 'ABANDONED')
+        status = 'FAILED'
         AND completed_at IS NULL
         AND failed_at IS NOT NULL
         AND failure_code IS NOT NULL
+        AND row_count IS NULL
+        AND column_count IS NULL
+        AND total_cell_count IS NULL
+        AND non_null_cell_count IS NULL
+        AND null_cell_count IS NULL
+        AND complete_row_count IS NULL
+        AND incomplete_row_count IS NULL
+      )
+      OR
+      (
+        -- Match the established raw-staging/normalization lifecycle:
+        -- ABANDONED is terminal history, not a data/error failure.
+        status = 'ABANDONED'
+        AND completed_at IS NULL
+        AND failed_at IS NULL
+        AND failure_code IS NULL
         AND row_count IS NULL
         AND column_count IS NULL
         AND total_cell_count IS NULL
@@ -288,9 +304,12 @@ CREATE TABLE IF NOT EXISTS public.data_hub_dataset_profile_columns (
     )),
   CONSTRAINT data_hub_dataset_profile_columns_units_check
     CHECK (
-      (source_unit IS NULL OR source_unit IN ('kg','t','m','km','s','min','h','%','AUD'))
-      AND
-      (normalized_unit IS NULL OR normalized_unit IN ('kg','t','m','km','s','min','h','%','AUD'))
+      -- D4C-A/B2A guarantee unit-pair coherence upstream. Preserve that
+      -- exact structural fact here without duplicating the deliberately
+      -- deferred valueKind->unit-family matrix.
+      (source_unit IS NULL) = (normalized_unit IS NULL)
+      AND (source_unit IS NULL OR source_unit IN ('kg','t','m','km','s','min','h','%','AUD'))
+      AND (normalized_unit IS NULL OR normalized_unit IN ('kg','t','m','km','s','min','h','%','AUD'))
     ),
   CONSTRAINT data_hub_dataset_profile_columns_counts_check
     CHECK (
