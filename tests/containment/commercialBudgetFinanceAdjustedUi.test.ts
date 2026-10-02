@@ -93,6 +93,8 @@ describe('C7.9F — finance-adjusted Budgeting UI', () => {
 
     expect(html).toContain('data-reconciliation-status="STALE"');
     expect(html).toContain('>STALE<');
+    expect(html).toContain('data-reconciliation-id="recon-stale-1"');
+    expect(html).toContain('Reconciliation recon-stale-1');
     expect(html).toContain('xero');
     expect(html).toContain('$30.50');
     expect(html).toContain('-$0.50');

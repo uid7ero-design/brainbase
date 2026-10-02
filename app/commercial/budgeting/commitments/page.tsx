@@ -653,6 +653,11 @@ export function FinanceAdjustedTable({ rows }: { rows: FinanceRow[] }) {
                         {row.reconciliationStatus}
                       </span>
                     ) : '—'}
+                    {row.reconciliationId ? (
+                      <div data-reconciliation-id={row.reconciliationId} style={sub}>
+                        Reconciliation {row.reconciliationId}
+                      </div>
+                    ) : null}
                     {row.sourceSystemId ? <div style={sub}>{row.sourceSystemId}</div> : null}
                   </td>
                 </tr>
