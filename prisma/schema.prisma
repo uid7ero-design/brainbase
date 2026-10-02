@@ -551,6 +551,7 @@ model Upload {
   // DB-level-only precedent as uploads_raw_staging_run_upload_fkey.
   normalization_run DataHubNormalizationRun? @relation("UploadNormalizationRun", fields: [normalization_run_id, organisation_id], references: [id, organisation_id])
   normalization_runs DataHubNormalizationRun[] @relation("UploadNormalizationRuns")
+  dataset_profile_runs DataHubDatasetProfileRun[] @relation("UploadDatasetProfileRuns")
   dataset_profile_runs DataHubDatasetProfileRun[]
   normalized_profile_version WorksheetMappingProfileVersion? @relation("UploadNormalizedProfileVersion", fields: [normalized_profile_version_id, organisation_id], references: [id, organisation_id])
   source_record_observations SourceRecordObservation[]
@@ -1271,6 +1272,7 @@ model DataHubNormalizationRun {
   normalized_rows    DataHubNormalizedRow[]
   normalized_uploads Upload[] @relation("UploadNormalizationRun")
   findings           DataHubNormalizationFinding[]
+  dataset_profile_runs DataHubDatasetProfileRun[] @relation("NormalizationDatasetProfileRuns")
   dataset_profile_runs DataHubDatasetProfileRun[]
 
   @@unique([id, organisation_id], map: "data_hub_normalization_runs_id_organisation_key")
