@@ -115,16 +115,30 @@ describe("6.2D4D1B1 — lifecycle and immutable evidence", () => {
     expect(CODE).toContain("Dataset profile column evidence is immutable");
   });
 
+  it("ABANDONED is terminal history, not a profiling failure", () => {
+    const stateIdx = CODE.indexOf("data_hub_dataset_profile_runs_state_coherence_check");
+    const state = CODE.slice(stateIdx, stateIdx + 3200);
+    expect(state).toContain("status = 'FAILED'");
+    expect(state).toContain("failed_at IS NOT NULL");
+    expect(state).toContain("failure_code IS NOT NULL");
+    expect(state).toContain("status = 'ABANDONED'");
+    expect(state).toContain("failed_at IS NULL");
+    expect(state).toContain("failure_code IS NULL");
+  });
+
   it("terminal profile runs are immutable apart from created_by ON DELETE SET NULL cleanup", () => {
     expect(CODE).toContain("Terminal dataset profile attempts are immutable");
     expect(CODE).toContain("to_jsonb(NEW) - 'created_by'");
   });
 
-  it("run completion reconciles dataset counts, column counts, ordinals, per-column rows and cell totals", () => {
+  it("run completion reconciles dataset counts, complete governed-column coverage, ordinals, per-column rows and cell totals", () => {
     expect(CODE).toContain("NEW.total_cell_count::numeric <> NEW.row_count::numeric * NEW.column_count::numeric");
     expect(CODE).toContain("NEW.non_null_cell_count + NEW.null_cell_count <> NEW.total_cell_count");
     expect(CODE).toContain("NEW.complete_row_count + NEW.incomplete_row_count <> NEW.row_count");
     expect(CODE).toContain("v_column_count <> NEW.column_count");
+    expect(CODE).toContain("v_governed_column_count <> NEW.column_count");
+    expect(CODE).toContain("FROM public.source_schema_columns");
+    expect(CODE).toContain("Dataset profile completion governed column count reconciliation failed");
     expect(CODE).toContain("v_min_ordinal <> 0 OR v_max_ordinal <> NEW.column_count - 1");
     expect(CODE).toContain("v_bad_row_count <> 0");
     expect(CODE).toContain("v_sum_non_null <> NEW.non_null_cell_count");
@@ -151,6 +165,14 @@ describe("6.2D4D1B1 — kind-specific persisted shape", () => {
     expect(CODE).toContain("non_null_count = 0 AND numeric_min IS NULL");
     expect(CODE).toContain("non_null_count = 0 AND temporal_min IS NULL");
     expect(CODE).toContain("non_null_count = 0 AND mean_length IS NULL");
+  });
+
+  it("preserves upstream unit-pair coherence without duplicating the deferred unit-family matrix", () => {
+    const idx = CODE.indexOf("data_hub_dataset_profile_columns_units_check");
+    const check = CODE.slice(idx, idx + 900);
+    expect(check).toContain("(source_unit IS NULL) = (normalized_unit IS NULL)");
+    expect(check).not.toContain("MASS");
+    expect(check).not.toContain("LENGTH");
   });
 });
 
@@ -229,11 +251,23 @@ describe("6.2D4D1B1 — hardened persisted-fact invariants", () => {
     expect(CODE).toContain("is_unique_among_non_null = (non_null_count > 0 AND distinct_non_null_count = non_null_count)");
   });
 
-  it("accepts only canonical plain-decimal text for ratios/means/numeric statistics", () => {
+  it("accepts only canonical plain-decimal text and structural D4D1A ranges", () => {
     expect(CODE).toContain("data_hub_dataset_profile_columns_canonical_decimal_text_check");
+    expect(CODE).toContain("data_hub_dataset_profile_columns_ratio_range_check");
+    expect(CODE).toContain("null_ratio::numeric BETWEEN 0 AND 1");
+    expect(CODE).toContain("non_null_ratio::numeric BETWEEN 0 AND 1");
+    expect(CODE).toContain("distinct_ratio::numeric BETWEEN 0 AND 1");
+    expect(CODE).toContain("mean_length::numeric >= 0");
     expect(CODE).toContain("numeric_mean IS NULL OR numeric_mean ~");
     expect(CODE).not.toContain("DOUBLE PRECISION");
     expect(CODE).not.toContain("REAL");
+  });
+
+  it("pairs the named Prisma relations on both sides", () => {
+    expect(PRISMA).toContain('@relation("UploadDatasetProfileRuns", fields: [upload_id, import_batch_id, organisation_id]');
+    expect(PRISMA).toContain('dataset_profile_runs DataHubDatasetProfileRun[] @relation("UploadDatasetProfileRuns")');
+    expect(PRISMA).toContain('@relation("NormalizationDatasetProfileRuns", fields: [normalization_run_id, import_batch_id, upload_id');
+    expect(PRISMA).toContain('dataset_profile_runs DataHubDatasetProfileRun[] @relation("NormalizationDatasetProfileRuns")');
   });
 
   it("contains an explicit idempotent schema-drift verifier and checks every D4D1B1 index shape", () => {
