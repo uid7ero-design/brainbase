@@ -69,6 +69,28 @@ async function mountSourceSelectorControls(
       select.addEventListener('change', () => {
         link.setAttribute('href', hrefBySource[select.value] || hrefBySource['']);
       });
+      window.updateFinanceSources = (nextSourceSystemIds) => {
+        const previousSelection = select.value;
+        select.innerHTML = [
+          '<option value="">BrainBase only (no External GL)</option>',
+          ...nextSourceSystemIds.map(sourceSystemId =>
+            '<option value="' + sourceSystemId + '">' + sourceSystemId + '</option>'
+          ),
+        ].join('');
+        for (const sourceSystemId of Object.keys(hrefBySource)) {
+          if (sourceSystemId && !nextSourceSystemIds.includes(sourceSystemId)) {
+            delete hrefBySource[sourceSystemId];
+          }
+        }
+        for (const sourceSystemId of nextSourceSystemIds) {
+          hrefBySource[sourceSystemId] =
+            '/api/commercial/budgeting/consumption/export?view=finance&sourceSystemId='
+            + encodeURIComponent(sourceSystemId);
+        }
+        const stillValid = previousSelection && nextSourceSystemIds.includes(previousSelection);
+        select.value = stillValid ? previousSelection : '';
+        link.setAttribute('href', hrefBySource[select.value] || hrefBySource['']);
+      };
     </script>
   `);
 }
@@ -304,6 +326,52 @@ test.describe('C7.9F Budget export browser flow', () => {
     ]);
     expect(xeroRequest.method()).toBe('GET');
     expect(xeroDownload.suggestedFilename()).toBe('brainbase-budget-finance.csv');
+  });
+
+  test('source list refresh adds a new valid External GL source without disturbing the current selection', async ({ page }) => {
+    await mountSourceSelectorControls(page, ['myob'], 'myob');
+
+    const selector = page.locator('#budget-finance-source');
+    const link = page.locator('[data-export-view="finance"]');
+
+    await expect(selector.locator('option')).toHaveCount(2);
+    await expect(selector).toHaveValue('myob');
+    await expect(link).toHaveAttribute('href', budgetFinanceExportHref('myob'));
+
+    await page.evaluate(() => {
+      (window as typeof window & {
+        updateFinanceSources: (sourceSystemIds: string[]) => void;
+      }).updateFinanceSources(['myob', 'xero']);
+    });
+
+    await expect(selector.locator('option')).toHaveCount(3);
+    await expect(selector.locator('option[value="xero"]')).toHaveText('xero');
+    await expect(selector).toHaveValue('myob');
+    await expect(link).toHaveAttribute('href', budgetFinanceExportHref('myob'));
+
+    await selector.selectOption('xero');
+    await expect(selector).toHaveValue('xero');
+    await expect(link).toHaveAttribute('href', budgetFinanceExportHref('xero'));
+  });
+
+  test('source list refresh removes a selected source and falls back to BrainBase-only', async ({ page }) => {
+    await mountSourceSelectorControls(page, ['myob', 'xero'], 'xero');
+
+    const selector = page.locator('#budget-finance-source');
+    const link = page.locator('[data-export-view="finance"]');
+
+    await expect(selector).toHaveValue('xero');
+    await expect(link).toHaveAttribute('href', budgetFinanceExportHref('xero'));
+
+    await page.evaluate(() => {
+      (window as typeof window & {
+        updateFinanceSources: (sourceSystemIds: string[]) => void;
+      }).updateFinanceSources(['myob']);
+    });
+
+    await expect(selector.locator('option[value="xero"]')).toHaveCount(0);
+    await expect(selector).toHaveValue('');
+    await expect(link).toHaveAttribute('href', BUDGET_EXPORT_CONTROLS.finance.href);
   });
 
   test('downloads stale finance reconciliation evidence without rewriting its historical values', async ({ page }) => {
