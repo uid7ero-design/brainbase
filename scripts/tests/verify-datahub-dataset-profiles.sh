@@ -302,7 +302,20 @@ expect_failure "12. duplicate concurrent RUNNING profile for same normalization 
 
 echo ""
 echo "=== COLUMN SHAPE / LINEAGE / PRIVACY ==="
-expect_success "13. valid STRING, numeric and all-null temporal profile columns accepted"   "INSERT INTO data_hub_dataset_profile_columns
+expect_failure "12b. half-present unit metadata is rejected"   "INSERT INTO data_hub_dataset_profile_columns
+     (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,source_column_ordinal,value_kind,
+      source_unit,normalized_unit,row_count,non_null_count,null_count,distinct_non_null_count,
+      null_ratio,non_null_ratio,distinct_ratio,is_constant,is_all_null,is_unique_among_non_null,is_complete,is_sparse,
+      numeric_min,numeric_max,numeric_sum,numeric_mean)
+     VALUES ('pc-half-unit','org-a','profile-a1','ws-a','col-number',1,1,'DECIMAL','AUD',NULL,2,2,0,2,'0','1','1',false,false,true,true,false,'10','20','30','15');"   "data_hub_dataset_profile_columns_units_check"
+
+expect_failure "12c. ratio outside D4D1A structural range is rejected"   "INSERT INTO data_hub_dataset_profile_columns
+     (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,source_column_ordinal,value_kind,
+      row_count,non_null_count,null_count,distinct_non_null_count,
+      null_ratio,non_null_ratio,distinct_ratio,is_constant,is_all_null,is_unique_among_non_null,is_complete,is_sparse,
+      numeric_min,numeric_max,numeric_sum,numeric_mean)
+     VALUES ('pc-bad-ratio','org-a','profile-a1','ws-a','col-number',1,1,'DECIMAL',2,2,0,2,'0','1.1','1',false,false,true,true,false,'10','20','30','15');"   "data_hub_dataset_profile_columns_ratio_range_check"
+expect_success "13. valid STRING and numeric profile columns accepted"   "INSERT INTO data_hub_dataset_profile_columns
      (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,source_column_ordinal,value_kind,
       source_unit,normalized_unit,row_count,non_null_count,null_count,distinct_non_null_count,
       null_ratio,non_null_ratio,distinct_ratio,is_constant,is_all_null,is_unique_among_non_null,is_complete,is_sparse,
@@ -316,13 +329,21 @@ expect_success "13. valid STRING, numeric and all-null temporal profile columns 
       numeric_min,numeric_max,numeric_sum,numeric_mean)
      VALUES
      ('pc-number','org-a','profile-a1','ws-a','col-number',1,1,'DECIMAL',NULL,NULL,2,2,0,2,'0','1','1',false,false,true,true,false,'10','20','30','15');
-   INSERT INTO data_hub_dataset_profile_columns
+
+expect_failure "13a. a partial profile cannot complete by declaring only the persisted subset of governed columns"   "UPDATE data_hub_dataset_profile_runs
+   SET status='SUCCEEDED',completed_at=now(),row_count=2,column_count=2,total_cell_count=4,
+       non_null_cell_count=4,null_cell_count=0,complete_row_count=2,incomplete_row_count=0
+   WHERE id='profile-a1';"   "governed column count reconciliation failed"
+
+expect_success "13b. all-null governed temporal column is accepted and completes the governed column set"   "INSERT INTO data_hub_dataset_profile_columns
      (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,source_column_ordinal,value_kind,
       source_unit,normalized_unit,row_count,non_null_count,null_count,distinct_non_null_count,
       null_ratio,non_null_ratio,distinct_ratio,is_constant,is_all_null,is_unique_among_non_null,is_complete,is_sparse,
       temporal_min,temporal_max)
      VALUES
      ('pc-date','org-a','profile-a1','ws-a','col-date',2,7,'DATE',NULL,NULL,2,0,2,0,'1','0',NULL,false,true,false,false,false,NULL,NULL);"
+
+
 
 expect_failure "14. profile column from a different worksheet is rejected"   "INSERT INTO data_hub_dataset_profile_columns
      (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,source_column_ordinal,value_kind,
@@ -393,9 +414,20 @@ expect_success "23. later historical attempt can be created after success and fa
    SET status='FAILED',failed_at=now(),failure_code='PERSISTENCE_FAILURE'
    WHERE id='profile-a2';"
 
-expect_success "24. a subsequent new attempt can coexist with FAILED history"   "INSERT INTO data_hub_dataset_profile_runs
+expect_success "24. ABANDONED is terminal history without false failure metadata"   "INSERT INTO data_hub_dataset_profile_runs
      (id,organisation_id,import_batch_id,upload_id,normalization_run_id,source_schema_version_id,source_schema_worksheet_id,worksheet_mapping_profile_version_id,attempt_number,profiler_version,status,created_by)
-     VALUES ('profile-a3','org-a','batch-a','upload-a','norm-a','sv-a','ws-a','pv-a1',3,'v1','RUNNING','user-a');"
+     VALUES ('profile-a3','org-a','batch-a','upload-a','norm-a','sv-a','ws-a','pv-a1',3,'v1','RUNNING','user-a');
+   UPDATE data_hub_dataset_profile_runs SET status='ABANDONED' WHERE id='profile-a3';
+   SELECT 1/CASE WHEN (
+     SELECT status='ABANDONED' AND failed_at IS NULL AND failure_code IS NULL
+     FROM data_hub_dataset_profile_runs WHERE id='profile-a3'
+   ) THEN 1 ELSE 0 END;"
+
+expect_failure "24b. ABANDONED attempt is terminal and cannot be resumed"   "UPDATE data_hub_dataset_profile_runs SET status='RUNNING' WHERE id='profile-a3';"   "Terminal dataset profile attempts are immutable"
+
+expect_success "24c. a subsequent new attempt can coexist with FAILED and ABANDONED history"   "INSERT INTO data_hub_dataset_profile_runs
+     (id,organisation_id,import_batch_id,upload_id,normalization_run_id,source_schema_version_id,source_schema_worksheet_id,worksheet_mapping_profile_version_id,attempt_number,profiler_version,status,created_by)
+     VALUES ('profile-a4','org-a','batch-a','upload-a','norm-a','sv-a','ws-a','pv-a1',4,'v1','RUNNING','user-a');"
 
 echo ""
 echo "=== ROLLBACK GUARD / CLEAN ROUND TRIP ==="
