@@ -25,6 +25,16 @@ describe("6.2D4D1B1 — persistence scope", () => {
     }
   });
 
+  it("leaves pre-existing Upload row/column count Prisma types unchanged", () => {
+    const start = PRISMA.indexOf("model Upload {");
+    const end = PRISMA.indexOf("\nmodel ", start + 10);
+    const upload = PRISMA.slice(start, end === -1 ? PRISMA.length : end);
+    expect(upload).toMatch(/\brow_count\s+Int\?/);
+    expect(upload).toMatch(/\bcolumn_count\s+Int\?/);
+    expect(upload).not.toMatch(/\brow_count\s+BigInt\?/);
+    expect(upload).not.toMatch(/\bcolumn_count\s+BigInt\?/);
+  });
+
   it("does not add executor, API, UI or profiler behavior", () => {
     expect(CODE).not.toMatch(/INSERT INTO public\.data_hub_dataset_profile_columns/i);
     expect(CODE).not.toMatch(/UPDATE public\.uploads/i);
