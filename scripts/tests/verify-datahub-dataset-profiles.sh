@@ -328,7 +328,7 @@ expect_success "13. valid STRING and numeric profile columns accepted"   "INSERT
       null_ratio,non_null_ratio,distinct_ratio,is_constant,is_all_null,is_unique_among_non_null,is_complete,is_sparse,
       numeric_min,numeric_max,numeric_sum,numeric_mean)
      VALUES
-     ('pc-number','org-a','profile-a1','ws-a','col-number',1,1,'DECIMAL',NULL,NULL,2,2,0,2,'0','1','1',false,false,true,true,false,'10','20','30','15');
+     ('pc-number','org-a','profile-a1','ws-a','col-number',1,1,'DECIMAL',NULL,NULL,2,2,0,2,'0','1','1',false,false,true,true,false,'10','20','30','15');"
 
 expect_failure "13a. a partial profile cannot complete by declaring only the persisted subset of governed columns"   "UPDATE data_hub_dataset_profile_runs
    SET status='SUCCEEDED',completed_at=now(),row_count=2,column_count=2,total_cell_count=4,
