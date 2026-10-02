@@ -136,3 +136,25 @@ export function isValidCurrencyCode(currency: string): boolean {
 export function formatMoneyCents(cents: number, currency: string): string {
   return new Intl.NumberFormat('en-AU', { style: 'currency', currency }).format(cents / 100);
 }
+
+export function formatMoneyCentsExact(cents: string | bigint, currency: string): string {
+  const value = typeof cents === 'bigint' ? cents : BigInt(cents);
+  const zero = BigInt(0);
+  const hundred = BigInt(100);
+  const negative = value < zero;
+  const absolute = negative ? -value : value;
+  const major = absolute / hundred;
+  const minor = (absolute % hundred).toString().padStart(2, '0');
+
+  const formatter = new Intl.NumberFormat('en-AU', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const parts = formatter.formatToParts(major).map(part =>
+    part.type === 'fraction' ? { ...part, value: minor } : part
+  );
+  const formatted = parts.map(part => part.value).join('');
+  return negative ? `-${formatted}` : formatted;
+}

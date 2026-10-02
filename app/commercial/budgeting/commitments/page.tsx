@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { formatMoneyCents } from '@/lib/commercial/money';
+import { formatMoneyCents, formatMoneyCentsExact } from '@/lib/commercial/money';
 import {
   BUDGET_EXPORT_CONTROLS,
   budgetFinanceExportHref,
@@ -641,7 +641,7 @@ export function FinanceAdjustedTable({ rows }: { rows: FinanceRow[] }) {
 }
 
 function financeMoney(cents: string, currency: string) {
-  return formatMoneyCents(Number(cents), currency);
+  return formatMoneyCentsExact(cents, currency);
 }
 
 function nullableFinanceMoney(cents: string | null, currency: string) {

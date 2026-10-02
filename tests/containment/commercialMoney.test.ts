@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { sumCents, lineTotalCents, applyRatePercentCents, isValidRatePercent, isValidCents, isValidCurrencyCode } from '@/lib/commercial/money'
+import {
+  sumCents,
+  lineTotalCents,
+  applyRatePercentCents,
+  isValidRatePercent,
+  isValidCents,
+  isValidCurrencyCode,
+  formatMoneyCentsExact,
+} from '@/lib/commercial/money'
 
 // Phase C2 — lib/commercial/money.ts, applying ADR-0002. Every value in
 // and out of these functions is a whole-cent integer — never a float
@@ -77,5 +85,18 @@ describe('Phase C2 — isValidCurrencyCode (ISO 4217 three-letter shape)', () =>
     expect(isValidCurrencyCode('AU')).toBe(false)
     expect(isValidCurrencyCode('AUDD')).toBe(false)
     expect(isValidCurrencyCode('12D')).toBe(false)
+  })
+})
+
+describe('C7.9F — exact finance money formatting', () => {
+  it('formats ordinary positive and negative cent strings without Number coercion', () => {
+    expect(formatMoneyCentsExact('12345', 'AUD')).toBe('$123.45')
+    expect(formatMoneyCentsExact('-12345', 'AUD')).toBe('-$123.45')
+    expect(formatMoneyCentsExact('-1', 'AUD')).toBe('-$0.01')
+  })
+
+  it('preserves cent precision above Number.MAX_SAFE_INTEGER', () => {
+    expect(formatMoneyCentsExact('9007199254740993', 'AUD'))
+      .toBe('$90,071,992,547,409.93')
   })
 })

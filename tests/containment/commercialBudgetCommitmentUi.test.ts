@@ -29,6 +29,11 @@ describe('C7.8D — Budget vs Actual vs Committed UI contract', () => {
     expect(page).toContain('row.budgetLessActualAndCommittedCents');
   });
 
+  it('formats finance minor-unit strings without unsafe Number coercion', () => {
+    expect(page).toContain('formatMoneyCentsExact(cents, currency)');
+    expect(page).not.toContain('formatMoneyCents(Number(cents), currency)');
+  });
+
   it('keeps monetary summaries separated by currency', () => {
     expect(page).toContain('const byCurrency = new Map');
     expect(page).toContain('summary.currency');
