@@ -197,8 +197,8 @@ describe("6.2D4D1B1 — Prisma mirror and rollback", () => {
     expect(ROLLBACK).not.toMatch(/DROP TABLE[^;]*data_hub_normalization_runs/i);
     // Rollback may remove only the additive UNIQUE proof constraint on uploads;
     // it must never add/drop/mutate Upload profile state columns.
-    expect(ROLLBACK).not.toMatch(/ALTER TABLE public\.uploads[\\s\\S]*DROP COLUMN/i);
-    expect(ROLLBACK).not.toMatch(/ALTER TABLE public\.uploads[\\s\\S]*ADD COLUMN/i);
+    expect(ROLLBACK).not.toMatch(/ALTER TABLE public\.uploads[\s\S]*DROP COLUMN/i);
+    expect(ROLLBACK).not.toMatch(/ALTER TABLE public\.uploads[\s\S]*ADD COLUMN/i);
   });
 });
 
