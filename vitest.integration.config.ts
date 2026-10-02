@@ -169,6 +169,7 @@ export default defineConfig({
       'scripts/tests/dataHubStageWorksheetRoute.integration.test.ts',
       'scripts/tests/assuranceUi.integration.test.ts',
       'scripts/tests/assuranceRiskLevelSettings.integration.test.ts',
+      'scripts/tests/assuranceDeadlines.integration.test.ts',
       'scripts/tests/assuranceReferenceDataSettings.integration.test.ts',
       'scripts/tests/assuranceRiskBootstrap.integration.test.ts',
       'scripts/tests/dataHubNormalizationExecutor.integration.test.ts',

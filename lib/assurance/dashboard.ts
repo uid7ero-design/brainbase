@@ -4,6 +4,7 @@ import type { AssuranceViewer } from './policy';
 import { incidentVisibleSql, investigationVisibleSql, findingVisibleSql, actionVisibleSql } from './access';
 import type { AssuranceTimestamp } from './sqlHelpers';
 import { organisationLevelsSql, seriousRankFloorSql } from './riskLevels';
+import { dueSoonCutoffSql, timeframeRunningSql } from './deadlineSql';
 
 // Assurance dashboard — operational questions, answered from real,
 // tenant-scoped, restriction-aware queries. No synthetic numbers: an
@@ -82,13 +83,13 @@ export async function getDashboardData(viewer: AssuranceViewer): Promise<Dashboa
         (SELECT count(*) FROM assurance_findings f
           WHERE f.organisation_id = ${org} AND f.status NOT IN ('CLOSED', 'CANCELLED') AND ${findingVisibleSql(viewer)}
             AND EXISTS (SELECT 1 FROM assurance_timeframes t WHERE t.organisation_id = f.organisation_id AND t.finding_id = f.id
-                        AND t.status IN ('ACTIVE', 'OVERDUE') AND t.current_due_at < now()))::int AS overdue_findings,
+                        AND ${timeframeRunningSql()} AND t.current_due_at < now()))::int AS overdue_findings,
         (SELECT count(*) FROM assurance_actions a
           WHERE a.organisation_id = ${org} AND a.status NOT IN ('CLOSED', 'CANCELLED') AND ${actionVisibleSql(viewer)})::int AS open_actions,
         (SELECT count(*) FROM assurance_actions a
           WHERE a.organisation_id = ${org} AND a.status NOT IN ('CLOSED', 'CANCELLED') AND ${actionVisibleSql(viewer)}
             AND EXISTS (SELECT 1 FROM assurance_timeframes t WHERE t.organisation_id = a.organisation_id AND t.action_id = a.id
-                        AND t.status IN ('ACTIVE', 'OVERDUE') AND t.current_due_at < now()))::int AS overdue_actions,
+                        AND ${timeframeRunningSql()} AND t.current_due_at < now()))::int AS overdue_actions,
         (SELECT count(*) FROM assurance_actions a
           WHERE a.organisation_id = ${org} AND a.status = 'AWAITING_VERIFICATION' AND ${actionVisibleSql(viewer)})::int AS awaiting_verification,
         (SELECT count(*) FROM assurance_actions a
@@ -110,12 +111,12 @@ export async function getDashboardData(viewer: AssuranceViewer): Promise<Dashboa
       FROM assurance_actions a
       JOIN LATERAL (
         SELECT current_due_at FROM assurance_timeframes t
-        WHERE t.organisation_id = a.organisation_id AND t.action_id = a.id AND t.status IN ('ACTIVE', 'OVERDUE')
+        WHERE t.organisation_id = a.organisation_id AND t.action_id = a.id AND ${timeframeRunningSql()}
         ORDER BY current_due_at ASC LIMIT 1
       ) t ON true
       LEFT JOIN users ou ON ou.id = a.owner_user_id AND ou.organisation_id = a.organisation_id
       WHERE a.organisation_id = ${org} AND a.status NOT IN ('CLOSED', 'CANCELLED') AND ${actionVisibleSql(viewer)}
-        AND t.current_due_at < now() + interval '3 days'
+        AND t.current_due_at < ${dueSoonCutoffSql()}
       ORDER BY t.current_due_at ASC
       LIMIT 8
     `,
@@ -125,12 +126,12 @@ export async function getDashboardData(viewer: AssuranceViewer): Promise<Dashboa
       FROM assurance_findings f
       JOIN LATERAL (
         SELECT current_due_at FROM assurance_timeframes t
-        WHERE t.organisation_id = f.organisation_id AND t.finding_id = f.id AND t.status IN ('ACTIVE', 'OVERDUE')
+        WHERE t.organisation_id = f.organisation_id AND t.finding_id = f.id AND ${timeframeRunningSql()}
         ORDER BY current_due_at ASC LIMIT 1
       ) t ON true
       LEFT JOIN users ru ON ru.id = f.responsible_user_id AND ru.organisation_id = f.organisation_id
       WHERE f.organisation_id = ${org} AND f.status NOT IN ('CLOSED', 'CANCELLED') AND ${findingVisibleSql(viewer)}
-        AND t.current_due_at < now() + interval '3 days'
+        AND t.current_due_at < ${dueSoonCutoffSql()}
       ORDER BY t.current_due_at ASC
       LIMIT 8
     `,

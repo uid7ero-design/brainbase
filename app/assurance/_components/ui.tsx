@@ -190,11 +190,11 @@ export function RefChip({ href, reference, kind }: { href: string; reference: st
   );
 }
 
-export function DateCell({ value, withTime = false, overdue = false }: { value: string | Date | null | undefined; withTime?: boolean; overdue?: boolean }) {
+export function DateCell({ value, withTime = false, overdue = false, timeZone }: { value: string | Date | null | undefined; withTime?: boolean; overdue?: boolean; timeZone?: string }) {
   if (!value) return <Dim>—</Dim>;
   return (
     <span className={styles.date} data-overdue={overdue || undefined}>
-      {withTime ? formatAssuranceDateTime(value) : formatAssuranceDate(value)}
+      {withTime ? formatAssuranceDateTime(value, timeZone) : formatAssuranceDate(value, timeZone)}
       {overdue && <span className={styles.overdueTag}>Overdue</span>}
     </span>
   );
@@ -205,7 +205,9 @@ export function DateCell({ value, withTime = false, overdue = false }: { value: 
 export type FilterField =
   | { kind: 'search'; name: string; placeholder: string; value?: string }
   | { kind: 'select'; name: string; label: string; value?: string; options: { value: string; label: string }[] }
-  | { kind: 'date'; name: string; label: string; value?: string };
+  | { kind: 'date'; name: string; label: string; value?: string }
+  /** Carries a value (e.g. the selected view tab) through Apply; omitted when empty. */
+  | { kind: 'hidden'; name: string; value?: string };
 
 export function FilterBar({ fields, resetHref, count }: { fields: FilterField[]; resetHref: string; count?: ReactNode }) {
   return (
@@ -222,6 +224,9 @@ export function FilterBar({ fields, resetHref, count }: { fields: FilterField[];
         {fields.map(f => {
           if (f.kind === 'search') {
             return <ToolbarSearch key={f.name} name={f.name} defaultValue={f.value ?? ''} placeholder={f.placeholder} label={f.placeholder} />;
+          }
+          if (f.kind === 'hidden') {
+            return f.value ? <input key={f.name} type="hidden" name={f.name} value={f.value} /> : null;
           }
           if (f.kind === 'date') {
             return (

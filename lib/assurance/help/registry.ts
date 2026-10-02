@@ -40,6 +40,7 @@ export const HELP_ENTRIES: readonly HelpEntry[] = [
   { slug: 'manage-templates', file: 'work-instructions/10-manage-inspection-and-audit-templates.md', group: 'work-instruction', label: '10 Manage inspection and audit templates', audience: 'Organisation admins' },
   { slug: 'manage-risk-levels', file: 'work-instructions/11-manage-risk-levels.md', group: 'work-instruction', label: '11 Manage risk levels', audience: 'Organisation admins' },
   { slug: 'manage-reference-data', file: 'work-instructions/12-manage-reference-data.md', group: 'work-instruction', label: '12 Manage reference data', audience: 'Organisation admins' },
+  { slug: 'manage-deadlines', file: 'work-instructions/13-manage-deadlines.md', group: 'work-instruction', label: '13 Manage deadlines, extensions and escalations' },
   { slug: 'change-log', file: 'change-log.md', group: 'reference', label: 'Change log' },
 ];
 

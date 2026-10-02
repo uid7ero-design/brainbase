@@ -90,10 +90,10 @@ describe('contextual Help entry points', () => {
     expect(screen.getByRole('link', { name: 'Help: Perform verification' }).getAttribute('href')).toBe('/assurance/help/perform-verification');
   });
 
-  it('the sidebar keeps nine work sections plus Settings, and marks the Help footer entry current on Help pages', () => {
+  it('the sidebar keeps ten work sections plus Settings, and marks the Help footer entry current on Help pages', () => {
     renderBrainbase(<AssuranceSidebar />);
     const nav = screen.getByRole('navigation', { name: 'Assurance' });
-    expect(within(nav).getAllByRole('link')).toHaveLength(10);
+    expect(within(nav).getAllByRole('link')).toHaveLength(11);
     expect(within(nav).getByRole('link', { name: 'Settings' }).getAttribute('href')).toBe('/assurance/settings');
     const help = screen.getByRole('link', { name: 'Help & work instructions' });
     expect(help.getAttribute('href')).toBe('/assurance/help');

@@ -223,6 +223,51 @@ steps.
   you opened it, your save is refused with "changed by someone else" instead
   of overwriting their change.
 
+## Deadlines, extensions and escalations
+
+**Assurance → Deadlines** is an operational register, not configuration.
+See [work instruction 13](work-instructions/13-manage-deadlines.md).
+
+- **What a deadline is.** A timeframe attached to one record: a finding's
+  due date is its **closure deadline**, an action's due date its **action
+  deadline**. They are created only when a due date is entered at creation.
+  There are no organisation-wide SLA rules.
+- **Original vs effective.** The **original due date** is fixed by the
+  database and never changes. The **effective due date** changes only when an
+  extension is approved.
+- **Overdue / due soon** are derived from the effective due date (overdue once
+  passed; due soon within 3 days — one shared rule with the dashboard). No
+  background job sets them; the stored deadline status is not changed by
+  Deadlines.
+- **Extensions** keep a full history: requested → approved, rejected or
+  withdrawn. Managers and admins request (later, future dates only; one
+  waiting request per deadline). **Only organisation admins decide**, and
+  never their own request. Approval is refused if the deadline changed since
+  the request. An approver may approve a different later date.
+- **Escalations are manual.** Managers and admins raise them at a numeric
+  level (Level 1–5; no tier meaning is defined), optionally assigned to an
+  active user of your organisation. Transitions: Open → Acknowledged →
+  Resolved, or Open/Acknowledged → Cancelled (with a reason). A change is
+  refused if someone else changed the escalation first.
+- **No propagation.** Approving an extension does not complete work.
+  Resolving or cancelling an escalation does not close the finding or action,
+  meet the deadline, change the due date or affect other escalations. Closing
+  a finding or action still follows its own closure rules, and finishes its
+  deadline (it can no longer be extended or escalated).
+- **Visibility** follows the finding or action: restricted records' deadlines
+  are hidden from anyone who cannot see the record, and another
+  organisation's deadline, extension or escalation is "not found".
+- **Time zone.** Deadline dates are shown in Australia/Adelaide time (BrainBase's
+  display convention), whatever the server's own time zone. A per-organisation
+  time zone is a planned platform capability and is not used yet.
+- **Audited.** `assurance_timeframe.extension_requested`, `…extension_approved`,
+  `…extension_rejected`, `…extension_cancelled`, and
+  `assurance_escalation.created`, `…acknowledged`, `…resolved`, `…cancelled`
+  are written in the same transaction as the change, with the record
+  reference, original, previous and resulting due dates, extension or
+  escalation id and level. Free-text reasons and notes stay on the extension
+  and escalation history, not in the audit payload.
+
 ## In-app Help
 
 Everyone with Assurance access can open **Help & work instructions** and each
@@ -265,7 +310,7 @@ Rules:
 |---|---|
 | Evidence | **No file upload.** Evidence records describe the proof and where the original is held. |
 | People | People on incidents and investigations are displayed, but cannot be added or edited from Assurance screens. |
-| Due dates | Extensions are displayed on actions, but cannot be requested or approved in the UI. |
+| Due dates | A due date can only be set when a finding or action is created; it cannot be added later. Extensions and escalations are manual (no automatic escalation, no organisation-wide deadline rules). Who cancelled an escalation is recorded in the audit history, not on the escalation itself. |
 | Findings | Findings are raised from a source record, and can be linked to further incidents, investigations, inspections and audits. There is no standalone "new finding" button. |
 | Reference data | Locations, assets and external organisations are managed under **Settings → Reference data** and are never deleted. Archived or retired records cannot be reactivated there, and there is no map or address look-up. |
 | Scheduling | No recurring or automatically scheduled inspections or audits. |

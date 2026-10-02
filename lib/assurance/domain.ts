@@ -288,18 +288,21 @@ export function checklistKeyFromLabel(label: string, index: number): string {
 
 // ── Dates ────────────────────────────────────────────────────────────────
 
-export function formatAssuranceDate(value: string | Date | null | undefined): string {
+// `timeZone` (an IANA zone such as the organisation's) renders the instant
+// in that zone regardless of where the code runs (the Vercel server is
+// UTC). Omitted, the runtime's zone is used — the long-standing behaviour.
+export function formatAssuranceDate(value: string | Date | null | undefined, timeZone?: string): string {
   if (!value) return '—';
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', ...(timeZone ? { timeZone } : {}) });
 }
 
-export function formatAssuranceDateTime(value: string | Date | null | undefined): string {
+export function formatAssuranceDateTime(value: string | Date | null | undefined, timeZone?: string): string {
   if (!value) return '—';
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return d.toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', ...(timeZone ? { timeZone } : {}) });
 }
 
 export function isPast(value: string | Date | null | undefined, now: Date = new Date()): boolean {

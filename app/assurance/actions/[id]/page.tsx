@@ -6,6 +6,9 @@ import { VERIFICATION_RESULTS, assuranceLabel, formatAssuranceDate, formatAssura
 import { resolvePageViewer } from '../../_components/pageAccess';
 import ActionPanel from '../../_components/ActionPanel';
 import { EvidenceSection } from '../../_components/shared';
+import { DeadlineSection } from '../../_components/deadlines';
+import { getAssuranceTimeZone, listRecordTimeframes } from '@/lib/assurance/deadlines';
+import { listOrgUserOptions } from '@/lib/assurance/users';
 import {
   Badge, Breadcrumbs, Card, ChainStrip, DataTable, DateCell, Dim, HistoryList, KeyValues, Notice, PageHeader, Prose, RecordLink,
   Row, Section, enumOptions, td, type ChainStep, assuranceStyles as styles, tableStyles } from '../../_components/ui';
@@ -22,6 +25,10 @@ export default async function ActionDetailPage({ params }: { params: Promise<{ i
   const r = detail.readiness;
   const canRecord = viewerCan(viewer, 'record');
   const canVerify = viewerCan(viewer, 'verify');
+  const [timeframes, tz, users] = await Promise.all([
+    listRecordTimeframes(viewer, 'action', id), getAssuranceTimeZone(viewer.organisationId),
+    canRecord ? listOrgUserOptions(viewer.organisationId) : Promise.resolve([]),
+  ]);
   const canClose = viewerCan(viewer, 'close');
   const finished = a.status === 'CLOSED' || a.status === 'CANCELLED';
   const organiserOptions = canRecord && !finished ? await listOrganiserItemOptions(viewer) : [];
@@ -103,17 +110,19 @@ export default async function ActionDetailPage({ params }: { params: Promise<{ i
           <KeyValues items={[
             { label: 'Owner', value: a.owner_name ?? <Dim>Unassigned</Dim> },
             { label: 'Contractor / organisation', value: a.responsible_external_organisation_name },
-            { label: 'Due', value: due ? <DateCell value={due.current_due_at} overdue={!finished && isPast(due.current_due_at)} /> : null },
+            { label: 'Due', value: due ? <DateCell value={due.current_due_at} timeZone={tz} overdue={!finished && isPast(due.current_due_at)} /> : null },
             { label: 'Evidence required', value: a.evidence_required ? 'Yes' : 'No' },
             { label: 'Verification required', value: a.verification_required ? 'Yes (independent)' : 'No' },
             { label: 'Work completed', value: a.work_completed_at ? `${formatAssuranceDateTime(a.work_completed_at)}${a.work_completed_by_name ? ` by ${a.work_completed_by_name}` : ''}` : null },
             { label: 'Created by', value: a.created_by_name },
           ]} />
           {a.description && <div style={{ marginTop: 16 }}><div style={subhead}>What needs to be done</div><Prose>{a.description}</Prose></div>}
-          {due && due.original_due_at && new Date(due.original_due_at).getTime() !== new Date(due.current_due_at).getTime() && (
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '12px 0 0' }}>Originally due {formatAssuranceDate(due.original_due_at)}; extended to {formatAssuranceDate(due.current_due_at)}.</p>
-          )}
         </Card>
+      </Section>
+
+      <Section title="Deadline" count={timeframes.length} id="deadline">
+        <DeadlineSection timeframes={timeframes} recordLabel="action"
+          caps={{ canRecord, canAdminister: viewerCan(viewer, 'administer'), userId: viewer.userId, timeZone: tz, users: users.map(u => ({ value: u.id, label: u.name })) }} />
       </Section>
 
       <Section title="Findings addressed" count={detail.findings.length} id="findings">
