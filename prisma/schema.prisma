@@ -552,7 +552,6 @@ model Upload {
   normalization_run DataHubNormalizationRun? @relation("UploadNormalizationRun", fields: [normalization_run_id, organisation_id], references: [id, organisation_id])
   normalization_runs DataHubNormalizationRun[] @relation("UploadNormalizationRuns")
   dataset_profile_runs DataHubDatasetProfileRun[] @relation("UploadDatasetProfileRuns")
-  dataset_profile_runs DataHubDatasetProfileRun[]
   normalized_profile_version WorksheetMappingProfileVersion? @relation("UploadNormalizedProfileVersion", fields: [normalized_profile_version_id, organisation_id], references: [id, organisation_id])
   source_record_observations SourceRecordObservation[]
   data_hub_raw_rows DataHubRawRow[]
@@ -1273,7 +1272,6 @@ model DataHubNormalizationRun {
   normalized_uploads Upload[] @relation("UploadNormalizationRun")
   findings           DataHubNormalizationFinding[]
   dataset_profile_runs DataHubDatasetProfileRun[] @relation("NormalizationDatasetProfileRuns")
-  dataset_profile_runs DataHubDatasetProfileRun[]
 
   @@unique([id, organisation_id], map: "data_hub_normalization_runs_id_organisation_key")
   @@unique([id, upload_id, organisation_id], map: "data_hub_normalization_runs_id_upload_organisation_key")
