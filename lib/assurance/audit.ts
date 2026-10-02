@@ -28,7 +28,9 @@ export type AssuranceAuditResource =
   | 'assurance_action'
   | 'assurance_evidence'
   | 'assurance_verification'
-  | 'assurance_risk_level';
+  | 'assurance_risk_level'
+  | 'assurance_timeframe'
+  | 'assurance_escalation';
 
 export type AssuranceAuditEntry = {
   organisationId: string;
