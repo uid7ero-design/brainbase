@@ -43,7 +43,7 @@ BEGIN
         organisation_id
       );
   END IF;
-END $;
+END $$;
 
 -- Authoritative Upload normalization pointer target. This proves a profile
 -- run cannot select an older/alternate SUCCEEDED normalization attempt for
@@ -60,7 +60,7 @@ BEGIN
       ADD CONSTRAINT uploads_id_normalization_run_organisation_key
       UNIQUE (id, normalization_run_id, organisation_id);
   END IF;
-END $;
+END $$;
 
 CREATE TABLE IF NOT EXISTS public.data_hub_dataset_profile_runs (
   id text PRIMARY KEY,
