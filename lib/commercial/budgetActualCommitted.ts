@@ -170,6 +170,9 @@ type FinanceReconciliationReportRow = {
   financial_period_id: string;
   financial_period_name: string;
   currency: string;
+  snapshot_source_actual_cents: string | number | bigint;
+  snapshot_finance_adjustment_cents: string | number | bigint;
+  snapshot_effective_actual_cents: string | number | bigint;
   external_gl_actual_cents: string | number | bigint;
   reconciliation_variance_cents: string | number | bigint;
 };
@@ -314,6 +317,14 @@ function deriveFinanceAdjustedRows(
       reconciliationStatus: null,
       sourceSystemId: row.source_system_id,
     };
+    const snapshotSourceActualCents = bigintMoney(row.snapshot_source_actual_cents);
+    const snapshotFinanceAdjustmentCents = bigintMoney(row.snapshot_finance_adjustment_cents);
+    const snapshotEffectiveActualCents = bigintMoney(row.snapshot_effective_actual_cents);
+    if (snapshotSourceActualCents + snapshotFinanceAdjustmentCents !== snapshotEffectiveActualCents) {
+      throw new Error('Finance reconciliation snapshot arithmetic mismatch');
+    }
+    current.sourceActualCents = snapshotSourceActualCents;
+    current.financeAdjustmentCents = snapshotFinanceAdjustmentCents;
     current.externalGlActualCents = bigintMoney(row.external_gl_actual_cents);
     current.reconciliationVarianceCents = bigintMoney(row.reconciliation_variance_cents);
     current.reconciliationId = row.reconciliation_id;
@@ -783,6 +794,9 @@ export async function getBudgetActualCommittedReport(
         latest.financial_period_id,
         fp.name AS financial_period_name,
         latest.currency,
+        SUM(item.source_actual_cents)::text AS snapshot_source_actual_cents,
+        SUM(item.finance_adjustment_cents)::text AS snapshot_finance_adjustment_cents,
+        SUM(item.brainbase_effective_actual_cents)::text AS snapshot_effective_actual_cents,
         SUM(item.external_gl_cents)::text AS external_gl_actual_cents,
         SUM(item.variance_cents)::text AS reconciliation_variance_cents
       FROM latest

@@ -111,6 +111,10 @@ describe('C7.8C — snapshot SQL contract', () => {
     expect((source.match(/txn`/g) ?? []).length).toBe(8);
     expect(source).toContain("fa.status IN ('POSTED','REVERSED')");
     expect(source).toContain("r.status IN ('SIGNED_OFF','STALE')");
+    expect(source).toContain('SUM(item.source_actual_cents)::text AS snapshot_source_actual_cents');
+    expect(source).toContain('SUM(item.finance_adjustment_cents)::text AS snapshot_finance_adjustment_cents');
+    expect(source).toContain('current.sourceActualCents = snapshotSourceActualCents');
+    expect(source).toContain('current.financeAdjustmentCents = snapshotFinanceAdjustmentCents');
   });
 
   it('uses the same authenticated tenant parameter in commitment, Actual and Budget queries', () => {

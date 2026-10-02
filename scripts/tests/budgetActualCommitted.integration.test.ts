@@ -420,5 +420,32 @@ describe('C7.8C — real PostgreSQL snapshot-safe combined consumption', () => {
     expect(staleExport.legacyRowsCsv).toBe(nullGlExport.legacyRowsCsv);
     expect(staleExport.financeRowsCsv).toContain(',3050,');
     expect(staleExport.financeRowsCsv).toContain("'-50,STALE,xero");
+
+    await writer.$executeRawUnsafe(
+      `UPDATE commercial_supplier_bills
+       SET status='CANCELLED'
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      BILL, ORG,
+    );
+
+    const liveAfterCancellation = await getBudgetActualCommittedReport(ORG);
+    expect(liveAfterCancellation.financeRows[0]).toMatchObject({
+      sourceActualCents: '0',
+      financeAdjustmentCents: '250',
+      effectiveActualCents: '250',
+      committedCents: '11000',
+    });
+
+    const snapshottedAfterCancellation = await getBudgetActualCommittedReport(ORG, 'xero');
+    expect(snapshottedAfterCancellation.financeRows[0]).toMatchObject({
+      sourceActualCents: '2750',
+      financeAdjustmentCents: '250',
+      effectiveActualCents: '3000',
+      externalGlActualCents: '3050',
+      reconciliationVarianceCents: '-50',
+      reconciliationId: RECONCILIATION,
+      reconciliationStatus: 'STALE',
+      sourceSystemId: 'xero',
+    });
   });
 });
