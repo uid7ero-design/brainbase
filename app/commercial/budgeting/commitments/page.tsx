@@ -136,6 +136,7 @@ export default function BudgetCommitmentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [sourceSystemIds, setSourceSystemIds] = useState<string[]>([]);
   const [sourceSystemsError, setSourceSystemsError] = useState<string | null>(null);
+  const [sourceSystemsRefreshKey, setSourceSystemsRefreshKey] = useState(0);
   const [selectedSourceSystemId, setSelectedSourceSystemId] = useState('');
   const activeSourceSystemId = resolveBudgetFinanceSourceSystemId(
     sourceSystemIds,
@@ -157,11 +158,12 @@ export default function BudgetCommitmentsPage() {
         return;
       }
       setSourceSystemIds(data.sourceSystemIds.filter((value): value is string => typeof value === 'string'));
+      setSourceSystemsError(null);
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [sourceSystemsRefreshKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -286,6 +288,7 @@ export default function BudgetCommitmentsPage() {
         sourceSystemIds={sourceSystemIds}
         selectedSourceSystemId={activeSourceSystemId ?? ''}
         onChange={selectSourceSystem}
+        onRefresh={() => setSourceSystemsRefreshKey(current => current + 1)}
         error={sourceSystemsError}
       />
       <BudgetExportControls
@@ -442,11 +445,13 @@ export function FinanceSourceSelector({
   sourceSystemIds,
   selectedSourceSystemId,
   onChange,
+  onRefresh,
   error = null,
 }: {
   sourceSystemIds: string[];
   selectedSourceSystemId: string;
   onChange: (value: string) => void;
+  onRefresh: () => void;
   error?: string | null;
 }) {
   return (
@@ -475,6 +480,21 @@ export function FinanceSourceSelector({
           <option key={sourceSystemId} value={sourceSystemId}>{sourceSystemId}</option>
         ))}
       </select>
+      <button
+        type="button"
+        onClick={onRefresh}
+        style={{
+          border: `1px solid ${BORDER}`,
+          background: 'transparent',
+          color: MUTED,
+          borderRadius: 7,
+          padding: '7px 10px',
+          cursor: 'pointer',
+          fontSize: 12,
+        }}
+      >
+        Refresh sources
+      </button>
       <span style={{ fontSize: 11, color: '#6b7280' }}>
         Select a source explicitly to include signed-off or stale External GL reconciliation evidence.
       </span>

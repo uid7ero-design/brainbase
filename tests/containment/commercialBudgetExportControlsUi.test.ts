@@ -51,12 +51,14 @@ describe('C7.9F — Budgeting export controls UI', () => {
       sourceSystemIds: ['myob', 'xero'],
       selectedSourceSystemId: '',
       onChange: () => undefined,
+      onRefresh: () => undefined,
     }));
 
     expect(html).toContain('aria-label="External GL source"');
     expect(html).toContain('BrainBase only (no External GL)');
     expect(html).toContain('<option value="myob">myob</option>');
     expect(html).toContain('<option value="xero">xero</option>');
+    expect(html).toContain('Refresh sources');
     expect(html).toContain('Select a source explicitly');
   });
 
@@ -102,5 +104,8 @@ describe('C7.9F — Budgeting export controls UI', () => {
     expect(pageSource).toContain('resolveBudgetFinanceSourceSystemId(');
     expect(pageSource).toContain('?sourceSystemId=${encodeURIComponent(activeSourceSystemId)}');
     expect(pageSource).toContain('sourceSystemId={activeSourceSystemId}');
+    expect(pageSource).toContain('setSourceSystemsRefreshKey(current => current + 1)');
+    expect(pageSource).toContain('setSourceSystemsError(null)');
+    expect(pageSource).toContain('}, [sourceSystemsRefreshKey]);');
   });
 });
