@@ -49,7 +49,7 @@ END $$;
 -- run cannot select an older/alternate SUCCEEDED normalization attempt for
 -- the same upload: it must be the exact run Upload.normalization_run_id
 -- names as authoritative.
-DO $
+DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
