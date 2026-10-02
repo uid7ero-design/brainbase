@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { viewerCan } from '@/lib/assurance/authorize';
 import { listRiskLevelsForAdmin } from '@/lib/assurance/riskLevels';
+import { summariseReferenceData } from '@/lib/referenceData/service';
+import { REFERENCE_CONFIG } from '@/lib/referenceData/rules';
 import { resolvePageViewer } from '../_components/pageAccess';
 import { Breadcrumbs, PageHeader, assuranceStyles as styles } from '../_components/ui';
 
@@ -11,7 +13,7 @@ export const dynamic = 'force-dynamic';
 export default async function AssuranceSettingsPage() {
   const { viewer, denied } = await resolvePageViewer();
   if (!viewer) return denied;
-  const levels = await listRiskLevelsForAdmin(viewer);
+  const [levels, reference] = await Promise.all([listRiskLevelsForAdmin(viewer), summariseReferenceData(viewer.organisationId)]);
   const active = levels.filter(l => l.is_active);
   const serious = levels.filter(l => l.serious).map(l => l.name);
   const canAdminister = viewerCan(viewer, 'administer');
@@ -34,6 +36,13 @@ export default async function AssuranceSettingsPage() {
               : `${active.length} active${levels.length > active.length ? `, ${levels.length - active.length} inactive` : ''}. Serious: ${serious.length ? serious.join(', ') : 'none'}.`}
           </p>
           <p className={styles.settingsCardBody}>The severity scale used on incidents, investigations and findings, and by the dashboard’s serious-incident view.</p>
+        </Link>
+        <Link href="/assurance/settings/reference-data" className={styles.settingsCard}>
+          <span className={styles.settingsCardTitle}>Reference data</span>
+          <p className={styles.settingsCardBody}>
+            {reference.map(r => `${REFERENCE_CONFIG[r.kind].plural}: ${r.active} active`).join(' · ')}
+          </p>
+          <p className={styles.settingsCardBody}>Shared BrainBase locations, assets and external organisations that Assurance records can reference.</p>
         </Link>
       </div>
     </div>

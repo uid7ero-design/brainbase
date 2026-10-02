@@ -29,7 +29,7 @@ export default async function InspectionsPage({ searchParams }: { searchParams: 
     source: firstParam(sp.source) as 'template' | 'adhoc' | undefined, locationId: firstParam(sp.location),
     view: firstParam(sp.view) as 'due' | 'planned' | 'in_progress' | 'completed' | undefined,
   };
-  const [rows, locations] = await Promise.all([listInspections(viewer, f), listLocationOptions(viewer.organisationId)]);
+  const [rows, locations] = await Promise.all([listInspections(viewer, f), listLocationOptions(viewer.organisationId, { includeInactive: true })]);
   const filtered = Object.values(f).some(Boolean);
 
   return (
@@ -61,7 +61,7 @@ export default async function InspectionsPage({ searchParams }: { searchParams: 
           { kind: 'select', name: 'status', label: 'Any status', value: f.status, options: enumOptions(INSPECTION_STATUSES) },
           { kind: 'select', name: 'type', label: 'Any type', value: f.inspectionType, options: enumOptions(INSPECTION_TYPES) },
           { kind: 'select', name: 'source', label: 'Template & ad hoc', value: f.source, options: [{ value: 'template', label: 'Template-based' }, { value: 'adhoc', label: 'Ad hoc' }] },
-          { kind: 'select', name: 'location', label: 'Any location', value: f.locationId, options: locations.map(l => ({ value: l.id, label: l.name })) },
+          { kind: 'select', name: 'location', label: 'Any location', value: f.locationId, options: locations.map(l => ({ value: l.id, label: l.inactive ? `${l.name} (inactive)` : l.name })) },
         ]}
       />
       <DataTable
