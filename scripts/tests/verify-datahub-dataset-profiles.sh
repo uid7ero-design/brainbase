@@ -3,6 +3,9 @@
 # Local throwaway postgres only. Never Production/Preview/Neon.
 set -uo pipefail
 
+# Fail before starting Docker if this harness itself is syntactically invalid.
+bash -n "$0" || exit 2
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 D4A="$REPO_ROOT/scripts/create-datahub-raw-staging.sql"
 D4B="$REPO_ROOT/scripts/create-datahub-raw-staging-runs.sql"
