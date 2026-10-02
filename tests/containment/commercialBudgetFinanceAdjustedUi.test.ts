@@ -46,7 +46,8 @@ describe('C7.9F — finance-adjusted Budgeting UI', () => {
   it('keeps the legacy rows table and adds financeRows as a separate surface', () => {
     expect(pageSource).toContain('const rows = useMemo(() => report?.rows ?? []');
     expect(pageSource).toContain('const financeRows = useMemo(() => report?.financeRows ?? []');
-    expect(pageSource).toContain('<FinanceAdjustedTable rows={financeRows} />');
+    expect(pageSource).toContain('<FinanceAdjustedTable rows={filteredFinanceRows} />');
+    expect(pageSource).toContain('cost-centre filter does not apply');
     expect(pageSource).toContain('Resolved Budget consumption');
     expect(pageSource).toContain("'Budget less Actual + Committed'");
     expect(pageSource).toContain('Finance-adjusted reporting');

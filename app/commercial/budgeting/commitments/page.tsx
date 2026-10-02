@@ -129,6 +129,24 @@ const DEFAULT_FILTERS: Filters = {
   currency: 'ALL',
 };
 
+export function filterFinanceAdjustedRows(
+  rows: FinanceRow[],
+  filters: {
+    financialYearId: string;
+    financialPeriodId: string;
+    budgetAccountId: string;
+    currency: string;
+  },
+) {
+  return rows.filter(row => {
+    if (filters.financialYearId !== 'ALL' && row.financialYearId !== filters.financialYearId) return false;
+    if (filters.financialPeriodId !== 'ALL' && row.financialPeriodId !== filters.financialPeriodId) return false;
+    if (filters.budgetAccountId !== 'ALL' && row.budgetAccountId !== filters.budgetAccountId) return false;
+    if (filters.currency !== 'ALL' && row.currency !== filters.currency) return false;
+    return true;
+  });
+}
+
 export default function BudgetCommitmentsPage() {
   const [report, setReport] = useState<Report | null>(null);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
@@ -205,6 +223,11 @@ export default function BudgetCommitmentsPage() {
     if (filters.currency !== 'ALL' && row.currency !== filters.currency) return false;
     return true;
   }), [rows, filters]);
+
+  const filteredFinanceRows = useMemo(
+    () => filterFinanceAdjustedRows(financeRows, filters),
+    [financeRows, filters],
+  );
 
   const summaries = useMemo(() => {
     const byCurrency = new Map<string, {
@@ -392,7 +415,7 @@ export default function BudgetCommitmentsPage() {
         )}
       </section>
 
-      <FinanceAdjustedTable rows={financeRows} />
+      <FinanceAdjustedTable rows={filteredFinanceRows} />
 
       <section>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline', marginBottom: 10 }}>
@@ -575,7 +598,9 @@ export function FinanceAdjustedTable({ rows }: { rows: FinanceRow[] }) {
     <section style={{ marginBottom: 24 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline', marginBottom: 10 }}>
         <h2 style={{ fontSize: 16, margin: 0 }}>Finance-adjusted reporting</h2>
-        <span style={{ fontSize: 11, color: MUTED }}>Budget account · period · currency</span>
+        <span style={{ fontSize: 11, color: MUTED }}>
+          Budget account · period · currency · cost-centre filter does not apply
+        </span>
       </div>
       {rows.length === 0 ? (
         <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20, color: MUTED }}>
