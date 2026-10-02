@@ -1194,3 +1194,48 @@
   color: var(--text-secondary);
   line-height: 1.5;
 }
+
+/* Settings → Reference data (shared locations / assets / external organisations) */
+.refToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.refSearch {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.refFilter {
+  flex: 0 0 auto;
+}
+.refChecks {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.refLegend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.refCheckGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px 12px;
+}
+.refSharedNote {
+  margin: 0 0 16px;
+}
+@media (max-width: 639px) {
+  .refFilter,
+  .refToolbar > button {
+    flex: 1 1 auto;
+  }
+}

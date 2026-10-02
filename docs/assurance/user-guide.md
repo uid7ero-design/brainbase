@@ -16,9 +16,15 @@ step-by-step procedures, use the [work instructions](work-instructions/).
 - Open **Assurance** from the BrainBase top navigation.
 - The left navigation lists the nine work sections, then **Settings**. On a
   phone it becomes a scrollable strip across the top of the page.
-- **Settings** shows your organisation's Assurance configuration, such as
-  its **Risk levels**. Anyone can view it; only organisation admins can
-  change it.
+- **Settings** shows your organisation's Assurance configuration: its **Risk
+  levels**, and its **Reference data** (the shared locations, assets and
+  external organisations offered on Assurance records). Anyone can view it;
+  only organisation admins can change it.
+- **Locations**, **assets** and **external organisations** are shared
+  BrainBase records, not Assurance copies. Only **active** ones are offered
+  when you record something new. If one is later deactivated, records that
+  already use it keep it and still show it; register filters list it marked
+  "(inactive)".
 - **Help & work instructions**, at the bottom of the navigation, opens this
   guide, the admin guide and the step-by-step work instructions, with
   search. Every page also has a **Help** link (top right) that opens the most

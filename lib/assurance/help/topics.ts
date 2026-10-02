@@ -16,7 +16,7 @@ export type HelpTopic =
   | 'actions' | 'action'
   | 'evidence' | 'evidence-record'
   | 'verification'
-  | 'settings' | 'risk-levels';
+  | 'settings' | 'risk-levels' | 'reference-data';
 
 export type HelpTarget = { slug: string; anchor?: string; label: string };
 
@@ -54,4 +54,5 @@ export const HELP_TOPICS: Record<HelpTopic, HelpTarget> = {
 
   settings: { slug: 'admin-guide', anchor: 'assurance-settings', label: 'Assurance settings' },
   'risk-levels': { slug: 'manage-risk-levels', label: 'Manage risk levels' },
+  'reference-data': { slug: 'manage-reference-data', label: 'Manage reference data' },
 };

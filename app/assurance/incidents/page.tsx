@@ -28,7 +28,7 @@ export default async function IncidentsPage({ searchParams }: { searchParams: SP
     listIncidents(viewer, f),
     listRiskLevels(viewer.organisationId),
     listOrgUserOptions(viewer.organisationId),
-    listLocationOptions(viewer.organisationId),
+    listLocationOptions(viewer.organisationId, { includeInactive: true }),
   ]);
   const filtered = Object.values(f).some(Boolean);
 
@@ -48,7 +48,7 @@ export default async function IncidentsPage({ searchParams }: { searchParams: SP
           { kind: 'select', name: 'category', label: 'Any category', value: f.category, options: enumOptions(INCIDENT_CATEGORIES) },
           { kind: 'select', name: 'risk', label: 'Any risk', value: f.riskLevelId, options: risks.map(r => ({ value: r.id, label: r.name })) },
           { kind: 'select', name: 'owner', label: 'Any owner', value: f.ownerUserId, options: users.map(u => ({ value: u.id, label: u.name })) },
-          { kind: 'select', name: 'location', label: 'Any location', value: f.locationId, options: locations.map(l => ({ value: l.id, label: l.name })) },
+          { kind: 'select', name: 'location', label: 'Any location', value: f.locationId, options: locations.map(l => ({ value: l.id, label: l.inactive ? `${l.name} (inactive)` : l.name })) },
           { kind: 'select', name: 'restricted', label: 'Restricted & open', value: f.restricted, options: [{ value: 'yes', label: 'Restricted only' }, { value: 'no', label: 'Not restricted' }] },
           { kind: 'date', name: 'from', label: 'From', value: f.occurredFrom },
           { kind: 'date', name: 'to', label: 'To', value: f.occurredTo },

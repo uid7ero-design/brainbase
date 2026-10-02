@@ -34,8 +34,8 @@ export default async function AuditsPage({ searchParams }: { searchParams: SP })
   const [rows, users, locations, orgs] = await Promise.all([
     listAudits(viewer, f),
     listOrgUserOptions(viewer.organisationId),
-    listLocationOptions(viewer.organisationId),
-    listExternalOrganisationOptions(viewer.organisationId),
+    listLocationOptions(viewer.organisationId, { includeInactive: true }),
+    listExternalOrganisationOptions(viewer.organisationId, { includeInactive: true }),
   ]);
   const filtered = Object.values(f).some(Boolean);
 
@@ -68,8 +68,8 @@ export default async function AuditsPage({ searchParams }: { searchParams: SP })
           { kind: 'select', name: 'type', label: 'Any type', value: f.auditType, options: enumOptions(AUDIT_TYPES) },
           { kind: 'select', name: 'source', label: 'Template & ad hoc', value: f.source, options: [{ value: 'template', label: 'Template-based' }, { value: 'adhoc', label: 'Ad hoc' }] },
           { kind: 'select', name: 'auditor', label: 'Any auditor', value: f.auditorUserId, options: users.map(u => ({ value: u.id, label: u.name })) },
-          { kind: 'select', name: 'location', label: 'Any location', value: f.locationId, options: locations.map(l => ({ value: l.id, label: l.name })) },
-          { kind: 'select', name: 'org', label: 'Any contractor / organisation', value: f.externalOrganisationId, options: orgs.map(o => ({ value: o.id, label: o.name })) },
+          { kind: 'select', name: 'location', label: 'Any location', value: f.locationId, options: locations.map(l => ({ value: l.id, label: l.inactive ? `${l.name} (inactive)` : l.name })) },
+          { kind: 'select', name: 'org', label: 'Any contractor / organisation', value: f.externalOrganisationId, options: orgs.map(o => ({ value: o.id, label: o.inactive ? `${o.name} (inactive)` : o.name })) },
         ]}
       />
       <DataTable

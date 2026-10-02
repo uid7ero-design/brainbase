@@ -8,6 +8,28 @@ Newest first.
 
 ---
 
+## Settings → Reference data
+
+- **Settings → Reference data** manages your organisation's shared BrainBase
+  **Locations**, **Assets** and **External organisations** — the records
+  offered on incidents, inspections, audits, findings, actions and evidence.
+  They belong to your organisation, not to Assurance; Assurance keeps no
+  copies.
+- Each list shows name, reference, type (or roles), status and how many
+  Assurance records use it, with search and an **Active / Inactive / All**
+  filter. It becomes cards on a phone.
+- Admins can **create**, **edit**, **deactivate** and **reactivate** records.
+  The reference cannot be changed after creation. There is no delete.
+- External organisations can carry several **roles** (Contractor, Supplier,
+  Customer and more), not only "contractor".
+- Deactivated records are no longer offered for new records, and are refused
+  if submitted directly. Existing records keep and show them. Register
+  filters (for example **Any location**) still list them, marked
+  "(inactive)".
+- Every change is recorded in the audit history and listed under **Change
+  history**.
+- New [work instruction 12: Manage reference data](work-instructions/12-manage-reference-data.md).
+
 ## Settings → Risk levels
 
 - **Settings** is added to the Assurance navigation, after **Verification**.
