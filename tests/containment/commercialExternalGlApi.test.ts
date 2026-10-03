@@ -8,16 +8,20 @@ vi.mock('@/lib/commercial/authorize', async (importOriginal) => {
 
 const createMappingMock = vi.fn();
 const retireMappingMock = vi.fn();
+const listMappingsMock = vi.fn();
 const createCostCentreMappingMock = vi.fn();
 const retireCostCentreMappingMock = vi.fn();
+const listCostCentreMappingsMock = vi.fn();
 const importEntryMock = vi.fn();
 const listSourcesMock = vi.fn();
 class MockExternalGlError extends Error { constructor(public code: string, message: string) { super(message); } }
 vi.mock('@/lib/commercial/externalGl', () => ({
   createExternalGlAccountMapping: (...args: unknown[]) => createMappingMock(...args),
   retireExternalGlAccountMapping: (...args: unknown[]) => retireMappingMock(...args),
+  listExternalGlAccountMappings: (...args: unknown[]) => listMappingsMock(...args),
   createExternalGlCostCentreMapping: (...args: unknown[]) => createCostCentreMappingMock(...args),
   retireExternalGlCostCentreMapping: (...args: unknown[]) => retireCostCentreMappingMock(...args),
+  listExternalGlCostCentreMappings: (...args: unknown[]) => listCostCentreMappingsMock(...args),
   importExternalGlEntry: (...args: unknown[]) => importEntryMock(...args),
   listExternalGlSourceSystemIds: (...args: unknown[]) => listSourcesMock(...args),
   ExternalGlError: MockExternalGlError,
@@ -37,8 +41,10 @@ beforeEach(() => {
   authorizeMock.mockReset();
   createMappingMock.mockReset();
   retireMappingMock.mockReset();
+  listMappingsMock.mockReset();
   createCostCentreMappingMock.mockReset();
   retireCostCentreMappingMock.mockReset();
+  listCostCentreMappingsMock.mockReset();
   importEntryMock.mockReset();
   listSourcesMock.mockReset();
 });
@@ -49,6 +55,22 @@ describe('C7.9D/C7.9F — external GL APIs', () => {
     const response = await mappingsRoute.POST(new Request('http://localhost', { method: 'POST', body: '{}' }));
     expect(response.status).toBe(status);
     expect(createMappingMock).not.toHaveBeenCalled();
+  });
+
+  it.each([401, 403, 503])('preserves mapping-list authorization denial %s', async status => {
+    authorizeMock.mockResolvedValue({ ok: false, response: new Response(null, { status }) });
+    const response = await mappingsRoute.GET(new Request('http://localhost'));
+    expect(response.status).toBe(status);
+    expect(authorizeMock).toHaveBeenCalledWith('budgeting', 'admin');
+    expect(listMappingsMock).not.toHaveBeenCalled();
+  });
+
+  it.each([401, 403, 503])('preserves cost-centre mapping-list authorization denial %s', async status => {
+    authorizeMock.mockResolvedValue({ ok: false, response: new Response(null, { status }) });
+    const response = await costCentreMappingsRoute.GET(new Request('http://localhost'));
+    expect(response.status).toBe(status);
+    expect(authorizeMock).toHaveBeenCalledWith('budgeting', 'admin');
+    expect(listCostCentreMappingsMock).not.toHaveBeenCalled();
   });
 
   it.each([401, 403, 503])('preserves mapping-retire authorization denial %s', async status => {
@@ -84,6 +106,90 @@ describe('C7.9D/C7.9F — external GL APIs', () => {
     expect(response.status).toBe(status);
     expect(authorizeMock).toHaveBeenCalledWith('budgeting', 'admin');
     expect(importEntryMock).not.toHaveBeenCalled();
+  });
+
+  it('lists account mappings under admin auth using session tenant and explicit filters', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: ADMIN });
+    listMappingsMock.mockResolvedValue([{
+      id: 'mapping-1',
+      source_system_id: 'xero',
+      external_gl_account_code: '600',
+      budget_account_code: 'OPEX',
+      budget_account_name: 'Operating costs',
+      status: 'ACTIVE',
+    }]);
+
+    const response = await mappingsRoute.GET(new Request(
+      'http://localhost?organisationId=org-b&sourceSystemId=xero&status=ACTIVE',
+    ));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({
+      mappings: [{
+        id: 'mapping-1',
+        source_system_id: 'xero',
+        external_gl_account_code: '600',
+        budget_account_code: 'OPEX',
+        budget_account_name: 'Operating costs',
+        status: 'ACTIVE',
+      }],
+    });
+    expect(listMappingsMock).toHaveBeenCalledWith({
+      organisationId: 'org-a',
+      sourceSystemId: 'xero',
+      status: 'ACTIVE',
+    });
+  });
+
+  it('lists cost-centre mappings under admin auth using session tenant and explicit filters', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: ADMIN });
+    listCostCentreMappingsMock.mockResolvedValue([{
+      id: 'cc-mapping-1',
+      source_system_id: 'xero',
+      external_cost_centre_code: 'OPS-EXT',
+      cost_centre_code: 'OPS',
+      cost_centre_name: 'Operations',
+      status: 'RETIRED',
+    }]);
+
+    const response = await costCentreMappingsRoute.GET(new Request(
+      'http://localhost?organisationId=org-b&sourceSystemId=xero&status=RETIRED',
+    ));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({
+      mappings: [{
+        id: 'cc-mapping-1',
+        source_system_id: 'xero',
+        external_cost_centre_code: 'OPS-EXT',
+        cost_centre_code: 'OPS',
+        cost_centre_name: 'Operations',
+        status: 'RETIRED',
+      }],
+    });
+    expect(listCostCentreMappingsMock).toHaveBeenCalledWith({
+      organisationId: 'org-a',
+      sourceSystemId: 'xero',
+      status: 'RETIRED',
+    });
+  });
+
+  it('rejects invalid account and cost-centre mapping status filters without querying mappings', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: ADMIN });
+
+    const accountResponse = await mappingsRoute.GET(new Request(
+      'http://localhost?status=UNKNOWN',
+    ));
+    const costCentreResponse = await costCentreMappingsRoute.GET(new Request(
+      'http://localhost?status=UNKNOWN',
+    ));
+
+    expect(accountResponse.status).toBe(400);
+    expect(costCentreResponse.status).toBe(400);
+    expect(listMappingsMock).not.toHaveBeenCalled();
+    expect(listCostCentreMappingsMock).not.toHaveBeenCalled();
   });
 
   it('requires budgeting/administer and trusts only session tenant/user for mapping', async () => {

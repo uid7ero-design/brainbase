@@ -40,6 +40,16 @@ export interface ExternalGlCostCentreMapping {
   status: ExternalGlMappingStatus;
 }
 
+export interface ExternalGlAccountMappingListItem extends ExternalGlAccountMapping {
+  budget_account_code: string;
+  budget_account_name: string;
+}
+
+export interface ExternalGlCostCentreMappingListItem extends ExternalGlCostCentreMapping {
+  cost_centre_code: string;
+  cost_centre_name: string;
+}
+
 export interface ExternalGlEntry {
   id: string;
   organisation_id: string;
@@ -57,6 +67,52 @@ export interface ExternalGlEntry {
   source_lineage_id: string;
   imported_by: string;
   imported_at: string;
+}
+
+export async function listExternalGlAccountMappings(params: {
+  organisationId: string;
+  sourceSystemId?: string | null;
+  status?: ExternalGlMappingStatus | null;
+}): Promise<ExternalGlAccountMappingListItem[]> {
+  const sourceSystemId = params.sourceSystemId?.trim() || null;
+  const status = params.status ?? null;
+  return await sql`
+    SELECT m.*,
+           a.code AS budget_account_code,
+           a.name AS budget_account_name
+    FROM commercial_external_gl_account_mappings m
+    JOIN commercial_budget_accounts a
+      ON a.id=m.budget_account_id
+     AND a.organisation_id=m.organisation_id
+    WHERE m.organisation_id=${params.organisationId}
+      AND (${sourceSystemId}::text IS NULL OR m.source_system_id=${sourceSystemId})
+      AND (${status}::text IS NULL OR m.status=${status})
+    ORDER BY lower(m.source_system_id), m.source_system_id,
+             m.external_gl_account_code, m.effective_from DESC, m.id
+  ` as ExternalGlAccountMappingListItem[];
+}
+
+export async function listExternalGlCostCentreMappings(params: {
+  organisationId: string;
+  sourceSystemId?: string | null;
+  status?: ExternalGlMappingStatus | null;
+}): Promise<ExternalGlCostCentreMappingListItem[]> {
+  const sourceSystemId = params.sourceSystemId?.trim() || null;
+  const status = params.status ?? null;
+  return await sql`
+    SELECT m.*,
+           c.code AS cost_centre_code,
+           c.name AS cost_centre_name
+    FROM commercial_external_gl_cost_centre_mappings m
+    JOIN commercial_cost_centres c
+      ON c.id=m.cost_centre_id
+     AND c.organisation_id=m.organisation_id
+    WHERE m.organisation_id=${params.organisationId}
+      AND (${sourceSystemId}::text IS NULL OR m.source_system_id=${sourceSystemId})
+      AND (${status}::text IS NULL OR m.status=${status})
+    ORDER BY lower(m.source_system_id), m.source_system_id,
+             m.external_cost_centre_code, m.effective_from DESC, m.id
+  ` as ExternalGlCostCentreMappingListItem[];
 }
 
 export async function listExternalGlSourceSystemIds(

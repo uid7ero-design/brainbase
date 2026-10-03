@@ -1,6 +1,37 @@
 import { NextResponse } from 'next/server';
 import { authorizeCommercialRequest, COMMERCIAL_MIN_ROLE } from '@/lib/commercial/authorize';
-import { createExternalGlAccountMapping, ExternalGlError } from '@/lib/commercial/externalGl';
+import {
+  createExternalGlAccountMapping,
+  ExternalGlError,
+  listExternalGlAccountMappings,
+  type ExternalGlMappingStatus,
+} from '@/lib/commercial/externalGl';
+
+function parseStatus(value: string | null): ExternalGlMappingStatus | null | 'INVALID' {
+  if (!value) return null;
+  return value === 'ACTIVE' || value === 'RETIRED' ? value : 'INVALID';
+}
+
+export async function GET(req: Request) {
+  const auth = await authorizeCommercialRequest('budgeting', COMMERCIAL_MIN_ROLE.administer);
+  if (!auth.ok) return auth.response;
+
+  const url = new URL(req.url);
+  const status = parseStatus(url.searchParams.get('status'));
+  if (status === 'INVALID') {
+    return NextResponse.json({ error: 'Invalid mapping status.' }, { status: 400 });
+  }
+
+  const mappings = await listExternalGlAccountMappings({
+    organisationId: auth.session.organisationId,
+    sourceSystemId: url.searchParams.get('sourceSystemId'),
+    status,
+  });
+  return NextResponse.json(
+    { mappings },
+    { headers: { 'Cache-Control': 'no-store' } },
+  );
+}
 
 export async function POST(req: Request) {
   const auth = await authorizeCommercialRequest('budgeting', COMMERCIAL_MIN_ROLE.administer);

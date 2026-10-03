@@ -36,8 +36,10 @@ vi.doMock('@/lib/db',()=>({default:sqlMock}));
 const {
   createExternalGlAccountMapping,
   retireExternalGlAccountMapping,
+  listExternalGlAccountMappings,
   createExternalGlCostCentreMapping,
   retireExternalGlCostCentreMapping,
+  listExternalGlCostCentreMappings,
   importExternalGlEntry,
   listExternalGlSourceSystemIds,
   assertSameReconciliationCurrency,
@@ -152,6 +154,60 @@ describe('C7.9D — real PostgreSQL external GL boundary',()=>{
     expect(results.filter(x=>x.status==='rejected')).toHaveLength(1);
     const rejected=results.find(x=>x.status==='rejected') as PromiseRejectedResult;
     expect(rejected.reason).toMatchObject({code:'OVERLAPPING_MAPPING'});
+  });
+
+  it('lists account and cost-centre mappings with BrainBase labels and tenant-scoped filters',async()=>{
+    const accountMapping=await createExternalGlAccountMapping(mappingInput());
+    const costCentreMapping=await createExternalGlCostCentreMapping(costCentreMappingInput());
+
+    await createExternalGlAccountMapping({
+      ...mappingInput(),
+      organisationId:OTHER,
+      userId:OTHER_USER,
+      sourceSystemId:'sage',
+      externalAccountCode:'700',
+      budgetAccountId:OTHER_ACCOUNT,
+    });
+    await createExternalGlCostCentreMapping({
+      ...costCentreMappingInput(),
+      organisationId:OTHER,
+      userId:OTHER_USER,
+      sourceSystemId:'sage',
+      externalCostCentreCode:'OTHER-EXT',
+      costCentreId:OTHER_COST_CENTRE,
+    });
+
+    expect(await listExternalGlAccountMappings({
+      organisationId:ORG,
+      sourceSystemId:'xero',
+      status:'ACTIVE',
+    })).toEqual([
+      expect.objectContaining({
+        id:accountMapping.id,
+        source_system_id:'xero',
+        external_gl_account_code:'600',
+        budget_account_id:ACCOUNT,
+        budget_account_code:'OPEX',
+        budget_account_name:'Operating',
+        status:'ACTIVE',
+      }),
+    ]);
+
+    expect(await listExternalGlCostCentreMappings({
+      organisationId:ORG,
+      sourceSystemId:'xero',
+      status:'ACTIVE',
+    })).toEqual([
+      expect.objectContaining({
+        id:costCentreMapping.id,
+        source_system_id:'xero',
+        external_cost_centre_code:'OPS-EXT',
+        cost_centre_id:COST_CENTRE,
+        cost_centre_code:'OPS',
+        cost_centre_name:'Operations',
+        status:'ACTIVE',
+      }),
+    ]);
   });
 
   it('imports once and returns IDEMPOTENT for the exact same immutable external fact',async()=>{
