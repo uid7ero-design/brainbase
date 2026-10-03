@@ -150,7 +150,8 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ id
 
       <Section title="Evidence" count={detail.evidence.filter(e => !e.removed_at).length} id="evidence">
         <EvidenceSection rows={detail.evidence} target="audit" targetId={au.id} canRecord={canRecord}
-          locked={cancelled ? 'This audit is cancelled; its evidence can no longer be changed.' : undefined} />
+          locked={cancelled ? 'This audit is cancelled; its evidence can no longer be changed.' : undefined}
+          items={detail.responses.map(r => ({ value: r.criterion_key, label: r.criterion_label }))} />
       </Section>
 
       <Section title="Recommendations" id="recommendations">

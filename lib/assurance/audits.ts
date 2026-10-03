@@ -197,6 +197,10 @@ export async function getAuditDetail(viewer: AssuranceViewer, id: string): Promi
     `,
     sql`
       SELECT l.id AS link_id, e.id AS evidence_id, e.evidence_reference, e.evidence_type, e.title,
+             e.verification_status,
+             (SELECT s.status FROM assurance_requirement_submissions s WHERE s.organisation_id = e.organisation_id AND s.evidence_id = e.id) AS contractor_status,
+             l.criterion_key AS item_key,
+             (SELECT r.criterion_label FROM assurance_audit_responses r WHERE r.organisation_id = l.organisation_id AND r.audit_id = l.audit_id AND r.criterion_key = l.criterion_key) AS item_label,
              l.purpose, l.created_at AS linked_at, l.removed_at, l.removal_reason,
              cu.name AS linked_by_name, ru.name AS removed_by_name
       FROM assurance_evidence_audits l

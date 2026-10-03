@@ -177,6 +177,10 @@ export async function getInspectionDetail(viewer: AssuranceViewer, id: string): 
     `,
     sql`
       SELECT l.id AS link_id, e.id AS evidence_id, e.evidence_reference, e.evidence_type, e.title,
+             e.verification_status,
+             (SELECT s.status FROM assurance_requirement_submissions s WHERE s.organisation_id = e.organisation_id AND s.evidence_id = e.id) AS contractor_status,
+             l.item_key,
+             (SELECT r.item_label FROM assurance_inspection_responses r WHERE r.organisation_id = l.organisation_id AND r.inspection_id = l.inspection_id AND r.item_key = l.item_key) AS item_label,
              l.purpose, l.created_at AS linked_at, l.removed_at, l.removal_reason,
              cu.name AS linked_by_name, ru.name AS removed_by_name
       FROM assurance_evidence_inspections l

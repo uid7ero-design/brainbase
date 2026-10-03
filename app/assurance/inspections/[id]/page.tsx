@@ -123,7 +123,8 @@ export default async function InspectionDetailPage({ params }: { params: Promise
       </Section>
 
       <Section title="Evidence" count={detail.evidence.filter(e => !e.removed_at).length} id="evidence">
-        <EvidenceSection rows={detail.evidence} target="inspection" targetId={ins.id} canRecord={canRecord && ins.status !== 'CANCELLED'} />
+        <EvidenceSection rows={detail.evidence} target="inspection" targetId={ins.id} canRecord={canRecord && ins.status !== 'CANCELLED'}
+          items={detail.responses.map(r => ({ value: r.item_key, label: r.item_label }))} />
       </Section>
 
       <Section title="History" id="history">

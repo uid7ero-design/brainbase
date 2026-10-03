@@ -28,7 +28,8 @@ const libFiles = walk('lib/assurance')
 // In-app Help's pure modules are zero-import too (content.ts is the server-only loader).
 const CLIENT_SAFE_LIB = ['lib/assurance/domain.ts', 'lib/assurance/input.ts', 'lib/assurance/errors.ts', 'lib/assurance/references.ts',
   'lib/assurance/help/registry.ts', 'lib/assurance/help/markdown.ts', 'lib/assurance/help/search.ts', 'lib/assurance/help/topics.ts',
-  'lib/assurance/riskLevelRules.ts', 'lib/assurance/deadlineRules.ts', 'lib/assurance/contractorAssuranceRules.ts']
+  'lib/assurance/riskLevelRules.ts', 'lib/assurance/deadlineRules.ts', 'lib/assurance/contractorAssuranceRules.ts',
+  'lib/assurance/evidenceRules.ts']
 
 describe('API routes', () => {
   it('exist and every one is built from the authorizing factories', () => {
@@ -298,5 +299,41 @@ describe('contractor assurance (A0.1G)', () => {
     expect(src).toMatch(/\(l\.created_at AT TIME ZONE 'UTC'\) AS created_at/)
     const page = stripComments(read('app/assurance/contractors/[id]/page.tsx'))
     expect(page).toMatch(/<HistoryList entries=\{historyEntries\} timeZone=\{tz\} \/>/)
+  })
+})
+
+describe('evidence verification (A0.1H)', () => {
+  const src = stripComments(read('lib/assurance/evidence.ts'))
+  it('routes use the authorizing factories with the agreed operations', () => {
+    const expect_ = (route: string, op: string) => {
+      const r = stripComments(read(`app/api/assurance/evidence/${route}/route.ts`))
+      expect(r, route).toMatch(new RegExp(`assurancePost(WithId)?\\('${op}'`))
+    }
+    expect_('[id]/request-verification', 'record')
+    expect_('[id]/withdraw-verification', 'record')
+    expect_('[id]/correct', 'record')
+    expect_('[id]/replacement', 'record')
+    expect_('[id]/decide', 'verify')
+  })
+  it('decisions are verify-gated, independent, and guarded on the observed state', () => {
+    const body = src.slice(src.indexOf('export async function decideEvidence('), src.indexOf('export async function correctEvidence('))
+    expect(body).toMatch(/viewerCan\(viewer, 'verify'\)/)
+    expect(body).toMatch(/decisionConflicts\(/)
+    expect(body).toMatch(/verification_status = 'AWAITING_VERIFICATION' AND lock_version = \$\{lockVersion\}::int/)
+    expect(body.indexOf('FOR UPDATE')).toBeLessThan(body.indexOf('INSERT INTO audit_logs'))
+  })
+  it('the generic lifecycle never acts on contractor submission evidence', () => {
+    for (const fn of ['requestEvidenceVerification', 'withdrawEvidenceVerification', 'decideEvidence', 'correctEvidence', 'recordReplacementEvidence']) {
+      const start = src.indexOf(`export async function ${fn}(`)
+      const body = src.slice(start, src.indexOf('\nexport ', start + 10))
+      expect(body, fn).toMatch(/assertGeneric\(/)
+    }
+  })
+  it('evidence never changes the records it supports, never verifies or closes work, never creates findings', () => {
+    expect(src).not.toMatch(/UPDATE assurance_(actions|findings|inspections|audits|incidents|investigations|timeframes|escalations|requirement_submissions|requirement_assignments)\b/)
+    expect(src).not.toMatch(/INSERT INTO assurance_(verifications|findings|actions|timeframes)\b/)
+  })
+  it('history times are unambiguous instants', () => {
+    expect(src).toMatch(/\(l\.created_at AT TIME ZONE 'UTC'\) AS created_at/)
   })
 })
