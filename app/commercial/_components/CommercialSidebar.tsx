@@ -74,7 +74,10 @@ export default function CommercialSidebar({
       ? [{ href: '/commercial/budgeting/commitments', label: 'Budget vs Actual' }]
       : []),
     ...(budgetingAdminEnabled
-      ? [{ href: '/commercial/budgeting/external-gl', label: 'External GL Mappings' }]
+      ? [
+          { href: '/commercial/budgeting/finance-controls', label: 'Finance Controls' },
+          { href: '/commercial/budgeting/external-gl', label: 'External GL Mappings' },
+        ]
       : []),
     ...BASE_NAV_ITEMS.slice(3),
   ];
