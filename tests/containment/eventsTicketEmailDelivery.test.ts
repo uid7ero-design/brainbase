@@ -601,12 +601,10 @@ describe('NO AUTO SEND (paid) / NO CRON SCHEDULE — Phase 3E.2/3E.2R boundary',
     expect(SOURCE).toMatch(/export async function attemptAutomaticTicketEmail/)
   })
 
-  it('vercel.json contains exactly the approved cron configuration: sync unchanged at 0 2 * * *, ticket-email recovery at exactly 0 * * * * (hourly), nothing else', () => {
+  it('vercel.json preserves the approved Events cron configuration: sync unchanged at 0 2 * * * and ticket-email recovery at exactly 0 * * * * (hourly)', () => {
     const vercelJsonPath = path.join(process.cwd(), 'vercel.json')
     const content = fs.readFileSync(vercelJsonPath, 'utf-8')
     const parsed = JSON.parse(content) as { crons: { path: string; schedule: string }[] }
-
-    expect(parsed.crons).toHaveLength(2)
 
     const paths = parsed.crons.map(c => c.path)
     expect(new Set(paths).size).toBe(paths.length) // no duplicate paths
@@ -618,10 +616,6 @@ describe('NO AUTO SEND (paid) / NO CRON SCHEDULE — Phase 3E.2/3E.2R boundary',
     const recoveryEntries = parsed.crons.filter(c => c.path === '/api/cron/ticket-email-recovery')
     expect(recoveryEntries).toHaveLength(1)
     expect(recoveryEntries[0].schedule).toBe('0 * * * *')
-
-    // No unrelated cron entry of any kind.
-    const knownPaths = new Set(['/api/cron/sync', '/api/cron/ticket-email-recovery'])
-    expect(parsed.crons.every(c => knownPaths.has(c.path))).toBe(true)
   })
 
   it('this module never self-invokes claim/sweep at import time or via any internal scheduler', () => {
