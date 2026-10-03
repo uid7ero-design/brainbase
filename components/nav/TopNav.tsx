@@ -1306,6 +1306,9 @@ function AppNav({
     ) ||
     enabledCapabilities.includes(
       'purchasing',
+    ) ||
+    enabledCapabilities.includes(
+      'budgeting',
     );
 
   // HR-1 People Foundation — same capability-driven pattern as

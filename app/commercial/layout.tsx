@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { requireSession } from '@/lib/org';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
 import { APP_HEADER_OFFSET_VH_CALC } from '@/lib/layout/headerOffset';
+import { roleGte } from '@/lib/session';
 import CommercialSidebar from './_components/CommercialSidebar';
 
 // Phase C3 — standalone Commercial product shell, modeled directly on
@@ -30,13 +31,14 @@ export default async function CommercialLayout({ children }: { children: React.R
     redirect('/login');
   }
 
-  const [quotesCapability, invoicingCapability, purchasingCapability] = await Promise.all([
+  const [quotesCapability, invoicingCapability, purchasingCapability, budgetingCapability] = await Promise.all([
     checkCapability(session.organisationId, 'quotes'),
     checkCapability(session.organisationId, 'invoicing'),
     checkCapability(session.organisationId, 'purchasing'),
+    checkCapability(session.organisationId, 'budgeting'),
   ]);
 
-  if (!quotesCapability.allowed && !invoicingCapability.allowed && !purchasingCapability.allowed) {
+  if (!quotesCapability.allowed && !invoicingCapability.allowed && !purchasingCapability.allowed && !budgetingCapability.allowed) {
     return (
       <div
         style={{
@@ -55,7 +57,7 @@ export default async function CommercialLayout({ children }: { children: React.R
       >
         <div style={{ fontSize: 16, fontWeight: 700 }}>Commercial isn&apos;t enabled for your organisation</div>
         <div style={{ fontSize: 13, color: '#6b7280', maxWidth: 360 }}>
-          Ask a BrainBase admin to enable Quotes, Invoicing, or Purchasing for your organisation to access the Commercial suite.
+          Ask a BrainBase admin to enable Quotes, Invoicing, Purchasing, or Budgeting for your organisation to access the Commercial suite.
         </div>
       </div>
     );
@@ -71,7 +73,13 @@ export default async function CommercialLayout({ children }: { children: React.R
         color: '#f9fafb',
       }}
     >
-      <CommercialSidebar quotesEnabled={quotesCapability.allowed} invoicingEnabled={invoicingCapability.allowed} purchasingEnabled={purchasingCapability.allowed} />
+      <CommercialSidebar
+        quotesEnabled={quotesCapability.allowed}
+        invoicingEnabled={invoicingCapability.allowed}
+        purchasingEnabled={purchasingCapability.allowed}
+        budgetingEnabled={budgetingCapability.allowed}
+        budgetingAdminEnabled={budgetingCapability.allowed && roleGte(session.role, 'admin')}
+      />
       <main style={{ flex: 1, overflow: 'auto', padding: '36px 40px' }}>{children}</main>
     </div>
   );

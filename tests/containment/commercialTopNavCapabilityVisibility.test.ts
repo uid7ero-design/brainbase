@@ -33,24 +33,25 @@ const hasCommercialBody = topNavSource.slice(hasCommercialStart, hasCommercialEn
 const layoutSource = fs.readFileSync(path.join(process.cwd(), 'app/commercial/layout.tsx'), 'utf8')
 
 describe('Phase C7.2 — Commercial top-nav pill visibility matches the server-side capability gate it links to', () => {
-  it('hasCommercial checks quotes, invoicing, AND purchasing — not quotes alone', () => {
+  it('hasCommercial checks quotes, invoicing, purchasing, AND budgeting — not quotes alone', () => {
     expect(hasCommercialBody).toMatch(/enabledCapabilities\.includes\(\s*'quotes',?\s*\)/)
     expect(hasCommercialBody).toMatch(/enabledCapabilities\.includes\(\s*'invoicing',?\s*\)/)
     expect(hasCommercialBody).toMatch(/enabledCapabilities\.includes\(\s*'purchasing',?\s*\)/)
+    expect(hasCommercialBody).toMatch(/enabledCapabilities\.includes\(\s*'budgeting',?\s*\)/)
   })
 
-  it('the three checks are OR-combined, not AND-combined (an organisation with only one of the three must still see the pill)', () => {
-    // Between each `.includes(...)` call there must be `||`, never `&&`.
+  it('the four checks are OR-combined, not AND-combined (an organisation with only one must still see the pill)', () => {
     const orCount = (hasCommercialBody.match(/\|\|/g) ?? []).length
-    expect(orCount).toBeGreaterThanOrEqual(2)
+    expect(orCount).toBeGreaterThanOrEqual(3)
     expect(hasCommercialBody).not.toMatch(/&&/)
   })
 
-  it('app/commercial/layout.tsx (the actual page this pill links to) checks the same three capabilities and only blocks when none are allowed — the pill\'s visibility now matches its own destination\'s real gate', () => {
+  it('app/commercial/layout.tsx checks the same four capabilities and only blocks when none are allowed', () => {
     expect(layoutSource).toMatch(/checkCapability\(session\.organisationId, 'quotes'\)/)
     expect(layoutSource).toMatch(/checkCapability\(session\.organisationId, 'invoicing'\)/)
     expect(layoutSource).toMatch(/checkCapability\(session\.organisationId, 'purchasing'\)/)
-    expect(layoutSource).toMatch(/!quotesCapability\.allowed && !invoicingCapability\.allowed && !purchasingCapability\.allowed/)
+    expect(layoutSource).toMatch(/checkCapability\(session\.organisationId, 'budgeting'\)/)
+    expect(layoutSource).toMatch(/!quotesCapability\.allowed && !invoicingCapability\.allowed && !purchasingCapability\.allowed && !budgetingCapability\.allowed/)
   })
 
   it('the pill still renders exactly two <NavItem href="/commercial" ...> call sites (shared branch + LD Tennis branch) — the fix only changed the gating condition, not how many places render the pill', () => {
