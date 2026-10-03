@@ -617,6 +617,72 @@ describe('C7.9E1 — prepared finance reconciliation snapshots', () => {
     expect(persisted[0].source_actual_cents.toString()).toBe('1000');
   });
 
+  it('rolls back REVIEW state when the transactional REVIEWED event write fails', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    await addEntry(f, 1000);
+    const prepared = await prepare(f);
+
+    await prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION test_reject_finance_reconciliation_reviewed_event()
+      RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.event_type = 'REVIEWED' THEN
+          RAISE EXCEPTION 'test reviewed event failure';
+        END IF;
+        RETURN NEW;
+      END $$
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER trg_test_reject_finance_reconciliation_reviewed_event
+      BEFORE INSERT ON commercial_finance_reconciliation_events
+      FOR EACH ROW EXECUTE FUNCTION test_reject_finance_reconciliation_reviewed_event()
+    `);
+
+    try {
+      await expect(reviewFinanceReconciliation({
+        organisationId: f.org,
+        userId: f.user,
+        reconciliationId: prepared.id,
+      })).rejects.toThrow(/test reviewed event failure/);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DROP TRIGGER IF EXISTS trg_test_reject_finance_reconciliation_reviewed_event
+         ON commercial_finance_reconciliation_events`,
+      );
+      await prisma.$executeRawUnsafe(
+        `DROP FUNCTION IF EXISTS test_reject_finance_reconciliation_reviewed_event()`,
+      );
+    }
+
+    const state = await prisma.$queryRawUnsafe<{
+      status: string;
+      reviewed_by: string | null;
+      reviewed_at: Date | null;
+    }[]>(
+      `SELECT status,reviewed_by,reviewed_at
+       FROM commercial_finance_reconciliations
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      prepared.id,
+      f.org,
+    );
+    expect(state[0]).toEqual({
+      status: 'PREPARED',
+      reviewed_by: null,
+      reviewed_at: null,
+    });
+
+    const events = await prisma.$queryRawUnsafe<{ event_type: string }[]>(
+      `SELECT event_type
+       FROM commercial_finance_reconciliation_events
+       WHERE reconciliation_id=$1::uuid AND organisation_id=$2
+       ORDER BY event_at,id`,
+      prepared.id,
+      f.org,
+    );
+    expect(events).toEqual([{ event_type: 'PREPARED' }]);
+  });
+
   it('writes durable PREPARED and REVIEWED events and permits PREPARED -> REVIEWED exactly once', async () => {
     const f = await seedFixture();
     await addMapping(f);

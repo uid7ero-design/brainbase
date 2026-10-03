@@ -207,6 +207,88 @@ describe('C7.9B — real PostgreSQL finance adjustment journal', () => {
     expect(events).toEqual([{ event_type: 'CREATED' }]);
   });
 
+  it('rolls back POST status and frozen classification when the transactional POSTED event write fails', async () => {
+    const draft = await createFinanceAdjustment(manualInput());
+
+    await prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION test_reject_finance_adjustment_posted_event()
+      RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.event_type = 'POSTED' THEN
+          RAISE EXCEPTION 'test posted event failure';
+        END IF;
+        RETURN NEW;
+      END $$
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER trg_test_reject_finance_adjustment_posted_event
+      BEFORE INSERT ON commercial_finance_adjustment_events
+      FOR EACH ROW EXECUTE FUNCTION test_reject_finance_adjustment_posted_event()
+    `);
+
+    try {
+      await expect(postFinanceAdjustment({
+        organisationId: ORG,
+        userId: USER,
+        financeAdjustmentId: draft.id,
+      })).rejects.toThrow(/test posted event failure/);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DROP TRIGGER IF EXISTS trg_test_reject_finance_adjustment_posted_event
+         ON commercial_finance_adjustment_events`,
+      );
+      await prisma.$executeRawUnsafe(
+        `DROP FUNCTION IF EXISTS test_reject_finance_adjustment_posted_event()`,
+      );
+    }
+
+    const header = await prisma.$queryRawUnsafe<{
+      status: string;
+      posted_by: string | null;
+      posted_at: Date | null;
+    }[]>(
+      `SELECT status,posted_by,posted_at
+       FROM commercial_finance_adjustments
+       WHERE id=$1::uuid`,
+      draft.id,
+    );
+    expect(header[0]).toEqual({
+      status: 'DRAFT',
+      posted_by: null,
+      posted_at: null,
+    });
+
+    const lines = await prisma.$queryRawUnsafe<{
+      resolved_budget_id: string | null;
+      resolved_budget_version_id: string | null;
+      resolved_budget_line_id: string | null;
+      resolved_tax_basis: string | null;
+      budget_basis_cents: bigint | null;
+    }[]>(
+      `SELECT resolved_budget_id,resolved_budget_version_id,resolved_budget_line_id,
+              resolved_tax_basis,budget_basis_cents
+       FROM commercial_finance_adjustment_lines
+       WHERE adjustment_id=$1::uuid`,
+      draft.id,
+    );
+    expect(lines[0]).toEqual({
+      resolved_budget_id: null,
+      resolved_budget_version_id: null,
+      resolved_budget_line_id: null,
+      resolved_tax_basis: null,
+      budget_basis_cents: null,
+    });
+
+    const events = await prisma.$queryRawUnsafe<{ event_type: string }[]>(
+      `SELECT event_type
+       FROM commercial_finance_adjustment_events
+       WHERE adjustment_id=$1::uuid
+       ORDER BY event_at,id`,
+      draft.id,
+    );
+    expect(events).toEqual([{ event_type: 'CREATED' }]);
+  });
+
   it('POST freezes ACTIVE Budget classification and applies INCLUSIVE tax basis', async () => {
     const draft = await createFinanceAdjustment(manualInput());
     const posted = await postFinanceAdjustment({
