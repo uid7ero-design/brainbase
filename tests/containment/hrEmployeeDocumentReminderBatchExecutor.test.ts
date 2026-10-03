@@ -54,12 +54,13 @@ describe('HR-7E5F employee document reminder batch executor', () => {
     expect(query).toContain("r.delivery_status = 'PENDING'");
     expect(query).toContain('r.organisation_id = o.id');
     expect(query).toContain('ORDER BY o.id ASC');
+    expect(query).not.toContain('timezone');
   });
 
-  it('uses each organisation local calendar date and an automation actor with no user impersonation', async () => {
+  it('uses the injected clock UTC calendar date and a non-user automation actor', async () => {
     sqlMock.mockResolvedValue([
-      { organisation_id: 'org-adelaide', timezone: 'Australia/Adelaide' },
-      { organisation_id: 'org-london', timezone: 'Europe/London' },
+      { organisation_id: 'org-a' },
+      { organisation_id: 'org-b' },
     ]);
 
     await runEmployeeDocumentReminderBatch({
@@ -68,38 +69,24 @@ describe('HR-7E5F employee document reminder batch executor', () => {
     });
 
     expect(processMock).toHaveBeenNthCalledWith(1, {
-      actor: { organisationId: 'org-adelaide', userId: null },
-      scheduledThrough: '2026-10-03',
+      actor: { organisationId: 'org-a', userId: null },
+      scheduledThrough: '2026-10-02',
       limit: 17,
-      transport: { organisationId: 'org-adelaide' },
+      transport: { organisationId: 'org-a' },
     });
 
     expect(processMock).toHaveBeenNthCalledWith(2, {
-      actor: { organisationId: 'org-london', userId: null },
-      scheduledThrough: '2026-10-03',
-      limit: 17,
-      transport: { organisationId: 'org-london' },
-    });
-  });
-
-  it('falls back to UTC when an organisation has no configured timezone', async () => {
-    sqlMock.mockResolvedValue([
-      { organisation_id: 'org-no-timezone', timezone: null },
-    ]);
-
-    await runEmployeeDocumentReminderBatch({
-      now: new Date('2026-10-02T23:30:00.000Z'),
-    });
-
-    expect(processMock).toHaveBeenCalledWith(expect.objectContaining({
+      actor: { organisationId: 'org-b', userId: null },
       scheduledThrough: '2026-10-02',
-    }));
+      limit: 17,
+      transport: { organisationId: 'org-b' },
+    });
   });
 
   it('aggregates worker counts without exposing tenant or recipient detail', async () => {
     sqlMock.mockResolvedValue([
-      { organisation_id: 'org-a', timezone: 'UTC' },
-      { organisation_id: 'org-b', timezone: 'UTC' },
+      { organisation_id: 'org-a' },
+      { organisation_id: 'org-b' },
     ]);
 
     processMock
@@ -138,21 +125,23 @@ describe('HR-7E5F employee document reminder batch executor', () => {
     });
   });
 
-  it('isolates one organisation failure and continues processing the next tenant', async () => {
+  it('isolates one organisation worker failure and continues processing the next tenant', async () => {
     sqlMock.mockResolvedValue([
-      { organisation_id: 'org-bad-zone', timezone: 'Not/A_Timezone' },
-      { organisation_id: 'org-good', timezone: 'UTC' },
+      { organisation_id: 'org-fails' },
+      { organisation_id: 'org-good' },
     ]);
 
-    processMock.mockResolvedValueOnce({
-      discovered: 2,
-      claimed: 2,
-      discoverySkipped: 0,
-      sent: 2,
-      failed: 0,
-      ambiguous: 0,
-      transitionSkipped: 0,
-    });
+    processMock
+      .mockRejectedValueOnce(new Error('tenant-scoped worker failure'))
+      .mockResolvedValueOnce({
+        discovered: 2,
+        claimed: 2,
+        discoverySkipped: 0,
+        sent: 2,
+        failed: 0,
+        ambiguous: 0,
+        transitionSkipped: 0,
+      });
 
     await expect(runEmployeeDocumentReminderBatch({
       now: new Date('2026-10-02T00:00:00.000Z'),
@@ -169,8 +158,8 @@ describe('HR-7E5F employee document reminder batch executor', () => {
       transitionSkipped: 0,
     });
 
-    expect(processMock).toHaveBeenCalledTimes(1);
-    expect(processMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(processMock).toHaveBeenCalledTimes(2);
+    expect(processMock).toHaveBeenNthCalledWith(2, expect.objectContaining({
       actor: { organisationId: 'org-good', userId: null },
     }));
   });

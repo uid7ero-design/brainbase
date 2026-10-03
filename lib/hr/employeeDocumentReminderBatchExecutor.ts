@@ -6,7 +6,6 @@ import { processDueEmployeeDocumentReminders } from './employeeDocumentReminderW
 
 type ReminderOrganisationRow = {
   organisation_id: string;
-  timezone: string | null;
 };
 
 export type EmployeeDocumentReminderBatchSummary = {
@@ -22,29 +21,18 @@ export type EmployeeDocumentReminderBatchSummary = {
   transitionSkipped: number;
 };
 
-function localIsoDate(now: Date, timezone: string | null): string {
-  const zone = timezone?.trim() || 'UTC';
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: zone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(now);
-
-  const year = parts.find(part => part.type === 'year')?.value;
-  const month = parts.find(part => part.type === 'month')?.value;
-  const day = parts.find(part => part.type === 'day')?.value;
-
-  if (!year || !month || !day) {
-    throw new Error('Could not derive organisation-local reminder date.');
-  }
-
-  return `${year}-${month}-${day}`;
+function utcIsoDate(now: Date): string {
+  return now.toISOString().slice(0, 10);
 }
 
 /**
  * Processes one bounded reminder batch for every active organisation that
  * currently has PENDING employee-document reminder deliveries.
+ *
+ * HR-7E5F intentionally uses the injected clock's UTC calendar date.
+ * organisations.timezone is schema-only under Modular Platform Phase F.2A
+ * and must not be consumed by application code until that capability is
+ * separately activated.
  *
  * Tenant work is isolated: one organisation failing does not prevent the
  * remaining organisations from being processed. The caller receives counts
@@ -60,10 +48,11 @@ export async function runEmployeeDocumentReminderBatch(params: {
     throw new Error('now must be a valid Date.');
   }
 
+  const scheduledThrough = utcIsoDate(now);
+
   const organisations = await sql`
     SELECT
-      o.id AS organisation_id,
-      o.timezone
+      o.id AS organisation_id
     FROM organisations o
     WHERE o.status = 'ACTIVE'
       AND EXISTS (
@@ -90,7 +79,6 @@ export async function runEmployeeDocumentReminderBatch(params: {
 
   for (const organisation of organisations) {
     try {
-      const scheduledThrough = localIsoDate(now, organisation.timezone);
       const result = await processDueEmployeeDocumentReminders({
         actor: {
           organisationId: organisation.organisation_id,
