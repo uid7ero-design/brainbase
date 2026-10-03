@@ -26,14 +26,16 @@ END $$;
 
 ALTER TABLE assurance_verifications DISABLE TRIGGER trg_assurance_verifications_append_only;
 -- Template-version history triggers: the A0.1D-3/A0.1E-1 always-immutable
--- ones, or (after A0.1F) the lifecycle guards — whichever exist.
+-- ones, or (after A0.1F) the lifecycle guards — whichever exist — and (after
+-- A0.1H) the evidence no-delete guard.
 DO $$
 DECLARE r record;
 BEGIN
   FOR r IN SELECT tgname, tgrelid::regclass::text AS tbl FROM pg_trigger
            WHERE NOT tgisinternal AND tgname IN (
              'trg_assurance_inspection_template_versions_immutable', 'trg_assurance_audit_template_versions_immutable',
-             'trg_assurance_inspection_template_versions_lifecycle', 'trg_assurance_audit_template_versions_lifecycle')
+             'trg_assurance_inspection_template_versions_lifecycle', 'trg_assurance_audit_template_versions_lifecycle',
+             'trg_assurance_evidence_no_delete')
   LOOP
     EXECUTE format('ALTER TABLE %I DISABLE TRIGGER %I', r.tbl, r.tgname);
   END LOOP;
@@ -84,7 +86,8 @@ BEGIN
   FOR r IN SELECT tgname, tgrelid::regclass::text AS tbl FROM pg_trigger
            WHERE NOT tgisinternal AND tgname IN (
              'trg_assurance_inspection_template_versions_immutable', 'trg_assurance_audit_template_versions_immutable',
-             'trg_assurance_inspection_template_versions_lifecycle', 'trg_assurance_audit_template_versions_lifecycle')
+             'trg_assurance_inspection_template_versions_lifecycle', 'trg_assurance_audit_template_versions_lifecycle',
+             'trg_assurance_evidence_no_delete')
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE TRIGGER %I', r.tbl, r.tgname);
   END LOOP;
@@ -123,7 +126,7 @@ BEGIN
     SELECT 1 FROM pg_trigger
     WHERE tgname IN ('trg_assurance_verifications_append_only', 'trg_assurance_inspection_template_versions_immutable',
                      'trg_assurance_audit_template_versions_immutable', 'trg_assurance_inspection_template_versions_lifecycle',
-                     'trg_assurance_audit_template_versions_lifecycle')
+                     'trg_assurance_audit_template_versions_lifecycle', 'trg_assurance_evidence_no_delete')
       AND tgenabled = 'D'
   ) THEN
     RAISE EXCEPTION 'An Assurance history trigger is still disabled';
