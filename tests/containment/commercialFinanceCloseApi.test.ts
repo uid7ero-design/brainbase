@@ -8,15 +8,24 @@ vi.mock('@/lib/commercial/authorize', async (importOriginal) => {
 
 const closeMock = vi.fn();
 const reopenMock = vi.fn();
+const listClosesMock = vi.fn();
+const listYearsMock = vi.fn();
+const listPeriodsMock = vi.fn();
 class MockFinanceCloseError extends Error {
   constructor(public code: string, message: string) { super(message); }
 }
 vi.mock('@/lib/commercial/financeClose', () => ({
   closeFinancialPeriod: (...args: unknown[]) => closeMock(...args),
   reopenFinancialPeriod: (...args: unknown[]) => reopenMock(...args),
+  listFinancialPeriodCloses: (...args: unknown[]) => listClosesMock(...args),
   FinanceCloseError: MockFinanceCloseError,
 }));
+vi.mock('@/lib/commercial/financialPeriods', () => ({
+  listFinancialYears: (...args: unknown[]) => listYearsMock(...args),
+  listFinancialPeriods: (...args: unknown[]) => listPeriodsMock(...args),
+}));
 
+const listRoute = await import('@/app/api/commercial/budgeting/financial-periods/route');
 const closeRoute = await import('@/app/api/commercial/budgeting/financial-periods/[id]/close/route');
 const reopenRoute = await import('@/app/api/commercial/budgeting/financial-periods/[id]/reopen/route');
 
@@ -27,9 +36,81 @@ beforeEach(() => {
   authorizeMock.mockReset();
   closeMock.mockReset();
   reopenMock.mockReset();
+  listClosesMock.mockReset();
+  listYearsMock.mockReset();
+  listPeriodsMock.mockReset();
 });
 
 describe('C7.9A — finance close/reopen APIs', () => {
+  it.each([401, 403, 503])('preserves period-list authorization denial %s', async status => {
+    authorizeMock.mockResolvedValue({ ok: false, response: new Response(null, { status }) });
+
+    const response = await listRoute.GET();
+
+    expect(response.status).toBe(status);
+    expect(authorizeMock).toHaveBeenCalledWith('budgeting', 'admin');
+    expect(listYearsMock).not.toHaveBeenCalled();
+    expect(listPeriodsMock).not.toHaveBeenCalled();
+    expect(listClosesMock).not.toHaveBeenCalled();
+  });
+
+  it('lists tenant-scoped years with periods and durable close history for admins', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: ADMIN });
+    listYearsMock.mockResolvedValue([
+      { id: 'fy-1', organisation_id: 'org-a', name: 'FY26', status: 'OPEN' },
+      { id: 'fy-2', organisation_id: 'org-a', name: 'FY25', status: 'CLOSED' },
+    ]);
+    listPeriodsMock
+      .mockResolvedValueOnce([
+        { id: 'period-1', organisation_id: 'org-a', financial_year_id: 'fy-1', name: 'September', status: 'CLOSED' },
+      ])
+      .mockResolvedValueOnce([]);
+    listClosesMock.mockResolvedValue([
+      { id: 'close-1', organisation_id: 'org-a', financial_period_id: 'period-1', close_sequence: 1, status: 'CLOSED' },
+    ]);
+
+    const response = await listRoute.GET();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({
+      years: [
+        {
+          id: 'fy-1',
+          organisation_id: 'org-a',
+          name: 'FY26',
+          status: 'OPEN',
+          periods: [{
+            id: 'period-1',
+            organisation_id: 'org-a',
+            financial_year_id: 'fy-1',
+            name: 'September',
+            status: 'CLOSED',
+            closes: [{
+              id: 'close-1',
+              organisation_id: 'org-a',
+              financial_period_id: 'period-1',
+              close_sequence: 1,
+              status: 'CLOSED',
+            }],
+          }],
+        },
+        {
+          id: 'fy-2',
+          organisation_id: 'org-a',
+          name: 'FY25',
+          status: 'CLOSED',
+          periods: [],
+        },
+      ],
+    });
+    expect(listYearsMock).toHaveBeenCalledWith('org-a');
+    expect(listPeriodsMock).toHaveBeenNthCalledWith(1, 'org-a', 'fy-1');
+    expect(listPeriodsMock).toHaveBeenNthCalledWith(2, 'org-a', 'fy-2');
+    expect(listClosesMock).toHaveBeenCalledWith('org-a', 'period-1');
+  });
+
+
   it.each([401, 403, 503])('preserves close authorization denial %s', async status => {
     authorizeMock.mockResolvedValue({ ok: false, response: new Response(null, { status }) });
     const response = await closeRoute.POST(new Request('http://localhost', { method: 'POST' }), ctx);
