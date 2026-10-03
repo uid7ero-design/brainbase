@@ -145,6 +145,15 @@ import path from 'path';
 // alongside the existing specs, for the same reason and with the same
 // explicit-file-argument isolation. Like the 6.2D4B route suite, this one
 // DOES need the lib/org auth seam (the route itself resolves the session).
+//
+// 6.2D4D1B2 addition: scripts/tests/dataHubDatasetProfileExecution
+// .integration.test.ts (the dataset-profile execution service's own
+// real-Postgres create/complete/concurrency/reconciliation-rollback proof
+// — see scripts/tests/verify-datahub-profile-execution.sh) is added
+// alongside the existing specs, for the same reason and with the same
+// explicit-file-argument isolation. Like the D.4.6K/C7.3/6.2D4B2A suites,
+// this one needs no auth seam — profileUploadDataset takes already-
+// trusted organisationId/uploadId/actorId directly.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -176,6 +185,7 @@ export default defineConfig({
       'scripts/tests/assuranceContractor.integration.test.ts',
       'scripts/tests/dataHubNormalizationExecutor.integration.test.ts',
       'scripts/tests/dataHubNormalizeWorksheetRoute.integration.test.ts',
+      'scripts/tests/dataHubDatasetProfileExecution.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,

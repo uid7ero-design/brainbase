@@ -209,6 +209,7 @@ model User {
   data_hub_normalization_runs_created DataHubNormalizationRun[] @relation("DataHubNormalizationRunCreatedBy")
   normalized_uploads                  Upload[] @relation("UploadNormalizedBy")
   data_hub_dataset_profile_runs_created DataHubDatasetProfileRun[] @relation("DataHubDatasetProfileRunCreatedBy")
+  profiled_uploads                     Upload[] @relation("UploadProfiledBy")
   organisation      Organisation      @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
 
   @@index([organisation_id])
@@ -509,6 +510,28 @@ model Upload {
   normalized_cell_count       Int?
   normalization_run_id        String?
 
+  // Data Hub 6.2D4D1B2 — authoritative dataset-profile completion pointer.
+  // Mirrors normalized_at/normalized_by/normalized_profile_version_id/
+  // normalization_run_id's own exact shape and immutability discipline
+  // (all-NULL before a SUCCEEDED DataHubDatasetProfileRun; all four
+  // written together, atomically, only inside
+  // datahub_complete_dataset_profile_run(); frozen forever afterward
+  // except profiled_by, which may become NULL only via ON DELETE SET NULL
+  // on actor deletion). profiler_version is denormalized here (D4D1A's
+  // profiler_version is a short version string, not a foreign-keyed
+  // version row, unlike normalized_profile_version_id) purely so a caller
+  // can see which profiler produced the authoritative profile without a
+  // join — never a second source of truth; the pinned
+  // DataHubDatasetProfileRun.profiler_version remains authoritative.
+  // row_count/column_count are deliberately NOT duplicated here (section
+  // 15's own "do not blindly add all four if some would duplicate
+  // immutable run data unnecessarily") — those already live, immutably,
+  // on the pinned run itself, reachable via dataset_profile_run_id.
+  dataset_profile_run_id String?
+  profiled_at            DateTime?
+  profiled_by            String?
+  profiler_version       String?
+
   debtor_accounts    DebtorAccount[]
   evidence_records   EvidenceRecord[]
   hlna_insights      HlnaInsight[]
@@ -525,6 +548,7 @@ model Upload {
   confirmer          User?              @relation("UploadConfirmedBy", fields: [confirmed_by], references: [id], onDelete: SetNull)
   raw_stager         User?              @relation("UploadRawStagedBy", fields: [raw_staged_by], references: [id], onDelete: SetNull)
   normalizer         User?              @relation("UploadNormalizedBy", fields: [normalized_by], references: [id], onDelete: SetNull)
+  profiler           User?              @relation("UploadProfiledBy", fields: [profiled_by], references: [id], onDelete: SetNull)
   // Composite tenant-scoped FK — a MATCH SIMPLE constraint, so any row
   // with import_batch_id = NULL (every legacy row) is entirely exempt
   // from this check by Postgres's own FK semantics. For a canonical row
@@ -552,6 +576,15 @@ model Upload {
   normalization_run DataHubNormalizationRun? @relation("UploadNormalizationRun", fields: [normalization_run_id, organisation_id], references: [id, organisation_id])
   normalization_runs DataHubNormalizationRun[] @relation("UploadNormalizationRuns")
   dataset_profile_runs DataHubDatasetProfileRun[] @relation("UploadDatasetProfileRuns")
+  // D4D1B2: authoritative completed-profile-run pointer, mirroring
+  // normalization_run's own shape. The migration also adds a second,
+  // wider composite FK (uploads_dataset_profile_run_upload_fkey, proving
+  // the pointed-to run really belongs to THIS upload's own id) — same
+  // DB-level-only precedent as uploads_normalization_run_upload_fkey. A
+  // dedicated trigger (see scripts/create-datahub-profile-execution.sql)
+  // additionally proves the pointed-to run is SUCCEEDED, since a plain FK
+  // cannot express that condition.
+  dataset_profile_run DataHubDatasetProfileRun? @relation("UploadDatasetProfileRun", fields: [dataset_profile_run_id, organisation_id], references: [id, organisation_id])
   normalized_profile_version WorksheetMappingProfileVersion? @relation("UploadNormalizedProfileVersion", fields: [normalized_profile_version_id, organisation_id], references: [id, organisation_id])
   source_record_observations SourceRecordObservation[]
   data_hub_raw_rows DataHubRawRow[]
@@ -592,6 +625,10 @@ model Upload {
   // lineage proof: a persisted profile run must use this Upload's exact
   // completed normalization_run_id, never another historical SUCCEEDED run.
   @@unique([id, normalization_run_id, organisation_id], map: "uploads_id_normalization_run_organisation_key")
+  // D4D1B2 — additive FK target: a persisted profile run must use this
+  // Upload's exact completed dataset_profile_run_id, never another
+  // historical run.
+  @@unique([id, dataset_profile_run_id, organisation_id], map: "uploads_id_dataset_profile_run_organisation_key")
   @@map("uploads")
 }
 
@@ -1514,9 +1551,15 @@ model DataHubDatasetProfileRun {
   creator User? @relation("DataHubDatasetProfileRunCreatedBy", fields: [created_by], references: [id], onDelete: SetNull)
 
   columns DataHubDatasetProfileColumn[]
+  // D4D1B2 — back-relation for Upload.dataset_profile_run's own FK.
+  profiled_uploads Upload[] @relation("UploadDatasetProfileRun")
 
   @@unique([id, organisation_id], map: "data_hub_dataset_profile_runs_id_org_key")
   @@unique([id, source_schema_worksheet_id, organisation_id], map: "data_hub_dataset_profile_runs_id_worksheet_org_key")
+  // D4D1B2 — additive FK target for Upload.dataset_profile_run's own
+  // wider composite proof FK (uploads_dataset_profile_run_upload_fkey),
+  // same precedent as data_hub_normalization_runs_id_upload_organisation_key.
+  @@unique([id, upload_id, organisation_id], map: "data_hub_dataset_profile_runs_id_upload_organisation_key")
   @@unique([upload_id, attempt_number], map: "data_hub_dataset_profile_runs_upload_attempt_key")
   @@index([organisation_id, upload_id])
   @@index([normalization_run_id])
