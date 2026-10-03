@@ -617,6 +617,68 @@ describe('C7.9E1 — prepared finance reconciliation snapshots', () => {
     expect(persisted[0].source_actual_cents.toString()).toBe('1000');
   });
 
+  it('rolls back PREPARED snapshot and items when the transactional PREPARED event write fails', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    await addEntry(f, 1000);
+
+    await prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION test_reject_finance_reconciliation_prepared_event()
+      RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.event_type = 'PREPARED' THEN
+          RAISE EXCEPTION 'test prepared event failure';
+        END IF;
+        RETURN NEW;
+      END $$
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER trg_test_reject_finance_reconciliation_prepared_event
+      BEFORE INSERT ON commercial_finance_reconciliation_events
+      FOR EACH ROW EXECUTE FUNCTION test_reject_finance_reconciliation_prepared_event()
+    `);
+
+    try {
+      await expect(prepare(f)).rejects.toThrow(/test prepared event failure/);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DROP TRIGGER IF EXISTS trg_test_reject_finance_reconciliation_prepared_event
+         ON commercial_finance_reconciliation_events`,
+      );
+      await prisma.$executeRawUnsafe(
+        `DROP FUNCTION IF EXISTS test_reject_finance_reconciliation_prepared_event()`,
+      );
+    }
+
+    const reconciliationCount = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
+      `SELECT COUNT(*)::bigint AS count
+       FROM commercial_finance_reconciliations
+       WHERE organisation_id=$1
+         AND financial_period_id=$2::uuid
+         AND source_system_id='xero'
+         AND currency='AUD'`,
+      f.org,
+      f.period,
+    );
+    expect(reconciliationCount[0].count.toString()).toBe('0');
+
+    const itemCount = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
+      `SELECT COUNT(*)::bigint AS count
+       FROM commercial_finance_reconciliation_items
+       WHERE organisation_id=$1`,
+      f.org,
+    );
+    expect(itemCount[0].count.toString()).toBe('0');
+
+    const eventCount = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
+      `SELECT COUNT(*)::bigint AS count
+       FROM commercial_finance_reconciliation_events
+       WHERE organisation_id=$1`,
+      f.org,
+    );
+    expect(eventCount[0].count.toString()).toBe('0');
+  });
+
   it('rolls back REVIEW state when the transactional REVIEWED event write fails', async () => {
     const f = await seedFixture();
     await addMapping(f);
