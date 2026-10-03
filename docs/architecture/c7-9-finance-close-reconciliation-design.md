@@ -343,6 +343,8 @@ Mappings are version/effective-date controlled so historical reconciliation can 
 
 Cost-centre/dimension mapping is likewise explicit when the external GL uses dimension codes. C7.9 uses `commercial_external_gl_cost_centre_mappings` with organisation, source system, external cost-centre code, BrainBase cost-centre id, effective dates, lifecycle status and audit fields. Reconciliation items retain the exact cost-centre mapping id used so historical snapshots do not depend on later mapping changes.
 
+Creating or retiring an account or cost-centre mapping over existing imported GL evidence changes how that evidence resolves. Any affected SIGNED_OFF reconciliation therefore becomes STALE atomically with the mapping change, the attached close records reconciliation status becomes STALE, and a durable reconciliation event records the mapping-change cause.
+
 ## 16. External GL imported facts
 
 Do not write imported GL totals directly into Budget lines.

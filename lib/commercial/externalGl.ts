@@ -186,20 +186,72 @@ export async function createExternalGlAccountMapping(params: {
         WHERE existing.organisation_id=${params.organisationId}
           AND existing.source_system_id=${sourceSystemId}
           AND existing.external_gl_account_code=${externalAccountCode}
-          AND existing.status='ACTIVE'          AND daterange(existing.effective_from,
+          AND existing.status='ACTIVE'
+          AND daterange(existing.effective_from,
               COALESCE(existing.effective_to + 1, 'infinity'::date), '[)')
             && daterange(${effectiveFrom}::date,
               COALESCE(${effectiveTo}::date + 1, 'infinity'::date), '[)')
+      ), inserted AS (
+        INSERT INTO commercial_external_gl_account_mappings(
+          organisation_id,source_system_id,external_gl_account_code,
+          external_gl_account_name,budget_account_id,effective_from,effective_to,status,created_by
+        )
+        SELECT ${params.organisationId},${sourceSystemId},${externalAccountCode},
+          ${params.externalAccountName?.trim() || null},${params.budgetAccountId},
+          ${effectiveFrom}::date,${effectiveTo}::date,'ACTIVE',${params.userId}
+        FROM valid_account WHERE NOT EXISTS (SELECT 1 FROM conflict)
+        RETURNING *
+      ), affected_observations AS (
+        SELECT entry.transaction_date, entry.currency
+        FROM inserted mapping
+        JOIN commercial_external_gl_entries entry
+          ON entry.organisation_id=mapping.organisation_id
+         AND entry.source_system_id=mapping.source_system_id
+         AND entry.external_account_code=mapping.external_gl_account_code
+         AND entry.transaction_date >= mapping.effective_from
+         AND (mapping.effective_to IS NULL OR entry.transaction_date <= mapping.effective_to)
+      ), staled AS (
+        UPDATE commercial_finance_reconciliations reconciliation
+        SET status='STALE'
+        FROM commercial_financial_periods period,
+             commercial_financial_period_closes close_record
+        WHERE reconciliation.organisation_id=${params.organisationId}
+          AND reconciliation.source_system_id=${sourceSystemId}
+          AND reconciliation.status='SIGNED_OFF'
+          AND period.id=reconciliation.financial_period_id
+          AND period.organisation_id=reconciliation.organisation_id
+          AND close_record.id=reconciliation.close_id
+          AND close_record.organisation_id=reconciliation.organisation_id
+          AND close_record.status='CLOSED'
+          AND EXISTS (
+            SELECT 1 FROM affected_observations affected
+            WHERE affected.currency=reconciliation.currency
+              AND affected.transaction_date BETWEEN period.starts_on AND period.ends_on
+          )
+        RETURNING reconciliation.id,reconciliation.organisation_id,reconciliation.close_id
+      ), close_updated AS (
+        UPDATE commercial_financial_period_closes close_record
+        SET reconciliation_status='STALE'
+        WHERE close_record.organisation_id=${params.organisationId}
+          AND close_record.id IN (SELECT close_id FROM staled)
+        RETURNING close_record.id
+      ), events AS (
+        INSERT INTO commercial_finance_reconciliation_events(
+          organisation_id,reconciliation_id,event_type,actor_user_id,details
+        )
+        SELECT staled.organisation_id,staled.id,'STALE',${params.userId},
+          jsonb_build_object(
+            'cause','EXTERNAL_GL_ACCOUNT_MAPPING_CREATED',
+            'mappingId',(SELECT id FROM inserted LIMIT 1),
+            'sourceSystemId',${sourceSystemId},
+            'externalAccountCode',${externalAccountCode},
+            'effectiveFrom',${effectiveFrom}::text,
+            'effectiveTo',${effectiveTo}::text
+          )
+        FROM staled
+        RETURNING reconciliation_id
       )
-      INSERT INTO commercial_external_gl_account_mappings(
-        organisation_id,source_system_id,external_gl_account_code,
-        external_gl_account_name,budget_account_id,effective_from,effective_to,status,created_by
-      )
-      SELECT ${params.organisationId},${sourceSystemId},${externalAccountCode},
-        ${params.externalAccountName?.trim() || null},${params.budgetAccountId},
-        ${effectiveFrom}::date,${effectiveTo}::date,'ACTIVE',${params.userId}
-      FROM valid_account WHERE NOT EXISTS (SELECT 1 FROM conflict)
-      RETURNING *
+      SELECT inserted.* FROM inserted
     `,
   ], { isolationLevel: 'ReadCommitted' });
 
@@ -215,16 +267,91 @@ export async function createExternalGlAccountMapping(params: {
 export async function retireExternalGlAccountMapping(params: {
   organisationId: string; userId: string; mappingId: string; effectiveTo: string;
 }): Promise<ExternalGlAccountMapping> {
+  const effectiveTo = cleanRequired(params.effectiveTo, 'effectiveTo');
   const rows = await sql`
-    UPDATE commercial_external_gl_account_mappings
-    SET status='RETIRED', effective_to=${params.effectiveTo}::date,
-        retired_by=${params.userId}, retired_at=now()
-    WHERE id=${params.mappingId} AND organisation_id=${params.organisationId}
-      AND status='ACTIVE' AND ${params.effectiveTo}::date >= effective_from
-    RETURNING *
+    WITH current AS MATERIALIZED (
+      SELECT *
+      FROM commercial_external_gl_account_mappings
+      WHERE id=${params.mappingId}
+        AND organisation_id=${params.organisationId}
+        AND status='ACTIVE'
+        AND ${effectiveTo}::date >= effective_from
+        AND (effective_to IS NULL OR ${effectiveTo}::date <= effective_to)
+      FOR UPDATE
+    ), retired AS (
+      UPDATE commercial_external_gl_account_mappings mapping
+      SET status='RETIRED', effective_to=${effectiveTo}::date,
+          retired_by=${params.userId}, retired_at=now()
+      FROM current
+      WHERE mapping.id=current.id
+      RETURNING mapping.*
+    ), affected_observations AS (
+      SELECT entry.transaction_date, entry.currency
+      FROM current
+      JOIN retired ON retired.id=current.id
+      JOIN commercial_external_gl_entries entry
+        ON entry.organisation_id=current.organisation_id
+       AND entry.source_system_id=current.source_system_id
+       AND entry.external_account_code=current.external_gl_account_code
+       AND entry.transaction_date > retired.effective_to
+       AND (current.effective_to IS NULL OR entry.transaction_date <= current.effective_to)
+    ), staled AS (
+      UPDATE commercial_finance_reconciliations reconciliation
+      SET status='STALE'
+      FROM retired,
+           commercial_financial_periods period,
+           commercial_financial_period_closes close_record
+      WHERE reconciliation.organisation_id=retired.organisation_id
+        AND reconciliation.source_system_id=retired.source_system_id
+        AND reconciliation.status='SIGNED_OFF'
+        AND period.id=reconciliation.financial_period_id
+        AND period.organisation_id=reconciliation.organisation_id
+        AND close_record.id=reconciliation.close_id
+        AND close_record.organisation_id=reconciliation.organisation_id
+        AND close_record.status='CLOSED'
+        AND EXISTS (
+          SELECT 1 FROM affected_observations affected
+          WHERE affected.currency=reconciliation.currency
+            AND affected.transaction_date BETWEEN period.starts_on AND period.ends_on
+        )
+      RETURNING reconciliation.id,reconciliation.organisation_id,reconciliation.close_id
+    ), close_updated AS (
+      UPDATE commercial_financial_period_closes close_record
+      SET reconciliation_status='STALE'
+      WHERE close_record.organisation_id=${params.organisationId}
+        AND close_record.id IN (SELECT close_id FROM staled)
+      RETURNING close_record.id
+    ), events AS (
+      INSERT INTO commercial_finance_reconciliation_events(
+        organisation_id,reconciliation_id,event_type,actor_user_id,details
+      )
+      SELECT staled.organisation_id,staled.id,'STALE',${params.userId},
+        jsonb_build_object(
+          'cause','EXTERNAL_GL_ACCOUNT_MAPPING_RETIRED',
+          'mappingId',retired.id,
+          'sourceSystemId',retired.source_system_id,
+          'externalAccountCode',retired.external_gl_account_code,
+          'effectiveTo',retired.effective_to,
+          'previousEffectiveTo',current.effective_to
+        )
+      FROM staled
+      JOIN retired ON true
+      JOIN current ON current.id=retired.id
+      RETURNING reconciliation_id
+    )
+    SELECT retired.* FROM retired
   ` as ExternalGlAccountMapping[];
-  if (!rows[0]) throw new ExternalGlError('NOT_FOUND', 'Active mapping not found.');
-  return rows[0];
+  if (rows[0]) return rows[0];
+
+  const existing = await sql`
+    SELECT effective_from,effective_to,status
+    FROM commercial_external_gl_account_mappings
+    WHERE id=${params.mappingId} AND organisation_id=${params.organisationId}
+  ` as { effective_from: string; effective_to: string | null; status: ExternalGlMappingStatus }[];
+  if (existing[0]?.status === 'ACTIVE') {
+    throw new ExternalGlError('INVALID_INPUT', 'effectiveTo must remain within the active mapping range.');
+  }
+  throw new ExternalGlError('NOT_FOUND', 'Active mapping not found.');
 }
 
 export async function createExternalGlCostCentreMapping(params: {
@@ -261,15 +388,66 @@ export async function createExternalGlCostCentreMapping(params: {
               COALESCE(existing.effective_to + 1, 'infinity'::date), '[)')
             && daterange(${effectiveFrom}::date,
               COALESCE(${effectiveTo}::date + 1, 'infinity'::date), '[)')
+      ), inserted AS (
+        INSERT INTO commercial_external_gl_cost_centre_mappings(
+          organisation_id,source_system_id,external_cost_centre_code,
+          cost_centre_id,effective_from,effective_to,status,created_by
+        )
+        SELECT ${params.organisationId},${sourceSystemId},${externalCostCentreCode},
+          ${params.costCentreId},${effectiveFrom}::date,${effectiveTo}::date,'ACTIVE',${params.userId}
+        FROM valid_cost_centre WHERE NOT EXISTS (SELECT 1 FROM conflict)
+        RETURNING *
+      ), affected_observations AS (
+        SELECT entry.transaction_date, entry.currency
+        FROM inserted mapping
+        JOIN commercial_external_gl_entries entry
+          ON entry.organisation_id=mapping.organisation_id
+         AND entry.source_system_id=mapping.source_system_id
+         AND NULLIF(btrim(entry.external_cost_centre_code), '')=mapping.external_cost_centre_code
+         AND entry.transaction_date >= mapping.effective_from
+         AND (mapping.effective_to IS NULL OR entry.transaction_date <= mapping.effective_to)
+      ), staled AS (
+        UPDATE commercial_finance_reconciliations reconciliation
+        SET status='STALE'
+        FROM commercial_financial_periods period,
+             commercial_financial_period_closes close_record
+        WHERE reconciliation.organisation_id=${params.organisationId}
+          AND reconciliation.source_system_id=${sourceSystemId}
+          AND reconciliation.status='SIGNED_OFF'
+          AND period.id=reconciliation.financial_period_id
+          AND period.organisation_id=reconciliation.organisation_id
+          AND close_record.id=reconciliation.close_id
+          AND close_record.organisation_id=reconciliation.organisation_id
+          AND close_record.status='CLOSED'
+          AND EXISTS (
+            SELECT 1 FROM affected_observations affected
+            WHERE affected.currency=reconciliation.currency
+              AND affected.transaction_date BETWEEN period.starts_on AND period.ends_on
+          )
+        RETURNING reconciliation.id,reconciliation.organisation_id,reconciliation.close_id
+      ), close_updated AS (
+        UPDATE commercial_financial_period_closes close_record
+        SET reconciliation_status='STALE'
+        WHERE close_record.organisation_id=${params.organisationId}
+          AND close_record.id IN (SELECT close_id FROM staled)
+        RETURNING close_record.id
+      ), events AS (
+        INSERT INTO commercial_finance_reconciliation_events(
+          organisation_id,reconciliation_id,event_type,actor_user_id,details
+        )
+        SELECT staled.organisation_id,staled.id,'STALE',${params.userId},
+          jsonb_build_object(
+            'cause','EXTERNAL_GL_COST_CENTRE_MAPPING_CREATED',
+            'mappingId',(SELECT id FROM inserted LIMIT 1),
+            'sourceSystemId',${sourceSystemId},
+            'externalCostCentreCode',${externalCostCentreCode},
+            'effectiveFrom',${effectiveFrom}::text,
+            'effectiveTo',${effectiveTo}::text
+          )
+        FROM staled
+        RETURNING reconciliation_id
       )
-      INSERT INTO commercial_external_gl_cost_centre_mappings(
-        organisation_id,source_system_id,external_cost_centre_code,
-        cost_centre_id,effective_from,effective_to,status,created_by
-      )
-      SELECT ${params.organisationId},${sourceSystemId},${externalCostCentreCode},
-        ${params.costCentreId},${effectiveFrom}::date,${effectiveTo}::date,'ACTIVE',${params.userId}
-      FROM valid_cost_centre WHERE NOT EXISTS (SELECT 1 FROM conflict)
-      RETURNING *
+      SELECT inserted.* FROM inserted
     `,
   ], { isolationLevel: 'ReadCommitted' });
 
@@ -291,15 +469,89 @@ export async function retireExternalGlCostCentreMapping(params: {
 }): Promise<ExternalGlCostCentreMapping> {
   const effectiveTo = cleanRequired(params.effectiveTo, 'effectiveTo');
   const rows = await sql`
-    UPDATE commercial_external_gl_cost_centre_mappings
-    SET status='RETIRED', effective_to=${effectiveTo}::date,
-        retired_by=${params.userId}, retired_at=now()
-    WHERE id=${params.mappingId} AND organisation_id=${params.organisationId}
-      AND status='ACTIVE' AND ${effectiveTo}::date >= effective_from
-    RETURNING *
+    WITH current AS MATERIALIZED (
+      SELECT *
+      FROM commercial_external_gl_cost_centre_mappings
+      WHERE id=${params.mappingId}
+        AND organisation_id=${params.organisationId}
+        AND status='ACTIVE'
+        AND ${effectiveTo}::date >= effective_from
+        AND (effective_to IS NULL OR ${effectiveTo}::date <= effective_to)
+      FOR UPDATE
+    ), retired AS (
+      UPDATE commercial_external_gl_cost_centre_mappings mapping
+      SET status='RETIRED', effective_to=${effectiveTo}::date,
+          retired_by=${params.userId}, retired_at=now()
+      FROM current
+      WHERE mapping.id=current.id
+      RETURNING mapping.*
+    ), affected_observations AS (
+      SELECT entry.transaction_date, entry.currency
+      FROM current
+      JOIN retired ON retired.id=current.id
+      JOIN commercial_external_gl_entries entry
+        ON entry.organisation_id=current.organisation_id
+       AND entry.source_system_id=current.source_system_id
+       AND NULLIF(btrim(entry.external_cost_centre_code), '')=current.external_cost_centre_code
+       AND entry.transaction_date > retired.effective_to
+       AND (current.effective_to IS NULL OR entry.transaction_date <= current.effective_to)
+    ), staled AS (
+      UPDATE commercial_finance_reconciliations reconciliation
+      SET status='STALE'
+      FROM retired,
+           commercial_financial_periods period,
+           commercial_financial_period_closes close_record
+      WHERE reconciliation.organisation_id=retired.organisation_id
+        AND reconciliation.source_system_id=retired.source_system_id
+        AND reconciliation.status='SIGNED_OFF'
+        AND period.id=reconciliation.financial_period_id
+        AND period.organisation_id=reconciliation.organisation_id
+        AND close_record.id=reconciliation.close_id
+        AND close_record.organisation_id=reconciliation.organisation_id
+        AND close_record.status='CLOSED'
+        AND EXISTS (
+          SELECT 1 FROM affected_observations affected
+          WHERE affected.currency=reconciliation.currency
+            AND affected.transaction_date BETWEEN period.starts_on AND period.ends_on
+        )
+      RETURNING reconciliation.id,reconciliation.organisation_id,reconciliation.close_id
+    ), close_updated AS (
+      UPDATE commercial_financial_period_closes close_record
+      SET reconciliation_status='STALE'
+      WHERE close_record.organisation_id=${params.organisationId}
+        AND close_record.id IN (SELECT close_id FROM staled)
+      RETURNING close_record.id
+    ), events AS (
+      INSERT INTO commercial_finance_reconciliation_events(
+        organisation_id,reconciliation_id,event_type,actor_user_id,details
+      )
+      SELECT staled.organisation_id,staled.id,'STALE',${params.userId},
+        jsonb_build_object(
+          'cause','EXTERNAL_GL_COST_CENTRE_MAPPING_RETIRED',
+          'mappingId',retired.id,
+          'sourceSystemId',retired.source_system_id,
+          'externalCostCentreCode',retired.external_cost_centre_code,
+          'effectiveTo',retired.effective_to,
+          'previousEffectiveTo',current.effective_to
+        )
+      FROM staled
+      JOIN retired ON true
+      JOIN current ON current.id=retired.id
+      RETURNING reconciliation_id
+    )
+    SELECT retired.* FROM retired
   ` as ExternalGlCostCentreMapping[];
-  if (!rows[0]) throw new ExternalGlError('NOT_FOUND', 'Active cost-centre mapping not found.');
-  return rows[0];
+  if (rows[0]) return rows[0];
+
+  const existing = await sql`
+    SELECT effective_from,effective_to,status
+    FROM commercial_external_gl_cost_centre_mappings
+    WHERE id=${params.mappingId} AND organisation_id=${params.organisationId}
+  ` as { effective_from: string; effective_to: string | null; status: ExternalGlMappingStatus }[];
+  if (existing[0]?.status === 'ACTIVE') {
+    throw new ExternalGlError('INVALID_INPUT', 'effectiveTo must remain within the active mapping range.');
+  }
+  throw new ExternalGlError('NOT_FOUND', 'Active cost-centre mapping not found.');
 }
 
 export async function importExternalGlEntry(params: {

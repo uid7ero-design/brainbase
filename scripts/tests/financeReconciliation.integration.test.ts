@@ -55,7 +55,13 @@ const { createFinanceAdjustment, postFinanceAdjustment, reverseFinanceAdjustment
   await import('@/lib/commercial/financeAdjustments');
 const { activateBudgetVersion } = await import('@/lib/commercial/budgetActivation');
 const { closeFinancialPeriod, reopenFinancialPeriod } = await import('@/lib/commercial/financeClose');
-const { importExternalGlEntry } = await import('@/lib/commercial/externalGl');
+const {
+  importExternalGlEntry,
+  createExternalGlAccountMapping,
+  retireExternalGlAccountMapping,
+  createExternalGlCostCentreMapping,
+  retireExternalGlCostCentreMapping,
+} = await import('@/lib/commercial/externalGl');
 
 type Fixture = {
   org: string; user: string; fy: string; period: string; period2: string; cc: string;
@@ -249,6 +255,57 @@ async function signOffPeriod(f: Fixture, preparedId: string) {
     closeId: close.id,
   });
   return close;
+}
+
+async function expectMappingStale(
+  f: Fixture,
+  reconciliationId: string,
+  closeId: string,
+  cause: string,
+) {
+  const state = await prisma.$queryRawUnsafe<{
+    reconciliation_status: string;
+    close_reconciliation_status: string;
+    close_status: string;
+  }[]>(
+    `SELECT reconciliation.status AS reconciliation_status,
+            close_record.reconciliation_status AS close_reconciliation_status,
+            close_record.status AS close_status
+     FROM commercial_finance_reconciliations reconciliation
+     JOIN commercial_financial_period_closes close_record
+       ON close_record.id=reconciliation.close_id
+      AND close_record.organisation_id=reconciliation.organisation_id
+     WHERE reconciliation.id=$1::uuid
+       AND reconciliation.organisation_id=$2`,
+    reconciliationId,
+    f.org,
+  );
+  expect(state[0]).toEqual({
+    reconciliation_status: 'STALE',
+    close_reconciliation_status: 'STALE',
+    close_status: 'CLOSED',
+  });
+
+  const events = await prisma.$queryRawUnsafe<{ details: { cause?: string } }[]>(
+    `SELECT details
+     FROM commercial_finance_reconciliation_events
+     WHERE reconciliation_id=$1::uuid
+       AND organisation_id=$2
+       AND event_type='STALE'
+     ORDER BY event_at DESC,id DESC
+     LIMIT 1`,
+    reconciliationId,
+    f.org,
+  );
+  expect(events[0].details).toMatchObject({ cause });
+
+  const close = await prisma.$queryRawUnsafe<{ id: string }[]>(
+    `SELECT id FROM commercial_financial_period_closes
+     WHERE id=$1::uuid AND organisation_id=$2`,
+    closeId,
+    f.org,
+  );
+  expect(close[0]?.id).toBe(closeId);
 }
 
 afterAll(async () => prisma.$disconnect());
@@ -883,6 +940,148 @@ describe('C7.9E1 — prepared finance reconciliation snapshots', () => {
       prepared.id, f.org,
     );
     expect(staleEvents[0].count.toString()).toBe('0');
+  });
+
+  it('stales a signed reconciliation when a missing GL account mapping is created for existing evidence', async () => {
+    const f = await seedFixture();
+    await addEntry(f, 1000);
+    const prepared = await prepare(f);
+    expect(prepared.unresolvedItemCount).toBeGreaterThan(0);
+    const close = await signOffPeriod(f, prepared.id);
+
+    await createExternalGlAccountMapping({
+      organisationId: f.org,
+      userId: f.user,
+      sourceSystemId: 'xero',
+      externalAccountCode: '600',
+      externalAccountName: 'GL',
+      budgetAccountId: f.account,
+      effectiveFrom: '2026-07-01',
+      effectiveTo: null,
+    });
+
+    await expectMappingStale(
+      f,
+      prepared.id,
+      close.id,
+      'EXTERNAL_GL_ACCOUNT_MAPPING_CREATED',
+    );
+  });
+
+  it('stales a signed reconciliation when a missing cost-centre mapping is created for existing evidence', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    await addEntry(f, 1000, '600', '2026-09-20', 'AUD', 'OPS-EXT');
+    const prepared = await prepare(f);
+    expect(prepared.unresolvedItemCount).toBeGreaterThan(0);
+    const close = await signOffPeriod(f, prepared.id);
+
+    await createExternalGlCostCentreMapping({
+      organisationId: f.org,
+      userId: f.user,
+      sourceSystemId: 'xero',
+      externalCostCentreCode: 'OPS-EXT',
+      costCentreId: f.cc,
+      effectiveFrom: '2026-07-01',
+      effectiveTo: null,
+    });
+
+    await expectMappingStale(
+      f,
+      prepared.id,
+      close.id,
+      'EXTERNAL_GL_COST_CENTRE_MAPPING_CREATED',
+    );
+  });
+
+  it('stales a signed reconciliation when an account mapping retirement cuts off existing GL evidence', async () => {
+    const f = await seedFixture();
+    const mappingId = await addMapping(f);
+    await addEntry(f, 1000, '600', '2026-09-20');
+    const prepared = await prepare(f);
+    const close = await signOffPeriod(f, prepared.id);
+
+    await retireExternalGlAccountMapping({
+      organisationId: f.org,
+      userId: f.user,
+      mappingId,
+      effectiveTo: '2026-09-15',
+    });
+
+    await expectMappingStale(
+      f,
+      prepared.id,
+      close.id,
+      'EXTERNAL_GL_ACCOUNT_MAPPING_RETIRED',
+    );
+  });
+
+  it('stales a signed reconciliation when a cost-centre mapping retirement cuts off existing GL evidence', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    const mappingId = await addCostCentreMapping(f);
+    await addEntry(f, 1000, '600', '2026-09-20', 'AUD', 'OPS-EXT');
+    const prepared = await prepare(f);
+    const close = await signOffPeriod(f, prepared.id);
+
+    await retireExternalGlCostCentreMapping({
+      organisationId: f.org,
+      userId: f.user,
+      mappingId,
+      effectiveTo: '2026-09-15',
+    });
+
+    await expectMappingStale(
+      f,
+      prepared.id,
+      close.id,
+      'EXTERNAL_GL_COST_CENTRE_MAPPING_RETIRED',
+    );
+  });
+
+  it('rejects retirement dates that would extend a finite mapping without mutating it', async () => {
+    const f = await seedFixture();
+    const accountMappingId = await addMapping(f, f.account, '600', '2026-07-01', '2026-09-30');
+    const costCentreMappingId = await addCostCentreMapping(
+      f,
+      'OPS-EXT',
+      '2026-07-01',
+      '2026-09-30',
+    );
+
+    await expect(retireExternalGlAccountMapping({
+      organisationId: f.org,
+      userId: f.user,
+      mappingId: accountMappingId,
+      effectiveTo: '2026-10-31',
+    })).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+
+    await expect(retireExternalGlCostCentreMapping({
+      organisationId: f.org,
+      userId: f.user,
+      mappingId: costCentreMappingId,
+      effectiveTo: '2026-10-31',
+    })).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+
+    const accountMapping = await prisma.$queryRawUnsafe<{ status: string; effective_to: Date }[]>(
+      `SELECT status,effective_to
+       FROM commercial_external_gl_account_mappings
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      accountMappingId,
+      f.org,
+    );
+    const costCentreMapping = await prisma.$queryRawUnsafe<{ status: string; effective_to: Date }[]>(
+      `SELECT status,effective_to
+       FROM commercial_external_gl_cost_centre_mappings
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      costCentreMappingId,
+      f.org,
+    );
+
+    expect(accountMapping[0].status).toBe('ACTIVE');
+    expect(accountMapping[0].effective_to.toISOString().slice(0, 10)).toBe('2026-09-30');
+    expect(costCentreMapping[0].status).toBe('ACTIVE');
+    expect(costCentreMapping[0].effective_to.toISOString().slice(0, 10)).toBe('2026-09-30');
   });
 
   it('stales on changed external identity while preserving the original immutable GL fact', async () => {
