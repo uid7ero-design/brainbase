@@ -47,6 +47,7 @@ vi.doMock('@/lib/commercial/auditLog', () => ({
 }));
 
 const {
+  listFinanceReconciliationQueue,
   prepareFinanceReconciliation,
   reviewFinanceReconciliation,
   signOffFinanceReconciliation,
@@ -311,6 +312,80 @@ async function expectMappingStale(
 afterAll(async () => prisma.$disconnect());
 
 describe('C7.9E1 — prepared finance reconciliation snapshots', () => {
+  it('lists the latest unresolved reconciliation snapshot with tenant-scoped labels and exact evidence', async () => {
+    const f = await seedFixture();
+    await addEntry(f, 1000);
+
+    const prepared = await prepare(f);
+    expect(prepared.unresolvedItemCount).toBeGreaterThan(0);
+
+    const queue = await listFinanceReconciliationQueue({
+      organisationId: f.org,
+      sourceSystemId: 'xero',
+      financialPeriodId: f.period,
+      currency: 'aud',
+    });
+
+    expect(queue).toHaveLength(1);
+    expect(queue[0]).toMatchObject({
+      id: prepared.id,
+      financialYearName: 'FY27',
+      financialPeriodId: f.period,
+      financialPeriodName: 'Sep',
+      sourceSystemId: 'xero',
+      currency: 'AUD',
+      status: 'PREPARED',
+      unresolvedItemCount: prepared.unresolvedItemCount,
+    });
+    expect(queue[0].items).toHaveLength(prepared.unresolvedItemCount);
+    expect(queue[0].items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        budgetAccountId: f.account,
+        budgetAccountCode: 'OPEX',
+        budgetAccountName: 'Operating',
+        outcome: 'UNMAPPED_BRAINBASE_ACCOUNT',
+      }),
+      expect.objectContaining({
+        budgetAccountId: null,
+        externalGlAccountCode: '600',
+        outcome: 'UNMAPPED_EXTERNAL_GL_ACCOUNT',
+        externalGlCents: '1000',
+      }),
+    ]));
+
+    expect(await listFinanceReconciliationQueue({
+      organisationId: 'missing-' + id(),
+    })).toEqual([]);
+  });
+
+  it('drops an older unresolved snapshot from the queue when a newer snapshot for the same grain reconciles cleanly', async () => {
+    const f = await seedFixture();
+    await addEntry(f, 1000);
+
+    const unresolved = await prepare(f);
+    expect(unresolved.unresolvedItemCount).toBeGreaterThan(0);
+
+    await createExternalGlAccountMapping({
+      organisationId: f.org,
+      userId: f.user,
+      sourceSystemId: 'xero',
+      externalAccountCode: '600',
+      externalAccountName: 'GL',
+      budgetAccountId: f.account,
+      effectiveFrom: '2026-07-01',
+      effectiveTo: null,
+    });
+
+    const resolved = await prepare(f);
+    expect(resolved.unresolvedItemCount).toBe(0);
+
+    expect(await listFinanceReconciliationQueue({
+      organisationId: f.org,
+      sourceSystemId: 'xero',
+      financialPeriodId: f.period,
+      currency: 'AUD',
+    })).toEqual([]);
+  });
   it('reconciles exact mapped totals at zero-cent tolerance', async () => {
     const f = await seedFixture();
     await addMapping(f);

@@ -440,6 +440,8 @@ Fields:
 
 A reconciliation can be recalculated while OPEN.
 
+The operational reconciliation queue reads only the latest prepared snapshot for each organisation + financial period + source system + currency grain and surfaces its unresolved item snapshots. Older unresolved attempts remain durable history but do not remain in the current queue after a newer snapshot for the same grain is prepared.
+
 Once attached to a valid close, its signed-off snapshot is immutable.
 
 Reopening makes that sign-off stale; it is never deleted.

@@ -122,6 +122,56 @@ export type SignedOffFinanceReconciliation = {
   reviewedAt: string;
 };
 
+export type FinanceReconciliationStatus =
+  | 'PREPARED'
+  | 'REVIEWED'
+  | 'SIGNED_OFF'
+  | 'STALE';
+
+export type FinanceReconciliationQueueItem = {
+  id: string;
+  budgetAccountId: string | null;
+  budgetAccountCode: string | null;
+  budgetAccountName: string | null;
+  externalGlAccountCode: string | null;
+  costCentreId: string | null;
+  costCentreCode: string | null;
+  costCentreName: string | null;
+  externalCostCentreCode: string | null;
+  currency: string;
+  sourceActualCents: string;
+  financeAdjustmentCents: string;
+  brainbaseEffectiveActualCents: string;
+  externalGlCents: string;
+  varianceCents: string;
+  sourceActualCount: number;
+  externalEntryCount: number;
+  outcome: Exclude<FinanceReconciliationOutcome, 'RECONCILED'>;
+};
+
+export type FinanceReconciliationQueueEntry = {
+  id: string;
+  financialYearId: string;
+  financialYearName: string;
+  financialPeriodId: string;
+  financialPeriodName: string;
+  sourceSystemId: string;
+  currency: string;
+  status: FinanceReconciliationStatus;
+  closeId: string | null;
+  sourceActualCents: string;
+  financeAdjustmentCents: string;
+  brainbaseEffectiveActualCents: string;
+  externalGlTotalCents: string;
+  varianceCents: string;
+  unresolvedItemCount: number;
+  snapshotAt: string;
+  preparedAt: string;
+  reviewedAt: string | null;
+  notes: string | null;
+  items: FinanceReconciliationQueueItem[];
+};
+
 type ReconciliationLifecycleRow = {
   id: string;
   organisation_id: string;
@@ -137,6 +187,15 @@ type ReconciliationLifecycleRow = {
 function required(value: string, label: string) {
   const cleaned = value.trim();
   if (!cleaned) throw new FinanceReconciliationError('INVALID_INPUT', `${label} is required.`);
+  return cleaned;
+}
+
+function normaliseOptionalUuid(value: string | null | undefined, label: string) {
+  const cleaned = value?.trim() || null;
+  if (!cleaned) return null;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cleaned)) {
+    throw new FinanceReconciliationError('INVALID_INPUT', `${label} must be a valid UUID.`);
+  }
   return cleaned;
 }
 
@@ -180,6 +239,204 @@ function finaliseItem(item: MutableItem): PreparedFinanceReconciliationItem {
     externalGlCents: item.externalGlCents.toString(),
     varianceCents: item.varianceCents.toString(),
   };
+}
+
+type FinanceReconciliationQueueRow = {
+  reconciliation_id: string;
+  financial_year_id: string;
+  financial_year_name: string;
+  financial_period_id: string;
+  financial_period_name: string;
+  source_system_id: string;
+  reconciliation_currency: string;
+  reconciliation_status: FinanceReconciliationStatus;
+  close_id: string | null;
+  source_actual_cents: string | number | bigint;
+  finance_adjustment_cents: string | number | bigint;
+  brainbase_effective_actual_cents: string | number | bigint;
+  external_gl_total_cents: string | number | bigint;
+  reconciliation_variance_cents: string | number | bigint;
+  unresolved_item_count: string | number | bigint;
+  snapshot_at: string | Date;
+  prepared_at: string | Date;
+  reviewed_at: string | Date | null;
+  notes: string | null;
+  item_id: string;
+  budget_account_id: string | null;
+  budget_account_code: string | null;
+  budget_account_name: string | null;
+  external_gl_account_code: string | null;
+  cost_centre_id: string | null;
+  cost_centre_code: string | null;
+  cost_centre_name: string | null;
+  external_cost_centre_code: string | null;
+  item_currency: string;
+  item_source_actual_cents: string | number | bigint;
+  item_finance_adjustment_cents: string | number | bigint;
+  item_brainbase_effective_actual_cents: string | number | bigint;
+  item_external_gl_cents: string | number | bigint;
+  item_variance_cents: string | number | bigint;
+  source_actual_count: string | number | bigint;
+  external_entry_count: string | number | bigint;
+  outcome: Exclude<FinanceReconciliationOutcome, 'RECONCILED'>;
+};
+
+export async function listFinanceReconciliationQueue(params: {
+  organisationId: string;
+  sourceSystemId?: string | null;
+  status?: FinanceReconciliationStatus | null;
+  financialPeriodId?: string | null;
+  currency?: string | null;
+}): Promise<FinanceReconciliationQueueEntry[]> {
+  const organisationId = required(params.organisationId, 'Organisation');
+  const sourceSystemId = params.sourceSystemId?.trim() || null;
+  const financialPeriodId = normaliseOptionalUuid(
+    params.financialPeriodId,
+    'Financial period',
+  );
+  const status = params.status ?? null;
+  const currency = params.currency?.trim()
+    ? normaliseCurrency(params.currency)
+    : null;
+
+  const rows = await sql`
+    WITH latest AS (
+      SELECT DISTINCT ON (
+        reconciliation.financial_period_id,
+        reconciliation.source_system_id,
+        reconciliation.currency
+      )
+        reconciliation.*
+      FROM commercial_finance_reconciliations reconciliation
+      WHERE reconciliation.organisation_id=${organisationId}
+        AND (${sourceSystemId}::text IS NULL OR reconciliation.source_system_id=${sourceSystemId})
+        AND (${financialPeriodId}::uuid IS NULL OR reconciliation.financial_period_id=${financialPeriodId}::uuid)
+        AND (${currency}::text IS NULL OR reconciliation.currency=${currency})
+      ORDER BY reconciliation.financial_period_id,
+               reconciliation.source_system_id,
+               reconciliation.currency,
+               reconciliation.prepared_at DESC,
+               reconciliation.id DESC
+    )
+    SELECT
+      latest.id AS reconciliation_id,
+      year.id AS financial_year_id,
+      year.name AS financial_year_name,
+      latest.financial_period_id,
+      period.name AS financial_period_name,
+      latest.source_system_id,
+      latest.currency AS reconciliation_currency,
+      latest.status AS reconciliation_status,
+      latest.close_id,
+      latest.source_actual_cents,
+      latest.finance_adjustment_cents,
+      latest.brainbase_effective_actual_cents,
+      latest.external_gl_total_cents,
+      latest.variance_cents AS reconciliation_variance_cents,
+      latest.unresolved_item_count,
+      latest.snapshot_at,
+      latest.prepared_at,
+      latest.reviewed_at,
+      latest.notes,
+      item.id AS item_id,
+      item.budget_account_id,
+      account.code AS budget_account_code,
+      account.name AS budget_account_name,
+      item.external_gl_account_code,
+      item.cost_centre_id,
+      cost_centre.code AS cost_centre_code,
+      cost_centre.name AS cost_centre_name,
+      item.external_cost_centre_code,
+      item.currency AS item_currency,
+      item.source_actual_cents AS item_source_actual_cents,
+      item.finance_adjustment_cents AS item_finance_adjustment_cents,
+      item.brainbase_effective_actual_cents AS item_brainbase_effective_actual_cents,
+      item.external_gl_cents AS item_external_gl_cents,
+      item.variance_cents AS item_variance_cents,
+      item.source_actual_count,
+      item.external_entry_count,
+      item.outcome
+    FROM latest
+    JOIN commercial_financial_periods period
+      ON period.id=latest.financial_period_id
+     AND period.organisation_id=latest.organisation_id
+    JOIN commercial_financial_years year
+      ON year.id=period.financial_year_id
+     AND year.organisation_id=period.organisation_id
+    JOIN commercial_finance_reconciliation_items item
+      ON item.reconciliation_id=latest.id
+     AND item.organisation_id=latest.organisation_id
+     AND item.outcome<>'RECONCILED'
+    LEFT JOIN commercial_budget_accounts account
+      ON account.id=item.budget_account_id
+     AND account.organisation_id=item.organisation_id
+    LEFT JOIN commercial_cost_centres cost_centre
+      ON cost_centre.id=item.cost_centre_id
+     AND cost_centre.organisation_id=item.organisation_id
+    WHERE latest.unresolved_item_count>0
+      AND (${status}::text IS NULL OR latest.status=${status})
+    ORDER BY latest.prepared_at DESC,
+             latest.id,
+             item.outcome,
+             account.code NULLS LAST,
+             item.external_gl_account_code NULLS LAST,
+             cost_centre.code NULLS LAST,
+             item.external_cost_centre_code NULLS LAST,
+             item.id
+  ` as FinanceReconciliationQueueRow[];
+
+  const grouped = new Map<string, FinanceReconciliationQueueEntry>();
+  for (const row of rows) {
+    let reconciliation = grouped.get(row.reconciliation_id);
+    if (!reconciliation) {
+      reconciliation = {
+        id: row.reconciliation_id,
+        financialYearId: row.financial_year_id,
+        financialYearName: row.financial_year_name,
+        financialPeriodId: row.financial_period_id,
+        financialPeriodName: row.financial_period_name,
+        sourceSystemId: row.source_system_id,
+        currency: row.reconciliation_currency,
+        status: row.reconciliation_status,
+        closeId: row.close_id,
+        sourceActualCents: row.source_actual_cents.toString(),
+        financeAdjustmentCents: row.finance_adjustment_cents.toString(),
+        brainbaseEffectiveActualCents: row.brainbase_effective_actual_cents.toString(),
+        externalGlTotalCents: row.external_gl_total_cents.toString(),
+        varianceCents: row.reconciliation_variance_cents.toString(),
+        unresolvedItemCount: Number(row.unresolved_item_count),
+        snapshotAt: timestamp(row.snapshot_at),
+        preparedAt: timestamp(row.prepared_at),
+        reviewedAt: row.reviewed_at ? timestamp(row.reviewed_at) : null,
+        notes: row.notes,
+        items: [],
+      };
+      grouped.set(row.reconciliation_id, reconciliation);
+    }
+
+    reconciliation.items.push({
+      id: row.item_id,
+      budgetAccountId: row.budget_account_id,
+      budgetAccountCode: row.budget_account_code,
+      budgetAccountName: row.budget_account_name,
+      externalGlAccountCode: row.external_gl_account_code,
+      costCentreId: row.cost_centre_id,
+      costCentreCode: row.cost_centre_code,
+      costCentreName: row.cost_centre_name,
+      externalCostCentreCode: row.external_cost_centre_code,
+      currency: row.item_currency,
+      sourceActualCents: row.item_source_actual_cents.toString(),
+      financeAdjustmentCents: row.item_finance_adjustment_cents.toString(),
+      brainbaseEffectiveActualCents: row.item_brainbase_effective_actual_cents.toString(),
+      externalGlCents: row.item_external_gl_cents.toString(),
+      varianceCents: row.item_variance_cents.toString(),
+      sourceActualCount: Number(row.source_actual_count),
+      externalEntryCount: Number(row.external_entry_count),
+      outcome: row.outcome,
+    });
+  }
+
+  return [...grouped.values()];
 }
 
 export async function prepareFinanceReconciliation(params: {

@@ -6,6 +6,7 @@ vi.mock('@/lib/commercial/authorize', async (importOriginal) => {
   return { ...actual, authorizeCommercialRequest: (...args: unknown[]) => authorizeMock(...args) };
 });
 
+const listMock = vi.fn();
 const prepareMock = vi.fn();
 const reviewMock = vi.fn();
 const signOffMock = vi.fn();
@@ -13,12 +14,14 @@ class MockFinanceReconciliationError extends Error {
   constructor(public code: string, message: string) { super(message); }
 }
 vi.mock('@/lib/commercial/financeReconciliation', () => ({
+  listFinanceReconciliationQueue: (...args: unknown[]) => listMock(...args),
   prepareFinanceReconciliation: (...args: unknown[]) => prepareMock(...args),
   reviewFinanceReconciliation: (...args: unknown[]) => reviewMock(...args),
   signOffFinanceReconciliation: (...args: unknown[]) => signOffMock(...args),
   FinanceReconciliationError: MockFinanceReconciliationError,
 }));
 
+const listRoute = await import('@/app/api/commercial/budgeting/reconciliations/route');
 const prepareRoute = await import('@/app/api/commercial/budgeting/reconciliations/prepare/route');
 const reviewRoute = await import('@/app/api/commercial/budgeting/reconciliations/[id]/review/route');
 const signOffRoute = await import('@/app/api/commercial/budgeting/reconciliations/[id]/sign-off/route');
@@ -29,12 +32,84 @@ const ctx = { params: Promise.resolve({ id: 'recon-1' }) };
 
 beforeEach(() => {
   authorizeMock.mockReset();
+  listMock.mockReset();
   prepareMock.mockReset();
   reviewMock.mockReset();
   signOffMock.mockReset();
 });
 
 describe('C7.9E2/E3 — reconciliation prepare/review/sign-off APIs', () => {
+  it.each([401, 403, 503])('preserves reconciliation-list authorization denial %s', async status => {
+    authorizeMock.mockResolvedValue({ ok: false, response: new Response(null, { status }) });
+
+    const response = await listRoute.GET(new Request('http://localhost'));
+
+    expect(response.status).toBe(status);
+    expect(authorizeMock).toHaveBeenCalledWith('budgeting', 'viewer');
+    expect(listMock).not.toHaveBeenCalled();
+  });
+
+  it('lists the latest unresolved queue with session tenant and explicit filters only', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: MANAGER });
+    listMock.mockResolvedValue([{
+      id: 'recon-1',
+      financialPeriodId: 'period-1',
+      sourceSystemId: 'xero',
+      currency: 'AUD',
+      status: 'STALE',
+      items: [{ id: 'item-1', outcome: 'VARIANCE' }],
+    }]);
+
+    const response = await listRoute.GET(new Request(
+      'http://localhost?organisationId=org-b&sourceSystemId=xero&status=STALE&financialPeriodId=period-1&currency=aud',
+    ));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({
+      reconciliations: [{
+        id: 'recon-1',
+        financialPeriodId: 'period-1',
+        sourceSystemId: 'xero',
+        currency: 'AUD',
+        status: 'STALE',
+        items: [{ id: 'item-1', outcome: 'VARIANCE' }],
+      }],
+    });
+    expect(listMock).toHaveBeenCalledWith({
+      organisationId: 'org-a',
+      sourceSystemId: 'xero',
+      status: 'STALE',
+      financialPeriodId: 'period-1',
+      currency: 'aud',
+    });
+  });
+
+  it('rejects an invalid reconciliation status before querying the queue', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: MANAGER });
+
+    const response = await listRoute.GET(new Request('http://localhost?status=UNKNOWN'));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'Invalid reconciliation status.' });
+    expect(listMock).not.toHaveBeenCalled();
+  });
+
+  it('maps invalid queue filters to 400', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: MANAGER });
+    listMock.mockRejectedValue(
+      new MockFinanceReconciliationError('INVALID_INPUT', 'Currency must be a three-letter ISO code.'),
+    );
+
+    const response = await listRoute.GET(new Request('http://localhost?currency=not-money'));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: 'Currency must be a three-letter ISO code.',
+    });
+  });
+
+
   it.each([401, 403, 503])('preserves prepare authorization denial %s', async status => {
     authorizeMock.mockResolvedValue({ ok: false, response: new Response(null, { status }) });
     const response = await prepareRoute.POST(new Request('http://localhost', { method: 'POST' }));
