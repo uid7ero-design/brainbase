@@ -71,4 +71,6 @@ verification decisions**.
 ## Related records / next steps
 
 - [Close actions and findings](09-close-actions-and-findings.md)
+- [Verify and replace evidence](15-verify-and-replace-evidence.md) — accepting
+  or rejecting an individual piece of evidence is a separate decision.
 - [Create and manage an action](06-create-and-manage-an-action.md)

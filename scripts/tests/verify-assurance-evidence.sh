@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
-# BrainBase Assurance — Settings → Risk levels: disposable PostgreSQL 17 proof.
+# BrainBase Assurance — Evidence & Verification (A0.1H): disposable PostgreSQL 17 proof.
 #
 # Starts a throwaway postgres:17 container, creates the same minimal
 # stand-ins for pre-existing platform tables as verify-assurance-ui-services.sh,
-# applies the REAL Assurance migrations (A0.1B, A0.1C, A0.1D-1..3, A0.1E-1, A0.1F),
-# then runs scripts/tests/assuranceRiskLevelSettings.integration.test.ts
-# (list / create / edit / deactivate / reactivate, the shared serious rule,
-# permissions, tenant isolation, historical display, concurrency and
-# config+audit atomicity) through the Neon-compatible `pg` seam.
+# applies the REAL Assurance migrations (A0.1B, A0.1C, A0.1D-1..3, A0.1E-1, A0.1F,
+# A0.1G), then runs scripts/tests/assuranceEvidence.integration.test.ts
+# (evidence register, provenance, verification lifecycle, independence,
+# correction, replacement chain, contractor authority, item context,
+# non-propagation, permissions, tenant isolation, audit atomicity and races)
+# through the Neon-compatible `pg` seam.
 #
 # Never touches Neon Preview/Production. The spec itself refuses any
 # non-localhost DATABASE_URL.
 #
-# Usage:   bash scripts/tests/verify-assurance-risk-level-settings.sh
+# Usage:   bash scripts/tests/verify-assurance-contractor.sh
 # Exit:    0 = pass, 1 = test failure, 2 = harness/setup failure.
 # Always destroys its own container.
 
@@ -21,7 +22,7 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT" || exit 2
 
-CONTAINER="brainbase-assurance-risk-settings-$$"
+CONTAINER="brainbase-assurance-evidence-$$"
 HOST_PORT=$((20000 + RANDOM % 20000))
 
 cleanup() { docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; }
@@ -62,6 +63,7 @@ CREATE TABLE organisations (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   slug TEXT NOT NULL UNIQUE,
+  timezone TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL
 );
@@ -158,12 +160,12 @@ for f in scripts/create-shared-foundations-a01b.sql scripts/create-assurance-cor
 done
 
 export DATABASE_URL="postgresql://postgres:test@127.0.0.1:${HOST_PORT}/testdb"
-echo "Running Settings → Risk levels integration suite ..."
-npx vitest run --config vitest.integration.config.ts scripts/tests/assuranceRiskLevelSettings.integration.test.ts
+echo "Running Evidence & Verification integration suite ..."
+npx vitest run --config vitest.integration.config.ts scripts/tests/assuranceEvidence.integration.test.ts
 STATUS=$?
 if [ "$STATUS" -ne 0 ]; then
-  echo "Risk level settings proof FAILED."
+  echo "Evidence & Verification proof FAILED."
   exit 1
 fi
-echo "Risk level settings proof passed."
+echo "Evidence & Verification proof passed."
 exit 0

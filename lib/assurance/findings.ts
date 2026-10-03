@@ -191,6 +191,8 @@ export async function getFindingDetail(viewer: AssuranceViewer, id: string): Pro
     `,
     sql`
       SELECT l.id AS link_id, e.id AS evidence_id, e.evidence_reference, e.evidence_type, e.title,
+             e.verification_status,
+             (SELECT s.status FROM assurance_requirement_submissions s WHERE s.organisation_id = e.organisation_id AND s.evidence_id = e.id) AS contractor_status,
              l.purpose, l.created_at AS linked_at, l.removed_at, l.removal_reason,
              cu.name AS linked_by_name, ru.name AS removed_by_name
       FROM assurance_evidence_findings l

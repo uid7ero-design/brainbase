@@ -626,10 +626,23 @@ Completing a task **never** completes, verifies or closes the action.
 - **Title**, **Description** and **Captured** date/time.
 - **Where the original is held** — for example a records-system reference
   or a shared-drive path.
+- **Supplied by** (optional) — the external organisation that supplied it.
+  Otherwise it was recorded internally.
+- Who **recorded** and **captured** it, and when.
 
 > **Current limitation: there is no file upload.** Evidence records describe
 > the proof and where it is kept; the file itself stays in your records
 > system.
+
+### Evidence and Verification
+
+- The **Evidence** page answers *what do we have and what does it support?*
+  It lists every piece of evidence with what it supports, who recorded it,
+  who supplied it and its verification status. Views: **All**, **Awaiting
+  verification**, **Accepted**, **Rejected**, **Superseded** and
+  **Unverified**, plus a **Supports** filter.
+- The **Verification** page answers *what needs an assurance decision?* (see
+  Verification).
 
 ### Recording and linking
 
@@ -646,6 +659,11 @@ Completing a task **never** completes, verifies or closes the action.
   the verification is recorded, not linked here.)
 - Evidence already used on other records cannot be linked to a restricted
   record. Record new evidence for the restricted record instead.
+- On an **inspection** or **audit**, **Add evidence** can also name the
+  **Checklist item** or **Criterion** it relates to. That context is fixed
+  once linked; to change it, remove the link and add the evidence again.
+- Superseded evidence cannot be linked to new records. Link the current
+  evidence instead.
 
 ### Unlinking and history
 
@@ -668,15 +686,83 @@ Evidence can currently still be added to a **closed incident** or a
 **completed investigation** with **Add evidence** on that record. This is the
 implemented behaviour pending a later policy decision.
 
+### Verification status
+
+Each piece of evidence shows one status:
+
+- **Unverified** — recorded, not submitted for a decision.
+- **Awaiting verification** — submitted; someone independent must accept or
+  reject it.
+- **Accepted** — an independent person accepted it.
+- **Rejected** — an independent person rejected it, with a reason. It stays in
+  the history.
+- **Superseded** — it was accepted, and a replacement has since been accepted.
+  It stays readable and unchanged.
+
+Evidence recorded for a **contractor requirement** shows the decision made in
+**Contractor assurance** (marked "Decided in Contractor assurance"). It is
+never accepted or rejected from the Evidence page.
+
+### Submitting and deciding
+
+- **Submit for verification** on the evidence page (or tick **Submit for
+  verification now** when adding evidence). **Withdraw from verification**
+  takes it back, for example to correct it.
+- **Accept or reject** is only offered to someone independent. You cannot
+  decide evidence that you recorded or captured, or that supports an action
+  you own or whose work you completed. BrainBase cannot prove independence
+  from an external supplier, and does not claim to.
+- Rejecting needs a **reason**.
+
+### Correcting and replacing
+
+- **Correct details** is available until the evidence is accepted or rejected.
+  The previous details are kept in the history.
+- After a decision, use **Record replacement** on accepted or rejected
+  evidence. The replacement is linked to the same open records and starts as
+  unverified.
+  - When the replacement is **accepted**, accepted earlier evidence becomes
+    **Superseded**; rejected earlier evidence stays **Rejected**.
+  - When the replacement is **rejected**, the earlier evidence is unchanged.
+- **Replacement history** on the evidence page shows the whole chain. Only the
+  current evidence can be replaced, and only one replacement can be in
+  progress at a time.
+
+### What an evidence decision never does
+
+Accepting, rejecting or replacing evidence never:
+
+- verifies, closes or changes an action — action verification is a separate
+  decision (see Verification);
+- closes a finding, incident or investigation, or completes an inspection or
+  audit;
+- changes a deadline or escalation, or a contractor requirement;
+- creates a finding or action.
+
+Any of those remain explicit steps.
+
+See [work instruction 15](work-instructions/15-verify-and-replace-evidence.md).
+
 ---
 
 ## Verification
 
 ### Independent verifier
 
-The **Verification** page lists every action **awaiting verification** and
-**Recent verification decisions**. The **You can verify** column shows
-**Yes** or **Not independent**.
+The **Verification** page lists what needs an assurance decision:
+
+- **Evidence awaiting verification** — decided on the evidence page.
+- **Contractor evidence awaiting review** — decided in Contractor assurance.
+- **Actions awaiting verification** — decided on the action (below).
+
+It then shows **Recent evidence decisions** and **Recent action
+verifications**. The **You can decide** / **You can verify** column shows
+**Yes** or **Not independent**. When nothing is waiting, the page says
+"Nothing is waiting for verification."
+
+The rest of this section is about **action verification**: whether an
+action's corrective work resolved the issue. Evidence decisions are described
+under Evidence.
 
 You **cannot** verify an action if you own it, or if you have ever marked its
 work complete. The action page says so if this applies to you.

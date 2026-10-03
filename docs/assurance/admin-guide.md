@@ -343,6 +343,47 @@ shows each requirement is met. See
   - assignment created / updated / cancelled;
   - evidence recorded / accepted / rejected / superseded / withdrawn.
 
+## Evidence and verification
+
+Evidence (**Assurance → Evidence**) is the register of proof; Verification
+(**Assurance → Verification**) is the queue of decisions. See
+[work instruction 15](work-instructions/15-verify-and-replace-evidence.md).
+
+- **Permissions.** Managers and admins record, link, submit, withdraw,
+  correct and replace evidence. Accepting or rejecting uses the same
+  manager-level **verify** permission as action verification. Viewers read
+  only. Every check is made on the server.
+- **Independence.**
+  - The database refuses a decision by the person who recorded or captured
+    the evidence.
+  - The service also refuses the owner of any action the evidence supports,
+    and anyone who completed (or ever completed) that action's work.
+  - This is the independence BrainBase can prove from its own records. It
+    does not establish independence from an external supplier.
+- **Lifecycle.** Unverified → Awaiting verification → Accepted or Rejected;
+  Accepted → Superseded only when a replacement is accepted. Each piece of
+  evidence gets at most one decision.
+- **Correction.** Allowed only before a decision, with the previous details
+  kept in the audit history. After a decision, content is fixed and a
+  replacement is recorded instead.
+- **Replacement.** Only the current evidence in a chain (accepted, or rejected
+  with nothing newer current or pending) can be replaced, one replacement at
+  a time. Concurrent attempts are serialised: exactly one succeeds.
+- **Contractor evidence.** Evidence recorded for a contractor requirement is
+  decided only in Contractor assurance. The Evidence and Verification pages
+  show that decision and link to it; the general lifecycle never changes it.
+- **Inspection and audit context.** Evidence added on an inspection or audit
+  can name the checklist item or criterion it relates to (a structured link
+  to the recorded response). It is fixed once linked.
+- **No knock-on effects.** An evidence decision never verifies or closes an
+  action, closes a finding, incident or investigation, completes an inspection
+  or audit, changes a deadline or escalation, approves a contractor or creates
+  a finding.
+- **Audit history.** Every change writes an audit entry in the same
+  transaction: evidence created, linked, unlinked, corrected (before and
+  after), verification requested, verification withdrawn, accepted, rejected,
+  superseded and replacement recorded.
+
 ## In-app Help
 
 Everyone with Assurance access can open **Help & work instructions** and each
@@ -383,7 +424,7 @@ Rules:
 
 | Area | Limitation |
 |---|---|
-| Evidence | **No file upload.** Evidence records describe the proof and where the original is held. |
+| Evidence | **No file upload.** Evidence records describe the proof and where the original is held. Checklist-item or criterion context can be set when adding evidence on the inspection or audit, not when linking existing evidence from the evidence page. Evidence has no expiry date of its own (contractor evidence keeps its dates in Contractor assurance). |
 | People | People on incidents and investigations are displayed, but cannot be added or edited from Assurance screens. |
 | Due dates | A due date can only be set when a finding or action is created; it cannot be added later. Extensions and escalations are manual (no automatic escalation, no organisation-wide deadline rules). Who cancelled an escalation is recorded in the audit history, not on the escalation itself. |
 | Findings | Findings are raised from a source record, and can be linked to further incidents, investigations, inspections and audits. There is no standalone "new finding" button. |

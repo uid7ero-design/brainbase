@@ -27,7 +27,8 @@ BB=1732569e-6350-495e-aa6a-7218ce7bf749
 MIGRATIONS="scripts/create-shared-foundations-a01b.sql scripts/create-assurance-core-a01c.sql
   scripts/create-assurance-incidents-a01d1.sql scripts/create-assurance-investigations-a01d2.sql
   scripts/create-assurance-inspections-a01d3.sql scripts/create-assurance-audits-a01e1.sql \
-  scripts/create-assurance-template-lifecycle-a01f.sql"
+  scripts/create-assurance-template-lifecycle-a01f.sql scripts/create-assurance-contractor-assurance-a01g.sql
+  scripts/create-assurance-evidence-verification-a01h.sql"
 
 CONTAINER="brainbase-assurance-risk-$$"
 HOST_PORT=$((20000 + RANDOM % 20000))
@@ -144,7 +145,7 @@ CREATE TABLE audit_logs (
 );
 SQL
 
-echo "Applying real Assurance migrations (A0.1B, A0.1C, A0.1D-1..3, A0.1E-1, A0.1F) ..."
+echo "Applying real Assurance migrations (A0.1B, A0.1C, A0.1D-1..3, A0.1E-1, A0.1F, A0.1G, A0.1H) ..."
 for f in $MIGRATIONS; do
   psql_exec < "$f" >/dev/null || { echo "ERROR: $f failed to apply." >&2; exit 2; }
 done

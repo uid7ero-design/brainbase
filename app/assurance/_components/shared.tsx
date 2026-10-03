@@ -1,6 +1,10 @@
 import Link from 'next/link';
 import type { EvidenceLinkRow } from '@/lib/assurance/incidents';
 import { EVIDENCE_TYPES, FINDING_TYPES, assuranceLabel, type EvidenceLinkTarget } from '@/lib/assurance/domain';
+import {
+  EVIDENCE_STATE_LABEL, EVIDENCE_STATE_TONE, evidenceState,
+  type ContractorSubmissionStatus, type EvidenceVerificationStatus,
+} from '@/lib/assurance/evidenceRules';
 import type { RiskLevelOption, NamedOption } from '@/lib/assurance/lookups';
 import type { OrgUserOption } from '@/lib/assurance/users';
 import ActionPanel from './ActionPanel';
@@ -10,22 +14,48 @@ import { Badge, Card, DataTable, DateCell, Dim, RecordLink, Row, assuranceStyles
 // Detail-page building blocks shared by Incident / Investigation /
 // Inspection / Finding / Action pages.
 
-export function EvidenceSection({ rows, target, targetId, canRecord, locked }: {
+/** The single authoritative evidence state (contractor submission wins), as a badge. */
+export function EvidenceStateBadge({ verificationStatus, contractorStatus }: { verificationStatus?: string; contractorStatus?: string | null }) {
+  if (!verificationStatus) return null;
+  const { state, authority } = evidenceState({
+    verificationStatus: verificationStatus as EvidenceVerificationStatus,
+    contractorStatus: (contractorStatus ?? null) as ContractorSubmissionStatus | null,
+  });
+  return (
+    <span title={authority === 'contractor' ? 'Decided in Contractor assurance' : undefined}>
+      <Badge value={state} tone={EVIDENCE_STATE_TONE[state]} label={EVIDENCE_STATE_LABEL[state]} />
+      {authority === 'contractor' && <div className={tableStyles.meta}>Contractor assurance</div>}
+    </span>
+  );
+}
+
+/**
+ * Evidence linked to a record. `items` (inspection checklist items or audit
+ * criteria recorded on this record) lets new evidence carry that structured
+ * context; it is fixed once linked.
+ */
+export function EvidenceSection({ rows, target, targetId, canRecord, locked, items }: {
   rows: EvidenceLinkRow[]; target: EvidenceLinkTarget; targetId: string; canRecord: boolean; locked?: string;
+  items?: { value: string; label: string }[];
 }) {
   const active = rows.filter(r => !r.removed_at);
   const removed = rows.filter(r => r.removed_at);
+  const withItems = target === 'inspection' || target === 'audit';
+  const itemLabel = target === 'audit' ? 'Criterion' : 'Checklist item';
   return (
     <div className={styles.stackTight}>
       {active.length === 0 ? (
         <Card><Dim>No evidence is linked.</Dim></Card>
       ) : (
-        <DataTable headers={['Evidence', 'Type', 'Purpose', 'Linked', '']} minWidth={640}>
+        <DataTable headers={withItems ? ['Evidence', 'Type', itemLabel, 'Verification', 'Linked', ''] : ['Evidence', 'Type', 'Purpose', 'Verification', 'Linked', '']} minWidth={720}>
           {active.map((r, i) => (
             <Row key={r.link_id} last={i === active.length - 1}>
               <td style={td}><RecordLink href={`/assurance/evidence/${r.evidence_id}`} reference={r.evidence_reference} title={r.title} /></td>
               <td style={td}>{assuranceLabel(r.evidence_type)}</td>
-              <td style={td}>{r.purpose ?? <Dim>—</Dim>}</td>
+              {withItems
+                ? <td style={td}>{r.item_label ?? <Dim>Whole record</Dim>}{r.purpose && <div className={tableStyles.meta}>{r.purpose}</div>}</td>
+                : <td style={td}>{r.purpose ?? <Dim>—</Dim>}</td>}
+              <td style={td}><EvidenceStateBadge verificationStatus={r.verification_status} contractorStatus={r.contractor_status} /></td>
               <td style={td}><DateCell value={r.linked_at} /><div className={tableStyles.meta}>{r.linked_by_name ?? ''}</div></td>
               <td style={{ ...td, width: 1 }}>
                 {canRecord && !locked && target !== 'verification' && (
@@ -57,21 +87,36 @@ export function EvidenceSection({ rows, target, targetId, canRecord, locked }: {
       {canRecord && !locked && (
         <ActionPanel label="Add evidence" endpoint="/api/assurance/evidence" extraBody={{ target, targetId }}
           description="Record what the proof is and where the original is held. (File upload is not available yet.)"
-          fields={evidenceFields()} submitLabel="Add evidence" />
+          fields={evidenceFields({
+            item: withItems && items && items.length > 0
+              ? { name: target === 'audit' ? 'criterionKey' : 'itemKey', label: `${itemLabel} (optional)`, options: items }
+              : undefined,
+          })} submitLabel="Add evidence" />
       )}
     </div>
   );
 }
 
-export function evidenceFields(): FormField[] {
-  return [
+export function evidenceFields(opts: {
+  item?: { name: 'itemKey' | 'criterionKey'; label: string; options: { value: string; label: string }[] };
+  suppliers?: { value: string; label: string }[];
+  purpose?: boolean;
+} = {}): FormField[] {
+  const fields: FormField[] = [
     { kind: 'select', name: 'evidenceType', label: 'Type', required: true, options: enumOptions(EVIDENCE_TYPES) },
     { kind: 'text', name: 'title', label: 'Title', required: true, placeholder: 'e.g. Photo of repaired handrail, north stairwell' },
     { kind: 'textarea', name: 'description', label: 'Description', rows: 3 },
     { kind: 'text', name: 'heldAt', label: 'Where the original is held', placeholder: 'e.g. Records system ref, shared drive path', maxLength: 500 },
     { kind: 'datetime', name: 'capturedAt', label: 'Captured', defaultNow: true },
-    { kind: 'text', name: 'purpose', label: 'Why it is linked here', maxLength: 500 },
   ];
+  if (opts.suppliers && opts.suppliers.length > 0) {
+    fields.push({ kind: 'select', name: 'supplierId', label: 'Supplied by (optional)', options: opts.suppliers, emptyLabel: 'Recorded internally' });
+  }
+  if (opts.item) fields.push({ kind: 'select', name: opts.item.name, label: opts.item.label, options: opts.item.options, emptyLabel: 'The whole record' });
+  if (opts.purpose !== false) fields.push({ kind: 'text', name: 'purpose', label: 'Why it is linked here', maxLength: 500 });
+  fields.push({ kind: 'checkbox', name: 'requestVerification', label: 'Submit for verification now',
+    help: 'Someone other than you then accepts or rejects it. Leave unticked to correct it first.' });
+  return fields;
 }
 
 export function FindingsTable({ rows, hiddenCount, emptyText }: {

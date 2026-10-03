@@ -130,6 +130,10 @@ export type EvidenceLinkRow = {
   link_id: string; evidence_id: string; evidence_reference: string; evidence_type: string; title: string | null;
   purpose: string | null; linked_at: AssuranceTimestamp; removed_at: AssuranceTimestamp | null; removal_reason: string | null;
   linked_by_name: string | null; removed_by_name: string | null;
+  /** A0.1H: the evidence's own lifecycle, and the contractor submission status when Contractor Assurance owns the decision. */
+  verification_status?: string; contractor_status?: string | null;
+  /** Inspection item / audit criterion context, when the link carries one. */
+  item_key?: string | null; item_label?: string | null;
 };
 
 export async function getIncidentDetail(viewer: AssuranceViewer, id: string): Promise<IncidentDetail | null> {
@@ -197,6 +201,8 @@ export async function getIncidentDetail(viewer: AssuranceViewer, id: string): Pr
     `,
     sql`
       SELECT l.id AS link_id, e.id AS evidence_id, e.evidence_reference, e.evidence_type, e.title,
+             e.verification_status,
+             (SELECT s.status FROM assurance_requirement_submissions s WHERE s.organisation_id = e.organisation_id AND s.evidence_id = e.id) AS contractor_status,
              l.purpose, l.created_at AS linked_at, l.removed_at, l.removal_reason,
              cu.name AS linked_by_name, ru.name AS removed_by_name
       FROM assurance_evidence_incidents l
