@@ -26,7 +26,8 @@ import {
 // behaviour is proven by scripts/tests/verify-essio-integration-b1.sh.
 
 const ROOT = path.resolve(__dirname, '../..');
-const read = (p: string) => fs.readFileSync(path.join(ROOT, p), 'utf8');
+// Normalise line endings: Windows checkouts (core.autocrlf=true) are CRLF.
+const read = (p: string) => fs.readFileSync(path.join(ROOT, p), 'utf8').replace(/\r\n/g, '\n');
 const ID = '0f8fad5b-d9cb-469f-a165-70867728950e';
 
 describe('integration token format', () => {
