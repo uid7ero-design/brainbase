@@ -3,6 +3,13 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { formatMoneyCentsExact } from '@/lib/commercial/money';
+import {
+  financePeriodCloseHref,
+  financePeriodReopenHref,
+  financeReconciliationAction,
+  financeReconciliationReviewHref,
+  financeReconciliationSignOffHref,
+} from '@/lib/commercial/financeControlUi';
 
 const CARD = '#0e1014';
 const BORDER = '#1a1d24';
@@ -205,7 +212,7 @@ export default function FinanceControlsPage() {
   async function closePeriod() {
     if (!selectedPeriod) return;
     const ok = await postJson(
-      `/api/commercial/budgeting/financial-periods/${encodeURIComponent(selectedPeriod.id)}/close`,
+      financePeriodCloseHref(selectedPeriod.id),
       { reason: closeReason.trim() || null },
     );
     if (!ok) return;
@@ -220,7 +227,7 @@ export default function FinanceControlsPage() {
       return;
     }
     const ok = await postJson(
-      `/api/commercial/budgeting/financial-periods/${encodeURIComponent(selectedPeriod.id)}/reopen`,
+      financePeriodReopenHref(selectedPeriod.id),
       { reason: reopenReason.trim() },
     );
     if (!ok) return;
@@ -249,7 +256,7 @@ export default function FinanceControlsPage() {
 
   async function reviewReconciliation(id: string) {
     const ok = await postJson(
-      `/api/commercial/budgeting/reconciliations/${encodeURIComponent(id)}/review`,
+      financeReconciliationReviewHref(id),
       {},
     );
     if (!ok) return;
@@ -262,7 +269,7 @@ export default function FinanceControlsPage() {
       return;
     }
     const ok = await postJson(
-      `/api/commercial/budgeting/reconciliations/${encodeURIComponent(id)}/sign-off`,
+      financeReconciliationSignOffHref(id),
       { closeId: activeClose.id },
     );
     if (!ok) return;
@@ -483,37 +490,43 @@ function ReconciliationControlTable({
               'External GL','Variance','Unresolved','Prepared','Close','Action',
             ].map(label => <th key={label} style={th}>{label}</th>)}</tr></thead>
             <tbody>
-              {reconciliations.map(reconciliation => (
-                <tr key={reconciliation.id} data-reconciliation-id={reconciliation.id}>
-                  <td style={td}>{reconciliation.sourceSystemId}</td>
-                  <td style={td}>{reconciliation.currency}</td>
-                  <td style={td}><strong>{reconciliation.status}</strong></td>
-                  <td style={moneyTd}>{formatMoneyCentsExact(reconciliation.sourceActualCents, reconciliation.currency)}</td>
-                  <td style={moneyTd}>{formatMoneyCentsExact(reconciliation.financeAdjustmentCents, reconciliation.currency)}</td>
-                  <td style={moneyTd}>{formatMoneyCentsExact(reconciliation.brainbaseEffectiveActualCents, reconciliation.currency)}</td>
-                  <td style={moneyTd}>{formatMoneyCentsExact(reconciliation.externalGlTotalCents, reconciliation.currency)}</td>
-                  <td style={moneyTd}>{formatMoneyCentsExact(reconciliation.varianceCents, reconciliation.currency)}</td>
-                  <td style={td}>{reconciliation.unresolvedItemCount}</td>
-                  <td style={td}>{new Date(reconciliation.preparedAt).toLocaleString()}</td>
-                  <td style={td}>{reconciliation.closeId ?? '—'}</td>
-                  <td style={td}>
-                    {reconciliation.status === 'PREPARED' ? (
-                      <button type="button" disabled={working} onClick={() => onReview(reconciliation.id)} style={secondaryButton}>Review</button>
-                    ) : reconciliation.status === 'REVIEWED' ? (
-                      <button
-                        type="button"
-                        disabled={working || !activeClose}
-                        onClick={() => onSignOff(reconciliation.id)}
-                        style={primaryButton}
-                      >
-                        Sign off
-                      </button>
-                    ) : (
-                      <span style={sub}>Read only</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {reconciliations.map(reconciliation => {
+                const action = financeReconciliationAction(
+                  reconciliation.status,
+                  Boolean(activeClose),
+                );
+                return (
+                  <tr key={reconciliation.id} data-reconciliation-id={reconciliation.id}>
+                    <td style={td}>{reconciliation.sourceSystemId}</td>
+                    <td style={td}>{reconciliation.currency}</td>
+                    <td style={td}><strong>{reconciliation.status}</strong></td>
+                    <td style={moneyTd}>{formatMoneyCentsExact(reconciliation.sourceActualCents, reconciliation.currency)}</td>
+                    <td style={moneyTd}>{formatMoneyCentsExact(reconciliation.financeAdjustmentCents, reconciliation.currency)}</td>
+                    <td style={moneyTd}>{formatMoneyCentsExact(reconciliation.brainbaseEffectiveActualCents, reconciliation.currency)}</td>
+                    <td style={moneyTd}>{formatMoneyCentsExact(reconciliation.externalGlTotalCents, reconciliation.currency)}</td>
+                    <td style={moneyTd}>{formatMoneyCentsExact(reconciliation.varianceCents, reconciliation.currency)}</td>
+                    <td style={td}>{reconciliation.unresolvedItemCount}</td>
+                    <td style={td}>{new Date(reconciliation.preparedAt).toLocaleString()}</td>
+                    <td style={td}>{reconciliation.closeId ?? '—'}</td>
+                    <td style={td}>
+                      {action === 'REVIEW' ? (
+                        <button type="button" disabled={working} onClick={() => onReview(reconciliation.id)} style={secondaryButton}>Review</button>
+                      ) : action === 'SIGN_OFF' || action === 'SIGN_OFF_BLOCKED' ? (
+                        <button
+                          type="button"
+                          disabled={working || action === 'SIGN_OFF_BLOCKED'}
+                          onClick={() => onSignOff(reconciliation.id)}
+                          style={primaryButton}
+                        >
+                          Sign off
+                        </button>
+                      ) : (
+                        <span style={sub}>Read only</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

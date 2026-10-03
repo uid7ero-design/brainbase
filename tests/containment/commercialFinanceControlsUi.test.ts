@@ -9,6 +9,7 @@ function source(relative: string) {
 const page = source('app/commercial/budgeting/finance-controls/page.tsx');
 const sidebar = source('app/commercial/_components/CommercialSidebar.tsx');
 const closeDomain = source('lib/commercial/financeClose.ts');
+const controlUi = source('lib/commercial/financeControlUi.ts');
 
 describe('C7.9 — Finance Controls admin UI', () => {
   it('is discoverable only through the existing Budgeting admin navigation gate', () => {
@@ -34,9 +35,11 @@ describe('C7.9 — Finance Controls admin UI', () => {
   });
 
   it('operates close and reopen only through the governed lifecycle endpoints', () => {
-    expect(page).toContain('/financial-periods/');
-    expect(page).toContain('/close');
-    expect(page).toContain('/reopen');
+    expect(page).toContain('financePeriodCloseHref(selectedPeriod.id)');
+    expect(page).toContain('financePeriodReopenHref(selectedPeriod.id)');
+    expect(controlUi).toContain('/api/commercial/budgeting/financial-periods/');
+    expect(controlUi).toContain('/close');
+    expect(controlUi).toContain('/reopen');
     expect(page).toContain("if (!selectedPeriod || !reopenReason.trim())");
     expect(page).toContain('A reopen reason is required.');
     expect(page).toContain('Prior close evidence remains as invalidated history.');
@@ -45,11 +48,14 @@ describe('C7.9 — Finance Controls admin UI', () => {
 
   it('operates PREPARED -> REVIEWED -> SIGNED_OFF only through existing reconciliation APIs', () => {
     expect(page).toContain("postJson('/api/commercial/budgeting/reconciliations/prepare'");
-    expect(page).toContain('/reconciliations/');
-    expect(page).toContain('/review');
-    expect(page).toContain('/sign-off');
-    expect(page).toContain("reconciliation.status === 'PREPARED'");
-    expect(page).toContain("reconciliation.status === 'REVIEWED'");
+    expect(page).toContain('financeReconciliationReviewHref(id)');
+    expect(page).toContain('financeReconciliationSignOffHref(id)');
+    expect(page).toContain('financeReconciliationAction(');
+    expect(controlUi).toContain('/api/commercial/budgeting/reconciliations/');
+    expect(controlUi).toContain('/review');
+    expect(controlUi).toContain('/sign-off');
+    expect(controlUi).toContain("if (status === 'PREPARED') return 'REVIEW'");
+    expect(controlUi).toContain("if (status === 'REVIEWED') return hasActiveClose ? 'SIGN_OFF' : 'SIGN_OFF_BLOCKED'");
     expect(page).toContain('Read only');
   });
 
