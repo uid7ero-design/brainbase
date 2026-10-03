@@ -97,7 +97,7 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ id
             {
               label: 'Criteria',
               value: adHoc ? 'Ad hoc (criteria recorded during the audit)' : (
-                <Link href={`/assurance/audits/templates/${au.template_id}`} className={tableStyles.link}>
+                <Link href={`/assurance/templates/audit/${au.template_id}`} className={tableStyles.link}>
                   {au.template_name} · v{au.template_version_number}
                 </Link>
               ),

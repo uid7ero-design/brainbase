@@ -71,11 +71,18 @@ describe('inspection cancellation — reason + explicit confirmation', () => {
   })
 })
 
-describe('template activation — confirmation', () => {
-  it('both template pages confirm Deactivate / Reactivate', () => {
-    for (const p of ['app/assurance/inspections/templates/[id]/page.tsx', 'app/assurance/audits/templates/[id]/page.tsx']) {
-      const src = read(p)
-      expect(src, p).toMatch(/label=\{t\.is_active \? 'Deactivate' : 'Reactivate'\}[\s\S]{0,500}confirm=\{t\.is_active/)
+describe('template retirement and publishing — confirmation', () => {
+  it('Retire is a confirmed one-click action on the template page; Publish confirms in the editor', () => {
+    const page = read('app/assurance/templates/[kind]/[id]/page.tsx')
+    expect(page).toMatch(/<ActionPanel label="Retire"[\s\S]{0,300}confirm=\{/)
+    const editor = read('app/assurance/_components/TemplateEditor.tsx')
+    expect(editor).toMatch(/setConfirmPublish\(true\)/)
+    expect(editor).toMatch(/Confirm — publish version/)
+  })
+  it('the pre-A0.1F template URLs only redirect to Assurance → Templates', () => {
+    for (const p of ['app/assurance/inspections/templates/page.tsx', 'app/assurance/inspections/templates/[id]/page.tsx',
+      'app/assurance/audits/templates/page.tsx', 'app/assurance/audits/templates/[id]/page.tsx']) {
+      expect(read(p), p).toMatch(/redirect\(['`]\/assurance\/templates/)
     }
   })
 })

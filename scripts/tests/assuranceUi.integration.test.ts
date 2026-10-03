@@ -20,9 +20,8 @@ type Mods = {
   incidents: typeof import('@/lib/assurance/incidents');
   investigations: typeof import('@/lib/assurance/investigations');
   inspections: typeof import('@/lib/assurance/inspections');
-  templates: typeof import('@/lib/assurance/templates');
+  tl: typeof import('@/lib/assurance/templateLifecycle');
   audits: typeof import('@/lib/assurance/audits');
-  auditTemplates: typeof import('@/lib/assurance/auditTemplates');
   findings: typeof import('@/lib/assurance/findings');
   actions: typeof import('@/lib/assurance/actions');
   evidence: typeof import('@/lib/assurance/evidence');
@@ -102,9 +101,8 @@ beforeAll(async () => {
     incidents: await import('@/lib/assurance/incidents'),
     investigations: await import('@/lib/assurance/investigations'),
     inspections: await import('@/lib/assurance/inspections'),
-    templates: await import('@/lib/assurance/templates'),
+    tl: await import('@/lib/assurance/templateLifecycle'),
     audits: await import('@/lib/assurance/audits'),
-    auditTemplates: await import('@/lib/assurance/auditTemplates'),
     findings: await import('@/lib/assurance/findings'),
     actions: await import('@/lib/assurance/actions'),
     evidence: await import('@/lib/assurance/evidence'),
@@ -115,6 +113,20 @@ beforeAll(async () => {
 });
 
 afterAll(async () => { await sql.end(); });
+
+// A0.1F: templates are created as a DRAFT version 1 and must be published
+// before an Inspection/Audit can use them.
+async function publishedTemplate(viewer: AssuranceViewer, kind: 'inspection' | 'audit', raw: Record<string, unknown>) {
+  const t = await m.tl.createAssuranceTemplate(viewer, { kind, ...raw });
+  await m.tl.publishTemplateVersion(viewer, t.id, { kind, versionId: t.version_id, lockVersion: 1 });
+  return t;
+}
+async function publishNextVersion(viewer: AssuranceViewer, kind: 'inspection' | 'audit', templateId: string, content: Record<string, unknown>) {
+  const v = await m.tl.createTemplateVersion(viewer, templateId, { kind });
+  const saved = await m.tl.updateTemplateDraft(viewer, templateId, { kind, versionId: v.id, lockVersion: 1, ...content });
+  await m.tl.publishTemplateVersion(viewer, templateId, { kind, versionId: v.id, lockVersion: saved.lock_version });
+  return v;
+}
 
 function incidentInput(extra: Record<string, unknown> = {}) {
   return {
@@ -145,7 +157,7 @@ describe('permission enforcement (service layer, independent of routes)', () => 
     await expectError(m.findings.createFinding(viewerA, { findingType: 'HAZARD', title: 't', description: 'd' }), 'AssuranceForbiddenError');
   });
   it('a manager cannot administer inspection templates', async () => {
-    await expectError(m.templates.createTemplate(mgrA, { name: 'X', inspectionType: 'SITE', items: [{ label: 'a' }] }), 'AssuranceForbiddenError');
+    await expectError(m.tl.createAssuranceTemplate(mgrA, { kind: 'inspection', name: 'X', templateType: 'SITE', items: [{ label: 'a' }] }), 'AssuranceForbiddenError');
   });
 });
 
@@ -324,8 +336,8 @@ describe('Incident <-> Investigation M:N', () => {
 
 describe('inspection templates and execution', () => {
   it('historical inspections keep their exact immutable template version', async () => {
-    const t = await m.templates.createTemplate(adminA, {
-      name: 'Depot safety walk', inspectionType: 'SITE',
+    const t = await publishedTemplate(adminA, 'inspection', {
+      name: 'Depot safety walk', templateType: 'SITE',
       items: [
         { label: 'Walkways clear of obstructions', responseType: 'PASS_FAIL' },
         { label: 'Drain grates secure', responseType: 'PASS_FAIL', guidance: 'Check wash bay grates' },
@@ -333,7 +345,7 @@ describe('inspection templates and execution', () => {
       ],
     });
     const ins = await m.inspections.createInspection(mgrA, { title: 'October depot walk', templateVersionId: t.version_id, inspectorUserId: 'a-mgr', locationId: LOC_A, scheduledAt: future(2) });
-    const v2 = await m.templates.createTemplateVersion(adminA, t.id, { title: 'Depot safety walk (rev 2)', items: [{ label: 'Completely different item' }] });
+    const v2 = await publishNextVersion(adminA, 'inspection', t.id, { title: 'Depot safety walk (rev 2)', items: [{ label: 'Completely different item' }] });
     expect(v2.version_number).toBe(2);
 
     const d = await m.inspections.getInspectionDetail(mgrA, ins.id);
@@ -342,15 +354,15 @@ describe('inspection templates and execution', () => {
     expect(d!.checklist.map(i => i.label)).toEqual(['Walkways clear of obstructions', 'Drain grates secure', 'Fire extinguisher pressure (psi)']);
 
     await expect(sql.raw(`UPDATE assurance_inspection_template_versions SET title = 'tampered' WHERE id = '${t.version_id}'`)).rejects.toThrow(/immutable/);
-    await expect(sql.raw(`DELETE FROM assurance_inspection_template_versions WHERE id = '${t.version_id}'`)).rejects.toThrow(/immutable/);
-    const detail = await m.templates.getTemplateDetail(adminA, t.id);
-    expect(detail!.versions.map(v => v.version_number)).toEqual([2, 1]);
-    expect(detail!.versions[1].inspection_count).toBe(1);
+    await expect(sql.raw(`DELETE FROM assurance_inspection_template_versions WHERE id = '${t.version_id}'`)).rejects.toThrow(/only a draft/);
+    const detail = await m.tl.getAssuranceTemplate(adminA, 'inspection', t.id);
+    expect(detail!.versions.map(v => [v.version_number, v.status])).toEqual([[2, 'PUBLISHED'], [1, 'RETIRED']]);
+    expect(detail!.versions[1].record_count).toBe(1);
   });
 
   it('records responses separately, re-derives labels server-side, and gates completion', async () => {
-    const t = await m.templates.createTemplate(adminA, {
-      name: 'Playground check', inspectionType: 'FACILITY',
+    const t = await publishedTemplate(adminA, 'inspection', {
+      name: 'Playground check', templateType: 'FACILITY',
       items: [{ label: 'Softfall depth adequate' }, { label: 'Swing chains intact' }],
     });
     const ins = await m.inspections.createInspection(mgrA, { title: 'Playground — Riverside Park', templateVersionId: t.version_id });
@@ -379,7 +391,7 @@ describe('inspection templates and execution', () => {
   });
 
   it('refuses completion while required items are unanswered; ad hoc inspections define items as they go', async () => {
-    const t = await m.templates.createTemplate(adminA, { name: 'Two item check', inspectionType: 'SAFETY', items: [{ label: 'A' }, { label: 'B' }] });
+    const t = await publishedTemplate(adminA, 'inspection', { name: 'Two item check', templateType: 'SAFETY', items: [{ label: 'A' }, { label: 'B' }] });
     const ins = await m.inspections.createInspection(mgrA, { title: 'Partial', templateVersionId: t.version_id });
     await m.inspections.startInspection(mgrA, ins.id);
     const d = await m.inspections.getInspectionDetail(mgrA, ins.id);
@@ -786,7 +798,7 @@ describe('audits (A0.1E-1)', () => {
     { label: 'Hazardous waste handled by licensed contractor', required: false },
   ];
   async function newTemplate(viewer = adminA, name = 'Audit tpl') {
-    return m.auditTemplates.createAuditTemplate(viewer, { name, auditType: 'INTERNAL', standardReference: 'Synthetic Procedure v1', criteria });
+    return publishedTemplate(viewer, 'audit', { name, templateType: 'INTERNAL', standardReference: 'Synthetic Procedure v1', items: criteria });
   }
 
   it('ad hoc audits require a standard_reference (service and database)', async () => {
@@ -830,23 +842,24 @@ describe('audits (A0.1E-1)', () => {
     await expectError(m.audits.createAudit(mgrA, { ...base, assetId: assetB.id }), 'AssuranceValidationError', /Asset/);
     await expectError(m.audits.createAudit(mgrA, { ...base, externalOrganisationId: orgB.id }), 'AssuranceValidationError', /External/);
     // Templates are admin-only and org-scoped.
-    await expectError(m.auditTemplates.createAuditTemplate(mgrA, { name: 'x', auditType: 'SITE', criteria }), 'AssuranceForbiddenError');
-    expect(await m.auditTemplates.getAuditTemplateDetail(adminA, tplB.id)).toBeNull();
-    await expectError(m.auditTemplates.createAuditTemplateVersion(adminA, tplB.id, { title: 'x', criteria }), 'AssuranceNotFoundError');
+    await expectError(m.tl.createAssuranceTemplate(mgrA, { kind: 'audit', name: 'x', templateType: 'SITE', items: criteria }), 'AssuranceForbiddenError');
+    expect(await m.tl.getAssuranceTemplate(adminA, 'audit', tplB.id)).toBeNull();
+    await expectError(m.tl.createTemplateVersion(adminA, tplB.id, { kind: 'audit' }), 'AssuranceNotFoundError');
+    await expectError(m.tl.retireAssuranceTemplate(adminA, tplB.id, { kind: 'audit' }), 'AssuranceNotFoundError');
   });
 
   it('template versions are immutable and historical audits keep their exact version', async () => {
     const t = await newTemplate(adminA, 'Waste ops');
     const a = await m.audits.createAudit(mgrA, { title: 'Bound to v1', scope: 's', templateVersionId: t.version_id, auditorUserId: 'a-mgr2', scheduledAt: future(3), locationId: LOC_A });
-    const v2 = await m.auditTemplates.createAuditTemplateVersion(adminA, t.id, { title: 'Waste ops rev 2', standardReference: 'Synthetic Procedure v2', criteria: [{ label: 'Only criterion in v2' }] });
+    const v2 = await publishNextVersion(adminA, 'audit', t.id, { title: 'Waste ops rev 2', standardReference: 'Synthetic Procedure v2', items: [{ label: 'Only criterion in v2' }] });
     expect(v2.version_number).toBe(2);
     await expect(sql.raw(`UPDATE assurance_audit_template_versions SET title = 'tampered' WHERE id = '${t.version_id}'`)).rejects.toThrow(/immutable/);
-    await expect(sql.raw(`DELETE FROM assurance_audit_template_versions WHERE id = '${t.version_id}'`)).rejects.toThrow(/immutable/);
+    await expect(sql.raw(`DELETE FROM assurance_audit_template_versions WHERE id = '${t.version_id}'`)).rejects.toThrow(/only a draft/);
     const d = await m.audits.getAuditDetail(mgrA, a.id);
     expect(d!.audit).toMatchObject({ template_version_number: 1, latest_template_version_number: 2, standard_reference: 'Synthetic Procedure v1', audit_type: 'INTERNAL' });
     expect(d!.criteria.map(c => c.label)).toEqual(criteria.map(c => c.label));
-    const td = await m.auditTemplates.getAuditTemplateDetail(adminA, t.id);
-    expect(td!.versions.map(v => [v.version_number, v.audit_count])).toEqual([[2, 0], [1, 1]]);
+    const td = await m.tl.getAssuranceTemplate(adminA, 'audit', t.id);
+    expect(td!.versions.map(v => [v.version_number, v.record_count])).toEqual([[2, 0], [1, 1]]);
     // A new audit planned now binds to whichever version is chosen (v2 here).
     const b = await m.audits.createAudit(mgrA, { title: 'Bound to v2', scope: 's', templateVersionId: v2.id });
     expect((await m.audits.getAuditDetail(mgrA, b.id))!.criteria.map(c => c.label)).toEqual(['Only criterion in v2']);
@@ -1063,8 +1076,13 @@ describe('audit security review remediation', () => {
     const rows = await sql.raw(`SELECT before_state->>'notes' AS b, after_state->>'notes' AS a FROM audit_logs
       WHERE resource_id = '${a.id}' AND action = 'assurance_audit.response_recorded' ORDER BY created_at`) as { b: string | null; a: string }[];
     // Serialised by the audit lock: each revision's "before" is the previous "after".
-    expect(rows[0]).toEqual({ b: null, a: 'v1' });
-    expect(rows[2].b).toBe(rows[1].a);
+    // created_at is each transaction's START time, so the revision that waited
+    // for the lock may carry the earlier timestamp; assert the chain itself.
+    expect(rows).toHaveLength(3);
+    expect(rows.filter(r => r.b === null)).toEqual([{ b: null, a: 'v1' }]);
+    const second = rows.find(r => r.b === 'v1')!;
+    expect(['v2', 'v3']).toContain(second.a);
+    expect(rows.find(r => r.b !== null && r !== second)).toEqual({ b: second.a, a: second.a === 'v2' ? 'v3' : 'v2' });
   });
 
   it('A-L4: linking a finding racing its closure cannot link a closed finding', async () => {
@@ -1289,28 +1307,27 @@ describe('reconciliation: inspection cancellation requires a reason', () => {
   });
 });
 
-describe('reconciliation: template activation and version immutability', () => {
-  it('deactivate/reactivate toggles availability only; published versions are unchanged and still immutable', async () => {
-    const t = await m.templates.createTemplate(adminA, { name: 'R-toggle', inspectionType: 'SITE', items: [{ label: 'Check A' }] });
+describe('reconciliation: template retirement and version immutability', () => {
+  it('retire removes a template from selectors only; published content is unchanged and still immutable', async () => {
+    const t = await publishedTemplate(adminA, 'inspection', { name: 'R-toggle', templateType: 'SITE', items: [{ label: 'Check A' }] });
     const before = await sql.raw(`SELECT id, checklist::text AS c FROM assurance_inspection_template_versions WHERE template_id = '${t.id}'`) as { id: string; c: string }[];
-    await expectError(m.templates.setTemplateActive(mgrA, t.id, false), 'AssuranceForbiddenError');
-    await m.templates.setTemplateActive(adminA, t.id, false);
-    expect((await m.templates.listTemplates(mgrA, { activeOnly: true })).some(x => x.id === t.id)).toBe(false);
-    await m.templates.setTemplateActive(adminA, t.id, true);
-    expect((await m.templates.listTemplates(mgrA, { activeOnly: true })).some(x => x.id === t.id)).toBe(true);
+    await expectError(m.tl.retireAssuranceTemplate(mgrA, t.id, { kind: 'inspection' }), 'AssuranceForbiddenError');
+    expect((await m.tl.listPublishedTemplateOptions(mgrA, 'inspection')).some(x => x.template_id === t.id)).toBe(true);
+    await m.tl.retireAssuranceTemplate(adminA, t.id, { kind: 'inspection' });
+    expect((await m.tl.listPublishedTemplateOptions(mgrA, 'inspection')).some(x => x.template_id === t.id)).toBe(false);
+    await expectError(m.tl.retireAssuranceTemplate(adminA, t.id, { kind: 'inspection' }), 'AssuranceConflictError', /published/);
     const after = await sql.raw(`SELECT id, checklist::text AS c FROM assurance_inspection_template_versions WHERE template_id = '${t.id}'`) as { id: string; c: string }[];
     expect(after).toEqual(before);
     let refused = false;
-    try { await sql.raw(`UPDATE assurance_inspection_template_versions SET title = 'tampered' WHERE id = '${before[0].id}'`); } catch { refused = true; }
+    try { await sql.raw(`UPDATE assurance_inspection_template_versions SET title = 'tampered', lock_version = lock_version + 1 WHERE id = '${before[0].id}'`); } catch { refused = true; }
     expect(refused).toBe(true);
 
-    const at = await m.auditTemplates.createAuditTemplate(adminA, { name: 'R-audit toggle', auditType: 'SITE', standardReference: 'Std', criteria: [{ label: 'C1' }] });
-    await expectError(m.auditTemplates.setAuditTemplateActive(mgrA, at.id, false), 'AssuranceForbiddenError');
-    await m.auditTemplates.setAuditTemplateActive(adminA, at.id, false);
-    expect((await m.auditTemplates.listAuditTemplates(mgrA, { activeOnly: true })).some(x => x.id === at.id)).toBe(false);
-    await m.auditTemplates.setAuditTemplateActive(adminA, at.id, true);
+    const at = await publishedTemplate(adminA, 'audit', { name: 'R-audit toggle', templateType: 'SITE', standardReference: 'Std', items: [{ label: 'C1' }] });
+    await expectError(m.tl.retireAssuranceTemplate(mgrA, at.id, { kind: 'audit' }), 'AssuranceForbiddenError');
+    await m.tl.retireAssuranceTemplate(adminA, at.id, { kind: 'audit' });
+    expect((await m.tl.listPublishedTemplateOptions(mgrA, 'audit')).some(x => x.template_id === at.id)).toBe(false);
     let refusedA = false;
-    try { await sql.raw(`UPDATE assurance_audit_template_versions SET title = 'tampered' WHERE template_id = '${at.id}'`); } catch { refusedA = true; }
+    try { await sql.raw(`UPDATE assurance_audit_template_versions SET title = 'tampered', lock_version = lock_version + 1 WHERE template_id = '${at.id}'`); } catch { refusedA = true; }
     expect(refusedA).toBe(true);
   });
 });

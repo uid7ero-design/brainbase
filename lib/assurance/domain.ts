@@ -123,6 +123,8 @@ export type AuditCriterion = {
   guidance: string | null;
   required: boolean;
   options: string[];
+  /** Optional section heading; items of one section are contiguous (A0.1F templates). */
+  section: string | null;
 };
 
 export type ParsedCriteria = { items: AuditCriterion[]; invalidCount: number };
@@ -147,6 +149,7 @@ export function parseCriteria(raw: unknown): ParsedCriteria {
       guidance: typeof e.guidance === 'string' && e.guidance.trim() ? e.guidance.trim() : null,
       required: e.required !== false,
       options: Array.isArray(e.options) ? e.options.filter((o): o is string => typeof o === 'string' && o.trim() !== '') : [],
+      section: readSection(e.section),
     });
   }
   return { items, invalidCount };
@@ -212,6 +215,8 @@ const TONE_BY_VALUE: Record<string, AssuranceTone> = {
   COMPLIANT: 'success', PARTIAL: 'warning', NON_COMPLIANT: 'danger',
   ACCEPTED: 'success', REJECTED: 'danger', PARTIALLY_ACCEPTED: 'warning',
   MORE_EVIDENCE_REQUIRED: 'warning',
+  // template lifecycle
+  DRAFT: 'warning', PUBLISHED: 'success', RETIRED: 'neutral',
   // priority
   LOW: 'neutral', MEDIUM: 'info', HIGH: 'warning', CRITICAL: 'danger',
 };
@@ -251,6 +256,8 @@ export type ChecklistItem = {
   guidance: string | null;
   required: boolean;
   options: string[];
+  /** Optional section heading; items of one section are contiguous (A0.1F templates). */
+  section: string | null;
 };
 
 export type ParsedChecklist = { items: ChecklistItem[]; invalidCount: number };
@@ -275,10 +282,40 @@ export function parseChecklist(raw: unknown): ParsedChecklist {
       guidance: typeof e.guidance === 'string' && e.guidance.trim() ? e.guidance.trim() : null,
       required: e.required !== false,
       options: Array.isArray(e.options) ? e.options.filter((o): o is string => typeof o === 'string' && o.trim() !== '') : [],
+      section: readSection(e.section),
     });
   }
   return { items, invalidCount };
 }
+
+function readSection(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+/**
+ * Groups template items into their ordered sections. Items are stored as one
+ * ordered list; a section is a run of consecutive items sharing a heading
+ * (null = no heading). Rendering a historical version through this keeps its
+ * exact order and wording.
+ */
+export function groupTemplateSections<T extends { section: string | null }>(items: readonly T[]): { title: string | null; items: T[] }[] {
+  const groups: { title: string | null; items: T[] }[] = [];
+  for (const item of items) {
+    const last = groups[groups.length - 1];
+    if (last && last.title === item.section) last.items.push(item);
+    else groups.push({ title: item.section, items: [item] });
+  }
+  return groups;
+}
+
+// ── Templates (A0.1F lifecycle) ──────────────────────────────────────────
+
+export const TEMPLATE_KINDS = ['inspection', 'audit'] as const;
+export type TemplateKind = (typeof TEMPLATE_KINDS)[number];
+
+/** Mirrors the A0.1F version status CHECK. A template's status is derived from its versions. */
+export const TEMPLATE_VERSION_STATUSES = ['DRAFT', 'PUBLISHED', 'RETIRED'] as const;
+export type TemplateVersionStatus = (typeof TEMPLATE_VERSION_STATUSES)[number];
 
 /** Builds a stable item key from a label: lowercase, a-z0-9 and dashes. */
 export function checklistKeyFromLabel(label: string, index: number): string {

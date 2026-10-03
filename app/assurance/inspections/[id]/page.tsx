@@ -81,7 +81,7 @@ export default async function InspectionDetailPage({ params }: { params: Promise
             {
               label: 'Checklist',
               value: adHoc ? 'Ad hoc (items recorded during the inspection)' : (
-                <Link href={`/assurance/inspections/templates/${ins.template_id}`} className={tableStyles.link}>
+                <Link href={`/assurance/templates/inspection/${ins.template_id}`} className={tableStyles.link}>
                   {ins.template_name} · v{ins.template_version_number}
                 </Link>
               ),

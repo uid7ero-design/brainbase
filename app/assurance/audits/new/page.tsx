@@ -1,5 +1,5 @@
 import { viewerCan } from '@/lib/assurance/authorize';
-import { listAuditTemplates } from '@/lib/assurance/auditTemplates';
+import { listPublishedTemplateOptions } from '@/lib/assurance/templateLifecycle';
 import { listAssetOptions, listExternalOrganisationOptions, listLocationOptions } from '@/lib/assurance/lookups';
 import { listOrgUserOptions } from '@/lib/assurance/users';
 import { AUDIT_TYPES, assuranceLabel } from '@/lib/assurance/domain';
@@ -16,17 +16,17 @@ export default async function NewAuditPage() {
     return <Notice tone="warning">Planning an audit needs manager access in BrainBase.</Notice>;
   }
   const [templates, users, locations, assets, orgs] = await Promise.all([
-    listAuditTemplates(viewer, { activeOnly: true }),
+    listPublishedTemplateOptions(viewer, 'audit'),
     listOrgUserOptions(viewer.organisationId),
     listLocationOptions(viewer.organisationId),
     listAssetOptions(viewer.organisationId),
     listExternalOrganisationOptions(viewer.organisationId),
   ]);
+  // Published versions of active templates only — never drafts or retired versions.
   const templateOptions = templates
-    .filter(t => t.latest_version_id)
     .map(t => ({
-      value: t.latest_version_id!,
-      label: `${t.name} — v${t.latest_version_number} (${t.latest_criteria_count ?? 0} criteria${t.latest_standard_reference ? `, ${t.latest_standard_reference}` : ''}, ${assuranceLabel(t.audit_type).toLowerCase()})`,
+      value: t.version_id,
+      label: `${t.name} — v${t.version_number} (${t.item_count} criteria${t.standard_reference ? `, ${t.standard_reference}` : ''}, ${assuranceLabel(t.template_type).toLowerCase()})`,
     }));
 
   return (
@@ -42,7 +42,7 @@ export default async function NewAuditPage() {
             { kind: 'text', name: 'title', label: 'Title', required: true, placeholder: 'e.g. Waste operations compliance audit — Northern Depot' },
             { kind: 'textarea', name: 'scope', label: 'Scope', required: true, rows: 3, help: 'What is being audited, and what is out of scope.' },
             { kind: 'select', name: 'templateVersionId', label: 'Template', options: templateOptions, emptyLabel: 'Ad hoc (no template)',
-              help: templateOptions.length === 0 ? 'No active audit templates yet — an admin can create one under Audits → Templates.' : 'The audit keeps this exact version even if the template changes later.' },
+              help: templateOptions.length === 0 ? 'No published audit templates yet — an admin can publish one under Assurance → Templates.' : 'The audit keeps this exact version even if the template changes later.' },
             { kind: 'text', name: 'standardReference', label: 'Standard / reference', maxLength: 300,
               placeholder: 'e.g. Waste Operations Procedure v3', defaultValue: undefined },
             { kind: 'select', name: 'auditType', label: 'Audit type', options: enumOptions(AUDIT_TYPES), emptyLabel: 'Use the template’s type', help: 'An ad hoc audit needs a type and a standard / reference.' },

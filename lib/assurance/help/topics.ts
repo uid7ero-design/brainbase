@@ -10,8 +10,9 @@ export type HelpTopic =
   | 'dashboard'
   | 'incidents' | 'incident-new' | 'incident'
   | 'investigations' | 'investigation-new' | 'investigation'
-  | 'inspections' | 'inspection-new' | 'inspection' | 'inspection-templates'
-  | 'audits' | 'audit-new' | 'audit' | 'audit-templates'
+  | 'inspections' | 'inspection-new' | 'inspection'
+  | 'audits' | 'audit-new' | 'audit'
+  | 'templates' | 'template'
   | 'findings' | 'finding'
   | 'actions' | 'action'
   | 'evidence' | 'evidence-record'
@@ -35,12 +36,13 @@ export const HELP_TOPICS: Record<HelpTopic, HelpTarget> = {
   inspections: { slug: 'user-guide', anchor: 'inspections', label: 'Inspections' },
   'inspection-new': { slug: 'run-an-inspection', label: 'Run an inspection' },
   inspection: { slug: 'run-an-inspection', label: 'Run an inspection' },
-  'inspection-templates': { slug: 'manage-templates', label: 'Manage templates' },
 
   audits: { slug: 'user-guide', anchor: 'audits', label: 'Audits' },
   'audit-new': { slug: 'create-and-run-an-audit', label: 'Create and run an audit' },
   audit: { slug: 'create-and-run-an-audit', label: 'Create and run an audit' },
-  'audit-templates': { slug: 'manage-templates', label: 'Manage templates' },
+
+  templates: { slug: 'user-guide', anchor: 'templates', label: 'Templates' },
+  template: { slug: 'manage-templates', label: 'Manage inspection and audit templates' },
 
   findings: { slug: 'user-guide', anchor: 'findings-2', label: 'Findings' },
   finding: { slug: 'raise-and-manage-a-finding', label: 'Raise and manage a finding' },

@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { renderBrainbase } from '../../a11y/render';
 
 // Assurance docs-to-product reconciliation (UI behaviour):
-//   - one-click consequential actions (template Deactivate / Reactivate)
+//   - one-click consequential actions (template Retire)
 //     require an explicit confirmation step before anything is sent;
 //   - existing evidence can be linked to every supported target type from
 //     one record-type selector, posting to the existing links endpoint.
@@ -27,28 +27,28 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
 });
 
-describe('ActionPanel confirm (template Deactivate / Reactivate)', () => {
+describe('ActionPanel confirm (template Retire)', () => {
   it('does not send anything until the confirmation is given', async () => {
     renderBrainbase(
-      <ActionPanel label="Deactivate" endpoint="/api/assurance/templates/t1/active" extraBody={{ active: false }} variant="danger"
-        submitLabel="Deactivate template" confirm="Deactivated templates are no longer offered when planning new inspections." />,
+      <ActionPanel label="Retire" endpoint="/api/assurance/templates/t1/retire" extraBody={{ kind: 'inspection' }} variant="danger"
+        submitLabel="Retire template" confirm="Version 1 will no longer be offered when planning new inspections." />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Deactivate' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Retire' }));
     expect(fetchMock).not.toHaveBeenCalled();
-    const group = screen.getByRole('group', { name: 'Confirm: Deactivate' });
-    expect(within(group).getByText(/no longer offered/)).toBeTruthy();
+    const group = screen.getByRole('group', { name: 'Confirm: Retire' });
+    expect(within(group).getByText(/no longer be offered/)).toBeTruthy();
 
     // Backing out sends nothing.
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.queryByRole('group', { name: 'Confirm: Deactivate' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Confirm: Retire' })).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Deactivate' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Deactivate template' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Retire' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Retire template' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('/api/assurance/templates/t1/active');
-    expect(JSON.parse(String(init.body))).toEqual({ active: false });
+    expect(url).toBe('/api/assurance/templates/t1/retire');
+    expect(JSON.parse(String(init.body))).toEqual({ kind: 'inspection' });
     await waitFor(() => expect(refresh).toHaveBeenCalled());
   });
 

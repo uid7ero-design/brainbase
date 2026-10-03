@@ -14,6 +14,7 @@ const NAV_ITEMS: { href: string; label: string; exact?: boolean }[] = [
   { href: '/assurance/investigations', label: 'Investigations' },
   { href: '/assurance/inspections', label: 'Inspections' },
   { href: '/assurance/audits', label: 'Audits' },
+  { href: '/assurance/templates', label: 'Templates' },
   { href: '/assurance/findings', label: 'Findings' },
   { href: '/assurance/actions', label: 'Actions' },
   { href: '/assurance/deadlines', label: 'Deadlines' },

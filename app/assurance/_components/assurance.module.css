@@ -677,6 +677,13 @@
   padding: 0;
   list-style: none;
 }
+.runnerSection h3 {
+  margin: 8px 0 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
 .runnerItem {
   min-width: 0;
   padding: 12px 14px;
