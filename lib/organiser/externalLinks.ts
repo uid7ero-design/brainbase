@@ -3,13 +3,18 @@ import sql from '@/lib/db';
 import type { IntegrationPrincipal } from '@/lib/integrationCredentials/service';
 
 // Essio integration B1 — idempotency/identity foundation for external work.
-// Design: docs/integrations/essio.md. B1 creates no Organiser work; B2's
-// create-work route will:
-//   1. claim the request's identity here (insert-first),
-//   2. on `created`, create the Organiser item and attach it to the link in
-//      one statement (guarded by organiser_item_id IS NULL),
-//   3. on `replayed`, return the existing item (or "deleted"),
-//   4. on `fingerprint_conflict`, refuse (409) without side effects.
+// Design: docs/integrations/essio.md. B1 creates no Organiser work; this
+// module is the service-level claim/lookup that the B2 create-work path builds on.
+//
+// Every link records two fingerprints, never overloaded:
+//   * handoffFingerprint — identity/provenance of the frozen external payload;
+//   * requestFingerprint — identity of the complete Brainbase creation
+//     instruction (target + payload). Replay vs conflict is decided on THIS
+//     one, so a key can never be reused to redirect the same payload to a
+//     different board or group.
+// The original creation target is stored explicitly (targetBoardId /
+// targetGroupId): the item's current board/group may later be changed by
+// Brainbase users and is never proof of the original intent.
 //
 // The organisation and source system always come from the authenticated
 // principal, never from request input.
@@ -39,7 +44,10 @@ export interface OrganiserItemExternalLink {
   idempotencyKey: string;
   externalRecommendationId: string;
   sourceUrl: string | null;
-  payloadFingerprint: string;
+  handoffFingerprint: string;
+  requestFingerprint: string;
+  targetBoardId: string;
+  targetGroupId: string | null;
   credentialId: string;
   createdAt: string;
   itemDeletedAt: string | null;
@@ -48,9 +56,9 @@ export interface OrganiserItemExternalLink {
 
 export type ExternalLinkClaimResult =
   | { outcome: 'created'; link: OrganiserItemExternalLink }
-  /** Same key, same payload fingerprint: a retry of the same request. */
+  /** Same key, same request fingerprint: a retry of the same request. */
   | { outcome: 'replayed'; link: OrganiserItemExternalLink }
-  /** Same key, different payload: not the same request; must not be applied. */
+  /** Same key, different request (payload and/or target): must not be applied. */
   | { outcome: 'fingerprint_conflict'; link: OrganiserItemExternalLink };
 
 export type ExternalLinkErrorCode =
@@ -58,8 +66,10 @@ export type ExternalLinkErrorCode =
   | 'invalid_idempotency_key'
   | 'invalid_external_recommendation_id'
   | 'invalid_source_url'
-  | 'invalid_payload_fingerprint'
+  | 'invalid_handoff_fingerprint'
+  | 'invalid_request_fingerprint'
   | 'invalid_snapshot'
+  | 'invalid_target'
   | 'invalid_organiser_item';
 
 export class ExternalLinkError extends Error {
@@ -86,7 +96,10 @@ interface LinkRow {
   idempotency_key: string;
   external_recommendation_id: string;
   source_url: string | null;
-  payload_fingerprint: string;
+  handoff_fingerprint: string;
+  request_fingerprint: string;
+  target_board_id: string;
+  target_group_id: string | null;
   credential_id: string;
   created_at: unknown;
   item_deleted_at: unknown;
@@ -108,7 +121,10 @@ function toLink(row: LinkRow): OrganiserItemExternalLink {
     idempotencyKey: row.idempotency_key,
     externalRecommendationId: row.external_recommendation_id,
     sourceUrl: row.source_url,
-    payloadFingerprint: row.payload_fingerprint,
+    handoffFingerprint: row.handoff_fingerprint,
+    requestFingerprint: row.request_fingerprint,
+    targetBoardId: row.target_board_id,
+    targetGroupId: row.target_group_id,
     credentialId: row.credential_id,
     createdAt: iso(row.created_at)!,
     itemDeletedAt,
@@ -155,8 +171,10 @@ export async function claimOrganiserItemExternalLink(
     idempotencyKey: string;
     externalRecommendationId: string;
     sourceUrl: string | null;
-    payloadFingerprint: string;
-    snapshot: Record<string, unknown>;
+    handoffFingerprint: string;
+    requestFingerprint: string;
+    handoffSnapshot: Record<string, unknown>;
+    target: { boardId: string; groupId: string | null };
     /** Optional: attach an existing same-organisation item at claim time. */
     organiserItemId?: string | null;
   },
@@ -174,14 +192,26 @@ export async function claimOrganiserItemExternalLink(
   ) {
     throw new ExternalLinkError('invalid_source_url');
   }
-  if (typeof input.payloadFingerprint !== 'string' || !FINGERPRINT_RE.test(input.payloadFingerprint)) {
-    throw new ExternalLinkError('invalid_payload_fingerprint');
+  if (typeof input.handoffFingerprint !== 'string' || !FINGERPRINT_RE.test(input.handoffFingerprint)) {
+    throw new ExternalLinkError('invalid_handoff_fingerprint');
   }
-  if (!input.snapshot || typeof input.snapshot !== 'object' || Array.isArray(input.snapshot)) {
+  if (typeof input.requestFingerprint !== 'string' || !FINGERPRINT_RE.test(input.requestFingerprint)) {
+    throw new ExternalLinkError('invalid_request_fingerprint');
+  }
+  if (!input.handoffSnapshot || typeof input.handoffSnapshot !== 'object' || Array.isArray(input.handoffSnapshot)) {
     throw new ExternalLinkError('invalid_snapshot');
   }
-  const snapshotJson = JSON.stringify(input.snapshot);
+  const snapshotJson = JSON.stringify(input.handoffSnapshot);
   if (Buffer.byteLength(snapshotJson, 'utf8') > MAX_SNAPSHOT_BYTES) throw new ExternalLinkError('invalid_snapshot');
+  const target = input.target;
+  if (
+    !target ||
+    typeof target.boardId !== 'string' ||
+    !UUID_RE.test(target.boardId) ||
+    (target.groupId !== null && (typeof target.groupId !== 'string' || !UUID_RE.test(target.groupId)))
+  ) {
+    throw new ExternalLinkError('invalid_target');
+  }
   const organiserItemId = input.organiserItemId ?? null;
   if (organiserItemId !== null && (typeof organiserItemId !== 'string' || !UUID_RE.test(organiserItemId))) {
     throw new ExternalLinkError('invalid_organiser_item');
@@ -191,17 +221,21 @@ export async function claimOrganiserItemExternalLink(
   try {
     inserted = (await sql`
       INSERT INTO organiser_item_external_links (
-        organisation_id, organiser_item_id, source_system, idempotency_key,
-        external_recommendation_id, source_url, payload_fingerprint, snapshot_json, credential_id
+        organisation_id, organiser_item_id, source_system, idempotency_key, external_recommendation_id,
+        source_url, handoff_fingerprint, request_fingerprint, handoff_snapshot,
+        target_board_id, target_group_id, credential_id
       ) VALUES (
         ${principal.organisationId}::text, ${organiserItemId}::uuid, ${sourceSystem}::text,
         ${idempotencyKey}::text, ${externalRecommendationId}::text, ${sourceUrl}::text,
-        ${input.payloadFingerprint}::text, ${snapshotJson}::jsonb, ${principal.credentialId}::uuid
+        ${input.handoffFingerprint}::text, ${input.requestFingerprint}::text, ${snapshotJson}::jsonb,
+        ${target.boardId}::uuid, ${target.groupId}::uuid, ${principal.credentialId}::uuid
       )
       ON CONFLICT ON CONSTRAINT organiser_item_external_links_idempotency_key DO NOTHING
       RETURNING id::text AS id, organisation_id, organiser_item_id::text AS organiser_item_id,
                 source_system, idempotency_key, external_recommendation_id, source_url,
-                payload_fingerprint, credential_id::text AS credential_id, created_at, item_deleted_at
+                handoff_fingerprint, request_fingerprint, target_board_id::text AS target_board_id,
+                target_group_id::text AS target_group_id, credential_id::text AS credential_id,
+                created_at, item_deleted_at
     `) as LinkRow[];
   } catch (err) {
     // 23503: the item (or credential) does not exist in this organisation.
@@ -216,7 +250,7 @@ export async function claimOrganiserItemExternalLink(
 
   const existing = await findOrganiserItemExternalLink(principal, idempotencyKey);
   if (!existing) throw new ExternalLinkDatabaseError(); // conflicting row vanished: cannot happen (rows are never deleted)
-  return existing.payloadFingerprint === input.payloadFingerprint
+  return existing.requestFingerprint === input.requestFingerprint
     ? { outcome: 'replayed', link: existing }
     : { outcome: 'fingerprint_conflict', link: existing };
 }
@@ -232,7 +266,9 @@ export async function findOrganiserItemExternalLink(
     const [row] = (await sql`
       SELECT id::text AS id, organisation_id, organiser_item_id::text AS organiser_item_id,
              source_system, idempotency_key, external_recommendation_id, source_url,
-             payload_fingerprint, credential_id::text AS credential_id, created_at, item_deleted_at
+             handoff_fingerprint, request_fingerprint, target_board_id::text AS target_board_id,
+             target_group_id::text AS target_group_id, credential_id::text AS credential_id,
+             created_at, item_deleted_at
       FROM organiser_item_external_links
       WHERE organisation_id = ${principal.organisationId}::text
         AND source_system = ${sourceSystem}::text

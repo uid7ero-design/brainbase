@@ -228,6 +228,17 @@ EXECUTE FUNCTION integration_credentials_guard();
 --   recognised as the same request and does not create a replacement.
 -- * (organisation_id, credential_id) -> integration_credentials: the
 --   credential that made the request belongs to the same organisation.
+-- * Two fingerprints, never overloaded:
+--     handoff_fingerprint  identity/provenance of the frozen external payload
+--                          (for Essio: sha256 of Essio's canonical v1 handoff,
+--                          equal to the fingerprint Essio itself records);
+--     request_fingerprint  identity of the complete Brainbase creation
+--                          instruction (target + handoff). Replay vs conflict
+--                          is decided on this one, so a key can never be
+--                          reused to redirect the same handoff elsewhere.
+-- * handoff_snapshot keeps the exact external payload; target_board_id /
+--   target_group_id keep the original creation target (no FK: boards and
+--   groups can be deleted or the item moved later; this records intent).
 -- * Rows are never deleted; identity columns are immutable.
 
 CREATE TABLE IF NOT EXISTS organiser_item_external_links (
@@ -238,8 +249,11 @@ CREATE TABLE IF NOT EXISTS organiser_item_external_links (
   idempotency_key             TEXT        NOT NULL,
   external_recommendation_id  TEXT        NOT NULL,
   source_url                  TEXT,
-  payload_fingerprint         TEXT        NOT NULL,
-  snapshot_json               JSONB       NOT NULL,
+  handoff_fingerprint         TEXT        NOT NULL,
+  request_fingerprint         TEXT        NOT NULL,
+  handoff_snapshot            JSONB       NOT NULL,
+  target_board_id             UUID        NOT NULL,
+  target_group_id             UUID,
   credential_id               UUID        NOT NULL,
   created_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
   item_deleted_at             TIMESTAMPTZ,
@@ -267,10 +281,12 @@ CREATE TABLE IF NOT EXISTS organiser_item_external_links (
            AND char_length(external_recommendation_id) BETWEEN 1 AND 128),
   CONSTRAINT organiser_item_external_links_source_url_check
     CHECK (source_url IS NULL OR (char_length(source_url) <= 2048 AND source_url ~* '^https?://[^[:space:]]+$')),
-  CONSTRAINT organiser_item_external_links_payload_fingerprint_check
-    CHECK (payload_fingerprint ~ '^[0-9a-f]{64}$'),
-  CONSTRAINT organiser_item_external_links_snapshot_check
-    CHECK (jsonb_typeof(snapshot_json) = 'object' AND octet_length(snapshot_json::text) <= 262144),
+  CONSTRAINT organiser_item_external_links_handoff_fingerprint_check
+    CHECK (handoff_fingerprint ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT organiser_item_external_links_request_fingerprint_check
+    CHECK (request_fingerprint ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT organiser_item_external_links_handoff_snapshot_check
+    CHECK (jsonb_typeof(handoff_snapshot) = 'object' AND octet_length(handoff_snapshot::text) <= 262144),
   CONSTRAINT organiser_item_external_links_deleted_check
     CHECK (item_deleted_at IS NULL OR organiser_item_id IS NULL)
 );
@@ -304,8 +320,11 @@ BEGIN
      OR NEW.idempotency_key IS DISTINCT FROM OLD.idempotency_key
      OR NEW.external_recommendation_id IS DISTINCT FROM OLD.external_recommendation_id
      OR NEW.source_url IS DISTINCT FROM OLD.source_url
-     OR NEW.payload_fingerprint IS DISTINCT FROM OLD.payload_fingerprint
-     OR NEW.snapshot_json IS DISTINCT FROM OLD.snapshot_json
+     OR NEW.handoff_fingerprint IS DISTINCT FROM OLD.handoff_fingerprint
+     OR NEW.request_fingerprint IS DISTINCT FROM OLD.request_fingerprint
+     OR NEW.handoff_snapshot IS DISTINCT FROM OLD.handoff_snapshot
+     OR NEW.target_board_id IS DISTINCT FROM OLD.target_board_id
+     OR NEW.target_group_id IS DISTINCT FROM OLD.target_group_id
      OR NEW.credential_id IS DISTINCT FROM OLD.credential_id
      OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
     RAISE EXCEPTION 'organiser_item_external_links identity is immutable'

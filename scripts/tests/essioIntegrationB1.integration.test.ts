@@ -50,6 +50,9 @@ const BOARD_A = '11111111-1111-4111-8111-111111111111';
 const BOARD_B = '22222222-2222-4222-8222-222222222222';
 const FP_1 = createHash('sha256').update('payload-1').digest('hex');
 const FP_2 = createHash('sha256').update('payload-2').digest('hex');
+const RQ_1 = createHash('sha256').update('request-1').digest('hex');
+const RQ_2 = createHash('sha256').update('request-2').digest('hex');
+const TARGET = { boardId: BOARD_A, groupId: null };
 
 // Captured console output across the whole suite (secret-leak check).
 const consoleOutput: string[] = [];
@@ -365,7 +368,7 @@ describe('tenant isolation', () => {
     await expect(
       links.claimOrganiserItemExternalLink(principalB, {
         idempotencyKey: randomUUID(), externalRecommendationId: randomUUID(), sourceUrl: null,
-        payloadFingerprint: FP_1, snapshot: {}, organiserItemId: itemA,
+        handoffFingerprint: FP_1, requestFingerprint: RQ_1, handoffSnapshot: {}, target: TARGET, organiserItemId: itemA,
       }),
     ).rejects.toMatchObject({ code: 'invalid_organiser_item' });
     const [{ n }] = await q<{ n: bigint }>(
@@ -382,9 +385,9 @@ describe('tenant isolation', () => {
     const insertLink = (org: string, item: string | null, cred: string) =>
       exec(
         `INSERT INTO organiser_item_external_links (organisation_id, organiser_item_id, source_system, idempotency_key,
-           external_recommendation_id, payload_fingerprint, snapshot_json, credential_id)
-         VALUES ($1, $2::uuid, 'essio', $3, 'rec', $4, '{}'::jsonb, $5::uuid)`,
-        org, item, randomUUID(), FP_1, cred,
+           external_recommendation_id, handoff_fingerprint, request_fingerprint, handoff_snapshot, target_board_id, credential_id)
+         VALUES ($1, $2::uuid, 'essio', $3, 'rec', $4, $4, '{}'::jsonb, $6::uuid, $5::uuid)`,
+        org, item, randomUUID(), FP_1, cred, BOARD_A,
       );
     await expectDbError(insertLink(ORG_A, itemB, credA), /organiser_item_external_links_item_fkey/);
     await expectDbError(insertLink(ORG_A, null, credB), /organiser_item_external_links_credential_fkey/);
@@ -400,7 +403,7 @@ describe('tenant isolation', () => {
     const principalB = await principalFor((await issue(ORG_B)).token);
     const key = randomUUID();
     await links.claimOrganiserItemExternalLink(principalA, {
-      idempotencyKey: key, externalRecommendationId: 'rec-a', sourceUrl: null, payloadFingerprint: FP_1, snapshot: {},
+      idempotencyKey: key, externalRecommendationId: 'rec-a', sourceUrl: null, handoffFingerprint: FP_1, requestFingerprint: RQ_1, handoffSnapshot: {}, target: TARGET,
     });
     expect(await links.findOrganiserItemExternalLink(principalB, key)).toBeNull();
     expect(await links.findOrganiserItemExternalLink(principalA, key)).not.toBeNull();
@@ -418,26 +421,32 @@ describe('external link identity (idempotency foundation)', () => {
       idempotencyKey: key,
       externalRecommendationId: 'rec-1',
       sourceUrl: 'https://essio.example/sites/s/recommendations/rec-1',
-      payloadFingerprint: FP_1,
-      snapshot: { schema: 'essio.recommendation-handoff', version: 1 },
+      handoffFingerprint: FP_1,
+      requestFingerprint: RQ_1,
+      handoffSnapshot: { schema: 'essio.recommendation-handoff', version: 1 },
+      target: TARGET,
     };
     const first = await links.claimOrganiserItemExternalLink(principal, input);
     expect(first).toMatchObject({
       outcome: 'created',
       link: {
-        organisationId: ORG_A, sourceSystem: 'essio', idempotencyKey: key, payloadFingerprint: FP_1,
+        organisationId: ORG_A, sourceSystem: 'essio', idempotencyKey: key, handoffFingerprint: FP_1,
+        requestFingerprint: RQ_1, targetBoardId: BOARD_A, targetGroupId: null,
         credentialId: principal.credentialId, organiserItemId: null, itemState: 'unattached',
       },
     });
     const replay = await links.claimOrganiserItemExternalLink(principal, input);
     expect(replay).toMatchObject({ outcome: 'replayed', link: { id: first.link.id } });
-    const conflict = await links.claimOrganiserItemExternalLink(principal, { ...input, payloadFingerprint: FP_2 });
-    expect(conflict).toMatchObject({ outcome: 'fingerprint_conflict', link: { id: first.link.id, payloadFingerprint: FP_1 } });
+    // The replay decision is on the request fingerprint: same handoff, different request → conflict.
+    const conflict = await links.claimOrganiserItemExternalLink(principal, { ...input, requestFingerprint: RQ_2 });
+    expect(conflict).toMatchObject({ outcome: 'fingerprint_conflict', link: { id: first.link.id, requestFingerprint: RQ_1, handoffFingerprint: FP_1 } });
+    const otherTarget = await links.claimOrganiserItemExternalLink(principal, { ...input, requestFingerprint: RQ_2, target: { boardId: BOARD_B, groupId: null } });
+    expect(otherTarget).toMatchObject({ outcome: 'fingerprint_conflict', link: { targetBoardId: BOARD_A } });
     const [{ n, snapshot }] = await q<{ n: bigint; snapshot: unknown }>(
-      `SELECT count(*) OVER () AS n, snapshot_json AS snapshot FROM organiser_item_external_links WHERE idempotency_key = $1`, key,
+      `SELECT count(*) OVER () AS n, handoff_snapshot AS snapshot FROM organiser_item_external_links WHERE idempotency_key = $1`, key,
     );
     expect(Number(n)).toBe(1);
-    expect(snapshot).toEqual(input.snapshot);
+    expect(snapshot).toEqual(input.handoffSnapshot);
   });
 
   it('concurrent claims of one key produce exactly one identity', async () => {
@@ -446,7 +455,7 @@ describe('external link identity (idempotency foundation)', () => {
     const results = await Promise.all(
       Array.from({ length: 8 }, () =>
         links.claimOrganiserItemExternalLink(principal, {
-          idempotencyKey: key, externalRecommendationId: 'rec-c', sourceUrl: null, payloadFingerprint: FP_1, snapshot: {},
+          idempotencyKey: key, externalRecommendationId: 'rec-c', sourceUrl: null, handoffFingerprint: FP_1, requestFingerprint: RQ_1, handoffSnapshot: {}, target: TARGET,
         }),
       ),
     );
@@ -461,7 +470,7 @@ describe('external link identity (idempotency foundation)', () => {
     const key = randomUUID();
     const claim = (p: typeof principalA) =>
       links.claimOrganiserItemExternalLink(p, {
-        idempotencyKey: key, externalRecommendationId: 'rec-x', sourceUrl: null, payloadFingerprint: FP_1, snapshot: {},
+        idempotencyKey: key, externalRecommendationId: 'rec-x', sourceUrl: null, handoffFingerprint: FP_1, requestFingerprint: RQ_1, handoffSnapshot: {}, target: TARGET,
       });
     const a = await claim(principalA);
     const b = await claim(principalB);
@@ -475,8 +484,9 @@ describe('external link identity (idempotency foundation)', () => {
     await expectDbError(
       exec(
         `INSERT INTO organiser_item_external_links (organisation_id, source_system, idempotency_key, external_recommendation_id,
-           payload_fingerprint, snapshot_json, credential_id) VALUES ($1, 'other', $2, 'r', $3, '{}'::jsonb, $4::uuid)`,
-        ORG_A, key, FP_1, principalA.credentialId,
+           handoff_fingerprint, request_fingerprint, handoff_snapshot, target_board_id, credential_id)
+         VALUES ($1, 'other', $2, 'r', $3, $3, '{}'::jsonb, $5::uuid, $4::uuid)`,
+        ORG_A, key, FP_1, principalA.credentialId, BOARD_A,
       ),
       /organiser_item_external_links_source_system_check/,
     );
@@ -485,12 +495,14 @@ describe('external link identity (idempotency foundation)', () => {
 
   it('validates claim input before touching the database', async () => {
     const principal = await principalFor((await issue(ORG_A)).token);
-    const ok = { idempotencyKey: randomUUID(), externalRecommendationId: 'r', sourceUrl: null, payloadFingerprint: FP_1, snapshot: {} };
+    const ok = { idempotencyKey: randomUUID(), externalRecommendationId: 'r', sourceUrl: null, handoffFingerprint: FP_1, requestFingerprint: RQ_1, handoffSnapshot: {}, target: TARGET };
     await expect(links.claimOrganiserItemExternalLink(principal, { ...ok, idempotencyKey: ' padded ' })).rejects.toMatchObject({ code: 'invalid_idempotency_key' });
     await expect(links.claimOrganiserItemExternalLink(principal, { ...ok, idempotencyKey: 'k'.repeat(129) })).rejects.toMatchObject({ code: 'invalid_idempotency_key' });
-    await expect(links.claimOrganiserItemExternalLink(principal, { ...ok, payloadFingerprint: 'abc' })).rejects.toMatchObject({ code: 'invalid_payload_fingerprint' });
+    await expect(links.claimOrganiserItemExternalLink(principal, { ...ok, handoffFingerprint: 'abc' })).rejects.toMatchObject({ code: 'invalid_handoff_fingerprint' });
+    await expect(links.claimOrganiserItemExternalLink(principal, { ...ok, requestFingerprint: 'abc' })).rejects.toMatchObject({ code: 'invalid_request_fingerprint' });
+    await expect(links.claimOrganiserItemExternalLink(principal, { ...ok, target: { boardId: 'nope', groupId: null } })).rejects.toMatchObject({ code: 'invalid_target' });
     await expect(links.claimOrganiserItemExternalLink(principal, { ...ok, sourceUrl: 'javascript:alert(1)' })).rejects.toMatchObject({ code: 'invalid_source_url' });
-    await expect(links.claimOrganiserItemExternalLink(principal, { ...ok, snapshot: [] as never })).rejects.toMatchObject({ code: 'invalid_snapshot' });
+    await expect(links.claimOrganiserItemExternalLink(principal, { ...ok, handoffSnapshot: [] as never })).rejects.toMatchObject({ code: 'invalid_snapshot' });
     await expect(
       links.claimOrganiserItemExternalLink({ ...principal, integrationKey: 'other' as never }, ok),
     ).rejects.toMatchObject({ code: 'invalid_principal' });
@@ -504,20 +516,21 @@ describe('Organiser item deletion', () => {
     const principal = await principalFor((await issue(ORG_A)).token);
     const item = await newItem(ORG_A, BOARD_A, 'To be deleted');
     const key = randomUUID();
-    const input = { idempotencyKey: key, externalRecommendationId: 'rec-d', sourceUrl: null, payloadFingerprint: FP_1, snapshot: { a: 1 }, organiserItemId: item };
+    const input = { idempotencyKey: key, externalRecommendationId: 'rec-d', sourceUrl: null, handoffFingerprint: FP_1, requestFingerprint: RQ_1, handoffSnapshot: { a: 1 }, target: TARGET, organiserItemId: item };
     const created = await links.claimOrganiserItemExternalLink(principal, input);
     expect(created.link).toMatchObject({ organiserItemId: item, itemState: 'linked' });
 
     await exec(`DELETE FROM organiser_items WHERE id = $1::uuid`, item);
 
-    const [row] = await q<{ organisation_id: string; organiser_item_id: string | null; item_deleted_at: Date | null; snapshot_json: unknown }>(
-      `SELECT organisation_id, organiser_item_id, item_deleted_at, snapshot_json FROM organiser_item_external_links WHERE id = $1::uuid`,
+    const [row] = await q<{ organisation_id: string; organiser_item_id: string | null; item_deleted_at: Date | null; handoff_snapshot: unknown; target_board_id: string }>(
+      `SELECT organisation_id, organiser_item_id, item_deleted_at, handoff_snapshot, target_board_id::text AS target_board_id FROM organiser_item_external_links WHERE id = $1::uuid`,
       created.link.id,
     );
     expect(row.organisation_id).toBe(ORG_A);
     expect(row.organiser_item_id).toBeNull();
     expect(row.item_deleted_at).not.toBeNull();
-    expect(row.snapshot_json).toEqual({ a: 1 });
+    expect(row.handoff_snapshot).toEqual({ a: 1 });
+    expect(row.target_board_id).toBe(BOARD_A); // original intent survives the deletion
 
     const retry = await links.claimOrganiserItemExternalLink(principal, { ...input, organiserItemId: null });
     expect(retry).toMatchObject({ outcome: 'replayed', link: { id: created.link.id, itemState: 'item_deleted', organiserItemId: null } });
@@ -539,17 +552,20 @@ describe('Organiser item deletion', () => {
     const item = await newItem(ORG_A, BOARD_A);
     const other = await newItem(ORG_A, BOARD_A);
     const { link } = await links.claimOrganiserItemExternalLink(principal, {
-      idempotencyKey: randomUUID(), externalRecommendationId: 'rec-i', sourceUrl: null, payloadFingerprint: FP_1, snapshot: {}, organiserItemId: item,
+      idempotencyKey: randomUUID(), externalRecommendationId: 'rec-i', sourceUrl: null, handoffFingerprint: FP_1, requestFingerprint: RQ_1, handoffSnapshot: {}, target: TARGET, organiserItemId: item,
     });
     await expectDbError(exec(`DELETE FROM organiser_item_external_links WHERE id = $1::uuid`, link.id), /never deleted/);
     await expectDbError(exec(`UPDATE organiser_item_external_links SET organiser_item_id = $1::uuid WHERE id = $2::uuid`, other, link.id), /re-pointed/);
-    await expectDbError(exec(`UPDATE organiser_item_external_links SET payload_fingerprint = $1 WHERE id = $2::uuid`, FP_2, link.id), /immutable/);
-    await expectDbError(exec(`UPDATE organiser_item_external_links SET snapshot_json = '{"x":1}' WHERE id = $1::uuid`, link.id), /immutable/);
+    await expectDbError(exec(`UPDATE organiser_item_external_links SET handoff_fingerprint = $1 WHERE id = $2::uuid`, FP_2, link.id), /immutable/);
+    await expectDbError(exec(`UPDATE organiser_item_external_links SET request_fingerprint = $1 WHERE id = $2::uuid`, RQ_2, link.id), /immutable/);
+    await expectDbError(exec(`UPDATE organiser_item_external_links SET handoff_snapshot = '{"x":1}' WHERE id = $1::uuid`, link.id), /immutable/);
+    await expectDbError(exec(`UPDATE organiser_item_external_links SET target_board_id = $1::uuid WHERE id = $2::uuid`, BOARD_B, link.id), /immutable/);
+    await expectDbError(exec(`UPDATE organiser_item_external_links SET target_group_id = $1::uuid WHERE id = $2::uuid`, randomUUID(), link.id), /immutable/);
     await expectDbError(exec(`UPDATE organiser_item_external_links SET idempotency_key = 'k2' WHERE id = $1::uuid`, link.id), /immutable/);
     // An item belongs to at most one external request.
     await expect(
       links.claimOrganiserItemExternalLink(principal, {
-        idempotencyKey: randomUUID(), externalRecommendationId: 'rec-j', sourceUrl: null, payloadFingerprint: FP_1, snapshot: {}, organiserItemId: item,
+        idempotencyKey: randomUUID(), externalRecommendationId: 'rec-j', sourceUrl: null, handoffFingerprint: FP_1, requestFingerprint: RQ_1, handoffSnapshot: {}, target: TARGET, organiserItemId: item,
       }),
     ).rejects.toMatchObject({ code: 'invalid_organiser_item' });
   });
@@ -557,7 +573,7 @@ describe('Organiser item deletion', () => {
   it('supports B2’s claim-then-create: one statement creates the item and attaches it once', async () => {
     const principal = await principalFor((await issue(ORG_A)).token);
     const { link } = await links.claimOrganiserItemExternalLink(principal, {
-      idempotencyKey: randomUUID(), externalRecommendationId: 'rec-b2', sourceUrl: null, payloadFingerprint: FP_1, snapshot: {},
+      idempotencyKey: randomUUID(), externalRecommendationId: 'rec-b2', sourceUrl: null, handoffFingerprint: FP_1, requestFingerprint: RQ_1, handoffSnapshot: {}, target: TARGET,
     });
     const attach = (itemId: string) =>
       q<{ id: string }>(

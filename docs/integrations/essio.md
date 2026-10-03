@@ -92,10 +92,21 @@ polymorphic `entity_type/entity_id` relation).
   and `(organisation_id, credential_id) → integration_credentials(organisation_id, id)`:
   same-organisation references enforced by the database.
 - `external_recommendation_id`, `source_url` (Essio deep link, http(s) only),
-  `payload_fingerprint` (sha256 hex of Essio's frozen payload), `snapshot_json`
-  (the Essio source snapshot, ≤ 256 KiB), `created_at`, `item_deleted_at`.
+  `handoff_snapshot` (the exact Essio payload, ≤ 256 KiB), `created_at`,
+  `item_deleted_at`.
+- Two fingerprints, never overloaded:
+  - `handoff_fingerprint` — identity/provenance of the frozen Essio payload
+    (sha256 hex, equal to the fingerprint Essio records);
+  - `request_fingerprint` — identity of the complete Brainbase creation
+    instruction (target + handoff). Replay vs conflict is decided on this one,
+    so an idempotency key can never redirect the same handoff to another
+    board or group.
+- `target_board_id` / `target_group_id` — the original creation target (no FK).
+  Brainbase users may move the item later; its current placement is never
+  treated as the original target.
 - An item belongs to at most one link (partial unique index).
-- Rows are never deleted; identity columns are immutable (trigger).
+- Rows are never deleted; identity columns — including both fingerprints and
+  the target — are immutable (trigger).
 
 ### Deletion
 
@@ -115,8 +126,8 @@ organisation and integration:
 | Result | Meaning | B2 response |
 |---|---|---|
 | `created` | first time this key is seen | create the item and attach it |
-| `replayed` | same key, same fingerprint | return the existing item (or "deleted") |
-| `fingerprint_conflict` | same key, different payload | refuse (409), no side effects |
+| `replayed` | same key, same request fingerprint | return the existing item (or "deleted") |
+| `fingerprint_conflict` | same key, different request (payload and/or target) | refuse (409), no side effects |
 
 Concurrent claims of one key produce exactly one row. B2 attaches the item in
 one statement guarded by `organiser_item_id IS NULL AND item_deleted_at IS
