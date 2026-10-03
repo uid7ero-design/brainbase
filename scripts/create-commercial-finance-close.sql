@@ -61,3 +61,23 @@ CREATE INDEX IF NOT EXISTS idx_commercial_financial_period_closes_org_period
 CREATE UNIQUE INDEX IF NOT EXISTS idx_commercial_financial_period_closes_one_current
   ON commercial_financial_period_closes(financial_period_id)
   WHERE status = 'CLOSED';
+
+
+CREATE OR REPLACE FUNCTION commercial_financial_period_close_delete_guard()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'finance close history is immutable';
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname = 'trg_commercial_financial_period_close_delete_guard'
+      AND tgrelid = 'commercial_financial_period_closes'::regclass
+  ) THEN
+    CREATE TRIGGER trg_commercial_financial_period_close_delete_guard
+      BEFORE DELETE ON commercial_financial_period_closes
+      FOR EACH ROW EXECUTE FUNCTION commercial_financial_period_close_delete_guard();
+  END IF;
+END $$;

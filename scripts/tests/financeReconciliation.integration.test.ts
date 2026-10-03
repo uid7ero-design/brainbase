@@ -875,6 +875,18 @@ describe('C7.9E1 — prepared finance reconciliation snapshots', () => {
        WHERE reconciliation_id=$1::uuid AND event_type='SIGNED_OFF'`,
       prepared.id,
     )).rejects.toThrow(/events are immutable/);
+
+    await expect(prisma.$executeRawUnsafe(
+      `DELETE FROM commercial_finance_reconciliation_items
+       WHERE reconciliation_id=$1::uuid`,
+      prepared.id,
+    )).rejects.toThrow(/items are immutable/);
+
+    await expect(prisma.$executeRawUnsafe(
+      `DELETE FROM commercial_finance_reconciliations
+       WHERE id=$1::uuid`,
+      prepared.id,
+    )).rejects.toThrow(/snapshots cannot be deleted/);
   });
 
   it('does not disclose or attach a close belonging to another tenant', async () => {

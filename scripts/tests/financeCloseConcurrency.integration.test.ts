@@ -74,7 +74,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   auditMock.mockReset();
-  await prisma.$executeRawUnsafe(`DELETE FROM commercial_financial_period_closes WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
+  await prisma.$executeRawUnsafe(`TRUNCATE commercial_financial_period_closes CASCADE`);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_supplier_bill_lines WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_supplier_bills WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_financial_periods WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
@@ -125,6 +125,29 @@ describe('C7.9A — real PostgreSQL close/reopen controls', () => {
       `SELECT status FROM commercial_financial_periods WHERE id=$1::uuid`, PERIOD,
     );
     expect(period[0].status).toBe('CLOSED');
+  });
+
+  it('rejects hard delete of durable close history at the database layer', async () => {
+    const close = await closeFinancialPeriod({
+      organisationId: ORG,
+      userId: USER,
+      financialPeriodId: PERIOD,
+      reason: 'Month end',
+    });
+
+    await expect(prisma.$executeRawUnsafe(
+      `DELETE FROM commercial_financial_period_closes WHERE id=$1::uuid`,
+      close.id,
+    )).rejects.toThrow('finance close history is immutable');
+
+    const rows = await prisma.$queryRawUnsafe<{ id: string; status: string }[]>(
+      `SELECT id,status
+       FROM commercial_financial_period_closes
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      close.id,
+      ORG,
+    );
+    expect(rows).toEqual([{ id: close.id, status: 'CLOSED' }]);
   });
 
   it('keeps a close and its control evidence durable when generic audit logging fails afterwards', async () => {

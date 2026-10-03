@@ -88,7 +88,7 @@ beforeEach(async () => {
        RESTART IDENTITY CASCADE`,
   );
   await prisma.$executeRawUnsafe(
-    `DELETE FROM commercial_financial_period_closes WHERE organisation_id=$1`, ORG,
+    `TRUNCATE commercial_financial_period_closes CASCADE`,
   );
   await prisma.$executeRawUnsafe(
     `UPDATE commercial_budgets SET active_version_id=NULL WHERE organisation_id=$1`, ORG,

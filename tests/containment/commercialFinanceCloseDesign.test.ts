@@ -18,6 +18,10 @@ const actualDesign = fs.readFileSync(
   path.resolve(process.cwd(), 'docs/architecture/c7-8-budget-actuals-design.md'),
   'utf8',
 );
+const closeMigration = fs.readFileSync(
+  path.resolve(process.cwd(), 'scripts/create-commercial-finance-close.sql'),
+  'utf8',
+);
 
 describe('C7.9 — finance reconciliation and close-control architecture contract', () => {
   it('hardens the old OPEN/CLOSED primitive behind durable close controls', () => {
@@ -55,6 +59,12 @@ describe('C7.9 — finance reconciliation and close-control architecture contrac
     expect(design).toContain('POSTED rows are immutable');
     expect(design).toContain('Corrections use reversal + replacement');
     expect(design).toContain('effective Budget Actual = source payable Actual + POSTED finance adjustment lines');
+  });
+
+  it('prevents hard deletion of durable close history at the database layer', () => {
+    expect(closeMigration).toContain('commercial_financial_period_close_delete_guard');
+    expect(closeMigration).toContain("RAISE EXCEPTION 'finance close history is immutable'");
+    expect(closeMigration).toContain('BEFORE DELETE ON commercial_financial_period_closes');
   });
 
   it('requires transactional close evidence rather than relying on best-effort audit only', () => {

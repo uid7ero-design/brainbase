@@ -92,7 +92,7 @@ beforeEach(async () => {
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_finance_reconciliation_events WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_finance_reconciliation_items WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_finance_reconciliations WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
-  await prisma.$executeRawUnsafe(`DELETE FROM commercial_financial_period_closes WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
+  await prisma.$executeRawUnsafe(`TRUNCATE commercial_financial_period_closes CASCADE`);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_finance_adjustment_events WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_finance_adjustment_lines WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_finance_adjustments WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
