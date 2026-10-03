@@ -28,7 +28,7 @@ MIGRATIONS="scripts/create-shared-foundations-a01b.sql scripts/create-assurance-
   scripts/create-assurance-incidents-a01d1.sql scripts/create-assurance-investigations-a01d2.sql
   scripts/create-assurance-inspections-a01d3.sql scripts/create-assurance-audits-a01e1.sql \
   scripts/create-assurance-template-lifecycle-a01f.sql scripts/create-assurance-contractor-assurance-a01g.sql
-  scripts/create-assurance-evidence-verification-a01h.sql"
+  scripts/create-assurance-evidence-verification-a01h.sql scripts/create-assurance-findings-reopen-a01i.sql"
 
 CONTAINER="brainbase-assurance-risk-$$"
 HOST_PORT=$((20000 + RANDOM % 20000))

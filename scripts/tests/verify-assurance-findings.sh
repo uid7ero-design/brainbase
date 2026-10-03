@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
-# BrainBase Assurance — Settings → Reference data: disposable PostgreSQL 17 proof.
+# BrainBase Assurance — Findings & Corrective Actions (A0.1I): disposable PostgreSQL 17 proof.
 #
 # Starts a throwaway postgres:17 container, creates the same minimal
 # stand-ins for pre-existing platform tables as verify-assurance-ui-services.sh,
-# applies the REAL Assurance migrations (A0.1B, A0.1C, A0.1D-1..3, A0.1E-1, A0.1F),
-# then runs scripts/tests/assuranceReferenceDataSettings.integration.test.ts
-# (shared locations / assets / external organisations: list, create, edit,
-# deactivate, reactivate, permissions, tenant isolation, active-only selectors,
-# historical display, concurrency and audit) through the Neon-compatible `pg` seam.
+# applies the REAL Assurance migrations (A0.1B, A0.1C, A0.1D-1..3, A0.1E-1, A0.1F,
+# A0.1G, A0.1H, A0.1I), then runs scripts/tests/assuranceFindings.integration.test.ts
+# (structured source provenance, derived register views, closure reason,
+# closure readiness, reopen history and races, follow-up actions, work /
+# verification / closure separation, task and evidence non-propagation,
+# verification independence, tenant and restricted visibility, audit
+# atomicity) through the Neon-compatible `pg` seam.
 #
 # Never touches Neon Preview/Production. The spec itself refuses any
 # non-localhost DATABASE_URL.
 #
-# Usage:   bash scripts/tests/verify-assurance-reference-data-settings.sh
+# Usage:   bash scripts/tests/verify-assurance-findings.sh
 # Exit:    0 = pass, 1 = test failure, 2 = harness/setup failure.
 # Always destroys its own container.
 
@@ -21,7 +23,7 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT" || exit 2
 
-CONTAINER="brainbase-assurance-refdata-$$"
+CONTAINER="brainbase-assurance-findings-$$"
 HOST_PORT=$((20000 + RANDOM % 20000))
 
 cleanup() { docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; }
@@ -63,6 +65,7 @@ CREATE TABLE organisations (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   slug TEXT NOT NULL UNIQUE,
+  timezone TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL
 );
@@ -160,12 +163,12 @@ for f in scripts/create-shared-foundations-a01b.sql scripts/create-assurance-cor
 done
 
 export DATABASE_URL="postgresql://postgres:test@127.0.0.1:${HOST_PORT}/testdb"
-echo "Running Settings → Reference data integration suite ..."
-npx vitest run --config vitest.integration.config.ts scripts/tests/assuranceReferenceDataSettings.integration.test.ts
+echo "Running Findings & Corrective Actions integration suite ..."
+npx vitest run --config vitest.integration.config.ts scripts/tests/assuranceFindings.integration.test.ts
 STATUS=$?
 if [ "$STATUS" -ne 0 ]; then
-  echo "Reference data settings proof FAILED."
+  echo "Findings & Corrective Actions proof FAILED."
   exit 1
 fi
-echo "Reference data settings proof passed."
+echo "Findings & Corrective Actions proof passed."
 exit 0

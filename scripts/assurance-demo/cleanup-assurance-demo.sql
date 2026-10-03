@@ -26,8 +26,9 @@ END $$;
 
 ALTER TABLE assurance_verifications DISABLE TRIGGER trg_assurance_verifications_append_only;
 -- Template-version history triggers: the A0.1D-3/A0.1E-1 always-immutable
--- ones, or (after A0.1F) the lifecycle guards — whichever exist — and (after
--- A0.1H) the evidence no-delete guard.
+-- ones, or (after A0.1F) the lifecycle guards — whichever exist — (after
+-- A0.1H) the evidence no-delete guard and (after A0.1I) the
+-- finding-reopening append-only guard.
 DO $$
 DECLARE r record;
 BEGIN
@@ -35,7 +36,7 @@ BEGIN
            WHERE NOT tgisinternal AND tgname IN (
              'trg_assurance_inspection_template_versions_immutable', 'trg_assurance_audit_template_versions_immutable',
              'trg_assurance_inspection_template_versions_lifecycle', 'trg_assurance_audit_template_versions_lifecycle',
-             'trg_assurance_evidence_no_delete')
+             'trg_assurance_evidence_no_delete', 'trg_assurance_finding_reopenings_append_only')
   LOOP
     EXECUTE format('ALTER TABLE %I DISABLE TRIGGER %I', r.tbl, r.tgname);
   END LOOP;
@@ -68,6 +69,12 @@ DELETE FROM assurance_inspection_responses   WHERE organisation_id = 'assurance-
 DELETE FROM assurance_audit_responses        WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_evidence               WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_actions                WHERE organisation_id = 'assurance-demo-org';
+DO $
+BEGIN
+  IF to_regclass('public.assurance_finding_reopenings') IS NOT NULL THEN
+    DELETE FROM assurance_finding_reopenings WHERE organisation_id = 'assurance-demo-org';
+  END IF;
+END $;
 DELETE FROM assurance_findings               WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_inspections            WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_audits                 WHERE organisation_id = 'assurance-demo-org';
@@ -87,7 +94,7 @@ BEGIN
            WHERE NOT tgisinternal AND tgname IN (
              'trg_assurance_inspection_template_versions_immutable', 'trg_assurance_audit_template_versions_immutable',
              'trg_assurance_inspection_template_versions_lifecycle', 'trg_assurance_audit_template_versions_lifecycle',
-             'trg_assurance_evidence_no_delete')
+             'trg_assurance_evidence_no_delete', 'trg_assurance_finding_reopenings_append_only')
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE TRIGGER %I', r.tbl, r.tgname);
   END LOOP;
@@ -126,7 +133,8 @@ BEGIN
     SELECT 1 FROM pg_trigger
     WHERE tgname IN ('trg_assurance_verifications_append_only', 'trg_assurance_inspection_template_versions_immutable',
                      'trg_assurance_audit_template_versions_immutable', 'trg_assurance_inspection_template_versions_lifecycle',
-                     'trg_assurance_audit_template_versions_lifecycle', 'trg_assurance_evidence_no_delete')
+                     'trg_assurance_audit_template_versions_lifecycle', 'trg_assurance_evidence_no_delete',
+                     'trg_assurance_finding_reopenings_append_only')
       AND tgenabled = 'D'
   ) THEN
     RAISE EXCEPTION 'An Assurance history trigger is still disabled';
