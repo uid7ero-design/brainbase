@@ -8,6 +8,26 @@ Newest first.
 
 ---
 
+## Contractor assurance
+
+- **Contractor assurance** is added to the Assurance navigation, after
+  **Templates**. It lists the shared external organisations your
+  organisation has brought into Assurance scope, with views for Needs
+  attention, Expired, Expiring soon, Awaiting review, Missing evidence,
+  Current, All in scope and Out of scope.
+- A **Requirement library** (organisation admins) defines what external
+  organisations must demonstrate, whether evidence needs an expiry date, and
+  an optional renewal notice period.
+- On an organisation's page:
+  - managers bring it into scope, assign requirements and record evidence
+    (where the document is held; no upload yet);
+  - someone other than the recorder accepts or rejects the evidence.
+  Accepted evidence that is replaced is kept as history.
+- Status is stated as facts: expired, missing, awaiting review, expiring soon
+  or current. It is not a score, and nothing is created automatically. Use
+  **Raise finding** for a genuine issue.
+- New [work instruction 14: Manage contractor assurance](work-instructions/14-manage-contractor-assurance.md).
+
 ## Templates: drafts, publishing and retirement
 
 - **Templates** is added to the Assurance navigation, after **Audits**. It

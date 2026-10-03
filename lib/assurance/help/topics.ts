@@ -13,6 +13,7 @@ export type HelpTopic =
   | 'inspections' | 'inspection-new' | 'inspection'
   | 'audits' | 'audit-new' | 'audit'
   | 'templates' | 'template'
+  | 'contractors' | 'contractor' | 'contractor-requirements'
   | 'findings' | 'finding'
   | 'actions' | 'action'
   | 'evidence' | 'evidence-record'
@@ -43,6 +44,10 @@ export const HELP_TOPICS: Record<HelpTopic, HelpTarget> = {
 
   templates: { slug: 'user-guide', anchor: 'templates', label: 'Templates' },
   template: { slug: 'manage-templates', label: 'Manage inspection and audit templates' },
+
+  contractors: { slug: 'user-guide', anchor: 'contractor-assurance', label: 'Contractor assurance' },
+  contractor: { slug: 'manage-contractor-assurance', label: 'Manage contractor assurance' },
+  'contractor-requirements': { slug: 'admin-guide', anchor: 'contractor-assurance-requirement-library', label: 'Contractor assurance requirement library' },
 
   findings: { slug: 'user-guide', anchor: 'findings-2', label: 'Findings' },
   finding: { slug: 'raise-and-manage-a-finding', label: 'Raise and manage a finding' },

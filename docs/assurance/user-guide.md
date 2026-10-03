@@ -14,7 +14,7 @@ step-by-step procedures, use the [work instructions](work-instructions/).
 ## Finding your way around
 
 - Open **Assurance** from the BrainBase top navigation.
-- The left navigation lists the eleven work sections, then **Settings**. On a
+- The left navigation lists the twelve work sections, then **Settings**. On a
   phone it becomes a scrollable strip across the top of the page.
 - **Settings** shows your organisation's Assurance configuration: its **Risk
   levels**, and its **Reference data** (the shared locations, assets and
@@ -401,6 +401,51 @@ them (see the admin guide).
 - **Published and retired versions never change.** An inspection or audit
   always shows the exact wording of the version it was created from, even
   after newer versions are published or the template is retired.
+
+---
+
+## Contractor assurance
+
+**Contractor assurance** answers: which external organisations need assurance,
+what they must demonstrate, what evidence they have supplied, whether it is
+current, and what still needs attention.
+
+- It works on your organisation's **shared external organisations** (managed
+  under **Settings → Reference data**). Contractor assurance never copies them
+  or changes their relationship roles.
+- An organisation is only included once someone **brings it into Assurance
+  scope**. Being a contractor or supplier does not put it in scope by itself.
+- The register has views: **Needs attention**, **Expired**, **Expiring soon**,
+  **Awaiting review**, **Missing evidence**, **Current**, **All in scope** and
+  **Out of scope**.
+- Each organisation shows a status and the counts behind it:
+  - **Expired evidence** — the current accepted evidence has passed its expiry
+    date;
+  - **Missing evidence** — a requirement has no accepted evidence;
+  - **Evidence awaiting review** — evidence has been recorded but not yet
+    accepted or rejected;
+  - **Evidence expiring soon** — the current evidence expires within the
+    requirement's renewal notice period (only if one is set);
+  - **All requirements current**; or **No requirements assigned**.
+
+  The status shown is the first of these that applies, in that order. It is
+  a plain statement of facts, not a risk or compliance score. Dates use
+  Australia/Adelaide time.
+- On an organisation's page each requirement shows its current evidence,
+  anything awaiting review, the evidence history and any findings.
+- **Record evidence** (managers): what was supplied, its supplied, effective
+  and expiry dates, and where the document is held. There is no file upload
+  yet; the original stays where it is held.
+- **Accept or reject** (managers and admins): someone other than the person
+  who recorded the evidence must decide. Accepting new evidence keeps the old
+  evidence as **superseded** history. Rejecting a replacement leaves the
+  current evidence in place.
+- Each piece of evidence is assessed against the requirement **as it stood
+  when the evidence was recorded**. If the requirement has changed since, the
+  page says so and shows both.
+- Missing, expired or rejected evidence never creates a finding by itself.
+  Use **Raise finding** when there is a genuine assurance issue; actions
+  are then created from the finding in the usual way.
 
 ---
 

@@ -263,13 +263,29 @@ export async function createFinding(viewer: AssuranceViewer, raw: Record<string,
     inspectionItemKey: optionalText(raw.inspectionItemKey, 'Checklist item', 120),
     auditId: optionalUuid(raw.auditId, 'Audit'),
     auditCriterionKey: optionalText(raw.auditCriterionKey, 'Audit criterion', 120),
+    requirementAssignmentId: optionalUuid(raw.requirementAssignmentId, 'Requirement assignment'),
   };
-  const sourceCount = [input.incidentId, input.investigationId, input.inspectionId, input.auditId].filter(Boolean).length;
+  const sourceCount = [input.incidentId, input.investigationId, input.inspectionId, input.auditId, input.requirementAssignmentId].filter(Boolean).length;
   if (sourceCount > 1) throw new AssuranceValidationError('Raise a finding from one source at a time; link further sources afterwards.');
   if (input.inspectionItemKey && !input.inspectionId) throw new AssuranceValidationError('A checklist item needs its inspection.');
   if (input.auditCriterionKey && !input.auditId) throw new AssuranceValidationError('An audit criterion needs its audit.');
   if (input.dueAt && new Date(input.dueAt).getTime() < Date.now() - 24 * 3600_000) {
     throw new AssuranceValidationError('Due date cannot be in the past.');
+  }
+
+  if (input.requirementAssignmentId) {
+    // Contractor assurance (A0.1G): an explicit Finding about a requirement
+    // gap. The Finding names the assignment's external organisation as the
+    // responsible party; nothing here is automatic.
+    const a = (await sql`
+      SELECT external_organisation_id FROM assurance_requirement_assignments
+      WHERE organisation_id = ${viewer.organisationId} AND id = ${input.requirementAssignmentId}::uuid
+    `) as { external_organisation_id: string }[];
+    if (!a[0]) throw new AssuranceNotFoundError('Requirement assignment');
+    if (input.responsibleExternalOrganisationId && input.responsibleExternalOrganisationId !== a[0].external_organisation_id) {
+      throw new AssuranceValidationError('A finding raised from a requirement must name the external organisation that requirement is assigned to.');
+    }
+    input.responsibleExternalOrganisationId = a[0].external_organisation_id;
   }
 
   const [, , incident, investigation, inspection, auditRec] = await Promise.all([
@@ -321,7 +337,9 @@ export async function createFinding(viewer: AssuranceViewer, raw: Record<string,
         ? sql`SELECT id FROM assurance_inspections WHERE organisation_id = ${org} AND id = ${input.inspectionId}::uuid FOR UPDATE`
         : input.auditId
           ? sql`SELECT id FROM assurance_audits WHERE organisation_id = ${org} AND id = ${input.auditId}::uuid FOR UPDATE`
-          : sql`SELECT 1`;
+          : input.requirementAssignmentId
+            ? sql`SELECT id FROM assurance_requirement_assignments WHERE organisation_id = ${org} AND id = ${input.requirementAssignmentId}::uuid FOR SHARE`
+            : sql`SELECT 1`;
   const sourceOpen = input.incidentId
     ? sql`EXISTS (SELECT 1 FROM assurance_incidents s WHERE s.organisation_id = ${org} AND s.id = ${input.incidentId}::uuid AND s.status NOT IN ('CLOSED', 'CANCELLED'))`
     : input.investigationId
@@ -330,7 +348,9 @@ export async function createFinding(viewer: AssuranceViewer, raw: Record<string,
         ? sql`EXISTS (SELECT 1 FROM assurance_inspections s WHERE s.organisation_id = ${org} AND s.id = ${input.inspectionId}::uuid AND s.status <> 'CANCELLED')`
         : input.auditId
           ? sql`EXISTS (SELECT 1 FROM assurance_audits s WHERE s.organisation_id = ${org} AND s.id = ${input.auditId}::uuid AND s.status <> 'CANCELLED')`
-          : sql`true`;
+          : input.requirementAssignmentId
+            ? sql`EXISTS (SELECT 1 FROM assurance_requirement_assignments s WHERE s.organisation_id = ${org} AND s.id = ${input.requirementAssignmentId}::uuid)`
+            : sql`true`;
   return withFreshReference('finding', async reference => {
     const statements = [
       lock,
@@ -362,6 +382,10 @@ export async function createFinding(viewer: AssuranceViewer, raw: Record<string,
       INSERT INTO assurance_inspection_findings (organisation_id, inspection_id, finding_id, created_by)
       SELECT ${org}, ${input.inspectionId}::uuid, ${id}::uuid, ${viewer.userId} WHERE ${sourceOpen}
     `);
+    if (input.requirementAssignmentId) statements.push(sql`
+      INSERT INTO assurance_requirement_assignment_findings (organisation_id, assignment_id, finding_id, created_by)
+      SELECT ${org}, ${input.requirementAssignmentId}::uuid, ${id}::uuid, ${viewer.userId} WHERE ${sourceOpen}
+    `);
     if (input.dueAt) statements.push(sql`
       INSERT INTO assurance_timeframes (organisation_id, finding_id, timeframe_type, original_due_at, current_due_at, created_by)
       SELECT ${org}, ${id}::uuid, 'CLOSURE', ${input.dueAt}::timestamptz, ${input.dueAt}::timestamptz, ${viewer.userId} WHERE ${sourceOpen}
@@ -374,6 +398,7 @@ export async function createFinding(viewer: AssuranceViewer, raw: Record<string,
                incident_id: input.incidentId, investigation_id: input.investigationId,
                inspection_id: input.inspectionId, inspection_item_key: input.inspectionItemKey,
                audit_id: input.auditId, audit_criterion_key: input.auditCriterionKey,
+               requirement_assignment_id: input.requirementAssignmentId,
              })}::jsonb
       WHERE ${sourceOpen}
     `);

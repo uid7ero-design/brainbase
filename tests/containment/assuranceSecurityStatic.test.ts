@@ -28,7 +28,7 @@ const libFiles = walk('lib/assurance')
 // In-app Help's pure modules are zero-import too (content.ts is the server-only loader).
 const CLIENT_SAFE_LIB = ['lib/assurance/domain.ts', 'lib/assurance/input.ts', 'lib/assurance/errors.ts', 'lib/assurance/references.ts',
   'lib/assurance/help/registry.ts', 'lib/assurance/help/markdown.ts', 'lib/assurance/help/search.ts', 'lib/assurance/help/topics.ts',
-  'lib/assurance/riskLevelRules.ts', 'lib/assurance/deadlineRules.ts']
+  'lib/assurance/riskLevelRules.ts', 'lib/assurance/deadlineRules.ts', 'lib/assurance/contractorAssuranceRules.ts']
 
 describe('API routes', () => {
   it('exist and every one is built from the authorizing factories', () => {
@@ -82,17 +82,17 @@ describe('pages', () => {
       expect(src, f).not.toMatch(/server-only|@\/lib\/db|next\/headers|from '\.\/(authorize|access|audit|users|lookups|sqlHelpers)'/)
     }
   })
-  it('navigation: Audits enabled in order; later A0.1E workflows (Evaluation, Contractor Assurance, Insurance) absent', () => {
+  it('navigation: Contractor assurance after Templates; later A0.1E workflows (Evaluation, Insurance) absent', () => {
     const src = read('app/assurance/_components/AssuranceSidebar.tsx')
     const order = [...src.matchAll(/href: '(\/assurance[^']*)'/g)].map(m => m[1])
     expect(order).toEqual([
       '/assurance', '/assurance/incidents', '/assurance/investigations', '/assurance/inspections', '/assurance/audits',
-      '/assurance/templates', '/assurance/findings', '/assurance/actions', '/assurance/deadlines', '/assurance/evidence', '/assurance/verification',
-      '/assurance/settings',
+      '/assurance/templates', '/assurance/contractors', '/assurance/findings', '/assurance/actions', '/assurance/deadlines', '/assurance/evidence',
+      '/assurance/verification', '/assurance/settings',
     ])
     expect(src).not.toMatch(/aria-disabled/)
-    expect(src).not.toMatch(/evaluation|insurance|contractor/i)
-    expect(walk('app').some(f => /assurance\/(evaluations?|insurance|contractor)/i.test(f))).toBe(false)
+    expect(src).not.toMatch(/evaluation|insurance/i)
+    expect(walk('app').some(f => /assurance\/(evaluations?|insurance)/i.test(f))).toBe(false)
   })
   it('Audit routes and pages exist', () => {
     for (const f of [
@@ -194,7 +194,7 @@ describe('service layer', () => {
     }
   })
   it('every Assurance mutation writes an audit row', () => {
-    for (const f of ['incidents', 'investigations', 'inspections', 'templateLifecycle', 'audits', 'findings', 'actions', 'evidence', 'verifications', 'riskLevels']) {
+    for (const f of ['incidents', 'investigations', 'inspections', 'templateLifecycle', 'audits', 'findings', 'actions', 'evidence', 'verifications', 'riskLevels', 'contractorAssurance']) {
       const src = stripComments(read(`lib/assurance/${f}.ts`))
       // templateLifecycle names its (allow-listed) tables through ident().
       const writes = (src.match(/\b(INSERT INTO assurance_|UPDATE assurance_|INSERT INTO \$\{ident\(|UPDATE \$\{ident\()/g) ?? []).length
@@ -259,5 +259,44 @@ describe('template lifecycle (A0.1F)', () => {
       expect(stripComments(read(f)), f).toMatch(/t\.is_active = true AND v\.status = 'PUBLISHED'/)
       expect(stripComments(read(f)), f).toMatch(/rejectUnpublishedTemplate\(sql\.transaction\(/)
     }
+  })
+})
+
+describe('contractor assurance (A0.1G)', () => {
+  const src = stripComments(read('lib/assurance/contractorAssurance.ts'))
+  it('routes use the authorizing factories with the agreed operations', () => {
+    const expect_ = (route: string, op: string) => {
+      const r = stripComments(read(`app/api/assurance/contractors/${route}/route.ts`))
+      expect(r, route).toMatch(new RegExp(`assurancePost(WithId)?\\('${op}'`))
+    }
+    expect_('requirements', 'administer')
+    expect_('requirements/[id]/update', 'administer')
+    expect_('requirements/[id]/status', 'administer')
+    expect_('scope', 'record')
+    expect_('assignments', 'record')
+    expect_('assignments/[id]/update', 'record')
+    expect_('assignments/[id]/cancel', 'close')
+    expect_('assignments/[id]/submissions', 'record')
+    expect_('submissions/[id]/decide', 'verify')
+    expect_('submissions/[id]/withdraw', 'record')
+  })
+  it('no contractor-specific task table, no copied organisations or people, no automatic findings', () => {
+    expect(src).not.toMatch(/INSERT INTO (assurance_findings|assurance_actions|organiser_items|external_organisations|hr_people|users)\b/)
+    expect(src).not.toMatch(/UPDATE external_organisations|UPDATE external_organisation_roles/)
+  })
+  it('decisions are verify-gated, never self-decided, and guarded on the observed state', () => {
+    const body = src.slice(src.indexOf('export async function decideSubmission('))
+    expect(body).toMatch(/viewerCan\(viewer, 'verify'\)/)
+    expect(body).toMatch(/sub\.recorded_by === viewer\.userId/)
+    expect(body).toMatch(/s\.status = 'SUBMITTED' AND s\.lock_version = \$\{lockVersion\}::int/)
+    expect(body.indexOf('lockAssignment(')).toBeLessThan(body.indexOf('INSERT INTO audit_logs'))
+  })
+  it('submission snapshots are written only by the database trigger', () => {
+    expect(src).not.toMatch(/requirement_name_snapshot\s*=|INSERT INTO assurance_requirement_submissions \([^)]*_snapshot/)
+  })
+  it('history times are unambiguous instants shown in the Assurance time zone, each entry naming its record kind', () => {
+    expect(src).toMatch(/\(l\.created_at AT TIME ZONE 'UTC'\) AS created_at/)
+    const page = stripComments(read('app/assurance/contractors/[id]/page.tsx'))
+    expect(page).toMatch(/<HistoryList entries=\{historyEntries\} timeZone=\{tz\} \/>/)
   })
 })

@@ -222,11 +222,11 @@ describe('wiring', () => {
       expect(Object.keys(HELP_TOPICS), f).toContain(m![1])
     }
   })
-  it('the sidebar keeps its eleven work sections plus Settings, and adds Help only as a footer entry', () => {
+  it('the sidebar keeps its twelve work sections plus Settings, and adds Help only as a footer entry', () => {
     const src = read('app/assurance/_components/AssuranceSidebar.tsx')
     const hrefs = [...src.matchAll(/href: '(\/assurance[^']*)'/g)].map(m => m[1])
-    expect(hrefs).toHaveLength(12)
-    expect(hrefs[11]).toBe('/assurance/settings')
+    expect(hrefs).toHaveLength(13)
+    expect(hrefs[12]).toBe('/assurance/settings')
     expect(src).toMatch(/footer=\{[\s\S]*href="\/assurance\/help"/)
   })
   it('rendered procedures keep their list markers (the app reset removes them)', () => {
