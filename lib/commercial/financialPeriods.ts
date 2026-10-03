@@ -19,6 +19,16 @@ export interface CommercialFinancialYear {
   updated_at: string;
 }
 
+export class FinancialYearStatusError extends Error {
+  constructor(
+    public readonly code: 'OPEN_PERIODS_EXIST' | 'CONCURRENT_STATE_CHANGE',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'FinancialYearStatusError';
+  }
+}
+
 export interface CommercialFinancialPeriod {
   id: string;
   financial_year_id: string;
@@ -86,20 +96,96 @@ export async function listFinancialPeriods(organisationId: string, financialYear
 export async function setFinancialYearStatus(params: {
   organisationId: string; userId: string; financialYearId: string; status: FinancialStatus;
 }): Promise<CommercialFinancialYear | null> {
-  const before = await getFinancialYear(params.organisationId, params.financialYearId);
-  if (!before) return null;
-  if (before.status === params.status) return before;
+  const existing = await getFinancialYear(params.organisationId, params.financialYearId);
+  if (!existing) return null;
+  if (existing.status === params.status) return existing;
+
+  if (params.status === 'CLOSED') {
+    type YearLockRow = CommercialFinancialYear & { has_open_periods: boolean };
+    const [yearRows, updatedRows] = await sql.transaction(txn => [
+      txn`
+        SELECT year.*,
+               EXISTS (
+                 SELECT 1
+                 FROM commercial_financial_periods period
+                 WHERE period.organisation_id=year.organisation_id
+                   AND period.financial_year_id=year.id
+                   AND period.status='OPEN'
+               ) AS has_open_periods
+        FROM commercial_financial_years year
+        WHERE year.id=${params.financialYearId}
+          AND year.organisation_id=${params.organisationId}
+        FOR UPDATE OF year
+      `,
+      txn`
+        UPDATE commercial_financial_years year
+        SET status='CLOSED'
+        WHERE year.id=${params.financialYearId}
+          AND year.organisation_id=${params.organisationId}
+          AND year.status='OPEN'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM commercial_financial_periods period
+            WHERE period.organisation_id=year.organisation_id
+              AND period.financial_year_id=year.id
+              AND period.status='OPEN'
+          )
+        RETURNING year.*
+      `,
+    ], { isolationLevel: 'ReadCommitted' });
+
+    const before = (yearRows as YearLockRow[])[0];
+    if (!before) return null;
+    if (before.status === 'CLOSED') return before;
+    if (before.has_open_periods) {
+      throw new FinancialYearStatusError(
+        'OPEN_PERIODS_EXIST',
+        'All financial periods must be CLOSED before closing the financial year.',
+      );
+    }
+
+    const after = (updatedRows as CommercialFinancialYear[])[0];
+    if (!after) {
+      throw new FinancialYearStatusError(
+        'CONCURRENT_STATE_CHANGE',
+        'Financial year close did not complete.',
+      );
+    }
+
+    await logFinancialYearStatusChanged({
+      organisationId: params.organisationId,
+      userId: params.userId,
+      financialYearId: params.financialYearId,
+      before: before.status,
+      after: after.status,
+    });
+    return after;
+  }
+
+  const before = existing;
 
   const rows = (await sql`
-    UPDATE commercial_financial_years SET status = ${params.status}, updated_at = now()
-    WHERE id = ${params.financialYearId} AND organisation_id = ${params.organisationId}
+    UPDATE commercial_financial_years
+    SET status='OPEN'
+    WHERE id=${params.financialYearId}
+      AND organisation_id=${params.organisationId}
+      AND status='CLOSED'
     RETURNING *
   `) as CommercialFinancialYear[];
   const after = rows[0];
+  if (!after) {
+    throw new FinancialYearStatusError(
+      'CONCURRENT_STATE_CHANGE',
+      'Financial year reopen did not complete.',
+    );
+  }
 
   await logFinancialYearStatusChanged({
-    organisationId: params.organisationId, userId: params.userId, financialYearId: params.financialYearId,
-    before: before.status, after: after.status,
+    organisationId: params.organisationId,
+    userId: params.userId,
+    financialYearId: params.financialYearId,
+    before: before.status,
+    after: after.status,
   });
 
   return after;

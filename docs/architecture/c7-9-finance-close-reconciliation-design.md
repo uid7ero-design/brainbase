@@ -131,6 +131,8 @@ Reopening must be an administer-level finance operation with:
 Reopening invalidates the prior close sign-off until the period is reclosed.
 A reopened period can then accept a governed finance adjustment. Source supplier-bill posted_at still does not change.
 
+Financial-year state must remain consistent with its child periods. A financial year cannot move to CLOSED while any child period remains OPEN. Once the financial year is CLOSED, a child period cannot be reopened until the parent year is explicitly reopened first.
+
 ## 7. Append-only finance adjustment journal
 
 C7.9 selects an **append-only adjustment journal** as the correct future mechanism.

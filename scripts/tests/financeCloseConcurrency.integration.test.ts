@@ -45,10 +45,13 @@ vi.doMock('@/lib/db', () => ({ default: sqlMock }));
 const auditMock = vi.fn();
 vi.doMock('@/lib/commercial/auditLog', () => ({
   logFinancialPeriodStatusChanged: (...args: unknown[]) => auditMock(...args),
+  logFinancialYearStatusChanged: (...args: unknown[]) => auditMock(...args),
 }));
 
 const { closeFinancialPeriod, reopenFinancialPeriod, FinanceCloseError } =
   await import('@/lib/commercial/financeClose');
+const { setFinancialYearStatus } =
+  await import('@/lib/commercial/financialPeriods');
 
 const ORG = 'org-c79a';
 const OTHER = 'org-c79a-other';
@@ -225,6 +228,70 @@ describe('C7.9A — real PostgreSQL close/reopen controls', () => {
       status: 'INVALIDATED',
       invalidation_reason: 'Correction required',
     }]);
+  });
+
+  it('refuses to close a financial year while any child period remains OPEN', async () => {
+    await expect(setFinancialYearStatus({
+      organisationId: ORG,
+      userId: USER,
+      financialYearId: FY,
+      status: 'CLOSED',
+    })).rejects.toMatchObject({
+      code: 'OPEN_PERIODS_EXIST',
+    });
+
+    const year = await prisma.$queryRawUnsafe<{ status: string }[]>(
+      `SELECT status
+       FROM commercial_financial_years
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      FY,
+      ORG,
+    );
+    expect(year[0].status).toBe('OPEN');
+  });
+
+  it('keeps a closed period sealed while its parent financial year is CLOSED', async () => {
+    const close = await closeFinancialPeriod({
+      organisationId: ORG,
+      userId: USER,
+      financialPeriodId: PERIOD,
+      reason: 'Year-end prerequisite',
+    });
+
+    const year = await setFinancialYearStatus({
+      organisationId: ORG,
+      userId: USER,
+      financialYearId: FY,
+      status: 'CLOSED',
+    });
+    expect(year?.status).toBe('CLOSED');
+
+    await expect(reopenFinancialPeriod({
+      organisationId: ORG,
+      userId: USER,
+      financialPeriodId: PERIOD,
+      reason: 'Should be blocked by closed year',
+    })).rejects.toMatchObject({
+      code: 'FINANCIAL_YEAR_CLOSED',
+    });
+
+    const period = await prisma.$queryRawUnsafe<{ status: string }[]>(
+      `SELECT status
+       FROM commercial_financial_periods
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      PERIOD,
+      ORG,
+    );
+    const closeRows = await prisma.$queryRawUnsafe<{ status: string }[]>(
+      `SELECT status
+       FROM commercial_financial_period_closes
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      close.id,
+      ORG,
+    );
+
+    expect(period[0].status).toBe('CLOSED');
+    expect(closeRows[0].status).toBe('CLOSED');
   });
 
   it('requires a non-empty reopen reason before touching the database', async () => {

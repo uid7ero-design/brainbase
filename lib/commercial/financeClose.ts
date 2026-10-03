@@ -285,10 +285,15 @@ export async function reopenFinancialPeriod(params: {
           AND close_record.organisation_id = ${params.organisationId}
           AND close_record.status = 'CLOSED'
           AND EXISTS (
-            SELECT 1 FROM commercial_financial_periods cfp
+            SELECT 1
+            FROM commercial_financial_periods cfp
+            JOIN commercial_financial_years cfy
+              ON cfy.id = cfp.financial_year_id
+             AND cfy.organisation_id = cfp.organisation_id
             WHERE cfp.id = close_record.financial_period_id
               AND cfp.organisation_id = close_record.organisation_id
               AND cfp.status = 'CLOSED'
+              AND cfy.status = 'OPEN'
           )
         RETURNING close_record.*
       ),
@@ -337,6 +342,12 @@ export async function reopenFinancialPeriod(params: {
   if (!period) throw new FinanceCloseError('NOT_FOUND', 'Financial period not found for this organisation.');
   if (period.status !== 'CLOSED') {
     throw new FinanceCloseError('PERIOD_NOT_CLOSED', 'Only a CLOSED financial period can be reopened.');
+  }
+  if (period.financial_year_status !== 'OPEN') {
+    throw new FinanceCloseError(
+      'FINANCIAL_YEAR_CLOSED',
+      'The parent financial year must be OPEN to reopen a period.',
+    );
   }
   if (!activeClose) throw new FinanceCloseError('NO_ACTIVE_CLOSE', 'Closed period has no active durable close record.');
   if (!invalidated) {
