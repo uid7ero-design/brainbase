@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { runEmployeeDocumentReminderBatch } from '@/lib/hr/employeeDocumentReminderBatchExecutor';
+import { countStaleEmployeeDocumentReminderClaims } from '@/lib/hr/employeeDocumentReminderRecoveryVisibility';
 import { secureCompare } from '@/lib/secureCompare';
 
 /**
@@ -23,14 +24,27 @@ export async function GET(req: Request) {
 
   try {
     const summary = await runEmployeeDocumentReminderBatch();
+
+    let staleClaimed: number | null = null;
+    try {
+      staleClaimed = await countStaleEmployeeDocumentReminderClaims();
+    } catch {
+      console.error('[hr cron/employee-document-reminders] stale-claim visibility unavailable');
+    }
+
+    const response = {
+      ...summary,
+      staleClaimed,
+    };
+
     console.log(
       `[hr cron/employee-document-reminders] organisations_discovered=${summary.organisationsDiscovered} ` +
       `organisations_processed=${summary.organisationsProcessed} organisations_failed=${summary.organisationsFailed} ` +
       `discovered=${summary.discovered} claimed=${summary.claimed} sent=${summary.sent} failed=${summary.failed} ` +
       `ambiguous=${summary.ambiguous} discovery_skipped=${summary.discoverySkipped} ` +
-      `transition_skipped=${summary.transitionSkipped}`,
+      `transition_skipped=${summary.transitionSkipped} stale_claimed=${staleClaimed ?? 'unavailable'}`,
     );
-    return NextResponse.json(summary);
+    return NextResponse.json(response);
   } catch (error) {
     console.error('[hr cron/employee-document-reminders] fatal:', error);
     return NextResponse.json(
