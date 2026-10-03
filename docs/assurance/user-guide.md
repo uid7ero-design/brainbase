@@ -443,6 +443,10 @@ current, and what still needs attention.
 - Each piece of evidence is assessed against the requirement **as it stood
   when the evidence was recorded**. If the requirement has changed since, the
   page says so and shows both.
+- If a requirement is **inactive** in the library, it cannot be newly
+  assigned, but existing assignments continue: evidence can still be recorded
+  and reviewed for them. Deactivating a requirement does not end an
+  organisation's obligation; cancel the assignment to do that.
 - Missing, expired or rejected evidence never creates a finding by itself.
   Use **Raise finding** when there is a genuine assurance issue; actions
   are then created from the finding in the usual way.

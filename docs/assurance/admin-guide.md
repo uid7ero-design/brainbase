@@ -305,9 +305,14 @@ shows each requirement is met. See
 - **Renewal notice** controls "Expiring soon": evidence expiring within that
   many days is flagged. Leave it blank for no expiring-soon state; there is
   no hidden default.
-- Requirements are never deleted. **Deactivate** stops new assignments.
-  Existing assignments, their evidence and history continue, labelled
-  "Requirement inactive".
+- Requirements are never deleted. **Deactivate** stops new assignments only:
+  - an inactive requirement cannot be newly assigned to any organisation;
+  - existing active assignments continue, labelled "Requirement inactive";
+  - evidence can still be recorded, accepted and rejected for those existing
+    assignments, and newly accepted evidence still replaces the old;
+  - deactivating does **not** end an organisation's existing obligation. To
+    end it, **cancel the assignment** (with a reason) on the organisation's
+    page. Its evidence and history are kept.
 - Editing a requirement does not change how earlier evidence is understood:
   each piece of evidence keeps a copy of the requirement as it stood when it
   was recorded.
