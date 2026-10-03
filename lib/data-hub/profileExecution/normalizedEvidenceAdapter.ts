@@ -86,12 +86,26 @@ export async function reconstructNormalizedDatasetEvidence(context: {
     orderBy: { normalized_row: { source_row_number: "asc" } },
   });
 
+  // D4D1A's own ProfileCellInput.sourceRowNumber must be a contiguous
+  // 1..rowCount LOGICAL position (its own validateColumnInput requires
+  // 1 <= sourceRowNumber <= rowCount) -- it is NOT the same thing as this
+  // run's PHYSICAL source_row_number (the workbook's own row position,
+  // e.g. starting at 2 once a header row is skipped, and potentially
+  // non-contiguous). Remap every distinct physical source_row_number,
+  // ascending, to a dense 1-based logical index -- this preserves row
+  // order deterministically (section 5) without ever conflating the two
+  // numbering schemes.
+  const distinctPhysicalRowNumbers = [...new Set(cells.map((c) => c.normalized_row.source_row_number))].sort((a, b) => a - b);
+  const logicalRowNumberByPhysical = new Map<number, number>(distinctPhysicalRowNumbers.map((physical, index) => [physical, index + 1]));
+
   const cellsByColumnId = new Map<string, ProfileCellInput[]>();
   for (const cell of cells) {
     const scalar = asNormalizedScalar(cell.normalized_value);
     if (scalar === undefined) return { ok: false, code: "PROFILE_INPUT_INVALID" };
+    const logicalRowNumber = logicalRowNumberByPhysical.get(cell.normalized_row.source_row_number);
+    if (logicalRowNumber === undefined) return { ok: false, code: "PROFILE_INPUT_INVALID" };
     const list = cellsByColumnId.get(cell.source_schema_column_id);
-    const entry: ProfileCellInput = { sourceRowNumber: cell.normalized_row.source_row_number, normalizedValue: scalar };
+    const entry: ProfileCellInput = { sourceRowNumber: logicalRowNumber, normalizedValue: scalar };
     if (list) list.push(entry);
     else cellsByColumnId.set(cell.source_schema_column_id, [entry]);
   }
