@@ -766,6 +766,98 @@ describe('C7.9E1 — prepared finance reconciliation snapshots', () => {
     )).rejects.toThrow(/invalid finance reconciliation lifecycle transition/);
   });
 
+  it('rolls back reconciliation and close state when the transactional SIGNED_OFF event write fails', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    await addEntry(f, 1000);
+    const prepared = await prepare(f);
+
+    await reviewFinanceReconciliation({
+      organisationId: f.org,
+      userId: f.user,
+      reconciliationId: prepared.id,
+    });
+    const close = await closeFinancialPeriod({
+      organisationId: f.org,
+      userId: f.user,
+      financialPeriodId: f.period,
+      reason: 'Month end',
+    });
+
+    await prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION test_reject_finance_reconciliation_signed_off_event()
+      RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.event_type = 'SIGNED_OFF' THEN
+          RAISE EXCEPTION 'test signed-off event failure';
+        END IF;
+        RETURN NEW;
+      END $$
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER trg_test_reject_finance_reconciliation_signed_off_event
+      BEFORE INSERT ON commercial_finance_reconciliation_events
+      FOR EACH ROW EXECUTE FUNCTION test_reject_finance_reconciliation_signed_off_event()
+    `);
+
+    try {
+      await expect(signOffFinanceReconciliation({
+        organisationId: f.org,
+        userId: f.user,
+        reconciliationId: prepared.id,
+        closeId: close.id,
+      })).rejects.toThrow(/test signed-off event failure/);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DROP TRIGGER IF EXISTS trg_test_reject_finance_reconciliation_signed_off_event
+         ON commercial_finance_reconciliation_events`,
+      );
+      await prisma.$executeRawUnsafe(
+        `DROP FUNCTION IF EXISTS test_reject_finance_reconciliation_signed_off_event()`,
+      );
+    }
+
+    const reconciliationState = await prisma.$queryRawUnsafe<{
+      status: string;
+      close_id: string | null;
+    }[]>(
+      `SELECT status,close_id
+       FROM commercial_finance_reconciliations
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      prepared.id,
+      f.org,
+    );
+    expect(reconciliationState[0]).toEqual({
+      status: 'REVIEWED',
+      close_id: null,
+    });
+
+    const closeState = await prisma.$queryRawUnsafe<{
+      status: string;
+      reconciliation_status: string;
+    }[]>(
+      `SELECT status,reconciliation_status
+       FROM commercial_financial_period_closes
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      close.id,
+      f.org,
+    );
+    expect(closeState[0]).toEqual({
+      status: 'CLOSED',
+      reconciliation_status: 'NOT_CONFIGURED',
+    });
+
+    const events = await prisma.$queryRawUnsafe<{ event_type: string }[]>(
+      `SELECT event_type
+       FROM commercial_finance_reconciliation_events
+       WHERE reconciliation_id=$1::uuid AND organisation_id=$2
+       ORDER BY event_at,id`,
+      prepared.id,
+      f.org,
+    );
+    expect(events.map(event => event.event_type)).toEqual(['PREPARED', 'REVIEWED']);
+  });
+
   it('signs off only a REVIEWED reconciliation against the current CLOSED record for the same period', async () => {
     const f = await seedFixture();
     await addMapping(f);
