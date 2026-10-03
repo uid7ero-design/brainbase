@@ -18,7 +18,7 @@ audits — from an audit template or ad hoc.
 
 ## Before you start
 
-- For a template-based audit, an admin must have created an **active** audit
+- For a template-based audit, an admin must have **published** an audit
   template.
 - For an ad hoc audit, know the **standard / reference** you are auditing
   against. It is required.

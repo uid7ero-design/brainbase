@@ -52,8 +52,9 @@ it enabled. Inside the module, the left navigation has nine sections:
 | **Dashboard** | "What needs attention?" — overdue work, verification queue, serious incidents, due inspections and audits. |
 | **Incidents** | Reported events, near misses and service failures. |
 | **Investigations** | Structured examination of one or more incidents, ending in a recorded conclusion. |
-| **Inspections** | Operational checks, from a checklist template or ad hoc. Templates are reached from here. |
-| **Audits** | Structured reviews against a standard or requirement, from a criteria template or ad hoc. Templates are reached from here. |
+| **Inspections** | Operational checks, from a checklist template or ad hoc. |
+| **Audits** | Structured reviews against a standard or requirement, from a criteria template or ad hoc. |
+| **Templates** | Inspection checklists and audit criteria: drafts, published versions and retired versions. |
 | **Findings** | Every identified issue and where it came from. |
 | **Actions** | Corrective actions (the register is titled "Corrective actions"). |
 | **Evidence** | Every evidence record and what it is linked to. |
@@ -100,9 +101,9 @@ The rules that hold the chain together:
 - **Verification is independent confirmation.** The action's owner, and
   anyone who has marked its work complete, cannot verify it. An accepted
   verification makes the action ready to close; it does not close it.
-- **Template versions are immutable.** Changing an inspection checklist or
-  audit criteria publishes a new version. Inspections and audits keep the
-  exact version they were planned with.
+- **Published template versions are immutable.** Changing an inspection
+  checklist or audit criteria means drafting and publishing a new version.
+  Inspections and audits keep the exact version they were planned with.
 - **Nothing is closed on another record's behalf.** Closing an action does
   not close its finding; closing a finding does not close its incident,
   investigation, inspection or audit; completing an investigation does not

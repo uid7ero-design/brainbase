@@ -8,6 +8,33 @@ Newest first.
 
 ---
 
+## Templates: drafts, publishing and retirement
+
+- **Templates** is added to the Assurance navigation, after **Audits**. It
+  lists inspection and audit templates together, with **Draft**,
+  **Published** and **Retired** status, the current version, any draft and
+  how many inspections or audits use each one. With none yet it says "No
+  Assurance templates have been created." Inspections → **Templates** and
+  Audits → **Templates** now open this page.
+- A new template starts as a **draft** (version 1). Drafts can be saved and
+  changed until an admin selects **Publish version N**, which checks the
+  draft first. (Previously, creating a template or a version published it
+  immediately.)
+- **Create new version** copies the current version into a new draft;
+  publishing it retires the previous version at the same moment. Published
+  and retired versions never change.
+- **Retire** replaces **Deactivate** / **Reactivate**. A retired template is
+  no longer offered when planning; publish a new version to bring it back.
+- Checklist items and criteria can be grouped under **section** headings,
+  shown in the same order on inspections and audits.
+- Only **published** templates are offered when planning an inspection or
+  audit. Existing inspections and audits keep the exact version they were
+  planned with.
+- If two admins edit the same draft, the later save is refused instead of
+  overwriting the earlier one.
+- [Work instruction 10](work-instructions/10-manage-inspection-and-audit-templates.md)
+  is rewritten for the new steps.
+
 ## Deadlines, extensions and escalations
 
 - **Deadlines** is added to the Assurance navigation, after **Actions**: a
