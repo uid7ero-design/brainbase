@@ -8,6 +8,33 @@ Newest first.
 
 ---
 
+## Findings & corrective actions
+
+- The **Findings** register has views for **All**, **Open**, **Needs
+  action**, **Actions underway**, **Overdue**, **Ready for closure** and
+  **Closed**, and a **Progress** column worked out from each finding's
+  actions. Progress never changes a finding's status.
+- A finding's **Source** section shows the exact **checklist item** or
+  **criterion** it was raised from, and contractor findings show the
+  **contractor** and **requirement**. Source links can no longer be changed.
+  The register can filter **From contractor requirements**.
+- A new **Closure readiness** box answers "What still prevents this finding
+  from being closed?".
+- **Close finding** and **Cancel finding** now need a **reason**, shown in
+  the finding's **Closure record**. Findings closed earlier show **No reason
+  recorded**.
+- A closed finding can be **reopened** with a reason. It returns to **Under
+  review**; the previous closure is kept in a permanent **Reopen history**.
+  Reopening never reopens actions or source records and never changes the
+  deadline.
+- Actions are never reopened: follow-up work is a **new action** on the
+  finding. **Add corrective action** is now **Create action**.
+- The **Corrective actions** table on a finding, and a new **Corrective work
+  status** box on each action, show separately whether the work is complete,
+  whether the action is verified and whether it is closed.
+- New [work instruction 16: Reopen a finding and add follow-up work](work-instructions/16-reopen-a-finding.md).
+
+
 ## Evidence & Verification
 
 - **Evidence** now shows each item's verification status — **Unverified**,

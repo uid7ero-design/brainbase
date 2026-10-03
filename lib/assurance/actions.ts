@@ -12,7 +12,7 @@ import { checkCapability } from '@/lib/capabilities/requireCapability';
 import type { EvidenceLinkRow } from './incidents';
 import {
   ACTION_PRIORITIES, ACTION_STATUSES, ACTION_TYPES, type ActionPriority, type ActionStatus, type ActionType,
-  type VerificationResult,
+  type FindingStatus, type VerificationResult,
 } from './domain';
 import {
   isUuid, optionalBoolean, optionalDateTime, optionalText, optionalUserId, optionalUuid, requiredEnum, requiredText,
@@ -110,7 +110,7 @@ export type ActionDetail = {
     closed_at: AssuranceTimestamp | null; closed_by_name: string | null; created_by_name: string | null;
     created_at: AssuranceTimestamp;
   };
-  findings: { id: string; finding_reference: string; title: string; status: string; finding_type: string }[];
+  findings: { id: string; finding_reference: string; title: string; status: FindingStatus; finding_type: string }[];
   hiddenFindingCount: number;
   tasks: { link_id: string; relationship_type: string; organiser_item_id: string; name: string; status: string | null }[];
   evidence: EvidenceLinkRow[];

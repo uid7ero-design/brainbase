@@ -418,7 +418,7 @@ describe('inspection templates and execution', () => {
     const d = await m.inspections.getInspectionDetail(mgrA, ins.id);
     expect(d!.findings).toEqual([expect.objectContaining({ id: f.id, source_item_key: 'adhoc-bin-lid-broken-000001' })]);
     const fd = await m.findings.getFindingDetail(mgrA, f.id);
-    expect(fd!.sources).toEqual([{ kind: 'inspection', id: ins.id, reference: expect.stringMatching(/^INS-/) }]);
+    expect(fd!.sources).toEqual([{ kind: 'inspection', id: ins.id, reference: expect.stringMatching(/^INS-/), context: 'Bin lid', context_key: 'adhoc-bin-lid-broken-000001' }]);
     const linkRows = await sql.raw(`SELECT count(*)::int AS n FROM assurance_inspection_findings WHERE finding_id = '${f.id}'`) as { n: number }[];
     expect(linkRows[0].n).toBe(1);
   });
@@ -505,7 +505,7 @@ describe('actions, evidence history and verification workflow', () => {
 
     // Explicit, guarded closure up the chain.
     await m.findings.transitionFinding(mgrA, f.id, { status: 'UNDER_REVIEW' });
-    await m.findings.transitionFinding(mgrA, f.id, { status: 'CLOSED' });
+    await m.findings.transitionFinding(mgrA, f.id, { status: 'CLOSED', reason: 'Resolved and verified.' });
     await m.incidents.transitionIncident(mgrA, inc.id, { status: 'UNDER_REVIEW' });
     await m.incidents.transitionIncident(mgrA, inc.id, { status: 'CLOSED', closureSummary: 'Grate secured and verified.' });
     expect((await m.incidents.getIncidentDetail(mgrA, inc.id))!.incident.status).toBe('CLOSED');
@@ -516,7 +516,7 @@ describe('actions, evidence history and verification workflow', () => {
     const f = await m.findings.createFinding(mgrA, { findingType: 'DEFECT', title: 'Guard', description: 'd', incidentId: inc.id });
     await m.actions.createAction(mgrA, { findingIds: [f.id], actionType: 'REMEDIAL', title: 'Fix it', verificationRequired: false, evidenceRequired: false });
     await m.findings.transitionFinding(mgrA, f.id, { status: 'UNDER_REVIEW' });
-    await expectError(m.findings.transitionFinding(mgrA, f.id, { status: 'CLOSED' }), 'AssuranceConflictError', /action/);
+    await expectError(m.findings.transitionFinding(mgrA, f.id, { status: 'CLOSED', reason: 'Resolved and verified.' }), 'AssuranceConflictError', /action/);
     await m.incidents.transitionIncident(mgrA, inc.id, { status: 'UNDER_REVIEW' });
     await expectError(m.incidents.transitionIncident(mgrA, inc.id, { status: 'CLOSED', closureSummary: 'x' }), 'AssuranceConflictError', /finding/);
   });
@@ -627,7 +627,7 @@ describe('synthetic demo fixture renders a coherent, connected scenario', () => 
     expect((await m.actions.getActionDetail(demoAdmin, id('802')))!.action.status).toBe('CLOSED');
     // FND-DEMO-002 can move on, but closure is refused while ACT-DEMO-003 is outstanding.
     await m.findings.transitionFinding(demoAdmin, id('702'), { status: 'AWAITING_VERIFICATION' });
-    await expectError(m.findings.transitionFinding(demoAdmin, id('702'), { status: 'CLOSED' }), 'AssuranceConflictError', /linked actions are still open/);
+    await expectError(m.findings.transitionFinding(demoAdmin, id('702'), { status: 'CLOSED', reason: 'Resolved and verified.' }), 'AssuranceConflictError', /linked actions are still open/);
   });
 });
 
@@ -661,7 +661,7 @@ describe('security review remediation', () => {
     const ev = await m.evidence.createEvidence(mgrA, { evidenceType: 'PHOTO', title: 'unlinked' });
     await expectError(m.evidence.linkEvidence(mgrA, ev.id, { target: 'action', targetId: a.id }), 'AssuranceConflictError', /finished/);
     await m.findings.transitionFinding(mgrA, f.id, { status: 'UNDER_REVIEW' });
-    await m.findings.transitionFinding(mgrA, f.id, { status: 'CLOSED' });
+    await m.findings.transitionFinding(mgrA, f.id, { status: 'CLOSED', reason: 'Resolved and verified.' });
     await expectError(m.evidence.linkEvidence(mgrA, ev.id, { target: 'finding', targetId: f.id }), 'AssuranceConflictError', /finished/);
     await expectError(m.actions.createAction(mgrA, { findingIds: [f.id], actionType: 'REMEDIAL', title: 'late' }), 'AssuranceConflictError');
   });
@@ -711,7 +711,7 @@ describe('security review remediation', () => {
     try {
       await c.query('BEGIN');
       await c.query('SELECT id FROM assurance_findings WHERE id = $1 FOR UPDATE', [f.id]);
-      await c.query("UPDATE assurance_findings SET status = 'CLOSED', closed_at = now() WHERE id = $1", [f.id]);
+      await c.query("UPDATE assurance_findings SET status = 'CLOSED', closed_at = now(), closure_reason = 'Concurrent closer' WHERE id = $1", [f.id]);
       const create = m.actions.createAction(mgrA, { findingIds: [f.id], actionType: 'REMEDIAL', title: 'M4 racing action' }).then(() => 'created', e => (e as Error).name);
       await new Promise(r => setTimeout(r, 300));
       await c.query('COMMIT');
@@ -905,7 +905,7 @@ describe('audits (A0.1E-1)', () => {
     expect(link[0].n).toBe(1);
     const d = await m.audits.getAuditDetail(mgrA, a.id);
     expect(d!.findings).toEqual([expect.objectContaining({ id: f.id, source_criterion_key: key })]);
-    expect((await m.findings.getFindingDetail(mgrA, f.id))!.sources).toEqual([{ kind: 'audit', id: a.id, reference: expect.stringMatching(/^AUD-/) }]);
+    expect((await m.findings.getFindingDetail(mgrA, f.id))!.sources).toEqual([{ kind: 'audit', id: a.id, reference: expect.stringMatching(/^AUD-/), context: 'Pre-start checks', context_key: key }]);
     expect((await m.findings.listFindings(mgrA, { source: 'audit' })).some(r => r.id === f.id)).toBe(true);
     await expectError(m.audits.recordAuditResponse(mgrA, a.id, { criterionKey: key, criterionLabel: 'Pre-start checks', outcome: 'COMPLIANT' }), 'AssuranceConflictError', /no longer be changed/);
 
@@ -924,7 +924,7 @@ describe('audits (A0.1E-1)', () => {
     await m.actions.completeActionWork(mgrA, act.id);
     await m.actions.closeAction(mgrA, act.id);
     await m.findings.transitionFinding(mgrA, f.id, { status: 'UNDER_REVIEW' });
-    await m.findings.transitionFinding(mgrA, f.id, { status: 'CLOSED' });
+    await m.findings.transitionFinding(mgrA, f.id, { status: 'CLOSED', reason: 'Resolved and verified.' });
     expect((await m.audits.getAuditDetail(mgrA, a.id))!.audit.status).toBe('COMPLETED');
 
     // A cancelled audit accepts no new findings or evidence.
@@ -1094,7 +1094,7 @@ describe('audit security review remediation', () => {
     try {
       await c.query('BEGIN');
       await c.query('SELECT id FROM assurance_findings WHERE id = $1 FOR UPDATE', [f.id]);
-      await c.query("UPDATE assurance_findings SET status = 'CLOSED', closed_at = now() WHERE id = $1", [f.id]);
+      await c.query("UPDATE assurance_findings SET status = 'CLOSED', closed_at = now(), closure_reason = 'Concurrent closer' WHERE id = $1", [f.id]);
       const link = m.audits.linkFindingToAudit(mgrA, a.id, { findingId: f.id }).then(() => 'linked', e => (e as Error).name);
       await new Promise(r => setTimeout(r, 300));
       await c.query('COMMIT');
@@ -1272,7 +1272,7 @@ describe('reconciliation: link an existing finding to incidents, investigations 
     await m.investigations.transitionInvestigation(mgrA, s.investigation, { status: 'CANCELLED' });
     await expectError(m.findings.linkFindingToSource(mgrA, 'investigation', s.investigation, { findingId: f.id }), 'AssuranceConflictError', /completed or cancelled/);
     const s2 = await sources();
-    await m.findings.transitionFinding(mgrA, f.id, { status: 'CANCELLED' });
+    await m.findings.transitionFinding(mgrA, f.id, { status: 'CANCELLED', reason: 'Source cancelled.' });
     await expectError(m.findings.linkFindingToSource(mgrA, 'incident', s2.incident, { findingId: f.id }), 'AssuranceConflictError', /closed or cancelled finding/);
   });
 

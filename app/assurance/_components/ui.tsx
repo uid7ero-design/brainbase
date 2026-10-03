@@ -303,10 +303,11 @@ export function HistoryList({ entries, timeZone }: { entries: { id: string; acti
   );
 }
 
-/** A cancellation reason recorded in the audit row (actions, audits, inspections). */
+/** A cancellation / closure / reopen reason recorded in the audit row. */
 function historyReason(afterState: unknown): string | null {
   if (!afterState || typeof afterState !== 'object') return null;
-  const r = (afterState as Record<string, unknown>).reason;
+  const s = afterState as Record<string, unknown>;
+  const r = s.reason ?? s.closure_reason;
   return typeof r === 'string' && r.trim() ? r : null;
 }
 

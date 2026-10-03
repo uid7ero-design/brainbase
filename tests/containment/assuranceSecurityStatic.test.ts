@@ -29,7 +29,7 @@ const libFiles = walk('lib/assurance')
 const CLIENT_SAFE_LIB = ['lib/assurance/domain.ts', 'lib/assurance/input.ts', 'lib/assurance/errors.ts', 'lib/assurance/references.ts',
   'lib/assurance/help/registry.ts', 'lib/assurance/help/markdown.ts', 'lib/assurance/help/search.ts', 'lib/assurance/help/topics.ts',
   'lib/assurance/riskLevelRules.ts', 'lib/assurance/deadlineRules.ts', 'lib/assurance/contractorAssuranceRules.ts',
-  'lib/assurance/evidenceRules.ts']
+  'lib/assurance/evidenceRules.ts', 'lib/assurance/findingRules.ts']
 
 describe('API routes', () => {
   it('exist and every one is built from the authorizing factories', () => {
@@ -335,5 +335,52 @@ describe('evidence verification (A0.1H)', () => {
   })
   it('history times are unambiguous instants', () => {
     expect(src).toMatch(/\(l\.created_at AT TIME ZONE 'UTC'\) AS created_at/)
+  })
+})
+
+describe('findings & corrective actions (A0.1I)', () => {
+  const src = stripComments(read('lib/assurance/findings.ts'))
+  const body = (fn: string) => {
+    const start = src.indexOf(`export async function ${fn}(`)
+    return src.slice(start, src.indexOf('\nexport ', start + 10))
+  }
+  it('status changes and reopen use the authorizing factories with the agreed operations', () => {
+    expect(stripComments(read('app/api/assurance/findings/[id]/status/route.ts'))).toMatch(/assurancePostWithId\('record'/)
+    expect(stripComments(read('app/api/assurance/findings/[id]/reopen/route.ts'))).toMatch(/assurancePostWithId\('close'/)
+  })
+  it('closing / cancelling records a reason and keeps the "no open actions" guard inside the locked write', () => {
+    const b = body('transitionFinding')
+    expect(b).toMatch(/transitionNeedsReason\(to\)/)
+    expect(b).toMatch(/closure_reason = \$\{reason\}/)
+    expect(b.indexOf('FOR UPDATE')).toBeLessThan(b.indexOf('UPDATE assurance_findings f'))
+    expect(b).toMatch(/a\.status NOT IN \('CLOSED', 'CANCELLED'\)\)\)/)
+  })
+  it('reopen is close-gated, locked, writes history before the finding and audits in the same statement', () => {
+    const b = body('reopenFinding')
+    expect(b).toMatch(/viewerCan\(viewer, 'close'\)/)
+    expect(b).toMatch(/requiredText\(raw\.reason, 'Reopen reason'/)
+    const lock = b.indexOf('FOR UPDATE')
+    const hist = b.indexOf('INSERT INTO assurance_finding_reopenings')
+    const upd = b.indexOf('UPDATE assurance_findings f')
+    expect(lock).toBeGreaterThan(0)
+    expect(lock).toBeLessThan(hist)
+    expect(hist).toBeLessThan(upd)
+    expect(b).toMatch(/'assurance_finding\.reopened'/)
+    expect(b).toMatch(/f\.status = 'CLOSED'/)
+  })
+  it('findings never change actions, sources, evidence, verifications, deadlines or risk', () => {
+    expect(src).not.toMatch(/UPDATE assurance_(actions|incidents|investigations|inspections|audits|evidence|verifications|timeframes|timeframe_extensions|escalations|requirement_assignments|requirement_submissions|risk_levels)\b/)
+    expect(src).not.toMatch(/INSERT INTO assurance_(actions|verifications|timeframe_extensions|escalations)\b/)
+    expect(body('reopenFinding')).not.toMatch(/assurance_timeframes|risk_level_id/)
+  })
+  it('structured provenance is written on the inspection / audit link rows', () => {
+    const b = body('createFinding')
+    expect(b).toMatch(/INSERT INTO assurance_inspection_findings \(organisation_id, inspection_id, finding_id, item_key, created_by\)/)
+    expect(b).toMatch(/INSERT INTO assurance_audit_findings \(organisation_id, audit_id, finding_id, criterion_key, created_by\)/)
+  })
+  it('actions are never reopened', () => {
+    const actions = stripComments(read('lib/assurance/actions.ts'))
+    expect(actions).not.toMatch(/reopen/i)
+    expect(actions).not.toMatch(/SET status = 'OPEN'/)
   })
 })

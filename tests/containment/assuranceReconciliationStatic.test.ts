@@ -89,6 +89,6 @@ describe('template retirement and publishing — confirmation', () => {
 
 describe('copy', () => {
   it('the Findings register names audits as a source', () => {
-    expect(read('app/assurance/findings/page.tsx')).toMatch(/from incidents, investigations, inspections and audits\./)
+    expect(read('app/assurance/findings/page.tsx')).toMatch(/from incidents, investigations, inspections, audits and contractor requirements\./)
   })
 })

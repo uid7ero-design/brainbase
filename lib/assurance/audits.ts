@@ -172,16 +172,11 @@ export async function getAuditDetail(viewer: AssuranceViewer, id: string): Promi
       WHERE r.organisation_id = ${org} AND r.audit_id = ${id}::uuid
       ORDER BY r.criterion_key ASC
     `,
-    // source_criterion_key is display metadata recorded in the finding's
-    // creation audit row (A0.1E-1 has no criterion-level link column); the
-    // authoritative link is assurance_audit_findings.
+    // source_criterion_key: the structured, immutable criterion_key on the
+    // link row (A0.1I). Links made before A0.1I have none.
     sql`
       SELECT f.id, f.finding_reference, f.title, f.finding_type, f.status, f.identified_at,
-             (SELECT l.after_state->>'audit_criterion_key' FROM audit_logs l
-               WHERE l.organisation_id = f.organisation_id AND l.resource_type = 'assurance_finding'
-                 AND l.resource_id = f.id::text AND l.action = 'assurance_finding.created'
-                 AND lower(l.after_state->>'audit_id') = lower(${id})
-               ORDER BY l.created_at ASC LIMIT 1) AS source_criterion_key
+             lx.criterion_key AS source_criterion_key
       FROM assurance_audit_findings lx
       JOIN assurance_findings f ON f.organisation_id = lx.organisation_id AND f.id = lx.finding_id
       WHERE lx.organisation_id = ${org} AND lx.audit_id = ${id}::uuid

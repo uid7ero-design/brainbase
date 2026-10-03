@@ -190,8 +190,8 @@ INSERT INTO assurance_findings (id, organisation_id, finding_reference, finding_
    'AWAITING_VERIFICATION', 'a55de000-0000-4000-8000-000000000233', 'assurance-demo-supervisor', now() - interval '12 days',
    'a55de000-0000-4000-8000-000000000201', 'a55de000-0000-4000-8000-000000000212', 'assurance-demo-inspector', now() - interval '12 days', now() - interval '3 days');
 
-INSERT INTO assurance_inspection_findings (organisation_id, inspection_id, finding_id, created_by, created_at)
-VALUES ('assurance-demo-org', 'a55de000-0000-4000-8000-000000000401', 'a55de000-0000-4000-8000-000000000701', 'assurance-demo-inspector', now() - interval '12 days');
+INSERT INTO assurance_inspection_findings (organisation_id, inspection_id, finding_id, item_key, created_by, created_at)
+VALUES ('assurance-demo-org', 'a55de000-0000-4000-8000-000000000401', 'a55de000-0000-4000-8000-000000000701', '02-drain-grates-secured', 'assurance-demo-inspector', now() - interval '12 days');
 
 INSERT INTO assurance_actions (id, organisation_id, action_reference, action_type, title, description, priority, status, owner_user_id, evidence_required, verification_required, work_completed_at, work_completed_by, closed_at, closed_by, created_by, created_at, updated_at) VALUES
   ('a55de000-0000-4000-8000-000000000801', 'assurance-demo-org', 'ACT-DEMO-001', 'CORRECTIVE', 'Re-secure and bolt down wash bay grate WB-3',
@@ -369,8 +369,8 @@ VALUES ('a55de000-0000-4000-8000-000000000703', 'assurance-demo-org', 'FND-DEMO-
         'Lamp 4 in the Civic Centre car park flickers intermittently (synthetic). Not yet dark, but likely to fail.', 'OPEN',
         'a55de000-0000-4000-8000-000000000231', NULL, now() - interval '85 minutes', 'a55de000-0000-4000-8000-000000000203',
         'assurance-demo-inspector', now() - interval '85 minutes', now() - interval '85 minutes');
-INSERT INTO assurance_inspection_findings (organisation_id, inspection_id, finding_id, created_by, created_at)
-VALUES ('assurance-demo-org', 'a55de000-0000-4000-8000-000000000403', 'a55de000-0000-4000-8000-000000000703', 'assurance-demo-inspector', now() - interval '85 minutes');
+INSERT INTO assurance_inspection_findings (organisation_id, inspection_id, finding_id, item_key, created_by, created_at)
+VALUES ('assurance-demo-org', 'a55de000-0000-4000-8000-000000000403', 'a55de000-0000-4000-8000-000000000703', 'adhoc-lamp-4-demo01', 'assurance-demo-inspector', now() - interval '85 minutes');
 INSERT INTO assurance_timeframes (id, organisation_id, finding_id, timeframe_type, original_due_at, current_due_at, status, created_by, created_at)
 VALUES ('a55de000-0000-4000-8000-000000000c05', 'assurance-demo-org', 'a55de000-0000-4000-8000-000000000703', 'CLOSURE', now() + interval '14 days', now() + interval '14 days', 'ACTIVE', 'assurance-demo-inspector', now() - interval '85 minutes');
 
@@ -430,8 +430,8 @@ VALUES ('a55de000-0000-4000-8000-000000000704', 'assurance-demo-org', 'FND-DEMO-
         'AUD-DEMO-001 criterion 3 (Procedure s.5.1): no pre-start record for 6 of 20 sampled shifts on trucks WC-04 and WC-07 (synthetic).',
         'AWAITING_VERIFICATION', 'a55de000-0000-4000-8000-000000000233', 'assurance-demo-supervisor', now() - interval '9 days' + interval '3 hours',
         'a55de000-0000-4000-8000-000000000201', 'assurance-demo-whs', now() - interval '9 days' + interval '3 hours', now() - interval '2 days');
-INSERT INTO assurance_audit_findings (organisation_id, audit_id, finding_id, created_by, created_at)
-VALUES ('assurance-demo-org', 'a55de000-0000-4000-8000-000000000411', 'a55de000-0000-4000-8000-000000000704', 'assurance-demo-whs', now() - interval '9 days' + interval '3 hours');
+INSERT INTO assurance_audit_findings (organisation_id, audit_id, finding_id, criterion_key, created_by, created_at)
+VALUES ('assurance-demo-org', 'a55de000-0000-4000-8000-000000000411', 'a55de000-0000-4000-8000-000000000704', '03-pre-start-checks', 'assurance-demo-whs', now() - interval '9 days' + interval '3 hours');
 
 INSERT INTO assurance_actions (id, organisation_id, action_reference, action_type, title, description, priority, status, owner_user_id, evidence_required, verification_required, work_completed_at, work_completed_by, created_by, created_at, updated_at)
 VALUES ('a55de000-0000-4000-8000-000000000804', 'assurance-demo-org', 'ACT-DEMO-004', 'CORRECTIVE', 'Move vehicle pre-start checks to a digital form with supervisor sign-off',
