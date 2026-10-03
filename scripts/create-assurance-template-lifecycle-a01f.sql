@@ -235,10 +235,6 @@ BEGIN
       END IF;
     END LOOP;
 
-    IF NEW.lock_version IS DISTINCT FROM OLD.lock_version + 1 THEN
-      RAISE EXCEPTION '% template version % was changed by someone else', kind, OLD.version_number USING ERRCODE = 'AT003';
-    END IF;
-
     content_changed := (to_jsonb(NEW) - lifecycle_cols) IS DISTINCT FROM (to_jsonb(OLD) - lifecycle_cols);
 
     IF OLD.status = 'DRAFT' AND NEW.status = 'DRAFT' THEN
@@ -259,6 +255,12 @@ BEGIN
       RAISE EXCEPTION 'Retired % template versions are immutable and cannot be republished', lower(kind) USING ERRCODE = 'AT001';
     ELSE
       RAISE EXCEPTION '% template version cannot move from % to %', kind, OLD.status, NEW.status USING ERRCODE = 'AT001';
+    END IF;
+
+    -- Checked after the transition rules, so an attempt to rewrite a
+    -- published/retired version reports immutability, not staleness.
+    IF NEW.lock_version IS DISTINCT FROM OLD.lock_version + 1 THEN
+      RAISE EXCEPTION '% template version % was changed by someone else', kind, OLD.version_number USING ERRCODE = 'AT003';
     END IF;
 
     NEW.updated_at := now();
