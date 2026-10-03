@@ -299,6 +299,8 @@ A year may close only when:
 - required external-GL reconciliation state meets policy;
 - Budget versions required for historical reporting are stable.
 
+The deterministic controls currently enforced before year close are: every child period CLOSED; every CLOSED child period has a current durable close; no DRAFT finance adjustment targets a child period; no current child close carries STALE reconciliation evidence; and every Budget for the year points to an ACTIVE Budget version. A stricter required external-GL sign-off policy remains an explicit future policy decision and must not be inferred silently.
+
 Year reopen similarly requires explicit controlled invalidation.
 ## 14. External GL authority boundary
 

@@ -63,6 +63,8 @@ const OTHER_PERIOD = '79999999-0000-0000-0000-000000000004';
 const SUP = '79999999-0000-0000-0000-000000000005';
 const BILL = '79999999-0000-0000-0000-000000000006';
 const BILL_LINE = '79999999-0000-0000-0000-000000000007';
+const BUDGET = '79999999-0000-0000-0000-000000000008';
+const ADJUSTMENT = '79999999-0000-0000-0000-000000000010';
 
 beforeAll(async () => {
   await prisma.$executeRawUnsafe(
@@ -78,6 +80,14 @@ beforeAll(async () => {
 beforeEach(async () => {
   auditMock.mockReset();
   await prisma.$executeRawUnsafe(`TRUNCATE commercial_financial_period_closes CASCADE`);
+  await prisma.$executeRawUnsafe(`DELETE FROM commercial_finance_adjustment_lines WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
+  await prisma.$executeRawUnsafe(`DELETE FROM commercial_finance_adjustments WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
+  await prisma.$executeRawUnsafe(`DELETE FROM commercial_budget_period_allocations WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
+  await prisma.$executeRawUnsafe(`DELETE FROM commercial_budget_commitment_mappings WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
+  await prisma.$executeRawUnsafe(`DELETE FROM commercial_budget_lines WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
+  await prisma.$executeRawUnsafe(`UPDATE commercial_budgets SET active_version_id=NULL WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
+  await prisma.$executeRawUnsafe(`DELETE FROM commercial_budget_versions WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
+  await prisma.$executeRawUnsafe(`DELETE FROM commercial_budgets WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_supplier_bill_lines WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_supplier_bills WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_financial_periods WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
@@ -248,6 +258,110 @@ describe('C7.9A — real PostgreSQL close/reopen controls', () => {
       ORG,
     );
     expect(year[0].status).toBe('OPEN');
+  });
+
+  it('refuses year close when a CLOSED child has no current durable close record', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE commercial_financial_periods
+       SET status='CLOSED'
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      PERIOD,
+      ORG,
+    );
+
+    await expect(setFinancialYearStatus({
+      organisationId: ORG,
+      userId: USER,
+      financialYearId: FY,
+      status: 'CLOSED',
+    })).rejects.toMatchObject({
+      code: 'MISSING_CURRENT_CLOSE',
+    });
+  });
+
+  it('refuses year close while a draft finance adjustment targets a child period', async () => {
+    await closeFinancialPeriod({
+      organisationId: ORG,
+      userId: USER,
+      financialPeriodId: PERIOD,
+      reason: 'Year-end prerequisite',
+    });
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_finance_adjustments(
+         id,organisation_id,status,adjustment_type,effective_financial_period_id,
+         currency,description,reason_code,created_by
+       ) VALUES (
+         $1::uuid,$2,'DRAFT','MANUAL_FINANCE_ADJUSTMENT',$3::uuid,
+         'AUD','Pending year-end adjustment','YEAR_END',$4
+       )`,
+      ADJUSTMENT,
+      ORG,
+      PERIOD,
+      USER,
+    );
+
+    await expect(setFinancialYearStatus({
+      organisationId: ORG,
+      userId: USER,
+      financialYearId: FY,
+      status: 'CLOSED',
+    })).rejects.toMatchObject({
+      code: 'DRAFT_ADJUSTMENTS_EXIST',
+    });
+  });
+
+  it('refuses year close while a current child close carries stale reconciliation evidence', async () => {
+    const close = await closeFinancialPeriod({
+      organisationId: ORG,
+      userId: USER,
+      financialPeriodId: PERIOD,
+      reason: 'Year-end prerequisite',
+    });
+    await prisma.$executeRawUnsafe(
+      `UPDATE commercial_financial_period_closes
+       SET reconciliation_status='STALE'
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      close.id,
+      ORG,
+    );
+
+    await expect(setFinancialYearStatus({
+      organisationId: ORG,
+      userId: USER,
+      financialYearId: FY,
+      status: 'CLOSED',
+    })).rejects.toMatchObject({
+      code: 'STALE_RECONCILIATION_EXISTS',
+    });
+  });
+
+  it('refuses year close while a Budget for the year has no stable ACTIVE version', async () => {
+    await closeFinancialPeriod({
+      organisationId: ORG,
+      userId: USER,
+      financialPeriodId: PERIOD,
+      reason: 'Year-end prerequisite',
+    });
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_budgets(
+         id,organisation_id,financial_year_id,name,currency,tax_basis,periodisation_mode,created_by
+       ) VALUES (
+         $1::uuid,$2,$3::uuid,'FY26 Budget','AUD','INCLUSIVE','PERIODISED',$4
+       )`,
+      BUDGET,
+      ORG,
+      FY,
+      USER,
+    );
+
+    await expect(setFinancialYearStatus({
+      organisationId: ORG,
+      userId: USER,
+      financialYearId: FY,
+      status: 'CLOSED',
+    })).rejects.toMatchObject({
+      code: 'UNSTABLE_BUDGET_VERSION',
+    });
   });
 
   it('keeps a closed period sealed while its parent financial year is CLOSED', async () => {
