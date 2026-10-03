@@ -42,7 +42,10 @@ const sqlMock = Object.assign(
 );
 
 vi.doMock('@/lib/db', () => ({ default: sqlMock }));
-vi.doMock('@/lib/commercial/auditLog', () => ({ logFinancialPeriodStatusChanged: vi.fn() }));
+const auditMock = vi.fn();
+vi.doMock('@/lib/commercial/auditLog', () => ({
+  logFinancialPeriodStatusChanged: (...args: unknown[]) => auditMock(...args),
+}));
 
 const { closeFinancialPeriod, reopenFinancialPeriod, FinanceCloseError } =
   await import('@/lib/commercial/financeClose');
@@ -70,6 +73,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  auditMock.mockReset();
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_financial_period_closes WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_supplier_bill_lines WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_supplier_bills WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
@@ -121,6 +125,83 @@ describe('C7.9A — real PostgreSQL close/reopen controls', () => {
       `SELECT status FROM commercial_financial_periods WHERE id=$1::uuid`, PERIOD,
     );
     expect(period[0].status).toBe('CLOSED');
+  });
+
+  it('keeps a close and its control evidence durable when generic audit logging fails afterwards', async () => {
+    auditMock.mockRejectedValueOnce(new Error('audit unavailable'));
+
+    await expect(closeFinancialPeriod({
+      organisationId: ORG,
+      userId: USER,
+      financialPeriodId: PERIOD,
+      reason: 'Month end',
+    })).rejects.toThrow('audit unavailable');
+
+    const period = await prisma.$queryRawUnsafe<{ status: string }[]>(
+      `SELECT status FROM commercial_financial_periods WHERE id=$1::uuid`,
+      PERIOD,
+    );
+    const closes = await prisma.$queryRawUnsafe<{
+      status: string;
+      close_sequence: number;
+      control_totals: {
+        basis: string;
+        sourceActualByCurrency: Array<{ totalCents: string }>;
+      };
+    }[]>(
+      `SELECT status,close_sequence,control_totals
+       FROM commercial_financial_period_closes
+       WHERE financial_period_id=$1::uuid`,
+      PERIOD,
+    );
+
+    expect(period[0].status).toBe('CLOSED');
+    expect(closes).toHaveLength(1);
+    expect(closes[0]).toMatchObject({
+      status: 'CLOSED',
+      close_sequence: 1,
+      control_totals: {
+        basis: 'C7_8_SOURCE_ACTUAL',
+        sourceActualByCurrency: [{ totalCents: '2750' }],
+      },
+    });
+  });
+
+  it('keeps reopen invalidation durable when generic audit logging fails afterwards', async () => {
+    await closeFinancialPeriod({
+      organisationId: ORG,
+      userId: USER,
+      financialPeriodId: PERIOD,
+      reason: 'Month end',
+    });
+    auditMock.mockRejectedValueOnce(new Error('audit unavailable'));
+
+    await expect(reopenFinancialPeriod({
+      organisationId: ORG,
+      userId: USER,
+      financialPeriodId: PERIOD,
+      reason: 'Correction required',
+    })).rejects.toThrow('audit unavailable');
+
+    const period = await prisma.$queryRawUnsafe<{ status: string }[]>(
+      `SELECT status FROM commercial_financial_periods WHERE id=$1::uuid`,
+      PERIOD,
+    );
+    const closes = await prisma.$queryRawUnsafe<{
+      status: string;
+      invalidation_reason: string | null;
+    }[]>(
+      `SELECT status,invalidation_reason
+       FROM commercial_financial_period_closes
+       WHERE financial_period_id=$1::uuid`,
+      PERIOD,
+    );
+
+    expect(period[0].status).toBe('OPEN');
+    expect(closes).toEqual([{
+      status: 'INVALIDATED',
+      invalidation_reason: 'Correction required',
+    }]);
   });
 
   it('requires a non-empty reopen reason before touching the database', async () => {
