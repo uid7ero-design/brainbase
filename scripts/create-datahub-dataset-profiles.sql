@@ -236,6 +236,16 @@ CREATE TABLE IF NOT EXISTS public.data_hub_dataset_profile_runs (
     ON DELETE SET NULL
 );
 
+-- Scoped by normalization_run_id rather than upload_id (the task's own
+-- stated preference), documented per that same instruction: B2B2A's
+-- createOrResumeNormalizationRun() short-circuits on Upload.normalized_at
+-- and never creates a second normalization attempt once one has
+-- SUCCEEDED, so at most one normalization_run_id can ever be SUCCEEDED
+-- (and therefore ever be a valid pin target, per the
+-- authoritative_normalization_fkey below) for a given upload at a time.
+-- Scoping by normalization_run_id is therefore equivalent in practice to
+-- scoping by upload_id, while additionally remaining correct if a future
+-- phase ever lets more than one worksheet share an upload_id.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_data_hub_dataset_profile_runs_one_running_per_normalization
   ON public.data_hub_dataset_profile_runs(normalization_run_id)
   WHERE status = 'RUNNING';

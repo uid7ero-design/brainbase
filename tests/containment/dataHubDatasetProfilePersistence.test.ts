@@ -15,7 +15,12 @@ describe("6.2D4D1B1 — persistence scope", () => {
   it("creates only the profile run/column persistence tables", () => {
     expect(CODE).toContain("CREATE TABLE IF NOT EXISTS public.data_hub_dataset_profile_runs");
     expect(CODE).toContain("CREATE TABLE IF NOT EXISTS public.data_hub_dataset_profile_columns");
-    expect(CODE).not.toMatch(/CREATE TABLE[^;]*(uploads|data_hub_normalized_rows|data_hub_normalized_cells)/i);
+    // Matches only a CREATE TABLE whose TARGET is one of these forbidden
+    // tables -- not merely a FOREIGN KEY ... REFERENCES clause naming
+    // "uploads" from within the (expected, required) profile_runs table
+    // definition, which the original broader `[^;]*` form false-positived
+    // on.
+    expect(CODE).not.toMatch(/CREATE TABLE\s+(IF NOT EXISTS\s+)?(public\.)?(uploads|data_hub_normalized_rows|data_hub_normalized_cells)\b/i);
   });
 
   it("does not add an Upload profile pointer or profile completion metadata", () => {
@@ -84,7 +89,10 @@ describe("6.2D4D1B1 — exact lineage and tenancy", () => {
     expect(fk).toContain("source_column_ordinal");
     expect(fk).toContain("REFERENCES public.source_schema_columns(id, source_schema_worksheet_id, ordinal, organisation_id)");
     const completeIdx = CODE.indexOf("Dataset profile completion ordinal reconciliation failed");
-    const completeRegion = CODE.slice(Math.max(0, completeIdx - 800), completeIdx + 200);
+    // 1400: the trigger's own SELECT (which computes min(ordinal)) sits
+    // ~1245 chars before this message in the function body; 800 was too
+    // short to ever reach it.
+    const completeRegion = CODE.slice(Math.max(0, completeIdx - 1400), completeIdx + 200);
     expect(completeRegion).toContain("min(ordinal)");
     expect(completeRegion).not.toContain("source_column_ordinal");
   });

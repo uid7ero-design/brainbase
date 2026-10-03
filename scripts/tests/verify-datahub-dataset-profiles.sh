@@ -210,8 +210,8 @@ expect_success "4. seed tenant/schema/profile/import lineage"   "INSERT INTO org
    INSERT INTO worksheet_mapping_profile_versions
      (id,organisation_id,worksheet_mapping_profile_id,version_number,disposition,profile_document)
      VALUES
-     ('pv-a1','org-a','wp-a',1,'STAGING_DATASET','{"documentVersion":1,"schemaStatus":"DRAFT","headerRowOneBased":1}'),
-     ('pv-a2','org-a','wp-a',2,'STAGING_DATASET','{"documentVersion":1,"schemaStatus":"DRAFT","headerRowOneBased":1}');
+     ('pv-a1','org-a','wp-a',1,'STAGING_DATASET','{\"documentVersion\":1,\"schemaStatus\":\"DRAFT\",\"headerRowOneBased\":1}'),
+     ('pv-a2','org-a','wp-a',2,'STAGING_DATASET','{\"documentVersion\":1,\"schemaStatus\":\"DRAFT\",\"headerRowOneBased\":1}');
    UPDATE worksheet_mapping_profiles SET active_profile_version_id='pv-a2' WHERE id='wp-a';
    INSERT INTO import_batches
      (id,organisation_id,uploaded_by,original_filename,content_type,size_bytes,storage_provider,storage_key,status,sha256,source_schema_version_id,updated_at)
@@ -237,11 +237,11 @@ expect_success "5. seed and complete raw staging"   "INSERT INTO data_hub_raw_st
    INSERT INTO data_hub_raw_cells
      (id,organisation_id,raw_row_id,source_schema_worksheet_id,source_schema_column_id,column_ordinal,source_header,raw_value,raw_value_type,sensitivity_class,original_unit)
      VALUES
-     ('rc-a10','org-a','rr-a1','ws-a','col-string',0,'Sensitive Name','"Alice"','STRING','PERSONALLY_IDENTIFIABLE',NULL),
-     ('rc-a11','org-a','rr-a1','ws-a','col-number',1,'Amount','"10"','STRING','CONFIDENTIAL',NULL),
+     ('rc-a10','org-a','rr-a1','ws-a','col-string',0,'Sensitive Name','\"Alice\"','STRING','PERSONALLY_IDENTIFIABLE',NULL),
+     ('rc-a11','org-a','rr-a1','ws-a','col-number',1,'Amount','\"10\"','STRING','CONFIDENTIAL',NULL),
      ('rc-a12','org-a','rr-a1','ws-a','col-date',7,'Date','null','NULL','INTERNAL',NULL),
-     ('rc-a20','org-a','rr-a2','ws-a','col-string',0,'Sensitive Name','"Bob"','STRING','PERSONALLY_IDENTIFIABLE',NULL),
-     ('rc-a21','org-a','rr-a2','ws-a','col-number',1,'Amount','"20"','STRING','CONFIDENTIAL',NULL),
+     ('rc-a20','org-a','rr-a2','ws-a','col-string',0,'Sensitive Name','\"Bob\"','STRING','PERSONALLY_IDENTIFIABLE',NULL),
+     ('rc-a21','org-a','rr-a2','ws-a','col-number',1,'Amount','\"20\"','STRING','CONFIDENTIAL',NULL),
      ('rc-a22','org-a','rr-a2','ws-a','col-date',7,'Date','null','NULL','INTERNAL',NULL);"
 
 expect_success "6. normalize through the real staging/completion functions"   "INSERT INTO data_hub_normalization_runs
@@ -253,15 +253,15 @@ expect_success "6. normalize through the real staging/completion functions"   "I
    SELECT * FROM datahub_stage_normalized_batch(
      'norm-a','org-a','norm-token',
      '[
-       {"id":"nr-a1","rawRowId":"rr-a1","sourceRowNumber":2,"cells":[
-         {"id":"nc-a10","rawCellId":"rc-a10","sourceSchemaColumnId":"col-string","valueKind":"STRING","normalizedValue":"Alice","sourceUnit":null,"normalizedUnit":null},
-         {"id":"nc-a11","rawCellId":"rc-a11","sourceSchemaColumnId":"col-number","valueKind":"DECIMAL","normalizedValue":"10","sourceUnit":null,"normalizedUnit":null},
-         {"id":"nc-a12","rawCellId":"rc-a12","sourceSchemaColumnId":"col-date","valueKind":"DATE","normalizedValue":null,"sourceUnit":null,"normalizedUnit":null}
+       {\"id\":\"nr-a1\",\"rawRowId\":\"rr-a1\",\"sourceRowNumber\":2,\"cells\":[
+         {\"id\":\"nc-a10\",\"rawCellId\":\"rc-a10\",\"sourceSchemaColumnId\":\"col-string\",\"valueKind\":\"STRING\",\"normalizedValue\":\"Alice\",\"sourceUnit\":null,\"normalizedUnit\":null},
+         {\"id\":\"nc-a11\",\"rawCellId\":\"rc-a11\",\"sourceSchemaColumnId\":\"col-number\",\"valueKind\":\"DECIMAL\",\"normalizedValue\":\"10\",\"sourceUnit\":null,\"normalizedUnit\":null},
+         {\"id\":\"nc-a12\",\"rawCellId\":\"rc-a12\",\"sourceSchemaColumnId\":\"col-date\",\"valueKind\":\"DATE\",\"normalizedValue\":null,\"sourceUnit\":null,\"normalizedUnit\":null}
        ]},
-       {"id":"nr-a2","rawRowId":"rr-a2","sourceRowNumber":3,"cells":[
-         {"id":"nc-a20","rawCellId":"rc-a20","sourceSchemaColumnId":"col-string","valueKind":"STRING","normalizedValue":"Bob","sourceUnit":null,"normalizedUnit":null},
-         {"id":"nc-a21","rawCellId":"rc-a21","sourceSchemaColumnId":"col-number","valueKind":"DECIMAL","normalizedValue":"20","sourceUnit":null,"normalizedUnit":null},
-         {"id":"nc-a22","rawCellId":"rc-a22","sourceSchemaColumnId":"col-date","valueKind":"DATE","normalizedValue":null,"sourceUnit":null,"normalizedUnit":null}
+       {\"id\":\"nr-a2\",\"rawRowId\":\"rr-a2\",\"sourceRowNumber\":3,\"cells\":[
+         {\"id\":\"nc-a20\",\"rawCellId\":\"rc-a20\",\"sourceSchemaColumnId\":\"col-string\",\"valueKind\":\"STRING\",\"normalizedValue\":\"Bob\",\"sourceUnit\":null,\"normalizedUnit\":null},
+         {\"id\":\"nc-a21\",\"rawCellId\":\"rc-a21\",\"sourceSchemaColumnId\":\"col-number\",\"valueKind\":\"DECIMAL\",\"normalizedValue\":\"20\",\"sourceUnit\":null,\"normalizedUnit\":null},
+         {\"id\":\"nc-a22\",\"rawCellId\":\"rc-a22\",\"sourceSchemaColumnId\":\"col-date\",\"valueKind\":\"DATE\",\"normalizedValue\":null,\"sourceUnit\":null,\"normalizedUnit\":null}
        ]}
      ]'::jsonb,
      '[]'::jsonb,
@@ -281,16 +281,25 @@ expect_failure "8. cross-tenant actor rejected"   "INSERT INTO data_hub_dataset_
      (id,organisation_id,import_batch_id,upload_id,normalization_run_id,source_schema_version_id,source_schema_worksheet_id,worksheet_mapping_profile_version_id,attempt_number,profiler_version,status,created_by)
      VALUES ('profile-crossactor','org-a','batch-a','upload-a','norm-a','sv-a','ws-a','pv-a1',1,'v1','RUNNING','user-b');"   "initiating actor must belong to the same organisation"
 
+# 9/10: the BEFORE INSERT lifecycle trigger's own exact-lineage SELECT
+# (which filters by every pinned column, including
+# worksheet_mapping_profile_version_id/upload_id) runs before Postgres ever
+# evaluates the normalization_lineage_fkey FK constraint, so a mismatched
+# pin is rejected by the trigger's own generic "requires ... SUCCEEDED"
+# message first. This is still the correct, structurally-enforced
+# rejection -- the FK remains a real, independent second line of defense
+# for any INSERT that could somehow bypass the trigger -- so the pattern
+# below accepts either message.
 expect_failure "9. wrong pinned mapping-profile version rejected"   "INSERT INTO data_hub_dataset_profile_runs
      (id,organisation_id,import_batch_id,upload_id,normalization_run_id,source_schema_version_id,source_schema_worksheet_id,worksheet_mapping_profile_version_id,attempt_number,profiler_version,status,created_by)
-     VALUES ('profile-wrongpin','org-a','batch-a','upload-a','norm-a','sv-a','ws-a','pv-a2',1,'v1','RUNNING','user-a');"   "normalization_lineage_fkey"
+     VALUES ('profile-wrongpin','org-a','batch-a','upload-a','norm-a','sv-a','ws-a','pv-a2',1,'v1','RUNNING','user-a');"   "exact pinned normalization run to be SUCCEEDED|normalization_lineage_fkey"
 
 expect_failure "10. wrong upload rejected by exact normalization lineage"   "INSERT INTO uploads
      (id,organisation_id,original_name,stored_path,mimetype,size_bytes,import_batch_id,worksheet_index,worksheet_name,lineage_kind,updated_at)
      VALUES ('upload-other','org-a','other.xlsx','other','xlsx',1,'batch-a',1,'Data2','DATA_HUB',now());
    INSERT INTO data_hub_dataset_profile_runs
      (id,organisation_id,import_batch_id,upload_id,normalization_run_id,source_schema_version_id,source_schema_worksheet_id,worksheet_mapping_profile_version_id,attempt_number,profiler_version,status,created_by)
-     VALUES ('profile-wrongupload','org-a','batch-a','upload-other','norm-a','sv-a','ws-a','pv-a1',1,'v1','RUNNING','user-a');"   "normalization_lineage_fkey"
+     VALUES ('profile-wrongupload','org-a','batch-a','upload-other','norm-a','sv-a','ws-a','pv-a1',1,'v1','RUNNING','user-a');"   "exact pinned normalization run to be SUCCEEDED|normalization_lineage_fkey"
 
 expect_success "11. valid RUNNING profile attempt accepted"   "INSERT INTO data_hub_dataset_profile_runs
      (id,organisation_id,import_batch_id,upload_id,normalization_run_id,source_schema_version_id,source_schema_worksheet_id,worksheet_mapping_profile_version_id,attempt_number,profiler_version,status,created_by)
@@ -345,11 +354,16 @@ expect_success "13b. all-null governed temporal column is accepted and completes
 
 
 
+# 14: the column-immutability trigger's own RUNNING-status lookup filters
+# by source_schema_worksheet_id too, so a mismatched worksheet is rejected
+# by that trigger's generic message before the run_worksheet_fkey/
+# source_column_fkey FK constraints are ever evaluated -- still a correct,
+# structurally-enforced rejection (see the 9/10 comment above).
 expect_failure "14. profile column from a different worksheet is rejected"   "INSERT INTO data_hub_dataset_profile_columns
      (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,source_column_ordinal,value_kind,
       row_count,non_null_count,null_count,distinct_non_null_count,null_ratio,non_null_ratio,distinct_ratio,
       is_constant,is_all_null,is_unique_among_non_null,is_complete,is_sparse,min_length,max_length,total_length,mean_length,empty_string_count)
-     VALUES ('pc-wrongws','org-a','profile-a1','ws-b','col-other',0,0,'STRING',2,2,0,2,'0','1','1',false,false,true,true,false,1,1,2,'1',0);"   "run_worksheet_fkey|source_column_fkey"
+     VALUES ('pc-wrongws','org-a','profile-a1','ws-b','col-other',0,0,'STRING',2,2,0,2,'0','1','1',false,false,true,true,false,1,1,2,'1',0);"   "may only be inserted into a RUNNING profile attempt|run_worksheet_fkey|source_column_fkey"
 
 expect_failure "15. cross-kind statistic contamination is rejected"   "INSERT INTO data_hub_dataset_profile_columns
      (id,organisation_id,profile_run_id,source_schema_worksheet_id,source_schema_column_id,ordinal,source_column_ordinal,value_kind,
