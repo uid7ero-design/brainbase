@@ -93,7 +93,11 @@ supplied, and whether that evidence is current.
 - Nothing is deleted:
   - Rejected, withdrawn and superseded evidence stays in the history.
   - Cancelling an assignment keeps its history.
-  - Deactivating a requirement only stops new assignments.
+  - Deactivating a requirement only stops new assignments. Existing
+    assignments continue, and evidence can still be recorded and reviewed
+    for them.
+- Deactivating a requirement does not end an organisation's obligation. To
+  end it, cancel that organisation's assignment (with a reason).
 - Missing, expired or rejected evidence never creates a finding, action or
   any consequence by itself.
 - There is no file upload: record where the original document is held.

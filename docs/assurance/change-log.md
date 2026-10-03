@@ -27,6 +27,10 @@ Newest first.
   or current. It is not a score, and nothing is created automatically. Use
   **Raise finding** for a genuine issue.
 - New [work instruction 14: Manage contractor assurance](work-instructions/14-manage-contractor-assurance.md).
+- Clarified (documentation only): an inactive requirement cannot be newly
+  assigned, but existing assignments continue and their evidence can still be
+  recorded and reviewed. Deactivating does not end an organisation's
+  obligation; cancelling the assignment does.
 
 ## Templates: drafts, publishing and retirement
 
