@@ -375,6 +375,17 @@ describe('C7.9B — real PostgreSQL finance adjustment journal', () => {
     await expect(prisma.$executeRawUnsafe(
       `DELETE FROM commercial_finance_adjustments WHERE id=$1::uuid`, draft.id,
     )).rejects.toThrow();
+
+    await expect(prisma.$executeRawUnsafe(
+      `UPDATE commercial_finance_adjustment_events
+       SET details='{"tampered":true}'::jsonb
+       WHERE adjustment_id=$1::uuid`, draft.id,
+    )).rejects.toThrow(/finance adjustment events are immutable/);
+
+    await expect(prisma.$executeRawUnsafe(
+      `DELETE FROM commercial_finance_adjustment_events
+       WHERE adjustment_id=$1::uuid`, draft.id,
+    )).rejects.toThrow(/finance adjustment events are immutable/);
   });
 
   it('period close is blocked while a DRAFT adjustment exists', async () => {
@@ -387,19 +398,22 @@ describe('C7.9B — real PostgreSQL finance adjustment journal', () => {
   it('posting is rejected if the target period closes after DRAFT creation', async () => {
     const draft = await createFinanceAdjustment(manualInput(P2));
     await prisma.$executeRawUnsafe(
-      `DELETE FROM commercial_finance_adjustment_lines WHERE adjustment_id=$1::uuid`, draft.id,
-    );
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM commercial_finance_adjustment_events WHERE adjustment_id=$1::uuid`, draft.id,
-    );
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM commercial_finance_adjustments WHERE id=$1::uuid`, draft.id,
-    );
-    await prisma.$executeRawUnsafe(
       `UPDATE commercial_financial_periods SET status='CLOSED' WHERE id=$1::uuid`, P2,
     );
 
-    await expect(createFinanceAdjustment(manualInput(P2))).rejects.toMatchObject({ code: 'PERIOD_CLOSED' });
+    await expect(postFinanceAdjustment({
+      organisationId: ORG,
+      userId: USER,
+      financeAdjustmentId: draft.id,
+    })).rejects.toMatchObject({ code: 'PERIOD_CLOSED' });
+
+    const persisted = await prisma.$queryRawUnsafe<{ status: string }[]>(
+      `SELECT status FROM commercial_finance_adjustments
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      draft.id,
+      ORG,
+    );
+    expect(persisted[0]?.status).toBe('DRAFT');
   });
   it('reverses by creating an opposite POSTED adjustment and marking the original REVERSED', async () => {
     const draft = await createFinanceAdjustment({

@@ -57,6 +57,8 @@ describe('C7.9B — finance adjustment schema/domain contract', () => {
     expect(migration).toContain('posted finance adjustment lines are immutable');
     expect(migration).toContain('BEFORE UPDATE OR DELETE ON commercial_finance_adjustments');
     expect(migration).toContain('BEFORE INSERT OR UPDATE OR DELETE ON commercial_finance_adjustment_lines');
+    expect(migration).toContain('finance adjustment events are immutable');
+    expect(migration).toContain('BEFORE UPDATE OR DELETE ON commercial_finance_adjustment_events');
   });
 
   it('uses reversal + replacement instead of editing a posted journal', () => {

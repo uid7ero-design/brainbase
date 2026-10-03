@@ -159,6 +159,25 @@ CREATE TABLE IF NOT EXISTS commercial_finance_adjustment_events (
 );
 CREATE INDEX IF NOT EXISTS idx_commercial_finance_adjustment_events_org_adjustment
   ON commercial_finance_adjustment_events(organisation_id, adjustment_id, event_at);
+
+CREATE OR REPLACE FUNCTION commercial_finance_adjustment_event_guard()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'finance adjustment events are immutable';
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname = 'trg_commercial_finance_adjustment_event_guard'
+      AND tgrelid = 'commercial_finance_adjustment_events'::regclass
+  ) THEN
+    CREATE TRIGGER trg_commercial_finance_adjustment_event_guard
+      BEFORE UPDATE OR DELETE ON commercial_finance_adjustment_events
+      FOR EACH ROW EXECUTE FUNCTION commercial_finance_adjustment_event_guard();
+  END IF;
+END $$;
 CREATE OR REPLACE FUNCTION commercial_finance_adjustment_guard()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
