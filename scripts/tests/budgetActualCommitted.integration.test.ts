@@ -72,6 +72,9 @@ const ADJUSTMENT_LINE = '78888888-2000-0000-0000-000000000014';
 const CLOSE = '78888888-2000-0000-0000-000000000015';
 const RECONCILIATION = '78888888-2000-0000-0000-000000000016';
 const RECONCILIATION_ITEM = '78888888-2000-0000-0000-000000000017';
+const ACC_2 = '78888888-2000-0000-0000-000000000018';
+const VERSION_2 = '78888888-2000-0000-0000-000000000019';
+const BUDGET_LINE_2 = '78888888-2000-0000-0000-000000000020';
 
 beforeAll(async () => {
   await prisma.$executeRawUnsafe(
@@ -447,5 +450,98 @@ describe('C7.8C — real PostgreSQL snapshot-safe combined consumption', () => {
       reconciliationStatus: 'STALE',
       sourceSystemId: 'xero',
     });
+
+    await writer.$executeRawUnsafe(
+      `UPDATE commercial_supplier_bills
+       SET status='POSTED', posted_at='2026-09-15T12:00:00Z'
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      BILL, ORG,
+    );
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_budget_accounts(id,organisation_id,code,name,active,created_by)
+       VALUES ($1::uuid,$2,'ALT','Alternative account',true,$3)`,
+      ACC_2, ORG, USER,
+    );
+    await prisma.$executeRawUnsafe(
+      `UPDATE commercial_budget_versions
+       SET status='SUPERSEDED', superseded_at=now()
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      VERSION, ORG,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_budget_versions(
+         id,organisation_id,budget_id,version_number,status,created_by,activated_by,activated_at
+       ) VALUES ($1::uuid,$2,$3::uuid,2,'ACTIVE',$4,$4,now())`,
+      VERSION_2, ORG, BUDGET, USER,
+    );
+    await prisma.$executeRawUnsafe(
+      `UPDATE commercial_budgets
+       SET active_version_id=$1::uuid
+       WHERE id=$2::uuid AND organisation_id=$3`,
+      VERSION_2, BUDGET, ORG,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_budget_lines(
+         id,organisation_id,budget_version_id,budget_account_id,cost_centre_id,annual_budget_cents
+       ) VALUES ($1::uuid,$2,$3::uuid,$4::uuid,$5::uuid,360000)`,
+      BUDGET_LINE_2, ORG, VERSION_2, ACC_2, CC,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_budget_period_allocations(
+         organisation_id,budget_line_id,financial_period_id,amount_cents
+       ) VALUES ($1,$2::uuid,$3::uuid,30000)`,
+      ORG, BUDGET_LINE_2, PERIOD,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_budget_commitment_mappings(
+         organisation_id,budget_version_id,cost_centre_id,budget_account_id,created_by
+       ) VALUES ($1,$2::uuid,$3::uuid,$4::uuid,$5)`,
+      ORG, VERSION_2, CC, ACC_2, USER,
+    );
+
+    const liveAfterVersionSwitch = await getBudgetActualCommittedReport(ORG);
+    expect(liveAfterVersionSwitch.financeRows.find(row => row.budgetAccountId === ACC)).toMatchObject({
+      sourceActualCents: '0',
+      financeAdjustmentCents: '250',
+    });
+    expect(liveAfterVersionSwitch.financeRows.find(row => row.budgetAccountId === ACC_2)).toMatchObject({
+      sourceActualCents: '2750',
+      committedCents: '8250',
+      budgetCents: '30000',
+    });
+
+    const snapshottedAfterVersionSwitch = await getBudgetActualCommittedReport(ORG, 'xero');
+    expect(snapshottedAfterVersionSwitch.financeRows.find(row => row.budgetAccountId === ACC)).toMatchObject({
+      sourceActualCents: '2750',
+      financeAdjustmentCents: '250',
+      effectiveActualCents: '3000',
+      externalGlActualCents: '3050',
+      reconciliationVarianceCents: '-50',
+      reconciliationId: RECONCILIATION,
+      reconciliationStatus: 'STALE',
+      sourceSystemId: 'xero',
+    });
+    expect(snapshottedAfterVersionSwitch.financeRows.find(row => row.budgetAccountId === ACC_2)).toMatchObject({
+      sourceActualCents: '0',
+      financeAdjustmentCents: '0',
+      committedCents: '8250',
+      budgetCents: '30000',
+      externalGlActualCents: null,
+      reconciliationId: null,
+    });
+    expect(
+      snapshottedAfterVersionSwitch.financeRows.reduce(
+        (sum, row) => sum + BigInt(row.sourceActualCents),
+        BigInt(0),
+      ),
+    ).toBe(BigInt(2750));
+    expect(
+      snapshottedAfterVersionSwitch.financeRows.reduce(
+        (sum, row) => sum + BigInt(row.financeAdjustmentCents),
+        BigInt(0),
+      ),
+    ).toBe(BigInt(250));
   });
+
 });

@@ -288,6 +288,20 @@ function deriveFinanceAdjustedRows(
     map.set(key, current);
   }
 
+  const snapshottedPeriodCurrencies = new Set(
+    reconciliationRows.map(row =>
+      [row.financial_period_id, row.currency].join('|'),
+    ),
+  );
+  for (const row of map.values()) {
+    if (snapshottedPeriodCurrencies.has(
+      [row.financialPeriodId, row.currency].join('|'),
+    )) {
+      row.sourceActualCents = BigInt(0);
+      row.financeAdjustmentCents = BigInt(0);
+    }
+  }
+
   for (const row of reconciliationRows) {
     const key = financeGrainKey({
       budgetAccountId: row.budget_account_id,
