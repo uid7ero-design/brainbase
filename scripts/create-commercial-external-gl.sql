@@ -28,6 +28,32 @@ CREATE INDEX IF NOT EXISTS idx_external_gl_account_mappings_lookup
     organisation_id, source_system_id, external_gl_account_code, effective_from, effective_to
   );
 
+CREATE TABLE IF NOT EXISTS commercial_external_gl_cost_centre_mappings (
+  id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organisation_id           TEXT NOT NULL REFERENCES organisations(id),
+  source_system_id          TEXT NOT NULL CHECK (length(btrim(source_system_id)) > 0),
+  external_cost_centre_code TEXT NOT NULL CHECK (length(btrim(external_cost_centre_code)) > 0),
+  cost_centre_id            UUID NOT NULL,
+  effective_from            DATE NOT NULL,
+  effective_to              DATE,
+  status                    TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','RETIRED')),
+  created_by                TEXT NOT NULL REFERENCES users(id),
+  created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+  retired_by                TEXT REFERENCES users(id),
+  retired_at                TIMESTAMPTZ,
+  UNIQUE (id, organisation_id),
+  UNIQUE (organisation_id, source_system_id, external_cost_centre_code, effective_from),
+  FOREIGN KEY (cost_centre_id, organisation_id)
+    REFERENCES commercial_cost_centres(id, organisation_id),
+  CHECK (effective_to IS NULL OR effective_to >= effective_from),
+  CHECK ((status='ACTIVE' AND retired_by IS NULL AND retired_at IS NULL)
+      OR (status='RETIRED' AND retired_by IS NOT NULL AND retired_at IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_external_gl_cost_centre_mappings_lookup
+  ON commercial_external_gl_cost_centre_mappings(
+    organisation_id, source_system_id, external_cost_centre_code, effective_from, effective_to
+  );
+
 CREATE TABLE IF NOT EXISTS commercial_external_gl_entries (
   id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   organisation_id           TEXT NOT NULL REFERENCES organisations(id),

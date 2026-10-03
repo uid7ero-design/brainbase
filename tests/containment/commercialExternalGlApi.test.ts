@@ -8,12 +8,16 @@ vi.mock('@/lib/commercial/authorize', async (importOriginal) => {
 
 const createMappingMock = vi.fn();
 const retireMappingMock = vi.fn();
+const createCostCentreMappingMock = vi.fn();
+const retireCostCentreMappingMock = vi.fn();
 const importEntryMock = vi.fn();
 const listSourcesMock = vi.fn();
 class MockExternalGlError extends Error { constructor(public code: string, message: string) { super(message); } }
 vi.mock('@/lib/commercial/externalGl', () => ({
   createExternalGlAccountMapping: (...args: unknown[]) => createMappingMock(...args),
   retireExternalGlAccountMapping: (...args: unknown[]) => retireMappingMock(...args),
+  createExternalGlCostCentreMapping: (...args: unknown[]) => createCostCentreMappingMock(...args),
+  retireExternalGlCostCentreMapping: (...args: unknown[]) => retireCostCentreMappingMock(...args),
   importExternalGlEntry: (...args: unknown[]) => importEntryMock(...args),
   listExternalGlSourceSystemIds: (...args: unknown[]) => listSourcesMock(...args),
   ExternalGlError: MockExternalGlError,
@@ -21,6 +25,8 @@ vi.mock('@/lib/commercial/externalGl', () => ({
 
 const mappingsRoute = await import('@/app/api/commercial/budgeting/external-gl/mappings/route');
 const retireRoute = await import('@/app/api/commercial/budgeting/external-gl/mappings/[id]/retire/route');
+const costCentreMappingsRoute = await import('@/app/api/commercial/budgeting/external-gl/cost-centre-mappings/route');
+const retireCostCentreMappingRoute = await import('@/app/api/commercial/budgeting/external-gl/cost-centre-mappings/[id]/retire/route');
 const entriesRoute = await import('@/app/api/commercial/budgeting/external-gl/entries/route');
 const sourcesRoute = await import('@/app/api/commercial/budgeting/external-gl/sources/route');
 
@@ -31,6 +37,8 @@ beforeEach(() => {
   authorizeMock.mockReset();
   createMappingMock.mockReset();
   retireMappingMock.mockReset();
+  createCostCentreMappingMock.mockReset();
+  retireCostCentreMappingMock.mockReset();
   importEntryMock.mockReset();
   listSourcesMock.mockReset();
 });
@@ -49,6 +57,25 @@ describe('C7.9D/C7.9F — external GL APIs', () => {
     expect(response.status).toBe(status);
     expect(authorizeMock).toHaveBeenCalledWith('budgeting', 'admin');
     expect(retireMappingMock).not.toHaveBeenCalled();
+  });
+
+  it.each([401, 403, 503])('preserves cost-centre mapping authorization denial %s', async status => {
+    authorizeMock.mockResolvedValue({ ok: false, response: new Response(null, { status }) });
+    const response = await costCentreMappingsRoute.POST(new Request('http://localhost', { method: 'POST', body: '{}' }));
+    expect(response.status).toBe(status);
+    expect(authorizeMock).toHaveBeenCalledWith('budgeting', 'admin');
+    expect(createCostCentreMappingMock).not.toHaveBeenCalled();
+  });
+
+  it.each([401, 403, 503])('preserves cost-centre mapping-retire authorization denial %s', async status => {
+    authorizeMock.mockResolvedValue({ ok: false, response: new Response(null, { status }) });
+    const response = await retireCostCentreMappingRoute.POST(
+      new Request('http://localhost', { method: 'POST', body: '{}' }),
+      ctx,
+    );
+    expect(response.status).toBe(status);
+    expect(authorizeMock).toHaveBeenCalledWith('budgeting', 'admin');
+    expect(retireCostCentreMappingMock).not.toHaveBeenCalled();
   });
 
   it.each([401, 403, 503])('preserves entry-import authorization denial %s', async status => {
@@ -77,6 +104,54 @@ describe('C7.9D/C7.9F — external GL APIs', () => {
     const response = await retireRoute.POST(new Request('http://localhost', { method:'POST', body: JSON.stringify({ effectiveTo:'2026-12-31' }) }), ctx);
     expect(response.status).toBe(200);
     expect(retireMappingMock).toHaveBeenCalledWith({ organisationId:'org-a', userId:'admin-a', mappingId:'mapping-1', effectiveTo:'2026-12-31' });
+  });
+
+  it('creates a governed cost-centre mapping under budgeting/administer using only session tenant/user', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: ADMIN });
+    createCostCentreMappingMock.mockResolvedValue({ id: 'cc-mapping-1' });
+
+    const response = await costCentreMappingsRoute.POST(new Request('http://localhost?organisationId=org-b', {
+      method: 'POST',
+      body: JSON.stringify({
+        sourceSystemId: 'xero',
+        externalCostCentreCode: 'OPS-EXT',
+        costCentreId: 'cc-1',
+        effectiveFrom: '2026-07-01',
+      }),
+    }));
+
+    expect(response.status).toBe(201);
+    expect(authorizeMock).toHaveBeenCalledWith('budgeting', 'admin');
+    expect(createCostCentreMappingMock).toHaveBeenCalledWith({
+      organisationId: 'org-a',
+      userId: 'admin-a',
+      sourceSystemId: 'xero',
+      externalCostCentreCode: 'OPS-EXT',
+      costCentreId: 'cc-1',
+      effectiveFrom: '2026-07-01',
+      effectiveTo: null,
+    });
+  });
+
+  it('retires a governed cost-centre mapping under session tenant only', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: ADMIN });
+    retireCostCentreMappingMock.mockResolvedValue({ id: 'mapping-1', status: 'RETIRED' });
+
+    const response = await retireCostCentreMappingRoute.POST(
+      new Request('http://localhost', {
+        method: 'POST',
+        body: JSON.stringify({ effectiveTo: '2026-12-31' }),
+      }),
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    expect(retireCostCentreMappingMock).toHaveBeenCalledWith({
+      organisationId: 'org-a',
+      userId: 'admin-a',
+      mappingId: 'mapping-1',
+      effectiveTo: '2026-12-31',
+    });
   });
 
   it('imports immutable external entry with session tenant and preserves idempotent outcome status', async () => {

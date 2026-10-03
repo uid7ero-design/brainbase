@@ -14,6 +14,16 @@ describe('C7.9D — external GL schema/domain contract', () => {
     expect(migration).toContain('external_gl_account_code');
   });
 
+  it('uses explicit tenant-scoped cost-centre mappings when the external GL carries dimension codes', () => {
+    expect(migration).toContain('commercial_external_gl_cost_centre_mappings');
+    expect(migration).toContain('external_cost_centre_code');
+    expect(migration).toContain('FOREIGN KEY (cost_centre_id, organisation_id)');
+    expect(migration).toContain('REFERENCES commercial_cost_centres(id, organisation_id)');
+    expect(domain).toContain('createExternalGlCostCentreMapping');
+    expect(domain).toContain('retireExternalGlCostCentreMapping');
+    expect(domain).toContain("params.organisationId + '|CC|' + sourceSystemId + '|' + externalCostCentreCode");
+  });
+
   it('stores effective dating and rejects overlapping ACTIVE mappings in the domain', () => {
     expect(migration).toContain('effective_from');
     expect(migration).toContain('effective_to');
@@ -25,9 +35,10 @@ describe('C7.9D — external GL schema/domain contract', () => {
   it('discovers finance source IDs only from tenant-scoped finance evidence', () => {
     expect(domain).toContain('listExternalGlSourceSystemIds');
     expect(domain).toContain('FROM commercial_external_gl_account_mappings');
+    expect(domain).toContain('FROM commercial_external_gl_cost_centre_mappings');
     expect(domain).toContain('FROM commercial_external_gl_entries');
     expect(domain).toContain('FROM commercial_finance_reconciliations');
-    expect((domain.match(/WHERE organisation_id=\$\{organisationId\}/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect((domain.match(/WHERE organisation_id=\$\{organisationId\}/g) ?? []).length).toBeGreaterThanOrEqual(4);
   });
 
   it('contains no fuzzy mapping by names, supplier or description', () => {

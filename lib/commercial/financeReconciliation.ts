@@ -34,10 +34,13 @@ type PeriodRow = {
 
 type SourceRow = {
   budget_account_id: string;
+  cost_centre_id: string;
   source_actual_cents: string | number | bigint;
   source_actual_count: string | number | bigint;
-};type AdjustmentRow = {
+};
+type AdjustmentRow = {
   budget_account_id: string;
+  cost_centre_id: string;
   finance_adjustment_cents: string | number | bigint;
 };
 
@@ -53,6 +56,8 @@ type ExternalRow = {
   external_gl_account_mapping_id: string | null;
   budget_account_id: string | null;
   external_gl_account_code: string;
+  external_cost_centre_mapping_id: string | null;
+  cost_centre_id: string | null;
   external_cost_centre_code: string | null;
   external_gl_cents: string | number | bigint;
   external_entry_count: string | number | bigint;
@@ -63,6 +68,7 @@ export type PreparedFinanceReconciliationItem = {
   budgetAccountId: string | null;
   externalGlAccountMappingId: string | null;
   externalGlAccountCode: string | null;
+  externalCostCentreMappingId: string | null;
   costCentreId: string | null;
   externalCostCentreCode: string | null;
   currency: string;
@@ -199,6 +205,7 @@ export async function prepareFinanceReconciliation(params: {
     `,
     txn`
       SELECT bcm.budget_account_id,
+             COALESCE(pol.cost_centre_id, po.cost_centre_id) AS cost_centre_id,
              SUM(CASE cb.tax_basis
                    WHEN 'EXCLUSIVE' THEN sbl.line_subtotal_cents
                    ELSE sbl.line_total_cents
@@ -240,10 +247,11 @@ export async function prepareFinanceReconciliation(params: {
        AND bl.cost_centre_id = COALESCE(pol.cost_centre_id, po.cost_centre_id)
       WHERE fp.id = ${financialPeriodId}
         AND fp.organisation_id = ${organisationId}
-      GROUP BY bcm.budget_account_id
+      GROUP BY bcm.budget_account_id, COALESCE(pol.cost_centre_id, po.cost_centre_id)
     `,
     txn`
       SELECT fal.budget_account_id,
+             fal.cost_centre_id,
              COALESCE(SUM(fal.budget_basis_cents), 0)::text AS finance_adjustment_cents
       FROM commercial_finance_adjustments fa
       JOIN commercial_finance_adjustment_lines fal
@@ -253,7 +261,7 @@ export async function prepareFinanceReconciliation(params: {
         AND fal.financial_period_id = ${financialPeriodId}
         AND fa.currency = ${currency}
         AND fa.status IN ('POSTED','REVERSED')
-      GROUP BY fal.budget_account_id
+      GROUP BY fal.budget_account_id, fal.cost_centre_id
     `,
     txn`
       SELECT id, budget_account_id, external_gl_account_code, effective_from, effective_to
@@ -268,11 +276,14 @@ export async function prepareFinanceReconciliation(params: {
           SELECT starts_on FROM commercial_financial_periods
           WHERE id = ${financialPeriodId} AND organisation_id = ${organisationId}
         ))
-      ORDER BY budget_account_id, effective_from, id    `,
+      ORDER BY budget_account_id, effective_from, id
+    `,
     txn`
       SELECT resolved.id AS external_gl_account_mapping_id,
              resolved.budget_account_id,
              e.external_account_code AS external_gl_account_code,
+             resolved_cc.id AS external_cost_centre_mapping_id,
+             resolved_cc.cost_centre_id,
              NULLIF(btrim(e.external_cost_centre_code), '') AS external_cost_centre_code,
              SUM(e.amount_minor_units)::text AS external_gl_cents,
              COUNT(e.id)::int AS external_entry_count
@@ -288,6 +299,17 @@ export async function prepareFinanceReconciliation(params: {
         ORDER BY m.effective_from DESC, m.id
         LIMIT 1
       ) resolved ON true
+      LEFT JOIN LATERAL (
+        SELECT m.id, m.cost_centre_id
+        FROM commercial_external_gl_cost_centre_mappings m
+        WHERE m.organisation_id = e.organisation_id
+          AND m.source_system_id = e.source_system_id
+          AND m.external_cost_centre_code = NULLIF(btrim(e.external_cost_centre_code), '')
+          AND m.effective_from <= e.transaction_date
+          AND (m.effective_to IS NULL OR m.effective_to >= e.transaction_date)
+        ORDER BY m.effective_from DESC, m.id
+        LIMIT 1
+      ) resolved_cc ON true
       JOIN commercial_financial_periods fp
         ON fp.id = ${financialPeriodId}
        AND fp.organisation_id = e.organisation_id
@@ -296,7 +318,8 @@ export async function prepareFinanceReconciliation(params: {
         AND e.source_system_id = ${sourceSystemId}
         AND e.currency = ${currency}
       GROUP BY resolved.id, resolved.budget_account_id,
-               e.external_account_code, NULLIF(btrim(e.external_cost_centre_code), '')
+               e.external_account_code, resolved_cc.id, resolved_cc.cost_centre_id,
+               NULLIF(btrim(e.external_cost_centre_code), '')
       ORDER BY e.external_account_code, external_cost_centre_code NULLS FIRST
     `,
   ], { isolationLevel: 'RepeatableRead' });  const period = (periodRows as PeriodRow[])[0];
@@ -311,28 +334,51 @@ export async function prepareFinanceReconciliation(params: {
   const adjustments = adjustmentRows as AdjustmentRow[];
   const external = externalRows as ExternalRow[];
 
-  const brainByAccount = new Map<string, {
+  type BrainGrain = {
+    budgetAccountId: string;
+    costCentreId: string;
     sourceActualCents: bigint;
     financeAdjustmentCents: bigint;
     sourceActualCount: number;
-  }>();
+  };
+  const brainByGrain = new Map<string, BrainGrain>();
+  const brainKey = (budgetAccountId: string, costCentreId: string) =>
+    [budgetAccountId, costCentreId].join('|');
 
   for (const row of source) {
-    brainByAccount.set(row.budget_account_id, {
-      sourceActualCents: money(row.source_actual_cents),
+    const key = brainKey(row.budget_account_id, row.cost_centre_id);
+    const current = brainByGrain.get(key) ?? {
+      budgetAccountId: row.budget_account_id,
+      costCentreId: row.cost_centre_id,
+      sourceActualCents: BigInt(0),
       financeAdjustmentCents: BigInt(0),
-      sourceActualCount: Number(row.source_actual_count),
-    });
+      sourceActualCount: 0,
+    };
+    current.sourceActualCents += money(row.source_actual_cents);
+    current.sourceActualCount += Number(row.source_actual_count);
+    brainByGrain.set(key, current);
   }
   for (const row of adjustments) {
-    const current = brainByAccount.get(row.budget_account_id) ?? {
+    const key = brainKey(row.budget_account_id, row.cost_centre_id);
+    const current = brainByGrain.get(key) ?? {
+      budgetAccountId: row.budget_account_id,
+      costCentreId: row.cost_centre_id,
       sourceActualCents: BigInt(0),
       financeAdjustmentCents: BigInt(0),
       sourceActualCount: 0,
     };
     current.financeAdjustmentCents += money(row.finance_adjustment_cents);
-    brainByAccount.set(row.budget_account_id, current);
-  }  const coveringByAccount = new Map<string, MappingRow>();
+    brainByGrain.set(key, current);
+  }
+
+  const brainByAccount = new Map<string, BrainGrain[]>();
+  for (const grain of brainByGrain.values()) {
+    const grains = brainByAccount.get(grain.budgetAccountId) ?? [];
+    grains.push(grain);
+    brainByAccount.set(grain.budgetAccountId, grains);
+  }
+
+  const coveringByAccount = new Map<string, MappingRow>();
   for (const accountId of brainByAccount.keys()) {
     const covering = mappings.filter(mapping =>
       mapping.budget_account_id === accountId
@@ -348,18 +394,28 @@ export async function prepareFinanceReconciliation(params: {
     if (covering[0]) coveringByAccount.set(accountId, covering[0]);
   }
 
-  const externalMapped = new Map<string, {
+  const externalAccountLevel = new Map<string, {
     mappingId: string;
     budgetAccountId: string;
     externalGlAccountCode: string;
     externalGlCents: bigint;
     externalEntryCount: number;
   }>();
-  const unresolvedCostCentre = new Map<string, {
-    mappingId: string | null;
-    budgetAccountId: string | null;
+  const externalByCostCentre = new Map<string, {
+    mappingId: string;
+    budgetAccountId: string;
     externalGlAccountCode: string;
-    externalCostCentreCode: string;
+    costCentreId: string;
+    costCentreMappingIds: Set<string>;
+    externalCostCentreCodes: Set<string>;
+    externalGlCents: bigint;
+    externalEntryCount: number;
+  }>();
+  const unresolvedCostCentre = new Map<string, {
+    mappingId: string;
+    budgetAccountId: string;
+    externalGlAccountCode: string;
+    externalCostCentreCode: string | null;
     externalGlCents: bigint;
     externalEntryCount: number;
   }>();
@@ -367,28 +423,12 @@ export async function prepareFinanceReconciliation(params: {
     externalGlAccountCode: string;
     externalGlCents: bigint;
     externalEntryCount: number;
-  }>();  for (const row of external) {
+  }>();
+  const costCentreModeMappings = new Set<string>();
+
+  for (const row of external) {
     const cents = money(row.external_gl_cents);
     const count = Number(row.external_entry_count);
-    if (row.external_cost_centre_code) {
-      const key = [
-        row.external_gl_account_mapping_id ?? '',
-        row.external_gl_account_code,
-        row.external_cost_centre_code,
-      ].join('|');
-      const current = unresolvedCostCentre.get(key) ?? {
-        mappingId: row.external_gl_account_mapping_id,
-        budgetAccountId: row.budget_account_id,
-        externalGlAccountCode: row.external_gl_account_code,
-        externalCostCentreCode: row.external_cost_centre_code,
-        externalGlCents: BigInt(0),
-        externalEntryCount: 0,
-      };
-      current.externalGlCents += cents;
-      current.externalEntryCount += count;
-      unresolvedCostCentre.set(key, current);
-      continue;
-    }
 
     if (!row.external_gl_account_mapping_id || !row.budget_account_id) {
       const current = unmappedExternal.get(row.external_gl_account_code) ?? {
@@ -402,30 +442,87 @@ export async function prepareFinanceReconciliation(params: {
       continue;
     }
 
+    if (row.external_cost_centre_code) {
+      costCentreModeMappings.add(row.external_gl_account_mapping_id);
+      if (!row.external_cost_centre_mapping_id || !row.cost_centre_id) {
+        const key = [
+          row.external_gl_account_mapping_id,
+          row.external_gl_account_code,
+          row.external_cost_centre_code,
+        ].join('|');
+        const current = unresolvedCostCentre.get(key) ?? {
+          mappingId: row.external_gl_account_mapping_id,
+          budgetAccountId: row.budget_account_id,
+          externalGlAccountCode: row.external_gl_account_code,
+          externalCostCentreCode: row.external_cost_centre_code,
+          externalGlCents: BigInt(0),
+          externalEntryCount: 0,
+        };
+        current.externalGlCents += cents;
+        current.externalEntryCount += count;
+        unresolvedCostCentre.set(key, current);
+        continue;
+      }
+
+      const key = [row.external_gl_account_mapping_id, row.cost_centre_id].join('|');
+      const current = externalByCostCentre.get(key) ?? {
+        mappingId: row.external_gl_account_mapping_id,
+        budgetAccountId: row.budget_account_id,
+        externalGlAccountCode: row.external_gl_account_code,
+        costCentreId: row.cost_centre_id,
+        costCentreMappingIds: new Set<string>(),
+        externalCostCentreCodes: new Set<string>(),
+        externalGlCents: BigInt(0),
+        externalEntryCount: 0,
+      };
+      current.costCentreMappingIds.add(row.external_cost_centre_mapping_id);
+      current.externalCostCentreCodes.add(row.external_cost_centre_code);
+      current.externalGlCents += cents;
+      current.externalEntryCount += count;
+      externalByCostCentre.set(key, current);
+      continue;
+    }
+
     const key = row.external_gl_account_mapping_id;
-    const current = externalMapped.get(key) ?? {
+    const current = externalAccountLevel.get(key) ?? {
       mappingId: row.external_gl_account_mapping_id,
       budgetAccountId: row.budget_account_id,
       externalGlAccountCode: row.external_gl_account_code,
       externalGlCents: BigInt(0),
       externalEntryCount: 0,
-    };    current.externalGlCents += cents;
+    };
+    current.externalGlCents += cents;
     current.externalEntryCount += count;
-    externalMapped.set(key, current);
+    externalAccountLevel.set(key, current);
   }
 
   const mutableItems: MutableItem[] = [];
-  const consumedMappings = new Set<string>();
+  const consumedAccountMappings = new Set<string>();
+  const consumedCostCentreKeys = new Set<string>();
 
-  for (const [budgetAccountId, brain] of [...brainByAccount.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-    const effective = brain.sourceActualCents + brain.financeAdjustmentCents;
+  function aggregateBrain(grains: BrainGrain[]) {
+    return grains.reduce((total, grain) => ({
+      sourceActualCents: total.sourceActualCents + grain.sourceActualCents,
+      financeAdjustmentCents: total.financeAdjustmentCents + grain.financeAdjustmentCents,
+      sourceActualCount: total.sourceActualCount + grain.sourceActualCount,
+    }), {
+      sourceActualCents: BigInt(0),
+      financeAdjustmentCents: BigInt(0),
+      sourceActualCount: 0,
+    });
+  }
+
+  for (const [budgetAccountId, grains] of [...brainByAccount.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const mapping = coveringByAccount.get(budgetAccountId);
 
     if (!mapping) {
+      const brain = aggregateBrain(grains);
+      const effective = brain.sourceActualCents + brain.financeAdjustmentCents;
       mutableItems.push({
         budgetAccountId,
         externalGlAccountMappingId: null,
         externalGlAccountCode: null,
+        externalCostCentreMappingId: null,
         costCentreId: null,
         externalCostCentreCode: null,
         currency,
@@ -441,18 +538,82 @@ export async function prepareFinanceReconciliation(params: {
       continue;
     }
 
-    const ext = externalMapped.get(mapping.id);
-    if (ext) consumedMappings.add(mapping.id);
+    if (costCentreModeMappings.has(mapping.id)) {
+      const accountLevelExternal = externalAccountLevel.get(mapping.id);
+      if (accountLevelExternal) {
+        consumedAccountMappings.add(mapping.id);
+        mutableItems.push({
+          budgetAccountId,
+          externalGlAccountMappingId: mapping.id,
+          externalGlAccountCode: mapping.external_gl_account_code,
+          externalCostCentreMappingId: null,
+          costCentreId: null,
+          externalCostCentreCode: null,
+          currency,
+          sourceActualCents: BigInt(0),
+          financeAdjustmentCents: BigInt(0),
+          brainbaseEffectiveActualCents: BigInt(0),
+          externalGlCents: accountLevelExternal.externalGlCents,
+          varianceCents: -accountLevelExternal.externalGlCents,
+          sourceActualCount: 0,
+          externalEntryCount: accountLevelExternal.externalEntryCount,
+          outcome: 'UNMAPPED_COST_CENTRE',
+        });
+      }
+
+      for (const grain of [...grains].sort((a, b) => a.costCentreId.localeCompare(b.costCentreId))) {
+        const key = [mapping.id, grain.costCentreId].join('|');
+        const ext = externalByCostCentre.get(key);
+        if (ext) consumedCostCentreKeys.add(key);
+        const externalCents = ext?.externalGlCents ?? BigInt(0);
+        const effective = grain.sourceActualCents + grain.financeAdjustmentCents;
+        const variance = effective - externalCents;
+        const mappingIds = ext ? [...ext.costCentreMappingIds].sort() : [];
+        const externalCodes = ext ? [...ext.externalCostCentreCodes].sort() : [];
+        const outcome: FinanceReconciliationOutcome = !ext
+          ? 'MISSING_EXTERNAL_ENTRY'
+          : variance === BigInt(0)
+            ? 'RECONCILED'
+            : 'VARIANCE';
+
+        mutableItems.push({
+          budgetAccountId,
+          externalGlAccountMappingId: mapping.id,
+          externalGlAccountCode: mapping.external_gl_account_code,
+          externalCostCentreMappingId: mappingIds.length === 1 ? mappingIds[0] : null,
+          costCentreId: grain.costCentreId,
+          externalCostCentreCode: externalCodes.length === 1 ? externalCodes[0] : null,
+          currency,
+          sourceActualCents: grain.sourceActualCents,
+          financeAdjustmentCents: grain.financeAdjustmentCents,
+          brainbaseEffectiveActualCents: effective,
+          externalGlCents: externalCents,
+          varianceCents: variance,
+          sourceActualCount: grain.sourceActualCount,
+          externalEntryCount: ext?.externalEntryCount ?? 0,
+          outcome,
+        });
+      }
+      continue;
+    }
+
+    const brain = aggregateBrain(grains);
+    const effective = brain.sourceActualCents + brain.financeAdjustmentCents;
+    const ext = externalAccountLevel.get(mapping.id);
+    if (ext) consumedAccountMappings.add(mapping.id);
     const externalCents = ext?.externalGlCents ?? BigInt(0);
     const variance = effective - externalCents;
     const outcome: FinanceReconciliationOutcome = !ext
       ? 'MISSING_EXTERNAL_ENTRY'
       : variance === BigInt(0)
         ? 'RECONCILED'
-        : 'VARIANCE';    mutableItems.push({
+        : 'VARIANCE';
+
+    mutableItems.push({
       budgetAccountId,
       externalGlAccountMappingId: mapping.id,
       externalGlAccountCode: mapping.external_gl_account_code,
+      externalCostCentreMappingId: null,
       costCentreId: null,
       externalCostCentreCode: null,
       currency,
@@ -467,12 +628,15 @@ export async function prepareFinanceReconciliation(params: {
     });
   }
 
-  for (const ext of [...externalMapped.values()].sort((a, b) => a.externalGlAccountCode.localeCompare(b.externalGlAccountCode))) {
-    if (consumedMappings.has(ext.mappingId)) continue;
+  for (const ext of [...externalAccountLevel.values()].sort((a, b) =>
+    a.externalGlAccountCode.localeCompare(b.externalGlAccountCode),
+  )) {
+    if (consumedAccountMappings.has(ext.mappingId)) continue;
     mutableItems.push({
       budgetAccountId: ext.budgetAccountId,
       externalGlAccountMappingId: ext.mappingId,
       externalGlAccountCode: ext.externalGlAccountCode,
+      externalCostCentreMappingId: null,
       costCentreId: null,
       externalCostCentreCode: null,
       currency,
@@ -483,16 +647,47 @@ export async function prepareFinanceReconciliation(params: {
       varianceCents: -ext.externalGlCents,
       sourceActualCount: 0,
       externalEntryCount: ext.externalEntryCount,
+      outcome: costCentreModeMappings.has(ext.mappingId)
+        ? 'UNMAPPED_COST_CENTRE'
+        : 'EXTERNAL_ONLY_ENTRY',
+    });
+  }
+
+  for (const [key, ext] of [...externalByCostCentre.entries()].sort(([, a], [, b]) =>
+    a.externalGlAccountCode.localeCompare(b.externalGlAccountCode)
+      || a.costCentreId.localeCompare(b.costCentreId),
+  )) {
+    if (consumedCostCentreKeys.has(key)) continue;
+    const mappingIds = [...ext.costCentreMappingIds].sort();
+    const externalCodes = [...ext.externalCostCentreCodes].sort();
+    mutableItems.push({
+      budgetAccountId: ext.budgetAccountId,
+      externalGlAccountMappingId: ext.mappingId,
+      externalGlAccountCode: ext.externalGlAccountCode,
+      externalCostCentreMappingId: mappingIds.length === 1 ? mappingIds[0] : null,
+      costCentreId: ext.costCentreId,
+      externalCostCentreCode: externalCodes.length === 1 ? externalCodes[0] : null,
+      currency,
+      sourceActualCents: BigInt(0),
+      financeAdjustmentCents: BigInt(0),
+      brainbaseEffectiveActualCents: BigInt(0),
+      externalGlCents: ext.externalGlCents,
+      varianceCents: -ext.externalGlCents,
+      sourceActualCount: 0,
+      externalEntryCount: ext.externalEntryCount,
       outcome: 'EXTERNAL_ONLY_ENTRY',
     });
-  }  for (const ext of [...unresolvedCostCentre.values()].sort((a, b) =>
+  }
+
+  for (const ext of [...unresolvedCostCentre.values()].sort((a, b) =>
     a.externalGlAccountCode.localeCompare(b.externalGlAccountCode)
-      || a.externalCostCentreCode.localeCompare(b.externalCostCentreCode),
+      || (a.externalCostCentreCode ?? '').localeCompare(b.externalCostCentreCode ?? ''),
   )) {
     mutableItems.push({
       budgetAccountId: ext.budgetAccountId,
       externalGlAccountMappingId: ext.mappingId,
       externalGlAccountCode: ext.externalGlAccountCode,
+      externalCostCentreMappingId: null,
       costCentreId: null,
       externalCostCentreCode: ext.externalCostCentreCode,
       currency,
@@ -514,6 +709,7 @@ export async function prepareFinanceReconciliation(params: {
       budgetAccountId: null,
       externalGlAccountMappingId: null,
       externalGlAccountCode: ext.externalGlAccountCode,
+      externalCostCentreMappingId: null,
       costCentreId: null,
       externalCostCentreCode: null,
       currency,
@@ -555,13 +751,13 @@ export async function prepareFinanceReconciliation(params: {
       INSERT INTO commercial_finance_reconciliation_items (
         id, organisation_id, reconciliation_id,
         budget_account_id, external_gl_account_mapping_id, external_gl_account_code,
-        cost_centre_id, external_cost_centre_code, currency,
+        external_cost_centre_mapping_id, cost_centre_id, external_cost_centre_code, currency,
         source_actual_cents, finance_adjustment_cents, brainbase_effective_actual_cents,
         external_gl_cents, variance_cents, source_actual_count, external_entry_count, outcome
       ) VALUES (
         ${item.id}, ${organisationId}, ${reconciliationId},
         ${item.budgetAccountId}, ${item.externalGlAccountMappingId}, ${item.externalGlAccountCode},
-        ${item.costCentreId}, ${item.externalCostCentreCode}, ${currency},
+        ${item.externalCostCentreMappingId}, ${item.costCentreId}, ${item.externalCostCentreCode}, ${currency},
         ${item.sourceActualCents}::bigint, ${item.financeAdjustmentCents}::bigint, ${item.brainbaseEffectiveActualCents}::bigint,
         ${item.externalGlCents}::bigint, ${item.varianceCents}::bigint,
         ${item.sourceActualCount}, ${item.externalEntryCount}, ${item.outcome}

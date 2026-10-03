@@ -57,7 +57,9 @@ CREATE TABLE IF NOT EXISTS commercial_finance_reconciliation_items (
   budget_account_id               UUID,
   external_gl_account_mapping_id  UUID,
   external_gl_account_code        TEXT,
-  cost_centre_id                  UUID,  external_cost_centre_code       TEXT,
+  external_cost_centre_mapping_id UUID,
+  cost_centre_id                  UUID,
+  external_cost_centre_code       TEXT,
   currency                        TEXT NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
   source_actual_cents             BIGINT NOT NULL,
   finance_adjustment_cents        BIGINT NOT NULL,
@@ -85,9 +87,15 @@ CREATE TABLE IF NOT EXISTS commercial_finance_reconciliation_items (
 
   CONSTRAINT commercial_finance_reconciliation_items_account_org_fkey
     FOREIGN KEY (budget_account_id, organisation_id)
-    REFERENCES commercial_budget_accounts(id, organisation_id),  CONSTRAINT commercial_finance_reconciliation_items_mapping_org_fkey
+    REFERENCES commercial_budget_accounts(id, organisation_id),
+
+  CONSTRAINT commercial_finance_reconciliation_items_mapping_org_fkey
     FOREIGN KEY (external_gl_account_mapping_id, organisation_id)
     REFERENCES commercial_external_gl_account_mappings(id, organisation_id),
+
+  CONSTRAINT finance_recon_item_ext_cc_mapping_org_fkey
+    FOREIGN KEY (external_cost_centre_mapping_id, organisation_id)
+    REFERENCES commercial_external_gl_cost_centre_mappings(id, organisation_id),
 
   CONSTRAINT commercial_finance_reconciliation_items_cost_centre_org_fkey
     FOREIGN KEY (cost_centre_id, organisation_id)
@@ -96,6 +104,24 @@ CREATE TABLE IF NOT EXISTS commercial_finance_reconciliation_items (
   CHECK (brainbase_effective_actual_cents = source_actual_cents + finance_adjustment_cents),
   CHECK (variance_cents = brainbase_effective_actual_cents - external_gl_cents)
 );
+
+ALTER TABLE commercial_finance_reconciliation_items
+  ADD COLUMN IF NOT EXISTS external_cost_centre_mapping_id UUID;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'finance_recon_item_ext_cc_mapping_org_fkey'
+      AND conrelid = 'commercial_finance_reconciliation_items'::regclass
+  ) THEN
+    ALTER TABLE commercial_finance_reconciliation_items
+      ADD CONSTRAINT finance_recon_item_ext_cc_mapping_org_fkey
+      FOREIGN KEY (external_cost_centre_mapping_id, organisation_id)
+      REFERENCES commercial_external_gl_cost_centre_mappings(id, organisation_id);
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_commercial_finance_reconciliation_items_parent
   ON commercial_finance_reconciliation_items(organisation_id, reconciliation_id);

@@ -29,6 +29,17 @@ export interface ExternalGlAccountMapping {
   effective_to: string | null;
   status: ExternalGlMappingStatus;
 }
+export interface ExternalGlCostCentreMapping {
+  id: string;
+  organisation_id: string;
+  source_system_id: string;
+  external_cost_centre_code: string;
+  cost_centre_id: string;
+  effective_from: string;
+  effective_to: string | null;
+  status: ExternalGlMappingStatus;
+}
+
 export interface ExternalGlEntry {
   id: string;
   organisation_id: string;
@@ -56,6 +67,10 @@ export async function listExternalGlSourceSystemIds(
     FROM (
       SELECT source_system_id
       FROM commercial_external_gl_account_mappings
+      WHERE organisation_id=${organisationId}
+      UNION
+      SELECT source_system_id
+      FROM commercial_external_gl_cost_centre_mappings
       WHERE organisation_id=${organisationId}
       UNION
       SELECT source_system_id
@@ -153,6 +168,81 @@ export async function retireExternalGlAccountMapping(params: {
     RETURNING *
   ` as ExternalGlAccountMapping[];
   if (!rows[0]) throw new ExternalGlError('NOT_FOUND', 'Active mapping not found.');
+  return rows[0];
+}
+
+export async function createExternalGlCostCentreMapping(params: {
+  organisationId: string; userId: string; sourceSystemId: string;
+  externalCostCentreCode: string; costCentreId: string;
+  effectiveFrom: string; effectiveTo?: string | null;
+}): Promise<ExternalGlCostCentreMapping> {
+  const sourceSystemId = cleanRequired(params.sourceSystemId, 'sourceSystemId');
+  const externalCostCentreCode = cleanRequired(params.externalCostCentreCode, 'externalCostCentreCode');
+  const effectiveFrom = cleanRequired(params.effectiveFrom, 'effectiveFrom');
+  const effectiveTo = params.effectiveTo?.trim() || null;
+
+  const [, rows] = await sql.transaction(txn => [
+    txn`
+      WITH lock_guard AS MATERIALIZED (
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${params.organisationId + '|CC|' + sourceSystemId + '|' + externalCostCentreCode}, 0)
+        )
+      )
+      SELECT 1::int AS locked FROM lock_guard
+    `,
+    txn`
+      WITH valid_cost_centre AS (
+        SELECT id FROM commercial_cost_centres
+        WHERE id=${params.costCentreId}
+          AND organisation_id=${params.organisationId} AND active=true
+      ), conflict AS (
+        SELECT 1 FROM commercial_external_gl_cost_centre_mappings existing
+        WHERE existing.organisation_id=${params.organisationId}
+          AND existing.source_system_id=${sourceSystemId}
+          AND existing.external_cost_centre_code=${externalCostCentreCode}
+          AND existing.status='ACTIVE'
+          AND daterange(existing.effective_from,
+              COALESCE(existing.effective_to + 1, 'infinity'::date), '[)')
+            && daterange(${effectiveFrom}::date,
+              COALESCE(${effectiveTo}::date + 1, 'infinity'::date), '[)')
+      )
+      INSERT INTO commercial_external_gl_cost_centre_mappings(
+        organisation_id,source_system_id,external_cost_centre_code,
+        cost_centre_id,effective_from,effective_to,status,created_by
+      )
+      SELECT ${params.organisationId},${sourceSystemId},${externalCostCentreCode},
+        ${params.costCentreId},${effectiveFrom}::date,${effectiveTo}::date,'ACTIVE',${params.userId}
+      FROM valid_cost_centre WHERE NOT EXISTS (SELECT 1 FROM conflict)
+      RETURNING *
+    `,
+  ], { isolationLevel: 'ReadCommitted' });
+
+  const mapping = (rows as ExternalGlCostCentreMapping[])[0];
+  if (mapping) return mapping;
+  const costCentre = await sql`SELECT id FROM commercial_cost_centres
+    WHERE id=${params.costCentreId} AND organisation_id=${params.organisationId} AND active=true`;
+  if ((costCentre as { id: string }[]).length === 0) {
+    throw new ExternalGlError('NOT_FOUND', 'Cost centre not found for this organisation.');
+  }
+  throw new ExternalGlError(
+    'OVERLAPPING_MAPPING',
+    'An effective mapping already covers that external cost centre and date range.',
+  );
+}
+
+export async function retireExternalGlCostCentreMapping(params: {
+  organisationId: string; userId: string; mappingId: string; effectiveTo: string;
+}): Promise<ExternalGlCostCentreMapping> {
+  const effectiveTo = cleanRequired(params.effectiveTo, 'effectiveTo');
+  const rows = await sql`
+    UPDATE commercial_external_gl_cost_centre_mappings
+    SET status='RETIRED', effective_to=${effectiveTo}::date,
+        retired_by=${params.userId}, retired_at=now()
+    WHERE id=${params.mappingId} AND organisation_id=${params.organisationId}
+      AND status='ACTIVE' AND ${effectiveTo}::date >= effective_from
+    RETURNING *
+  ` as ExternalGlCostCentreMapping[];
+  if (!rows[0]) throw new ExternalGlError('NOT_FOUND', 'Active cost-centre mapping not found.');
   return rows[0];
 }
 

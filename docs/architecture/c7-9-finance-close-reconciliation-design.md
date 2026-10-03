@@ -341,7 +341,7 @@ No mapping by supplier, description, or display-name similarity.
 
 Mappings are version/effective-date controlled so historical reconciliation can reproduce the rule used at the time.
 
-Cost-centre/dimension mapping must likewise be explicit if the external GL uses different dimension codes.
+Cost-centre/dimension mapping is likewise explicit when the external GL uses dimension codes. C7.9 uses `commercial_external_gl_cost_centre_mappings` with organisation, source system, external cost-centre code, BrainBase cost-centre id, effective dates, lifecycle status and audit fields. Reconciliation items retain the exact cost-centre mapping id used so historical snapshots do not depend on later mapping changes.
 
 ## 16. External GL imported facts
 
@@ -459,13 +459,9 @@ C7.8 currently classifies historical source Actuals through the currently ACTIVE
 
 That is adequate for the current operational report but not sufficient for immutable closed-period finance history.
 
-C7.9 therefore requires close snapshots to freeze the reporting dimensions used at close, either by:
+C7.9 therefore freezes closed-period finance evidence in immutable reconciliation items. Each prepared item stores the resolved Budget account, cost centre where applicable, account/cost-centre mapping lineage and the close-time Source Actual, Finance Adjustments, Effective Actual, External GL and Variance amounts.
 
-- storing close-time resolved Budget/account/cost-centre totals; or
-- storing immutable attribution records tied to the Budget version used.
-
-C7.9 prefers immutable attribution/snapshot records over depending on whichever Budget version is ACTIVE later.
-A later C7.9 implementation phase must choose the exact physical model before declaring closed-period reports reproducible.
+C7.9F treats those item snapshots as authoritative for Source Actual and Finance Adjustments whenever a SIGNED_OFF or STALE reconciliation is selected. Current Budget and Committed values remain live planning measures and are not rewritten into the historical finance snapshot. This prevents a later ACTIVE Budget version or changed live payable state from silently re-attributing signed finance evidence.
 
 ## 22. Authorization
 

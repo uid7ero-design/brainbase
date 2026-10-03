@@ -33,9 +33,16 @@ const sqlMock = Object.assign(
 );
 vi.doMock('@/lib/db',()=>({default:sqlMock}));
 
-const { createExternalGlAccountMapping, retireExternalGlAccountMapping, importExternalGlEntry,
-  listExternalGlSourceSystemIds, assertSameReconciliationCurrency, ExternalGlError } =
-  await import('@/lib/commercial/externalGl');
+const {
+  createExternalGlAccountMapping,
+  retireExternalGlAccountMapping,
+  createExternalGlCostCentreMapping,
+  retireExternalGlCostCentreMapping,
+  importExternalGlEntry,
+  listExternalGlSourceSystemIds,
+  assertSameReconciliationCurrency,
+  ExternalGlError,
+} = await import('@/lib/commercial/externalGl');
 
 const ORG='org-c79d';
 const OTHER='org-c79d-other';
@@ -43,6 +50,8 @@ const USER='user-c79d';
 const OTHER_USER='user-c79d-other';
 const ACCOUNT='79999999-4000-0000-0000-000000000001';
 const OTHER_ACCOUNT='79999999-4000-0000-0000-000000000002';
+const COST_CENTRE='79999999-4000-0000-0000-000000000003';
+const OTHER_COST_CENTRE='79999999-4000-0000-0000-000000000004';
 
 beforeAll(async()=>{
   await prisma.$executeRawUnsafe(`INSERT INTO organisations(id,name) VALUES ($1,'C7.9D'),($2,'C7.9D Other') ON CONFLICT(id) DO NOTHING`,ORG,OTHER);
@@ -53,10 +62,15 @@ let testSequence = 0;
 beforeEach(async()=>{
   testSequence += 1;
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_external_gl_account_mappings WHERE organisation_id IN ($1,$2)`,ORG,OTHER);
+  await prisma.$executeRawUnsafe(`DELETE FROM commercial_external_gl_cost_centre_mappings WHERE organisation_id IN ($1,$2)`,ORG,OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_budget_accounts WHERE organisation_id IN ($1,$2)`,ORG,OTHER);
+  await prisma.$executeRawUnsafe(`DELETE FROM commercial_cost_centres WHERE organisation_id IN ($1,$2)`,ORG,OTHER);
   await prisma.$executeRawUnsafe(`INSERT INTO commercial_budget_accounts(id,organisation_id,code,name,active,created_by)
     VALUES ($1::uuid,$2,'OPEX','Operating',true,$3),($4::uuid,$5,'OTHER','Other',true,$6)`,
     ACCOUNT,ORG,USER,OTHER_ACCOUNT,OTHER,OTHER_USER);
+  await prisma.$executeRawUnsafe(`INSERT INTO commercial_cost_centres(id,organisation_id,code,name,active)
+    VALUES ($1::uuid,$2,'OPS','Operations',true),($3::uuid,$4,'OTHER','Other',true)`,
+    COST_CENTRE,ORG,OTHER_COST_CENTRE,OTHER);
 });
 
 afterAll(async()=>prisma.$disconnect());
@@ -64,6 +78,10 @@ afterAll(async()=>prisma.$disconnect());
 const mappingInput = () => ({
   organisationId:ORG,userId:USER,sourceSystemId:'xero',externalAccountCode:'600',
   externalAccountName:'Repairs',budgetAccountId:ACCOUNT,effectiveFrom:'2026-07-01',effectiveTo:null,
+});
+const costCentreMappingInput = () => ({
+  organisationId:ORG,userId:USER,sourceSystemId:'xero',externalCostCentreCode:'OPS-EXT',
+  costCentreId:COST_CENTRE,effectiveFrom:'2026-07-01',effectiveTo:null,
 });
 const entryInput = () => ({
   organisationId:ORG,userId:USER,sourceSystemId:'xero',externalEntryId:`entry-${testSequence}`,
@@ -88,6 +106,48 @@ describe('C7.9D — real PostgreSQL external GL boundary',()=>{
 
   it('serializes overlapping concurrent mapping creation',async()=>{
     const results=await Promise.allSettled([createExternalGlAccountMapping(mappingInput()),createExternalGlAccountMapping(mappingInput())]);
+    expect(results.filter(x=>x.status==='fulfilled')).toHaveLength(1);
+    expect(results.filter(x=>x.status==='rejected')).toHaveLength(1);
+    const rejected=results.find(x=>x.status==='rejected') as PromiseRejectedResult;
+    expect(rejected.reason).toMatchObject({code:'OVERLAPPING_MAPPING'});
+  });
+
+  it('creates, retires and tenant-isolates explicit cost-centre mappings',async()=>{
+    const mapping=await createExternalGlCostCentreMapping(costCentreMappingInput());
+    expect(mapping).toMatchObject({
+      organisation_id:ORG,
+      source_system_id:'xero',
+      external_cost_centre_code:'OPS-EXT',
+      cost_centre_id:COST_CENTRE,
+      status:'ACTIVE',
+    });
+
+    await expect(createExternalGlCostCentreMapping({
+      ...costCentreMappingInput(),
+      costCentreId:OTHER_COST_CENTRE,
+    })).rejects.toMatchObject({code:'NOT_FOUND'});
+
+    await expect(retireExternalGlCostCentreMapping({
+      organisationId:ORG,
+      userId:USER,
+      mappingId:mapping.id,
+      effectiveTo:' ',
+    })).rejects.toMatchObject({code:'INVALID_INPUT'});
+
+    const retired=await retireExternalGlCostCentreMapping({
+      organisationId:ORG,
+      userId:USER,
+      mappingId:mapping.id,
+      effectiveTo:'2026-12-31',
+    });
+    expect(retired).toMatchObject({status:'RETIRED',effective_to:expect.anything()});
+  });
+
+  it('serializes overlapping concurrent cost-centre mapping creation',async()=>{
+    const results=await Promise.allSettled([
+      createExternalGlCostCentreMapping(costCentreMappingInput()),
+      createExternalGlCostCentreMapping(costCentreMappingInput()),
+    ]);
     expect(results.filter(x=>x.status==='fulfilled')).toHaveLength(1);
     expect(results.filter(x=>x.status==='rejected')).toHaveLength(1);
     const rejected=results.find(x=>x.status==='rejected') as PromiseRejectedResult;

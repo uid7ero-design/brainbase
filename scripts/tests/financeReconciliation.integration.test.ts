@@ -188,6 +188,23 @@ async function addMapping(f: Fixture, account = f.account, code = '600', from = 
   );
   return mapping;
 }
+async function addCostCentreMapping(
+  f: Fixture,
+  externalCode = 'OPS-EXT',
+  from = '2026-07-01',
+  to: string | null = null,
+  costCentreId = f.cc,
+) {
+  const mapping = id();
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO commercial_external_gl_cost_centre_mappings
+      (id,organisation_id,source_system_id,external_cost_centre_code,cost_centre_id,effective_from,effective_to,status,created_by)
+     VALUES ($1::uuid,$2,'xero',$3,$4::uuid,$5::date,$6::date,'ACTIVE',$7)`,
+    mapping, f.org, externalCode, costCentreId, from, to, f.user,
+  );
+  return mapping;
+}
+
 async function addEntry(f: Fixture, amount: number, code = '600', date = '2026-09-20', currency = 'AUD', costCentre: string | null = null) {
   const entry = id();
   await prisma.$executeRawUnsafe(
@@ -334,6 +351,54 @@ describe('C7.9E1 — prepared finance reconciliation snapshots', () => {
       externalCostCentreCode: 'OPS-EXT',
       costCentreId: null,
       outcome: 'UNMAPPED_COST_CENTRE',
+    });
+  });
+
+  it('reconciles an explicitly mapped external cost centre at account + cost-centre grain', async () => {
+    const f = await seedFixture();
+    const accountMapping = await addMapping(f);
+    const costCentreMapping = await addCostCentreMapping(f, 'OPS-EXT', '2026-09-15');
+    await addEntry(f, 1000, '600', '2026-09-20', 'AUD', 'OPS-EXT');
+
+    const result = await prepare(f);
+
+    expect(result.unresolvedItemCount).toBe(0);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      budgetAccountId: f.account,
+      externalGlAccountMappingId: accountMapping,
+      externalGlAccountCode: '600',
+      externalCostCentreMappingId: costCentreMapping,
+      costCentreId: f.cc,
+      externalCostCentreCode: 'OPS-EXT',
+      sourceActualCents: '1000',
+      financeAdjustmentCents: '0',
+      brainbaseEffectiveActualCents: '1000',
+      externalGlCents: '1000',
+      varianceCents: '0',
+      outcome: 'RECONCILED',
+    });
+  });
+
+  it('keeps mapped external cost-centre evidence as external-only when BrainBase has no matching grain', async () => {
+    const f = await seedFixture({ withSource: false });
+    const accountMapping = await addMapping(f);
+    const costCentreMapping = await addCostCentreMapping(f);
+    await addEntry(f, 400, '600', '2026-09-20', 'AUD', 'OPS-EXT');
+
+    const result = await prepare(f);
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      budgetAccountId: f.account,
+      externalGlAccountMappingId: accountMapping,
+      externalCostCentreMappingId: costCentreMapping,
+      costCentreId: f.cc,
+      externalCostCentreCode: 'OPS-EXT',
+      sourceActualCents: '0',
+      externalGlCents: '400',
+      varianceCents: '-400',
+      outcome: 'EXTERNAL_ONLY_ENTRY',
     });
   });
 
