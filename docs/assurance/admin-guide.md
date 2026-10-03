@@ -384,6 +384,47 @@ Evidence (**Assurance → Evidence**) is the register of proof; Verification
   after), verification requested, verification withdrawn, accepted, rejected,
   superseded and replacement recorded.
 
+## Findings and corrective actions
+
+Findings are the issues; actions are the corrective work. See
+[work instruction 05](work-instructions/05-raise-and-manage-a-finding.md),
+[09](work-instructions/09-close-actions-and-findings.md) and
+[16](work-instructions/16-reopen-a-finding.md).
+
+- **Permissions.** Managers and admins raise findings, change their status,
+  create actions and record work. Closing, cancelling and reopening a finding
+  use the manager-level **close** permission. Viewers read only.
+- **Closure reason.** Every new close or cancel of a finding records a
+  reason; the database refuses one without it. Findings closed before
+  reasons were captured keep no reason — none is invented, and one cannot be
+  added afterwards. A recorded closure (reason, who, when) is never
+  rewritten while the finding stays closed.
+- **Reopen.** Only a **Closed** finding can be reopened, always to **Under
+  review**, with a reason. The previous closure is copied into a permanent
+  **Reopen history** in the same transaction; the history cannot be edited
+  or deleted. Concurrent reopens are serialised: exactly one succeeds.
+  Cancelled findings cannot be reopened.
+- **No knock-on effects.** Closing or reopening a finding never changes its
+  actions, source records, contractor records, evidence decisions,
+  verifications, deadlines, extensions, escalations or risk level. Nothing
+  closes a finding automatically.
+- **Actions are not reopened.** Follow-up work is a new action linked to the
+  same finding, so earlier verification attempts stay exactly as recorded.
+- **Source provenance.** Source links (incident, investigation, inspection,
+  audit) cannot be changed once made. A link to an inspection or audit can
+  record the exact checklist item or criterion (a structured link to the
+  recorded response of that same inspection or audit). Links made before
+  this was recorded have no item.
+- **Derived progress.** Needs action, Actions underway and Ready for closure
+  are worked out from the linked actions each time a page loads. They are
+  not stored and never change a status. They take every linked action into
+  account, including ones a viewer cannot see, but only visible actions are
+  ever named.
+- **Audit history.** Finding created, status changed, closed (with reason),
+  cancelled (with reason) and reopened (with reason and the previous
+  closure) are each one audit entry, written in the same transaction as the
+  change.
+
 ## In-app Help
 
 Everyone with Assurance access can open **Help & work instructions** and each
@@ -427,7 +468,7 @@ Rules:
 | Evidence | **No file upload.** Evidence records describe the proof and where the original is held. Checklist-item or criterion context can be set when adding evidence on the inspection or audit, not when linking existing evidence from the evidence page. Evidence has no expiry date of its own (contractor evidence keeps its dates in Contractor assurance). |
 | People | People on incidents and investigations are displayed, but cannot be added or edited from Assurance screens. |
 | Due dates | A due date can only be set when a finding or action is created; it cannot be added later. Extensions and escalations are manual (no automatic escalation, no organisation-wide deadline rules). Who cancelled an escalation is recorded in the audit history, not on the escalation itself. |
-| Findings | Findings are raised from a source record, and can be linked to further incidents, investigations, inspections and audits. There is no standalone "new finding" button. |
+| Findings | Findings are raised from a source record, and can be linked to further incidents, investigations, inspections and audits. There is no standalone "new finding" button. Linking an existing finding to an inspection or audit does not record a checklist item or criterion. Who cancelled a finding, and when, is recorded in its audit history rather than on the finding. |
 | Reference data | Locations, assets and external organisations are managed under **Settings → Reference data** and are never deleted. Archived or retired records cannot be reactivated there, and there is no map or address look-up. |
 | Scheduling | No recurring or automatically scheduled inspections or audits. |
 | Contractor assurance | No file upload: evidence records where the original document is held. No automatic reminders or expiry notifications. Contractor portal / self-service submission is not available. |

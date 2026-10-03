@@ -56,10 +56,11 @@ something that needs formal follow-up.
    - **Move to action required**
    - **Move to action in progress**
    - **Move to awaiting verification**
-7. Add corrective work with **Add corrective action**
+7. Add corrective work with **Create action**
    (see [work instruction 06](06-create-and-manage-an-action.md)).
 8. Watch the **Assurance chain** strip at the top: Source → Finding → Action
-   → Evidence → Verification → Closure.
+   → Evidence → Verification → Closure. The **Closure readiness** box lists
+   what still prevents closure.
 9. When the finding is resolved, select **Close finding**
    (see [work instruction 09](09-close-actions-and-findings.md)).
 
@@ -67,8 +68,12 @@ something that needs formal follow-up.
 
 - The finding starts as **Open**, with an `FND-…` reference.
 - Its **Source** links back to where it came from. For inspection items and
-  audit criteria, the exact item is recorded, and that response becomes
-  locked.
+  audit criteria, the exact item or criterion is recorded on the link and
+  shown beside it, and that response becomes locked. Source links are
+  permanent.
+- Its **progress** (No corrective action yet, Actions underway, Ready for
+  closure decision) is worked out from its actions; it never changes the
+  status.
 
 ## Important rules
 
@@ -81,9 +86,12 @@ something that needs formal follow-up.
   investigation, or from a cancelled inspection or audit.
 - **Resolve by** cannot be in the past.
 - Finding statuses are manual. Creating, verifying or closing actions does
-  not move the finding.
+  not move the finding, and a finding is never closed automatically.
 - **Risk level** is the finding's severity measure.
-- Closing is refused while any linked action is still open.
+- Closing is refused while any linked action is still open. Closing and
+  cancelling each need a reason.
+- A closed finding can be reopened with a reason
+  (see [work instruction 16](16-reopen-a-finding.md)). A cancelled one cannot.
 
 ## Common issues
 

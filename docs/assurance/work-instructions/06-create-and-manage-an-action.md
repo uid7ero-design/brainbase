@@ -29,8 +29,8 @@ preventative or remedial work, an improvement, follow-up or monitoring.
 
 **Create**
 
-1. Open the finding. In **Corrective actions** select **Add corrective
-   action**.
+1. Open the finding. In **Corrective actions** select **Create action**.
+   The new action is already linked to the finding.
 2. Choose the **Action type**, and enter a **Title** and **What needs to be
    done**.
 3. Set the **Priority**, **Owner**, **Contractor / external organisation**
