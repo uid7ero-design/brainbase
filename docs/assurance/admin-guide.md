@@ -282,6 +282,62 @@ See [work instruction 13](work-instructions/13-manage-deadlines.md).
   escalation id and level. Free-text reasons and notes stay on the extension
   and escalation history, not in the audit payload.
 
+## Contractor assurance
+
+Contractor assurance (**Assurance → Contractor assurance**) records what your
+organisation requires of its external organisations, and the evidence that
+shows each requirement is met. See
+[work instruction 14](work-instructions/14-manage-contractor-assurance.md).
+
+### Contractor assurance requirement library
+
+- **Assurance → Contractor assurance → Requirement library**. Only
+  organisation admins can create, edit, deactivate or reactivate
+  requirements.
+- A requirement has:
+  - a code (unique, and fixed once created);
+  - a name, a category and an optional description;
+  - evidence guidance;
+  - whether evidence must carry an expiry date;
+  - an optional **renewal notice** in days (1–365).
+- BrainBase does not assume any legal requirement, threshold or policy
+  amount. Your organisation defines its own.
+- **Renewal notice** controls "Expiring soon": evidence expiring within that
+  many days is flagged. Leave it blank for no expiring-soon state; there is
+  no hidden default.
+- Requirements are never deleted. **Deactivate** stops new assignments.
+  Existing assignments, their evidence and history continue, labelled
+  "Requirement inactive".
+- Editing a requirement does not change how earlier evidence is understood:
+  each piece of evidence keeps a copy of the requirement as it stood when it
+  was recorded.
+
+### Scope, assignments and decisions
+
+- **Scope**: managers bring an active shared external organisation into
+  Assurance scope, and can set a responsible person.
+  - Moving an organisation **out of scope** hides it from the register but
+    keeps every assignment, piece of evidence and history entry. It can be
+    brought back into scope.
+  - New requirements can only be assigned while it is in scope.
+- **Assignments**: managers assign active requirements. Each assignment can
+  have an optional required-from date, evidence-due date, reviewer and notes.
+  - A requirement can only be actively assigned once per organisation.
+  - Cancelling an assignment (with a reason) keeps its history and allows a
+    fresh assignment later.
+- **Decisions**: accepting or rejecting evidence uses the same manager-level
+  permission as other verification.
+  - The database refuses a decision by the person who recorded the evidence.
+    This is the independence the system can prove; it does not establish any
+    wider independence.
+  - Evidence for a requirement that needs an expiry date cannot be accepted
+    without one.
+- Everything is recorded in the audit history:
+  - requirement created / updated / deactivated / reactivated;
+  - scope created / brought into scope / removed from scope / updated;
+  - assignment created / updated / cancelled;
+  - evidence recorded / accepted / rejected / superseded / withdrawn.
+
 ## In-app Help
 
 Everyone with Assurance access can open **Help & work instructions** and each
@@ -328,6 +384,7 @@ Rules:
 | Findings | Findings are raised from a source record, and can be linked to further incidents, investigations, inspections and audits. There is no standalone "new finding" button. |
 | Reference data | Locations, assets and external organisations are managed under **Settings → Reference data** and are never deleted. Archived or retired records cannot be reactivated there, and there is no map or address look-up. |
 | Scheduling | No recurring or automatically scheduled inspections or audits. |
+| Contractor assurance | No file upload: evidence records where the original document is held. No automatic reminders or expiry notifications. Contractor portal / self-service submission is not available. |
 | Templates | A draft cannot be deleted from the screens: edit it, publish it, or leave it as a draft. A retired version cannot be republished. A template's name and type are fixed once it has been published. There is no template import or copying between templates. |
 | Evidence after closure | Evidence can still be added to a **closed incident** or a **completed investigation** (it is frozen only on closed or cancelled findings and actions, and cancelled inspections and audits). This is current behaviour pending a policy decision. |
 | Record editing | Records cannot be edited after creation (for example an action's due date or description). |

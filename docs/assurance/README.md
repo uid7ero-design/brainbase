@@ -55,6 +55,7 @@ it enabled. Inside the module, the left navigation has nine sections:
 | **Inspections** | Operational checks, from a checklist template or ad hoc. |
 | **Audits** | Structured reviews against a standard or requirement, from a criteria template or ad hoc. |
 | **Templates** | Inspection checklists and audit criteria: drafts, published versions and retired versions. |
+| **Contractor assurance** | Requirements, evidence and expiry for the shared external organisations brought into Assurance scope. |
 | **Findings** | Every identified issue and where it came from. |
 | **Actions** | Corrective actions (the register is titled "Corrective actions"). |
 | **Evidence** | Every evidence record and what it is linked to. |
