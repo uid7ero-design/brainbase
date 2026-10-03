@@ -13,7 +13,7 @@ const CARD = '#0e1014';
 const BORDER = '#1a1d24';
 const MUTED = '#9ca3af';
 
-type ConsumptionRow = {
+export type ConsumptionRow = {
   budgetId: string;
   budgetVersionId: string;
   budgetAccountId: string;
@@ -147,6 +147,48 @@ export function filterFinanceAdjustedRows(
   });
 }
 
+export function buildBudgetFilterOptions(
+  rows: ConsumptionRow[],
+  financeRows: FinanceRow[],
+  financialYearId: string,
+) {
+  const inSelectedYear = (row: { financialYearId: string }) =>
+    financialYearId === 'ALL' || row.financialYearId === financialYearId;
+
+  return {
+    financialYears: uniqueOptions([
+      ...rows.map(row => [row.financialYearId, row.financialYearName] as [string, string]),
+      ...financeRows.map(row => [row.financialYearId, row.financialYearName] as [string, string]),
+    ]),
+    financialPeriods: uniqueOptions([
+      ...rows.filter(inSelectedYear)
+        .map(row => [row.financialPeriodId, row.financialPeriodName] as [string | null, string | null]),
+      ...financeRows.filter(inSelectedYear)
+        .map(row => [row.financialPeriodId, row.financialPeriodName] as [string, string]),
+    ]),
+    accounts: uniqueOptions([
+      ...rows.map(row => [
+        row.budgetAccountId,
+        `${row.budgetAccountCode} — ${row.budgetAccountName}`,
+      ] as [string, string]),
+      ...financeRows.map(row => [
+        row.budgetAccountId,
+        `${row.budgetAccountCode} — ${row.budgetAccountName}`,
+      ] as [string, string]),
+    ]),
+    costCentres: uniqueOptions(rows.map(row => [
+      row.costCentreId,
+      row.costCentreCode && row.costCentreName
+        ? `${row.costCentreCode} — ${row.costCentreName}`
+        : row.costCentreName ?? row.costCentreCode ?? row.costCentreId,
+    ])),
+    currencies: [...new Set([
+      ...rows.map(row => row.currency),
+      ...financeRows.map(row => row.currency),
+    ])].sort(),
+  };
+}
+
 export default function BudgetCommitmentsPage() {
   const [report, setReport] = useState<Report | null>(null);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
@@ -253,20 +295,17 @@ export default function BudgetCommitmentsPage() {
       .sort((a, b) => a.currency.localeCompare(b.currency));
   }, [filteredRows]);
 
-  const financialYears = useMemo(() =>
-    uniqueOptions(rows.map(row => [row.financialYearId, row.financialYearName])), [rows]);
-  const financialPeriods = useMemo(() => uniqueOptions(rows
-    .filter(row => filters.financialYearId === 'ALL' || row.financialYearId === filters.financialYearId)
-    .map(row => [row.financialPeriodId, row.financialPeriodName])), [rows, filters.financialYearId]);
-  const accounts = useMemo(() =>
-    uniqueOptions(rows.map(row => [row.budgetAccountId, `${row.budgetAccountCode} — ${row.budgetAccountName}`])), [rows]);
-  const costCentres = useMemo(() => uniqueOptions(rows.map(row => [
-    row.costCentreId,
-    row.costCentreCode && row.costCentreName
-      ? `${row.costCentreCode} — ${row.costCentreName}`
-      : row.costCentreName ?? row.costCentreCode ?? row.costCentreId,
-  ])), [rows]);
-  const currencies = useMemo(() => [...new Set(rows.map(row => row.currency))].sort(), [rows]);
+  const filterOptions = useMemo(
+    () => buildBudgetFilterOptions(rows, financeRows, filters.financialYearId),
+    [rows, financeRows, filters.financialYearId],
+  );
+  const {
+    financialYears,
+    financialPeriods,
+    accounts,
+    costCentres,
+    currencies,
+  } = filterOptions;
   function setFilter<K extends keyof Filters>(key: K, value: Filters[K]) {
     setFilters(current => {
       const next = { ...current, [key]: value };
