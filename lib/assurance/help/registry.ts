@@ -41,6 +41,7 @@ export const HELP_ENTRIES: readonly HelpEntry[] = [
   { slug: 'manage-risk-levels', file: 'work-instructions/11-manage-risk-levels.md', group: 'work-instruction', label: '11 Manage risk levels', audience: 'Organisation admins' },
   { slug: 'manage-reference-data', file: 'work-instructions/12-manage-reference-data.md', group: 'work-instruction', label: '12 Manage reference data', audience: 'Organisation admins' },
   { slug: 'manage-deadlines', file: 'work-instructions/13-manage-deadlines.md', group: 'work-instruction', label: '13 Manage deadlines, extensions and escalations' },
+  { slug: 'manage-contractor-assurance', file: 'work-instructions/14-manage-contractor-assurance.md', group: 'work-instruction', label: '14 Manage contractor assurance' },
   { slug: 'change-log', file: 'change-log.md', group: 'reference', label: 'Change log' },
 ];
 

@@ -16,6 +16,9 @@ export type FormField =
   | { kind: 'select'; name: string; label: string; required?: boolean; options: { value: string; label: string }[]; defaultValue?: string; emptyLabel?: string; help?: string }
   | { kind: 'datetime'; name: string; label: string; required?: boolean; defaultNow?: boolean; help?: string }
   | { kind: 'date'; name: string; label: string; required?: boolean; help?: string }
+  /** A calendar date sent as YYYY-MM-DD (certificate/licence dates), not a timestamp. */
+  | { kind: 'calendarDate'; name: string; label: string; required?: boolean; help?: string; defaultValue?: string }
+  | { kind: 'number'; name: string; label: string; required?: boolean; help?: string; min?: number; max?: number; defaultValue?: string }
   | { kind: 'checkbox'; name: string; label: string; defaultChecked?: boolean; help?: string }
   | { kind: 'multiselect'; name: string; label: string; required?: boolean; options: { value: string; label: string }[]; defaultValues?: string[]; help?: string }
   | { kind: 'hidden'; name: string; value: string };
@@ -127,6 +130,10 @@ export default function AssuranceForm({ endpoint, method = 'POST', fields, submi
                   <input {...control} name={f.name} type="datetime-local" required={f.required} defaultValue={f.defaultNow ? nowDefault : undefined} className={fieldControlClassName} />
                 )}
                 {f.kind === 'date' && <input {...control} name={f.name} type="date" required={f.required} className={fieldControlClassName} />}
+                {f.kind === 'calendarDate' && <input {...control} name={f.name} type="date" required={f.required} defaultValue={f.defaultValue} className={fieldControlClassName} />}
+                {f.kind === 'number' && (
+                  <input {...control} name={f.name} type="number" inputMode="numeric" required={f.required} min={f.min} max={f.max} defaultValue={f.defaultValue} className={fieldControlClassName} />
+                )}
               </>
             )}
           </Field>

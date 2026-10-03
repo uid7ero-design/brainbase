@@ -173,6 +173,7 @@ export default defineConfig({
       'scripts/tests/assuranceReferenceDataSettings.integration.test.ts',
       'scripts/tests/assuranceRiskBootstrap.integration.test.ts',
       'scripts/tests/assuranceTemplates.integration.test.ts',
+      'scripts/tests/assuranceContractor.integration.test.ts',
       'scripts/tests/dataHubNormalizationExecutor.integration.test.ts',
       'scripts/tests/dataHubNormalizeWorksheetRoute.integration.test.ts',
     ],
