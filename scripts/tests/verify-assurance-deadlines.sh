@@ -3,7 +3,7 @@
 #
 # Starts a throwaway postgres:17 container, creates the same minimal
 # stand-ins for pre-existing platform tables as verify-assurance-ui-services.sh,
-# applies the REAL Assurance migrations (A0.1B, A0.1C, A0.1D-1..3, A0.1E-1),
+# applies the REAL Assurance migrations (A0.1B, A0.1C, A0.1D-1..3, A0.1E-1, A0.1F),
 # then runs scripts/tests/assuranceDeadlines.integration.test.ts
 # (deadline list, extension request/approve/reject/withdraw, escalations,
 # permissions, tenant + restricted isolation, non-propagation, concurrency and
@@ -29,7 +29,8 @@ trap cleanup EXIT
 
 for f in scripts/create-shared-foundations-a01b.sql scripts/create-assurance-core-a01c.sql \
          scripts/create-assurance-incidents-a01d1.sql scripts/create-assurance-investigations-a01d2.sql \
-         scripts/create-assurance-inspections-a01d3.sql scripts/create-assurance-audits-a01e1.sql; do
+         scripts/create-assurance-inspections-a01d3.sql scripts/create-assurance-audits-a01e1.sql \
+         scripts/create-assurance-template-lifecycle-a01f.sql; do
   [ -f "$f" ] || { echo "ERROR: $f not found." >&2; exit 2; }
 done
 
@@ -144,10 +145,11 @@ CREATE TABLE audit_logs (
 );
 SQL
 
-echo "Applying real Assurance migrations (A0.1B, A0.1C, A0.1D-1..3, A0.1E-1) ..."
+echo "Applying real Assurance migrations (A0.1B, A0.1C, A0.1D-1..3, A0.1E-1, A0.1F) ..."
 for f in scripts/create-shared-foundations-a01b.sql scripts/create-assurance-core-a01c.sql \
          scripts/create-assurance-incidents-a01d1.sql scripts/create-assurance-investigations-a01d2.sql \
-         scripts/create-assurance-inspections-a01d3.sql scripts/create-assurance-audits-a01e1.sql; do
+         scripts/create-assurance-inspections-a01d3.sql scripts/create-assurance-audits-a01e1.sql \
+         scripts/create-assurance-template-lifecycle-a01f.sql; do
   psql_exec < "$f" >/dev/null || { echo "ERROR: $f failed to apply." >&2; exit 2; }
   echo "  applied $f"
 done

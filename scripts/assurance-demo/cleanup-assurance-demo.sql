@@ -25,8 +25,19 @@ BEGIN
 END $$;
 
 ALTER TABLE assurance_verifications DISABLE TRIGGER trg_assurance_verifications_append_only;
-ALTER TABLE assurance_inspection_template_versions DISABLE TRIGGER trg_assurance_inspection_template_versions_immutable;
-ALTER TABLE assurance_audit_template_versions DISABLE TRIGGER trg_assurance_audit_template_versions_immutable;
+-- Template-version history triggers: the A0.1D-3/A0.1E-1 always-immutable
+-- ones, or (after A0.1F) the lifecycle guards — whichever exist.
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT tgname, tgrelid::regclass::text AS tbl FROM pg_trigger
+           WHERE NOT tgisinternal AND tgname IN (
+             'trg_assurance_inspection_template_versions_immutable', 'trg_assurance_audit_template_versions_immutable',
+             'trg_assurance_inspection_template_versions_lifecycle', 'trg_assurance_audit_template_versions_lifecycle')
+  LOOP
+    EXECUTE format('ALTER TABLE %I DISABLE TRIGGER %I', r.tbl, r.tgname);
+  END LOOP;
+END $$;
 
 -- Children before parents (every Assurance FK is ON DELETE NO ACTION).
 DELETE FROM assurance_evidence_verifications WHERE organisation_id = 'assurance-demo-org';
@@ -67,8 +78,17 @@ DELETE FROM assurance_incidents              WHERE organisation_id = 'assurance-
 DELETE FROM assurance_cases                  WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_risk_levels            WHERE organisation_id = 'assurance-demo-org';
 
-ALTER TABLE assurance_audit_template_versions ENABLE TRIGGER trg_assurance_audit_template_versions_immutable;
-ALTER TABLE assurance_inspection_template_versions ENABLE TRIGGER trg_assurance_inspection_template_versions_immutable;
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT tgname, tgrelid::regclass::text AS tbl FROM pg_trigger
+           WHERE NOT tgisinternal AND tgname IN (
+             'trg_assurance_inspection_template_versions_immutable', 'trg_assurance_audit_template_versions_immutable',
+             'trg_assurance_inspection_template_versions_lifecycle', 'trg_assurance_audit_template_versions_lifecycle')
+  LOOP
+    EXECUTE format('ALTER TABLE %I ENABLE TRIGGER %I', r.tbl, r.tgname);
+  END LOOP;
+END $$;
 ALTER TABLE assurance_verifications ENABLE TRIGGER trg_assurance_verifications_append_only;
 
 DELETE FROM organiser_items    WHERE organisation_id = 'assurance-demo-org';
@@ -102,7 +122,8 @@ BEGIN
   IF EXISTS (
     SELECT 1 FROM pg_trigger
     WHERE tgname IN ('trg_assurance_verifications_append_only', 'trg_assurance_inspection_template_versions_immutable',
-                     'trg_assurance_audit_template_versions_immutable')
+                     'trg_assurance_audit_template_versions_immutable', 'trg_assurance_inspection_template_versions_lifecycle',
+                     'trg_assurance_audit_template_versions_lifecycle')
       AND tgenabled = 'D'
   ) THEN
     RAISE EXCEPTION 'An Assurance history trigger is still disabled';

@@ -145,15 +145,6 @@ INSERT INTO assurance_inspection_template_versions (id, organisation_id, templat
      {"key":"04-fire-extinguishers","label":"Fire extinguishers tagged and in date","responseType":"PASS_FAIL","guidance":null,"required":true,"options":[]},
      {"key":"05-first-aid","label":"First aid kit stocked","responseType":"PASS_FAIL","guidance":null,"required":true,"options":[]}]'::jsonb,
    now() - interval '60 days', 'assurance-demo-coordinator', now() - interval '60 days'),
-  ('a55de000-0000-4000-8000-000000000312', 'assurance-demo-org', 'a55de000-0000-4000-8000-000000000301', 2, 'Depot Site Safety Walk (rev 2 — spill kits)',
-   'Walk every bay. Photograph any failed item before raising a finding. Now includes spill kits.',
-   '[{"key":"01-walkways-clear","label":"Walkways and exits clear of obstructions","responseType":"PASS_FAIL","guidance":null,"required":true,"options":[]},
-     {"key":"02-drain-grates-secured","label":"Drain grates secured and flush with floor","responseType":"PASS_FAIL","guidance":"Check every wash bay grate, including WB-3.","required":true,"options":[]},
-     {"key":"03-chemical-storage","label":"Chemical storage bunded and labelled","responseType":"PASS_FAIL","guidance":null,"required":true,"options":[]},
-     {"key":"04-fire-extinguishers","label":"Fire extinguishers tagged and in date","responseType":"PASS_FAIL","guidance":null,"required":true,"options":[]},
-     {"key":"05-first-aid","label":"First aid kit stocked","responseType":"PASS_FAIL","guidance":null,"required":true,"options":[]},
-     {"key":"06-spill-kit","label":"Spill kit stocked and accessible","responseType":"PASS_FAIL","guidance":null,"required":true,"options":[]}]'::jsonb,
-   now() - interval '5 days', 'assurance-demo-coordinator', now() - interval '5 days'),
   ('a55de000-0000-4000-8000-000000000313', 'assurance-demo-org', 'a55de000-0000-4000-8000-000000000302', 1, 'Playground Safety Check',
    NULL,
    '[{"key":"01-softfall-depth","label":"Softfall depth adequate under all equipment","responseType":"PASS_FAIL","guidance":null,"required":true,"options":[]},
@@ -170,6 +161,21 @@ INSERT INTO assurance_inspections (id, organisation_id, inspection_reference, te
    now() - interval '12 days', now() - interval '12 days', now() - interval '12 days' + interval '50 minutes',
    'a55de000-0000-4000-8000-000000000201', 'One failed item (wash bay grate WB-3). First aid gel replaced on the spot.',
    'assurance-demo-coordinator', now() - interval '14 days', now() - interval '12 days');
+
+-- Version 2 of the depot walk was published AFTER INS-DEMO-001 was planned
+-- against version 1 (inserted in that order so the A0.1F binding rule —
+-- records bind only to the then-published version — holds; under A0.1F this
+-- insert also retires version 1, exactly as publishing v2 would).
+INSERT INTO assurance_inspection_template_versions (id, organisation_id, template_id, version_number, title, instructions, checklist, effective_from, created_by, created_at) VALUES
+  ('a55de000-0000-4000-8000-000000000312', 'assurance-demo-org', 'a55de000-0000-4000-8000-000000000301', 2, 'Depot Site Safety Walk (rev 2 — spill kits)',
+   'Walk every bay. Photograph any failed item before raising a finding. Now includes spill kits.',
+   '[{"key":"01-walkways-clear","label":"Walkways and exits clear of obstructions","responseType":"PASS_FAIL","guidance":null,"required":true,"options":[]},
+     {"key":"02-drain-grates-secured","label":"Drain grates secured and flush with floor","responseType":"PASS_FAIL","guidance":"Check every wash bay grate, including WB-3.","required":true,"options":[]},
+     {"key":"03-chemical-storage","label":"Chemical storage bunded and labelled","responseType":"PASS_FAIL","guidance":null,"required":true,"options":[]},
+     {"key":"04-fire-extinguishers","label":"Fire extinguishers tagged and in date","responseType":"PASS_FAIL","guidance":null,"required":true,"options":[]},
+     {"key":"05-first-aid","label":"First aid kit stocked","responseType":"PASS_FAIL","guidance":null,"required":true,"options":[]},
+     {"key":"06-spill-kit","label":"Spill kit stocked and accessible","responseType":"PASS_FAIL","guidance":null,"required":true,"options":[]}]'::jsonb,
+   now() - interval '5 days', 'assurance-demo-coordinator', now() - interval '5 days');
 
 INSERT INTO assurance_inspection_responses (organisation_id, inspection_id, item_key, item_label, response_type, outcome, notes, responded_by, responded_at) VALUES
   ('assurance-demo-org', 'a55de000-0000-4000-8000-000000000401', '01-walkways-clear', 'Walkways and exits clear of obstructions', 'PASS_FAIL', 'PASS', NULL, 'assurance-demo-inspector', now() - interval '12 days' + interval '5 minutes'),
