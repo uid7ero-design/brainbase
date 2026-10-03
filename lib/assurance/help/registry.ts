@@ -42,6 +42,7 @@ export const HELP_ENTRIES: readonly HelpEntry[] = [
   { slug: 'manage-reference-data', file: 'work-instructions/12-manage-reference-data.md', group: 'work-instruction', label: '12 Manage reference data', audience: 'Organisation admins' },
   { slug: 'manage-deadlines', file: 'work-instructions/13-manage-deadlines.md', group: 'work-instruction', label: '13 Manage deadlines, extensions and escalations' },
   { slug: 'manage-contractor-assurance', file: 'work-instructions/14-manage-contractor-assurance.md', group: 'work-instruction', label: '14 Manage contractor assurance' },
+  { slug: 'verify-and-replace-evidence', file: 'work-instructions/15-verify-and-replace-evidence.md', group: 'work-instruction', label: '15 Verify and replace evidence' },
   { slug: 'change-log', file: 'change-log.md', group: 'reference', label: 'Change log' },
 ];
 

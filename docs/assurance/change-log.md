@@ -8,6 +8,28 @@ Newest first.
 
 ---
 
+## Evidence & Verification
+
+- **Evidence** now shows each item's verification status — **Unverified**,
+  **Awaiting verification**, **Accepted**, **Rejected** or **Superseded** —
+  with views for each, a **Supports** filter, who recorded it and who
+  supplied it.
+- Evidence can be **submitted for verification** and then **accepted or
+  rejected** by someone independent: not the person who recorded or captured
+  it, nor the owner or anyone who completed the work of an action it
+  supports.
+- Evidence can be **corrected** until it is decided. After that, **Record
+  replacement** keeps the original as history; an accepted replacement
+  supersedes accepted evidence.
+- Evidence added on an inspection or audit can name the **checklist item** or
+  **criterion** it relates to.
+- **Verification** now lists evidence awaiting verification, contractor
+  evidence awaiting review and actions awaiting verification, with recent
+  decisions. When nothing is waiting it says so.
+- Contractor evidence shows the decision made in Contractor assurance.
+- An evidence decision never verifies, closes or changes anything else.
+- New [work instruction 15: Verify and replace evidence](work-instructions/15-verify-and-replace-evidence.md).
+
 ## Contractor assurance
 
 - **Contractor assurance** is added to the Assurance navigation, after

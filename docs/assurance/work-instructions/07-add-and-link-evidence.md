@@ -33,13 +33,15 @@ Users with **manager** access or higher.
 4. Enter **Where the original is held**, for example a records-system
    reference or shared-drive path.
 5. Check **Captured** (defaults to now), and enter **Why it is linked
-   here**.
-6. Select **Add evidence**.
+   here**. On an inspection or audit you can also choose the **Checklist
+   item** or **Criterion** it relates to; this is fixed once linked.
+6. Optionally tick **Submit for verification now**, then select **Add
+   evidence**.
 
 **Record evidence without a record yet**
 
 7. Go to **Assurance → Evidence** and select **Record evidence**. Fill in the
-   same fields.
+   same fields, and optionally who **Supplied by**.
 
 **Reuse existing evidence**
 
@@ -88,3 +90,4 @@ Users with **manager** access or higher.
 
 - [Create and manage an action](06-create-and-manage-an-action.md)
 - [Perform verification](08-perform-verification.md)
+- [Verify and replace evidence](15-verify-and-replace-evidence.md)
