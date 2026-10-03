@@ -9,6 +9,7 @@ import {
   requireEmployeeDocumentAdmin,
   requireEmployeeDocumentContext,
 } from '@/lib/hr/employeeDocumentHttp';
+import { listEmployeeDocumentsForPerson } from '@/lib/hr/employeeDocumentList';
 import {
   createEmployeeDocumentWithVersion,
   MAX_EMPLOYEE_DOCUMENT_BYTES,
@@ -21,6 +22,51 @@ const CREATE_FIELDS = new Set([
   'expires_at',
   'file',
 ]);
+
+function iso(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id: personId } = await params;
+  const ctx = await requireEmployeeDocumentContext();
+  if (!ctx.ok) return ctx.response;
+  if (!isEmployeeDocumentResourceId(personId)) return employeeDocumentNotFoundResponse();
+
+  try {
+    const result = await listEmployeeDocumentsForPerson(ctx.session, personId);
+    if (result.outcome === 'not_found') return employeeDocumentNotFoundResponse();
+
+    return NextResponse.json({
+      documents: result.documents.map(document => ({
+        id: document.id,
+        document_type: document.documentType,
+        title: document.title,
+        lifecycle_task_id: document.lifecycleTaskId,
+        created_at: iso(document.createdAt),
+        current_version: document.currentVersion
+          ? {
+              id: document.currentVersion.id,
+              version_number: document.currentVersion.versionNumber,
+              expires_at: document.currentVersion.expiresAt
+                ? iso(document.currentVersion.expiresAt)
+                : null,
+              created_at: iso(document.currentVersion.createdAt),
+            }
+          : null,
+      })),
+    });
+  } catch (err) {
+    console.error('[hr/people/[id]/documents GET] failed', err);
+    return NextResponse.json(
+      { error: 'Could not retrieve employee documents.' },
+      { status: 500 },
+    );
+  }
+}
 
 export async function POST(
   req: NextRequest,
