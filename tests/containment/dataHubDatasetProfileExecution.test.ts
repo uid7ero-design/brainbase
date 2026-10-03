@@ -180,3 +180,85 @@ describe("6.2D4D1B2 — Prisma pointer fields and no row/cell-count duplication"
     expect(model).toContain("data_hub_dataset_profile_runs_id_upload_organisation_key");
   });
 });
+
+describe("6.2D4D1B2 — PR #324 remediation round 1: failure-disposition hardening", () => {
+  it("profileUploadDataset wraps post-attempt-creation execution in a try/catch exception boundary", () => {
+    const source = executionSource("profileUploadDataset.ts");
+    const fnStart = source.indexOf("export async function profileUploadDataset(");
+    const body = source.slice(fnStart);
+    expect(body).toMatch(/\btry\s*\{/);
+    expect(body).toMatch(/\}\s*catch\b/);
+    // The try block must start AFTER the RUNNING attempt is created (Phase
+    // A), not before -- the exception boundary exists specifically to
+    // dispose of an attempt that is already durably committed.
+    const createIdx = body.indexOf("createDatasetProfileRunAttempt(");
+    const tryIdx = body.indexOf("try {");
+    expect(tryIdx).toBeGreaterThan(createIdx);
+  });
+
+  it("every disposal call site checks (never discards) markDatasetProfileRunFailed's own result -- no bare fire-and-forget await", () => {
+    const source = executionSource("profileUploadDataset.ts");
+    // The ONLY call to the raw fail-run helper lives inside
+    // disposeExecutionFailure, and its result is captured and branched on
+    // -- never a bare `await markDatasetProfileRunFailed(...);` statement
+    // whose return value is thrown away.
+    expect(source).not.toMatch(/^\s*await markDatasetProfileRunFailed\(/m);
+    const callCount = (source.match(/markDatasetProfileRunFailed\(/g) ?? []).length;
+    expect(callCount).toBe(1);
+    const callIdx = source.indexOf("markDatasetProfileRunFailed(");
+    const precedingLine = source.slice(Math.max(0, callIdx - 80), callIdx);
+    expect(precedingLine).toMatch(/applied\s*=\s*await\s*$/);
+  });
+
+  it("disposeExecutionFailure re-reads real current state before reporting a false/zero-row disposition -- never guesses", () => {
+    const source = executionSource("profileUploadDataset.ts");
+    expect(source).toContain("getDatasetProfileRunById");
+    const fnStart = source.indexOf("async function disposeExecutionFailure");
+    const fn = source.slice(fnStart, fnStart + 2200);
+    expect(fn).toMatch(/catch\s*\{/); // the fail-run call itself is guarded
+    expect(fn).toContain('status === "FAILED"');
+    expect(fn).toContain('status === "SUCCEEDED"');
+    expect(fn).toContain("PERSISTENCE_FAILURE");
+  });
+
+  it("the two files touched by this remediation never reference a caught exception's own message at all (unlike completeDatasetProfileRun.ts's own pre-existing, reviewed in-memory classification, which never returns the message either but is out of this remediation's scope)", () => {
+    for (const file of ["profileUploadDataset.ts", "dataHubDatasetProfileRun.ts"]) {
+      const source = executionSource(file);
+      expect(source, `${file} must not reference err.message/error.message`).not.toMatch(/\b(err|error|e)\.message\b/);
+    }
+  });
+
+  it("no file in the execution layer ever returns a caught exception's own message as part of a result (completeDatasetProfileRun.ts's pre-existing classifyCompletionError only branches on it in-memory to pick a bounded code, never embeds it in the returned result)", () => {
+    for (const file of EXECUTION_FILES) {
+      const source = executionSource(file);
+      // No returned object literal contains `message` as a value tied to
+      // the caught error, e.g. `{ ..., code: err.message }` or similar.
+      expect(source, `${file} must not return a result containing err.message/error.message`).not.toMatch(/return\s*\{[^}]*\.message/);
+    }
+  });
+
+  it("introduces no new console logging", () => {
+    for (const file of EXECUTION_FILES) {
+      expect(executionSource(file), `${file} must not call console.*`).not.toMatch(/console\./);
+    }
+  });
+
+  it("introduces no auto-abandon/timeout/lease/scheduler/cron mechanism", () => {
+    expect(ALL_EXECUTION_SOURCE).not.toMatch(/setTimeout|setInterval|cron|lease_expires_at|execution_token/i);
+    // abandonStaleDatasetProfileRun remains a manually-invoked, exported
+    // helper -- never called from within this module itself.
+    const dataHubDatasetProfileRunSource = executionSource("dataHubDatasetProfileRun.ts");
+    const profileUploadDatasetSource = executionSource("profileUploadDataset.ts");
+    expect(profileUploadDatasetSource).not.toContain("abandonStaleDatasetProfileRun");
+    expect(dataHubDatasetProfileRunSource).toContain("export async function abandonStaleDatasetProfileRun");
+  });
+
+  it("introduces no new failure-code vocabulary beyond D4D1B1's own closed set", () => {
+    const allowed = ["NORMALIZATION_NOT_COMPLETE", "NORMALIZATION_RUN_NOT_SUCCEEDED", "PROFILER_VERSION_UNSUPPORTED", "PROFILE_INPUT_INVALID", "PROFILE_RECONCILIATION_FAILED", "PERSISTENCE_FAILURE"];
+    const codeLiterals = [...ALL_EXECUTION_SOURCE.matchAll(/"((?:NORMALIZATION|PROFILER|PROFILE|PERSISTENCE)_[A-Z_]+)"/g)].map((m) => m[1]);
+    expect(codeLiterals.length).toBeGreaterThan(0);
+    for (const code of codeLiterals) {
+      expect(allowed, `unexpected failure code literal: ${code}`).toContain(code);
+    }
+  });
+});

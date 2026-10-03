@@ -99,6 +99,7 @@ export interface ExistingDatasetProfileRunSummary {
   attemptNumber: number;
   rowCount: bigint | null;
   columnCount: bigint | null;
+  failureCode: string | null;
 }
 
 /** Most recent attempt (by attempt_number) for this exact normalization run, or null if none exists yet. */
@@ -106,10 +107,26 @@ export async function findLatestDatasetProfileRun(context: { organisationId: str
   const run = await prisma.dataHubDatasetProfileRun.findFirst({
     where: { organisation_id: context.organisationId, normalization_run_id: context.normalizationRunId },
     orderBy: { attempt_number: "desc" },
-    select: { id: true, status: true, profiler_version: true, attempt_number: true, row_count: true, column_count: true },
+    select: { id: true, status: true, profiler_version: true, attempt_number: true, row_count: true, column_count: true, failure_code: true },
   });
   if (!run) return null;
-  return { id: run.id, status: run.status, profilerVersion: run.profiler_version, attemptNumber: run.attempt_number, rowCount: run.row_count, columnCount: run.column_count };
+  return { id: run.id, status: run.status, profilerVersion: run.profiler_version, attemptNumber: run.attempt_number, rowCount: run.row_count, columnCount: run.column_count, failureCode: run.failure_code };
+}
+
+// REMEDIATION (PR #324 round 1) -- re-reads a SPECIFIC run's current
+// durable state by id. Used only by profileUploadDataset.ts's own
+// disposeExecutionFailure(): when the fail-run UPDATE affects zero rows
+// (markDatasetProfileRunFailed returned false), the caller must re-read
+// truthfully rather than guess -- the run may have already reached
+// SUCCEEDED or FAILED through a path this same call initiated earlier, or
+// may still be RUNNING if the disposition genuinely could not apply.
+export async function getDatasetProfileRunById(context: { organisationId: string; runId: string }): Promise<ExistingDatasetProfileRunSummary | null> {
+  const run = await prisma.dataHubDatasetProfileRun.findFirst({
+    where: { id: context.runId, organisation_id: context.organisationId },
+    select: { id: true, status: true, profiler_version: true, attempt_number: true, row_count: true, column_count: true, failure_code: true },
+  });
+  if (!run) return null;
+  return { id: run.id, status: run.status, profilerVersion: run.profiler_version, attemptNumber: run.attempt_number, rowCount: run.row_count, columnCount: run.column_count, failureCode: run.failure_code };
 }
 
 export interface ActiveDatasetProfileRun {

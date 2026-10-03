@@ -48,6 +48,7 @@ let profileUploadDataset: typeof import("@/lib/data-hub/profileExecution/profile
 let createDatasetProfileRunAttempt: typeof import("@/lib/data-hub/profileExecution/dataHubDatasetProfileRun").createDatasetProfileRunAttempt;
 let resolveAuthoritativeNormalizationContext: typeof import("@/lib/data-hub/profileExecution/dataHubDatasetProfileRun").resolveAuthoritativeNormalizationContext;
 let markDatasetProfileRunFailed: typeof import("@/lib/data-hub/profileExecution/dataHubDatasetProfileRun").markDatasetProfileRunFailed;
+let getDatasetProfileRunById: typeof import("@/lib/data-hub/profileExecution/dataHubDatasetProfileRun").getDatasetProfileRunById;
 let completeDatasetProfileRun: typeof import("@/lib/data-hub/profileExecution/completeDatasetProfileRun").completeDatasetProfileRun;
 let DATASET_PROFILER_VERSION: typeof import("@/lib/data-hub/profiling/contracts").DATASET_PROFILER_VERSION;
 
@@ -58,7 +59,7 @@ const RUN_SALT = Date.now().toString(36).slice(-6);
 
 beforeAll(async () => {
   ({ profileUploadDataset } = await import("@/lib/data-hub/profileExecution/profileUploadDataset"));
-  ({ createDatasetProfileRunAttempt, resolveAuthoritativeNormalizationContext, markDatasetProfileRunFailed } = await import("@/lib/data-hub/profileExecution/dataHubDatasetProfileRun"));
+  ({ createDatasetProfileRunAttempt, resolveAuthoritativeNormalizationContext, markDatasetProfileRunFailed, getDatasetProfileRunById } = await import("@/lib/data-hub/profileExecution/dataHubDatasetProfileRun"));
   ({ completeDatasetProfileRun } = await import("@/lib/data-hub/profileExecution/completeDatasetProfileRun"));
   ({ DATASET_PROFILER_VERSION } = await import("@/lib/data-hub/profiling/contracts"));
 
@@ -554,6 +555,78 @@ describe("G. persistence/reconciliation failure", () => {
 
     const upload = await prisma.upload.findUniqueOrThrow({ where: { id: ids.uploadId } });
     expect(upload.dataset_profile_run_id).toBeNull();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// G2. PR #324 REMEDIATION — real-Postgres proof of the underlying
+// fail-run state transitions the mocked unit suite
+// (dataHubDatasetProfileExecutionFailureDisposition.test.ts) exercises
+// profileUploadDataset's own orchestration logic against. Section 10 of
+// the remediation task requires these specific DB state transitions to
+// remain real-Postgres even though forcing the TRIGGERING exception/race
+// deterministically is impractical outside a mock.
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("G2. real fail-run state transitions", () => {
+  it("markDatasetProfileRunFailed applies (true) against a real RUNNING row, and durably transitions it to FAILED", async () => {
+    const s = nextSuffix("faildisp1");
+    const rows: SeedRow[] = [{ id: `${s}-r1`, sourceRowNumber: 2, col1: "ID-1", col2: "1", col3: "2024-01-01", col4: "x" }];
+    const ids = await seedWorld(s, ORG_A, rows);
+    const normCtx = await resolveAuthoritativeNormalizationContext({ organisationId: ORG_A, uploadId: ids.uploadId });
+    if (!normCtx.ok) throw new Error("unreachable");
+    const created = await createDatasetProfileRunAttempt({ organisationId: ORG_A, actorId: ids.userId, normalization: normCtx.normalization, profilerVersion: DATASET_PROFILER_VERSION });
+    if (!created.ok || !created.created) throw new Error("unreachable");
+
+    const applied = await markDatasetProfileRunFailed({ organisationId: ORG_A, runId: created.run.id, failureCode: "PROFILE_INPUT_INVALID" });
+    expect(applied).toBe(true);
+
+    const run = await prisma.dataHubDatasetProfileRun.findUniqueOrThrow({ where: { id: created.run.id } });
+    expect(run.status).toBe("FAILED");
+    expect(run.failure_code).toBe("PROFILE_INPUT_INVALID");
+  });
+
+  it("markDatasetProfileRunFailed returns false (zero rows affected) against a real row that is no longer RUNNING -- the exact 'disposition did not apply' case", async () => {
+    const s = nextSuffix("faildisp2");
+    const rows: SeedRow[] = [{ id: `${s}-r1`, sourceRowNumber: 2, col1: "ID-1", col2: "1", col3: "2024-01-01", col4: "x" }];
+    const ids = await seedWorld(s, ORG_A, rows);
+    const normCtx = await resolveAuthoritativeNormalizationContext({ organisationId: ORG_A, uploadId: ids.uploadId });
+    if (!normCtx.ok) throw new Error("unreachable");
+    const created = await createDatasetProfileRunAttempt({ organisationId: ORG_A, actorId: ids.userId, normalization: normCtx.normalization, profilerVersion: DATASET_PROFILER_VERSION });
+    if (!created.ok || !created.created) throw new Error("unreachable");
+
+    // First call legitimately transitions RUNNING -> FAILED.
+    const firstApplied = await markDatasetProfileRunFailed({ organisationId: ORG_A, runId: created.run.id, failureCode: "PROFILE_INPUT_INVALID" });
+    expect(firstApplied).toBe(true);
+
+    // A second attempt against the now-terminal row is the REAL state
+    // this remediation's disposeExecutionFailure must detect and handle
+    // truthfully (re-read, never silently claim success) -- proven here
+    // for real: the UPDATE matches zero rows.
+    const secondApplied = await markDatasetProfileRunFailed({ organisationId: ORG_A, runId: created.run.id, failureCode: "PERSISTENCE_FAILURE" });
+    expect(secondApplied).toBe(false);
+
+    // The run's own failure_code from the FIRST (real) disposition is
+    // untouched by the second, no-op attempt -- exactly what
+    // getDatasetProfileRunById's own re-read would observe.
+    const current = await getDatasetProfileRunById({ organisationId: ORG_A, runId: created.run.id });
+    expect(current?.status).toBe("FAILED");
+    expect(current?.failureCode).toBe("PROFILE_INPUT_INVALID");
+  });
+
+  it("getDatasetProfileRunById reflects real RUNNING/FAILED/SUCCEEDED state exactly, including null for a nonexistent id", async () => {
+    const s = nextSuffix("faildisp3");
+    const rows: SeedRow[] = [{ id: `${s}-r1`, sourceRowNumber: 2, col1: "ID-1", col2: "1", col3: "2024-01-01", col4: "x" }];
+    const ids = await seedWorld(s, ORG_A, rows);
+
+    const result = await profileUploadDataset({ organisationId: ORG_A, uploadId: ids.uploadId, actorId: ids.userId });
+    if (!result.ok) throw new Error("unreachable");
+
+    const succeeded = await getDatasetProfileRunById({ organisationId: ORG_A, runId: result.profileRunId });
+    expect(succeeded?.status).toBe("SUCCEEDED");
+
+    const missing = await getDatasetProfileRunById({ organisationId: ORG_A, runId: "does-not-exist" });
+    expect(missing).toBeNull();
   });
 });
 
