@@ -156,6 +156,60 @@ describe('C7.9D — real PostgreSQL external GL boundary',()=>{
     expect(rejected.reason).toMatchObject({code:'OVERLAPPING_MAPPING'});
   });
 
+  it('preserves retired historical mapping ranges and only permits non-overlapping replacements',async()=>{
+    const accountMapping=await createExternalGlAccountMapping({
+      ...mappingInput(),
+      effectiveTo:'2026-09-30',
+    });
+    await retireExternalGlAccountMapping({
+      organisationId:ORG,
+      userId:USER,
+      mappingId:accountMapping.id,
+      effectiveTo:'2026-09-30',
+    });
+
+    await expect(createExternalGlAccountMapping({
+      ...mappingInput(),
+      effectiveFrom:'2026-09-15',
+      effectiveTo:'2026-10-31',
+    })).rejects.toMatchObject({code:'OVERLAPPING_MAPPING'});
+
+    await expect(createExternalGlAccountMapping({
+      ...mappingInput(),
+      effectiveFrom:'2026-10-01',
+      effectiveTo:null,
+    })).resolves.toMatchObject({
+      status:'ACTIVE',
+      effective_from:expect.anything(),
+    });
+
+    const costCentreMapping=await createExternalGlCostCentreMapping({
+      ...costCentreMappingInput(),
+      effectiveTo:'2026-09-30',
+    });
+    await retireExternalGlCostCentreMapping({
+      organisationId:ORG,
+      userId:USER,
+      mappingId:costCentreMapping.id,
+      effectiveTo:'2026-09-30',
+    });
+
+    await expect(createExternalGlCostCentreMapping({
+      ...costCentreMappingInput(),
+      effectiveFrom:'2026-09-15',
+      effectiveTo:'2026-10-31',
+    })).rejects.toMatchObject({code:'OVERLAPPING_MAPPING'});
+
+    await expect(createExternalGlCostCentreMapping({
+      ...costCentreMappingInput(),
+      effectiveFrom:'2026-10-01',
+      effectiveTo:null,
+    })).resolves.toMatchObject({
+      status:'ACTIVE',
+      effective_from:expect.anything(),
+    });
+  });
+
   it('lists account and cost-centre mappings with BrainBase labels and tenant-scoped filters',async()=>{
     const accountMapping=await createExternalGlAccountMapping(mappingInput());
     const costCentreMapping=await createExternalGlCostCentreMapping(costCentreMappingInput());

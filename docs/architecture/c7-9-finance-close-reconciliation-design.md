@@ -339,7 +339,7 @@ Fields:
 No fuzzy matching.
 No mapping by supplier, description, or display-name similarity.
 
-Mappings are version/effective-date controlled so historical reconciliation can reproduce the rule used at the time.
+Mappings are version/effective-date controlled so historical reconciliation can reproduce the rule used at the time. Retired mappings remain part of that historical rule set: a new mapping for the same external identity must not overlap any prior effective range, and a replacement may begin only after the prior range ends.
 
 Cost-centre/dimension mapping is likewise explicit when the external GL uses dimension codes. C7.9 uses `commercial_external_gl_cost_centre_mappings` with organisation, source system, external cost-centre code, BrainBase cost-centre id, effective dates, lifecycle status and audit fields. Reconciliation items retain the exact cost-centre mapping id used so historical snapshots do not depend on later mapping changes.
 

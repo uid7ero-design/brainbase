@@ -186,7 +186,6 @@ export async function createExternalGlAccountMapping(params: {
         WHERE existing.organisation_id=${params.organisationId}
           AND existing.source_system_id=${sourceSystemId}
           AND existing.external_gl_account_code=${externalAccountCode}
-          AND existing.status='ACTIVE'
           AND daterange(existing.effective_from,
               COALESCE(existing.effective_to + 1, 'infinity'::date), '[)')
             && daterange(${effectiveFrom}::date,
@@ -383,7 +382,6 @@ export async function createExternalGlCostCentreMapping(params: {
         WHERE existing.organisation_id=${params.organisationId}
           AND existing.source_system_id=${sourceSystemId}
           AND existing.external_cost_centre_code=${externalCostCentreCode}
-          AND existing.status='ACTIVE'
           AND daterange(existing.effective_from,
               COALESCE(existing.effective_to + 1, 'infinity'::date), '[)')
             && daterange(${effectiveFrom}::date,
