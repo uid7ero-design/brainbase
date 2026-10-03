@@ -1391,6 +1391,107 @@ describe('C7.9E1 — prepared finance reconciliation snapshots', () => {
     expect(costCentreMapping[0].effective_to.toISOString().slice(0, 10)).toBe('2026-09-30');
   });
 
+  it('rolls back a late GL import and stale transition when the transactional STALE event write fails', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    await addEntry(f, 1000);
+    const prepared = await prepare(f);
+    const close = await signOffPeriod(f, prepared.id);
+    const lateEntryId = `late-${id()}`;
+
+    await prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION test_reject_finance_reconciliation_stale_event()
+      RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.event_type = 'STALE' THEN
+          RAISE EXCEPTION 'test stale event failure';
+        END IF;
+        RETURN NEW;
+      END $$
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER trg_test_reject_finance_reconciliation_stale_event
+      BEFORE INSERT ON commercial_finance_reconciliation_events
+      FOR EACH ROW EXECUTE FUNCTION test_reject_finance_reconciliation_stale_event()
+    `);
+
+    try {
+      await expect(importExternalGlEntry({
+        organisationId: f.org,
+        userId: f.user,
+        sourceSystemId: 'xero',
+        externalEntryId: lateEntryId,
+        externalAccountCode: '600',
+        transactionDate: '2026-09-25',
+        currency: 'AUD',
+        amountMinorUnits: '250',
+        sourcePayloadHash: 'dddddddddddddddddddddddddddddddd',
+        sourceLineageId: `late-batch-${lateEntryId}`,
+      })).rejects.toThrow(/test stale event failure/);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DROP TRIGGER IF EXISTS trg_test_reject_finance_reconciliation_stale_event
+         ON commercial_finance_reconciliation_events`,
+      );
+      await prisma.$executeRawUnsafe(
+        `DROP FUNCTION IF EXISTS test_reject_finance_reconciliation_stale_event()`,
+      );
+    }
+
+    const imported = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
+      `SELECT COUNT(*)::bigint AS count
+       FROM commercial_external_gl_entries
+       WHERE organisation_id=$1
+         AND source_system_id='xero'
+         AND external_entry_id=$2`,
+      f.org,
+      lateEntryId,
+    );
+    expect(imported[0].count.toString()).toBe('0');
+
+    const reconciliation = await prisma.$queryRawUnsafe<{
+      status: string;
+      close_id: string | null;
+    }[]>(
+      `SELECT status,close_id
+       FROM commercial_finance_reconciliations
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      prepared.id,
+      f.org,
+    );
+    expect(reconciliation[0]).toEqual({
+      status: 'SIGNED_OFF',
+      close_id: close.id,
+    });
+
+    const closeState = await prisma.$queryRawUnsafe<{
+      status: string;
+      reconciliation_status: string;
+    }[]>(
+      `SELECT status,reconciliation_status
+       FROM commercial_financial_period_closes
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      close.id,
+      f.org,
+    );
+    expect(closeState[0]).toEqual({
+      status: 'CLOSED',
+      reconciliation_status: 'SIGNED_OFF',
+    });
+
+    const events = await prisma.$queryRawUnsafe<{ event_type: string }[]>(
+      `SELECT event_type
+       FROM commercial_finance_reconciliation_events
+       WHERE reconciliation_id=$1::uuid AND organisation_id=$2
+       ORDER BY event_at,id`,
+      prepared.id,
+      f.org,
+    );
+    expect(events.map(event => event.event_type)).toEqual([
+      'PREPARED', 'REVIEWED', 'SIGNED_OFF',
+    ]);
+  });
+
   it('stales on changed external identity while preserving the original immutable GL fact', async () => {
     const f = await seedFixture();
     await addMapping(f);
