@@ -105,6 +105,56 @@ export type FinanceRow = {
   sourceSystemId: string | null;
 };
 
+export type FinanceReconciliationQueueItem = {
+  id: string;
+  budgetAccountId: string | null;
+  budgetAccountCode: string | null;
+  budgetAccountName: string | null;
+  externalGlAccountCode: string | null;
+  costCentreId: string | null;
+  costCentreCode: string | null;
+  costCentreName: string | null;
+  externalCostCentreCode: string | null;
+  currency: string;
+  sourceActualCents: string;
+  financeAdjustmentCents: string;
+  brainbaseEffectiveActualCents: string;
+  externalGlCents: string;
+  varianceCents: string;
+  sourceActualCount: number;
+  externalEntryCount: number;
+  outcome:
+    | 'VARIANCE'
+    | 'UNMAPPED_BRAINBASE_ACCOUNT'
+    | 'UNMAPPED_EXTERNAL_GL_ACCOUNT'
+    | 'UNMAPPED_COST_CENTRE'
+    | 'MISSING_EXTERNAL_ENTRY'
+    | 'EXTERNAL_ONLY_ENTRY';
+};
+
+export type FinanceReconciliationQueueEntry = {
+  id: string;
+  financialYearId: string;
+  financialYearName: string;
+  financialPeriodId: string;
+  financialPeriodName: string;
+  sourceSystemId: string;
+  currency: string;
+  status: 'PREPARED' | 'REVIEWED' | 'SIGNED_OFF' | 'STALE';
+  closeId: string | null;
+  sourceActualCents: string;
+  financeAdjustmentCents: string;
+  brainbaseEffectiveActualCents: string;
+  externalGlTotalCents: string;
+  varianceCents: string;
+  unresolvedItemCount: number;
+  snapshotAt: string;
+  preparedAt: string;
+  reviewedAt: string | null;
+  notes: string | null;
+  items: FinanceReconciliationQueueItem[];
+};
+
 type Report = {
   rows: ConsumptionRow[];
   financeRows: FinanceRow[];
@@ -198,6 +248,9 @@ export default function BudgetCommitmentsPage() {
   const [sourceSystemsError, setSourceSystemsError] = useState<string | null>(null);
   const [sourceSystemsRefreshKey, setSourceSystemsRefreshKey] = useState(0);
   const [selectedSourceSystemId, setSelectedSourceSystemId] = useState('');
+  const [reconciliationQueue, setReconciliationQueue] = useState<FinanceReconciliationQueueEntry[]>([]);
+  const [reconciliationQueueLoading, setReconciliationQueueLoading] = useState(true);
+  const [reconciliationQueueError, setReconciliationQueueError] = useState<string | null>(null);
   const activeSourceSystemId = resolveBudgetFinanceSourceSystemId(
     sourceSystemIds,
     selectedSourceSystemId,
@@ -250,9 +303,49 @@ export default function BudgetCommitmentsPage() {
     };
   }, [activeSourceSystemId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const suffix = activeSourceSystemId
+        ? `?sourceSystemId=${encodeURIComponent(activeSourceSystemId)}`
+        : '';
+      const res = await fetch(`/api/commercial/budgeting/reconciliations${suffix}`, {
+        cache: 'no-store',
+      });
+      if (cancelled) return;
+      if (!res.ok) {
+        setReconciliationQueueError(
+          res.status === 403
+            ? 'Budgeting access is required to view finance reconciliation items.'
+            : 'Unable to load the finance reconciliation queue.',
+        );
+        setReconciliationQueue([]);
+        setReconciliationQueueLoading(false);
+        return;
+      }
+
+      const data = await res.json() as { reconciliations?: unknown };
+      if (!Array.isArray(data.reconciliations)) {
+        setReconciliationQueueError('Unable to load the finance reconciliation queue.');
+        setReconciliationQueue([]);
+        setReconciliationQueueLoading(false);
+        return;
+      }
+
+      setReconciliationQueue(data.reconciliations as FinanceReconciliationQueueEntry[]);
+      setReconciliationQueueError(null);
+      setReconciliationQueueLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSourceSystemId]);
+
   function selectSourceSystem(value: string) {
     setLoading(true);
     setError(null);
+    setReconciliationQueueLoading(true);
+    setReconciliationQueueError(null);
     setSelectedSourceSystemId(value);
   }
   const rows = useMemo(() => report?.rows ?? [], [report]);
@@ -269,6 +362,10 @@ export default function BudgetCommitmentsPage() {
   const filteredFinanceRows = useMemo(
     () => filterFinanceAdjustedRows(financeRows, filters),
     [financeRows, filters],
+  );
+  const financeReconciliationItemCount = useMemo(
+    () => reconciliationQueue.reduce((total, entry) => total + entry.items.length, 0),
+    [reconciliationQueue],
   );
 
   const summaries = useMemo(() => {
@@ -359,11 +456,16 @@ export default function BudgetCommitmentsPage() {
         sourceSystemId={activeSourceSystemId}
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(180px, 1fr))', gap: 10, marginBottom: 18 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(180px, 1fr))', gap: 10, marginBottom: 18 }}>
         <StateCard label="Resolved Actual lines" value={report.resolvedActualCount} tone="#60a5fa" />
         <StateCard label="Resolved commitment lines" value={report.resolvedCommitmentCount} tone="#34d399" />
-        <StateCard label="Exceptions requiring review" value={report.unresolvedExceptionCount}
+        <StateCard label="Actual/Commitment exceptions" value={report.unresolvedExceptionCount}
           tone={report.unresolvedExceptionCount ? '#fbbf24' : '#34d399'} />
+        <StateCard
+          label="Finance reconciliation items"
+          value={financeReconciliationItemCount}
+          tone={financeReconciliationItemCount ? '#fbbf24' : '#34d399'}
+        />
       </div>
       <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 16, marginBottom: 18 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
@@ -456,9 +558,16 @@ export default function BudgetCommitmentsPage() {
 
       <FinanceAdjustedTable rows={filteredFinanceRows} />
 
+      <FinanceReconciliationQueue
+        reconciliations={reconciliationQueue}
+        loading={reconciliationQueueLoading}
+        error={reconciliationQueueError}
+        sourceSystemId={activeSourceSystemId}
+      />
+
       <section>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline', marginBottom: 10 }}>
-          <h2 style={{ fontSize: 16, margin: 0 }}>Exception & reconciliation queue</h2>
+          <h2 style={{ fontSize: 16, margin: 0 }}>Actual & commitment exception queue</h2>
           <span style={{ fontSize: 11, color: MUTED }}>Always shown independently of resolved-row filters.</span>
         </div>
         {report.exceptions.length === 0 ? (
@@ -710,6 +819,161 @@ export function FinanceAdjustedTable({ rows }: { rows: FinanceRow[] }) {
         </div>
       )}
     </section>
+  );
+}
+
+export function FinanceReconciliationQueue({
+  reconciliations,
+  loading,
+  error,
+  sourceSystemId,
+}: {
+  reconciliations: FinanceReconciliationQueueEntry[];
+  loading: boolean;
+  error: string | null;
+  sourceSystemId: string | null;
+}) {
+  return (
+    <section style={{ marginBottom: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline', marginBottom: 10 }}>
+        <h2 style={{ fontSize: 16, margin: 0 }}>Finance reconciliation queue</h2>
+        <span style={{ fontSize: 11, color: MUTED }}>
+          {sourceSystemId
+            ? `Latest unresolved snapshot for ${sourceSystemId}`
+            : 'Latest unresolved snapshots across all External GL sources'}
+        </span>
+      </div>
+
+      {loading ? (
+        <div role="status" style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20, color: MUTED }}>
+          Loading finance reconciliation items…
+        </div>
+      ) : error ? (
+        <div role="alert" style={{ background: CARD, border: '1px solid #7f1d1d', borderRadius: 12, padding: 20, color: '#fca5a5' }}>
+          {error}
+        </div>
+      ) : reconciliations.length === 0 ? (
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20, color: '#34d399' }}>
+          No unresolved finance reconciliation items in the latest snapshots.
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 12 }}>
+          {reconciliations.map(reconciliation => (
+            <div
+              key={reconciliation.id}
+              data-finance-reconciliation-id={reconciliation.id}
+              style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden' }}
+            >
+              <div style={{ padding: 14, borderBottom: `1px solid ${BORDER}`, display: 'flex', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontWeight: 700 }}>
+                    {reconciliation.financialYearName} · {reconciliation.financialPeriodName} · {reconciliation.currency}
+                  </div>
+                  <div style={sub}>
+                    {reconciliation.sourceSystemId} · Reconciliation {reconciliation.id}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span
+                    data-finance-reconciliation-status={reconciliation.status}
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      borderRadius: 999,
+                      padding: '3px 7px',
+                      color: reconciliation.status === 'STALE' ? '#fbbf24' : '#d1d5db',
+                      border: `1px solid ${reconciliation.status === 'STALE' ? '#fbbf2455' : '#4b556355'}`,
+                    }}
+                  >
+                    {reconciliation.status}
+                  </span>
+                  <span style={{ fontSize: 11, color: MUTED }}>
+                    {reconciliation.unresolvedItemCount} unresolved
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ padding: '10px 14px', display: 'flex', gap: 18, flexWrap: 'wrap', borderBottom: `1px solid ${BORDER}` }}>
+                <SnapshotMeasure label="Source Actual" value={financeMoney(reconciliation.sourceActualCents, reconciliation.currency)} />
+                <SnapshotMeasure label="Finance Adjustments" value={financeMoney(reconciliation.financeAdjustmentCents, reconciliation.currency)} />
+                <SnapshotMeasure label="Effective Actual" value={financeMoney(reconciliation.brainbaseEffectiveActualCents, reconciliation.currency)} />
+                <SnapshotMeasure label="External GL" value={financeMoney(reconciliation.externalGlTotalCents, reconciliation.currency)} />
+                <SnapshotMeasure label="Variance" value={financeMoney(reconciliation.varianceCents, reconciliation.currency)} />
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1320 }}>
+                  <thead><tr>
+                    {[
+                      'Outcome', 'Budget account', 'External GL account', 'Cost centre',
+                      'External cost centre', 'Currency', 'Source Actual', 'Finance Adjustments',
+                      'Effective Actual', 'External GL', 'Variance',
+                    ].map(label => <th key={label} style={th}>{label}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {reconciliation.items.map(item => (
+                      <tr key={item.id} data-reconciliation-outcome={item.outcome}>
+                        <td style={td}><FinanceOutcomeBadge outcome={item.outcome} /></td>
+                        <td style={td}>
+                          {item.budgetAccountCode ? (
+                            <>
+                              <div style={{ fontWeight: 650 }}>{item.budgetAccountCode}</div>
+                              <div style={sub}>{item.budgetAccountName}</div>
+                            </>
+                          ) : '—'}
+                        </td>
+                        <td style={td}>{item.externalGlAccountCode ?? '—'}</td>
+                        <td style={td}>
+                          {item.costCentreCode ? (
+                            <>
+                              <div>{item.costCentreCode}</div>
+                              <div style={sub}>{item.costCentreName}</div>
+                            </>
+                          ) : '—'}
+                        </td>
+                        <td style={td}>{item.externalCostCentreCode ?? '—'}</td>
+                        <td style={td}>{item.currency}</td>
+                        <td style={moneyTd}>{financeMoney(item.sourceActualCents, item.currency)}</td>
+                        <td style={moneyTd}>{financeMoney(item.financeAdjustmentCents, item.currency)}</td>
+                        <td style={moneyTd}>{financeMoney(item.brainbaseEffectiveActualCents, item.currency)}</td>
+                        <td style={moneyTd}>{financeMoney(item.externalGlCents, item.currency)}</td>
+                        <td style={moneyTd}>{financeMoney(item.varianceCents, item.currency)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SnapshotMeasure({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
+      <div style={{ marginTop: 2, fontSize: 12, fontWeight: 650 }}>{value}</div>
+    </div>
+  );
+}
+
+function FinanceOutcomeBadge({ outcome }: { outcome: FinanceReconciliationQueueItem['outcome'] }) {
+  return (
+    <span style={{
+      display: 'inline-block',
+      fontSize: 10,
+      fontWeight: 700,
+      borderRadius: 999,
+      padding: '3px 7px',
+      color: '#fbbf24',
+      border: '1px solid #fbbf2444',
+      whiteSpace: 'nowrap',
+    }}>
+      {outcome.replaceAll('_', ' ')}
+    </span>
   );
 }
 

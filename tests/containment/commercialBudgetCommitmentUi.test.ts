@@ -49,7 +49,8 @@ describe('C7.8D — Budget vs Actual vs Committed UI contract', () => {
   });
 
   it('keeps the reconciliation queue independent of resolved-row filters and exposes source provenance', () => {
-    expect(page).toContain('Exception & reconciliation queue');
+    expect(page).toContain('Actual & commitment exception queue');
+    expect(page).toContain('Finance reconciliation queue');
     expect(page).toContain('Always shown independently of resolved-row filters.');
     expect(page).toContain("source: 'COMMITMENT'");
     expect(page).toContain("source: 'ACTUAL'");
