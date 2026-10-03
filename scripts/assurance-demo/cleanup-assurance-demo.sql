@@ -69,12 +69,12 @@ DELETE FROM assurance_inspection_responses   WHERE organisation_id = 'assurance-
 DELETE FROM assurance_audit_responses        WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_evidence               WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_actions                WHERE organisation_id = 'assurance-demo-org';
-DO $
+DO $$
 BEGIN
   IF to_regclass('public.assurance_finding_reopenings') IS NOT NULL THEN
     DELETE FROM assurance_finding_reopenings WHERE organisation_id = 'assurance-demo-org';
   END IF;
-END $;
+END $$;
 DELETE FROM assurance_findings               WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_inspections            WHERE organisation_id = 'assurance-demo-org';
 DELETE FROM assurance_audits                 WHERE organisation_id = 'assurance-demo-org';
