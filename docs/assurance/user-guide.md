@@ -14,7 +14,7 @@ step-by-step procedures, use the [work instructions](work-instructions/).
 ## Finding your way around
 
 - Open **Assurance** from the BrainBase top navigation.
-- The left navigation lists the nine work sections, then **Settings**. On a
+- The left navigation lists the eleven work sections, then **Settings**. On a
   phone it becomes a scrollable strip across the top of the page.
 - **Settings** shows your organisation's Assurance configuration: its **Risk
   levels**, and its **Reference data** (the shared locations, assets and
@@ -235,22 +235,25 @@ example one first raised from an incident).
 Select **Plan inspection**:
 
 - **Title** is required.
-- **Template** — choose an active inspection template to use its current
-  checklist version, or leave **Ad hoc (no template)**.
+- **Template** — choose a published inspection template to use its current
+  checklist version, or leave **Ad hoc (no template)**. Draft and retired
+  templates are not offered.
 - **Inspection type** — required for an ad hoc inspection; otherwise the
   template's type is used.
 - Optional: **Scheduled for**, **Inspector**, **Location**, **Asset**,
   **Contractor / external organisation**.
 
 The Inspections register has views: **All**, **Due (7 days)**, **Planned**,
-**In progress** and **Completed**. **Templates** opens the template list.
+**In progress** and **Completed**. **Templates** opens **Assurance →
+Templates**, showing inspection templates.
 
 ### Historical template versions
 
 A template-based inspection keeps the **exact checklist version** it was
 planned with. Its **Checklist** section says which version it uses. If a
 newer version has since been published, it says so, and confirms the newer
-version does not change this inspection.
+version does not change this inspection. If the version groups its items into
+sections, the checklist shows the same section headings in the same order.
 
 ### Running the checklist
 
@@ -310,8 +313,9 @@ it does not lock any response. It is not available on a cancelled inspection.
 Select **Plan audit**:
 
 - **Title** and **Scope** are required.
-- **Template** — choose an active audit template to use its current criteria
-  version, or leave **Ad hoc (no template)**.
+- **Template** — choose a published audit template to use its current
+  criteria version, or leave **Ad hoc (no template)**. Draft and retired
+  templates are not offered.
 - **Standard / reference** — what the audit is measured against. It is
   **required for an ad hoc audit**.
 - **Audit type** — required for an ad hoc audit (Internal, Contractor, Site,
@@ -320,7 +324,8 @@ Select **Plan audit**:
   **Contractor / external organisation**.
 
 The Audits register has views: **All**, **Due (14 days)**, **Planned**,
-**In progress** and **Completed**. **Templates** opens the template list.
+**In progress** and **Completed**. **Templates** opens **Assurance →
+Templates**, showing audit templates.
 
 ### Version binding
 
@@ -369,6 +374,33 @@ rating. It does not create or close findings or actions.
 
 **Cancel audit** requires a **Reason**. Evidence on a cancelled audit can no
 longer be changed.
+
+---
+
+## Templates
+
+**Templates** holds the standard checklists that inspections are planned from
+and the criteria that audits are planned from. Everyone with Assurance access
+can view them; only organisation admins can create, change, publish or retire
+them (see the admin guide).
+
+- The register lists both kinds. Filter by **Inspections and audits** or by
+  status. If none exist yet, it says "No Assurance templates have been
+  created."
+- **Status**: **Draft** (never published, so not yet offered when planning),
+  **Published** (its current version is offered), or **Retired** (no longer
+  offered).
+- A template's content lives in numbered **versions**. Each version is a
+  **draft** while it is being prepared, **published** when it becomes the
+  current version, and **retired** when a newer version replaces it or the
+  template is retired.
+- A template page shows the **Current version**, any **Draft**, and
+  **Earlier versions**, each with who published or retired it, when, and how
+  many inspections or audits use it. Items can be grouped under **section**
+  headings.
+- **Published and retired versions never change.** An inspection or audit
+  always shows the exact wording of the version it was created from, even
+  after newer versions are published or the template is retired.
 
 ---
 

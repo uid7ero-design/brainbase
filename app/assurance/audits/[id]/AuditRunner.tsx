@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -51,7 +51,7 @@ const control = fieldControlClassName;
 export default function AuditRunner({ auditId, editable, canRaiseFindings, adHoc, criteria, responses, findings, findingFields }: Props) {
   const byKey = new Map(responses.map(r => [r.criterion_key, r]));
   const items: AuditCriterion[] = adHoc
-    ? responses.map(r => ({ key: r.criterion_key, label: r.criterion_label, responseType: r.response_type, guidance: null, required: false, options: [] }))
+    ? responses.map(r => ({ key: r.criterion_key, label: r.criterion_label, responseType: r.response_type, guidance: null, required: false, options: [], section: null }))
     : criteria;
   const answered = items.filter(i => byKey.has(i.key)).length;
   const tally = OUTCOMES.map(o => ({ ...o, n: responses.filter(r => r.outcome === o.value).length })).filter(o => o.n > 0);
@@ -69,9 +69,14 @@ export default function AuditRunner({ auditId, editable, canRaiseFindings, adHoc
       )}
       <ol className={styles.runnerList}>
         {items.map((c, idx) => (
-          <CriterionRow key={c.key} index={idx} criterion={c} response={byKey.get(c.key) ?? null} auditId={auditId}
-            editable={editable} adHoc={adHoc} canRaiseFindings={canRaiseFindings}
-            findings={findings.filter(f => f.source_criterion_key === c.key)} findingFields={findingFields} />
+          <Fragment key={c.key}>
+            {c.section && c.section !== items[idx - 1]?.section && (
+              <li className={styles.runnerSection}><h3>{c.section}</h3></li>
+            )}
+            <CriterionRow index={idx} criterion={c} response={byKey.get(c.key) ?? null} auditId={auditId}
+              editable={editable} adHoc={adHoc} canRaiseFindings={canRaiseFindings}
+              findings={findings.filter(f => f.source_criterion_key === c.key)} findingFields={findingFields} />
+          </Fragment>
         ))}
       </ol>
       {editable && adHoc && <AddAdHocCriterion auditId={auditId} />}

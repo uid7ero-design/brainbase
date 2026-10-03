@@ -3,7 +3,7 @@
 #
 # Starts a throwaway postgres:17 container, creates minimal stand-ins for
 # the pre-existing platform tables, applies the REAL Assurance migrations
-# (A0.1B, A0.1C, A0.1D-1..3, A0.1E-1), then drives
+# (A0.1B, A0.1C, A0.1D-1..3, A0.1E-1, A0.1F), then drives
 # scripts/seed-assurance-risk-levels-brainbase.sql through every guard and
 # CASE A / B / C, proving that every refusal changes nothing. Finally runs
 # the application regression suite
@@ -26,7 +26,8 @@ SEED=scripts/seed-assurance-risk-levels-brainbase.sql
 BB=1732569e-6350-495e-aa6a-7218ce7bf749
 MIGRATIONS="scripts/create-shared-foundations-a01b.sql scripts/create-assurance-core-a01c.sql
   scripts/create-assurance-incidents-a01d1.sql scripts/create-assurance-investigations-a01d2.sql
-  scripts/create-assurance-inspections-a01d3.sql scripts/create-assurance-audits-a01e1.sql"
+  scripts/create-assurance-inspections-a01d3.sql scripts/create-assurance-audits-a01e1.sql \
+  scripts/create-assurance-template-lifecycle-a01f.sql"
 
 CONTAINER="brainbase-assurance-risk-$$"
 HOST_PORT=$((20000 + RANDOM % 20000))
@@ -143,7 +144,7 @@ CREATE TABLE audit_logs (
 );
 SQL
 
-echo "Applying real Assurance migrations (A0.1B, A0.1C, A0.1D-1..3, A0.1E-1) ..."
+echo "Applying real Assurance migrations (A0.1B, A0.1C, A0.1D-1..3, A0.1E-1, A0.1F) ..."
 for f in $MIGRATIONS; do
   psql_exec < "$f" >/dev/null || { echo "ERROR: $f failed to apply." >&2; exit 2; }
 done

@@ -215,16 +215,18 @@ describe('wiring', () => {
     const pages = walk('app/assurance').filter(f => f.endsWith('/page.tsx') && !f.includes('/help/'))
     expect(pages.length).toBeGreaterThanOrEqual(24)
     for (const f of pages) {
+      // Pure redirects (the pre-A0.1F template URLs) render no page of their own.
+      if (/\bredirect\(/.test(read(f)) && !/<PageHeader/.test(read(f))) continue
       const m = read(f).match(/<PageHeader help="([a-z-]+)"/)
       expect(m, f).toBeTruthy()
       expect(Object.keys(HELP_TOPICS), f).toContain(m![1])
     }
   })
-  it('the sidebar keeps its ten work sections plus Settings, and adds Help only as a footer entry', () => {
+  it('the sidebar keeps its eleven work sections plus Settings, and adds Help only as a footer entry', () => {
     const src = read('app/assurance/_components/AssuranceSidebar.tsx')
     const hrefs = [...src.matchAll(/href: '(\/assurance[^']*)'/g)].map(m => m[1])
-    expect(hrefs).toHaveLength(11)
-    expect(hrefs[10]).toBe('/assurance/settings')
+    expect(hrefs).toHaveLength(12)
+    expect(hrefs[11]).toBe('/assurance/settings')
     expect(src).toMatch(/footer=\{[\s\S]*href="\/assurance\/help"/)
   })
   it('rendered procedures keep their list markers (the app reset removes them)', () => {

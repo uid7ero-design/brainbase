@@ -45,7 +45,7 @@ export default async function AuditsPage({ searchParams }: { searchParams: SP })
         title="Audits"
         subtitle="Structured reviews against a standard or requirement. Gaps become Findings only when the auditor raises them."
         actions={<>
-          <LinkButton href="/assurance/audits/templates" variant="secondary">Templates</LinkButton>
+          <LinkButton href="/assurance/templates?kind=audit" variant="secondary">Templates</LinkButton>
           {viewerCan(viewer, 'record') && <LinkButton href="/assurance/audits/new">Plan audit</LinkButton>}
         </>}
       />

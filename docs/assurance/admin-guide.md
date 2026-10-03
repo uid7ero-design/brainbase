@@ -35,7 +35,7 @@ Assurance uses the user's BrainBase role:
 |---|---|
 | **Viewer** | View the dashboard, registers and records they are allowed to see. No recording. |
 | **Manager** | Everything a viewer can, plus: report incidents; start investigations; plan and run inspections and audits; raise findings; create and progress actions; record and link evidence; record verifications (independence rules apply); move statuses; close and cancel records. |
-| **Admin** | Everything a manager can, plus: create, version, deactivate and reactivate inspection and audit templates; create, edit, deactivate and reactivate risk levels (**Settings → Risk levels**); see **all** restricted records in the organisation. |
+| **Admin** | Everything a manager can, plus: create, draft, publish and retire inspection and audit templates (**Templates**); create, edit, deactivate and reactivate risk levels (**Settings → Risk levels**); see **all** restricted records in the organisation. |
 | **Super admin** | As admin, and enables the capability for organisations. |
 
 The **Analyst** role has no Assurance access.
@@ -88,28 +88,42 @@ belong to the same organisation.
 ## Template management
 
 Inspection templates (checklists) and audit templates (criteria) are managed
-by **admins**:
+by **admins** under **Assurance → Templates**. (The old Inspections →
+Templates and Audits → Templates links now open the same page.)
 
-- Inspections → **Templates**
-- Audits → **Templates**
-
-Managers and viewers can view templates, but cannot change them. See
+Managers and viewers can view templates, including drafts, but cannot change
+them. Managers use published templates when they plan an inspection or
+audit. See
 [work instruction 10](work-instructions/10-manage-inspection-and-audit-templates.md)
 for the steps.
 
-### Immutable template versions
+### Draft, published and retired versions
 
-- A template is a stable identity. Its content lives in **numbered
-  versions**: version 1 is published when the template is created.
-- A published version **can never be edited**. Changing a checklist or
-  criteria always publishes a **new version**.
-- Each inspection or audit is bound to the version current when it was
-  planned, and keeps it permanently — even after new versions are published,
-  or after the template is deactivated.
-- **Deactivate** removes a template from the choices offered when planning
-  (after a confirmation step). Existing inspections and audits are unaffected.
-  **Reactivate** (also confirmed) offers it
-  again.
+- A template is a stable identity (reference, name and type). Its content
+  lives in **numbered versions**.
+- A new template starts with **version 1 as a draft**. Drafts can be saved and
+  edited as often as needed and are **not** offered when planning.
+- **Publish** checks the draft (a title; at least one item or criterion; at
+  least two options for choice items; no repeated wording; each section's
+  items kept together), then makes it the **current version**. Publishing a
+  new version **retires the previous one** at the same moment.
+- **Published and retired versions can never be edited.** To change a
+  template, use **Create new version**: it copies the current version into a
+  new draft. A template has at most one draft at a time.
+- **Retire** stops the template being offered for new inspections or audits
+  (after a confirmation step). A retired version cannot be republished; to
+  bring the template back, create and publish a new version.
+- The template's **name and type** can be changed only until version 1 is
+  published.
+- Each inspection or audit is bound to the version that was published when it
+  was planned, and keeps it permanently. This is enforced by the database: an
+  inspection or audit cannot be created against a draft or retired version,
+  or against another organisation's template.
+- If two admins edit the same draft, the second save is refused with "Someone
+  else saved this draft since you opened it" — reload to see their changes.
+- Every create, save, new version, publish and retire is recorded in the
+  template's **History** (version numbers and statuses only, not the
+  wording).
 
 ## Reference data
 
@@ -314,6 +328,7 @@ Rules:
 | Findings | Findings are raised from a source record, and can be linked to further incidents, investigations, inspections and audits. There is no standalone "new finding" button. |
 | Reference data | Locations, assets and external organisations are managed under **Settings → Reference data** and are never deleted. Archived or retired records cannot be reactivated there, and there is no map or address look-up. |
 | Scheduling | No recurring or automatically scheduled inspections or audits. |
+| Templates | A draft cannot be deleted from the screens: edit it, publish it, or leave it as a draft. A retired version cannot be republished. A template's name and type are fixed once it has been published. There is no template import or copying between templates. |
 | Evidence after closure | Evidence can still be added to a **closed incident** or a **completed investigation** (it is frozen only on closed or cancelled findings and actions, and cancelled inspections and audits). This is current behaviour pending a policy decision. |
 | Record editing | Records cannot be edited after creation (for example an action's due date or description). |
 | Access | The Analyst role has no Assurance access. |

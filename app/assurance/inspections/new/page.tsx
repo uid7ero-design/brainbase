@@ -1,5 +1,5 @@
 import { viewerCan } from '@/lib/assurance/authorize';
-import { listTemplates } from '@/lib/assurance/templates';
+import { listPublishedTemplateOptions } from '@/lib/assurance/templateLifecycle';
 import { listAssetOptions, listExternalOrganisationOptions, listLocationOptions } from '@/lib/assurance/lookups';
 import { listOrgUserOptions } from '@/lib/assurance/users';
 import { INSPECTION_TYPES, assuranceLabel } from '@/lib/assurance/domain';
@@ -16,15 +16,15 @@ export default async function NewInspectionPage() {
     return <Notice tone="warning">Planning an inspection needs manager access in BrainBase.</Notice>;
   }
   const [templates, users, locations, assets, orgs] = await Promise.all([
-    listTemplates(viewer, { activeOnly: true }),
+    listPublishedTemplateOptions(viewer, 'inspection'),
     listOrgUserOptions(viewer.organisationId),
     listLocationOptions(viewer.organisationId),
     listAssetOptions(viewer.organisationId),
     listExternalOrganisationOptions(viewer.organisationId),
   ]);
+  // Published versions of active templates only — never drafts or retired versions.
   const templateOptions = templates
-    .filter(t => t.latest_version_id)
-    .map(t => ({ value: t.latest_version_id!, label: `${t.name} — v${t.latest_version_number} (${t.latest_item_count ?? 0} items, ${assuranceLabel(t.inspection_type).toLowerCase()})` }));
+    .map(t => ({ value: t.version_id, label: `${t.name} — v${t.version_number} (${t.item_count} items, ${assuranceLabel(t.template_type).toLowerCase()})` }));
 
   return (
     <div style={{ maxWidth: 760 }}>
@@ -38,7 +38,7 @@ export default async function NewInspectionPage() {
           fields={[
             { kind: 'text', name: 'title', label: 'Title', required: true, placeholder: 'e.g. Monthly site safety walk — Northern Depot' },
             { kind: 'select', name: 'templateVersionId', label: 'Template', options: templateOptions, emptyLabel: 'Ad hoc (no template)',
-              help: templateOptions.length === 0 ? 'No active templates yet — an admin can create one under Inspections → Templates.' : 'The inspection keeps this exact version even if the template changes later.' },
+              help: templateOptions.length === 0 ? 'No published inspection templates yet — an admin can publish one under Assurance → Templates.' : 'The inspection keeps this exact version even if the template changes later.' },
             { kind: 'select', name: 'inspectionType', label: 'Inspection type', options: enumOptions(INSPECTION_TYPES), emptyLabel: 'Use the template’s type', help: 'Required for an ad hoc inspection.' },
             { kind: 'datetime', name: 'scheduledAt', label: 'Scheduled for' },
             { kind: 'select', name: 'inspectorUserId', label: 'Inspector', options: users.map(u => ({ value: u.id, label: u.name })), emptyLabel: 'Unassigned' },

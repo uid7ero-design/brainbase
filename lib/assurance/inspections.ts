@@ -7,6 +7,7 @@ import { auditFromCte, type AssuranceTimestamp } from './sqlHelpers';
 import { assertSameOrgUsers } from './users';
 import { assertContextRefsInOrg } from './lookups';
 import { withFreshReference } from './references';
+import { rejectUnpublishedTemplate } from './templateLifecycle';
 import type { EvidenceLinkRow } from './incidents';
 import {
   INSPECTION_OUTCOMES, INSPECTION_RESPONSE_TYPES, INSPECTION_STATUSES, INSPECTION_TYPES, parseChecklist,
@@ -125,7 +126,7 @@ export async function getInspectionDetail(viewer: AssuranceViewer, id: string): 
            t.id AS template_id, t.name AS template_name, v.id AS template_version_id, v.version_number AS template_version_number,
            v.title AS template_version_title, v.instructions AS template_instructions, v.checklist AS template_checklist,
            (SELECT max(v2.version_number) FROM assurance_inspection_template_versions v2
-             WHERE v2.organisation_id = v.organisation_id AND v2.template_id = v.template_id) AS latest_template_version_number,
+             WHERE v2.organisation_id = v.organisation_id AND v2.template_id = v.template_id AND v2.status <> 'DRAFT') AS latest_template_version_number,
            i.created_at
     FROM assurance_inspections i
     LEFT JOIN users iu ON iu.id = i.inspector_user_id AND iu.organisation_id = i.organisation_id
@@ -236,15 +237,16 @@ export async function createInspection(viewer: AssuranceViewer, raw: Record<stri
 
   let inspectionType = input.inspectionType;
   if (templateVersionId) {
-    // Must be a version of an ACTIVE template in this organisation. The
-    // inspection binds to this exact version forever.
+    // Must be the PUBLISHED version of an active template in this
+    // organisation (A0.1F also enforces this in the database, race-safely).
+    // The inspection binds to this exact version forever.
     const v = (await sql`
       SELECT t.inspection_type
       FROM assurance_inspection_template_versions v
       JOIN assurance_inspection_templates t ON t.organisation_id = v.organisation_id AND t.id = v.template_id
-      WHERE v.organisation_id = ${viewer.organisationId} AND v.id = ${templateVersionId}::uuid AND t.is_active = true
+      WHERE v.organisation_id = ${viewer.organisationId} AND v.id = ${templateVersionId}::uuid AND t.is_active = true AND v.status = 'PUBLISHED'
     `) as { inspection_type: InspectionType }[];
-    if (!v[0]) throw new AssuranceValidationError('Template was not found in your organisation, or is inactive.');
+    if (!v[0]) throw new AssuranceValidationError('Template was not found in your organisation, or is not published.');
     inspectionType = inspectionType ?? v[0].inspection_type;
   }
   if (!inspectionType) throw new AssuranceValidationError('Inspection type is required for an ad hoc inspection.');
@@ -258,7 +260,7 @@ export async function createInspection(viewer: AssuranceViewer, raw: Record<stri
 
   const id = crypto.randomUUID();
   return withFreshReference('inspection', async reference => {
-    await sql.transaction([
+    await rejectUnpublishedTemplate(sql.transaction([
       sql`
         INSERT INTO assurance_inspections (
           id, organisation_id, inspection_reference, template_version_id, inspection_type, title, status,
@@ -274,7 +276,7 @@ export async function createInspection(viewer: AssuranceViewer, raw: Record<stri
         resourceId: id, verb: 'created',
         after: { inspection_reference: reference, status: 'PLANNED', template_version_id: templateVersionId, inspection_type: inspectionType },
       }),
-    ]);
+    ]));
     return { id, inspection_reference: reference };
   });
 }

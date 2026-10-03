@@ -38,7 +38,7 @@ export default async function InspectionsPage({ searchParams }: { searchParams: 
         title="Inspections"
         subtitle="Structured operational checks — planned from a template, or ad hoc in the field."
         actions={<>
-          <LinkButton href="/assurance/inspections/templates" variant="secondary">Templates</LinkButton>
+          <LinkButton href="/assurance/templates?kind=inspection" variant="secondary">Templates</LinkButton>
           {viewerCan(viewer, 'record') && <LinkButton href="/assurance/inspections/new">Plan inspection</LinkButton>}
         </>}
       />

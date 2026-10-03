@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
-# BrainBase Assurance — Deadlines (timeframes, extensions, escalations): disposable PostgreSQL 17 proof.
+# BrainBase Assurance — Templates (A0.1F lifecycle): disposable PostgreSQL 17 proof.
 #
 # Starts a throwaway postgres:17 container, creates the same minimal
 # stand-ins for pre-existing platform tables as verify-assurance-ui-services.sh,
 # applies the REAL Assurance migrations (A0.1B, A0.1C, A0.1D-1..3, A0.1E-1, A0.1F),
-# then runs scripts/tests/assuranceDeadlines.integration.test.ts
-# (deadline list, extension request/approve/reject/withdraw, escalations,
-# permissions, tenant + restricted isolation, non-propagation, concurrency and
-# audit atomicity) through the Neon-compatible `pg` seam.
+# then runs scripts/tests/assuranceTemplates.integration.test.ts
+# (draft/publish/retire lifecycle, publish validation, the v1/v2 historical
+# integrity proof for Inspections and Audits, permissions, tenant isolation,
+# audit events + atomicity, and concurrency) through the Neon-compatible
+# `pg` seam.
 #
 # Never touches Neon Preview/Production. The spec itself refuses any
 # non-localhost DATABASE_URL.
 #
-# Usage:   bash scripts/tests/verify-assurance-deadlines.sh
+# Usage:   bash scripts/tests/verify-assurance-templates.sh
 # Exit:    0 = pass, 1 = test failure, 2 = harness/setup failure.
 # Always destroys its own container.
 
@@ -21,7 +22,7 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT" || exit 2
 
-CONTAINER="brainbase-assurance-deadlines-$$"
+CONTAINER="brainbase-assurance-templates-$$"
 HOST_PORT=$((20000 + RANDOM % 20000))
 
 cleanup() { docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; }
@@ -155,12 +156,12 @@ for f in scripts/create-shared-foundations-a01b.sql scripts/create-assurance-cor
 done
 
 export DATABASE_URL="postgresql://postgres:test@127.0.0.1:${HOST_PORT}/testdb"
-echo "Running Deadlines integration suite ..."
-npx vitest run --config vitest.integration.config.ts scripts/tests/assuranceDeadlines.integration.test.ts
+echo "Running Templates integration suite ..."
+npx vitest run --config vitest.integration.config.ts scripts/tests/assuranceTemplates.integration.test.ts
 STATUS=$?
 if [ "$STATUS" -ne 0 ]; then
-  echo "Deadlines proof FAILED."
+  echo "Templates proof FAILED."
   exit 1
 fi
-echo "Deadlines proof passed."
+echo "Templates proof passed."
 exit 0

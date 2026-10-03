@@ -87,7 +87,7 @@ describe('pages', () => {
     const order = [...src.matchAll(/href: '(\/assurance[^']*)'/g)].map(m => m[1])
     expect(order).toEqual([
       '/assurance', '/assurance/incidents', '/assurance/investigations', '/assurance/inspections', '/assurance/audits',
-      '/assurance/findings', '/assurance/actions', '/assurance/deadlines', '/assurance/evidence', '/assurance/verification',
+      '/assurance/templates', '/assurance/findings', '/assurance/actions', '/assurance/deadlines', '/assurance/evidence', '/assurance/verification',
       '/assurance/settings',
     ])
     expect(src).not.toMatch(/aria-disabled/)
@@ -97,7 +97,7 @@ describe('pages', () => {
   it('Audit routes and pages exist', () => {
     for (const f of [
       'app/assurance/audits/page.tsx', 'app/assurance/audits/new/page.tsx', 'app/assurance/audits/[id]/page.tsx',
-      'app/assurance/audits/templates/page.tsx', 'app/assurance/audits/templates/[id]/page.tsx',
+      'app/assurance/templates/page.tsx', 'app/assurance/templates/[kind]/[id]/page.tsx',
     ]) expect(fs.existsSync(path.join(ROOT, f)), f).toBe(true)
     const expect_ = (route: string, op: string) => {
       const src = stripComments(read(`app/api/assurance/${route}/route.ts`))
@@ -109,12 +109,17 @@ describe('pages', () => {
     expect_('audits/[id]/complete', 'record')
     expect_('audits/[id]/cancel', 'close')
     expect_('audits/[id]/findings', 'record')
-    expect_('audit-templates', 'administer')
-    expect_('audit-templates/[id]/versions', 'administer')
-    expect_('audit-templates/[id]/active', 'administer')
+    expect_('templates', 'administer')
+    expect_('templates/[id]/versions', 'administer')
+    expect_('templates/[id]/draft', 'administer')
+    expect_('templates/[id]/publish', 'administer')
+    expect_('templates/[id]/retire', 'administer')
+    // A0.1F: the immediate-publish routes are gone; nothing bypasses the draft lifecycle.
+    expect(fs.existsSync(path.join(ROOT, 'app/api/assurance/audit-templates'))).toBe(false)
+    expect(fs.existsSync(path.join(ROOT, 'app/api/assurance/templates/[id]/active'))).toBe(false)
   })
   it('no Audit -> Action shortcut: Audit code never writes actions; findings are the only bridge', () => {
-    for (const f of ['lib/assurance/audits.ts', 'lib/assurance/auditTemplates.ts', ...walk('app/api/assurance/audits'), ...walk('app/api/assurance/audit-templates')]) {
+    for (const f of ['lib/assurance/audits.ts', 'lib/assurance/templateLifecycle.ts', ...walk('app/api/assurance/audits'), ...walk('app/api/assurance/templates')]) {
       const src = stripComments(read(f))
       expect(src, f).not.toMatch(/assurance_actions|assurance_action_findings|createAction|lib\/assurance\/actions/)
     }
@@ -148,6 +153,7 @@ describe('service layer', () => {
         expect(['name', 'cte', 't.table', 't.column'], `${f}: sql.unsafe(${arg})`).toContain(arg.trim())
       }
     }
+    expect(read('lib/assurance/templateLifecycle.ts')).toMatch(/ALLOWED_IDENTIFIERS = new Set\(/)
     const access = read('lib/assurance/access.ts')
     expect(access).toMatch(/ALLOWED_ALIASES = new Set\(/)
     expect(read('lib/assurance/sqlHelpers.ts')).toMatch(/CTE_NAMES = new Set\(/)
@@ -188,9 +194,10 @@ describe('service layer', () => {
     }
   })
   it('every Assurance mutation writes an audit row', () => {
-    for (const f of ['incidents', 'investigations', 'inspections', 'templates', 'audits', 'auditTemplates', 'findings', 'actions', 'evidence', 'verifications', 'riskLevels']) {
+    for (const f of ['incidents', 'investigations', 'inspections', 'templateLifecycle', 'audits', 'findings', 'actions', 'evidence', 'verifications', 'riskLevels']) {
       const src = stripComments(read(`lib/assurance/${f}.ts`))
-      const writes = (src.match(/\b(INSERT INTO assurance_|UPDATE assurance_)/g) ?? []).length
+      // templateLifecycle names its (allow-listed) tables through ident().
+      const writes = (src.match(/\b(INSERT INTO assurance_|UPDATE assurance_|INSERT INTO \$\{ident\(|UPDATE \$\{ident\()/g) ?? []).length
       const audits = (src.match(/auditInsert\(|auditFromCte\(|INSERT INTO audit_logs/g) ?? []).length
       expect(writes, f).toBeGreaterThan(0)
       expect(audits, f).toBeGreaterThan(0)
@@ -216,5 +223,41 @@ describe('navigation', () => {
   it('no second Assurance route or capability exists', () => {
     expect(walk('app').some(f => /(^|\/)verity(\/|$)/i.test(f))).toBe(false)
     expect(read('lib/assurance/authorize.ts')).toMatch(/ASSURANCE_CAPABILITY = 'assurance'/)
+  })
+})
+
+describe('template lifecycle (A0.1F)', () => {
+  const src = stripComments(read('lib/assurance/templateLifecycle.ts'))
+  it('only templateLifecycle.ts writes template versions', () => {
+    for (const f of libFiles.filter(f => f !== 'lib/assurance/templateLifecycle.ts')) {
+      expect(stripComments(read(f)), f).not.toMatch(/(UPDATE|INSERT INTO|DELETE FROM)\s+(assurance_(inspection|audit)_template_versions|\$\{ident\(k\.versions\)\})/i)
+    }
+  })
+  it('every version UPDATE is guarded on the lifecycle state it expects', () => {
+    const updates = [...src.matchAll(/UPDATE \$\{ident\(k\.versions\)\} v([\s\S]*?)RETURNING/g)].map(m => m[1])
+    expect(updates.length).toBe(3) // draft save, publish, retire
+    for (const u of updates) expect(u).toMatch(/v\.status = '(DRAFT|PUBLISHED)'/)
+    // draft edits and publishes are optimistic-locked
+    expect(updates.filter(u => /v\.lock_version = \$\{lockVersion\}::int/.test(u))).toHaveLength(2)
+  })
+  it('drafts are inserted explicitly as DRAFT with no publication stamp', () => {
+    const inserts = src.match(/'DRAFT', NULL, NULL, \$\{viewer\.userId\}, \$\{viewer\.userId\}/g) ?? []
+    expect(inserts).toHaveLength(2) // create (v1) and new version
+  })
+  it('each mutation locks the template row in its own statement first', () => {
+    for (const fn of ['updateTemplateDraft', 'createTemplateVersion', 'publishTemplateVersion', 'retireAssuranceTemplate']) {
+      const body = src.slice(src.indexOf(`export async function ${fn}(`))
+      const tx = body.slice(body.indexOf('sql.transaction(['))
+      expect(tx.indexOf('lockTemplate('), fn).toBeGreaterThan(-1)
+      expect(tx.indexOf('lockTemplate('), fn).toBeLessThan(tx.indexOf('INSERT INTO audit_logs'))
+    }
+  })
+  it('selectors offer only PUBLISHED versions of active templates', () => {
+    const body = src.slice(src.indexOf('export async function listPublishedTemplateOptions('))
+    expect(body.slice(0, body.indexOf('\n}'))).toMatch(/v\.status = 'PUBLISHED'[\s\S]*t\.is_active = true/)
+    for (const f of ['lib/assurance/inspections.ts', 'lib/assurance/audits.ts']) {
+      expect(stripComments(read(f)), f).toMatch(/t\.is_active = true AND v\.status = 'PUBLISHED'/)
+      expect(stripComments(read(f)), f).toMatch(/rejectUnpublishedTemplate\(sql\.transaction\(/)
+    }
   })
 })

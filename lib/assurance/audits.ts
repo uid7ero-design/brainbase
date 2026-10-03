@@ -7,6 +7,7 @@ import { auditFromCte, type AssuranceTimestamp } from './sqlHelpers';
 import { assertSameOrgUsers } from './users';
 import { assertContextRefsInOrg } from './lookups';
 import { withFreshReference } from './references';
+import { rejectUnpublishedTemplate } from './templateLifecycle';
 import type { EvidenceLinkRow } from './incidents';
 import {
   AUDIT_OUTCOMES, AUDIT_RESPONSE_TYPES, AUDIT_STATUSES, AUDIT_TYPES, parseCriteria,
@@ -145,7 +146,7 @@ export async function getAuditDetail(viewer: AssuranceViewer, id: string): Promi
            v.title AS template_version_title, v.standard_reference AS template_version_standard_reference,
            v.instructions AS template_instructions, v.criteria AS template_criteria,
            (SELECT max(v2.version_number) FROM assurance_audit_template_versions v2
-             WHERE v2.organisation_id = v.organisation_id AND v2.template_id = v.template_id) AS latest_template_version_number,
+             WHERE v2.organisation_id = v.organisation_id AND v2.template_id = v.template_id AND v2.status <> 'DRAFT') AS latest_template_version_number,
            au.created_at, cu.name AS created_by_name
     FROM assurance_audits au
     LEFT JOIN users uu ON uu.id = au.auditor_user_id AND uu.organisation_id = au.organisation_id
@@ -261,15 +262,16 @@ export async function createAudit(viewer: AssuranceViewer, raw: Record<string, u
   let auditType = input.auditType;
   let standardReference = input.standardReference;
   if (templateVersionId) {
-    // Must be a version of an ACTIVE template in THIS organisation. The
-    // Audit binds to this exact version forever.
+    // Must be the PUBLISHED version of an active template in THIS
+    // organisation (A0.1F also enforces this in the database, race-safely).
+    // The Audit binds to this exact version forever.
     const v = (await sql`
       SELECT t.audit_type, v.standard_reference
       FROM assurance_audit_template_versions v
       JOIN assurance_audit_templates t ON t.organisation_id = v.organisation_id AND t.id = v.template_id
-      WHERE v.organisation_id = ${viewer.organisationId} AND v.id = ${templateVersionId}::uuid AND t.is_active = true
+      WHERE v.organisation_id = ${viewer.organisationId} AND v.id = ${templateVersionId}::uuid AND t.is_active = true AND v.status = 'PUBLISHED'
     `) as { audit_type: AuditType; standard_reference: string | null }[];
-    if (!v[0]) throw new AssuranceValidationError('Template was not found in your organisation, or is inactive.');
+    if (!v[0]) throw new AssuranceValidationError('Template was not found in your organisation, or is not published.');
     auditType = auditType ?? v[0].audit_type;
     standardReference = standardReference ?? v[0].standard_reference;
   } else if (!standardReference) {
@@ -286,7 +288,7 @@ export async function createAudit(viewer: AssuranceViewer, raw: Record<string, u
 
   const id = crypto.randomUUID();
   return withFreshReference('audit', async reference => {
-    await sql.transaction([
+    await rejectUnpublishedTemplate(sql.transaction([
       sql`
         INSERT INTO assurance_audits (
           id, organisation_id, audit_reference, template_version_id, audit_type, title, scope, standard_reference, status,
@@ -302,7 +304,7 @@ export async function createAudit(viewer: AssuranceViewer, raw: Record<string, u
         resourceId: id, verb: 'created',
         after: { audit_reference: reference, status: 'PLANNED', template_version_id: templateVersionId, audit_type: auditType },
       }),
-    ]);
+    ]));
     return { id, audit_reference: reference };
   });
 }

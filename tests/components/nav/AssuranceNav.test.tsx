@@ -129,7 +129,7 @@ describe('Assurance under Work — desktop', () => {
 describe('active state — Work owns every Assurance route, including Help', () => {
   it.each([
     '/assurance', '/assurance/incidents', '/assurance/incidents/abc', '/assurance/investigations', '/assurance/inspections',
-    '/assurance/inspections/templates', '/assurance/audits', '/assurance/findings', '/assurance/actions',
+    '/assurance/inspections/templates', '/assurance/templates', '/assurance/audits', '/assurance/findings', '/assurance/actions',
     '/assurance/evidence', '/assurance/verification', '/assurance/help', '/assurance/help/user-guide',
     '/assurance/help/perform-verification',
   ])('%s → Work current, Assurance aria-current', async path => {

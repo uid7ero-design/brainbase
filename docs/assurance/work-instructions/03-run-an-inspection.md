@@ -17,7 +17,7 @@ For a planned, template-based inspection, or an ad hoc check in the field.
 
 ## Before you start
 
-- For a template-based inspection, an admin must have created an **active**
+- For a template-based inspection, an admin must have **published** an
   inspection template.
 - Decide the inspector, location and schedule.
 
@@ -64,8 +64,8 @@ For a planned, template-based inspection, or an ad hoc check in the field.
 ## What happens next
 
 - The inspection moves Planned → In progress → Completed.
-- Its checklist version stays fixed, even if the template is later
-  updated.
+- Its checklist version stays fixed, even if a newer version is later
+  published or the template is retired.
 - Findings raised appear under **Findings** on the inspection, and on the
   Findings register with the inspection as their source.
 
@@ -90,7 +90,7 @@ For a planned, template-based inspection, or an ad hoc check in the field.
 | "N required checklist items have no response yet." | Answer the listed items, then complete. |
 | "A finding has been raised from this item, so its response can no longer be changed." | Expected; the response is part of the finding's record. |
 | "Start the inspection to record responses." | Select **Start inspection** first. |
-| No templates offered | No active templates exist. Ask an admin, or run it ad hoc. |
+| No templates offered | No published templates exist (drafts and retired templates are not offered). Ask an admin, or run it ad hoc. |
 | "Reason is required." when cancelling | Enter why the inspection is being cancelled. |
 
 ## Related records / next steps

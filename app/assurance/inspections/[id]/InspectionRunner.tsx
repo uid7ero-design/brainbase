@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -48,7 +48,7 @@ export default function InspectionRunner({ inspectionId, editable, canRaiseFindi
   const byKey = new Map(responses.map(r => [r.item_key, r]));
   // Ad hoc inspections: the items ARE the responses recorded so far.
   const items: ChecklistItem[] = adHoc
-    ? responses.map(r => ({ key: r.item_key, label: r.item_label, responseType: r.response_type, guidance: null, required: false, options: [] }))
+    ? responses.map(r => ({ key: r.item_key, label: r.item_label, responseType: r.response_type, guidance: null, required: false, options: [], section: null }))
     : checklist;
   const answered = items.filter(i => byKey.has(i.key)).length;
   const failed = responses.filter(r => r.outcome === 'FAIL').length;
@@ -66,18 +66,22 @@ export default function InspectionRunner({ inspectionId, editable, canRaiseFindi
       )}
       <ol className={styles.runnerList}>
         {items.map((item, idx) => (
-          <ItemRow
-            key={item.key}
-            index={idx}
-            item={item}
-            response={byKey.get(item.key) ?? null}
-            inspectionId={inspectionId}
-            editable={editable}
-            adHoc={adHoc}
-            canRaiseFindings={canRaiseFindings}
-            findings={findings.filter(f => f.source_item_key === item.key)}
-            findingFields={findingFields}
-          />
+          <Fragment key={item.key}>
+            {item.section && item.section !== items[idx - 1]?.section && (
+              <li className={styles.runnerSection}><h3>{item.section}</h3></li>
+            )}
+            <ItemRow
+              index={idx}
+              item={item}
+              response={byKey.get(item.key) ?? null}
+              inspectionId={inspectionId}
+              editable={editable}
+              adHoc={adHoc}
+              canRaiseFindings={canRaiseFindings}
+              findings={findings.filter(f => f.source_item_key === item.key)}
+              findingFields={findingFields}
+            />
+          </Fragment>
         ))}
       </ol>
       {editable && adHoc && <AddAdHocItem inspectionId={inspectionId} />}

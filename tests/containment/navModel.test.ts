@@ -386,7 +386,7 @@ describe('Assurance — one generic Work descriptor', () => {
     const nav = resolveNav(ctx('super_admin', [...ALL_CAPS, 'assurance'], 'brainbase-hq'));
     for (const p of [
       '/assurance', '/assurance/incidents', '/assurance/incidents/new', '/assurance/incidents/0b0c',
-      '/assurance/investigations', '/assurance/inspections', '/assurance/inspections/templates/x',
+      '/assurance/investigations', '/assurance/inspections', '/assurance/inspections/templates/x', '/assurance/templates', '/assurance/templates/audit/x',
       '/assurance/audits', '/assurance/findings', '/assurance/actions', '/assurance/evidence',
       '/assurance/verification', '/assurance/help', '/assurance/help/user-guide', '/assurance/help/perform-verification',
       '/assurance/settings', '/assurance/settings/risk-levels',
