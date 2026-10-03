@@ -30,9 +30,9 @@ function utcIsoDate(now: Date): string {
  * currently has PENDING employee-document reminder deliveries.
  *
  * HR-7E5F intentionally uses the injected clock's UTC calendar date.
- * organisations.timezone is schema-only under Modular Platform Phase F.2A
- * and must not be consumed by application code until that capability is
- * separately activated.
+ * The organisation-local timezone capability remains schema-only under
+ * Modular Platform Phase F.2A and must not be consumed by application code
+ * until that capability is separately activated.
  *
  * Tenant work is isolated: one organisation failing does not prevent the
  * remaining organisations from being processed. The caller receives counts
