@@ -283,7 +283,8 @@ export function ChainStrip({ steps }: { steps: ChainStep[] }) {
 
 // ── History ─────────────────────────────────────────────────────────────
 
-export function HistoryList({ entries }: { entries: { id: string; action: string; created_at: string | Date; user_name: string | null; after_state?: unknown }[] }) {
+/** `label` overrides the verb-only description (for histories spanning several record kinds); `timeZone` defaults to the server's. */
+export function HistoryList({ entries, timeZone }: { entries: { id: string; action: string; created_at: string | Date; user_name: string | null; after_state?: unknown; label?: string }[]; timeZone?: string }) {
   if (entries.length === 0) return <Dim>No recorded history yet.</Dim>;
   return (
     <ol className={styles.history}>
@@ -291,8 +292,8 @@ export function HistoryList({ entries }: { entries: { id: string; action: string
         const reason = historyReason(e.after_state);
         return (
           <li key={e.id}>
-            <span className={styles.historyWhen}>{formatAssuranceDateTime(e.created_at)}</span>
-            <span className={styles.historyWhat}>{describeAuditAction(e.action)}</span>
+            <span className={styles.historyWhen}>{formatAssuranceDateTime(e.created_at, timeZone)}</span>
+            <span className={styles.historyWhat}>{e.label ?? describeAuditAction(e.action)}</span>
             <span className={styles.historyWho}>{e.user_name ?? 'System'}</span>
             {reason && <span className={styles.historyReason}>Reason: {reason}</span>}
           </li>

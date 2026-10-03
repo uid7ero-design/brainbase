@@ -793,7 +793,7 @@ export type ContractorDetail = {
   assignments: AssignmentView[];
   counts: StateCounts; awaiting_review: number; headline: OrganisationHeadline;
   today: string; timeZone: string;
-  history: { id: string; action: string; created_at: string; user_name: string | null; after_state: Record<string, unknown> | null }[];
+  history: { id: string; action: string; resource_type: string; resource_id: string; created_at: string; user_name: string | null; after_state: Record<string, unknown> | null }[];
 };
 
 export async function getContractorDetail(viewer: AssuranceViewer, externalOrganisationId: string): Promise<ContractorDetail | null> {
@@ -911,7 +911,9 @@ export async function getContractorDetail(viewer: AssuranceViewer, externalOrgan
 
   const ids = [scope?.id, ...assignments.map(a => a.id), ...assignments.flatMap(a => a.history.map(s => s.id))].filter((x): x is string => !!x);
   const history = ids.length === 0 ? [] : (await sql`
-    SELECT l.id, l.action, l.created_at, u.name AS user_name, l.after_state
+    SELECT l.id, l.action, l.resource_type, l.resource_id,
+      -- audit_logs.created_at is a UTC timestamp without time zone; return an unambiguous instant.
+      (l.created_at AT TIME ZONE 'UTC') AS created_at, u.name AS user_name, l.after_state
     FROM audit_logs l
     LEFT JOIN users u ON u.id = l.user_id AND u.organisation_id = l.organisation_id
     WHERE l.organisation_id = ${org}

@@ -294,4 +294,9 @@ describe('contractor assurance (A0.1G)', () => {
   it('submission snapshots are written only by the database trigger', () => {
     expect(src).not.toMatch(/requirement_name_snapshot\s*=|INSERT INTO assurance_requirement_submissions \([^)]*_snapshot/)
   })
+  it('history times are unambiguous instants shown in the Assurance time zone, each entry naming its record kind', () => {
+    expect(src).toMatch(/\(l\.created_at AT TIME ZONE 'UTC'\) AS created_at/)
+    const page = stripComments(read('app/assurance/contractors/[id]/page.tsx'))
+    expect(page).toMatch(/<HistoryList entries=\{historyEntries\} timeZone=\{tz\} \/>/)
+  })
 })

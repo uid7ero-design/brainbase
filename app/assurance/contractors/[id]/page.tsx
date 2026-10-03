@@ -44,13 +44,23 @@ function SubmissionFacts({ s, tz }: { s: SubmissionView; tz: string }) {
 
 function SnapshotNotice({ s, a }: { s: SubmissionView; a: AssignmentView }) {
   if (!s.requirement_changed_since) return null;
+  const then = s.snapshot, now = a.requirement;
+  const text = (v: string | null) => (v && v.trim() ? v : 'none');
+  const notice = (d: number | null) => (d ? `${d} days` : 'none');
+  const changes: [string, string, string][] = [
+    ['Name', then.name, now.name],
+    ['Category', assuranceLabel(then.category), assuranceLabel(now.category)],
+    ['Description', text(then.description), text(now.description)],
+    ['Evidence guidance', text(then.evidence_guidance), text(now.evidence_guidance)],
+    ['Expiry date', then.expiry_required ? 'required' : 'not required', now.expiry_required ? 'required' : 'not required'],
+    ['Renewal notice', notice(then.renewal_notice_days), notice(now.renewal_notice_days)],
+  ].filter(([, was, is]) => was !== is) as [string, string, string][];
   return (
     <Notice tone="warning">
-      The requirement has changed since this evidence was recorded. It is assessed against the requirement as recorded:
-      <strong> {s.snapshot.name}</strong> ({assuranceLabel(s.snapshot.category)}; expiry {s.snapshot.expiry_required ? 'required' : 'not required'};
-      renewal notice {s.snapshot.renewal_notice_days ? `${s.snapshot.renewal_notice_days} days` : 'none'})
-      {s.snapshot.evidence_guidance ? <>. Guidance then: {s.snapshot.evidence_guidance}</> : null}.
-      Current wording: <strong>{a.requirement.name}</strong>.
+      The requirement has changed since this evidence was recorded. The evidence was assessed against the requirement as it stood then.
+      <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+        {changes.map(([field, was, is]) => <li key={field}>{field}: was <strong>{was}</strong>, now <strong>{is}</strong></li>)}
+      </ul>
     </Notice>
   );
 }
@@ -75,6 +85,22 @@ export default async function ContractorDetailPage({ params }: { params: Promise
   const active = assignments.filter(a => a.status === 'ACTIVE');
   const cancelled = assignments.filter(a => a.status === 'CANCELLED');
   const userOptions = users.map(u => ({ value: u.id, label: u.name }));
+  // The history spans scope, assignment and evidence rows, so each entry names what it is about.
+  const requirementFor = new Map<string, string>();
+  for (const a of assignments) {
+    requirementFor.set(a.id, a.requirement.name);
+    for (const s of a.history) requirementFor.set(s.id, a.requirement.name);
+  }
+  const kindLabel: Record<string, string> = {
+    assurance_external_organisation_scope: 'Scope',
+    assurance_requirement_assignment: 'Assignment',
+    assurance_contractor_evidence: 'Evidence',
+  };
+  const historyEntries = detail.history.map(e => {
+    const verb = assuranceLabel((e.action.split('.')[1] ?? e.action).toUpperCase()).toLowerCase();
+    const about = requirementFor.get(e.resource_id);
+    return { ...e, label: `${kindLabel[e.resource_type] ?? 'Record'} ${verb}${about ? ` — ${about}` : ''}` };
+  });
 
   return (
     <div style={{ maxWidth: 1040 }}>
@@ -296,7 +322,7 @@ export default async function ContractorDetailPage({ params }: { params: Promise
       )}
 
       <Section title="History">
-        <Card><HistoryList entries={detail.history} /></Card>
+        <Card><HistoryList entries={historyEntries} timeZone={tz} /></Card>
       </Section>
     </div>
   );
