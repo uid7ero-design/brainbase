@@ -78,6 +78,8 @@ model Organisation {
   data_hub_raw_cells       DataHubRawCell[]
   data_hub_raw_staging_runs DataHubRawStagingRun[]
   data_hub_normalization_runs DataHubNormalizationRun[]
+  data_hub_dataset_profile_runs DataHubDatasetProfileRun[]
+  data_hub_dataset_profile_columns DataHubDatasetProfileColumn[]
   data_hub_normalized_rows    DataHubNormalizedRow[]
   data_hub_normalized_cells   DataHubNormalizedCell[]
   data_hub_normalization_findings DataHubNormalizationFinding[]
@@ -206,6 +208,7 @@ model User {
   // Data Hub 6.2D4C-B1 — normalized-staging lifecycle actor relations.
   data_hub_normalization_runs_created DataHubNormalizationRun[] @relation("DataHubNormalizationRunCreatedBy")
   normalized_uploads                  Upload[] @relation("UploadNormalizedBy")
+  data_hub_dataset_profile_runs_created DataHubDatasetProfileRun[] @relation("DataHubDatasetProfileRunCreatedBy")
   organisation      Organisation      @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
 
   @@index([organisation_id])
@@ -338,6 +341,7 @@ model ImportBatch {
   data_hub_raw_rows DataHubRawRow[]
   data_hub_raw_staging_runs DataHubRawStagingRun[]
   data_hub_normalization_runs DataHubNormalizationRun[]
+  data_hub_dataset_profile_runs DataHubDatasetProfileRun[]
   // Composite tenant-scoped FK (MATCH SIMPLE) — a MATCH SIMPLE
   // constraint means a NULL source_system_id (every existing/legacy
   // row) is entirely exempt from this check. For a batch that DOES
@@ -547,6 +551,7 @@ model Upload {
   // DB-level-only precedent as uploads_raw_staging_run_upload_fkey.
   normalization_run DataHubNormalizationRun? @relation("UploadNormalizationRun", fields: [normalization_run_id, organisation_id], references: [id, organisation_id])
   normalization_runs DataHubNormalizationRun[] @relation("UploadNormalizationRuns")
+  dataset_profile_runs DataHubDatasetProfileRun[] @relation("UploadDatasetProfileRuns")
   normalized_profile_version WorksheetMappingProfileVersion? @relation("UploadNormalizedProfileVersion", fields: [normalized_profile_version_id, organisation_id], references: [id, organisation_id])
   source_record_observations SourceRecordObservation[]
   data_hub_raw_rows DataHubRawRow[]
@@ -583,6 +588,10 @@ model Upload {
   // authoritative raw_staging_run_id (see DataHubNormalizationRun's own
   // comment for the unmodeled proof FK that references this).
   @@unique([id, raw_staging_run_id, organisation_id], map: "uploads_id_raw_staging_run_organisation_key")
+  // 6.2D4D1B1 — additive FK target for the SQL-only authoritative profile
+  // lineage proof: a persisted profile run must use this Upload's exact
+  // completed normalization_run_id, never another historical SUCCEEDED run.
+  @@unique([id, normalization_run_id, organisation_id], map: "uploads_id_normalization_run_organisation_key")
   @@map("uploads")
 }
 
@@ -871,6 +880,7 @@ model SourceSchemaWorksheet {
   data_hub_raw_rows DataHubRawRow[]
   data_hub_raw_staging_runs DataHubRawStagingRun[]
   data_hub_normalization_runs DataHubNormalizationRun[]
+  data_hub_dataset_profile_runs DataHubDatasetProfileRun[]
 
   // Required by SourceSchemaColumn's and WorksheetMappingProfile's
   // composite tenant-scoped FKs.
@@ -913,6 +923,7 @@ model SourceSchemaColumn {
   data_hub_raw_cells DataHubRawCell[]
   data_hub_normalized_cells DataHubNormalizedCell[]
   data_hub_normalization_findings DataHubNormalizationFinding[]
+  data_hub_dataset_profile_columns DataHubDatasetProfileColumn[]
 
   @@unique([id, organisation_id])
   // D4A strict cell lineage key: identity + worksheet + position + tenant.
@@ -995,6 +1006,7 @@ model WorksheetMappingProfileVersion {
   data_hub_raw_staging_runs DataHubRawStagingRun[]
   normalized_uploads Upload[] @relation("UploadNormalizedProfileVersion")
   data_hub_normalization_runs DataHubNormalizationRun[]
+  data_hub_dataset_profile_runs DataHubDatasetProfileRun[]
 
   @@unique([id, organisation_id])
   // Required by WorksheetMappingProfile.active_version's composite FK.
@@ -1259,6 +1271,7 @@ model DataHubNormalizationRun {
   normalized_rows    DataHubNormalizedRow[]
   normalized_uploads Upload[] @relation("UploadNormalizationRun")
   findings           DataHubNormalizationFinding[]
+  dataset_profile_runs DataHubDatasetProfileRun[] @relation("NormalizationDatasetProfileRuns")
 
   @@unique([id, organisation_id], map: "data_hub_normalization_runs_id_organisation_key")
   @@unique([id, upload_id, organisation_id], map: "data_hub_normalization_runs_id_upload_organisation_key")
@@ -1268,6 +1281,8 @@ model DataHubNormalizationRun {
   // raw_staging_run.
   @@unique([id, worksheet_mapping_profile_version_id, organisation_id], map: "data_hub_normalization_runs_id_profile_version_organisation_key")
   @@unique([id, raw_staging_run_id, organisation_id], map: "data_hub_normalization_runs_id_raw_run_organisation_key")
+  // D4D1B1 DB-level exact lineage target for persisted dataset profiles.
+  @@unique([id, import_batch_id, upload_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_version_id, organisation_id], map: "data_hub_normalization_runs_profile_lineage_key")
   @@unique([upload_id, attempt_number], map: "data_hub_normalization_runs_upload_attempt_key")
   @@index([organisation_id, import_batch_id])
   @@index([upload_id])
@@ -1455,6 +1470,122 @@ model DataHubNormalizationFinding {
   @@map("data_hub_normalization_findings")
 }
 
+
+
+// Data Hub 6.2D4D1B1 — durable dataset-profile attempt derived from exactly
+// one successful DataHubNormalizationRun. The SQL migration is authoritative
+// for lifecycle, tenant, exact-lineage and completion-reconciliation checks.
+// No Upload profile pointer exists in this slice.
+model DataHubDatasetProfileRun {
+  id                                   String   @id @default(cuid())
+  organisation_id                      String
+  import_batch_id                      String
+  upload_id                            String
+  normalization_run_id                 String
+  source_schema_version_id             String
+  source_schema_worksheet_id           String
+  worksheet_mapping_profile_version_id String
+  attempt_number                       Int
+  profiler_version                     String
+  status                               String
+  created_by                           String?
+  started_at                           DateTime @default(now()) @db.Timestamptz(6)
+  completed_at                         DateTime? @db.Timestamptz(6)
+  failed_at                            DateTime? @db.Timestamptz(6)
+  failure_code                         String?
+  created_at                           DateTime @default(now()) @db.Timestamptz(6)
+
+  // BIGINT deliberately mirrors D4D1A's safe-integer count contract rather
+  // than constraining persisted profiles to PostgreSQL INTEGER range.
+  row_count             BigInt?
+  column_count          BigInt?
+  total_cell_count      BigInt?
+  non_null_cell_count   BigInt?
+  null_cell_count       BigInt?
+  complete_row_count    BigInt?
+  incomplete_row_count  BigInt?
+
+  organisation Organisation @relation(fields: [organisation_id], references: [id])
+  import_batch ImportBatch @relation(fields: [import_batch_id, source_schema_version_id, organisation_id], references: [id, source_schema_version_id, organisation_id])
+  upload Upload @relation("UploadDatasetProfileRuns", fields: [upload_id, import_batch_id, organisation_id], references: [id, import_batch_id, organisation_id])
+  normalization_run DataHubNormalizationRun @relation("NormalizationDatasetProfileRuns", fields: [normalization_run_id, import_batch_id, upload_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_version_id, organisation_id], references: [id, import_batch_id, upload_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_version_id, organisation_id])
+  schema_worksheet SourceSchemaWorksheet @relation(fields: [source_schema_worksheet_id, source_schema_version_id, organisation_id], references: [id, source_schema_version_id, organisation_id])
+  profile_version WorksheetMappingProfileVersion @relation(fields: [worksheet_mapping_profile_version_id, organisation_id], references: [id, organisation_id])
+  creator User? @relation("DataHubDatasetProfileRunCreatedBy", fields: [created_by], references: [id], onDelete: SetNull)
+
+  columns DataHubDatasetProfileColumn[]
+
+  @@unique([id, organisation_id], map: "data_hub_dataset_profile_runs_id_org_key")
+  @@unique([id, source_schema_worksheet_id, organisation_id], map: "data_hub_dataset_profile_runs_id_worksheet_org_key")
+  @@unique([upload_id, attempt_number], map: "data_hub_dataset_profile_runs_upload_attempt_key")
+  @@index([organisation_id, upload_id])
+  @@index([normalization_run_id])
+  @@map("data_hub_dataset_profile_runs")
+}
+
+// One immutable structural profile per governed source column. No raw,
+// normalized STRING/IDENTIFIER, source-header, exemplar or free-form source
+// value has a storage field here. Kind-specific field-shape CHECKs live in
+// scripts/create-datahub-dataset-profiles.sql because Prisma cannot express
+// those cross-column invariants.
+model DataHubDatasetProfileColumn {
+  id                         String   @id @default(cuid())
+  organisation_id            String
+  profile_run_id             String
+  source_schema_worksheet_id String
+  source_schema_column_id    String
+  // Contiguous D4D1A output order; deliberately distinct from the governed
+  // SourceSchemaColumn.ordinal persisted below as source_column_ordinal.
+  ordinal                    Int
+  source_column_ordinal      Int
+  value_kind                 String
+  source_unit                String?
+  normalized_unit            String?
+
+  row_count               BigInt
+  non_null_count          BigInt
+  null_count              BigInt
+  distinct_non_null_count BigInt
+
+  null_ratio     String?
+  non_null_ratio String?
+  distinct_ratio String?
+
+  is_constant              Boolean
+  is_all_null              Boolean
+  is_unique_among_non_null Boolean
+  is_complete              Boolean
+  is_sparse                Boolean
+
+  min_length         BigInt?
+  max_length         BigInt?
+  total_length       BigInt?
+  mean_length        String?
+  empty_string_count BigInt?
+
+  true_count  BigInt?
+  false_count BigInt?
+
+  numeric_min  String?
+  numeric_max  String?
+  numeric_sum  String?
+  numeric_mean String?
+
+  temporal_min String?
+  temporal_max String?
+
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  organisation Organisation @relation(fields: [organisation_id], references: [id])
+  profile_run DataHubDatasetProfileRun @relation(fields: [profile_run_id, source_schema_worksheet_id, organisation_id], references: [id, source_schema_worksheet_id, organisation_id])
+  source_schema_column SourceSchemaColumn @relation(fields: [source_schema_column_id, source_schema_worksheet_id, source_column_ordinal, organisation_id], references: [id, source_schema_worksheet_id, ordinal, organisation_id])
+
+  @@unique([profile_run_id, ordinal], map: "data_hub_dataset_profile_columns_run_ordinal_key")
+  @@unique([profile_run_id, source_schema_column_id], map: "data_hub_dataset_profile_columns_run_source_column_key")
+  @@index([organisation_id, profile_run_id])
+  @@index([source_schema_column_id])
+  @@map("data_hub_dataset_profile_columns")
+}
 
 model DashboardConfig {
   id              String       @id @default(cuid())
