@@ -1249,6 +1249,101 @@ describe('C7.9E1 — prepared finance reconciliation snapshots', () => {
     expect(staleEvents[0].count.toString()).toBe('0');
   });
 
+  it('rolls back account-mapping creation when its transactional STALE event write fails', async () => {
+    const f = await seedFixture();
+    await addEntry(f, 1000);
+    const prepared = await prepare(f);
+    const close = await signOffPeriod(f, prepared.id);
+
+    await prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION test_reject_account_mapping_stale_event()
+      RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.event_type = 'STALE' THEN
+          RAISE EXCEPTION 'test account mapping stale event failure';
+        END IF;
+        RETURN NEW;
+      END $$
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER trg_test_reject_account_mapping_stale_event
+      BEFORE INSERT ON commercial_finance_reconciliation_events
+      FOR EACH ROW EXECUTE FUNCTION test_reject_account_mapping_stale_event()
+    `);
+
+    try {
+      await expect(createExternalGlAccountMapping({
+        organisationId: f.org,
+        userId: f.user,
+        sourceSystemId: 'xero',
+        externalAccountCode: '600',
+        externalAccountName: 'GL',
+        budgetAccountId: f.account,
+        effectiveFrom: '2026-07-01',
+        effectiveTo: null,
+      })).rejects.toThrow(/test account mapping stale event failure/);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DROP TRIGGER IF EXISTS trg_test_reject_account_mapping_stale_event
+         ON commercial_finance_reconciliation_events`,
+      );
+      await prisma.$executeRawUnsafe(
+        `DROP FUNCTION IF EXISTS test_reject_account_mapping_stale_event()`,
+      );
+    }
+
+    const mappings = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
+      `SELECT COUNT(*)::bigint AS count
+       FROM commercial_external_gl_account_mappings
+       WHERE organisation_id=$1
+         AND source_system_id='xero'
+         AND external_gl_account_code='600'`,
+      f.org,
+    );
+    expect(mappings[0].count.toString()).toBe('0');
+
+    const reconciliation = await prisma.$queryRawUnsafe<{
+      status: string;
+      close_id: string | null;
+    }[]>(
+      `SELECT status,close_id
+       FROM commercial_finance_reconciliations
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      prepared.id,
+      f.org,
+    );
+    expect(reconciliation[0]).toEqual({
+      status: 'SIGNED_OFF',
+      close_id: close.id,
+    });
+
+    const closeState = await prisma.$queryRawUnsafe<{
+      status: string;
+      reconciliation_status: string;
+    }[]>(
+      `SELECT status,reconciliation_status
+       FROM commercial_financial_period_closes
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      close.id,
+      f.org,
+    );
+    expect(closeState[0]).toEqual({
+      status: 'CLOSED',
+      reconciliation_status: 'SIGNED_OFF',
+    });
+
+    const staleEvents = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
+      `SELECT COUNT(*)::bigint AS count
+       FROM commercial_finance_reconciliation_events
+       WHERE reconciliation_id=$1::uuid
+         AND organisation_id=$2
+         AND event_type='STALE'`,
+      prepared.id,
+      f.org,
+    );
+    expect(staleEvents[0].count.toString()).toBe('0');
+  });
+
   it('stales a signed reconciliation when a missing GL account mapping is created for existing evidence', async () => {
     const f = await seedFixture();
     await addEntry(f, 1000);
@@ -1321,6 +1416,108 @@ describe('C7.9E1 — prepared finance reconciliation snapshots', () => {
       close.id,
       'EXTERNAL_GL_ACCOUNT_MAPPING_RETIRED',
     );
+  });
+
+  it('rolls back cost-centre mapping retirement when its transactional STALE event write fails', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    const mappingId = await addCostCentreMapping(f);
+    await addEntry(f, 1000, '600', '2026-09-20', 'AUD', 'OPS-EXT');
+    const prepared = await prepare(f);
+    const close = await signOffPeriod(f, prepared.id);
+
+    await prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION test_reject_cost_centre_mapping_stale_event()
+      RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.event_type = 'STALE' THEN
+          RAISE EXCEPTION 'test cost-centre mapping stale event failure';
+        END IF;
+        RETURN NEW;
+      END $$
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER trg_test_reject_cost_centre_mapping_stale_event
+      BEFORE INSERT ON commercial_finance_reconciliation_events
+      FOR EACH ROW EXECUTE FUNCTION test_reject_cost_centre_mapping_stale_event()
+    `);
+
+    try {
+      await expect(retireExternalGlCostCentreMapping({
+        organisationId: f.org,
+        userId: f.user,
+        mappingId,
+        effectiveTo: '2026-09-15',
+      })).rejects.toThrow(/test cost-centre mapping stale event failure/);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DROP TRIGGER IF EXISTS trg_test_reject_cost_centre_mapping_stale_event
+         ON commercial_finance_reconciliation_events`,
+      );
+      await prisma.$executeRawUnsafe(
+        `DROP FUNCTION IF EXISTS test_reject_cost_centre_mapping_stale_event()`,
+      );
+    }
+
+    const mapping = await prisma.$queryRawUnsafe<{
+      status: string;
+      effective_to: Date | null;
+      retired_by: string | null;
+      retired_at: Date | null;
+    }[]>(
+      `SELECT status,effective_to,retired_by,retired_at
+       FROM commercial_external_gl_cost_centre_mappings
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      mappingId,
+      f.org,
+    );
+    expect(mapping[0]).toEqual({
+      status: 'ACTIVE',
+      effective_to: null,
+      retired_by: null,
+      retired_at: null,
+    });
+
+    const reconciliation = await prisma.$queryRawUnsafe<{
+      status: string;
+      close_id: string | null;
+    }[]>(
+      `SELECT status,close_id
+       FROM commercial_finance_reconciliations
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      prepared.id,
+      f.org,
+    );
+    expect(reconciliation[0]).toEqual({
+      status: 'SIGNED_OFF',
+      close_id: close.id,
+    });
+
+    const closeState = await prisma.$queryRawUnsafe<{
+      status: string;
+      reconciliation_status: string;
+    }[]>(
+      `SELECT status,reconciliation_status
+       FROM commercial_financial_period_closes
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      close.id,
+      f.org,
+    );
+    expect(closeState[0]).toEqual({
+      status: 'CLOSED',
+      reconciliation_status: 'SIGNED_OFF',
+    });
+
+    const staleEvents = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
+      `SELECT COUNT(*)::bigint AS count
+       FROM commercial_finance_reconciliation_events
+       WHERE reconciliation_id=$1::uuid
+         AND organisation_id=$2
+         AND event_type='STALE'`,
+      prepared.id,
+      f.org,
+    );
+    expect(staleEvents[0].count.toString()).toBe('0');
   });
 
   it('stales a signed reconciliation when a cost-centre mapping retirement cuts off existing GL evidence', async () => {
