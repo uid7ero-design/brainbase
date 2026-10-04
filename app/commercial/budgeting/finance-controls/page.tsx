@@ -6,6 +6,8 @@ import { formatMoneyCentsExact } from '@/lib/commercial/money';
 import {
   financePeriodCloseHref,
   financePeriodReopenHref,
+  financeYearCloseHref,
+  financeYearReopenHref,
   financeReconciliationAction,
   financeReconciliationReviewHref,
   financeReconciliationSignOffHref,
@@ -40,12 +42,24 @@ type FinancialPeriod = {
   closes: CloseRecord[];
 };
 
+type YearCloseRecord = {
+  id: string;
+  close_sequence: number;
+  status: CloseStatus;
+  closed_at: string;
+  close_reason: string | null;
+  control_totals: Record<string, unknown>;
+  invalidated_at: string | null;
+  invalidation_reason: string | null;
+};
+
 type FinancialYear = {
   id: string;
   name: string;
   starts_on: string;
   ends_on: string;
   status: PeriodStatus;
+  closes: YearCloseRecord[];
   periods: FinancialPeriod[];
 };
 
@@ -79,6 +93,8 @@ export default function FinanceControlsPage() {
   const [sourceSystemId, setSourceSystemId] = useState('');
   const [currency, setCurrency] = useState('');
   const [reconciliations, setReconciliations] = useState<ReconciliationState[]>([]);
+  const [yearCloseReason, setYearCloseReason] = useState('');
+  const [yearReopenReason, setYearReopenReason] = useState('');
   const [closeReason, setCloseReason] = useState('');
   const [reopenReason, setReopenReason] = useState('');
   const [notes, setNotes] = useState('');
@@ -207,6 +223,32 @@ export default function FinanceControlsPage() {
     setNotice(message);
     await loadCore();
     await loadReconciliations();
+  }
+
+  async function closeYear() {
+    if (!selectedYear) return;
+    const ok = await postJson(
+      financeYearCloseHref(selectedYear.id),
+      { reason: yearCloseReason.trim() || null },
+    );
+    if (!ok) return;
+    setYearCloseReason('');
+    await refreshAfterMutation('Financial year closed.');
+  }
+
+  async function reopenYear(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedYear || !yearReopenReason.trim()) {
+      setError('A financial year reopen reason is required.');
+      return;
+    }
+    const ok = await postJson(
+      financeYearReopenHref(selectedYear.id),
+      { reason: yearReopenReason.trim() },
+    );
+    if (!ok) return;
+    setYearReopenReason('');
+    await refreshAfterMutation('Financial year reopened. Prior year-close evidence remains as invalidated history.');
   }
 
   async function closePeriod() {
@@ -338,6 +380,17 @@ export default function FinanceControlsPage() {
         </div>
       </section>
 
+      <YearControlPanel
+        year={selectedYear}
+        closeReason={yearCloseReason}
+        setCloseReason={setYearCloseReason}
+        reopenReason={yearReopenReason}
+        setReopenReason={setYearReopenReason}
+        working={working}
+        onClose={closeYear}
+        onReopen={reopenYear}
+      />
+
       <PeriodControlPanel
         period={selectedPeriod}
         activeClose={activeClose}
@@ -375,6 +428,112 @@ export default function FinanceControlsPage() {
         onSignOff={signOffReconciliation}
       />
     </div>
+  );
+}
+
+function YearControlPanel({
+  year,
+  closeReason,
+  setCloseReason,
+  reopenReason,
+  setReopenReason,
+  working,
+  onClose,
+  onReopen,
+}: {
+  year: FinancialYear | null;
+  closeReason: string;
+  setCloseReason: (value: string) => void;
+  reopenReason: string;
+  setReopenReason: (value: string) => void;
+  working: boolean;
+  onClose: () => void;
+  onReopen: (event: FormEvent) => void;
+}) {
+  return (
+    <section style={{ ...panel, marginBottom: 18 }}>
+      <h2 style={heading}>Financial year</h2>
+      <p style={description}>
+        Year close is server-governed: every child period must satisfy the finance close invariants before the year can close.
+      </p>
+      {!year ? (
+        <div style={emptyBox}>Choose a financial year to operate year-close controls.</div>
+      ) : (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(140px, 1fr))', gap: 10, marginBottom: 16 }}>
+            <Metric label="Year" value={year.name} />
+            <Metric label="Status" value={year.status} />
+            <Metric label="Start" value={year.starts_on.slice(0, 10)} />
+            <Metric label="End" value={year.ends_on.slice(0, 10)} />
+          </div>
+
+          {year.status === 'OPEN' ? (
+            <div style={formGrid}>
+              <Field label="Year close reason (optional)">
+                <input value={closeReason} onChange={event => setCloseReason(event.target.value)} style={control} />
+              </Field>
+              <div style={{ alignSelf: 'end' }}>
+                <button type="button" onClick={onClose} disabled={working} style={primaryButton}>
+                  Close financial year
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={onReopen} style={formGrid}>
+              <Field label="Year reopen reason (required)">
+                <input required value={reopenReason} onChange={event => setReopenReason(event.target.value)} style={control} />
+              </Field>
+              <div style={{ alignSelf: 'end' }}>
+                <button type="submit" disabled={working || !reopenReason.trim()} style={dangerButton}>
+                  Reopen financial year
+                </button>
+              </div>
+            </form>
+          )}
+
+          <div style={{ marginTop: 18 }}>
+            <h3 style={{ fontSize: 13, margin: '0 0 8px' }}>Durable year-close history</h3>
+            {year.closes.length === 0 ? (
+              <div style={emptyBox}>No close history for this financial year.</div>
+            ) : (
+              <table style={tableStyle}>
+                <thead>
+                  <tr>
+                    {['Sequence', 'Status', 'Closed', 'Reason', 'Control totals', 'Invalidation'].map(label => (
+                      <th key={label} style={th}>{label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {year.closes.map(close => (
+                    <tr key={close.id} data-year-close-id={close.id}>
+                      <td style={td}>{close.close_sequence}</td>
+                      <td style={td}>{close.status}</td>
+                      <td style={td}>{new Date(close.closed_at).toLocaleString()}</td>
+                      <td style={td}>{close.close_reason ?? '—'}</td>
+                      <td style={td}>
+                        <div>{String(close.control_totals.financialPeriodCount ?? '—')} periods</div>
+                        <div style={sub}>
+                          {String(close.control_totals.currentPeriodCloseCount ?? '—')} current period closes
+                        </div>
+                      </td>
+                      <td style={td}>
+                        {close.invalidated_at ? (
+                          <>
+                            {new Date(close.invalidated_at).toLocaleString()}
+                            <div style={sub}>{close.invalidation_reason}</div>
+                          </>
+                        ) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 

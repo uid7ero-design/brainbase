@@ -34,6 +34,19 @@ describe('C7.9 — Finance Controls admin UI', () => {
     expect(page).toContain('A current CLOSED period record is required before sign-off.');
   });
 
+  it('loads and operates durable financial-year close controls through governed endpoints', () => {
+    expect(page).toContain('financeYearCloseHref(selectedYear.id)');
+    expect(page).toContain('financeYearReopenHref(selectedYear.id)');
+    expect(controlUi).toContain('/api/commercial/budgeting/financial-years/');
+    expect(page).toContain('Close financial year');
+    expect(page).toContain('Reopen financial year');
+    expect(page).toContain('Durable year-close history');
+    expect(page).toContain('A financial year reopen reason is required.');
+    expect(page).toContain('Prior year-close evidence remains as invalidated history.');
+    expect(page).toContain('Year close is server-governed');
+    expect(page).not.toMatch(/DELETE FROM commercial_financial_year_closes/);
+  });
+
   it('operates close and reopen only through the governed lifecycle endpoints', () => {
     expect(page).toContain('financePeriodCloseHref(selectedPeriod.id)');
     expect(page).toContain('financePeriodReopenHref(selectedPeriod.id)');

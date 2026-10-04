@@ -2,6 +2,8 @@ import { expect, test, type Page } from '@playwright/test';
 import {
   financePeriodCloseHref,
   financePeriodReopenHref,
+  financeYearCloseHref,
+  financeYearReopenHref,
   financeReconciliationAction,
   financeReconciliationReviewHref,
   financeReconciliationSignOffHref,
@@ -155,7 +157,105 @@ async function mountFinanceControls(
   `);
 }
 
+async function mountYearControls(
+  page: Page,
+  options: { yearId?: string; yearStatus?: 'OPEN' | 'CLOSED' } = {},
+) {
+  const yearId = options.yearId ?? 'fy/26';
+  const yearStatus = options.yearStatus ?? 'OPEN';
+
+  const controls = yearStatus === 'OPEN'
+    ? `
+      <label>Year close reason <input id="year-close-reason"></label>
+      <button id="close-year">Close financial year</button>
+    `
+    : `
+      <form id="year-reopen-form">
+        <label>Year reopen reason <input id="year-reopen-reason" required></label>
+        <button id="reopen-year" type="submit" disabled>Reopen financial year</button>
+      </form>
+    `;
+
+  await page.setContent(`
+    <base href="http://brainbase.local/">
+    <section>
+      ${controls}
+    </section>
+    <script>
+      (() => {
+        const yearId = ${JSON.stringify(yearId)};
+        const closeButton = document.getElementById('close-year');
+        if (closeButton) {
+          closeButton.addEventListener('click', async () => {
+            const reason = document.getElementById('year-close-reason').value.trim();
+            await fetch(${JSON.stringify(financeYearCloseHref(yearId))}, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reason: reason || null }),
+            });
+          });
+        }
+
+        const reopenInput = document.getElementById('year-reopen-reason');
+        const reopenButton = document.getElementById('reopen-year');
+        if (reopenInput && reopenButton) {
+          reopenInput.addEventListener('input', () => {
+            reopenButton.disabled = !reopenInput.value.trim();
+          });
+          document.getElementById('year-reopen-form').addEventListener('submit', async event => {
+            event.preventDefault();
+            const reason = reopenInput.value.trim();
+            if (!reason) return;
+            await fetch(${JSON.stringify(financeYearReopenHref(yearId))}, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reason }),
+            });
+          });
+        }
+      })();
+    </script>
+  `);
+}
+
 test.describe('C7.9 Finance Controls browser flow', () => {
+  test('closes an open financial year through the governed endpoint with the entered reason', async ({ page }) => {
+    const yearId = 'fy/26';
+    const path = financeYearCloseHref(yearId);
+    await fulfillPost(page, path);
+    await mountYearControls(page, { yearId, yearStatus: 'OPEN' });
+
+    await page.locator('#year-close-reason').fill('FY26 final close');
+    const requestPromise = page.waitForRequest(
+      request => request.url() === `http://brainbase.local${path}`,
+    );
+    await page.locator('#close-year').click();
+    const request = await requestPromise;
+
+    expect(request.method()).toBe('POST');
+    expect(request.postDataJSON()).toEqual({ reason: 'FY26 final close' });
+  });
+
+  test('requires a financial-year reopen reason before posting to the governed endpoint', async ({ page }) => {
+    const yearId = 'fy/26';
+    const path = financeYearReopenHref(yearId);
+    await fulfillPost(page, path);
+    await mountYearControls(page, { yearId, yearStatus: 'CLOSED' });
+
+    await expect(page.locator('#reopen-year')).toBeDisabled();
+    await page.locator('#year-reopen-reason').fill('Year-end correction required');
+    await expect(page.locator('#reopen-year')).toBeEnabled();
+
+    const requestPromise = page.waitForRequest(
+      request => request.url() === `http://brainbase.local${path}`,
+    );
+    await page.locator('#reopen-year').click();
+    const request = await requestPromise;
+
+    expect(request.method()).toBe('POST');
+    expect(request.postDataJSON()).toEqual({ reason: 'Year-end correction required' });
+  });
+
   test('closes an open period through the governed endpoint with the entered reason', async ({ page }) => {
     const periodId = 'period/sep';
     const path = financePeriodCloseHref(periodId);

@@ -4,6 +4,14 @@ export type FinanceReconciliationControlStatus =
   | 'SIGNED_OFF'
   | 'STALE';
 
+export function financeYearCloseHref(yearId: string) {
+  return `/api/commercial/budgeting/financial-years/${encodeURIComponent(yearId)}/close`;
+}
+
+export function financeYearReopenHref(yearId: string) {
+  return `/api/commercial/budgeting/financial-years/${encodeURIComponent(yearId)}/reopen`;
+}
+
 export function financePeriodCloseHref(periodId: string) {
   return `/api/commercial/budgeting/financial-periods/${encodeURIComponent(periodId)}/close`;
 }
