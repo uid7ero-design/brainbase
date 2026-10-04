@@ -586,6 +586,17 @@ Do not add mutable accounting_date to commercial_supplier_bills.
 - external GL amount;
 - reconciliation variance.
 
+### Implementation status on this branch
+
+C7.9A through C7.9F are implemented on this branch and covered by containment, disposable-Postgres integration, browser-flow and production-build validation. The implemented control surface includes durable period and financial-year close history, governed reopen/invalidation, the append-only finance-adjustment journal, late-bill exceptions, explicit External GL account and cost-centre mapping/import, reconciliation prepare/review/sign-off/staleness, finance-adjusted reporting/export and administrator Finance Controls.
+
+Two policy choices remain deliberately deferred rather than inferred:
+
+- whether every financial year close must require an External GL reconciliation in a specific signed-off state; and
+- whether reconciliation may ever use a non-zero tolerance.
+
+Until an explicit policy decision changes them, year close applies the deterministic controls documented above without silently requiring an external source, and reconciliation remains exact at zero-cent tolerance.
+
 ## 27. Required tests
 
 1. CLOSED period rejects new posted finance adjustment targeting it.
