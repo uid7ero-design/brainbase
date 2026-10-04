@@ -47,6 +47,17 @@ describe('C7.9 — finance reconciliation and close-control architecture contrac
     expect(design).toContain('invalidates the prior close sign-off');
   });
 
+  it('makes financial-year close durable and reopen append-only', () => {
+    expect(design).toContain('commercial_financial_year_closes');
+    expect(design).toContain('monotonically increasing close sequence');
+    expect(design).toContain('Historical year-close records are never deleted');
+    expect(design).toContain('Year reopen requires an explicit reason');
+    expect(design).toContain('Reclose appends the next sequence');
+    expect(periods).toContain('export async function listFinancialYearCloses');
+    expect(periods).toContain("'C7_9_YEAR_CLOSE'");
+    expect(periods).not.toMatch(/DELETE FROM commercial_financial_year_closes/);
+  });
+
   it('keeps ordinary late supplier bills in their real posted_at period without automatic backdating', () => {
     expect(design).toContain('late supplier bill');
     expect(design).toContain('recognise the operational payable Actual in the period containing posted_at');

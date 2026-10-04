@@ -50,7 +50,7 @@ vi.doMock('@/lib/commercial/auditLog', () => ({
 
 const { closeFinancialPeriod, reopenFinancialPeriod, FinanceCloseError } =
   await import('@/lib/commercial/financeClose');
-const { setFinancialYearStatus } =
+const { listFinancialYearCloses, setFinancialYearStatus } =
   await import('@/lib/commercial/financialPeriods');
 
 const ORG = 'org-c79a';
@@ -79,6 +79,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   auditMock.mockReset();
+  await prisma.$executeRawUnsafe(`TRUNCATE commercial_financial_year_closes CASCADE`);
   await prisma.$executeRawUnsafe(`TRUNCATE commercial_financial_period_closes CASCADE`);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_finance_adjustment_lines WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_finance_adjustments WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
@@ -406,6 +407,160 @@ describe('C7.9A — real PostgreSQL close/reopen controls', () => {
 
     expect(period[0].status).toBe('CLOSED');
     expect(closeRows[0].status).toBe('CLOSED');
+  });
+
+  it('creates a durable financial-year close record with year-end control totals', async () => {
+    await closeFinancialPeriod({
+      organisationId: ORG,
+      userId: USER,
+      financialPeriodId: PERIOD,
+      reason: 'Year-end prerequisite',
+    });
+
+    const year = await setFinancialYearStatus({
+      organisationId: ORG,
+      userId: USER,
+      financialYearId: FY,
+      status: 'CLOSED',
+      reason: 'FY26 final close',
+    });
+
+    expect(year?.status).toBe('CLOSED');
+    const closes = await listFinancialYearCloses(ORG, FY);
+    expect(closes).toHaveLength(1);
+    expect(closes[0]).toMatchObject({
+      close_sequence: 1,
+      status: 'CLOSED',
+      close_reason: 'FY26 final close',
+      invalidated_by: null,
+      invalidated_at: null,
+      invalidation_reason: null,
+    });
+    expect(closes[0].control_totals).toEqual({
+      basis: 'C7_9_YEAR_CLOSE',
+      financialPeriodCount: 1,
+      currentPeriodCloseCount: 1,
+    });
+  });
+
+  it('requires a reopen reason and keeps the durable year close current when the reason is blank', async () => {
+    await closeFinancialPeriod({
+      organisationId: ORG,
+      userId: USER,
+      financialPeriodId: PERIOD,
+    });
+    await setFinancialYearStatus({
+      organisationId: ORG,
+      userId: USER,
+      financialYearId: FY,
+      status: 'CLOSED',
+    });
+
+    await expect(setFinancialYearStatus({
+      organisationId: ORG,
+      userId: USER,
+      financialYearId: FY,
+      status: 'OPEN',
+      reason: '   ',
+    })).rejects.toMatchObject({ code: 'REOPEN_REASON_REQUIRED' });
+
+    const year = await prisma.$queryRawUnsafe<{ status: string }[]>(
+      `SELECT status
+       FROM commercial_financial_years
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      FY,
+      ORG,
+    );
+    const closes = await listFinancialYearCloses(ORG, FY);
+    expect(year[0].status).toBe('CLOSED');
+    expect(closes[0]).toMatchObject({ close_sequence: 1, status: 'CLOSED' });
+  });
+
+  it('reopening a financial year invalidates history and reclose appends the next sequence', async () => {
+    await closeFinancialPeriod({
+      organisationId: ORG,
+      userId: USER,
+      financialPeriodId: PERIOD,
+    });
+    await setFinancialYearStatus({
+      organisationId: ORG,
+      userId: USER,
+      financialYearId: FY,
+      status: 'CLOSED',
+      reason: 'Initial close',
+    });
+
+    const reopened = await setFinancialYearStatus({
+      organisationId: ORG,
+      userId: USER,
+      financialYearId: FY,
+      status: 'OPEN',
+      reason: 'Year-end correction required',
+    });
+    expect(reopened?.status).toBe('OPEN');
+
+    let closes = await listFinancialYearCloses(ORG, FY);
+    expect(closes).toHaveLength(1);
+    expect(closes[0]).toMatchObject({
+      close_sequence: 1,
+      status: 'INVALIDATED',
+      invalidation_reason: 'Year-end correction required',
+      invalidated_by: USER,
+    });
+    expect(closes[0].invalidated_at).not.toBeNull();
+
+    const reclosed = await setFinancialYearStatus({
+      organisationId: ORG,
+      userId: USER,
+      financialYearId: FY,
+      status: 'CLOSED',
+      reason: 'Corrected final close',
+    });
+    expect(reclosed?.status).toBe('CLOSED');
+
+    closes = await listFinancialYearCloses(ORG, FY);
+    expect(closes.map(close => ({
+      sequence: close.close_sequence,
+      status: close.status,
+      reason: close.close_reason,
+    }))).toEqual([
+      { sequence: 2, status: 'CLOSED', reason: 'Corrected final close' },
+      { sequence: 1, status: 'INVALIDATED', reason: 'Initial close' },
+    ]);
+  });
+
+  it('refuses to reopen a CLOSED financial year that has no active durable year-close record', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE commercial_financial_periods
+       SET status='CLOSED'
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      PERIOD,
+      ORG,
+    );
+    await prisma.$executeRawUnsafe(
+      `UPDATE commercial_financial_years
+       SET status='CLOSED'
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      FY,
+      ORG,
+    );
+
+    await expect(setFinancialYearStatus({
+      organisationId: ORG,
+      userId: USER,
+      financialYearId: FY,
+      status: 'OPEN',
+      reason: 'Attempt to repair legacy state',
+    })).rejects.toMatchObject({ code: 'NO_ACTIVE_CLOSE' });
+
+    const year = await prisma.$queryRawUnsafe<{ status: string }[]>(
+      `SELECT status
+       FROM commercial_financial_years
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      FY,
+      ORG,
+    );
+    expect(year[0].status).toBe('CLOSED');
   });
 
   it('requires a non-empty reopen reason before touching the database', async () => {

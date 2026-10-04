@@ -42,6 +42,28 @@ describe('C7.9A — finance close schema/control contract', () => {
     expect(migration).toContain('length(btrim(invalidation_reason)) > 0');
   });
 
+  it('creates durable financial-year close history with the same tenant-safe append-only shape', () => {
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS commercial_financial_year_closes');
+    expect(migration).toContain('FOREIGN KEY (financial_year_id, organisation_id)');
+    expect(migration).toContain('REFERENCES commercial_financial_years(id, organisation_id)');
+    expect(migration).toContain('idx_commercial_financial_year_closes_one_current');
+    expect(migration).toContain('UNIQUE (financial_year_id, close_sequence)');
+    expect(migration).toContain('commercial_financial_year_closes_invalidation_shape');
+    expect(migration).toContain('commercial_financial_year_close_delete_guard');
+    expect(migration).toContain('BEFORE DELETE ON commercial_financial_year_closes');
+  });
+
+  it('persists and invalidates financial-year close evidence through the governed year status path', () => {
+    expect(periods).toContain('export async function listFinancialYearCloses');
+    expect(periods).toContain('commercial_financial_year_closes');
+    expect(periods).toContain("'C7_9_YEAR_CLOSE'");
+    expect(periods).toContain('currentPeriodCloseCount');
+    expect(periods).toContain("'REOPEN_REASON_REQUIRED'");
+    expect(periods).toContain("'NO_ACTIVE_CLOSE'");
+    expect(periods).toContain("SET status='INVALIDATED'");
+    expect(periods).not.toMatch(/DELETE FROM commercial_financial_year_closes/);
+  });
+
   it('captures close controls and serializes period transitions with row locks', () => {
     expect(domain).toContain("basis', 'C7_8_SOURCE_ACTUAL");
     expect(domain).toContain('sourceActualByCurrency');

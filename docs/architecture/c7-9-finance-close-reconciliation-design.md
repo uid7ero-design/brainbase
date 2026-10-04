@@ -301,7 +301,9 @@ A year may close only when:
 
 The deterministic controls currently enforced before year close are: every child period CLOSED; every CLOSED child period has a current durable close; no DRAFT finance adjustment targets a child period; no current child close carries STALE reconciliation evidence; and every Budget for the year points to an ACTIVE Budget version. A stricter required external-GL sign-off policy remains an explicit future policy decision and must not be inferred silently.
 
-Year reopen similarly requires explicit controlled invalidation.
+A successful year close appends a durable `commercial_financial_year_closes` record with a monotonically increasing close sequence and year-end control totals. Only one current CLOSED record may exist for a financial year. Historical year-close records are never deleted.
+
+Year reopen requires an explicit reason. Reopen atomically invalidates the current year-close record, records the actor/time/reason and moves the year back to OPEN. Reclose appends the next sequence rather than rewriting the invalidated record.
 ## 14. External GL authority boundary
 
 BrainBase C7.8 remains the authority for its own operational payable facts.
