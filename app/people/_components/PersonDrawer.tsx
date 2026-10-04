@@ -37,7 +37,27 @@ type EmployeeDocumentSummary = {
   } | null;
 };
 
+type DocumentAssurance = {
+  employee_acknowledgement: {
+    acknowledged: boolean;
+    acknowledged_at: string | null;
+  };
+  latest_verification: {
+    decision: 'VERIFIED' | 'REJECTED';
+    verified_at: string;
+  } | null;
+};
+
+type AssuranceState =
+  | { state: 'loading' }
+  | { state: 'ready'; assurance: DocumentAssurance }
+  | { state: 'error' };
+
 type DocumentsState = 'idle' | 'loading' | 'ready' | 'error' | 'hidden';
+
+function dateOnly(value: string): string {
+  return value.slice(0, 10);
+}
 
 export default function PersonDrawer({ personId, canManage, onClose, onEdit }: { personId: string | null; canManage: boolean; onClose: () => void; onEdit: (person: PersonDetail) => void }) {
   const [person, setPerson] = useState<PersonDetail | null>(null);
@@ -45,6 +65,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   const [error, setError] = useState('');
   const [documents, setDocuments] = useState<EmployeeDocumentSummary[]>([]);
   const [documentsState, setDocumentsState] = useState<DocumentsState>('idle');
+  const [assuranceByDocument, setAssuranceByDocument] = useState<Record<string, AssuranceState>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -54,6 +75,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         setPerson(null);
         setDocuments([]);
         setDocumentsState('idle');
+        setAssuranceByDocument({});
         return;
       }
 
@@ -62,6 +84,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setPerson(null);
       setDocuments([]);
       setDocumentsState('loading');
+      setAssuranceByDocument({});
 
       void fetch(`/api/hr/people/${personId}`)
         .then(async response => {
@@ -87,6 +110,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
           if (response.status === 404) {
             setDocuments([]);
             setDocumentsState('hidden');
+            setAssuranceByDocument({});
             return;
           }
 
@@ -96,16 +120,68 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
           if (!response.ok) {
             setDocuments([]);
             setDocumentsState('error');
+            setAssuranceByDocument({});
             return;
           }
 
-          setDocuments(Array.isArray(data.documents) ? data.documents : []);
+          const loadedDocuments = Array.isArray(data.documents)
+            ? data.documents as EmployeeDocumentSummary[]
+            : [];
+
+          setDocuments(loadedDocuments);
           setDocumentsState('ready');
+
+          const assuranceEntries: Record<string, AssuranceState> = {};
+          for (const document of loadedDocuments) {
+            if (document.current_version) assuranceEntries[document.id] = { state: 'loading' };
+          }
+          setAssuranceByDocument(assuranceEntries);
+
+          for (const document of loadedDocuments) {
+            const version = document.current_version;
+            if (!version) continue;
+
+            void fetch(
+              `/api/hr/people/${personId}/documents/${document.id}/versions/${version.id}/assurance`,
+            )
+              .then(async assuranceResponse => {
+                const assuranceData = await assuranceResponse.json().catch(() => ({}));
+                if (cancelled) return;
+
+                if (!assuranceResponse.ok || !assuranceData.assurance) {
+                  setAssuranceByDocument(current => ({
+                    ...current,
+                    [document.id]: { state: 'error' },
+                  }));
+                  return;
+                }
+
+                setAssuranceByDocument(current => ({
+                  ...current,
+                  [document.id]: {
+                    state: 'ready',
+                    assurance: {
+                      employee_acknowledgement: assuranceData.assurance.employee_acknowledgement,
+                      latest_verification: assuranceData.assurance.latest_verification,
+                    },
+                  },
+                }));
+              })
+              .catch(() => {
+                if (!cancelled) {
+                  setAssuranceByDocument(current => ({
+                    ...current,
+                    [document.id]: { state: 'error' },
+                  }));
+                }
+              });
+          }
         })
         .catch(() => {
           if (!cancelled) {
             setDocuments([]);
             setDocumentsState('error');
+            setAssuranceByDocument({});
           }
         });
     });
@@ -167,22 +243,53 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
 
               {documentsState === 'ready' && documents.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {documents.map(document => (
-                    <div key={document.id} style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 10 }}>
-                      <div style={{ color: 'var(--text-primary)', fontSize: 14, fontWeight: 600 }}>
-                        {document.title}
-                      </div>
-                      <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 3 }}>
-                        {document.document_type}
-                        {document.current_version ? ` · Version ${document.current_version.version_number}` : ' · No current version'}
-                      </div>
-                      {document.current_version?.expires_at && (
-                        <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 3 }}>
-                          Expires {document.current_version.expires_at}
+                  {documents.map(document => {
+                    const assurance = assuranceByDocument[document.id];
+
+                    return (
+                      <div key={document.id} style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 10 }}>
+                        <div style={{ color: 'var(--text-primary)', fontSize: 14, fontWeight: 600 }}>
+                          {document.title}
                         </div>
-                      )}
-                    </div>
-                  ))}
+                        <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 3 }}>
+                          {document.document_type}
+                          {document.current_version ? ` · Version ${document.current_version.version_number}` : ' · No current version'}
+                        </div>
+                        {document.current_version?.expires_at && (
+                          <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 3 }}>
+                            Expires {document.current_version.expires_at}
+                          </div>
+                        )}
+
+                        {document.current_version && assurance?.state === 'loading' && (
+                          <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 7 }}>
+                            Loading assurance status…
+                          </div>
+                        )}
+
+                        {document.current_version && assurance?.state === 'error' && (
+                          <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 7 }}>
+                            Assurance status unavailable.
+                          </div>
+                        )}
+
+                        {document.current_version && assurance?.state === 'ready' && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 7, color: 'var(--text-secondary)', fontSize: 12 }}>
+                            <div>
+                              {assurance.assurance.employee_acknowledgement.acknowledged
+                                ? `Acknowledged ${dateOnly(assurance.assurance.employee_acknowledgement.acknowledged_at!)}`
+                                : 'Not acknowledged'}
+                            </div>
+                            <div>
+                              {assurance.assurance.latest_verification
+                                ? `${assurance.assurance.latest_verification.decision === 'VERIFIED' ? 'Verified' : 'Rejected'} ${dateOnly(assurance.assurance.latest_verification.verified_at)}`
+                                : 'Not verified'}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </section>
