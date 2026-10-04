@@ -443,6 +443,122 @@ describe('C7.9A — real PostgreSQL close/reopen controls', () => {
     });
   });
 
+  it('rolls back financial-year close when durable year-close evidence cannot be inserted', async () => {
+    await closeFinancialPeriod({
+      organisationId: ORG,
+      userId: USER,
+      financialPeriodId: PERIOD,
+    });
+
+    await prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION test_reject_financial_year_close_insert()
+      RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        RAISE EXCEPTION 'test financial year close insert failure';
+      END $$
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER trg_test_reject_financial_year_close_insert
+      BEFORE INSERT ON commercial_financial_year_closes
+      FOR EACH ROW EXECUTE FUNCTION test_reject_financial_year_close_insert()
+    `);
+
+    try {
+      await expect(setFinancialYearStatus({
+        organisationId: ORG,
+        userId: USER,
+        financialYearId: FY,
+        status: 'CLOSED',
+        reason: 'Should roll back',
+      })).rejects.toThrow(/test financial year close insert failure/);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DROP TRIGGER IF EXISTS trg_test_reject_financial_year_close_insert
+         ON commercial_financial_year_closes`,
+      );
+      await prisma.$executeRawUnsafe(
+        `DROP FUNCTION IF EXISTS test_reject_financial_year_close_insert()`,
+      );
+    }
+
+    const year = await prisma.$queryRawUnsafe<{ status: string }[]>(
+      `SELECT status
+       FROM commercial_financial_years
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      FY,
+      ORG,
+    );
+    expect(year[0].status).toBe('OPEN');
+    expect(await listFinancialYearCloses(ORG, FY)).toEqual([]);
+  });
+
+  it('rolls back financial-year reopen when durable close invalidation cannot be written', async () => {
+    await closeFinancialPeriod({
+      organisationId: ORG,
+      userId: USER,
+      financialPeriodId: PERIOD,
+    });
+    await setFinancialYearStatus({
+      organisationId: ORG,
+      userId: USER,
+      financialYearId: FY,
+      status: 'CLOSED',
+      reason: 'Initial close',
+    });
+
+    await prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION test_reject_financial_year_close_invalidation()
+      RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.status = 'INVALIDATED' THEN
+          RAISE EXCEPTION 'test financial year close invalidation failure';
+        END IF;
+        RETURN NEW;
+      END $$
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER trg_test_reject_financial_year_close_invalidation
+      BEFORE UPDATE ON commercial_financial_year_closes
+      FOR EACH ROW EXECUTE FUNCTION test_reject_financial_year_close_invalidation()
+    `);
+
+    try {
+      await expect(setFinancialYearStatus({
+        organisationId: ORG,
+        userId: USER,
+        financialYearId: FY,
+        status: 'OPEN',
+        reason: 'Should roll back',
+      })).rejects.toThrow(/test financial year close invalidation failure/);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DROP TRIGGER IF EXISTS trg_test_reject_financial_year_close_invalidation
+         ON commercial_financial_year_closes`,
+      );
+      await prisma.$executeRawUnsafe(
+        `DROP FUNCTION IF EXISTS test_reject_financial_year_close_invalidation()`,
+      );
+    }
+
+    const year = await prisma.$queryRawUnsafe<{ status: string }[]>(
+      `SELECT status
+       FROM commercial_financial_years
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      FY,
+      ORG,
+    );
+    expect(year[0].status).toBe('CLOSED');
+    const closes = await listFinancialYearCloses(ORG, FY);
+    expect(closes).toHaveLength(1);
+    expect(closes[0]).toMatchObject({
+      close_sequence: 1,
+      status: 'CLOSED',
+      invalidated_by: null,
+      invalidated_at: null,
+      invalidation_reason: null,
+    });
+  });
+
   it('requires a reopen reason and keeps the durable year close current when the reason is blank', async () => {
     await closeFinancialPeriod({
       organisationId: ORG,
