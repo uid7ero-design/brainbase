@@ -59,6 +59,7 @@ type AssuranceState =
 
 type AcknowledgementActionState = 'idle' | 'submitting' | 'error';
 type VerificationActionState = 'idle' | 'verifying' | 'rejecting' | 'error';
+type DocumentCreateState = 'idle' | 'submitting' | 'error';
 
 type DocumentsState = 'idle' | 'loading' | 'ready' | 'error' | 'hidden';
 
@@ -75,6 +76,13 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   const [assuranceByDocument, setAssuranceByDocument] = useState<Record<string, AssuranceState>>({});
   const [acknowledgementByDocument, setAcknowledgementByDocument] = useState<Record<string, AcknowledgementActionState>>({});
   const [verificationByDocument, setVerificationByDocument] = useState<Record<string, VerificationActionState>>({});
+  const [canManageDocuments, setCanManageDocuments] = useState(false);
+  const [showCreateDocument, setShowCreateDocument] = useState(false);
+  const [newDocumentType, setNewDocumentType] = useState('');
+  const [newDocumentTitle, setNewDocumentTitle] = useState('');
+  const [newDocumentExpiry, setNewDocumentExpiry] = useState('');
+  const [newDocumentFile, setNewDocumentFile] = useState<File | null>(null);
+  const [documentCreateState, setDocumentCreateState] = useState<DocumentCreateState>('idle');
 
   useEffect(() => {
     let cancelled = false;
@@ -87,6 +95,9 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         setAssuranceByDocument({});
         setAcknowledgementByDocument({});
         setVerificationByDocument({});
+        setCanManageDocuments(false);
+        setShowCreateDocument(false);
+        setDocumentCreateState('idle');
         return;
       }
 
@@ -98,6 +109,9 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setAssuranceByDocument({});
       setAcknowledgementByDocument({});
       setVerificationByDocument({});
+      setCanManageDocuments(false);
+      setShowCreateDocument(false);
+      setDocumentCreateState('idle');
 
       void fetch(`/api/hr/people/${personId}`)
         .then(async response => {
@@ -126,7 +140,10 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
             setAssuranceByDocument({});
             setAcknowledgementByDocument({});
             setVerificationByDocument({});
-            return;
+            setCanManageDocuments(false);
+        setShowCreateDocument(false);
+        setDocumentCreateState('idle');
+        return;
           }
 
           const data = await response.json().catch(() => ({}));
@@ -138,7 +155,10 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
             setAssuranceByDocument({});
             setAcknowledgementByDocument({});
             setVerificationByDocument({});
-            return;
+            setCanManageDocuments(false);
+        setShowCreateDocument(false);
+        setDocumentCreateState('idle');
+        return;
           }
 
           const loadedDocuments = Array.isArray(data.documents)
@@ -147,6 +167,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
 
           setDocuments(loadedDocuments);
           setDocumentsState('ready');
+          setCanManageDocuments(data.capabilities?.can_manage_documents === true);
 
           const assuranceEntries: Record<string, AssuranceState> = {};
           for (const document of loadedDocuments) {
@@ -202,6 +223,9 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
             setAssuranceByDocument({});
             setAcknowledgementByDocument({});
             setVerificationByDocument({});
+            setCanManageDocuments(false);
+            setShowCreateDocument(false);
+            setDocumentCreateState('idle');
           }
         });
     });
@@ -215,6 +239,111 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   const acknowledgeButton = buttonProps('secondary', 'sm');
   const verifyButton = buttonProps('secondary', 'sm');
   const rejectButton = buttonProps('secondary', 'sm');
+  const addDocumentButton = buttonProps('secondary', 'sm');
+  const saveDocumentButton = buttonProps('primary', 'sm');
+  const cancelDocumentButton = buttonProps('secondary', 'sm');
+
+  async function createDocument() {
+    if (
+      !personId
+      || !canManageDocuments
+      || !newDocumentType.trim()
+      || !newDocumentTitle.trim()
+      || !newDocumentFile
+    ) {
+      setDocumentCreateState('error');
+      return;
+    }
+
+    setDocumentCreateState('submitting');
+
+    const formData = new FormData();
+    formData.set('document_type', newDocumentType.trim());
+    formData.set('title', newDocumentTitle.trim());
+    if (newDocumentExpiry) formData.set('expires_at', newDocumentExpiry);
+    formData.set('file', newDocumentFile);
+
+    try {
+      const response = await fetch(
+        `/api/hr/people/${personId}/documents`,
+        { method: 'POST', body: formData },
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (
+        !response.ok
+        || !data.document?.id
+        || !data.document?.document_type
+        || !data.document?.title
+        || !data.version?.id
+        || typeof data.version?.version_number !== 'number'
+      ) {
+        setDocumentCreateState('error');
+        return;
+      }
+
+      const createdDocument: EmployeeDocumentSummary = {
+        id: data.document.id,
+        document_type: data.document.document_type,
+        title: data.document.title,
+        lifecycle_task_id: data.document.lifecycle_task_id ?? null,
+        created_at: data.document.created_at,
+        current_version: {
+          id: data.version.id,
+          version_number: data.version.version_number,
+          expires_at: data.version.expires_at ?? null,
+          created_at: data.version.created_at,
+        },
+      };
+
+      setDocuments(current => [...current, createdDocument]);
+      setAssuranceByDocument(current => ({
+        ...current,
+        [createdDocument.id]: { state: 'loading' },
+      }));
+
+      void fetch(
+        `/api/hr/people/${personId}/documents/${createdDocument.id}/versions/${createdDocument.current_version!.id}/assurance`,
+      )
+        .then(async assuranceResponse => {
+          const assuranceData = await assuranceResponse.json().catch(() => ({}));
+          if (!assuranceResponse.ok || !assuranceData.assurance) {
+            setAssuranceByDocument(current => ({
+              ...current,
+              [createdDocument.id]: { state: 'error' },
+            }));
+            return;
+          }
+
+          setAssuranceByDocument(current => ({
+            ...current,
+            [createdDocument.id]: {
+              state: 'ready',
+              assurance: {
+                capabilities: assuranceData.assurance.capabilities,
+                employee_acknowledgement: assuranceData.assurance.employee_acknowledgement,
+                latest_verification: assuranceData.assurance.latest_verification,
+              },
+            },
+          }));
+        })
+        .catch(() => {
+          setAssuranceByDocument(current => ({
+            ...current,
+            [createdDocument.id]: { state: 'error' },
+          }));
+        });
+
+      setNewDocumentType('');
+      setNewDocumentTitle('');
+      setNewDocumentExpiry('');
+      setNewDocumentFile(null);
+      setShowCreateDocument(false);
+      setDocumentCreateState('idle');
+    } catch {
+      setDocumentCreateState('error');
+    }
+  }
 
   async function verifyDocument(
     document: EmployeeDocumentSummary,
@@ -382,9 +511,85 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
 
           {documentsState !== 'hidden' && documentsState !== 'idle' && (
             <section aria-labelledby="person-documents-heading" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 14, marginTop: 2 }}>
-              <div id="person-documents-heading" style={{ color: 'var(--text-primary)', fontSize: 14, fontWeight: 700, marginBottom: 10 }}>
-                Documents
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+                <div id="person-documents-heading" style={{ color: 'var(--text-primary)', fontSize: 14, fontWeight: 700 }}>
+                  Documents
+                </div>
+                {documentsState === 'ready' && canManageDocuments && !showCreateDocument && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCreateDocument(true);
+                      setDocumentCreateState('idle');
+                    }}
+                    {...addDocumentButton}
+                  >
+                    Add document
+                  </button>
+                )}
               </div>
+
+              {documentsState === 'ready' && canManageDocuments && showCreateDocument && (
+                <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Document type</span>
+                      <input
+                        value={newDocumentType}
+                        onChange={event => setNewDocumentType(event.target.value)}
+                      />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Title</span>
+                      <input
+                        value={newDocumentTitle}
+                        onChange={event => setNewDocumentTitle(event.target.value)}
+                      />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Expiry date (optional)</span>
+                      <input
+                        type="date"
+                        value={newDocumentExpiry}
+                        onChange={event => setNewDocumentExpiry(event.target.value)}
+                      />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>File</span>
+                      <input
+                        type="file"
+                        onChange={event => setNewDocumentFile(event.target.files?.[0] ?? null)}
+                      />
+                    </label>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => void createDocument()}
+                        disabled={documentCreateState === 'submitting'}
+                        {...saveDocumentButton}
+                      >
+                        {documentCreateState === 'submitting' ? 'Uploading…' : 'Upload document'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCreateDocument(false);
+                          setDocumentCreateState('idle');
+                        }}
+                        disabled={documentCreateState === 'submitting'}
+                        {...cancelDocumentButton}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    {documentCreateState === 'error' && (
+                      <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                        Could not upload document.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {documentsState === 'loading' && (
                 <StateMessage kind="loading" title="Loading documents…" />
