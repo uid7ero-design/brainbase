@@ -400,7 +400,7 @@ describe('Phase D.4.2 — capability icons did not touch the underlying gating t
   // capability={link.icon}); the icon keys live in navModel. Same contract:
   // every icon key is one of the five and sits on a descriptor whose gate
   // is that real capability (Commercial's 'quotes' icon: any of
-  // quotes/invoicing/purchasing, mirroring app/commercial/layout.tsx).
+  // quotes/invoicing/purchasing/budgeting, mirroring app/commercial/layout.tsx).
   it('no capability id beyond events/crm/organiser/quotes/people/assurance was introduced — every icon key matches a real capability gate', () => {
     expect(topNavSource).not.toMatch(/capability="[a-zA-Z]+"/)
     expect(topNavSource).toMatch(/capability=\{link\.icon\}/)
@@ -411,7 +411,7 @@ describe('Phase D.4.2 — capability icons did not touch the underlying gating t
     }
     const expectedGates: Record<string, string[]> = {
       events: ['events'], crm: ['crm'], organiser: ['organiser'], people: ['people'],
-      commercial: ['quotes', 'invoicing', 'purchasing'],
+      commercial: ['quotes', 'invoicing', 'purchasing', 'budgeting'],
       assurance: ['assurance'],
     }
     const iconned = WORK_ITEMS.filter(e => e.kind === 'link' && e.icon)

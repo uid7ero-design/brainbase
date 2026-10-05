@@ -27,7 +27,7 @@ describe('B.1 TopNav design-system migration after main convergence', () => {
       ['/organiser', "gate: { anyCapability: ['organiser'], minRole: 'manager' }"],
       ['/crm', "gate: { anyCapability: ['crm'] }"],
       ['/people', "gate: { anyCapability: ['people'], capabilityBypassRoles: ['super_admin'] }"],
-      ['/commercial', "gate: { anyCapability: ['quotes', 'invoicing', 'purchasing'] }"],
+      ['/commercial', "gate: { anyCapability: ['quotes', 'invoicing', 'purchasing', 'budgeting'] }"],
       ['/data-hub/import', "gate: { minRole: 'manager' }"],
     ]) {
       const at = navModel.indexOf(`href: '${href}'`)

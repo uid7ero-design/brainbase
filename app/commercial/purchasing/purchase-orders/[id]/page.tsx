@@ -949,10 +949,10 @@ export default function PurchaseOrderDetailPage() {
           explicit match allocations never participate in these monetary
           commitment values. */}
       {commitment && (
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, marginBottom: 20, padding: '16px 24px' }}>
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', marginBottom: 20, padding: '16px 24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 }}>
             <div style={miniLbl}>Commitment</div>
-            <div style={{ fontSize: 12, color: commitment.purchaseOrderStatus === 'ISSUED' ? '#34d399' : '#6b7280' }}>
+            <div style={{ fontSize: 12, color: commitment.purchaseOrderStatus === 'ISSUED' ? 'var(--status-success)' : 'var(--text-muted)' }}>
               {commitment.purchaseOrderStatus === 'ISSUED' ? 'ACTIVE PURCHASE COMMITMENT' : 'NOT COMMITTED'}
             </div>
           </div>
@@ -961,16 +961,16 @@ export default function PurchaseOrderDetailPage() {
             <div><div style={miniLbl}>Billed</div><div style={{ fontSize: 14 }}>{formatMoneyCents(commitment.billedTotalCents, commitment.currency)}</div></div>
             <div><div style={miniLbl}>Outstanding</div><div style={{ fontSize: 14, fontWeight: 700 }}>{formatMoneyCents(commitment.outstandingTotalCents, commitment.currency)}</div></div>
             <div><div style={miniLbl}>Effective</div><div style={{ fontSize: 14 }}>{commitment.commitmentEffectiveAt ? formatCommercialDate(commitment.commitmentEffectiveAt.slice(0, 10)) : '—'}</div></div>
-            <div><div style={miniLbl}>Financial Period</div><div style={{ fontSize: 14, color: '#9ca3af' }}>{commitment.periodResolution.replaceAll('_', ' ')}</div></div>
+            <div><div style={miniLbl}>Financial Period</div><div style={{ fontSize: 14, color: 'var(--text-muted)' }}>{commitment.periodResolution.replaceAll('_', ' ')}</div></div>
           </div>
           {commitment.lines.map(line => (
             <div key={line.purchaseOrderLineId} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1.5fr) repeat(3, minmax(110px, .8fr)) minmax(160px, 1fr) minmax(125px, .8fr)', gap: 10, alignItems: 'center', padding: '8px 0', borderTop: `1px solid ${BORDER}`, fontSize: 12 }}>
-              <span style={{ color: '#f3f4f6' }}>{line.description}</span>
-              <span style={{ color: '#9ca3af' }}>{formatMoneyCents(line.orderedTotalCents, commitment.currency)} ordered</span>
-              <span style={{ color: '#9ca3af' }}>{formatMoneyCents(line.billedTotalCents, commitment.currency)} billed</span>
-              <span style={{ color: '#f3f4f6' }}>{formatMoneyCents(line.outstandingTotalCents, commitment.currency)} outstanding</span>
-              <span style={{ color: '#6b7280' }}>Cost centre: {line.effectiveCostCentreId ?? 'Unassigned'}</span>
-              <span style={{ color: line.state === 'INVALID_OVERBILLED' ? '#f87171' : line.state === 'CONSUMED' ? '#34d399' : '#9ca3af', textAlign: 'right' }}>{line.state.replaceAll('_', ' ')}</span>
+              <span style={{ color: 'var(--text-primary)' }}>{line.description}</span>
+              <span style={{ color: 'var(--text-muted)' }}>{formatMoneyCents(line.orderedTotalCents, commitment.currency)} ordered</span>
+              <span style={{ color: 'var(--text-muted)' }}>{formatMoneyCents(line.billedTotalCents, commitment.currency)} billed</span>
+              <span style={{ color: 'var(--text-primary)' }}>{formatMoneyCents(line.outstandingTotalCents, commitment.currency)} outstanding</span>
+              <span style={{ color: 'var(--text-muted)' }}>Cost centre: {line.effectiveCostCentreId ?? 'Unassigned'}</span>
+              <span style={{ color: line.state === 'INVALID_OVERBILLED' ? 'var(--status-danger)' : line.state === 'CONSUMED' ? 'var(--status-success)' : 'var(--text-muted)', textAlign: 'right' }}>{line.state.replaceAll('_', ' ')}</span>
             </div>
           ))}
         </div>
@@ -1012,13 +1012,13 @@ export default function PurchaseOrderDetailPage() {
           Common PO-line lineage is only a candidate relationship; a quantity is
           "matched" only after this governed allocation write succeeds. */}
       {(isIssued || isCancelled) && matchWorkspace && (
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, marginBottom: 20, padding: '16px 24px' }}>
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', marginBottom: 20, padding: '16px 24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 10 }}>
             <div style={miniLbl}>Receipt ↔ Bill Matches</div>
-            <div style={{ fontSize: 12, color: '#6b7280' }}>{activeMatchAllocations.length} active</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{activeMatchAllocations.length} active</div>
           </div>
-          <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 12px' }}>Only explicit allocations count as matched. Sharing the same PO line does not create a match.</p>
-          {matchError && <p style={{ color: '#f87171', fontSize: 12, margin: '0 0 10px' }}>{matchError}</p>}
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>Only explicit allocations count as matched. Sharing the same PO line does not create a match.</p>
+          {matchError && <p style={{ color: 'var(--status-danger)', fontSize: 12, margin: '0 0 10px' }}>{matchError}</p>}
 
           {isIssued && canEdit && (
             <form onSubmit={createMatchAction} style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 1.2fr) minmax(150px, 1.2fr) minmax(100px, .7fr) auto', gap: 8, alignItems: 'end', marginBottom: 14 }}>
@@ -1044,19 +1044,19 @@ export default function PurchaseOrderDetailPage() {
             </form>
           )}
 
-          {matchWorkspace.allocations.length === 0 && <p style={{ fontSize: 13, color: '#4b5563', margin: 0 }}>No explicit matches yet.</p>}
+          {matchWorkspace.allocations.length === 0 && <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>No explicit matches yet.</p>}
           {matchWorkspace.allocations.map(a => {
             const receiptLine = matchWorkspace.receiptLines.find(line => line.id === a.purchase_receipt_line_id);
             const billLine = matchWorkspace.billLines.find(line => line.id === a.supplier_bill_line_id);
             return (
               <div key={a.id} style={{ borderTop: `1px solid ${BORDER}`, padding: '9px 0', fontSize: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                  <span style={{ color: '#d1d5db' }}>{receiptLine?.documentNumber ?? 'Receipt line'} ↔ {billLine?.documentNumber ?? 'Bill line'} · {Number(a.quantity_allocated)} matched</span>
-                  <span style={{ color: a.reversed_at ? '#6b7280' : '#34d399' }}>{a.reversed_at ? 'REVERSED' : 'ACTIVE'}</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>{receiptLine?.documentNumber ?? 'Receipt line'} ↔ {billLine?.documentNumber ?? 'Bill line'} · {Number(a.quantity_allocated)} matched</span>
+                  <span style={{ color: a.reversed_at ? 'var(--text-muted)' : 'var(--status-success)' }}>{a.reversed_at ? 'REVERSED' : 'ACTIVE'}</span>
                 </div>
-                {a.reversal_reason && <div style={{ color: '#6b7280', marginTop: 3 }}>Reversal: {a.reversal_reason}</div>}
+                {a.reversal_reason && <div style={{ color: 'var(--text-muted)', marginTop: 3 }}>Reversal: {a.reversal_reason}</div>}
                 {!a.reversed_at && isIssued && canEdit && reversingMatchId !== a.id && (
-                  <button type="button" onClick={() => { setReversingMatchId(a.id); setMatchReversalReason(''); setMatchError(''); }} disabled={matchBusy} style={{ background: 'none', border: 'none', color: '#fbbf24', fontSize: 12, padding: '5px 0 0', cursor: 'pointer' }}>Reverse match</button>
+                  <button type="button" onClick={() => { setReversingMatchId(a.id); setMatchReversalReason(''); setMatchError(''); }} disabled={matchBusy} style={{ background: 'none', border: 'none', color: 'var(--status-warning)', fontSize: 12, padding: '5px 0 0', cursor: 'pointer' }}>Reverse match</button>
                 )}
                 {!a.reversed_at && reversingMatchId === a.id && (
                   <div style={{ display: 'flex', gap: 8, marginTop: 7 }}>

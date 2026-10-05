@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { fieldControlClassName, tableStyles } from '@/components/ui/app';
 import { formatMoneyCents, formatMoneyCentsExact } from '@/lib/commercial/money';
 import {
   BUDGET_EXPORT_CONTROLS,
@@ -9,9 +10,9 @@ import {
   resolveBudgetFinanceSourceSystemId,
 } from '@/lib/commercial/budgetExportControls';
 
-const CARD = '#0e1014';
-const BORDER = '#1a1d24';
-const MUTED = '#9ca3af';
+const CARD = 'var(--bg-surface)';
+const BORDER = 'var(--border)';
+const MUTED = 'var(--text-muted)';
 
 export type ConsumptionRow = {
   budgetId: string;
@@ -419,7 +420,7 @@ export default function BudgetCommitmentsPage() {
   );
   if (error) return (
     <>
-      <div style={{ color: '#f87171' }}>{error}</div>
+      <div style={{ color: 'var(--status-danger)' }}>{error}</div>
       <BudgetExportControls legacyAvailable={false} financeAvailable={false} disabledReason="Exports are unavailable because the report could not be loaded." />
     </>
   );
@@ -433,8 +434,8 @@ export default function BudgetCommitmentsPage() {
   return (
     <div style={{ maxWidth: 1450 }}>
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>
-          <Link href="/commercial" style={{ color: '#9ca3af' }}>Commercial</Link> / Budgeting
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
+          <Link href="/commercial" style={{ color: 'var(--text-muted)' }}>Commercial</Link> / Budgeting
         </div>
         <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Budget vs Actual vs Committed</h1>
         <p style={{ fontSize: 13, color: MUTED, margin: '7px 0 0' }}>
@@ -457,17 +458,17 @@ export default function BudgetCommitmentsPage() {
       />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(180px, 1fr))', gap: 10, marginBottom: 18 }}>
-        <StateCard label="Resolved Actual lines" value={report.resolvedActualCount} tone="#60a5fa" />
-        <StateCard label="Resolved commitment lines" value={report.resolvedCommitmentCount} tone="#34d399" />
+        <StateCard label="Resolved Actual lines" value={report.resolvedActualCount} tone="var(--status-info)" />
+        <StateCard label="Resolved commitment lines" value={report.resolvedCommitmentCount} tone="var(--status-success)" />
         <StateCard label="Actual/Commitment exceptions" value={report.unresolvedExceptionCount}
-          tone={report.unresolvedExceptionCount ? '#fbbf24' : '#34d399'} />
+          tone={report.unresolvedExceptionCount ? 'var(--status-warning)' : 'var(--status-success)'} />
         <StateCard
           label="Finance reconciliation items"
           value={financeReconciliationItemCount}
-          tone={financeReconciliationItemCount ? '#fbbf24' : '#34d399'}
+          tone={financeReconciliationItemCount ? 'var(--status-warning)' : 'var(--status-success)'}
         />
       </div>
-      <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 16, marginBottom: 18 }}>
+      <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 16, marginBottom: 18 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
           <Filter label="Financial year" value={filters.financialYearId}
             onChange={v => setFilter('financialYearId', v)} options={financialYears} />
@@ -491,7 +492,7 @@ export default function BudgetCommitmentsPage() {
       <section style={{ marginBottom: 24 }}>
         <h2 style={{ fontSize: 16, margin: '0 0 10px' }}>Resolved Budget consumption</h2>
         {summaries.length === 0 ? (
-          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, color: MUTED }}>
+          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 24, color: MUTED }}>
             No resolved Budget rows match the selected filters.
           </div>
         ) : (
@@ -499,9 +500,9 @@ export default function BudgetCommitmentsPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(270px, 1fr))', gap: 12, marginBottom: 14 }}>
               {summaries.map(summary => (
                 <div key={summary.currency} style={{
-                  background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 16,
+                  background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 16,
                 }}>
-                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>{summary.currency}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>{summary.currency}</div>
                   <MoneyRow label="Budget" cents={summary.budgetCents} currency={summary.currency} />
                   <MoneyRow label="Actual" cents={summary.actualCents} currency={summary.currency} />
                   <MoneyRow label="Committed" cents={summary.committedCents} currency={summary.currency} />
@@ -513,34 +514,34 @@ export default function BudgetCommitmentsPage() {
               ))}
             </div>
 
-            <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1360 }}>
+            <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', overflowX: 'auto' }}>
+              <table className={tableStyles.table} style={{ minWidth: 1360 }}>
                 <thead><tr>
                   {[
                     'Budget account', 'Cost centre', 'Period', 'Basis', 'Budget', 'Actual', 'Committed',
                     'Actual + Committed', 'Budget less Actual', 'Budget less Actual + Committed', 'Source lines',
-                  ].map(label => <th key={label} style={th}>{label}</th>)}
+                  ].map(label => <th key={label} scope="col">{label}</th>)}
                 </tr></thead>
                 <tbody>
                   {filteredRows.map(row => (
                     <tr key={rowKey(row)}>
-                      <td style={td}><div style={{ fontWeight: 650 }}>{row.budgetAccountCode}</div>
+                      <td><div style={{ fontWeight: 650 }}>{row.budgetAccountCode}</div>
                         <div style={sub}>{row.budgetAccountName}</div></td>
-                      <td style={td}><div>{row.costCentreCode ?? row.costCentreId}</div>
+                      <td><div>{row.costCentreCode ?? row.costCentreId}</div>
                         <div style={sub}>{row.costCentreName ?? row.costCentreId}</div></td>
-                      <td style={td}><div>{row.financialYearName}</div>
+                      <td><div>{row.financialYearName}</div>
                         <div style={sub}>{row.periodisationMode === 'PERIODISED'
                           ? row.financialPeriodName ?? row.financialPeriodId : 'Annual only'}</div></td>
-                      <td style={td}><div>{row.currency}</div><div style={sub}>{row.taxBasis}</div></td>
-                      <td style={moneyTd}>{formatMoneyCents(row.budgetCents, row.currency)}</td>
-                      <td style={moneyTd}>{formatMoneyCents(row.actualCents, row.currency)}</td>
-                      <td style={moneyTd}>{formatMoneyCents(row.committedCents, row.currency)}</td>
-                      <td style={{ ...moneyTd, fontWeight: 700 }}>{formatMoneyCents(row.exposureCents, row.currency)}</td>
-                      <td style={moneyTd}>{formatMoneyCents(row.budgetLessActualCents, row.currency)}</td>
-                      <td style={{ ...moneyTd, fontWeight: 700 }}>
+                      <td><div>{row.currency}</div><div style={sub}>{row.taxBasis}</div></td>
+                      <td className={tableStyles.num}>{formatMoneyCents(row.budgetCents, row.currency)}</td>
+                      <td className={tableStyles.num}>{formatMoneyCents(row.actualCents, row.currency)}</td>
+                      <td className={tableStyles.num}>{formatMoneyCents(row.committedCents, row.currency)}</td>
+                      <td className={tableStyles.num} style={{ fontWeight: 700 }}>{formatMoneyCents(row.exposureCents, row.currency)}</td>
+                      <td className={tableStyles.num}>{formatMoneyCents(row.budgetLessActualCents, row.currency)}</td>
+                      <td className={tableStyles.num} style={{ fontWeight: 700 }}>
                         {formatMoneyCents(row.budgetLessActualAndCommittedCents, row.currency)}
                       </td>
-                      <td style={{ ...td, textAlign: 'right' }}>
+                      <td className={tableStyles.num}>
                         {row.actualLineCount} actual / {row.commitmentCount} committed
                       </td>
                     </tr>
@@ -548,7 +549,7 @@ export default function BudgetCommitmentsPage() {
                 </tbody>
               </table>
             </div>
-            <p style={{ color: '#6b7280', fontSize: 11, marginTop: 8 }}>
+            <p style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 8 }}>
               Budget less Actual + Committed is a planning measure on the Budget&apos;s tax basis.
               It is not cash remaining or a statutory ledger balance.
             </p>
@@ -571,33 +572,33 @@ export default function BudgetCommitmentsPage() {
           <span style={{ fontSize: 11, color: MUTED }}>Always shown independently of resolved-row filters.</span>
         </div>
         {report.exceptions.length === 0 ? (
-          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20, color: '#34d399' }}>
+          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 20, color: 'var(--status-success)' }}>
             No unresolved Actual or Commitment exceptions.
           </div>
         ) : (
-          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1180 }}>
+          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', overflowX: 'auto' }}>
+            <table className={tableStyles.table} style={{ minWidth: 1180 }}>
               <thead><tr>
                 {['Source', 'Exception', 'Purchase order', 'Source line', 'Period', 'Cost centre', 'Currency',
                   'Ex-tax source', 'Incl-tax source', 'Budget-basis amount'].map(label =>
-                  <th key={label} style={th}>{label}</th>)}
+                  <th key={label} scope="col">{label}</th>)}
               </tr></thead>
               <tbody>
                 {report.exceptions.map((item, index) => {
                   const view = exceptionView(item);
                   return (
                     <tr key={`${item.source}:${view.lineId}:${index}`}>
-                      <td style={td}><SourceBadge source={item.source} /></td>
-                      <td style={td}>{view.codes.map(code => <ExceptionBadge key={code} code={code} />)}</td>
-                      <td style={td}><Link href={`/commercial/purchasing/purchase-orders/${view.purchaseOrderId}`}
-                        style={{ color: '#e5e7eb' }}>{view.purchaseOrderId}</Link></td>
-                      <td style={td}>{view.lineId}</td>
-                      <td style={td}>{view.period}</td>
-                      <td style={td}>{view.costCentre}</td>
-                      <td style={td}>{view.currency}</td>
-                      <td style={moneyTd}>{formatMoneyCents(view.exTaxCents, view.currency)}</td>
-                      <td style={moneyTd}>{formatMoneyCents(view.inclTaxCents, view.currency)}</td>
-                      <td style={moneyTd}>{view.budgetBasisCents === null
+                      <td><SourceBadge source={item.source} /></td>
+                      <td>{view.codes.map(code => <ExceptionBadge key={code} code={code} />)}</td>
+                      <td><Link href={`/commercial/purchasing/purchase-orders/${view.purchaseOrderId}`}
+                        style={{ color: 'var(--text-primary)' }}>{view.purchaseOrderId}</Link></td>
+                      <td>{view.lineId}</td>
+                      <td>{view.period}</td>
+                      <td>{view.costCentre}</td>
+                      <td>{view.currency}</td>
+                      <td className={tableStyles.num}>{formatMoneyCents(view.exTaxCents, view.currency)}</td>
+                      <td className={tableStyles.num}>{formatMoneyCents(view.inclTaxCents, view.currency)}</td>
+                      <td className={tableStyles.num}>{view.budgetBasisCents === null
                         ? 'Unknown until Budget resolves'
                         : formatMoneyCents(view.budgetBasisCents, view.currency)}</td>
                     </tr>
@@ -640,7 +641,7 @@ export function FinanceSourceSelector({
         style={{
           border: `1px solid ${BORDER}`,
           background: CARD,
-          color: '#d1d5db',
+          color: 'var(--text-secondary)',
           borderRadius: 7,
           padding: '7px 10px',
           fontSize: 12,
@@ -666,10 +667,10 @@ export function FinanceSourceSelector({
       >
         Refresh sources
       </button>
-      <span style={{ fontSize: 11, color: '#6b7280' }}>
+      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
         Select a source explicitly to include signed-off or stale External GL reconciliation evidence.
       </span>
-      {error ? <span role="status" style={{ fontSize: 11, color: '#fbbf24' }}>{error}</span> : null}
+      {error ? <span role="status" style={{ fontSize: 11, color: 'var(--status-warning)' }}>{error}</span> : null}
     </section>
   );
 }
@@ -709,7 +710,7 @@ export function BudgetExportControls({
             border: `1px solid ${BORDER}`,
             borderRadius: 7,
             padding: '7px 10px',
-            color: '#d1d5db',
+            color: 'var(--text-secondary)',
             textDecoration: 'none',
             fontSize: 12,
           }}
@@ -726,7 +727,7 @@ export function BudgetExportControls({
             border: `1px solid ${BORDER}`,
             borderRadius: 7,
             padding: '7px 10px',
-            color: '#6b7280',
+            color: 'var(--text-muted)',
             fontSize: 12,
             cursor: 'not-allowed',
           }}
@@ -735,9 +736,9 @@ export function BudgetExportControls({
         </span>
       ))}
       {disabledReason ? (
-        <span role="status" style={{ fontSize: 11, color: '#fbbf24' }}>{disabledReason}</span>
+        <span role="status" style={{ fontSize: 11, color: 'var(--status-warning)' }}>{disabledReason}</span>
       ) : (
-        <span data-export-scope="full-report" style={{ fontSize: 11, color: '#6b7280' }}>
+        <span data-export-scope="full-report" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
           CSV exports include the full report; table filters do not change exported rows.
         </span>
       )}
@@ -755,40 +756,40 @@ export function FinanceAdjustedTable({ rows }: { rows: FinanceRow[] }) {
         </span>
       </div>
       {rows.length === 0 ? (
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20, color: MUTED }}>
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 20, color: MUTED }}>
           No finance-adjusted rows are available.
         </div>
       ) : (
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1450 }}>
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', overflowX: 'auto' }}>
+          <table className={tableStyles.table} style={{ minWidth: 1450 }}>
             <thead><tr>
               {[
                 'Budget account', 'Period', 'Currency', 'Budget', 'Source Actual', 'Finance Adjustments',
                 'Effective Actual', 'Committed', 'Exposure', 'External GL Actual',
                 'Reconciliation Variance', 'Reconciliation',
-              ].map(label => <th key={label} style={th}>{label}</th>)}
+              ].map(label => <th key={label} scope="col">{label}</th>)}
             </tr></thead>
             <tbody>
               {rows.map(row => (
                 <tr key={financeRowKey(row)}>
-                  <td style={td}>
+                  <td>
                     <div style={{ fontWeight: 650 }}>{row.budgetAccountCode}</div>
                     <div style={sub}>{row.budgetAccountName}</div>
                   </td>
-                  <td style={td}>
+                  <td>
                     <div>{row.financialYearName}</div>
                     <div style={sub}>{row.financialPeriodName}</div>
                   </td>
-                  <td style={td}>{row.currency}</td>
-                  <td style={moneyTd}>{financeMoney(row.budgetCents, row.currency)}</td>
-                  <td style={moneyTd}>{financeMoney(row.sourceActualCents, row.currency)}</td>
-                  <td style={moneyTd}>{financeMoney(row.financeAdjustmentCents, row.currency)}</td>
-                  <td style={{ ...moneyTd, fontWeight: 700 }}>{financeMoney(row.effectiveActualCents, row.currency)}</td>
-                  <td style={moneyTd}>{financeMoney(row.committedCents, row.currency)}</td>
-                  <td style={{ ...moneyTd, fontWeight: 700 }}>{financeMoney(row.exposureCents, row.currency)}</td>
-                  <td style={moneyTd}>{nullableFinanceMoney(row.externalGlActualCents, row.currency)}</td>
-                  <td style={moneyTd}>{nullableFinanceMoney(row.reconciliationVarianceCents, row.currency)}</td>
-                  <td style={td}>
+                  <td>{row.currency}</td>
+                  <td className={tableStyles.num}>{financeMoney(row.budgetCents, row.currency)}</td>
+                  <td className={tableStyles.num}>{financeMoney(row.sourceActualCents, row.currency)}</td>
+                  <td className={tableStyles.num}>{financeMoney(row.financeAdjustmentCents, row.currency)}</td>
+                  <td className={tableStyles.num} style={{ fontWeight: 700 }}>{financeMoney(row.effectiveActualCents, row.currency)}</td>
+                  <td className={tableStyles.num}>{financeMoney(row.committedCents, row.currency)}</td>
+                  <td className={tableStyles.num} style={{ fontWeight: 700 }}>{financeMoney(row.exposureCents, row.currency)}</td>
+                  <td className={tableStyles.num}>{nullableFinanceMoney(row.externalGlActualCents, row.currency)}</td>
+                  <td className={tableStyles.num}>{nullableFinanceMoney(row.reconciliationVarianceCents, row.currency)}</td>
+                  <td>
                     {row.reconciliationStatus ? (
                       <span
                         data-reconciliation-status={row.reconciliationStatus}
@@ -796,10 +797,10 @@ export function FinanceAdjustedTable({ rows }: { rows: FinanceRow[] }) {
                           display: 'inline-block',
                           fontSize: 10,
                           fontWeight: 700,
-                          borderRadius: 999,
+                          borderRadius: 'var(--radius-lg)',
                           padding: '3px 7px',
-                          color: row.reconciliationStatus === 'STALE' ? '#fbbf24' : '#34d399',
-                          border: `1px solid ${row.reconciliationStatus === 'STALE' ? '#fbbf2455' : '#34d39955'}`,
+                          color: row.reconciliationStatus === 'STALE' ? 'var(--status-warning)' : 'var(--status-success)',
+                          border: `1px solid ${row.reconciliationStatus === 'STALE' ? 'var(--status-warning-border)' : 'var(--status-success-border)'}`,
                         }}
                       >
                         {row.reconciliationStatus}
@@ -845,15 +846,15 @@ export function FinanceReconciliationQueue({
       </div>
 
       {loading ? (
-        <div role="status" style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20, color: MUTED }}>
+        <div role="status" style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 20, color: MUTED }}>
           Loading finance reconciliation items…
         </div>
       ) : error ? (
-        <div role="alert" style={{ background: CARD, border: '1px solid #7f1d1d', borderRadius: 12, padding: 20, color: '#fca5a5' }}>
+        <div role="alert" style={{ background: CARD, border: '1px solid var(--status-danger-border)', borderRadius: 'var(--radius-lg)', padding: 20, color: 'var(--status-danger)' }}>
           {error}
         </div>
       ) : reconciliations.length === 0 ? (
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20, color: '#34d399' }}>
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 20, color: 'var(--status-success)' }}>
           No unresolved finance reconciliation items in the latest snapshots.
         </div>
       ) : (
@@ -862,7 +863,7 @@ export function FinanceReconciliationQueue({
             <div
               key={reconciliation.id}
               data-finance-reconciliation-id={reconciliation.id}
-              style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden' }}
+              style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}
             >
               <div style={{ padding: 14, borderBottom: `1px solid ${BORDER}`, display: 'flex', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
                 <div>
@@ -879,10 +880,10 @@ export function FinanceReconciliationQueue({
                     style={{
                       fontSize: 10,
                       fontWeight: 700,
-                      borderRadius: 999,
+                      borderRadius: 'var(--radius-lg)',
                       padding: '3px 7px',
-                      color: reconciliation.status === 'STALE' ? '#fbbf24' : '#d1d5db',
-                      border: `1px solid ${reconciliation.status === 'STALE' ? '#fbbf2455' : '#4b556355'}`,
+                      color: reconciliation.status === 'STALE' ? 'var(--status-warning)' : 'var(--text-secondary)',
+                      border: `1px solid ${reconciliation.status === 'STALE' ? 'var(--status-warning-border)' : 'var(--border-strong)'}`,
                     }}
                   >
                     {reconciliation.status}
@@ -902,19 +903,19 @@ export function FinanceReconciliationQueue({
               </div>
 
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1320 }}>
+                <table className={tableStyles.table} style={{ minWidth: 1320 }}>
                   <thead><tr>
                     {[
                       'Outcome', 'Budget account', 'External GL account', 'Cost centre',
                       'External cost centre', 'Currency', 'Source Actual', 'Finance Adjustments',
                       'Effective Actual', 'External GL', 'Variance',
-                    ].map(label => <th key={label} style={th}>{label}</th>)}
+                    ].map(label => <th key={label} scope="col">{label}</th>)}
                   </tr></thead>
                   <tbody>
                     {reconciliation.items.map(item => (
                       <tr key={item.id} data-reconciliation-outcome={item.outcome}>
-                        <td style={td}><FinanceOutcomeBadge outcome={item.outcome} /></td>
-                        <td style={td}>
+                        <td><FinanceOutcomeBadge outcome={item.outcome} /></td>
+                        <td>
                           {item.budgetAccountCode ? (
                             <>
                               <div style={{ fontWeight: 650 }}>{item.budgetAccountCode}</div>
@@ -922,8 +923,8 @@ export function FinanceReconciliationQueue({
                             </>
                           ) : '—'}
                         </td>
-                        <td style={td}>{item.externalGlAccountCode ?? '—'}</td>
-                        <td style={td}>
+                        <td>{item.externalGlAccountCode ?? '—'}</td>
+                        <td>
                           {item.costCentreCode ? (
                             <>
                               <div>{item.costCentreCode}</div>
@@ -931,13 +932,13 @@ export function FinanceReconciliationQueue({
                             </>
                           ) : '—'}
                         </td>
-                        <td style={td}>{item.externalCostCentreCode ?? '—'}</td>
-                        <td style={td}>{item.currency}</td>
-                        <td style={moneyTd}>{financeMoney(item.sourceActualCents, item.currency)}</td>
-                        <td style={moneyTd}>{financeMoney(item.financeAdjustmentCents, item.currency)}</td>
-                        <td style={moneyTd}>{financeMoney(item.brainbaseEffectiveActualCents, item.currency)}</td>
-                        <td style={moneyTd}>{financeMoney(item.externalGlCents, item.currency)}</td>
-                        <td style={moneyTd}>{financeMoney(item.varianceCents, item.currency)}</td>
+                        <td>{item.externalCostCentreCode ?? '—'}</td>
+                        <td>{item.currency}</td>
+                        <td className={tableStyles.num}>{financeMoney(item.sourceActualCents, item.currency)}</td>
+                        <td className={tableStyles.num}>{financeMoney(item.financeAdjustmentCents, item.currency)}</td>
+                        <td className={tableStyles.num}>{financeMoney(item.brainbaseEffectiveActualCents, item.currency)}</td>
+                        <td className={tableStyles.num}>{financeMoney(item.externalGlCents, item.currency)}</td>
+                        <td className={tableStyles.num}>{financeMoney(item.varianceCents, item.currency)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -954,7 +955,7 @@ export function FinanceReconciliationQueue({
 function SnapshotMeasure({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
+      <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
       <div style={{ marginTop: 2, fontSize: 12, fontWeight: 650 }}>{value}</div>
     </div>
   );
@@ -966,10 +967,10 @@ function FinanceOutcomeBadge({ outcome }: { outcome: FinanceReconciliationQueueI
       display: 'inline-block',
       fontSize: 10,
       fontWeight: 700,
-      borderRadius: 999,
+      borderRadius: 'var(--radius-lg)',
       padding: '3px 7px',
-      color: '#fbbf24',
-      border: '1px solid #fbbf2444',
+      color: 'var(--status-warning)',
+      border: '1px solid var(--status-warning-border)',
       whiteSpace: 'nowrap',
     }}>
       {outcome.replaceAll('_', ' ')}
@@ -1034,10 +1035,10 @@ function uniqueOptions(values: Array<[string | null, string | null]>): Array<[st
 function Filter({ label, value, onChange, options }: {
   label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]>;
 }) {
-  return <label style={{ display: 'grid', gap: 5, fontSize: 11, color: '#6b7280' }}>
+  return <label style={{ display: 'grid', gap: 5, fontSize: 11, color: 'var(--text-muted)' }}>
     {label}
-    <select value={value} onChange={e => onChange(e.target.value)} style={{
-      background: '#0a0c10', color: '#f3f4f6', border: `1px solid ${BORDER}`,
+    <select className={fieldControlClassName} value={value} onChange={e => onChange(e.target.value)} style={{
+      background: 'var(--bg-sunken)', color: 'var(--text-primary)', border: `1px solid ${BORDER}`,
       borderRadius: 7, padding: '8px 9px',
     }}>
       <option value="ALL">All</option>
@@ -1046,23 +1047,23 @@ function Filter({ label, value, onChange, options }: {
   </label>;
 }
 function StateCard({ label, value, tone }: { label: string; value: number; tone: string }) {
-  return <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 14 }}>
-    <div style={{ fontSize: 11, color: '#6b7280' }}>{label}</div>
+  return <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 14 }}>
+    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{label}</div>
     <div style={{ fontSize: 26, fontWeight: 700, color: tone, marginTop: 4 }}>{value}</div>
   </div>;
 }
 
 function SourceBadge({ source }: { source: 'ACTUAL' | 'COMMITMENT' }) {
   return <span style={{
-    display: 'inline-block', fontSize: 10, border: `1px solid ${source === 'ACTUAL' ? '#60a5fa55' : '#34d39955'}`,
-    color: source === 'ACTUAL' ? '#60a5fa' : '#34d399', borderRadius: 999, padding: '3px 7px',
+    display: 'inline-block', fontSize: 10, border: `1px solid ${source === 'ACTUAL' ? 'var(--status-info-border)' : 'var(--status-success-border)'}`,
+    color: source === 'ACTUAL' ? 'var(--status-info)' : 'var(--status-success)', borderRadius: 'var(--radius-lg)', padding: '3px 7px',
   }}>{source}</span>;
 }
 
 function ExceptionBadge({ code }: { code: string }) {
   return <span style={{
-    display: 'inline-block', fontSize: 10, color: '#fbbf24', border: '1px solid #fbbf2455',
-    borderRadius: 999, padding: '3px 7px', whiteSpace: 'nowrap', margin: '1px 3px 1px 0',
+    display: 'inline-block', fontSize: 10, color: 'var(--status-warning)', border: '1px solid var(--status-warning-border)',
+    borderRadius: 'var(--radius-lg)', padding: '3px 7px', whiteSpace: 'nowrap', margin: '1px 3px 1px 0',
   }}>{code.replaceAll('_', ' ')}</span>;
 }
 
@@ -1074,12 +1075,4 @@ function MoneyRow({ label, cents, currency, emphasis = false }: {
     <span style={{ fontWeight: emphasis ? 700 : 500 }}>{formatMoneyCents(cents, currency)}</span>
   </div>;
 }
-const th = {
-  textAlign: 'left' as const, fontSize: 10, color: '#6b7280', fontWeight: 600,
-  padding: '10px 12px', borderBottom: `1px solid ${BORDER}`, whiteSpace: 'nowrap' as const,
-};
-const td = {
-  fontSize: 12, padding: '12px', borderBottom: `1px solid ${BORDER}`, verticalAlign: 'top' as const,
-};
-const moneyTd = { ...td, textAlign: 'right' as const, whiteSpace: 'nowrap' as const };
 const sub = { color: MUTED, fontSize: 10, marginTop: 3 };

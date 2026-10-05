@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { buttonProps, fieldControlClassName, tableStyles } from '@/components/ui/app';
 import { formatMoneyCentsExact } from '@/lib/commercial/money';
 import {
   financePeriodCloseHref,
@@ -13,10 +14,10 @@ import {
   financeReconciliationSignOffHref,
 } from '@/lib/commercial/financeControlUi';
 
-const CARD = '#0e1014';
-const BORDER = '#1a1d24';
-const MUTED = '#9ca3af';
-const INPUT_BG = '#090b0f';
+const CARD = 'var(--bg-surface)';
+const BORDER = 'var(--border)';
+const MUTED = 'var(--text-muted)';
+const INPUT_BG = 'var(--bg-sunken)';
 
 type CloseStatus = 'CLOSED' | 'INVALIDATED';
 type PeriodStatus = 'OPEN' | 'CLOSED';
@@ -341,7 +342,7 @@ export default function FinanceControlsPage() {
         <h2 style={heading}>Control scope</h2>
         <div style={formGrid}>
           <Field label="Financial year">
-            <select value={selectedYearId} onChange={event => setSelectedYearId(event.target.value)} style={control} disabled={loading}>
+            <select value={selectedYearId} onChange={event => setSelectedYearId(event.target.value)} className={fieldControlClassName} disabled={loading}>
               <option value="">Choose year</option>
               {years.map(year => (
                 <option key={year.id} value={year.id}>{year.name} — {year.status}</option>
@@ -349,7 +350,7 @@ export default function FinanceControlsPage() {
             </select>
           </Field>
           <Field label="Financial period">
-            <select value={effectiveSelectedPeriodId} onChange={event => setSelectedPeriodId(event.target.value)} style={control} disabled={!selectedYear}>
+            <select value={effectiveSelectedPeriodId} onChange={event => setSelectedPeriodId(event.target.value)} className={fieldControlClassName} disabled={!selectedYear}>
               <option value="">Choose period</option>
               {(selectedYear?.periods ?? []).map(period => (
                 <option key={period.id} value={period.id}>{period.name} — {period.status}</option>
@@ -357,7 +358,7 @@ export default function FinanceControlsPage() {
             </select>
           </Field>
           <Field label="External GL source">
-            <select value={sourceSystemId} onChange={event => setSourceSystemId(event.target.value)} style={control}>
+            <select value={sourceSystemId} onChange={event => setSourceSystemId(event.target.value)} className={fieldControlClassName}>
               <option value="">Choose source</option>
               {sources.map(source => <option key={source} value={source}>{source}</option>)}
             </select>
@@ -368,12 +369,12 @@ export default function FinanceControlsPage() {
               maxLength={3}
               placeholder="AUD"
               onChange={event => setCurrency(event.target.value.toUpperCase())}
-              style={control}
+              className={fieldControlClassName}
               aria-label="Reconciliation currency"
             />
           </Field>
           <div style={{ alignSelf: 'end' }}>
-            <button type="button" style={secondaryButton} disabled={loading || working} onClick={() => void refreshAfterMutation('Finance controls refreshed.')}>
+            <button type="button" {...buttonProps('secondary', 'sm')} disabled={loading || working} onClick={() => void refreshAfterMutation('Finance controls refreshed.')}>
               Refresh
             </button>
           </div>
@@ -410,10 +411,10 @@ export default function FinanceControlsPage() {
         </p>
         <form onSubmit={prepareReconciliation} style={{ display: 'grid', gap: 10 }}>
           <Field label="Notes">
-            <textarea value={notes} onChange={event => setNotes(event.target.value)} rows={2} style={control} />
+            <textarea value={notes} onChange={event => setNotes(event.target.value)} rows={2} className={fieldControlClassName} />
           </Field>
           <div>
-            <button type="submit" style={primaryButton} disabled={working || !effectiveSelectedPeriodId || !sourceSystemId}>
+            <button type="submit" {...buttonProps('primary', 'sm')} disabled={working || !effectiveSelectedPeriodId || !sourceSystemId}>
               Prepare reconciliation
             </button>
           </div>
@@ -470,10 +471,10 @@ function YearControlPanel({
           {year.status === 'OPEN' ? (
             <div style={formGrid}>
               <Field label="Year close reason (optional)">
-                <input value={closeReason} onChange={event => setCloseReason(event.target.value)} style={control} />
+                <input value={closeReason} onChange={event => setCloseReason(event.target.value)} className={fieldControlClassName} />
               </Field>
               <div style={{ alignSelf: 'end' }}>
-                <button type="button" onClick={onClose} disabled={working} style={primaryButton}>
+                <button type="button" onClick={onClose} disabled={working} {...buttonProps('primary', 'sm')}>
                   Close financial year
                 </button>
               </div>
@@ -481,10 +482,10 @@ function YearControlPanel({
           ) : (
             <form onSubmit={onReopen} style={formGrid}>
               <Field label="Year reopen reason (required)">
-                <input required value={reopenReason} onChange={event => setReopenReason(event.target.value)} style={control} />
+                <input required value={reopenReason} onChange={event => setReopenReason(event.target.value)} className={fieldControlClassName} />
               </Field>
               <div style={{ alignSelf: 'end' }}>
-                <button type="submit" disabled={working || !reopenReason.trim()} style={dangerButton}>
+                <button type="submit" disabled={working || !reopenReason.trim()} {...buttonProps('danger', 'sm')}>
                   Reopen financial year
                 </button>
               </div>
@@ -496,28 +497,28 @@ function YearControlPanel({
             {year.closes.length === 0 ? (
               <div style={emptyBox}>No close history for this financial year.</div>
             ) : (
-              <table style={tableStyle}>
+              <table className={tableStyles.table}>
                 <thead>
                   <tr>
                     {['Sequence', 'Status', 'Closed', 'Reason', 'Control totals', 'Invalidation'].map(label => (
-                      <th key={label} style={th}>{label}</th>
+                      <th key={label} scope="col">{label}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {year.closes.map(close => (
                     <tr key={close.id} data-year-close-id={close.id}>
-                      <td style={td}>{close.close_sequence}</td>
-                      <td style={td}>{close.status}</td>
-                      <td style={td}>{new Date(close.closed_at).toLocaleString()}</td>
-                      <td style={td}>{close.close_reason ?? '—'}</td>
-                      <td style={td}>
+                      <td>{close.close_sequence}</td>
+                      <td>{close.status}</td>
+                      <td>{new Date(close.closed_at).toLocaleString()}</td>
+                      <td>{close.close_reason ?? '—'}</td>
+                      <td>
                         <div>{String(close.control_totals.financialPeriodCount ?? '—')} periods</div>
                         <div style={sub}>
                           {String(close.control_totals.currentPeriodCloseCount ?? '—')} current period closes
                         </div>
                       </td>
-                      <td style={td}>
+                      <td>
                         {close.invalidated_at ? (
                           <>
                             {new Date(close.invalidated_at).toLocaleString()}
@@ -575,19 +576,19 @@ function PeriodControlPanel({
           {period.status === 'OPEN' ? (
             <div style={formGrid}>
               <Field label="Close reason (optional)">
-                <input value={closeReason} onChange={event => setCloseReason(event.target.value)} style={control} />
+                <input value={closeReason} onChange={event => setCloseReason(event.target.value)} className={fieldControlClassName} />
               </Field>
               <div style={{ alignSelf: 'end' }}>
-                <button type="button" onClick={onClose} disabled={working} style={primaryButton}>Close period</button>
+                <button type="button" onClick={onClose} disabled={working} {...buttonProps('primary', 'sm')}>Close period</button>
               </div>
             </div>
           ) : (
             <form onSubmit={onReopen} style={formGrid}>
               <Field label="Reopen reason (required)">
-                <input required value={reopenReason} onChange={event => setReopenReason(event.target.value)} style={control} />
+                <input required value={reopenReason} onChange={event => setReopenReason(event.target.value)} className={fieldControlClassName} />
               </Field>
               <div style={{ alignSelf: 'end' }}>
-                <button type="submit" disabled={working || !reopenReason.trim()} style={dangerButton}>Reopen period</button>
+                <button type="submit" disabled={working || !reopenReason.trim()} {...buttonProps('danger', 'sm')}>Reopen period</button>
               </div>
             </form>
           )}
@@ -597,17 +598,17 @@ function PeriodControlPanel({
             {period.closes.length === 0 ? (
               <div style={emptyBox}>No close history for this period.</div>
             ) : (
-              <table style={tableStyle}>
-                <thead><tr>{['Sequence','Status','Closed','Reconciliation','Reason','Invalidation'].map(label => <th key={label} style={th}>{label}</th>)}</tr></thead>
+              <table className={tableStyles.table}>
+                <thead><tr>{['Sequence','Status','Closed','Reconciliation','Reason','Invalidation'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
                 <tbody>
                   {period.closes.map(close => (
                     <tr key={close.id} data-close-id={close.id}>
-                      <td style={td}>{close.close_sequence}</td>
-                      <td style={td}>{close.status}{activeClose?.id === close.id ? <div style={sub}>Current close</div> : null}</td>
-                      <td style={td}>{new Date(close.closed_at).toLocaleString()}</td>
-                      <td style={td}>{close.reconciliation_status}</td>
-                      <td style={td}>{close.close_reason ?? '—'}</td>
-                      <td style={td}>{close.invalidated_at ? <>{new Date(close.invalidated_at).toLocaleString()}<div style={sub}>{close.invalidation_reason}</div></> : '—'}</td>
+                      <td>{close.close_sequence}</td>
+                      <td>{close.status}{activeClose?.id === close.id ? <div style={sub}>Current close</div> : null}</td>
+                      <td>{new Date(close.closed_at).toLocaleString()}</td>
+                      <td>{close.reconciliation_status}</td>
+                      <td>{close.close_reason ?? '—'}</td>
+                      <td>{close.invalidated_at ? <>{new Date(close.invalidated_at).toLocaleString()}<div style={sub}>{close.invalidation_reason}</div></> : '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -643,11 +644,11 @@ function ReconciliationControlTable({
         <div style={emptyBox}>No reconciliation snapshots match the current scope.</div>
       ) : (
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ ...tableStyle, minWidth: 1250 }}>
+          <table className={tableStyles.table} style={{ minWidth: 1250 }}>
             <thead><tr>{[
               'Source','Currency','Status','Source Actual','Finance Adjustments','Effective Actual',
               'External GL','Variance','Unresolved','Prepared','Close','Action',
-            ].map(label => <th key={label} style={th}>{label}</th>)}</tr></thead>
+            ].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
             <tbody>
               {reconciliations.map(reconciliation => {
                 const action = financeReconciliationAction(
@@ -656,26 +657,26 @@ function ReconciliationControlTable({
                 );
                 return (
                   <tr key={reconciliation.id} data-reconciliation-id={reconciliation.id}>
-                    <td style={td}>{reconciliation.sourceSystemId}</td>
-                    <td style={td}>{reconciliation.currency}</td>
-                    <td style={td}><strong>{reconciliation.status}</strong></td>
-                    <td style={moneyTd}>{formatMoneyCentsExact(reconciliation.sourceActualCents, reconciliation.currency)}</td>
-                    <td style={moneyTd}>{formatMoneyCentsExact(reconciliation.financeAdjustmentCents, reconciliation.currency)}</td>
-                    <td style={moneyTd}>{formatMoneyCentsExact(reconciliation.brainbaseEffectiveActualCents, reconciliation.currency)}</td>
-                    <td style={moneyTd}>{formatMoneyCentsExact(reconciliation.externalGlTotalCents, reconciliation.currency)}</td>
-                    <td style={moneyTd}>{formatMoneyCentsExact(reconciliation.varianceCents, reconciliation.currency)}</td>
-                    <td style={td}>{reconciliation.unresolvedItemCount}</td>
-                    <td style={td}>{new Date(reconciliation.preparedAt).toLocaleString()}</td>
-                    <td style={td}>{reconciliation.closeId ?? '—'}</td>
-                    <td style={td}>
+                    <td>{reconciliation.sourceSystemId}</td>
+                    <td>{reconciliation.currency}</td>
+                    <td><strong>{reconciliation.status}</strong></td>
+                    <td className={tableStyles.num}>{formatMoneyCentsExact(reconciliation.sourceActualCents, reconciliation.currency)}</td>
+                    <td className={tableStyles.num}>{formatMoneyCentsExact(reconciliation.financeAdjustmentCents, reconciliation.currency)}</td>
+                    <td className={tableStyles.num}>{formatMoneyCentsExact(reconciliation.brainbaseEffectiveActualCents, reconciliation.currency)}</td>
+                    <td className={tableStyles.num}>{formatMoneyCentsExact(reconciliation.externalGlTotalCents, reconciliation.currency)}</td>
+                    <td className={tableStyles.num}>{formatMoneyCentsExact(reconciliation.varianceCents, reconciliation.currency)}</td>
+                    <td>{reconciliation.unresolvedItemCount}</td>
+                    <td>{new Date(reconciliation.preparedAt).toLocaleString()}</td>
+                    <td>{reconciliation.closeId ?? '—'}</td>
+                    <td>
                       {action === 'REVIEW' ? (
-                        <button type="button" disabled={working} onClick={() => onReview(reconciliation.id)} style={secondaryButton}>Review</button>
+                        <button type="button" disabled={working} onClick={() => onReview(reconciliation.id)} {...buttonProps('secondary', 'sm')}>Review</button>
                       ) : action === 'SIGN_OFF' || action === 'SIGN_OFF_BLOCKED' ? (
                         <button
                           type="button"
                           disabled={working || action === 'SIGN_OFF_BLOCKED'}
                           onClick={() => onSignOff(reconciliation.id)}
-                          style={primaryButton}
+                          {...buttonProps('primary', 'sm')}
                         >
                           Sign off
                         </button>
@@ -702,19 +703,11 @@ function Metric({ label, value }: { label: string; value: string }) {
   return <div style={{ background: INPUT_BG, border: `1px solid ${BORDER}`, borderRadius: 8, padding: 10 }}><div style={{ color: MUTED, fontSize: 10 }}>{label}</div><div style={{ marginTop: 4, fontWeight: 650 }}>{value}</div></div>;
 }
 
-const panel: React.CSSProperties = { background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 18 };
+const panel: React.CSSProperties = { background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 18 };
 const heading: React.CSSProperties = { margin: 0, fontSize: 16 };
 const description: React.CSSProperties = { margin: '6px 0 16px', fontSize: 12, color: MUTED, lineHeight: 1.5 };
 const formGrid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10, alignItems: 'end' };
-const control: React.CSSProperties = { background: INPUT_BG, border: `1px solid ${BORDER}`, color: '#f9fafb', borderRadius: 7, padding: '8px 9px', fontSize: 12 };
-const primaryButton: React.CSSProperties = { background: '#6d5dfc', color: '#fff', border: 0, borderRadius: 7, padding: '9px 12px', cursor: 'pointer', fontWeight: 600 };
-const secondaryButton: React.CSSProperties = { background: 'transparent', color: '#d1d5db', border: `1px solid ${BORDER}`, borderRadius: 7, padding: '8px 12px', cursor: 'pointer' };
-const dangerButton: React.CSSProperties = { background: 'transparent', color: '#fca5a5', border: '1px solid rgba(248,113,113,.35)', borderRadius: 7, padding: '8px 12px', cursor: 'pointer' };
-const tableStyle: React.CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 12 };
-const th: React.CSSProperties = { textAlign: 'left', color: '#6b7280', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.05em', borderBottom: `1px solid ${BORDER}`, padding: '9px 8px' };
-const td: React.CSSProperties = { borderBottom: `1px solid ${BORDER}`, padding: '10px 8px', verticalAlign: 'top' };
-const moneyTd: React.CSSProperties = { ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
 const sub: React.CSSProperties = { color: MUTED, marginTop: 3, fontSize: 11 };
 const emptyBox: React.CSSProperties = { color: MUTED, border: `1px dashed ${BORDER}`, borderRadius: 8, padding: 16, textAlign: 'center' };
-const errorBox: React.CSSProperties = { marginBottom: 14, border: '1px solid rgba(248,113,113,.35)', background: 'rgba(127,29,29,.18)', color: '#fecaca', borderRadius: 8, padding: 10, fontSize: 12 };
-const noticeBox: React.CSSProperties = { marginBottom: 14, border: '1px solid rgba(52,211,153,.3)', background: 'rgba(6,78,59,.18)', color: '#a7f3d0', borderRadius: 8, padding: 10, fontSize: 12 };
+const errorBox: React.CSSProperties = { marginBottom: 14, border: '1px solid var(--status-danger-border)', background: 'var(--status-danger-muted)', color: 'var(--status-danger)', borderRadius: 8, padding: 10, fontSize: 12 };
+const noticeBox: React.CSSProperties = { marginBottom: 14, border: '1px solid var(--status-success-border)', background: 'var(--status-success-muted)', color: 'var(--status-success)', borderRadius: 8, padding: 10, fontSize: 12 };

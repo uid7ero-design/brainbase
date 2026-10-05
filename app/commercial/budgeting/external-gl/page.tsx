@@ -2,11 +2,11 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { buttonProps, fieldControlClassName, tableStyles } from '@/components/ui/app';
 
-const CARD = '#0e1014';
-const BORDER = '#1a1d24';
-const MUTED = '#9ca3af';
-const INPUT_BG = '#090b0f';
+const CARD = 'var(--bg-surface)';
+const BORDER = 'var(--border)';
+const MUTED = 'var(--text-muted)';
 
 type MappingStatus = 'ACTIVE' | 'RETIRED';
 type RefItem = { id: string; code: string; name: string };
@@ -233,19 +233,19 @@ export default function ExternalGlMappingsPage() {
       <section style={{ ...panel, marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>
           <Field label="Source">
-            <select value={sourceFilter} onChange={event => setSourceFilter(event.target.value)} style={control}>
+            <select value={sourceFilter} onChange={event => setSourceFilter(event.target.value)} className={fieldControlClassName}>
               <option value="">All sources</option>
               {sources.map(source => <option key={source} value={source}>{source}</option>)}
             </select>
           </Field>
           <Field label="Status">
-            <select value={statusFilter} onChange={event => setStatusFilter(event.target.value as 'ALL' | MappingStatus)} style={control}>
+            <select value={statusFilter} onChange={event => setStatusFilter(event.target.value as 'ALL' | MappingStatus)} className={fieldControlClassName}>
               <option value="ACTIVE">Active</option>
               <option value="RETIRED">Retired</option>
               <option value="ALL">All</option>
             </select>
           </Field>
-          <button type="button" onClick={() => void loadData()} disabled={loading || working} style={secondaryButton}>
+          <button type="button" onClick={() => void loadData()} disabled={loading || working} {...buttonProps('secondary', 'sm')}>
             Refresh
           </button>
         </div>
@@ -260,7 +260,7 @@ export default function ExternalGlMappingsPage() {
           <TextInput label="External GL code" value={accountDraft.externalAccountCode} onChange={value => setAccountDraft(current => ({ ...current, externalAccountCode: value }))} required />
           <TextInput label="External name" value={accountDraft.externalAccountName} onChange={value => setAccountDraft(current => ({ ...current, externalAccountName: value }))} />
           <Field label="BrainBase Budget account">
-            <select required value={accountDraft.budgetAccountId} onChange={event => setAccountDraft(current => ({ ...current, budgetAccountId: event.target.value }))} style={control}>
+            <select required value={accountDraft.budgetAccountId} onChange={event => setAccountDraft(current => ({ ...current, budgetAccountId: event.target.value }))} className={fieldControlClassName}>
               <option value="">Choose account</option>
               {referenceData.budgetAccounts.map(account => (
                 <option key={account.id} value={account.id}>{account.code} — {account.name}</option>
@@ -270,7 +270,7 @@ export default function ExternalGlMappingsPage() {
           <DateInput label="Effective from" value={accountDraft.effectiveFrom} onChange={value => setAccountDraft(current => ({ ...current, effectiveFrom: value }))} required />
           <DateInput label="Effective to" value={accountDraft.effectiveTo} onChange={value => setAccountDraft(current => ({ ...current, effectiveTo: value }))} />
           <div style={{ alignSelf: 'end' }}>
-            <button type="submit" disabled={working || loading} style={primaryButton}>Create mapping</button>
+            <button type="submit" disabled={working || loading} {...buttonProps('primary', 'sm')}>Create mapping</button>
           </div>
         </form>
         <AccountMappingTable rows={accountMappings} retireDates={retireDates} setRetireDates={setRetireDates} onRetire={id => retire('account', id)} working={working} />
@@ -281,7 +281,7 @@ export default function ExternalGlMappingsPage() {
           <TextInput label="Source system" value={costCentreDraft.sourceSystemId} onChange={value => setCostCentreDraft(current => ({ ...current, sourceSystemId: value }))} required />
           <TextInput label="External cost-centre code" value={costCentreDraft.externalCostCentreCode} onChange={value => setCostCentreDraft(current => ({ ...current, externalCostCentreCode: value }))} required />
           <Field label="BrainBase cost centre">
-            <select required value={costCentreDraft.costCentreId} onChange={event => setCostCentreDraft(current => ({ ...current, costCentreId: event.target.value }))} style={control}>
+            <select required value={costCentreDraft.costCentreId} onChange={event => setCostCentreDraft(current => ({ ...current, costCentreId: event.target.value }))} className={fieldControlClassName}>
               <option value="">Choose cost centre</option>
               {referenceData.costCentres.map(costCentre => (
                 <option key={costCentre.id} value={costCentre.id}>{costCentre.code} — {costCentre.name}</option>
@@ -291,7 +291,7 @@ export default function ExternalGlMappingsPage() {
           <DateInput label="Effective from" value={costCentreDraft.effectiveFrom} onChange={value => setCostCentreDraft(current => ({ ...current, effectiveFrom: value }))} required />
           <DateInput label="Effective to" value={costCentreDraft.effectiveTo} onChange={value => setCostCentreDraft(current => ({ ...current, effectiveTo: value }))} />
           <div style={{ alignSelf: 'end' }}>
-            <button type="submit" disabled={working || loading} style={primaryButton}>Create mapping</button>
+            <button type="submit" disabled={working || loading} {...buttonProps('primary', 'sm')}>Create mapping</button>
           </div>
         </form>
         <CostCentreMappingTable rows={costCentreMappings} retireDates={retireDates} setRetireDates={setRetireDates} onRetire={id => retire('cost-centre', id)} working={working} />
@@ -321,17 +321,17 @@ function AccountMappingTable({
 }) {
   return (
     <div style={{ overflowX: 'auto', marginTop: 18 }}>
-      <table style={tableStyle}>
-        <thead><tr>{['Source','External account','BrainBase account','Effective','Status','Retire'].map(label => <th key={label} style={th}>{label}</th>)}</tr></thead>
+      <table className={tableStyles.table}>
+        <thead><tr>{['Source','External account','BrainBase account','Effective','Status','Retire'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
         <tbody>
           {rows.length === 0 ? <tr><td colSpan={6} style={emptyCell}>No account mappings match the current filters.</td></tr> : rows.map(row => (
             <tr key={row.id}>
-              <td style={td}>{row.source_system_id}</td>
-              <td style={td}><strong>{row.external_gl_account_code}</strong>{row.external_gl_account_name ? <div style={sub}>{row.external_gl_account_name}</div> : null}</td>
-              <td style={td}>{row.budget_account_code}<div style={sub}>{row.budget_account_name}</div></td>
-              <td style={td}>{dateRange(row.effective_from, row.effective_to)}</td>
-              <td style={td}>{row.status}</td>
-              <td style={td}>{row.status === 'ACTIVE' ? <RetireControl id={row.id} value={retireDates[row.id] ?? ''} setRetireDates={setRetireDates} onRetire={onRetire} working={working} /> : '—'}</td>
+              <td>{row.source_system_id}</td>
+              <td><strong>{row.external_gl_account_code}</strong>{row.external_gl_account_name ? <div style={sub}>{row.external_gl_account_name}</div> : null}</td>
+              <td>{row.budget_account_code}<div style={sub}>{row.budget_account_name}</div></td>
+              <td>{dateRange(row.effective_from, row.effective_to)}</td>
+              <td>{row.status}</td>
+              <td>{row.status === 'ACTIVE' ? <RetireControl id={row.id} value={retireDates[row.id] ?? ''} setRetireDates={setRetireDates} onRetire={onRetire} working={working} /> : '—'}</td>
             </tr>
           ))}
         </tbody>
@@ -351,17 +351,17 @@ function CostCentreMappingTable({
 }) {
   return (
     <div style={{ overflowX: 'auto', marginTop: 18 }}>
-      <table style={tableStyle}>
-        <thead><tr>{['Source','External cost centre','BrainBase cost centre','Effective','Status','Retire'].map(label => <th key={label} style={th}>{label}</th>)}</tr></thead>
+      <table className={tableStyles.table}>
+        <thead><tr>{['Source','External cost centre','BrainBase cost centre','Effective','Status','Retire'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
         <tbody>
           {rows.length === 0 ? <tr><td colSpan={6} style={emptyCell}>No cost-centre mappings match the current filters.</td></tr> : rows.map(row => (
             <tr key={row.id}>
-              <td style={td}>{row.source_system_id}</td>
-              <td style={td}><strong>{row.external_cost_centre_code}</strong></td>
-              <td style={td}>{row.cost_centre_code}<div style={sub}>{row.cost_centre_name}</div></td>
-              <td style={td}>{dateRange(row.effective_from, row.effective_to)}</td>
-              <td style={td}>{row.status}</td>
-              <td style={td}>{row.status === 'ACTIVE' ? <RetireControl id={row.id} value={retireDates[row.id] ?? ''} setRetireDates={setRetireDates} onRetire={onRetire} working={working} /> : '—'}</td>
+              <td>{row.source_system_id}</td>
+              <td><strong>{row.external_cost_centre_code}</strong></td>
+              <td>{row.cost_centre_code}<div style={sub}>{row.cost_centre_name}</div></td>
+              <td>{dateRange(row.effective_from, row.effective_to)}</td>
+              <td>{row.status}</td>
+              <td>{row.status === 'ACTIVE' ? <RetireControl id={row.id} value={retireDates[row.id] ?? ''} setRetireDates={setRetireDates} onRetire={onRetire} working={working} /> : '—'}</td>
             </tr>
           ))}
         </tbody>
@@ -386,9 +386,9 @@ function RetireControl({
         type="date"
         value={value}
         onChange={event => setRetireDates(current => ({ ...current, [id]: event.target.value }))}
-        style={{ ...control, minWidth: 135 }}
+        className={fieldControlClassName} style={{ minWidth: 135 }}
       />
-      <button type="button" disabled={working || !value} onClick={() => onRetire(id)} style={dangerButton}>Retire</button>
+      <button type="button" disabled={working || !value} onClick={() => onRetire(id)} {...buttonProps('danger', 'sm')}>Retire</button>
     </div>
   );
 }
@@ -398,11 +398,11 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function TextInput({ label, value, onChange, required = false }: { label: string; value: string; onChange: (value: string) => void; required?: boolean }) {
-  return <Field label={label}><input required={required} value={value} onChange={event => onChange(event.target.value)} style={control} /></Field>;
+  return <Field label={label}><input required={required} value={value} onChange={event => onChange(event.target.value)} className={fieldControlClassName} /></Field>;
 }
 
 function DateInput({ label, value, onChange, required = false }: { label: string; value: string; onChange: (value: string) => void; required?: boolean }) {
-  return <Field label={label}><input type="date" required={required} value={value} onChange={event => onChange(event.target.value)} style={control} /></Field>;
+  return <Field label={label}><input type="date" required={required} value={value} onChange={event => onChange(event.target.value)} className={fieldControlClassName} /></Field>;
 }
 
 function dateRange(from: string, to: string | null) {
@@ -410,16 +410,9 @@ function dateRange(from: string, to: string | null) {
   return to ? `${start} → ${to.slice(0, 10)}` : `${start} → ongoing`;
 }
 
-const panel: React.CSSProperties = { background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 18 };
+const panel: React.CSSProperties = { background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 18 };
 const formGrid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, alignItems: 'end' };
-const control: React.CSSProperties = { background: INPUT_BG, border: `1px solid ${BORDER}`, color: '#f9fafb', borderRadius: 7, padding: '8px 9px', fontSize: 12 };
-const primaryButton: React.CSSProperties = { background: '#6d5dfc', color: '#fff', border: 0, borderRadius: 7, padding: '9px 12px', cursor: 'pointer', fontWeight: 600 };
-const secondaryButton: React.CSSProperties = { background: 'transparent', color: '#d1d5db', border: `1px solid ${BORDER}`, borderRadius: 7, padding: '8px 12px', cursor: 'pointer' };
-const dangerButton: React.CSSProperties = { background: 'transparent', color: '#fca5a5', border: '1px solid rgba(248,113,113,.35)', borderRadius: 7, padding: '7px 9px', cursor: 'pointer' };
-const tableStyle: React.CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 12 };
-const th: React.CSSProperties = { textAlign: 'left', color: '#6b7280', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.05em', borderBottom: `1px solid ${BORDER}`, padding: '9px 8px' };
-const td: React.CSSProperties = { borderBottom: `1px solid ${BORDER}`, padding: '10px 8px', verticalAlign: 'top' };
 const sub: React.CSSProperties = { color: MUTED, marginTop: 3, fontSize: 11 };
-const emptyCell: React.CSSProperties = { ...td, color: MUTED, textAlign: 'center', padding: 22 };
-const errorBox: React.CSSProperties = { marginBottom: 14, border: '1px solid rgba(248,113,113,.35)', background: 'rgba(127,29,29,.18)', color: '#fecaca', borderRadius: 8, padding: 10, fontSize: 12 };
-const noticeBox: React.CSSProperties = { marginBottom: 14, border: '1px solid rgba(52,211,153,.3)', background: 'rgba(6,78,59,.18)', color: '#a7f3d0', borderRadius: 8, padding: 10, fontSize: 12 };
+const emptyCell: React.CSSProperties = { color: MUTED, textAlign: 'center', padding: 22 };
+const errorBox: React.CSSProperties = { marginBottom: 14, border: '1px solid var(--status-danger-border)', background: 'var(--status-danger-muted)', color: 'var(--status-danger)', borderRadius: 8, padding: 10, fontSize: 12 };
+const noticeBox: React.CSSProperties = { marginBottom: 14, border: '1px solid var(--status-success-border)', background: 'var(--status-success-muted)', color: 'var(--status-success)', borderRadius: 8, padding: 10, fontSize: 12 };
