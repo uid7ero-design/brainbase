@@ -52,7 +52,8 @@ beforeAll(async () => {
   await sql.raw(`CREATE TABLE commercial_suppliers(id UUID PRIMARY KEY, organisation_id TEXT REFERENCES organisations(id), name TEXT, active BOOLEAN, UNIQUE(id,organisation_id))`);
   await sql.raw(`CREATE TABLE commercial_supplier_bills(id UUID PRIMARY KEY, organisation_id TEXT REFERENCES organisations(id), supplier_id UUID, currency TEXT,
     status TEXT, total_cents INTEGER, subtotal_cents INTEGER, tax_cents INTEGER DEFAULT 0, bill_number TEXT, supplier_invoice_number TEXT, due_date DATE,
-    created_at TIMESTAMPTZ DEFAULT now(), UNIQUE(id,organisation_id), FOREIGN KEY(supplier_id,organisation_id) REFERENCES commercial_suppliers(id,organisation_id))`);
+    created_at TIMESTAMPTZ DEFAULT now(), posted_at TIMESTAMPTZ DEFAULT '2026-09-01T00:00:00Z', cancelled_at TIMESTAMPTZ,
+    UNIQUE(id,organisation_id), FOREIGN KEY(supplier_id,organisation_id) REFERENCES commercial_suppliers(id,organisation_id))`);
   await sql.raw('CREATE INDEX idx_ap_readiness_bills_org_status ON commercial_supplier_bills(organisation_id,status)');
   const migration = readFileSync('scripts/create-commercial-supplier-payments.sql', 'utf8').replace(/--.*$/gm, '');
   await sql.raw(migration);
@@ -126,6 +127,7 @@ beforeEach(async () => {
   role = 'admin'; organisationId = 'org-a'; entitled = true; authenticated = true;
   loseNextPaymentResponse = false; submittedKeys.length = 0; serverErrors.length = 0; recordedAudit.mockClear();
   await sql.raw("DELETE FROM commercial_supplier_payment_allocations WHERE organisation_id='org-a'; DELETE FROM commercial_supplier_payments WHERE organisation_id='org-a'");
+  await sql.raw("UPDATE commercial_supplier_bills SET status='POSTED',posted_at='2026-09-01T00:00:00Z',cancelled_at=NULL WHERE organisation_id='org-a'");
 });
 afterEach(async () => { for (const context of browser?.contexts() ?? []) await context.close(); });
 
@@ -245,18 +247,44 @@ describe('Supplier AP UI to real HTTP routes to disposable PostgreSQL', () => {
     expect(serverErrors).toEqual([]);
   });
 
+  it('changes balance basis and date through the real UI/API/database and downloads historical bills', async () => {
+    const posted = await fetch(`${origin}/api/commercial/suppliers/${supplierId}/payments`, {method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':crypto.randomUUID()},
+      body:JSON.stringify({currency:'AUD',method:'BANK_TRANSFER',allocations:[{supplier_bill_id:bill1,amount_cents:2500},{supplier_bill_id:bill2,amount_cents:5000}]})});
+    expect(posted.status).toBe(201); const paymentId = (await posted.json()).payment.id;
+    expect((await fetch(`${origin}/api/commercial/supplier-bills/${bill1}/payments/${paymentId}/reverse`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:'Correct remittance'})})).status).toBe(200);
+    // Fixed lifecycle fixtures represent a payment recorded on Oct 2, reversed
+    // on Oct 5, and a bill subsequently cancelled on Oct 6.
+    await sql.raw("UPDATE commercial_supplier_payments SET created_at='2026-10-02T12:00:00Z',paid_at='2026-10-02T12:00:00Z',reversed_at='2026-10-05T00:00:00Z'");
+    await sql.raw("UPDATE commercial_supplier_payment_allocations SET created_at='2026-10-02T12:00:00Z'");
+    await sql.raw(`UPDATE commercial_supplier_bills SET status='CANCELLED',cancelled_at='2026-10-06T00:00:00Z' WHERE id='${bill2}'`);
+    const page = await newPage(); await page.goto(`${origin}/overview`);
+    await page.getByLabel('Aging date').fill('2026-10-03');
+    await browserExpect(page.getByRole('table').first()).toContainText('$100.00');
+    await page.getByLabel('Balance basis').selectOption('HISTORICAL_RECORDED_BALANCE');
+    await browserExpect(page.getByText(/Recorded balances at the end/)).toContainText('(UTC)');
+    await browserExpect(page.getByRole('table').first()).toContainText('$75.00');
+    const csvEvent = page.waitForEvent('download'); await page.getByRole('link',{name:'Export bills CSV'}).click();
+    const download = await csvEvent; const downloadPath = await download.path(); const csv = readFileSync(downloadPath!,'utf8');
+    expect(csv).toContain('HISTORICAL_RECORDED_BALANCE'); expect(csv).toContain('INV2'); expect(csv).toContain('5000,5000,0'); expect(csv).toContain(',UTC\r\n');
+    await page.getByLabel('Aging date').fill('2026-10-05'); await browserExpect(page.getByRole('table').first()).toContainText('$150.00');
+    await page.getByLabel('Aging date').fill('2026-10-06'); await browserExpect(page.getByRole('table').first()).toContainText('$100.00');
+    await sql.raw(`UPDATE commercial_supplier_bills SET posted_at=NULL WHERE id='${bill1}'`);
+    await page.getByLabel('Aging date').fill('2026-10-07'); await browserExpect(page.getByRole('alert')).toContainText('lifecycle timestamps');
+    await browserExpect(page.getByRole('table')).toHaveCount(0); await browserExpect(page.getByRole('link',{name:'Export bills CSV'})).toHaveCount(0);
+    await page.close(); expect(serverErrors).toEqual([]);
+  });
   it('measures paged overview/aging at 10,000 and 50,000 bills through the API and browser', async () => {
     await sql.raw(`INSERT INTO commercial_suppliers SELECT md5('supplier-'||n)::uuid,'load-org','Load supplier '||n,n%10<>0 FROM generate_series(1,1000) n`);
     async function seed(from: number, to: number) {
       await sql.raw(`INSERT INTO commercial_supplier_bills(id,organisation_id,supplier_id,currency,status,total_cents,subtotal_cents,bill_number,supplier_invoice_number,due_date)
         SELECT md5('bill-'||n)::uuid,'load-org',md5('supplier-'||(1+(n%1000)))::uuid,CASE WHEN n%3=0 THEN 'USD' ELSE 'AUD' END,'POSTED',10000,10000,'LOAD-'||n,'INV-'||n,
           CASE WHEN n%11=0 THEN NULL ELSE DATE '2026-10-05'-(n%150) END FROM generate_series(${from},${to}) n`);
-      await sql.raw(`INSERT INTO commercial_supplier_payments(id,organisation_id,supplier_id,amount_cents,currency,method,paid_at,status,recorded_by,reversed_at,reversed_by,reversal_reason)
-        SELECT md5('payment-'||n)::uuid,'load-org',md5('supplier-'||(1+(n%1000)))::uuid,2000,CASE WHEN n%3=0 THEN 'USD' ELSE 'AUD' END,'CASH',now(),
-          CASE WHEN n%10=0 THEN 'REVERSED' ELSE 'RECORDED' END,'user-1',CASE WHEN n%10=0 THEN now() END,CASE WHEN n%10=0 THEN 'user-1' END,CASE WHEN n%10=0 THEN 'Load reversal' END
+      await sql.raw(`INSERT INTO commercial_supplier_payments(id,organisation_id,supplier_id,amount_cents,currency,method,paid_at,status,recorded_by,reversed_at,reversed_by,reversal_reason,created_at)
+        SELECT md5('payment-'||n)::uuid,'load-org',md5('supplier-'||(1+(n%1000)))::uuid,2000,CASE WHEN n%3=0 THEN 'USD' ELSE 'AUD' END,'CASH','2026-10-02T00:00:00Z'::timestamptz,
+          CASE WHEN n%10=0 THEN 'REVERSED' ELSE 'RECORDED' END,'user-1',CASE WHEN n%10=0 THEN '2026-10-03T00:00:00Z'::timestamptz END,CASE WHEN n%10=0 THEN 'user-1' END,CASE WHEN n%10=0 THEN 'Load reversal' END,'2026-10-02T00:00:00Z'::timestamptz
         FROM generate_series(${from},${to}) n WHERE n%2=0`);
-      await sql.raw(`INSERT INTO commercial_supplier_payment_allocations(organisation_id,supplier_payment_id,supplier_bill_id,supplier_id,currency,allocated_amount_cents)
-        SELECT 'load-org',md5('payment-'||n)::uuid,md5('bill-'||n)::uuid,md5('supplier-'||(1+(n%1000)))::uuid,CASE WHEN n%3=0 THEN 'USD' ELSE 'AUD' END,2000
+      await sql.raw(`INSERT INTO commercial_supplier_payment_allocations(organisation_id,supplier_payment_id,supplier_bill_id,supplier_id,currency,allocated_amount_cents,created_at)
+        SELECT 'load-org',md5('payment-'||n)::uuid,md5('bill-'||n)::uuid,md5('supplier-'||(1+(n%1000)))::uuid,CASE WHEN n%3=0 THEN 'USD' ELSE 'AUD' END,2000,'2026-10-02T00:00:00Z'::timestamptz
         FROM generate_series(${from},${to}) n WHERE n%2=0`);
       await sql.raw('ANALYZE commercial_suppliers; ANALYZE commercial_supplier_bills; ANALYZE commercial_supplier_payments; ANALYZE commercial_supplier_payment_allocations');
     }
@@ -280,6 +308,14 @@ describe('Supplier AP UI to real HTTP routes to disposable PostgreSQL', () => {
         }
         const metric: Record<string, number> = { bills: size, suppliers: 1000, payments: size / 2, allocations: size / 2,
           first_ms: times[0], warm_max_ms: Math.max(...times.slice(1)), warm_median_ms: [...times.slice(1)].sort((a,b) => a-b)[2], json_bytes: bytes };
+        const historyStarted = performance.now();
+        const historicalResponse = await fetch(`${origin}/api/commercial/purchasing/ap-overview?aging_date=2026-10-02&balance_basis=HISTORICAL_RECORDED_BALANCE`);
+        expect(historicalResponse.status).toBe(200);
+        const historicalText = await historicalResponse.text(); const historical = JSON.parse(historicalText).report;
+        expect(historical.bills).toHaveLength(50); expect(historical.pagination.outstanding_bill_count).toBe(size);
+        expect(historical.currencies.reduce((sum: bigint,row: {paid_cents:string}) => sum + BigInt(row.paid_cents),BigInt(0))).toBe(BigInt(size * 1000));
+        expect(Buffer.byteLength(historicalText)).toBeLessThan(250000);
+        metric.historical_ms = Math.round(performance.now() - historyStarted); metric.historical_json_bytes = Buffer.byteLength(historicalText);
         const exportStarted = performance.now();
         const exported = await fetch(`${origin}/api/commercial/purchasing/ap-overview/export?aging_date=2026-10-05&page=999&page_size=1`);
         expect(exported.status).toBe(200);

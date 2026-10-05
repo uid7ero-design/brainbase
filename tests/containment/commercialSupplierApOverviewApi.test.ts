@@ -6,6 +6,20 @@ vi.mock('@/lib/commercial/supplierApOverview', () => ({ getSupplierApOverview: (
 const { GET } = await import('@/app/api/commercial/purchasing/ap-overview/route');
 beforeEach(() => { authorize.mockReset(); read.mockReset(); authorize.mockResolvedValue({ ok: true, session: { organisationId: 'org-a' } }); });
 describe('AP overview HTTP', () => {
+  it('validates the historical basis and retains tenant/date/filter scoping', async () => {
+    read.mockResolvedValue({balance_basis:'HISTORICAL_RECORDED_BALANCE',as_of_timezone:'UTC'});
+    const response = await GET(new Request('http://localhost/?aging_date=2026-10-03&balance_basis=HISTORICAL_RECORDED_BALANCE&organisationId=other&page=2'));
+    expect(response.status).toBe(200); expect(read).toHaveBeenCalledWith('org-a','2026-10-03',expect.objectContaining({page:2}),'HISTORICAL_RECORDED_BALANCE');
+    expect((await response.json()).report.as_of_timezone).toBe('UTC');
+  });
+  it('rejects an unsupported balance basis before reading', async () => {
+    expect((await GET(new Request('http://localhost/?aging_date=2026-10-03&balance_basis=OTHER'))).status).toBe(400); expect(read).not.toHaveBeenCalled();
+  });
+  it('returns a controlled 409 when history timestamps are incomplete', async () => {
+    read.mockRejectedValue(new Error('Supplier AP history is incomplete'));
+    const response = await GET(new Request('http://localhost/?aging_date=2026-10-03&balance_basis=HISTORICAL_RECORDED_BALANCE'));
+    expect(response.status).toBe(409); expect((await response.json()).code).toBe('AP_HISTORY_INCOMPLETE'); expect(response.headers.get('Cache-Control')).toBe('no-store');
+  });
   it('denies before any reads and disables caching', async () => {
     authorize.mockResolvedValue({ ok: false, response: new Response(null, { status: 403 }) });
     const res = await GET(new Request('http://localhost/?aging_date=2026-10-05'));

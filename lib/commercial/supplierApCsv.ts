@@ -11,11 +11,11 @@ export function buildSupplierApCsv(report: SupplierApOverview, view: 'bills' | '
   const common = ['Aging date', 'Balance basis', 'Supplier ID', 'Supplier', 'Supplier active', 'Currency'];
   if (view === 'aging') {
     return buildCsv([...common, 'Posted payable cents', 'Paid cents', 'Outstanding cents', 'Overdue cents',
-      ...AP_AGING_BUCKETS.map(bucket => `${bucket} cents`), 'Bill count', 'Outstanding bill count'],
+      ...AP_AGING_BUCKETS.map(bucket => `${bucket} cents`), 'Bill count', 'Outstanding bill count', 'Cutoff timezone'],
     report.suppliers.map(row => [report.aging_date, report.balance_basis, row.supplier_id, textCell(row.supplier_name), String(row.supplier_active), row.currency,
-      row.payable_cents, row.paid_cents, row.outstanding_cents, row.overdue_cents, ...AP_AGING_BUCKETS.map(bucket => row.buckets[bucket]), row.bill_count, row.outstanding_bill_count]));
+      row.payable_cents, row.paid_cents, row.outstanding_cents, row.overdue_cents, ...AP_AGING_BUCKETS.map(bucket => row.buckets[bucket]), row.bill_count, row.outstanding_bill_count, report.as_of_timezone ?? '']));
   }
-  return buildCsv([...common, 'Bill ID', 'Bill number', 'Supplier invoice number', 'Due date', 'Posted payable cents', 'Paid cents', 'Outstanding cents', 'Aging bucket'],
+  return buildCsv([...common, 'Bill ID', 'Bill number', 'Supplier invoice number', 'Due date', 'Posted payable cents', 'Paid cents', 'Outstanding cents', 'Aging bucket', 'Cutoff timezone'],
     report.bills.map(row => [report.aging_date, report.balance_basis, row.supplier_id, textCell(row.supplier_name), String(row.supplier_active), row.currency,
-      row.bill_id, textCell(row.bill_number), textCell(row.supplier_invoice_number), row.due_date, row.payable_cents, row.paid_cents, row.outstanding_cents, row.bucket]));
+      row.bill_id, textCell(row.bill_number), textCell(row.supplier_invoice_number), row.due_date, row.payable_cents, row.paid_cents, row.outstanding_cents, row.bucket, report.as_of_timezone ?? '']));
 }

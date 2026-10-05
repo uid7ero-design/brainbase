@@ -14,6 +14,19 @@ const context = { params: Promise.resolve({ id }) };
 const report = () => buildSupplierApOverview([{ supplier_id:id, supplier_name:'Supplier',supplier_active:false,bill_id:'b',bill_number:'SB1',supplier_invoice_number:'INV1',currency:'AUD',due_date:null,payable_cents:'9007199254740993',paid_cents:'1' }], '2026-10-05');
 beforeEach(() => { vi.clearAllMocks(); authorize.mockResolvedValue({ ok:true,session:{organisationId:'org-a'} }); read.mockResolvedValue(report()); remittance.mockResolvedValue({status:'REVERSED'}); render.mockReturnValue(new Uint8Array([37,80,68,70])); });
 describe('AP downloads', () => {
+  it('exports the selected historical basis with explicit UTC metadata', async () => {
+    read.mockResolvedValue({...report(),balance_basis:'HISTORICAL_RECORDED_BALANCE',as_of_timezone:'UTC'});
+    const response = await exports.GET(request('&balance_basis=HISTORICAL_RECORDED_BALANCE&view=aging'));
+    expect(read).toHaveBeenCalledWith('org-a','2026-10-05',expect.any(Object),'HISTORICAL_RECORDED_BALANCE');
+    expect(response.headers.get('Content-Disposition')).toContain('supplier-ap-historical-aging');
+    const csv = await response.text(); expect(csv).toContain('HISTORICAL_RECORDED_BALANCE'); expect(csv).toContain('Cutoff timezone'); expect(csv).toContain(',UTC\r\n');
+  });
+  it('rejects invalid historical basis and reports incomplete history without exporting partial rows', async () => {
+    expect((await exports.GET(request('&balance_basis=BAD'))).status).toBe(400); expect(read).not.toHaveBeenCalled();
+    read.mockRejectedValue(new Error('Supplier AP history is incomplete'));
+    const response = await exports.GET(request('&balance_basis=HISTORICAL_RECORDED_BALANCE'));
+    expect(response.status).toBe(409); expect((await response.json()).code).toBe('AP_HISTORY_INCOMPLETE');
+  });
   it('requires purchasing view before reading or rendering, with no-store responses', async () => {
     authorize.mockResolvedValue({ok:false,response:new Response(null,{status:403})});
     for (const response of [await exports.GET(request()),await pdf.GET(request(),context)]) {

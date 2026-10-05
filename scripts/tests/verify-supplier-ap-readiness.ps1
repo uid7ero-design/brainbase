@@ -1,6 +1,6 @@
 param(
-  [ValidateSet('supplierPaymentsMigration', 'supplierPaymentsConcurrency', 'supplierApOverview', 'supplierApReadiness')]
-  [string[]]$Suites = @('supplierPaymentsMigration', 'supplierPaymentsConcurrency', 'supplierApOverview', 'supplierApReadiness')
+  [ValidateSet('supplierPaymentsMigration', 'supplierPaymentsConcurrency', 'supplierApOverview', 'supplierApHistory', 'supplierApReadiness')]
+  [string[]]$Suites = @('supplierPaymentsMigration', 'supplierPaymentsConcurrency', 'supplierApOverview', 'supplierApHistory', 'supplierApReadiness')
 )
 $ErrorActionPreference = 'Stop'
 $taskContainer = "brainbase-ap-readiness-$PID"

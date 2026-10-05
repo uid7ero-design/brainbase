@@ -1,22 +1,40 @@
 import 'server-only';
 import sql from '@/lib/db';
-import { DEFAULT_AP_FILTERS, calendarDay, type ApBillInput, type SupplierApFilters, type PagedSupplierApOverview } from './supplierApOverviewModel';
+import { DEFAULT_AP_FILTERS, calendarDay, type ApBillInput, type SupplierApFilters, type PagedSupplierApOverview, type SupplierApBalanceBasis } from './supplierApOverviewModel';
 
 // Every aggregate and page shares one statement snapshot. LIMIT applies only
 // after filtering and aggregation, so paging cannot alter portfolio totals.
-export async function getSupplierApOverview(organisationId: string, agingDate: string, options: Partial<SupplierApFilters> = {}): Promise<PagedSupplierApOverview> {
-  return readSupplierApSnapshot(organisationId, agingDate, options, false);
+export async function getSupplierApOverview(organisationId: string, agingDate: string, options: Partial<SupplierApFilters> = {}, basis: SupplierApBalanceBasis = 'CURRENT_POSTED_BILLS'): Promise<PagedSupplierApOverview> {
+  return readSupplierApSnapshot(organisationId, agingDate, options, false, basis);
 }
 
 // Downloads include every matching posted bill, including fully settled bills,
 // so their payable and paid columns reconcile to the overview totals.
-export async function getSupplierApExport(organisationId: string, agingDate: string, options: Partial<SupplierApFilters> = {}) {
-  return readSupplierApSnapshot(organisationId, agingDate, options, true);
+export async function getSupplierApExport(organisationId: string, agingDate: string, options: Partial<SupplierApFilters> = {}, basis: SupplierApBalanceBasis = 'CURRENT_POSTED_BILLS') {
+  return readSupplierApSnapshot(organisationId, agingDate, options, true, basis);
 }
 
-async function readSupplierApSnapshot(organisationId: string, agingDate: string, options: Partial<SupplierApFilters>, exportAll: boolean): Promise<PagedSupplierApOverview> {
+async function readSupplierApSnapshot(organisationId: string, agingDate: string, options: Partial<SupplierApFilters>, exportAll: boolean, basis: SupplierApBalanceBasis): Promise<PagedSupplierApOverview> {
   calendarDay(agingDate);
   const filters = { ...DEFAULT_AP_FILTERS, ...options };
+  const historical = basis === 'HISTORICAL_RECORDED_BALANCE';
+  // Interpret the selected day explicitly in UTC, independent of database/session
+  // timezone. The next midnight is exclusive; events at that instant belong to
+  // the following day. created_at prevents backdated entries rewriting history.
+  const cutoff = sql`((${agingDate}::date + 1)::timestamp AT TIME ZONE 'UTC')`;
+  const paymentScope = historical ? sql`p.created_at < ${cutoff} AND p.paid_at < ${cutoff}
+    AND a.created_at < ${cutoff} AND (p.status='RECORDED' OR (p.status='REVERSED' AND p.reversed_at >= ${cutoff}))` : sql`p.status='RECORDED'`;
+  const billScope = historical ? sql`b.status IN ('POSTED','CANCELLED') AND b.posted_at < ${cutoff}
+    AND (b.status='POSTED' OR b.cancelled_at >= ${cutoff})` : sql`b.status='POSTED'`;
+  const incompleteHistory = historical ? sql`EXISTS(
+    SELECT 1 FROM commercial_supplier_bills b WHERE b.organisation_id=${organisationId} AND (
+      (b.status IN ('POSTED','CANCELLED') AND b.posted_at IS NULL)
+      OR (b.status='POSTED' AND b.cancelled_at IS NOT NULL)
+      OR (b.status='CANCELLED' AND (b.cancelled_at IS NULL OR b.cancelled_at < b.posted_at))
+      OR (b.status='DRAFT' AND b.posted_at IS NOT NULL)))
+    OR EXISTS(SELECT 1 FROM commercial_supplier_payments p WHERE p.organisation_id=${organisationId} AND (
+      (p.status='REVERSED' AND (p.reversed_at IS NULL OR p.reversed_at < p.created_at))
+      OR (p.status='RECORDED' AND p.reversed_at IS NOT NULL)))` : sql`false`;
   const amounts = sql`jsonb_build_object(
     'payable_cents', COALESCE(SUM(payable_cents),0)::text, 'paid_cents', COALESCE(SUM(paid_cents),0)::text,
     'outstanding_cents', COALESCE(SUM(outstanding_cents),0)::text,
@@ -35,7 +53,7 @@ async function readSupplierApSnapshot(organisationId: string, agingDate: string,
       FROM commercial_supplier_payment_allocations a
       JOIN commercial_supplier_payments p ON p.id=a.supplier_payment_id AND p.organisation_id=a.organisation_id
         AND p.supplier_id=a.supplier_id AND p.currency=a.currency
-      WHERE a.organisation_id=${organisationId} AND p.status='RECORDED'
+      WHERE a.organisation_id=${organisationId} AND ${paymentScope}
       GROUP BY a.supplier_bill_id
     ), base AS MATERIALIZED (
       SELECT b.id AS bill_id, b.supplier_id, s.name AS supplier_name, s.active AS supplier_active,
@@ -50,7 +68,7 @@ async function readSupplierApSnapshot(organisationId: string, agingDate: string,
       FROM commercial_supplier_bills b
       JOIN commercial_suppliers s ON s.id=b.supplier_id AND s.organisation_id=b.organisation_id
       LEFT JOIN paid ON paid.supplier_bill_id=b.id
-      WHERE b.organisation_id=${organisationId} AND b.status='POSTED'
+      WHERE b.organisation_id=${organisationId} AND ${billScope}
     ), filtered AS MATERIALIZED (
       SELECT * FROM base WHERE (${filters.currency}::text IS NULL OR currency=${filters.currency})
         AND (${filters.supplierId}::text IS NULL OR supplier_id::text=${filters.supplierId?.toLowerCase() ?? null})
@@ -78,12 +96,14 @@ async function readSupplierApSnapshot(organisationId: string, agingDate: string,
       (SELECT COUNT(*)::int FROM filtered WHERE outstanding_cents>0) AS bill_count,
       (SELECT COUNT(*)::int FROM supplier_totals) AS supplier_count,
       EXISTS(SELECT 1 FROM base WHERE outstanding_cents<0) AS has_negative_balance,
+      (${incompleteHistory}) AS has_incomplete_history,
       COALESCE((SELECT jsonb_agg(currency ORDER BY currency) FROM (SELECT DISTINCT currency FROM base) c),'[]'::jsonb) AS currency_options,
       COALESCE((SELECT jsonb_agg(jsonb_build_object('supplier_id',supplier_id,'supplier_name',supplier_name) ORDER BY supplier_name COLLATE "C",supplier_id)
         FROM (SELECT DISTINCT supplier_id,supplier_name FROM base) s),'[]'::jsonb) AS supplier_options
   `;
+  if (row.has_incomplete_history) throw new Error('Supplier AP history is incomplete');
   if (row.has_negative_balance) throw new Error('Supplier bill has a negative outstanding balance');
-  return { aging_date: agingDate, balance_basis: 'CURRENT_POSTED_BILLS', filters,
+  return { aging_date: agingDate, balance_basis: basis, ...(historical ? { as_of_timezone: 'UTC' as const } : {}), filters,
     bills: row.bills as PagedSupplierApOverview['bills'], suppliers: row.suppliers as PagedSupplierApOverview['suppliers'], currencies: row.currencies as PagedSupplierApOverview['currencies'],
     pagination: { page: filters.page, supplier_page: filters.supplierPage, page_size: filters.pageSize, outstanding_bill_count: row.bill_count as number, supplier_count: row.supplier_count as number },
     options: { currencies: row.currency_options as string[], suppliers: row.supplier_options as PagedSupplierApOverview['options']['suppliers'] } };

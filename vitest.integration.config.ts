@@ -203,6 +203,7 @@ export default defineConfig({
       'scripts/tests/supplierPaymentsMigration.integration.test.ts',
       'scripts/tests/supplierPaymentsConcurrency.integration.test.ts',
       'scripts/tests/supplierApOverview.integration.test.ts',
+      'scripts/tests/supplierApHistory.integration.test.ts',
       'scripts/tests/supplierApReadiness.integration.test.ts',
     ],
     testTimeout: 30_000,

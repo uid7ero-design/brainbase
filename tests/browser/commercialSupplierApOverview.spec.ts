@@ -59,6 +59,7 @@ async function mount(page: Page, large = false) {
     const billPage = Number(url.searchParams.get('page') || 1), supplierPage = Number(url.searchParams.get('supplier_page') || 1);
     if (large && billPage === 2 && !url.searchParams.get('search')) await new Promise(resolve => setTimeout(resolve,250));
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ report: { ...filtered,
+      ...(url.searchParams.get('balance_basis') === 'HISTORICAL_RECORDED_BALANCE' ? {balance_basis:'HISTORICAL_RECORDED_BALANCE',as_of_timezone:'UTC'} : {}),
       bills: filtered.bills.slice((billPage-1)*50,billPage*50), suppliers: filtered.suppliers.slice((supplierPage-1)*50,supplierPage*50),
       pagination: { page: billPage, supplier_page: supplierPage, page_size: 50, outstanding_bill_count: filtered.bills.length, supplier_count: filtered.suppliers.length },
       options: { currencies: all.currencies.map(row => row.currency), suppliers: all.suppliers.map(row => ({ supplier_id: row.supplier_id, supplier_name: row.supplier_name })) } } }) });
@@ -96,6 +97,22 @@ test('changes aging classification and clears previous balances on a forbidden r
   await expect(page.getByRole('table')).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Export bills CSV' })).toHaveCount(0);
   expect(dates).toContain('2026-10-06'); expect(errors).toEqual([]);
+});
+
+test('switches to historical basis during a delayed page read and preserves basis on both exports', async ({page}) => {
+  const {errors} = await mount(page,true);
+  await page.getByRole('button',{name:'Next bill page',exact:true}).click();
+  await page.getByLabel('Balance basis').selectOption('HISTORICAL_RECORDED_BALANCE');
+  await expect(page.getByText(/Recorded balances at the end/)).toContainText('(UTC)');
+  await expect(page.getByRole('navigation',{name:'bill pages',exact:true})).toContainText('Page 1');
+  for (const name of ['Export bills CSV','Export supplier aging CSV']) {
+    const href = await page.getByRole('link',{name,exact:true}).getAttribute('href');
+    expect(new URL(href ?? '', 'http://brainbase.local').searchParams.get('balance_basis')).toBe('HISTORICAL_RECORDED_BALANCE');
+  }
+  await page.getByLabel('Aging date').fill('2026-10-06');
+  await expect(page.getByText(/Recorded balances at the end/)).toContainText('6 Oct 2026');
+  await expect(page.getByRole('link',{name:'SB51',exact:true})).toHaveCount(0);
+  expect(errors).toEqual([]);
 });
 
 test('pages bills and supplier aging independently while retaining totals and filter options', async ({page}) => {

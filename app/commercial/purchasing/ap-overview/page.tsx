@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { formatMoneyCentsExact } from '@/lib/commercial/money';
 import { formatCommercialDate } from '@/lib/commercial/dates';
-import { AP_AGING_BUCKETS, type PagedSupplierApOverview } from '@/lib/commercial/supplierApOverviewModel';
+import { AP_AGING_BUCKETS, type PagedSupplierApOverview, type SupplierApBalanceBasis } from '@/lib/commercial/supplierApOverviewModel';
 import { PageHeader, StateMessage, Field, TableContainer, TableStateRow, buttonProps, fieldControlClassName, tableStyles } from '@/components/ui/app';
 
 const bucketLabels = { CURRENT: 'Not yet overdue', DAYS_1_30: '1–30 days overdue', DAYS_31_60: '31–60 days overdue',
@@ -14,6 +14,7 @@ function today() {
 }
 export default function SupplierApOverviewPage() {
   const [agingDate, setAgingDate] = useState('');
+  const [basis, setBasis] = useState<SupplierApBalanceBasis>('CURRENT_POSTED_BILLS');
   const [report, setReport] = useState<{ key: string; data: PagedSupplierApOverview } | null>(null);
   const [options, setOptions] = useState<PagedSupplierApOverview['options']>({ currencies: [], suppliers: [] });
   const [loading, setLoading] = useState(true);
@@ -25,7 +26,7 @@ export default function SupplierApOverviewPage() {
   const [appliedSearch, setAppliedSearch] = useState('');
   const [page, setPage] = useState(1);
   const [supplierPage, setSupplierPage] = useState(1);
-  const requestKey = JSON.stringify({ aging_date: agingDate, search: appliedSearch, currency: currency === 'ALL' ? '' : currency,
+  const requestKey = JSON.stringify({ aging_date: agingDate, balance_basis: basis, search: appliedSearch, currency: currency === 'ALL' ? '' : currency,
     supplier_id: supplier === 'ALL' ? '' : supplier, bucket: bucket === 'ALL' ? '' : bucket, page, supplier_page: supplierPage });
   function resetPages() { setPage(1); setSupplierPage(1); }
   // Resolve browser-local today after hydration; the server timezone must not choose the aging day.
@@ -56,7 +57,7 @@ export default function SupplierApOverviewPage() {
     return () => controller.abort();
   }, [requestKey]);
   const filtered = report?.key === requestKey && appliedSearch === search.trim() ? report.data : null;
-  const exportParams = new URLSearchParams({ aging_date: agingDate, search: appliedSearch,
+  const exportParams = new URLSearchParams({ aging_date: agingDate, balance_basis: basis, search: appliedSearch,
     currency: currency === 'ALL' ? '' : currency, supplier_id: supplier === 'ALL' ? '' : supplier, bucket: bucket === 'ALL' ? '' : bucket });
   function pager(kind: 'bill' | 'supplier', current: number, count: number) {
     return <nav aria-label={`${kind} pages`} style={{ display: 'flex', gap: 12, alignItems: 'center', margin: '12px 0' }}>
@@ -66,8 +67,11 @@ export default function SupplierApOverviewPage() {
     </nav>;
   }
   return <div style={{ maxWidth: 1400 }}>
-    <PageHeader title="Supplier AP Overview" description="Current posted liabilities and supplier settlement. Separate from Budget Actual." />
+    <PageHeader title="Supplier AP Overview" description="Supplier liabilities and settlement. Separate from Budget Actual." />
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
+      <Field label="Balance basis">{control => <select {...control} className={fieldControlClassName} value={basis} onChange={event => { setBasis(event.target.value as SupplierApBalanceBasis); resetPages(); }}>
+        <option value="CURRENT_POSTED_BILLS">Current balances</option><option value="HISTORICAL_RECORDED_BALANCE">Historical recorded balances</option>
+      </select>}</Field>
       <Field label="Aging date">{control => <input {...control} type="date" className={fieldControlClassName} value={agingDate} onChange={event => { setAgingDate(event.target.value); resetPages(); }} />}</Field>
       <Field label="Search suppliers or bills">{control => <input {...control} className={fieldControlClassName} value={search} maxLength={200} onChange={event => setSearch(event.target.value)} />}</Field>
       <Field label="Currency">{control => <select {...control} className={fieldControlClassName} value={currency} onChange={event => { setCurrency(event.target.value); resetPages(); }}><option value="ALL">All currencies</option>{options.currencies.map(row => <option key={row}>{row}</option>)}</select>}</Field>
@@ -77,15 +81,17 @@ export default function SupplierApOverviewPage() {
     {error && <StateMessage kind="error" title="AP overview unavailable">{error}</StateMessage>}
     {!error && (!filtered || loading) && <StateMessage kind="loading" title="Loading supplier AP overview…" />}
     {filtered && !loading && !error && <>
-      <p>Current outstanding balances aged at {formatCommercialDate(filtered.aging_date)}. Totals include all matching bills across every page. This is not a historical balance report.</p>
+      <p>{filtered.balance_basis === 'HISTORICAL_RECORDED_BALANCE'
+        ? `Recorded balances at the end of ${formatCommercialDate(filtered.aging_date)} (UTC), aged on that date. Later entries, cancellations and reversals do not change earlier balances. Supplier names and active status reflect current records.`
+        : `Current outstanding balances aged at ${formatCommercialDate(filtered.aging_date)}. This is not a historical balance report.`} Totals include all matching bills across every page.</p>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
         <a href={`/api/commercial/purchasing/ap-overview/export?${exportParams}&view=bills`} {...buttonProps('secondary')}>Export bills CSV</a>
         <a href={`/api/commercial/purchasing/ap-overview/export?${exportParams}&view=aging`} {...buttonProps('secondary')}>Export supplier aging CSV</a>
       </div>
-      <p>Exports include all matching posted bills across every page, including fully paid bills. Amounts are integer cents, separated by currency.</p>
+      <p>Exports include all matching bills in the selected balance basis across every page, including fully paid bills. Amounts are integer cents, separated by currency.</p>
       <h2>Totals by currency</h2>
       <TableContainer label="AP currency totals" minWidth={650}><table className={tableStyles.table}>
-        <thead><tr><th scope="col">Currency</th><th scope="col">Posted payable</th><th scope="col">Paid against posted bills</th><th scope="col">Outstanding</th><th scope="col">Overdue</th></tr></thead>
+        <thead><tr><th scope="col">Currency</th><th scope="col">Posted payable</th><th scope="col">Paid against included bills</th><th scope="col">Outstanding</th><th scope="col">Overdue</th></tr></thead>
         <tbody>{filtered.currencies.map(row => <tr key={row.currency}><td>{row.currency}</td>{[row.payable_cents, row.paid_cents, row.outstanding_cents, row.overdue_cents].map((amount, index) => <td key={index}>{formatMoneyCentsExact(amount, row.currency)}</td>)}</tr>)}{!filtered.currencies.length && <TableStateRow colSpan={5} kind="empty">No posted bills match these filters.</TableStateRow>}</tbody>
       </table></TableContainer>
       <h2>Supplier aging</h2>

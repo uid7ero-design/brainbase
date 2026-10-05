@@ -30,11 +30,11 @@ links only while the displayed report matches the applied filters.
 
 Both exports use the same SQL snapshot and filtering/aggregation as the paged
 overview. No page loop or arbitrary maximum row count is used. Bills CSV includes
-all matching POSTED bills, including fully paid and zero-value bills, so payable,
+all matching bills included by the selected balance basis, including fully paid and zero-value bills, so payable,
 paid and outstanding columns reconcile. Aging CSV includes every matching
 supplier/currency aggregate, all six aging buckets and bill counts. Currencies
-are separate; aging classifies current balances at the selected date and is not
-a historical liability report. Totals retain exact decimal strings in integer
+are separate. Current mode ages current balances; [historical recorded mode](commercial-supplier-ap-history.md)
+reconstructs recorded balances at the selected day's end in UTC. Totals retain exact decimal strings in integer
 cents, without converting through JavaScript floating-point numbers.
 
 CSV uses UTF-8 BOM, CRLF records, quoted multiline fields and formula-prefix

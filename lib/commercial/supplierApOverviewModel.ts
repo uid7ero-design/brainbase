@@ -11,8 +11,14 @@ export type ApBillInput = {
 };
 export type ApBill = ApBillInput & { outstanding_cents: string; bucket: ApAgingBucket };
 export type ApSupplier = ApAmounts & { supplier_id: string; supplier_name: string; supplier_active: boolean; currency: string };
+export type SupplierApBalanceBasis = 'CURRENT_POSTED_BILLS' | 'HISTORICAL_RECORDED_BALANCE';
+export function parseSupplierApBalanceBasis(params: URLSearchParams): SupplierApBalanceBasis {
+  const basis = params.get('balance_basis') ?? 'CURRENT_POSTED_BILLS';
+  if (basis !== 'CURRENT_POSTED_BILLS' && basis !== 'HISTORICAL_RECORDED_BALANCE') throw new Error('Invalid balance_basis');
+  return basis;
+}
 export type SupplierApOverview = {
-  aging_date: string; balance_basis: 'CURRENT_POSTED_BILLS'; bills: ApBill[];
+  aging_date: string; balance_basis: SupplierApBalanceBasis; as_of_timezone?: 'UTC'; bills: ApBill[];
   suppliers: ApSupplier[]; currencies: Array<ApAmounts & { currency: string }>;
 };
 export type SupplierApFilters = {
