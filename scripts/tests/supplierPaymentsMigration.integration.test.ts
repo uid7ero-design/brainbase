@@ -231,4 +231,14 @@ describe('AP-1 supplier payment schema migration', () => {
       WHERE id='${PAYMENT_2}'
     `)).resolves.not.toThrow();
   });
+
+  it('upgrades legacy payment rows without changing balances and is safe to reapply', async () => {
+    const before = await prisma.$queryRawUnsafe('SELECT id, amount_cents, status FROM commercial_supplier_payments ORDER BY id');
+    await prisma.$executeRawUnsafe('ALTER TABLE commercial_supplier_payments DROP COLUMN idempotency_key, DROP COLUMN request_hash');
+    const upgrade = fs.readFileSync(path.resolve(__dirname, '../add-commercial-supplier-payment-idempotency.sql'), 'utf8');
+    await executeSqlScript(upgrade); await executeSqlScript(upgrade);
+    expect(await prisma.$queryRawUnsafe('SELECT id, amount_cents, status FROM commercial_supplier_payments ORDER BY id')).toEqual(before);
+    await prisma.$executeRawUnsafe(`UPDATE commercial_supplier_payments SET idempotency_key='key-1', request_hash='hash-1' WHERE id='${PAYMENT_1}'`);
+    await expect(prisma.$executeRawUnsafe(`UPDATE commercial_supplier_payments SET idempotency_key='key-1', request_hash='hash-1' WHERE id='${PAYMENT_2}'`)).rejects.toThrow();
+  });
 });

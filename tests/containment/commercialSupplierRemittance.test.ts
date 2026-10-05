@@ -10,7 +10,8 @@ const id = '00000000-0000-0000-0000-000000000101';
 const b1 = '00000000-0000-0000-0000-000000000201'; const b2 = '00000000-0000-0000-0000-000000000202';
 const ctx = { params: Promise.resolve({ id }) };
 const body = () => ({ currency: 'AUD', method: 'BANK_TRANSFER', reference: 'REM1', allocations: [{ supplier_bill_id: b1, amount_cents: 2500 }, { supplier_bill_id: b2, amount_cents: 5000 }] });
-const request = (value: unknown) => new Request('http://localhost/', { method: 'POST', body: JSON.stringify(value) });
+const key = '00000000-0000-0000-0000-000000000301';
+const request = (value: unknown) => new Request('http://localhost/', { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify(value) });
 beforeEach(() => { vi.clearAllMocks(); authorize.mockResolvedValue({ ok: true, session: { organisationId: 'org-a', userId: 'u1' } }); supplier.mockResolvedValue({ id, name: 'Supplier', active: false }); record.mockResolvedValue({ payment: { id: 'p1' }, allocations: [] }); });
 describe('Supplier remittance inputs', () => {
   it.each([['0.01', 1], ['25.10', 2510], ['12', 1200], ['21474836.47', 2147483647]])('parses %s exactly', (value, cents) => expect(parseRemittanceAmount(String(value))).toBe(cents));
@@ -25,7 +26,7 @@ describe('Supplier remittance API', () => {
   it('derives supplier and tenant from context and total from allocations, ignoring client authority fields', async () => {
     const res = await POST(request({ ...body(), supplier_id: 'other', organisation_id: 'other', amount_cents: 1, provider: 'untrusted' }), ctx);
     expect(res.status).toBe(201); expect(res.headers.get('Cache-Control')).toBe('no-store');
-    expect(record).toHaveBeenCalledWith({ organisationId: 'org-a', userId: 'u1', supplierId: id, amountCents: 7500, currency: 'AUD', method: 'BANK_TRANSFER', reference: 'REM1', paidAt: null,
+    expect(record).toHaveBeenCalledWith({ organisationId: 'org-a', userId: 'u1', supplierId: id, amountCents: 7500, currency: 'AUD', method: 'BANK_TRANSFER', reference: 'REM1', paidAt: null, idempotencyKey: key,
       allocations: [{ supplierBillId: b1, amountCents: 2500 }, { supplierBillId: b2, amountCents: 5000 }] });
   });
   it.each([null, [], { ...body(), allocations: [] }, { ...body(), allocations: [{ supplier_bill_id: b1, amount_cents: 0 }] },
@@ -40,6 +41,15 @@ describe('Supplier remittance API', () => {
     expect(res.status).toBe(400); expect(record).not.toHaveBeenCalled();
   });
   it('maps authoritative balance conflicts to refreshable 409', async () => { record.mockRejectedValueOnce(new Error('supplier payment could not be recorded')); expect((await POST(request(body()), ctx)).status).toBe(409); });
+  it.each([null, 'invalid'])('requires a UUID retry key (%s) before mutation', async value => {
+    const req = request(body());
+    if (value === null) req.headers.delete('Idempotency-Key'); else req.headers.set('Idempotency-Key', value);
+    expect((await POST(req, ctx)).status).toBe(400); expect(record).not.toHaveBeenCalled();
+  });
+  it('returns a conflict when a retry key is reused with different details', async () => {
+    record.mockRejectedValueOnce(new Error('Idempotency key was already used for a different payment'));
+    expect((await POST(request(body()), ctx)).status).toBe(409);
+  });
   it('reads only outstanding posted candidates for the session supplier, including inactive suppliers', async () => {
     bills.mockResolvedValue([{ payable_cents: '10000', paid_cents: '2500', bill_id: b1 }, { payable_cents: '5000', paid_cents: '5000', bill_id: b2 }]);
     const res = await GET(new Request('http://localhost/'), ctx);

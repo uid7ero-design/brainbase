@@ -1,4 +1,5 @@
 import 'server-only';
+import { createHash } from 'node:crypto';
 
 import sql from '@/lib/db';
 import { isValidCents } from './money';
@@ -179,9 +180,11 @@ export async function recordSupplierPayment(params: {
   provider?: string | null;
   providerReference?: string | null;
   paidAt?: string | null;
+  idempotencyKey?: string | null;
 }): Promise<{
   payment: CommercialSupplierPayment;
   allocations: CommercialSupplierPaymentAllocation[];
+  replayed: boolean;
 }> {
   validateAllocations(params.amountCents, params.allocations);
   if (!isValidPaymentMethod(params.method)) throw new Error('Invalid payment method');
@@ -200,8 +203,19 @@ export async function recordSupplierPayment(params: {
     allocated_amount_cents: allocation.amountCents,
   }));
   const requestedJson = JSON.stringify(requested);
+  const requestKey = params.idempotencyKey?.toLowerCase() ?? null;
+  if (requestKey && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(requestKey)) throw new Error('Invalid idempotency key');
+  const requestHash = requestKey ? createHash('sha256').update(JSON.stringify({
+    supplier: params.supplierId.toLowerCase(), amount: params.amountCents, currency, method: params.method,
+    reference: params.reference ?? null, provider: params.provider?.trim() || null, providerReference: params.providerReference ?? null,
+    paidAt: params.paidAt ? new Date(params.paidAt).toISOString() : null,
+    allocations: requested.map(row => ({ ...row, supplier_bill_id: row.supplier_bill_id.toLowerCase() })).sort((a, b) => a.supplier_bill_id.localeCompare(b.supplier_bill_id)),
+  })).digest('hex') : null;
 
-  const [, paymentRows] = await sql.transaction(txn => [
+  // Lock the request before bill rows. A separate Read Committed statement
+  // then sees a concurrent retry's committed payment after waiting on this key.
+  const results = await sql.transaction(txn => [
+    ...(requestKey ? [txn`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify([params.organisationId, requestKey])}, 0))`] : []),
     txn`
       WITH requested AS MATERIALIZED (
         SELECT *
@@ -259,10 +273,14 @@ export async function recordSupplierPayment(params: {
         FROM bills b
         JOIN active_paid ap ON ap.supplier_bill_id = b.id
       ),
+      existing AS MATERIALIZED (
+        SELECT * FROM commercial_supplier_payments
+        WHERE organisation_id = ${params.organisationId} AND idempotency_key = ${requestKey}
+      ),
       ins_payment AS (
         INSERT INTO commercial_supplier_payments (
           organisation_id, supplier_id, amount_cents, currency, method,
-          reference, provider, provider_reference, paid_at, recorded_by
+          reference, provider, provider_reference, paid_at, recorded_by, idempotency_key, request_hash
         )
         SELECT
           ${params.organisationId},
@@ -274,11 +292,12 @@ export async function recordSupplierPayment(params: {
           ${params.provider?.trim() || null},
           ${params.providerReference ?? null},
           COALESCE(${params.paidAt ?? null}::timestamptz, now()),
-          ${params.userId}
+          ${params.userId}, ${requestKey}, ${requestHash}
         FROM checks
         WHERE bill_count = ${requested.length}
           AND allocation_total = ${params.amountCents}
           AND all_valid = true
+          AND NOT EXISTS (SELECT 1 FROM existing)
         RETURNING *
       ),
       ins_allocations AS (
@@ -297,12 +316,18 @@ export async function recordSupplierPayment(params: {
         CROSS JOIN ins_payment p
         RETURNING *
       )
-      SELECT p.*, (SELECT COUNT(*)::int FROM ins_allocations) AS allocation_count
+      SELECT p.*, (SELECT COUNT(*)::int FROM ins_allocations) AS allocation_count, false AS replayed
       FROM ins_payment p
+      UNION ALL
+      SELECT e.*, (SELECT COUNT(*)::int FROM commercial_supplier_payment_allocations a
+        WHERE a.supplier_payment_id = e.id AND a.organisation_id = e.organisation_id) AS allocation_count, true AS replayed
+      FROM existing e
     `,
   ], { isolationLevel: 'ReadCommitted' });
 
-  const row = (paymentRows as (CommercialSupplierPayment & { allocation_count: number })[])[0];
+  const paymentRows = results[results.length - 1];
+  const row = (paymentRows as (CommercialSupplierPayment & { allocation_count: number; request_hash: string | null; replayed: boolean })[])[0];
+  if (row && requestKey && row.request_hash !== requestHash) throw new Error('Idempotency key was already used for a different payment');
   if (!row || row.allocation_count !== requested.length) {
     throw new Error('supplier payment could not be recorded; verify every bill is POSTED, belongs to this supplier/currency, and has enough remaining balance');
   }
@@ -328,7 +353,7 @@ export async function recordSupplierPayment(params: {
   };
 
   const allocations = await listSupplierPaymentAllocations(params.organisationId, payment.id);
-  await logSupplierPaymentRecorded({
+  if (!row.replayed) await logSupplierPaymentRecorded({
     organisationId: params.organisationId,
     userId: params.userId,
     supplierPaymentId: payment.id,
@@ -343,7 +368,7 @@ export async function recordSupplierPayment(params: {
     })),
   });
 
-  return { payment, allocations };
+  return { payment, allocations, replayed: !!row.replayed };
 }
 
 export async function reverseSupplierPayment(params: {

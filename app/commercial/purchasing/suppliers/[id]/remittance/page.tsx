@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { paymentRequestKey, clearPaymentRequestKey } from '@/lib/commercial/paymentRequestKey';
 import Link from 'next/link';
 import { PAYMENT_METHODS } from '@/lib/commercial/paymentMethods';
 import { parseRemittanceAmount, MAX_REMITTANCE_CENTS } from '@/lib/commercial/supplierRemittanceInput';
@@ -9,7 +10,7 @@ import { formatCommercialDate } from '@/lib/commercial/dates';
 import type { ApBillInput } from '@/lib/commercial/supplierApOverviewModel';
 import { PageHeader, StateMessage, Field, TableContainer, TableStateRow, buttonProps, fieldControlClassName, tableStyles } from '@/components/ui/app';
 type Candidate = ApBillInput & { outstanding_cents: string };
-type Recorded = { payment: { id: string; amount_cents: number; currency: string }; allocations: Array<{ supplier_bill_id: string; allocated_amount_cents: number }>; billLabels: Record<string, string> };
+type Recorded = { payment: { id: string; amount_cents: number; currency: string; status: 'RECORDED' | 'REVERSED' }; allocations: Array<{ supplier_bill_id: string; allocated_amount_cents: number }>; billLabels: Record<string, string> };
 export default function SupplierRemittancePage() {
   const { id } = useParams<{ id: string }>();
   const [supplier, setSupplier] = useState<{ name: string; active: boolean } | null>(null);
@@ -58,10 +59,13 @@ export default function SupplierRemittancePage() {
     if (busy || !canPay || validation || !total || !method) return;
     setBusy(true); setError(''); setRecorded(null);
     try {
-      const res = await fetch(`/api/commercial/suppliers/${id}/payments`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currency, method, reference: reference || null, allocations }) });
+      const payload = JSON.stringify({ currency, method, reference: reference || null,
+        allocations: [...allocations].sort((a, b) => a.supplier_bill_id.localeCompare(b.supplier_bill_id)) });
+      const key = await paymentRequestKey(`supplier:${id}`, payload);
+      const res = await fetch(`/api/commercial/suppliers/${id}/payments`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key }, body: payload });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Unable to confirm payment. Check bill payment history before retrying.');
+      clearPaymentRequestKey(`supplier:${id}`, key);
       setRecorded({ ...data, billLabels: Object.fromEntries(visible.map(bill => [bill.bill_id, bill.bill_number ?? bill.supplier_invoice_number])) }); setAmounts({}); setMethod(''); setReference('');
       await load();
     } catch (err) {
@@ -73,7 +77,7 @@ export default function SupplierRemittancePage() {
   return <div style={{ maxWidth: 1100 }}>
     <PageHeader title="Supplier Remittance" eyebrow={<Link href={`/commercial/purchasing/suppliers/${id}`}>← Supplier</Link>} description={supplier ? `${supplier.name}${supplier.active ? '' : ' (Inactive)'}` : 'Allocate one payment across posted bills.'} />
     <p>One supplier and currency per remittance. The payment must be fully allocated. Reversal from any allocated bill reverses the entire remittance. Cash settlement remains separate from Budget Actual.</p>
-    {recorded && <StateMessage kind="empty" title={`Payment recorded: ${formatMoneyCentsExact(String(recorded.payment.amount_cents), recorded.payment.currency)}`}>
+    {recorded && <StateMessage kind="empty" title={`${recorded.payment.status === 'REVERSED' ? 'Payment already reversed' : 'Payment recorded'}: ${formatMoneyCentsExact(String(recorded.payment.amount_cents), recorded.payment.currency)}`}>
       {recorded.allocations.map(allocation => <span key={allocation.supplier_bill_id}><Link href={`/commercial/purchasing/supplier-bills/${allocation.supplier_bill_id}`}>View {recorded.billLabels[allocation.supplier_bill_id] ?? 'bill'} payment history</Link>{' '}</span>)}
     </StateMessage>}
     {error && <StateMessage kind="error" title="Remittance unavailable">{error}</StateMessage>}

@@ -69,6 +69,65 @@ afterAll(async () => {
 });
 
 describe('AP-2 real-Postgres supplier settlement concurrency', () => {
+  it('serializes concurrent identical retries and emits one payment, allocation and audit event', async () => {
+    await resetFacts();
+    const { logSupplierPaymentRecorded } = await import('@/lib/commercial/auditLog');
+    vi.mocked(logSupplierPaymentRecorded).mockClear();
+    const params = { organisationId: ORG, userId: USER, supplierId: SUPPLIER, amountCents: 10000,
+      currency: 'AUD', method: 'BANK_TRANSFER' as const, idempotencyKey: 'aaaaaaaa-0000-0000-0000-000000000301',
+      allocations: [{ supplierBillId: BILL, amountCents: 10000 }] };
+    const results = await Promise.all(Array.from({ length: 6 }, () => recordSupplierPayment(params)));
+    expect(new Set(results.map(result => result.payment.id)).size).toBe(1);
+    expect(results.filter(result => !result.replayed)).toHaveLength(1);
+    expect(logSupplierPaymentRecorded).toHaveBeenCalledTimes(1);
+    expect(await testSql.raw('SELECT count(*)::int AS n FROM commercial_supplier_payment_allocations')).toEqual([{ n: 1 }]);
+    expect((await getSupplierBillPaymentSummary(ORG, BILL))?.outstanding_balance_cents).toBe(0);
+    // Case-normalized keys and equivalent timestamps/allocations resolve the original intent.
+    expect((await recordSupplierPayment({ ...params, idempotencyKey: params.idempotencyKey.toUpperCase() })).replayed).toBe(true);
+    await reverseSupplierPayment({ organisationId: ORG, userId: USER, supplierPaymentId: results[0].payment.id, reason: 'Correction' });
+    const replay = await recordSupplierPayment(params);
+    expect(replay.payment.status).toBe('REVERSED'); expect(replay.replayed).toBe(true);
+    expect(logSupplierPaymentRecorded).toHaveBeenCalledTimes(1);
+    expect((await getSupplierBillPaymentSummary(ORG, BILL))?.outstanding_balance_cents).toBe(10000);
+  });
+
+  it('rejects concurrent key reuse with different bills without writing the second request', async () => {
+    await resetFacts();
+    const other = '00000000-0000-0000-0000-000000000299';
+    await testSql.raw(`INSERT INTO commercial_supplier_bills (id,organisation_id,supplier_id,currency,status,total_cents)
+      VALUES ('${other}','${ORG}','${SUPPLIER}','AUD','POSTED',10000)`);
+    const attempt = (bill: string) => recordSupplierPayment({ organisationId: ORG, userId: USER, supplierId: SUPPLIER,
+      amountCents: 1000, currency: 'AUD', method: 'CASH', idempotencyKey: 'aaaaaaaa-0000-0000-0000-000000000302',
+      allocations: [{ supplierBillId: bill, amountCents: 1000 }] });
+    const results = await Promise.allSettled([attempt(BILL), attempt(other)]);
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find(result => result.status === 'rejected') as PromiseRejectedResult;
+    expect(rejected.reason.message).toContain('Idempotency key');
+    expect(await testSql.raw('SELECT count(*)::int AS n FROM commercial_supplier_payments')).toEqual([{ n: 1 }]);
+  });
+
+  it('canonicalizes allocation order and scopes the same key to its organisation', async () => {
+    await resetFacts();
+    const second = '00000000-0000-0000-0000-000000000298';
+    await testSql.raw(`INSERT INTO commercial_supplier_bills (id,organisation_id,supplier_id,currency,status,total_cents)
+      VALUES ('${second}','${ORG}','${SUPPLIER}','AUD','POSTED',10000)`);
+    const params = { organisationId: ORG, userId: USER, supplierId: SUPPLIER, amountCents: 2000,
+      currency: 'AUD', method: 'CASH' as const, idempotencyKey: 'aaaaaaaa-0000-0000-0000-000000000303',
+      allocations: [{ supplierBillId: BILL, amountCents: 1000 }, { supplierBillId: second, amountCents: 1000 }] };
+    const first = await recordSupplierPayment(params);
+    expect((await recordSupplierPayment({ ...params, allocations: [...params.allocations].reverse() })).payment.id).toBe(first.payment.id);
+    await expect(recordSupplierPayment({ ...params, reference: 'different' })).rejects.toThrow('Idempotency key');
+    await expect(recordSupplierPayment({ ...params, organisationId: 'other-org' })).rejects.toThrow('could not be recorded');
+    const otherSupplier = '00000000-0000-0000-0000-000000000198';
+    const otherBill = '00000000-0000-0000-0000-000000000297';
+    await testSql.raw("INSERT INTO organisations VALUES ('other-org')");
+    await testSql.raw(`INSERT INTO commercial_suppliers VALUES ('${otherSupplier}','other-org')`);
+    await testSql.raw(`INSERT INTO commercial_supplier_bills VALUES ('${otherBill}','other-org','${otherSupplier}','AUD','POSTED',10000)`);
+    const other = await recordSupplierPayment({ ...params, organisationId: 'other-org', supplierId: otherSupplier,
+      allocations: [{ supplierBillId: otherBill, amountCents: 2000 }] });
+    expect(other.replayed).toBe(false); expect(other.payment.id).not.toBe(first.payment.id);
+  });
+
   it('records a multi-bill remittance atomically and reverses all allocations together', async () => {
     await resetFacts();
     const secondBill = '00000000-0000-0000-0000-000000000202';

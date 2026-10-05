@@ -31,6 +31,8 @@ export async function POST(request: Request, { params }: Ctx) {
   const { id } = await params;
   if (!uuid.test(id)) return reply('Supplier not found.', 404);
   const body = await request.json().catch(() => null);
+  const idempotencyKey = request.headers.get('Idempotency-Key');
+  if (!idempotencyKey || !uuid.test(idempotencyKey)) return reply('A UUID Idempotency-Key header is required.', 400);
   if (!body || typeof body !== 'object' || Array.isArray(body)) return reply('A payment object is required.', 400);
   const { currency, method, reference, paid_at: paidAt, allocations } = body;
   if (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) return reply('A three-letter currency is required.', 400);
@@ -51,12 +53,13 @@ export async function POST(request: Request, { params }: Ctx) {
   try {
     if (!await getSupplier(auth.session.organisationId, id)) return reply('Supplier not found.', 404);
     const result = await recordSupplierPayment({ organisationId: auth.session.organisationId, userId: auth.session.userId,
-      supplierId: id, amountCents: total, currency, method: method as PaymentMethod,
+      supplierId: id, amountCents: total, currency, method: method as PaymentMethod, idempotencyKey,
       allocations: allocations.map((allocation: { supplier_bill_id: string; amount_cents: number }) => ({ supplierBillId: allocation.supplier_bill_id, amountCents: allocation.amount_cents })),
       reference: reference ?? null, paidAt: paidAt ?? null });
     return NextResponse.json(result, { status: 201, headers });
   } catch (err) {
     const message = err instanceof Error ? err.message : '';
+    if (message.includes('Idempotency key')) return reply(message, 409);
     if (message.includes('could not be recorded')) return reply('Payment not recorded. Refresh balances and verify supplier, currency, POSTED status and allocations.', 409);
     return reply('Unable to confirm supplier payment. Check bill payment history before retrying.', 500);
   }

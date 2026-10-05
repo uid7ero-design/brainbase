@@ -35,7 +35,7 @@ test.beforeAll(async () => {
 async function mount(page: Page, role = 'admin', conflict: boolean | 'network' = false) {
   const requests: Record<string, unknown>[] = [];
   let recorded = false;
-  await page.route('http://brainbase.local/**', async route => {
+  await page.route('http://localhost/**', async route => {
     const url = new URL(route.request().url());
     if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<div id="root"></div>' });
     let data: unknown = { role };
@@ -54,7 +54,7 @@ async function mount(page: Page, role = 'admin', conflict: boolean | 'network' =
     }
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify(data) });
   });
-  await page.goto('http://brainbase.local/'); await page.addScriptTag({ content: bundle });
+  await page.goto('http://localhost/'); await page.addScriptTag({ content: bundle });
   await expect(page.getByLabel('Currency')).toBeVisible();
   await page.getByLabel('Currency').selectOption('AUD');
   return requests;

@@ -35,7 +35,7 @@ const BILL = {
 function req(body?: unknown, method = 'POST') {
   const request = new Request('http://localhost/x', {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': '00000000-0000-0000-0000-000000000301' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return Object.assign(request, { nextUrl: new URL(request.url) }) as unknown as import('next/server').NextRequest;
@@ -98,6 +98,16 @@ describe('AP-3 supplier payment record route', () => {
     expect((await paymentsPOST(req({ amount_cents: 100, method: 'STRIPE' }), ctx({ id: 'bill-1' }))).status).toBe(400);
     expect((await paymentsPOST(req({ amount_cents: 100, method: 'CASH', reference: 7 }), ctx({ id: 'bill-1' }))).status).toBe(400);
     expect((await paymentsPOST(req({ amount_cents: 100, method: 'CASH', paid_at: 'bad' }), ctx({ id: 'bill-1' }))).status).toBe(400);
+    expect(recordMock).not.toHaveBeenCalled();
+  });
+
+  it('requires a UUID retry key before recording', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: ADMIN });
+    for (const key of [null, 'invalid']) {
+      const request = req({ amount_cents: 100, method: 'CASH' });
+      if (key === null) request.headers.delete('Idempotency-Key'); else request.headers.set('Idempotency-Key', key);
+      expect((await paymentsPOST(request, ctx({ id: 'bill-1' }))).status).toBe(400);
+    }
     expect(recordMock).not.toHaveBeenCalled();
   });
 

@@ -7,6 +7,7 @@ import { formatCommercialDate } from '@/lib/commercial/dates';
 import { formatMoneyCents } from '@/lib/commercial/money';
 import type { SupplierBillStatus } from '@/lib/commercial/supplierBillLifecycle';
 import { PAYMENT_METHODS, type PaymentMethod } from '@/lib/commercial/paymentMethods';
+import { paymentRequestKey, clearPaymentRequestKey } from '@/lib/commercial/paymentRequestKey';
 import {
   Field as AppField,
   FormError,
@@ -228,25 +229,30 @@ export default function SupplierBillDetailPage() {
 
   async function recordPayment(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
     if (!paymentMethod) { setActionError('A payment method is required.'); return; }
     const amountCents = Math.round(parseFloat(paymentAmount || '0') * 100);
     if (!Number.isInteger(amountCents) || amountCents <= 0) { setActionError('Enter a valid payment amount.'); return; }
     setBusy(true); setActionError('');
-    const res = await fetch(`/api/commercial/supplier-bills/${id}/payments`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    try {
+      const payload = JSON.stringify({
         amount_cents: amountCents,
         method: paymentMethod,
         reference: paymentReference || null,
         paid_at: paymentPaidDate ? new Date(paymentPaidDate).toISOString() : null,
-      }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (!res.ok) { setActionError(data.error ?? 'Failed to record supplier payment.'); return; }
-    setPaymentSummary(data.supplier_bill_payment_summary ?? null);
-    setShowRecordPayment(false);
-    setPaymentAmount(''); setPaymentMethod(''); setPaymentReference(''); setPaymentPaidDate('');
+      });
+      const key = await paymentRequestKey(`bill:${id}`, payload);
+      const res = await fetch(`/api/commercial/supplier-bills/${id}/payments`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key }, body: payload,
+      });
+      const data = await res.json();
+      if (!res.ok) { setActionError(data.error ?? 'Failed to record supplier payment.'); return; }
+      clearPaymentRequestKey(`bill:${id}`, key);
+      setPaymentSummary(data.supplier_bill_payment_summary ?? null);
+      setShowRecordPayment(false);
+      setPaymentAmount(''); setPaymentMethod(''); setPaymentReference(''); setPaymentPaidDate('');
+    } catch { setActionError('Unable to confirm payment. Retry the same details or check payment history.'); }
+    finally { setBusy(false); }
   }
 
   async function reversePayment(paymentId: string) {

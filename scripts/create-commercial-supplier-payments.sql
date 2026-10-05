@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS commercial_supplier_payments (
   method                TEXT NOT NULL
                         CHECK (method IN ('BANK_TRANSFER', 'CASH', 'CARD', 'CHEQUE', 'OTHER')),
   reference             TEXT,
+  idempotency_key       TEXT,
+  request_hash          TEXT,
   provider              TEXT,
   provider_reference    TEXT,
   paid_at               TIMESTAMPTZ NOT NULL,
@@ -74,6 +76,15 @@ CREATE TABLE IF NOT EXISTS commercial_supplier_payments (
 
 CREATE INDEX IF NOT EXISTS idx_commercial_supplier_payments_org
   ON commercial_supplier_payments(organisation_id);
+
+-- Preserve safe reapplication when these tables predate retry protection.
+ALTER TABLE commercial_supplier_payments
+  ADD COLUMN IF NOT EXISTS idempotency_key TEXT,
+  ADD COLUMN IF NOT EXISTS request_hash TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_payment_request_key
+  ON commercial_supplier_payments(organisation_id, idempotency_key)
+  WHERE idempotency_key IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_commercial_supplier_payments_org_supplier
   ON commercial_supplier_payments(organisation_id, supplier_id);

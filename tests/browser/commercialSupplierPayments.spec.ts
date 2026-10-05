@@ -42,7 +42,7 @@ async function mount(page: Page, role = 'admin') {
       outstanding_balance_cents: 10000 - paid, active_payment_count: active.length,
       payment_state: paid === 10000 ? 'PAID' : paid ? 'PARTIALLY_PAID' : 'UNPAID', payments };
   };
-  await page.route('http://brainbase.local/**', async route => {
+  await page.route('http://localhost/**', async route => {
     const url = new URL(route.request().url());
     let data: unknown = {};
     if (url.pathname.endsWith('/payments') || url.pathname.endsWith('/reverse')) {
@@ -69,7 +69,7 @@ async function mount(page: Page, role = 'admin') {
     if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<div id="root"></div>' });
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(data) });
   });
-  await page.goto('http://brainbase.local/');
+  await page.goto('http://localhost/');
   await page.addScriptTag({ content: bundle });
   await expect(page.getByRole('heading', { name: 'Supplier Payments', exact: true })).toBeVisible();
   return requests;

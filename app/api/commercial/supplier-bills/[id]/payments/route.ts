@@ -37,6 +37,13 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   if (!bill) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
 
   const body = await req.json().catch(() => ({}));
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'A payment object is required.' }, { status: 400 });
+  }
+  const idempotencyKey = req.headers.get('Idempotency-Key');
+  if (!idempotencyKey || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idempotencyKey)) {
+    return NextResponse.json({ error: 'A UUID Idempotency-Key header is required.' }, { status: 400 });
+  }
   const { amount_cents: amountCents, method, reference, paid_at: paidAt } = body;
 
   if (typeof amountCents !== 'number' || !isValidCents(amountCents) || amountCents <= 0) {
@@ -60,6 +67,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     const { payment } = await recordSupplierPayment({
       organisationId: auth.session.organisationId,
       userId: auth.session.userId,
+      idempotencyKey,
       supplierId: bill.supplier_id,
       amountCents,
       currency: bill.currency,
@@ -72,6 +80,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ payment, supplier_bill_payment_summary: summary }, { status: 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to record supplier payment.';
+    if (message.includes('Idempotency key')) return NextResponse.json({ error: message }, { status: 409 });
     if (message.includes('not found')) return NextResponse.json({ error: message }, { status: 404 });
     if (message.includes('could not be recorded') || message.includes('remaining balance') || message.includes('POSTED')) {
       return NextResponse.json({ error: message }, { status: 409 });
