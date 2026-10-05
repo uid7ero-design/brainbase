@@ -7,9 +7,10 @@ downloads and historical recorded balances. Bank feeds, reconciliation, approval
 and scheduled payment workflows, FX and unapplied cash are optional expansions.
 
 This document is the current release index. Older design documents and their
-test counts describe the slice at the time it was implemented. No hosted
-migration, push or deployment has been performed. Rollout requires a separate
-explicit user request.
+test counts describe the slice at the time it was implemented. The branch is now
+pushed for review in draft PR #342. Git integration triggered an automatic
+Vercel preview; no hosted migration or production deployment has been performed
+by this work. Production rollout requires a separate explicit user request.
 
 ## Local gates
 
@@ -60,7 +61,7 @@ tree and removes its disposable database container in `finally`, including on
 failure. It does not verify hosted TLS, hosted Neon transport, proxy/CDN behavior,
 production credentials, real customer data or live infrastructure.
 
-### Latest local evidence (5 October 2026)
+### AP baseline evidence (5 October 2026)
 
 - Commercial containment: 1,954 tests across 131 files passed after the date fix.
 - Disposable PostgreSQL AP suites: 40 tests passed (migration 10, concurrency 7,
@@ -74,13 +75,40 @@ production credentials, real customer data or live infrastructure.
   browser suite remains separate evidence; the runtime pass exercises the actual
   built application and authentication.
 
+### PR #342 CI remediation (6 October 2026, Adelaide)
+
+GitHub's initial repository-wide CI run found eight failures in shared styling
+and navigation guards, beyond the earlier Commercial-only run. The new Budgeting
+pages and added PO sections now use theme/semantic tokens and restrained radii;
+finance forms and tables use shared controls/styles. Navigation guards include
+Budgeting as an active Commercial capability, matching the existing layout.
+
+Two unchanged Data Hub source-reading tests also normalize CRLF before their
+existing assertions, so Windows fixtures retain the same tenant and forbidden-
+scheduler checks as Linux. No Data Hub runtime or SQL was changed.
+
+- Repository-wide CI test command: 14,703 passed across 681 files; 64 tests and
+  five files skipped. The same three existing CI file exclusions remain.
+- Targeted shared/Commercial checks: 643 passed; portability/import checks: 125
+  passed. An import timeout during concurrent build execution passed on rerun.
+- TypeScript and focused ESLint passed.
+- Existing controlled finance/export browser suites: 24 passed. These use
+  controlled fixtures, rather than a hosted environment.
+- Fresh production webpack build passed; all 12 local production AP runtime
+  checks passed against build `3xPHaPSwliVUtaZecxH1K`.
+
+These results resolve the observed CI failures; the draft still requires review
+of the complete purchasing/budgeting/finance/AP diff and target-schema inventory.
+
 ## Release handoff
 
-The tested application candidate is commit
+The original tested application candidate is commit
 `e65ce37bba71646f5c0c1018d8e5c283de55d474` on
 `feat/c7-7-budget-account-design`. Later documentation-only commits do not change
-that application candidate. Build ID `5MrgdGBgLzyrj3mzbSLJe` identifies the local
-runtime verification; a future deployment must record its own build identity.
+that application candidate. Build ID `5MrgdGBgLzyrj3mzbSLJe` identifies that local
+runtime verification. The subsequent CI-remediation candidate is `e4c36ace`,
+verified against build `3xPHaPSwliVUtaZecxH1K`; a future deployment must record
+its own build identity.
 
 The AP implementation starts with design commit `53ccc137`, after `ca5d5c86`,
 and includes schema/domain/API/UI, containment, reporting and runtime checks.
