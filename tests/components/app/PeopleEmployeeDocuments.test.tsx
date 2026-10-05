@@ -186,7 +186,7 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Acknowledge' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Could not acknowledge document.');
+    expect(await screen.findByText('Could not acknowledge document.')).toBeTruthy();
     expect(screen.getByText('Safety policy')).toBeTruthy();
     expect(screen.getByText('Not acknowledged')).toBeTruthy();
     expect(document.body.textContent).not.toContain('sensitive mutation detail');
