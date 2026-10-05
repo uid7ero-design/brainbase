@@ -64,6 +64,7 @@ type DocumentVersionState = 'idle' | 'submitting' | 'error';
 type DocumentDeleteState = 'idle' | 'submitting' | 'error';
 type LifecycleTaskOptionsState = 'idle' | 'loading' | 'ready' | 'error';
 type LifecycleWorkflowsState = 'idle' | 'loading' | 'ready' | 'error';
+type LifecycleTaskActionState = 'idle' | 'submitting' | 'error';
 
 type LifecycleTaskOption = {
   id: string;
@@ -85,8 +86,12 @@ type PersonLifecycleWorkflowSummary = {
 type PersonLifecycleTaskSummary = {
   id: string;
   title: string;
-  status: string;
+  status: 'NOT_STARTED' | 'IN_PROGRESS' | 'AWAITING_APPROVAL' | 'COMPLETED' | 'WAIVED' | 'CANCELLED';
   due_at: string | null;
+  capabilities: {
+    can_execute: boolean;
+    can_approve: boolean;
+  };
 };
 
 type LifecycleTaskDetailsState =
@@ -144,6 +149,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   const [lifecycleWorkflowsState, setLifecycleWorkflowsState] = useState<LifecycleWorkflowsState>('idle');
   const [lifecycleTaskWorkflowId, setLifecycleTaskWorkflowId] = useState<string | null>(null);
   const [lifecycleTasksByWorkflow, setLifecycleTasksByWorkflow] = useState<Record<string, LifecycleTaskDetailsState>>({});
+  const [lifecycleTaskActionById, setLifecycleTaskActionById] = useState<Record<string, LifecycleTaskActionState>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -174,6 +180,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         setLifecycleWorkflowsState('idle');
         setLifecycleTaskWorkflowId(null);
         setLifecycleTasksByWorkflow({});
+        setLifecycleTaskActionById({});
         return;
       }
 
@@ -203,6 +210,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setLifecycleWorkflowsState('loading');
       setLifecycleTaskWorkflowId(null);
       setLifecycleTasksByWorkflow({});
+      setLifecycleTaskActionById({});
 
       void fetch(`/api/hr/people/${personId}`)
         .then(async response => {
@@ -475,21 +483,42 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         return;
       }
 
+      const taskStatuses = new Set([
+        'NOT_STARTED',
+        'IN_PROGRESS',
+        'AWAITING_APPROVAL',
+        'COMPLETED',
+        'WAIVED',
+        'CANCELLED',
+      ]);
+
       const tasks = data.tasks
-        .filter((task: unknown): task is PersonLifecycleTaskSummary => {
+        .filter((task: unknown): task is Record<string, unknown> => {
           if (!task || typeof task !== 'object') return false;
-          const candidate = task as Partial<PersonLifecycleTaskSummary>;
+          const candidate = task as Record<string, unknown>;
           return typeof candidate.id === 'string'
             && typeof candidate.title === 'string'
             && typeof candidate.status === 'string'
+            && taskStatuses.has(candidate.status)
             && (candidate.due_at === null || typeof candidate.due_at === 'string');
         })
-        .map((task: PersonLifecycleTaskSummary) => ({
-          id: task.id,
-          title: task.title,
-          status: task.status,
-          due_at: task.due_at,
-        }));
+        .map((task: Record<string, unknown>): PersonLifecycleTaskSummary => {
+          const capabilities = (
+            task.capabilities
+            && typeof task.capabilities === 'object'
+          ) ? task.capabilities as Record<string, unknown> : {};
+
+          return {
+            id: task.id as string,
+            title: task.title as string,
+            status: task.status as PersonLifecycleTaskSummary['status'],
+            due_at: task.due_at as string | null,
+            capabilities: {
+              can_execute: capabilities.can_execute === true,
+              can_approve: capabilities.can_approve === true,
+            },
+          };
+        });
 
       setLifecycleTasksByWorkflow(current => ({
         ...current,
@@ -502,6 +531,99 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       }));
     }
   }
+
+  async function runLifecycleTaskAction(
+    workflow: PersonLifecycleWorkflowSummary,
+    task: PersonLifecycleTaskSummary,
+    action: 'start' | 'complete',
+  ) {
+    if (!task.capabilities.can_execute) return;
+    if (action === 'start' && task.status !== 'NOT_STARTED') return;
+    if (action === 'complete' && task.status !== 'IN_PROGRESS') return;
+
+    setLifecycleTaskActionById(current => ({
+      ...current,
+      [task.id]: 'submitting',
+    }));
+
+    try {
+      const response = await fetch(`/api/hr/lifecycle/tasks/${task.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      const allowedStatuses = new Set([
+        'NOT_STARTED',
+        'IN_PROGRESS',
+        'AWAITING_APPROVAL',
+        'COMPLETED',
+        'WAIVED',
+        'CANCELLED',
+      ]);
+
+      if (
+        !response.ok
+        || data.task?.id !== task.id
+        || typeof data.task?.status !== 'string'
+        || !allowedStatuses.has(data.task.status)
+      ) {
+        setLifecycleTaskActionById(current => ({
+          ...current,
+          [task.id]: 'error',
+        }));
+        return;
+      }
+
+      setLifecycleTasksByWorkflow(current => {
+        const detail = current[workflow.id];
+        if (detail?.state !== 'ready') return current;
+
+        return {
+          ...current,
+          [workflow.id]: {
+            state: 'ready',
+            tasks: detail.tasks.map(item => (
+              item.id === task.id
+                ? { ...item, status: data.task.status as PersonLifecycleTaskSummary['status'] }
+                : item
+            )),
+          },
+        };
+      });
+
+      if (
+        data.workflow?.id === workflow.id
+        && (data.workflow.status === 'ACTIVE'
+          || data.workflow.status === 'COMPLETED'
+          || data.workflow.status === 'CANCELLED')
+      ) {
+        setLifecycleWorkflows(current => current.map(item => (
+          item.id === workflow.id
+            ? {
+                ...item,
+                status: data.workflow.status,
+                completed_at: data.workflow.completed_at ?? item.completed_at,
+              }
+            : item
+        )));
+      }
+
+      setLifecycleTaskActionById(current => ({
+        ...current,
+        [task.id]: 'idle',
+      }));
+    } catch {
+      setLifecycleTaskActionById(current => ({
+        ...current,
+        [task.id]: 'error',
+      }));
+    }
+  }
+
+  const lifecycleStartButton = buttonProps('secondary', 'sm');
+  const lifecycleCompleteButton = buttonProps('primary', 'sm');
 
   const editButton = buttonProps('secondary', 'sm');
   const acknowledgeButton = buttonProps('secondary', 'sm');
@@ -1069,18 +1191,54 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                 No visible tasks
                               </div>
                             )}
-                            {taskDetails.tasks.map(task => (
-                              <div key={task.id} style={{ padding: '5px 0' }}>
-                                <div style={{ color: 'var(--text-primary)', fontSize: 12, fontWeight: 600 }}>
-                                  {task.title} · {task.status}
-                                </div>
-                                {task.due_at && (
-                                  <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
-                                    Due {dateOnly(task.due_at)}
+                            {taskDetails.tasks.map(task => {
+                              const actionState = lifecycleTaskActionById[task.id] ?? 'idle';
+
+                              return (
+                                <div key={task.id} style={{ padding: '5px 0' }}>
+                                  <div style={{ color: 'var(--text-primary)', fontSize: 12, fontWeight: 600 }}>
+                                    {task.title} · {task.status}
                                   </div>
-                                )}
-                              </div>
-                            ))}
+                                  {task.due_at && (
+                                    <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
+                                      Due {dateOnly(task.due_at)}
+                                    </div>
+                                  )}
+
+                                  {task.capabilities.can_execute && task.status === 'NOT_STARTED' && (
+                                    <div style={{ marginTop: 6 }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => void runLifecycleTaskAction(workflow, task, 'start')}
+                                        disabled={actionState === 'submitting'}
+                                        {...lifecycleStartButton}
+                                      >
+                                        {actionState === 'submitting' ? 'Starting…' : 'Start task'}
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  {task.capabilities.can_execute && task.status === 'IN_PROGRESS' && (
+                                    <div style={{ marginTop: 6 }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => void runLifecycleTaskAction(workflow, task, 'complete')}
+                                        disabled={actionState === 'submitting'}
+                                        {...lifecycleCompleteButton}
+                                      >
+                                        {actionState === 'submitting' ? 'Completing…' : 'Complete task'}
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  {actionState === 'error' && (
+                                    <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 5 }}>
+                                      Could not update lifecycle task.
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
