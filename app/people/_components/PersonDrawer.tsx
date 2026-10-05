@@ -63,12 +63,23 @@ type DocumentCreateState = 'idle' | 'submitting' | 'error';
 type DocumentVersionState = 'idle' | 'submitting' | 'error';
 type DocumentDeleteState = 'idle' | 'submitting' | 'error';
 type LifecycleTaskOptionsState = 'idle' | 'loading' | 'ready' | 'error';
+type LifecycleWorkflowsState = 'idle' | 'loading' | 'ready' | 'error';
 
 type LifecycleTaskOption = {
   id: string;
   title: string;
   status: string;
   lifecycle_type: string;
+};
+
+type PersonLifecycleWorkflowSummary = {
+  id: string;
+  lifecycle_type: string;
+  status: string;
+  anchor_date: string;
+  started_at: string;
+  completed_at: string | null;
+  cancelled_at: string | null;
 };
 
 type EmployeeDocumentVersionSummary = {
@@ -117,6 +128,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   const [lifecycleTaskOptions, setLifecycleTaskOptions] = useState<LifecycleTaskOption[]>([]);
   const [lifecycleTaskOptionsState, setLifecycleTaskOptionsState] = useState<LifecycleTaskOptionsState>('idle');
   const [newDocumentLifecycleTaskId, setNewDocumentLifecycleTaskId] = useState('');
+  const [lifecycleWorkflows, setLifecycleWorkflows] = useState<PersonLifecycleWorkflowSummary[]>([]);
+  const [lifecycleWorkflowsState, setLifecycleWorkflowsState] = useState<LifecycleWorkflowsState>('idle');
 
   useEffect(() => {
     let cancelled = false;
@@ -143,6 +156,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         setLifecycleTaskOptions([]);
         setLifecycleTaskOptionsState('idle');
         setNewDocumentLifecycleTaskId('');
+        setLifecycleWorkflows([]);
+        setLifecycleWorkflowsState('idle');
         return;
       }
 
@@ -168,6 +183,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setLifecycleTaskOptions([]);
       setLifecycleTaskOptionsState('idle');
       setNewDocumentLifecycleTaskId('');
+      setLifecycleWorkflows([]);
+      setLifecycleWorkflowsState('loading');
 
       void fetch(`/api/hr/people/${personId}`)
         .then(async response => {
@@ -184,6 +201,49 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         })
         .finally(() => {
           if (!cancelled) setLoading(false);
+        });
+
+      void fetch(`/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(personId)}`)
+        .then(async response => {
+          const data = await response.json().catch(() => ({}));
+          if (cancelled) return;
+
+          if (!response.ok || !Array.isArray(data.workflows)) {
+            setLifecycleWorkflows([]);
+            setLifecycleWorkflowsState('error');
+            return;
+          }
+
+          const workflows = data.workflows
+            .filter((workflow: unknown): workflow is PersonLifecycleWorkflowSummary => {
+              if (!workflow || typeof workflow !== 'object') return false;
+              const candidate = workflow as Partial<PersonLifecycleWorkflowSummary>;
+              return typeof candidate.id === 'string'
+                && typeof candidate.lifecycle_type === 'string'
+                && typeof candidate.status === 'string'
+                && typeof candidate.anchor_date === 'string'
+                && typeof candidate.started_at === 'string'
+                && (candidate.completed_at === null || typeof candidate.completed_at === 'string')
+                && (candidate.cancelled_at === null || typeof candidate.cancelled_at === 'string');
+            })
+            .map((workflow: PersonLifecycleWorkflowSummary) => ({
+              id: workflow.id,
+              lifecycle_type: workflow.lifecycle_type,
+              status: workflow.status,
+              anchor_date: workflow.anchor_date,
+              started_at: workflow.started_at,
+              completed_at: workflow.completed_at,
+              cancelled_at: workflow.cancelled_at,
+            }));
+
+          setLifecycleWorkflows(workflows);
+          setLifecycleWorkflowsState('ready');
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setLifecycleWorkflows([]);
+            setLifecycleWorkflowsState('error');
+          }
         });
 
       void fetch(`/api/hr/people/${personId}/documents`)
@@ -856,6 +916,53 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
           {'work_email' in person && <Row label="Work Email" value={person.work_email ?? '—'} />}
           {'work_phone' in person && <Row label="Work Phone" value={person.work_phone ?? '—'} />}
           {canManage && <Row label="Linked BrainBase Account" value={person.linked_user_id ? 'Linked' : 'Not linked'} />}
+
+          {lifecycleWorkflowsState !== 'idle' && (
+            <section aria-labelledby="person-lifecycle-heading" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 14, marginTop: 2 }}>
+              <div id="person-lifecycle-heading" style={{ color: 'var(--text-primary)', fontSize: 14, fontWeight: 700, marginBottom: 10 }}>
+                Lifecycle
+              </div>
+
+              {lifecycleWorkflowsState === 'loading' && (
+                <StateMessage kind="loading" title="Loading lifecycle…" />
+              )}
+
+              {lifecycleWorkflowsState === 'error' && (
+                <StateMessage kind="error" title="Could not load lifecycle." />
+              )}
+
+              {lifecycleWorkflowsState === 'ready' && lifecycleWorkflows.length === 0 && (
+                <StateMessage kind="empty" title="No lifecycle workflows" />
+              )}
+
+              {lifecycleWorkflowsState === 'ready' && lifecycleWorkflows.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {lifecycleWorkflows.map(workflow => (
+                    <div key={workflow.id} style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 10 }}>
+                      <div style={{ color: 'var(--text-primary)', fontSize: 13, fontWeight: 600 }}>
+                        {workflow.lifecycle_type === 'onboarding' ? 'Onboarding' : workflow.lifecycle_type === 'offboarding' ? 'Offboarding' : workflow.lifecycle_type}
+                        {' · '}
+                        {workflow.status}
+                      </div>
+                      <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 3 }}>
+                        Anchor {workflow.anchor_date}
+                      </div>
+                      {workflow.completed_at && (
+                        <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 3 }}>
+                          Completed {dateOnly(workflow.completed_at)}
+                        </div>
+                      )}
+                      {workflow.cancelled_at && (
+                        <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 3 }}>
+                          Cancelled {dateOnly(workflow.cancelled_at)}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
 
           {documentsState !== 'hidden' && documentsState !== 'idle' && (
             <section aria-labelledby="person-documents-heading" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 14, marginTop: 2 }}>
