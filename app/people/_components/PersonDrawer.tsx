@@ -60,6 +60,7 @@ type AssuranceState =
 type AcknowledgementActionState = 'idle' | 'submitting' | 'error';
 type VerificationActionState = 'idle' | 'verifying' | 'rejecting' | 'error';
 type DocumentCreateState = 'idle' | 'submitting' | 'error';
+type DocumentVersionState = 'idle' | 'submitting' | 'error';
 
 type DocumentsState = 'idle' | 'loading' | 'ready' | 'error' | 'hidden';
 
@@ -83,6 +84,10 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   const [newDocumentExpiry, setNewDocumentExpiry] = useState('');
   const [newDocumentFile, setNewDocumentFile] = useState<File | null>(null);
   const [documentCreateState, setDocumentCreateState] = useState<DocumentCreateState>('idle');
+  const [versionDocumentId, setVersionDocumentId] = useState<string | null>(null);
+  const [newVersionExpiry, setNewVersionExpiry] = useState('');
+  const [newVersionFile, setNewVersionFile] = useState<File | null>(null);
+  const [documentVersionState, setDocumentVersionState] = useState<DocumentVersionState>('idle');
 
   useEffect(() => {
     let cancelled = false;
@@ -98,6 +103,10 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         setCanManageDocuments(false);
         setShowCreateDocument(false);
         setDocumentCreateState('idle');
+        setVersionDocumentId(null);
+        setNewVersionExpiry('');
+        setNewVersionFile(null);
+        setDocumentVersionState('idle');
         return;
       }
 
@@ -112,6 +121,10 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setCanManageDocuments(false);
       setShowCreateDocument(false);
       setDocumentCreateState('idle');
+      setVersionDocumentId(null);
+      setNewVersionExpiry('');
+      setNewVersionFile(null);
+      setDocumentVersionState('idle');
 
       void fetch(`/api/hr/people/${personId}`)
         .then(async response => {
@@ -242,6 +255,114 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   const addDocumentButton = buttonProps('secondary', 'sm');
   const saveDocumentButton = buttonProps('primary', 'sm');
   const cancelDocumentButton = buttonProps('secondary', 'sm');
+  const addVersionButton = buttonProps('secondary', 'sm');
+  const saveVersionButton = buttonProps('primary', 'sm');
+  const cancelVersionButton = buttonProps('secondary', 'sm');
+
+  async function loadDocumentAssurance(
+    documentId: string,
+    versionId: string,
+  ) {
+    if (!personId) return;
+
+    setAssuranceByDocument(current => ({
+      ...current,
+      [documentId]: { state: 'loading' },
+    }));
+
+    try {
+      const response = await fetch(
+        `/api/hr/people/${personId}/documents/${documentId}/versions/${versionId}/assurance`,
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.assurance) {
+        setAssuranceByDocument(current => ({
+          ...current,
+          [documentId]: { state: 'error' },
+        }));
+        return;
+      }
+
+      setAssuranceByDocument(current => ({
+        ...current,
+        [documentId]: {
+          state: 'ready',
+          assurance: {
+            capabilities: data.assurance.capabilities,
+            employee_acknowledgement: data.assurance.employee_acknowledgement,
+            latest_verification: data.assurance.latest_verification,
+          },
+        },
+      }));
+    } catch {
+      setAssuranceByDocument(current => ({
+        ...current,
+        [documentId]: { state: 'error' },
+      }));
+    }
+  }
+
+  async function addDocumentVersion(document: EmployeeDocumentSummary) {
+    if (!personId || !canManageDocuments || !newVersionFile) {
+      setDocumentVersionState('error');
+      return;
+    }
+
+    setDocumentVersionState('submitting');
+
+    const formData = new FormData();
+    if (newVersionExpiry) formData.set('expires_at', newVersionExpiry);
+    formData.set('file', newVersionFile);
+
+    try {
+      const response = await fetch(
+        `/api/hr/people/${personId}/documents/${document.id}/versions`,
+        { method: 'POST', body: formData },
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (
+        !response.ok
+        || !data.version?.id
+        || typeof data.version?.version_number !== 'number'
+      ) {
+        setDocumentVersionState('error');
+        return;
+      }
+
+      const nextVersion = {
+        id: data.version.id,
+        version_number: data.version.version_number,
+        expires_at: data.version.expires_at ?? null,
+        created_at: data.version.created_at,
+      };
+
+      setDocuments(current => current.map(item => (
+        item.id === document.id
+          ? { ...item, current_version: nextVersion }
+          : item
+      )));
+
+      setAcknowledgementByDocument(current => ({
+        ...current,
+        [document.id]: 'idle',
+      }));
+      setVerificationByDocument(current => ({
+        ...current,
+        [document.id]: 'idle',
+      }));
+
+      setVersionDocumentId(null);
+      setNewVersionExpiry('');
+      setNewVersionFile(null);
+      setDocumentVersionState('idle');
+
+      void loadDocumentAssurance(document.id, nextVersion.id);
+    } catch {
+      setDocumentVersionState('error');
+    }
+  }
 
   async function createDocument() {
     if (
@@ -297,42 +418,10 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       };
 
       setDocuments(current => [...current, createdDocument]);
-      setAssuranceByDocument(current => ({
-        ...current,
-        [createdDocument.id]: { state: 'loading' },
-      }));
-
-      void fetch(
-        `/api/hr/people/${personId}/documents/${createdDocument.id}/versions/${createdDocument.current_version!.id}/assurance`,
-      )
-        .then(async assuranceResponse => {
-          const assuranceData = await assuranceResponse.json().catch(() => ({}));
-          if (!assuranceResponse.ok || !assuranceData.assurance) {
-            setAssuranceByDocument(current => ({
-              ...current,
-              [createdDocument.id]: { state: 'error' },
-            }));
-            return;
-          }
-
-          setAssuranceByDocument(current => ({
-            ...current,
-            [createdDocument.id]: {
-              state: 'ready',
-              assurance: {
-                capabilities: assuranceData.assurance.capabilities,
-                employee_acknowledgement: assuranceData.assurance.employee_acknowledgement,
-                latest_verification: assuranceData.assurance.latest_verification,
-              },
-            },
-          }));
-        })
-        .catch(() => {
-          setAssuranceByDocument(current => ({
-            ...current,
-            [createdDocument.id]: { state: 'error' },
-          }));
-        });
+      void loadDocumentAssurance(
+        createdDocument.id,
+        createdDocument.current_version!.id,
+      );
 
       setNewDocumentType('');
       setNewDocumentTitle('');
@@ -609,6 +698,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                     const assurance = assuranceByDocument[document.id];
                     const acknowledgementAction = acknowledgementByDocument[document.id] ?? 'idle';
                     const verificationAction = verificationByDocument[document.id] ?? 'idle';
+                    const addingVersion = versionDocumentId === document.id;
 
                     return (
                       <div key={document.id} style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 10 }}>
@@ -622,6 +712,73 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                         {document.current_version?.expires_at && (
                           <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 3 }}>
                             Expires {document.current_version.expires_at}
+                          </div>
+                        )}
+
+                        {canManageDocuments && !addingVersion && (
+                          <div style={{ marginTop: 8 }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setVersionDocumentId(document.id);
+                                setNewVersionExpiry('');
+                                setNewVersionFile(null);
+                                setDocumentVersionState('idle');
+                              }}
+                              {...addVersionButton}
+                            >
+                              Add version
+                            </button>
+                          </div>
+                        )}
+
+                        {canManageDocuments && addingVersion && (
+                          <div style={{ borderTop: '1px solid var(--border-subtle)', marginTop: 9, paddingTop: 9 }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>New version expiry (optional)</span>
+                                <input
+                                  type="date"
+                                  value={newVersionExpiry}
+                                  onChange={event => setNewVersionExpiry(event.target.value)}
+                                />
+                              </label>
+                              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>New version file</span>
+                                <input
+                                  type="file"
+                                  onChange={event => setNewVersionFile(event.target.files?.[0] ?? null)}
+                                />
+                              </label>
+                              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => void addDocumentVersion(document)}
+                                  disabled={documentVersionState === 'submitting'}
+                                  {...saveVersionButton}
+                                >
+                                  {documentVersionState === 'submitting' ? 'Uploading…' : 'Upload version'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setVersionDocumentId(null);
+                                    setNewVersionExpiry('');
+                                    setNewVersionFile(null);
+                                    setDocumentVersionState('idle');
+                                  }}
+                                  disabled={documentVersionState === 'submitting'}
+                                  {...cancelVersionButton}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                              {documentVersionState === 'error' && (
+                                <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                                  Could not upload document version.
+                                </div>
+                              )}
+                            </div>
                           </div>
                         )}
 
