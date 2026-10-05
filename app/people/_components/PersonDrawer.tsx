@@ -380,7 +380,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                             )}
 
                             {acknowledgementAction === 'error' && (
-                              <div role="alert" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 7 }}>
+                              <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 7 }}>
                                 Could not acknowledge document.
                               </div>
                             )}
