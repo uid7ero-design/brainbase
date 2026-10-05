@@ -134,7 +134,7 @@ export default function QuestionsPanel({ eventId, canManage }: { eventId: string
         title="Registration Questions"
         sub="Collect dietary, accessibility, or other information from attendees at checkout."
         action={canManage && (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {!showCreate && (
               // Deliberately always passed value="" — this is an action
               // menu ("pick a template to pre-fill the create form"),
@@ -165,8 +165,8 @@ export default function QuestionsPanel({ eventId, canManage }: { eventId: string
         )}
       />
 
-      {loadError && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12, marginBottom: 10 }}>{loadError}</div>}
-      {actionError && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12, marginBottom: 10 }}>{actionError}</div>}
+      {loadError && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12, marginBottom: 10 }}>{loadError}</div>}
+      {actionError && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12, marginBottom: 10 }}>{actionError}</div>}
 
       {showCreate && (
         <div style={{ marginBottom: 10 }}>
@@ -370,7 +370,7 @@ function QuestionForm({ initial, onSubmit, onCancel }: {
         </label>
       </div>
 
-      {error && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12 }}>{error}</div>}
+      {error && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12 }}>{error}</div>}
       <div style={{ display: 'flex', gap: 8 }}>
         <button type="submit" disabled={saving} style={{ ...primaryBtnStyle, opacity: saving ? 0.6 : 1, cursor: saving ? 'default' : 'pointer' }}>{saving ? 'Saving…' : 'Save'}</button>
         <button type="button" onClick={onCancel} style={secondaryBtnStyle}>Cancel</button>

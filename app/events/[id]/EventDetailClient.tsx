@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { Calendar, Clock, MapPin, ArrowLeft, ScanLine } from 'lucide-react';
-import KpiCard from '@/components/dashboard/ui/KpiCard';
+import { Metric, MetricStrip } from '@/components/ui/app';
 import RegistrationsPanel, { type OrderRow } from './RegistrationsPanel';
 import QuestionsPanel from './QuestionsPanel';
 import { ARTWORK_ACCEPT_ATTR, MAX_ARTWORK_MB, isAllowedArtworkMimeType } from '@/lib/events/artworkConstants';
@@ -161,7 +161,7 @@ export default function EventDetailClient({ eventId, canManage, organisationSlug
   const totalTicketCapacity = ticketTypes.reduce((sum, t) => sum + t.capacity, 0);
   const remainingCapacity = Math.max(0, totalTicketCapacity - attendeeCount);
   const registrationRate = orders && totalTicketCapacity > 0 ? Math.round((attendeeCount / totalTicketCapacity) * 100) : null;
-  const statusAccent = event.status === 'PUBLISHED' ? '#4ADE80' : event.status === 'CANCELLED' ? '#F87171' : '#9ca3af';
+  const statusTone = event.status === 'PUBLISHED' ? 'success' as const : event.status === 'CANCELLED' ? 'danger' as const : undefined;
   // Live attendance metrics (section 13) — derived entirely from the
   // orders data already loaded for the KPI strip/RegistrationsPanel
   // above; no new query, no realtime sockets, just the same fetch a
@@ -185,55 +185,62 @@ export default function EventDetailClient({ eventId, canManage, organisationSlug
   const formatMoney = (cents: number) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: revenueCurrency }).format(cents / 100);
 
   return (
-    <div style={{ padding: 32, fontFamily: FONT, color: TEXT_PRIMARY, maxWidth: 1140, margin: '0 auto' }}>
+    // width/boxSizing: bound the root to the viewport (it would otherwise
+    // shrink-to-fit its content inside the app's flex column), so the
+    // metric strip reflows at phone width instead of widening the page.
+    <div style={{ width: '100%', boxSizing: 'border-box', padding: 32, fontFamily: FONT, color: TEXT_PRIMARY, maxWidth: 1140, margin: '0 auto' }}>
       <EventsSharedStyles />
 
       <Link href="/events" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: VIOLET_SOFT, fontSize: 12.5, textDecoration: 'none', marginBottom: 16, fontWeight: 600 }}>
         <ArrowLeft size={13} /> Back to Events
       </Link>
 
-      {error && <div role="alert" style={{ color: '#FCA5A5', fontSize: 13, marginBottom: 16 }}>{error}</div>}
+      {error && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 13, marginBottom: 16 }}>{error}</div>}
 
       <EventOverview event={event} canManage={canManage} onSaved={reload} organisationSlug={organisationSlug} />
 
-      <div style={{ display: 'flex', gap: 12, marginTop: 20, flexWrap: 'wrap' }}>
-        <KpiCard label="Orders" value={orders ? orderCount : '—'} accentColor="#8A4DFF" theme="dark" loading={orders === null} />
-        <KpiCard label="Attendees" value={orders ? attendeeCount : '—'} accentColor="#A78BFA" theme="dark" loading={orders === null} />
-        <KpiCard
+      {/* Phase D1 — one compact metric strip (was up to 10 forced-dark KPI
+          cards). Colour only where a value carries state: capacity full,
+          event status, payments awaiting action. */}
+      <MetricStrip style={{ marginTop: 20 }}>
+        <Metric label="Orders" value={orderCount} loading={orders === null} />
+        <Metric label="Attendees" value={attendeeCount} loading={orders === null} />
+        <Metric
           label="Checked In"
-          value={orders ? checkedInCount : '—'}
-          accentColor="#4ADE80" theme="dark" loading={orders === null}
+          value={checkedInCount}
+          loading={orders === null}
           sub={orders && checkInRate !== null ? `${checkInRate}% · ${attendeeCount - checkedInCount} remaining` : undefined}
         />
-        <KpiCard label="Ticket Capacity" value={totalTicketCapacity} accentColor="#06B6D4" theme="dark" />
-        <KpiCard
+        <Metric label="Ticket Capacity" value={totalTicketCapacity} />
+        <Metric
           label="Remaining"
-          value={orders ? remainingCapacity : '—'}
-          accentColor={orders && remainingCapacity === 0 ? '#F87171' : '#4ADE80'}
-          theme="dark" loading={orders === null}
+          value={remainingCapacity}
+          tone={orders && remainingCapacity === 0 ? 'danger' : undefined}
+          loading={orders === null}
           sub={orders && registrationRate !== null ? `${registrationRate}% booked` : undefined}
         />
-        <KpiCard label="Sessions" value={sessions.length} accentColor="#FBBF24" theme="dark" />
-        <KpiCard label="Status" value={event.status} accentColor={statusAccent} theme="dark" />
+        <Metric label="Sessions" value={sessions.length} />
+        <Metric label="Status" value={event.status} tone={statusTone} />
         {hasPaidTicketTypes && (
           <>
-            <KpiCard
+            <Metric
               label="Revenue"
-              value={orders ? formatMoney(grossRevenueCents) : '—'}
-              accentColor="#4ADE80" theme="dark" loading={orders === null}
+              value={formatMoney(grossRevenueCents)}
+              loading={orders === null}
               sub={orders ? `${paidOrders.length} paid order${paidOrders.length === 1 ? '' : 's'}` : undefined}
             />
-            <KpiCard
+            <Metric
               label="Pending Payment"
-              value={orders ? pendingPaymentOrders.length : '—'}
-              accentColor="#FBBF24" theme="dark" loading={orders === null}
+              value={pendingPaymentOrders.length}
+              tone={pendingPaymentOrders.length > 0 ? 'warning' : undefined}
+              loading={orders === null}
             />
             {refundedOrders.length > 0 && (
-              <KpiCard label="Refunded" value={formatMoney(refundedCents)} accentColor="#F87171" theme="dark" sub={`${refundedOrders.length} order${refundedOrders.length === 1 ? '' : 's'}`} />
+              <Metric label="Refunded" value={formatMoney(refundedCents)} sub={`${refundedOrders.length} order${refundedOrders.length === 1 ? '' : 's'}`} />
             )}
           </>
         )}
-      </div>
+      </MetricStrip>
 
       <SessionsPanel eventId={eventId} sessions={sessions} orders={orders} canManage={canManage} onChanged={reload} timezone={event.timezone} />
       <TicketTypesPanel eventId={eventId} ticketTypes={ticketTypes} orders={orders} canManage={canManage} onChanged={reload} />
@@ -257,7 +264,7 @@ function ArtworkThumb({ src, alt }: { src: string; alt: string }) {
   const [failed, setFailed] = useState(false);
   if (failed) return null;
   return (
-    <div style={{ width: 64, height: 64, borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(255,255,255,.08)', flex: 'none' }}>
+    <div style={{ width: 64, height: 64, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border)', flex: 'none' }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={src} alt={alt} onError={() => setFailed(true)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
     </div>
@@ -267,10 +274,10 @@ function ArtworkThumb({ src, alt }: { src: string; alt: string }) {
 function ArtworkPreview({ src, alt }: { src: string; alt: string }) {
   const [failed, setFailed] = useState(false);
   if (failed) {
-    return <div style={{ marginTop: 8, fontSize: 11.5, color: '#FCA5A5' }}>Could not load a preview for this URL.</div>;
+    return <div style={{ marginTop: 8, fontSize: 11.5, color: 'var(--status-danger)' }}>Could not load a preview for this URL.</div>;
   }
   return (
-    <div style={{ marginTop: 10, width: 220, aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(255,255,255,.08)' }}>
+    <div style={{ marginTop: 10, width: 220, aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border)' }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={src} alt={alt} onError={() => setFailed(true)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
     </div>
@@ -288,8 +295,8 @@ function CapacityPill({ registered, capacity }: { registered: number | null; cap
 }
 
 const metaPillStyle: React.CSSProperties = {
-  fontSize: 11, fontWeight: 600, color: TEXT_MUTED, background: 'rgba(255,255,255,.04)',
-  border: '1px solid rgba(255,255,255,.07)', borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap',
+  fontSize: 11, fontWeight: 600, color: TEXT_MUTED, background: 'var(--bg-sunken)',
+  border: '1px solid var(--border)', borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap',
 };
 
 // ─── Overview / control header ─────────────────────────────────────
@@ -494,7 +501,7 @@ function EventOverview({ event, canManage, onSaved, organisationSlug }: { event:
               )}
             </div>
             <div style={{ fontSize: 11, color: TEXT_MUTED, marginTop: 6 }}>JPEG, PNG, or WebP · up to {MAX_ARTWORK_MB}MB</div>
-            {artworkError && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12, marginTop: 6 }}>{artworkError}</div>}
+            {artworkError && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12, marginTop: 6 }}>{artworkError}</div>}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
@@ -515,7 +522,7 @@ function EventOverview({ event, canManage, onSaved, organisationSlug }: { event:
               />
             </label>
           </div>
-          {formError && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12 }}>{formError}</div>}
+          {formError && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12 }}>{formError}</div>}
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="submit" disabled={saving} style={{ ...primaryBtnStyle, opacity: saving ? 0.6 : 1, cursor: saving ? 'default' : 'pointer' }}>{saving ? 'Saving…' : 'Save'}</button>
             <button type="button" onClick={() => setEditing(false)} style={secondaryBtnStyle}>Cancel</button>
@@ -554,7 +561,7 @@ function SessionsPanel({ eventId, sessions, orders, canManage, onChanged, timezo
         action={canManage && <button onClick={() => setShowCreate(v => !v)} style={secondaryBtnStyle}>{showCreate ? 'Cancel' : '+ Add Session'}</button>}
       />
 
-      {deleteError && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12, marginBottom: 10 }}>{deleteError}</div>}
+      {deleteError && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12, marginBottom: 10 }}>{deleteError}</div>}
 
       {showCreate && (
         <div style={{ marginBottom: 10 }}>
@@ -653,7 +660,7 @@ function SessionForm({ initial, onSubmit, onCancel }: {
         <label style={fieldStyle}>Starts<input required type="datetime-local" className="bb-evt-input" value={startsAt} onChange={e => setStartsAt(e.target.value)} style={inputStyle} /></label>
         <label style={fieldStyle}>Ends<input required type="datetime-local" className="bb-evt-input" value={endsAt} onChange={e => setEndsAt(e.target.value)} style={inputStyle} /></label>
       </div>
-      {error && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12 }}>{error}</div>}
+      {error && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12 }}>{error}</div>}
       <div style={{ display: 'flex', gap: 8 }}>
         <button type="submit" disabled={saving} style={{ ...primaryBtnStyle, opacity: saving ? 0.6 : 1, cursor: saving ? 'default' : 'pointer' }}>{saving ? 'Saving…' : 'Save'}</button>
         <button type="button" onClick={onCancel} style={secondaryBtnStyle}>Cancel</button>
@@ -690,7 +697,7 @@ function TicketTypesPanel({ eventId, ticketTypes, orders, canManage, onChanged }
         action={canManage && <button onClick={() => setShowCreate(v => !v)} style={secondaryBtnStyle}>{showCreate ? 'Cancel' : '+ Add Ticket Type'}</button>}
       />
 
-      {deleteError && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12, marginBottom: 10 }}>{deleteError}</div>}
+      {deleteError && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12, marginBottom: 10 }}>{deleteError}</div>}
 
       {showCreate && (
         <div style={{ marginBottom: 10 }}>
@@ -802,7 +809,7 @@ function TicketTypeForm({ initial, onSubmit, onCancel }: {
           <input type="checkbox" checked={active} onChange={e => setActive(e.target.checked)} /> Active
         </label>
       </div>
-      {error && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12 }}>{error}</div>}
+      {error && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12 }}>{error}</div>}
       <div style={{ display: 'flex', gap: 8 }}>
         <button type="submit" disabled={saving} style={{ ...primaryBtnStyle, opacity: saving ? 0.6 : 1, cursor: saving ? 'default' : 'pointer' }}>{saving ? 'Saving…' : 'Save'}</button>
         <button type="button" onClick={onCancel} style={secondaryBtnStyle}>Cancel</button>

@@ -4,7 +4,8 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
   CartesianGrid, Cell, ReferenceLine,
 } from "recharts";
-import { KpiCard, Insight, SectionHeader, T1, T2, T3, BORDER, ROW_BDR, ROW_HEAD, GRID, TICK, DTT, DC, PAGE } from "../_dark";
+import { KpiCard, Insight, SectionHeader, T1, T2, T3, BORDER, ROW_BDR, ROW_HEAD, DC, PAGE, TRACK, legendText, useWasteChart } from "../_dark";
+import styles from "../WasteModule.module.css";
 
 const DATA = [
   { zone: "Zone 1 – Northern",   planned: 11360, completed: 11248, missed: 112, contamination: 8.2,  gwLifts: 5680, recLifts: 2840, gwLifts2: 2840 },
@@ -37,6 +38,7 @@ const STREAM_DATA = [
 ];
 
 export default function BinLiftsPage() {
+  const chart = useWasteChart();
   const totalPlanned   = DATA.reduce((s, r) => s + r.planned, 0);
   const totalCompleted = DATA.reduce((s, r) => s + r.completed, 0);
   const totalMissed    = DATA.reduce((s, r) => s + r.missed, 0);
@@ -52,15 +54,15 @@ export default function BinLiftsPage() {
 
       <p style={{ fontSize: 13, color: T3, margin: 0 }}>Period: {today} &nbsp;·&nbsp; All waste streams</p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 16 }}>
-        <KpiCard label="Total Planned Lifts"  value={totalPlanned.toLocaleString()}   sub="This period"          accent="#3b82f6" />
-        <KpiCard label="Completed Lifts"      value={totalCompleted.toLocaleString()}  sub="Across all zones"     accent="#10b981" />
-        <KpiCard label="Missed Lifts"         value={totalMissed.toLocaleString()}     sub="Requiring follow-up"  accent="#ef4444" />
-        <KpiCard label="Completion Rate"      value={`${completionRate}%`}             sub="Target ≥ 98.5%"       accent={+completionRate >= 98.5 ? "#10b981" : "#f59e0b"} />
-        <KpiCard label="Avg Contamination"    value={`${avgContam}%`}                  sub="Target ≤ 8.0%"        accent={+avgContam <= 8.0 ? "#10b981" : "#ef4444"} />
+      <div className={styles.kpiGrid}>
+        <KpiCard label="Total Planned Lifts"  value={totalPlanned.toLocaleString()}   sub="This period"          accent={chart.series("#3b82f6")} />
+        <KpiCard label="Completed Lifts"      value={totalCompleted.toLocaleString()}  sub="Across all zones"     accent={chart.series("#10b981")} />
+        <KpiCard label="Missed Lifts"         value={totalMissed.toLocaleString()}     sub="Requiring follow-up"  accent={chart.series("#ef4444")} />
+        <KpiCard label="Completion Rate"      value={`${completionRate}%`}             sub="Target ≥ 98.5%"       accent={chart.series(+completionRate >= 98.5 ? "#10b981" : "#f59e0b")} />
+        <KpiCard label="Avg Contamination"    value={`${avgContam}%`}                  sub="Target ≤ 8.0%"        accent={chart.series(+avgContam <= 8.0 ? "#10b981" : "#ef4444")} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
+      <div className={styles.grid3}>
         <Insight icon="✗" color="red"
           title={`${mostMissed.shortId} has most missed lifts`}
           body={`${mostMissed.missed} missed lifts (${(100 - mostMissed.completionRate).toFixed(1)}% miss rate). Investigate route capacity and crew availability for this zone.`}
@@ -75,18 +77,18 @@ export default function BinLiftsPage() {
         />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+      <div className={styles.grid2}>
         <div style={DC}>
           <SectionHeader title="Completed vs Missed Lifts by Zone" sub="Monthly totals per collection zone" />
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={DATA} barCategoryGap="25%">
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
-              <XAxis dataKey="shortId" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v => v.toLocaleString()} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={DTT} />
-              <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
-              <Bar dataKey="completed" name="Completed" fill="#10b981" radius={[3,3,0,0]} />
-              <Bar dataKey="missed"    name="Missed"    fill="#ef4444" radius={[3,3,0,0]} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+              <XAxis dataKey="shortId" tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => v.toLocaleString()} tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip {...chart.tooltip} />
+              <Legend wrapperStyle={{ fontSize: 12 }} formatter={legendText} />
+              <Bar dataKey="completed" name="Completed" fill={chart.series("#10b981")} radius={[3,3,0,0]} />
+              <Bar dataKey="missed"    name="Missed"    fill={chart.series("#ef4444")} radius={[3,3,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -95,20 +97,20 @@ export default function BinLiftsPage() {
           <SectionHeader title="Recycling Contamination Rate by Zone" sub="% of recycling bins containing non-recyclable material" />
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={DATA} barCategoryGap="30%">
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
-              <XAxis dataKey="shortId" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v => `${v}%`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 14]} />
-              <ReferenceLine y={8} stroke="#f59e0b" strokeDasharray="5 5" label={{ value: "8% Target", position: "insideTopRight", fill: "#f59e0b", fontSize: 11 }} />
-              <Tooltip formatter={v => [`${v}%`, "Contamination"]} contentStyle={DTT} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+              <XAxis dataKey="shortId" tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => `${v}%`} tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 14]} />
+              <ReferenceLine y={8} stroke={chart.series("#f59e0b")} strokeDasharray="5 5" label={{ value: "8% Target", position: "insideTopRight", fill: chart.palette.warning, fontSize: 11 }} />
+              <Tooltip formatter={v => [`${v}%`, "Contamination"]} {...chart.tooltip} />
               <Bar dataKey="contamination" name="Contamination %" radius={[3,3,0,0]}>
-                {DATA.map((r, i) => <Cell key={i} fill={r.contamination > 8 ? "#ef4444" : "#10b981"} />)}
+                {DATA.map((r, i) => <Cell key={i} fill={chart.series(r.contamination > 8 ? "#ef4444" : "#10b981")} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 20 }}>
+      <div className={styles.grid12}>
         <div style={DC}>
           <SectionHeader title="Lifts by Stream" sub="Total lifts per waste stream this period" />
           <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 16 }}>
@@ -118,8 +120,8 @@ export default function BinLiftsPage() {
                   <span style={{ color: T1, fontWeight: 500 }}>{s.stream}</span>
                   <span style={{ color: T2 }}>{s.lifts.toLocaleString()}</span>
                 </div>
-                <div style={{ height: 8, background: "rgba(255,255,255,0.08)", borderRadius: 999, overflow: "hidden" }}>
-                  <div style={{ height: "100%", borderRadius: 999, width: `${(s.lifts / STREAM_DATA[0].lifts) * 100}%`, background: s.color }} />
+                <div style={{ height: 8, background: TRACK, borderRadius: 999, overflow: "hidden" }}>
+                  <div style={{ height: "100%", borderRadius: 999, width: `${(s.lifts / STREAM_DATA[0].lifts) * 100}%`, background: chart.series(s.color) }} />
                 </div>
               </div>
             ))}
@@ -134,20 +136,20 @@ export default function BinLiftsPage() {
           <SectionHeader title="Weekly Lift Performance" sub="Completed lifts and missed lifts over the current period" />
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={WEEKLY_TREND} barCategoryGap="35%">
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
-              <XAxis dataKey="week" tick={{ fill: TICK, fontSize: 12 }} axisLine={false} tickLine={false} />
-              <YAxis yAxisId="left"  tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis yAxisId="right" orientation="right" tickFormatter={v => `${v}%`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={DTT} />
-              <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
-              <Bar yAxisId="left" dataKey="completed" name="Completed" fill="#3b82f6" radius={[3,3,0,0]} />
-              <Bar yAxisId="left" dataKey="missed"    name="Missed"    fill="#ef4444" radius={[3,3,0,0]} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+              <XAxis dataKey="week" tick={{ fill: chart.tick.fill, fontSize: 12 }} axisLine={false} tickLine={false} />
+              <YAxis yAxisId="left"  tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis yAxisId="right" orientation="right" tickFormatter={v => `${v}%`} tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip {...chart.tooltip} />
+              <Legend wrapperStyle={{ fontSize: 12 }} formatter={legendText} />
+              <Bar yAxisId="left" dataKey="completed" name="Completed" fill={chart.series("#3b82f6")} radius={[3,3,0,0]} />
+              <Bar yAxisId="left" dataKey="missed"    name="Missed"    fill={chart.series("#ef4444")} radius={[3,3,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      <div style={{ ...DC, padding: 0, overflow: "hidden" }}>
+      <div style={{ ...DC, padding: 0, overflowX: "auto" }}>
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${BORDER}` }}>
           <SectionHeader title="Zone Lift Summary" sub="Planned, completed, missed and contamination rate per zone" />
         </div>
@@ -155,7 +157,7 @@ export default function BinLiftsPage() {
           <thead>
             <tr style={{ background: ROW_HEAD }}>
               {["Zone","Planned","Completed","Missed","Completion Rate","Contamination","Status"].map((h, i) => (
-                <th key={h} style={{ padding: "10px 14px", fontWeight: 600, fontSize: 10, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                <th key={h} scope="col" style={{ padding: "10px 14px", fontWeight: 600, fontSize: 11, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -167,15 +169,15 @@ export default function BinLiftsPage() {
                   <td style={{ padding: "10px 14px", color: T1, fontWeight: 500 }}>{row.zone}</td>
                   <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>{row.planned.toLocaleString()}</td>
                   <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>{row.completed.toLocaleString()}</td>
-                  <td style={{ padding: "10px 14px", textAlign: "right", color: "#f87171", fontWeight: 600 }}>{row.missed}</td>
+                  <td style={{ padding: "10px 14px", textAlign: "right", color: "var(--status-danger)", fontWeight: 600 }}>{row.missed}</td>
                   <td style={{ padding: "10px 14px", textAlign: "right" }}>
-                    <span style={{ fontWeight: 600, color: row.completionRate >= 98.5 ? "#4ade80" : "#f59e0b" }}>{row.completionRate}%</span>
+                    <span style={{ fontWeight: 600, color: row.completionRate >= 98.5 ? "var(--status-success)" : "var(--status-warning)" }}>{row.completionRate}%</span>
                   </td>
                   <td style={{ padding: "10px 14px", textAlign: "right" }}>
-                    <span style={{ fontWeight: 600, color: row.contamination <= 8 ? "#4ade80" : "#f87171" }}>{row.contamination}%</span>
+                    <span style={{ fontWeight: 600, color: row.contamination <= 8 ? "var(--status-success)" : "var(--status-danger)" }}>{row.contamination}%</span>
                   </td>
                   <td style={{ padding: "10px 14px", textAlign: "right" }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: ok ? "rgba(74,222,128,0.12)" : "rgba(239,68,68,0.12)", color: ok ? "#4ade80" : "#f87171", border: `1px solid ${ok ? "rgba(74,222,128,0.25)" : "rgba(239,68,68,0.25)"}` }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: "var(--radius-sm)", background: ok ? "var(--status-success-muted)" : "var(--status-danger-muted)", color: ok ? "var(--status-success)" : "var(--status-danger)", border: `1px solid ${ok ? "var(--status-success-border)" : "var(--status-danger-border)"}` }}>
                       {ok ? "On Target" : "Needs Review"}
                     </span>
                   </td>

@@ -2,11 +2,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/state/useAppStore';
-
-const BG    = '#07080B';
-const CARD  = '#0e1014';
-const BORDER = '#1a1d24';
-const FONT  = 'var(--font-inter), Inter, sans-serif';
+import {
+  Badge, Button, Dialog, Field, FormActions, PageHeader, StateMessage,
+  TableContainer, TableStateRow, fieldControlClassName, tableStyles, type SemanticState,
+} from '@/components/ui/app';
+import styles from './Data.module.css';
 
 type UploadedFile = {
   id: string;
@@ -38,10 +38,12 @@ const REPORT_TYPES = [
   { value: 'custom',         label: 'Custom' },
 ];
 
-const STATUS_COLORS: Record<string, string> = {
-  complete:   '#34d399',
-  processing: '#fbbf24',
-  error:      '#f87171',
+// Upload status → shared semantic state. The badge text stays the stored
+// status value; the state only drives the token colour + dot shape.
+const STATUS_STATE: Record<string, SemanticState> = {
+  complete:   'success',
+  processing: 'syncing',
+  error:      'error',
 };
 
 export default function DataClient({ canDelete }: { canDelete: boolean }) {
@@ -153,263 +155,264 @@ export default function DataClient({ canDelete }: { canDelete: boolean }) {
 
   if (sessionExpired) {
     return (
-      <div style={{ background: BG, minHeight: 'calc(100vh - 52px)', fontFamily: FONT, color: '#f9fafb', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ textAlign: 'center', maxWidth: 360 }}>
-          <div style={{ fontSize: 32, marginBottom: 16 }}>🔒</div>
-          <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 8px' }}>Session expired</h2>
-          <p style={{ color: '#6b7280', fontSize: 14, margin: '0 0 24px', lineHeight: 1.6 }}>
+      <div className={`${styles.page} ${styles.expired}`}>
+        <div className={styles.expiredCard}>
+          <h1 className={styles.expiredTitle}>Session expired</h1>
+          <p className={styles.expiredBody}>
             Your session is no longer valid. Log out and back in to continue.
           </p>
-          <button
+          <Button
+            variant="primary"
             onClick={async () => {
               await fetch('/api/auth/logout', { method: 'POST' });
               router.push('/login');
             }}
-            style={{ padding: '10px 24px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
           >
             Log out and back in
-          </button>
+          </Button>
         </div>
       </div>
     );
   }
 
+  const noCompleteFiles = files.filter(f => f.upload_status === 'complete').length === 0;
+
   return (
-    <div style={{ background: BG, minHeight: 'calc(100vh - 52px)', fontFamily: FONT, color: '#f9fafb', padding: '40px 40px' }}>
-      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+    <div className={styles.page}>
+      <div className={styles.inner}>
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32 }}>
-          <div>
-            <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>Data</h1>
-            <p style={{ color: '#6b7280', fontSize: 13, marginTop: 4, marginBottom: 0 }}>Upload spreadsheets, view waste records, generate reports</p>
-          </div>
-          <button
-            onClick={() => setShowReportModal(true)}
-            disabled={files.filter(f => f.upload_status === 'complete').length === 0}
-            style={btnStyle('#7c3aed', files.filter(f => f.upload_status === 'complete').length === 0)}
-          >
-            Generate Report
-          </button>
-        </div>
+        <PageHeader
+          title="Data"
+          description="Upload spreadsheets, view waste records, generate reports"
+          actions={
+            <Button
+              variant="primary"
+              onClick={() => setShowReportModal(true)}
+              disabled={noCompleteFiles}
+            >
+              Generate Report
+            </Button>
+          }
+        />
 
-        {/* Upload zone */}
-        <div
+        {/* Upload zone — a real button so it is keyboard operable; the same
+            drag handlers and the same hidden file input as before. */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xlsx,.xls,.csv"
+          style={{ display: 'none' }}
+          onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f); e.target.value = ''; }}
+        />
+        <button
+          type="button"
+          className={styles.dropzone}
+          data-dragging={dragging ? 'true' : undefined}
+          aria-busy={uploading || undefined}
           onDragOver={e => { e.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
           onDrop={onDrop}
           onClick={() => fileInputRef.current?.click()}
-          style={{
-            border: `2px dashed ${dragging ? '#7c3aed' : BORDER}`,
-            borderRadius: 12,
-            padding: '36px 24px',
-            textAlign: 'center',
-            cursor: uploading ? 'default' : 'pointer',
-            marginBottom: 28,
-            background: dragging ? 'rgba(124,58,237,0.05)' : 'transparent',
-            transition: 'border-color .15s, background .15s',
-          }}
         >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            style={{ display: 'none' }}
-            onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f); e.target.value = ''; }}
-          />
           {uploading ? (
-            <p style={{ color: '#9ca3af', margin: 0, fontSize: 14 }}>Uploading…</p>
+            <span className={styles.dropPrimary}>Uploading…</span>
           ) : (
             <>
-              <p style={{ color: '#9ca3af', fontSize: 14, margin: '0 0 4px' }}>
+              <span className={styles.dropPrimary}>
                 {dragging ? 'Drop to upload' : 'Drag & drop or click to upload'}
-              </p>
-              <p style={{ color: '#4b5563', fontSize: 12, margin: 0 }}>.xlsx, .xls, .csv</p>
+              </span>
+              <span className={styles.dropSecondary}>.xlsx, .xls, .csv</span>
             </>
           )}
-        </div>
+        </button>
 
         {uploadMsg && (
-          <div style={{ ...msgBox(uploadMsg.ok), marginBottom: 20 }}>
-            {uploadMsg.text}
-            <button onClick={() => setUploadMsg(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', marginLeft: 10, opacity: 0.6 }}>×</button>
+          <div
+            className={styles.message}
+            data-ok={uploadMsg.ok ? 'true' : 'false'}
+            data-spaced="true"
+            role={uploadMsg.ok ? 'status' : 'alert'}
+          >
+            <span className={styles.messageText}>
+              <span className={styles.messageMark} aria-hidden="true">{uploadMsg.ok ? '✓' : '!'}</span>
+              <span>{uploadMsg.text}</span>
+            </span>
+            <button type="button" className={styles.dismiss} onClick={() => setUploadMsg(null)} aria-label="Dismiss message">×</button>
           </div>
         )}
 
         {/* Files table */}
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden', marginBottom: 32 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <TableContainer label="Uploaded files" minWidth={720} className={styles.filesTable}>
+          <table className={tableStyles.table}>
             <thead>
-              <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
+              <tr>
                 {['File', 'Type', 'Records', 'Status', 'Uploaded by', 'Date', ''].map(h => (
-                  <th key={h} style={thStyle}>{h}</th>
+                  <th key={h} scope="col" className={h === 'Records' ? tableStyles.num : h === '' ? tableStyles.actions : undefined}>
+                    {h === '' ? <span className={styles.srOnly}>Actions</span> : h}
+                  </th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {files.length === 0 && (
-                <tr>
-                  <td colSpan={7} style={{ padding: '32px 16px', textAlign: 'center', color: '#4b5563', fontSize: 14 }}>
-                    No files uploaded yet. Upload a spreadsheet above.
-                  </td>
-                </tr>
+                <TableStateRow colSpan={7} kind="empty">
+                  No files uploaded yet. Upload a spreadsheet above.
+                </TableStateRow>
               )}
-              {files.map((f, i) => (
-                <tr
-                  key={f.id}
-                  style={{
-                    borderBottom: i < files.length - 1 ? `1px solid ${BORDER}` : 'none',
-                    background: selectedFile?.id === f.id ? 'rgba(124,58,237,0.07)' : 'transparent',
-                    transition: 'background .1s',
-                  }}
-                >
-                  <td style={{ padding: '13px 16px', fontSize: 13, fontWeight: 500, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.file_name}</td>
-                  <td style={{ padding: '13px 16px', fontSize: 12, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{f.file_type}</td>
-                  <td style={{ padding: '13px 16px', fontSize: 13, color: '#9ca3af' }}>{f.record_count.toLocaleString()}</td>
-                  <td style={{ padding: '13px 16px' }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: STATUS_COLORS[f.upload_status] ?? '#9ca3af', background: `${STATUS_COLORS[f.upload_status]}18`, padding: '3px 8px', borderRadius: 4 }}>
-                      {f.upload_status}
-                    </span>
-                  </td>
-                  <td style={{ padding: '13px 16px', fontSize: 13, color: '#6b7280' }}>{f.uploaded_by_name}</td>
-                  <td style={{ padding: '13px 16px', fontSize: 12, color: '#4b5563' }}>{new Date(f.created_at).toLocaleDateString()}</td>
-                  <td style={{ padding: '13px 16px' }}>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      {f.upload_status === 'complete' && (
-                        <button
-                          onClick={() => handleViewRecords(f)}
-                          style={smallBtn(selectedFile?.id === f.id ? '#7c3aed' : '#1f2937', selectedFile?.id === f.id ? '#fff' : '#d1d5db')}
-                        >
-                          {selectedFile?.id === f.id ? 'Hide' : 'View'}
-                        </button>
-                      )}
-                      {canDelete && (
-                        <button onClick={() => handleDelete(f.id)} style={smallBtn('rgba(239,68,68,0.1)', '#f87171')}>Delete</button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {files.map(f => {
+                const selected = selectedFile?.id === f.id;
+                return (
+                  <tr key={f.id} aria-selected={selected ? true : undefined}>
+                    <td className={`${tableStyles.primary} ${styles.fileName}`}>{f.file_name}</td>
+                    <td className={styles.fileType}>{f.file_type}</td>
+                    <td className={tableStyles.num}>{f.record_count.toLocaleString()}</td>
+                    <td>
+                      <Badge state={STATUS_STATE[f.upload_status] ?? 'inactive'}>
+                        {f.upload_status}
+                      </Badge>
+                    </td>
+                    <td>{f.uploaded_by_name}</td>
+                    <td>{new Date(f.created_at).toLocaleDateString()}</td>
+                    <td className={tableStyles.actions}>
+                      <span className={styles.rowActions}>
+                        {f.upload_status === 'complete' && (
+                          <Button
+                            size="sm"
+                            variant={selected ? 'primary' : 'secondary'}
+                            aria-expanded={selected}
+                            aria-label={`${selected ? 'Hide' : 'View'} records for ${f.file_name}`}
+                            onClick={() => handleViewRecords(f)}
+                          >
+                            {selected ? 'Hide' : 'View'}
+                          </Button>
+                        )}
+                        {canDelete && (
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            aria-label={`Delete ${f.file_name}`}
+                            onClick={() => handleDelete(f.id)}
+                          >
+                            Delete
+                          </Button>
+                        )}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-        </div>
+        </TableContainer>
 
         {/* Records panel */}
         {selectedFile && (
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-              <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>
-                Records — <span style={{ color: '#9ca3af', fontWeight: 400 }}>{selectedFile.file_name}</span>
+            <div className={styles.recordsHeader}>
+              <h2 className={styles.recordsTitle}>
+                Records — <span className={styles.recordsFile}>{selectedFile.file_name}</span>
               </h2>
-              <span style={{ fontSize: 13, color: '#6b7280' }}>{records.length.toLocaleString()} rows</span>
+              <span className={styles.recordsCount}>{records.length.toLocaleString()} rows</span>
             </div>
-            <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'auto', maxHeight: 420 }}>
-              {loadingRecords ? (
-                <div style={{ padding: 32, textAlign: 'center', color: '#4b5563', fontSize: 14 }}>Loading records…</div>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                  <thead style={{ position: 'sticky', top: 0, background: CARD, zIndex: 1 }}>
-                    <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-                      {['Service Type', 'Suburb', 'Month', 'Fin. Year', 'Tonnes', 'Collections', 'Contam. %', 'Cost'].map(h => (
-                        <th key={h} style={{ ...thStyle, fontSize: 10 }}>{h}</th>
+            {loadingRecords ? (
+              <StateMessage kind="loading" size="page" title="Loading records…" />
+            ) : (
+              <TableContainer label={`Records — ${selectedFile.file_name}`} minWidth={760} className={styles.recordsScroll}>
+                <table className={`${tableStyles.table} ${styles.recordsTable}`}>
+                  <thead>
+                    <tr>
+                      {['Service Type', 'Suburb', 'Month', 'Fin. Year', 'Tonnes', 'Collections', 'Contam. %', 'Cost'].map((h, hi) => (
+                        <th key={h} scope="col" className={hi >= 4 ? tableStyles.num : undefined}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {records.map((r, i) => (
-                      <tr key={r.id} style={{ borderBottom: i < records.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
-                        <td style={tdStyle}>{r.service_type ?? '—'}</td>
-                        <td style={tdStyle}>{r.suburb ?? '—'}</td>
-                        <td style={tdStyle}>{r.month ?? '—'}</td>
-                        <td style={tdStyle}>{r.financial_year ?? '—'}</td>
-                        <td style={{ ...tdStyle, textAlign: 'right' }}>{r.tonnes != null ? r.tonnes.toLocaleString() : '—'}</td>
-                        <td style={{ ...tdStyle, textAlign: 'right' }}>{r.collections != null ? r.collections.toLocaleString() : '—'}</td>
-                        <td style={{ ...tdStyle, textAlign: 'right' }}>{r.contamination_rate != null ? `${r.contamination_rate}%` : '—'}</td>
-                        <td style={{ ...tdStyle, textAlign: 'right' }}>{r.cost != null ? `$${Number(r.cost).toLocaleString()}` : '—'}</td>
+                    {records.map(r => (
+                      <tr key={r.id}>
+                        <td>{r.service_type ?? '—'}</td>
+                        <td>{r.suburb ?? '—'}</td>
+                        <td>{r.month ?? '—'}</td>
+                        <td>{r.financial_year ?? '—'}</td>
+                        <td className={tableStyles.num}>{r.tonnes != null ? r.tonnes.toLocaleString() : '—'}</td>
+                        <td className={tableStyles.num}>{r.collections != null ? r.collections.toLocaleString() : '—'}</td>
+                        <td className={tableStyles.num}>{r.contamination_rate != null ? `${r.contamination_rate}%` : '—'}</td>
+                        <td className={tableStyles.num}>{r.cost != null ? `$${Number(r.cost).toLocaleString()}` : '—'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              )}
-            </div>
+              </TableContainer>
+            )}
           </div>
         )}
       </div>
 
-      {/* Report Modal */}
-      {showReportModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 24 }}>
-          <div style={{ background: '#0e1014', border: `1px solid ${BORDER}`, borderRadius: 14, padding: 28, width: '100%', maxWidth: 460 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
-              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Generate Report</h2>
-              <button onClick={() => setShowReportModal(false)} style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: 20, cursor: 'pointer' }}>×</button>
-            </div>
+      {/* Report dialog */}
+      <Dialog open={showReportModal} onClose={() => setShowReportModal(false)} title="Generate Report" width={460}>
+        <div className={styles.dialogForm}>
+          <Field label="Report Type">
+            {control => (
+              <select {...control} className={fieldControlClassName} value={reportType} onChange={e => setReportType(e.target.value)}>
+                {REPORT_TYPES.map(rt => <option key={rt.value} value={rt.value}>{rt.label}</option>)}
+              </select>
+            )}
+          </Field>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div>
-                <label style={labelStyle}>Report Type</label>
-                <select value={reportType} onChange={e => setReportType(e.target.value)} style={selectStyle}>
-                  {REPORT_TYPES.map(rt => <option key={rt.value} value={rt.value}>{rt.label}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label style={labelStyle}>Source File <span style={{ color: '#4b5563', fontWeight: 400, textTransform: 'none' }}>(optional — uses all data if blank)</span></label>
-                <select
-                  value={selectedFile?.id ?? ''}
-                  onChange={e => {
-                    const f = files.find(f => f.id === e.target.value) ?? null;
-                    setSelectedFile(f);
-                  }}
-                  style={selectStyle}
-                >
-                  <option value="">All uploaded data</option>
-                  {files.filter(f => f.upload_status === 'complete').map(f => (
-                    <option key={f.id} value={f.id}>{f.file_name}</option>
-                  ))}
-                </select>
-              </div>
-
-              {reportType === 'custom' && (
-                <div>
-                  <label style={labelStyle}>Custom Prompt</label>
-                  <textarea
-                    value={customPrompt}
-                    onChange={e => setCustomPrompt(e.target.value)}
-                    placeholder="Describe what you want the report to cover…"
-                    rows={3}
-                    style={{ ...selectStyle, resize: 'vertical', lineHeight: 1.5 }}
-                  />
-                </div>
-              )}
-
-              {reportMsg && <div style={msgBox(reportMsg.ok)}>{reportMsg.text}</div>}
-
-              <button
-                onClick={handleGenerateReport}
-                disabled={generating}
-                style={btnStyle('#7c3aed', generating)}
+          <Field label={<>Source File <span className={styles.labelHint}>(optional — uses all data if blank)</span></>}>
+            {control => (
+              <select
+                {...control}
+                className={fieldControlClassName}
+                value={selectedFile?.id ?? ''}
+                onChange={e => {
+                  const f = files.find(f => f.id === e.target.value) ?? null;
+                  setSelectedFile(f);
+                }}
               >
-                {generating ? 'Generating…' : 'Generate with HLNA'}
-              </button>
+                <option value="">All uploaded data</option>
+                {files.filter(f => f.upload_status === 'complete').map(f => (
+                  <option key={f.id} value={f.id}>{f.file_name}</option>
+                ))}
+              </select>
+            )}
+          </Field>
+
+          {reportType === 'custom' && (
+            <Field label="Custom Prompt">
+              {control => (
+                <textarea
+                  {...control}
+                  className={`${fieldControlClassName} ${styles.textarea}`}
+                  value={customPrompt}
+                  onChange={e => setCustomPrompt(e.target.value)}
+                  placeholder="Describe what you want the report to cover…"
+                  rows={3}
+                />
+              )}
+            </Field>
+          )}
+
+          {reportMsg && (
+            <div className={styles.message} data-ok={reportMsg.ok ? 'true' : 'false'} role={reportMsg.ok ? 'status' : 'alert'}>
+              <span className={styles.messageText}>
+                <span className={styles.messageMark} aria-hidden="true">{reportMsg.ok ? '✓' : '!'}</span>
+                <span>{reportMsg.text}</span>
+              </span>
             </div>
-          </div>
+          )}
+
+          <FormActions align="stretch">
+            <Button
+              variant="primary"
+              onClick={handleGenerateReport}
+              disabled={generating}
+            >
+              {generating ? 'Generating…' : 'Generate with HLNA'}
+            </Button>
+          </FormActions>
         </div>
-      )}
+      </Dialog>
     </div>
   );
-}
-
-const thStyle: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' };
-const tdStyle: React.CSSProperties = { padding: '10px 16px', color: '#9ca3af', whiteSpace: 'nowrap' };
-const labelStyle: React.CSSProperties = { display: 'block', color: '#9ca3af', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const selectStyle: React.CSSProperties = { width: '100%', padding: '10px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14, fontFamily: 'var(--font-inter), Inter, sans-serif' };
-function msgBox(ok: boolean): React.CSSProperties {
-  return { fontSize: 13, padding: '10px 14px', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: ok ? '#34d399' : '#f87171', background: ok ? 'rgba(52,211,153,0.08)' : 'rgba(248,113,113,0.08)', border: `1px solid ${ok ? 'rgba(52,211,153,0.2)' : 'rgba(248,113,113,0.2)'}` };
-}
-function btnStyle(bg: string, disabled: boolean): React.CSSProperties {
-  return { padding: '10px 20px', background: disabled ? '#1a1d24' : bg, color: disabled ? '#4b5563' : '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: disabled ? 'default' : 'pointer' };
-}
-function smallBtn(bg: string, color: string): React.CSSProperties {
-  return { padding: '5px 10px', background: bg, color, border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer' };
 }

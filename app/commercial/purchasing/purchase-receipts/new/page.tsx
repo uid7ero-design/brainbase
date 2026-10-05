@@ -2,8 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+import { Field as AppField, FormActions, FormError, PageHeader, buttonProps, fieldControlClassName } from '@/components/ui/app';
 
 type PurchaseOrder = { id: string; purchase_order_number: string | null; status: string; supplier_name_snapshot: string | null };
 
@@ -62,49 +61,47 @@ export default function NewPurchaseReceiptPage() {
 
   return (
     <div style={{ maxWidth: 560 }}>
-      <Link href="/commercial/purchasing/purchase-receipts" style={{ fontSize: 13, color: '#6b7280', textDecoration: 'none' }}>← Purchase Receipts</Link>
-      <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: '8px 0 20px' }}>New Purchase Receipt</h1>
+      <PageHeader eyebrow={<Link href="/commercial/purchasing/purchase-receipts">← Purchase Receipts</Link>} title="New Purchase Receipt" />
 
-      <form onSubmit={submit} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div>
-          <label style={lbl}>Purchase Order *</label>
-          <select value={purchaseOrderId} onChange={e => setPurchaseOrderId(e.target.value)} required style={sel}>
-            <option value="">— Select an issued purchase order —</option>
-            {purchaseOrders.map(po => (
-              <option key={po.id} value={po.id}>
-                {po.purchase_order_number} — {po.supplier_name_snapshot ?? 'Unknown supplier'}
-              </option>
-            ))}
-          </select>
-          {!loadingPOs && purchaseOrders.length === 0 && (
-            <p style={{ fontSize: 12, color: '#6b7280', margin: '6px 0 0' }}>No issued purchase orders are available to receive against yet.</p>
+      <form onSubmit={submit} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <AppField
+          label="Purchase Order"
+          required
+          helper={!loadingPOs && purchaseOrders.length === 0 ? 'No issued purchase orders are available to receive against yet.' : undefined}
+        >
+          {control => (
+            <select {...control} value={purchaseOrderId} onChange={e => setPurchaseOrderId(e.target.value)} required className={fieldControlClassName}>
+              <option value="">— Select an issued purchase order —</option>
+              {purchaseOrders.map(po => (
+                <option key={po.id} value={po.id}>
+                  {po.purchase_order_number} — {po.supplier_name_snapshot ?? 'Unknown supplier'}
+                </option>
+              ))}
+            </select>
           )}
-        </div>
-
-        <div>
-          <label style={lbl}>Received Date</label>
-          <input type="date" value={receivedDate} onChange={e => setReceivedDate(e.target.value)} style={sel} />
-        </div>
-
-        <div>
-          <label style={lbl}>Supplier Delivery Reference</label>
-          <input value={deliveryReference} onChange={e => setDeliveryReference(e.target.value)} placeholder="The supplier's own delivery note / docket number" style={sel} />
-        </div>
-
-        <div>
-          <label style={lbl}>Notes</label>
-          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} style={{ ...sel, resize: 'vertical' }} />
-        </div>
-
-        {error && <div style={{ color: '#f87171', fontSize: 13 }}>{error}</div>}
-
-        <button type="submit" disabled={saving} style={{ padding: '10px 16px', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
-          {saving ? 'Creating…' : 'Create Draft — add lines next'}
-        </button>
+        </AppField>
+        <AppField label="Received Date">
+          {control => (
+            <input {...control} type="date" value={receivedDate} onChange={e => setReceivedDate(e.target.value)} className={fieldControlClassName} />
+          )}
+        </AppField>
+        <AppField label="Supplier Delivery Reference">
+          {control => (
+            <input {...control} value={deliveryReference} onChange={e => setDeliveryReference(e.target.value)} placeholder="The supplier's own delivery note / docket number" className={fieldControlClassName} />
+          )}
+        </AppField>
+        <AppField label="Notes">
+          {control => (
+            <textarea {...control} value={notes} onChange={e => setNotes(e.target.value)} rows={3} className={fieldControlClassName} />
+          )}
+        </AppField>
+        {error && <FormError>{error}</FormError>}
+        <FormActions align="stretch">
+          <button type="submit" disabled={saving} {...buttonProps('primary')}>
+            {saving ? 'Creating…' : 'Create Draft — add lines next'}
+          </button>
+        </FormActions>
       </form>
     </div>
   );
 }
-
-const lbl: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: '#9ca3af', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' };
-const sel: React.CSSProperties = { width: '100%', padding: '9px 12px', background: '#07080B', border: `1px solid ${BORDER}`, borderRadius: 8, color: '#f9fafb', fontSize: 14, boxSizing: 'border-box' };

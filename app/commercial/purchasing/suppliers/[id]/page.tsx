@@ -4,8 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import SlidePanel from '../../../_components/SlidePanel';
 import SupplierForm from '../../../_components/SupplierForm';
-
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+import { Badge, PageHeader, StateMessage, buttonProps } from '@/components/ui/app';
 
 type Supplier = {
   id: string; name: string; legal_name: string | null; contact_name: string | null;
@@ -58,27 +57,31 @@ export default function SupplierDetailPage() {
     load();
   }
 
-  if (loading) return <div style={{ color: '#6b7280', fontSize: 14 }}>Loading…</div>;
-  if (!supplier) return <div style={{ color: '#6b7280', fontSize: 14 }}>Supplier not found.</div>;
+  if (loading) return <StateMessage kind="loading" title="Loading supplier…" size="page" />;
+  if (!supplier) {
+    return (
+      <StateMessage kind="empty" size="page" title="Supplier not found." action={<Link href="/commercial/purchasing/suppliers">Back to suppliers</Link>} />
+    );
+  }
 
   return (
     <div style={{ maxWidth: 700 }}>
-      <Link href="/commercial/purchasing/suppliers" style={{ color: '#6b7280', fontSize: 13, textDecoration: 'none' }}>← Suppliers</Link>
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '16px 0 24px' }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>{supplier.name}</h1>
-        {canEdit && (
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={() => setShowEdit(true)} style={btn('#1f2937')}>Edit</button>
-            <button onClick={toggleActive} style={btn(supplier.active ? 'rgba(239,68,68,0.15)' : 'rgba(74,222,128,0.15)', supplier.active ? '#f87171' : '#4ade80')}>
+      <PageHeader
+        eyebrow={<Link href="/commercial/purchasing/suppliers">← Suppliers</Link>}
+        title={supplier.name}
+        meta={<Badge state={supplier.active ? 'active' : 'inactive'}>{supplier.active ? 'Active' : 'Inactive'}</Badge>}
+        actions={canEdit ? (
+          <>
+            <button type="button" onClick={() => setShowEdit(true)} {...buttonProps('secondary')}>Edit</button>
+            <button type="button" onClick={toggleActive} {...buttonProps('secondary')}>
               {supplier.active ? 'Deactivate' : 'Reactivate'}
             </button>
-            {hasPurchasing && <Link href={`/commercial/purchasing/purchase-orders/new?supplierId=${supplier.id}`} style={{ ...btn('#1a6aff'), textDecoration: 'none', display: 'inline-block' }}>New Purchase Order</Link>}
-          </div>
-        )}
-      </div>
+            {hasPurchasing && <Link href={`/commercial/purchasing/purchase-orders/new?supplierId=${supplier.id}`} {...buttonProps('primary')}>New Purchase Order</Link>}
+          </>
+        ) : undefined}
+      />
 
-      <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+      <dl style={{ margin: 0, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px 24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 18 }}>
         <Row label="Status" value={supplier.active ? 'Active' : 'Inactive'} />
         <Row label="Legal Name" value={supplier.legal_name} />
         <Row label="Contact Name" value={supplier.contact_name} />
@@ -89,7 +92,7 @@ export default function SupplierDetailPage() {
         <Row label="Supplier Reference" value={supplier.supplier_reference} />
         <Row label="Payment Terms" value={supplier.payment_terms_days != null ? `${supplier.payment_terms_days} days` : null} />
         <Row label="Notes" value={supplier.notes} />
-      </div>
+      </dl>
 
       <SlidePanel open={showEdit} onClose={() => setShowEdit(false)} title="Edit Supplier">
         <SupplierForm
@@ -109,12 +112,8 @@ export default function SupplierDetailPage() {
 function Row({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
-      <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 14, color: value ? '#f9fafb' : '#4b5563' }}>{value ?? '—'}</div>
+      <dt style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</dt>
+      <dd style={{ margin: 0, fontSize: 14, color: value ? 'var(--text-primary)' : 'var(--text-muted)' }}>{value ?? '—'}</dd>
     </div>
   );
-}
-
-function btn(bg: string, color = '#fff'): React.CSSProperties {
-  return { padding: '8px 16px', background: bg, color, border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' };
 }

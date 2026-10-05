@@ -5,10 +5,16 @@ import { usePathname } from 'next/navigation';
 import Script from 'next/script';
 
 import { isClarityAllowedRoute } from '@/lib/analyticsRoutes';
+import { isThemedPublicRoute } from '@/components/public/routes';
 import {
   getAnalyticsConsent,
   setAnalyticsConsent,
 } from '@/lib/analyticsConsent';
+
+// Presentation only: the consent prompt follows the public-site theme on
+// routes converted to the --bb-* tokens and stays dark on the rest. The
+// consent, storage and Clarity start/stop behaviour above is unchanged.
+import styles from './ConsentBanner.module.css';
 
 const CLARITY_PROJECT_ID = 'wvg7lqjkde';
 
@@ -108,79 +114,30 @@ export default function ClarityLoader() {
         <div
           role="region"
           aria-label="Analytics preference"
-          style={{
-            position: 'fixed',
-            left: 16,
-            right: 16,
-            bottom: 16,
-            zIndex: 200,
-            maxWidth: 460,
-            margin: '0 auto',
-            padding: '14px 16px',
-            borderRadius: 12,
-            background: 'rgba(12,13,17,.96)',
-            border: '1px solid rgba(255,255,255,.10)',
-            boxShadow: '0 20px 50px rgba(0,0,0,.35)',
-            backdropFilter: 'blur(10px)',
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            gap: 12,
-            fontFamily:
-              'var(--font-inter), "Inter", -apple-system, sans-serif',
-          }}
+          className={`bb-public ${styles.banner} ${
+            isThemedPublicRoute(pathname) ? '' : 'bb-scope-dark'
+          }`}
         >
-          <p
-            style={{
-              margin: 0,
-              flex: '1 1 240px',
-              fontSize: 11.5,
-              lineHeight: 1.55,
-              color: 'rgba(226,232,240,.68)',
-            }}
-          >
+          <p className={styles.text}>
             We use limited analytics on our public pages to understand and
-            improve BRΛINBΛSE. See our{' '}
-            <a
-              href="/privacy"
-              style={{ color: '#A78BFA' }}
-            >
+            improve BrainBase. See our{' '}
+            <a href="/privacy" className={styles.link}>
               Privacy Policy
             </a>
             .
           </p>
 
-          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          <div className={styles.actions}>
             <button
               onClick={() => choose('declined')}
-              style={{
-                height: 32,
-                padding: '0 13px',
-                borderRadius: 7,
-                border: '1px solid rgba(255,255,255,.14)',
-                background: 'rgba(255,255,255,.03)',
-                color: 'rgba(245,247,250,.72)',
-                fontSize: 11,
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
+              className={styles.decline}
             >
               Decline
             </button>
 
             <button
               onClick={() => choose('granted')}
-              style={{
-                height: 32,
-                padding: '0 13px',
-                borderRadius: 7,
-                border: '1px solid rgba(167,139,250,.30)',
-                background: 'rgba(138,77,255,.16)',
-                color: '#C4B5FD',
-                fontSize: 11,
-                fontWeight: 650,
-                cursor: 'pointer',
-              }}
+              className={styles.allow}
             >
               Allow analytics
             </button>

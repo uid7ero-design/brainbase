@@ -1,0 +1,84 @@
+/* Helena action-feedback card (bottom-left stack on /dashboard/** and
+   /organiser). Flat overlay surface on theme tokens; a thin info rule marks
+   it as system feedback. Entry fade only — no perpetual float. */
+.card {
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--status-info);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  color: var(--text-primary);
+  font-family: var(--bb-font-sans);
+  transition: opacity .7s ease;
+  animation: floatingCardEntry .3s ease-out both;
+}
+
+.body {
+  padding: 10px 12px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+
+.type {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--status-info);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.time {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: -4px -6px -4px 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.close:hover {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  margin-bottom: 3px;
+  color: var(--text-primary);
+}
+
+.sub {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+@keyframes floatingCardEntry {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card { animation: none; transition: none; }
+}

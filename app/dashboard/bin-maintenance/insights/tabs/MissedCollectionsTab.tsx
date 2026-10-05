@@ -3,8 +3,9 @@
 import { PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, ResponsiveContainer, CartesianGrid } from 'recharts';
 import KpiCard from '@/components/dashboard/ui/KpiCard';
 import Widget from '@/components/ops/widgets/Widget';
+import { useDashboardChart } from '@/components/dashboard/ui/chartTheme';
 import type { BinMaintenanceMissedCollections } from '@/modules/bin-maintenance/calculations';
-import { BIN_COLOR, BIN_LABEL, GRID, TICK, TOOLTIP_STYLE } from './constants';
+import { BIN_LABEL, INFO_NOTE, TRACK, binColor } from './constants';
 
 export default function MissedCollectionsTab({
   data, loading, empty,
@@ -13,6 +14,9 @@ export default function MissedCollectionsTab({
   loading: boolean;
   empty: boolean;
 }) {
+  const chart = useDashboardChart();
+  const pal = chart.palette;
+
   const streamRows = Object.entries(data?.by_stream ?? {})
     .map(([key, value]) => ({ key, name: BIN_LABEL[key] ?? key, value }))
     .filter(r => r.value > 0);
@@ -30,16 +34,16 @@ export default function MissedCollectionsTab({
 
   return (
     <>
-      <div style={{ background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.25)', borderRadius: 10, padding: '10px 14px', fontSize: 12, color: 'rgba(255,255,255,0.72)', marginBottom: 20 }}>
+      <div style={INFO_NOTE}>
         General Waste missed collections are run by the internal team; Organics and Recycling are run by the contractor
         &mdash; split out below.{contractor && contractor.total === 0 && ' No Organics/Recycling missed-collection records are present in this system yet, so the contractor side reads zero until that data is imported.'}
       </div>
 
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 28 }}>
-        <KpiCard label="Total" value={loading ? '—' : (data?.total ?? 0).toLocaleString()} accentColor="#60A5FA" theme="dark" loading={loading} />
-        <KpiCard label="Open" value={loading ? '—' : (data?.open ?? 0)} accentColor="#EF4444" status={data && data.open > 0 ? 'watch' : undefined} theme="dark" loading={loading} />
-        <KpiCard label="Internal (Waste)" value={loading ? '—' : (internal?.total ?? 0)} accentColor="#6B7280" theme="dark" loading={loading} />
-        <KpiCard label="Contractor (Organics/Recycling)" value={loading ? '—' : (contractor?.total ?? 0)} accentColor="#22C55E" theme="dark" loading={loading} />
+        <KpiCard label="Total" value={loading ? '—' : (data?.total ?? 0).toLocaleString()} accentColor="var(--status-info)" loading={loading} />
+        <KpiCard label="Open" value={loading ? '—' : (data?.open ?? 0)} accentColor="var(--status-danger)" status={data && data.open > 0 ? 'watch' : undefined} loading={loading} />
+        <KpiCard label="Internal (Waste)" value={loading ? '—' : (internal?.total ?? 0)} accentColor="var(--border-strong)" loading={loading} />
+        <KpiCard label="Contractor (Organics/Recycling)" value={loading ? '—' : (contractor?.total ?? 0)} accentColor="var(--status-success)" loading={loading} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
@@ -47,11 +51,11 @@ export default function MissedCollectionsTab({
           {streamRows.length > 0 && (
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
-                <Pie data={streamRows} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80} paddingAngle={2}>
-                  {streamRows.map(r => <Cell key={r.key} fill={BIN_COLOR[r.key]} />)}
+                <Pie data={streamRows} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80} paddingAngle={2} stroke={pal.tooltipBg}>
+                  {streamRows.map(r => <Cell key={r.key} fill={binColor(pal, r.key)} />)}
                 </Pie>
-                <Tooltip contentStyle={TOOLTIP_STYLE} />
-                <Legend wrapperStyle={{ fontSize: 11.5, color: 'rgba(255,255,255,0.72)' }} />
+                <Tooltip {...chart.tooltip} />
+                <Legend wrapperStyle={chart.legend} />
               </PieChart>
             </ResponsiveContainer>
           )}
@@ -63,11 +67,11 @@ export default function MissedCollectionsTab({
               {suburbRows.map(([suburb, count]) => (
                 <div key={suburb}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.72)' }}>{suburb}</span>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.72)' }}>{count}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{suburb}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{count}</span>
                   </div>
-                  <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${Math.round((count / maxSuburb) * 100)}%`, background: '#60A5FA', borderRadius: 2 }} />
+                  <div style={TRACK}>
+                    <div style={{ height: '100%', width: `${Math.round((count / maxSuburb) * 100)}%`, background: pal.info, borderRadius: 2 }} />
                   </div>
                 </div>
               ))}
@@ -80,11 +84,11 @@ export default function MissedCollectionsTab({
         {trendRows.length > 0 && (
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={trendRows}>
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
-              <XAxis dataKey="label" tick={{ ...TICK, fontSize: 9 }} interval="preserveStartEnd" axisLine={false} tickLine={false} />
-              <YAxis tick={TICK} axisLine={false} tickLine={false} allowDecimals={false} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} />
-              <Bar dataKey="count" fill="#60A5FA" radius={[2, 2, 0, 0]} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+              <XAxis dataKey="label" tick={{ ...chart.tick, fontSize: 9 }} interval="preserveStartEnd" axisLine={false} tickLine={false} />
+              <YAxis tick={chart.tick} axisLine={false} tickLine={false} allowDecimals={false} />
+              <Tooltip {...chart.tooltip} />
+              <Bar dataKey="count" fill={pal.info} radius={[2, 2, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         )}

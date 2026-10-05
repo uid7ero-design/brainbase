@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useId } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, PieChart, Pie, Cell,
@@ -8,71 +8,41 @@ import {
 import { useAppStore } from '@/lib/state/useAppStore';
 import type { SRRow, UploadMeta } from './page';
 import { HlnaInsightBanner } from '@/components/hlna/InsightBanner';
+import {
+  PageHeader, Panel, MetricStrip, Metric, Button, Badge, StateMessage,
+  TableContainer, tableStyles, type SemanticState,
+} from '@/components/ui/app';
+import { useDashboardChart } from '@/components/dashboard/ui/chartTheme';
+import s from './ServiceRequests.module.css';
 
-// ─── Design tokens ────────────────────────────────────────────────────────────
+// ─── Status encodings ─────────────────────────────────────────────────────────
+// Request status / priority are semantic: Badges carry the written label plus
+// a state shape; chart series read the theme-aware palette (useDashboardChart).
 
-const FONT  = "var(--font-inter), -apple-system, sans-serif";
-const T1    = '#F5F7FA';
-const T2    = 'rgba(230,237,243,0.55)';
-const T3    = 'rgba(230,237,243,0.35)';
-const DC: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.03)',
-  border: '1px solid rgba(255,255,255,0.07)',
-  borderRadius: 12, padding: '18px 20px',
+const STATUS_STATE: Record<string, SemanticState> = {
+  Open:    'warning',
+  Closed:  'success',
+  Pending: 'info',
 };
 
-const STATUS_COLOR: Record<string, string> = {
-  Open:    '#F59E0B',
-  Closed:  '#22C55E',
-  Pending: '#818CF8',
-};
-
-const PRIORITY_COLOR: Record<string, string> = {
-  High:   '#EF4444',
-  Medium: '#F59E0B',
-  Low:    '#4ADE80',
+const PRIORITY_STATE: Record<string, SemanticState> = {
+  High:   'error',
+  Medium: 'warning',
+  Low:    'success',
 };
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function Pill({ label, color }: { label: string; color: string }) {
-  return (
-    <span style={{
-      padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700,
-      textTransform: 'uppercase', letterSpacing: '.06em', flexShrink: 0,
-      background: `${color}20`, color, border: `1px solid ${color}40`,
-    }}>
-      {label}
-    </span>
-  );
-}
-
-function KpiCard({ label, value, sub, accent }: { label: string; value: string; sub: string; accent: string }) {
-  return (
-    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: 20, borderLeft: `3px solid ${accent}` }}>
-      <p style={{ fontSize: 10, color: T3, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 8px' }}>{label}</p>
-      <p style={{ fontSize: 24, fontWeight: 700, color: T1, margin: '0 0 4px', lineHeight: 1 }}>{value}</p>
-      <p style={{ fontSize: 11, color: T3, margin: 0 }}>{sub}</p>
-    </div>
-  );
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p style={{ fontSize: 10, fontWeight: 700, color: T3, textTransform: 'uppercase', letterSpacing: '.08em', margin: '0 0 10px' }}>{children}</p>
-  );
-}
-
 function DataSourceBanner({ meta }: { meta: UploadMeta }) {
   const date = new Date(meta.uploadedAt).toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short' });
   return (
-    <div style={{ background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 12, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
-      <Pill label="Live Data" color="#10b981" />
-      <span style={{ fontSize: 13, color: T2 }}>
-        <span style={{ color: T1, fontWeight: 600 }}>{meta.fileName}</span>
-        <span style={{ color: T3, margin: '0 8px' }}>·</span>
+    <div className={s.source}>
+      <Badge state="success">Live Data</Badge>
+      <span>
+        <span className={s.strong}>{meta.fileName}</span>
+        <span className={s.sep} aria-hidden="true">·</span>
         <span>{meta.recordCount.toLocaleString()} records</span>
-        <span style={{ color: T3, margin: '0 8px' }}>·</span>
+        <span className={s.sep} aria-hidden="true">·</span>
         <span>Last updated {date}</span>
       </span>
     </div>
@@ -81,15 +51,22 @@ function DataSourceBanner({ meta }: { meta: UploadMeta }) {
 
 function DemoBanner() {
   return (
-    <div style={{ background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 12, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-      <Pill label="Demo" color="#f59e0b" />
-      <div style={{ fontSize: 13, color: T2 }}>
+    <div className={s.source} data-tone="warning">
+      <Badge state="warning">Demo</Badge>
+      <div>
         Sample data is shown below.{' '}
-        <span style={{ color: T1, fontWeight: 600 }}>Upload a service requests spreadsheet to activate with real data.</span>
+        <span className={s.strong}>Upload a service requests spreadsheet to activate with real data.</span>
       </div>
     </div>
   );
 }
+
+const TABS = [
+  { id: 'queue',  label: 'Open Queue' },
+  { id: 'trend',  label: 'Monthly Trend' },
+  { id: 'suburb', label: 'By Suburb' },
+  { id: 'type',   label: 'By Type' },
+] as const;
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
@@ -104,6 +81,9 @@ export default function ServiceRequestsClient({ isDemo, uploadMeta, rows, monthO
   const [tab,          setTab]          = useState<'queue' | 'trend' | 'suburb' | 'type'>('queue');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [priorityFilter, setPriorityFilter] = useState<string>('All');
+  const chart = useDashboardChart();
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const baseId = useId();
 
   const filtered = useMemo(() => rows.filter(r => {
     if (statusFilter   !== 'All' && r.status   !== statusFilter)   return false;
@@ -168,35 +148,50 @@ export default function ServiceRequestsClient({ isDemo, uploadMeta, rows, monthO
 
   const fmt$ = (n: number) => n >= 1000 ? `$${(n/1000).toFixed(0)}K` : `$${n}`;
 
-  const DTT = { contentStyle: { background: '#0d0f14', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, fontSize: 11 }, labelStyle: { color: T3 } };
+  const trendSeries = [
+    { key: 'Closed',  color: chart.palette.success },
+    { key: 'Pending', color: chart.palette.info },
+    { key: 'Open',    color: chart.palette.warning },
+  ] as const;
+
+  function onTabKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    const i = TABS.findIndex(t => t.id === tab);
+    let next = -1;
+    if (e.key === 'ArrowRight') next = (i + 1) % TABS.length;
+    else if (e.key === 'ArrowLeft') next = (i - 1 + TABS.length) % TABS.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = TABS.length - 1;
+    if (next < 0) return;
+    e.preventDefault();
+    setTab(TABS[next].id);
+    tabRefs.current[next]?.focus();
+  }
+
+  const panelProps = {
+    role: 'tabpanel',
+    id: `${baseId}-panel`,
+    'aria-labelledby': `${baseId}-tab-${tab}`,
+    className: s.panel,
+  } as const;
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', color: T1, fontFamily: FONT, padding: '24px 28px 80px' }}>
+    <main className={s.page}>
+      <div className={s.inner}>
 
       {/* ── Header ── */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', color: T1 }}>
-              Service Requests
-            </h1>
-            {highPriOpen.length > 0 && (
-              <span style={{ padding: '2px 8px', borderRadius: 20, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', fontSize: 10, fontWeight: 700, color: '#FCA5A5', letterSpacing: '0.06em' }}>
-                {highPriOpen.length} HIGH PRIORITY
-              </span>
-            )}
-          </div>
-          <p style={{ margin: '3px 0 0', fontSize: 12, color: T3 }}>
-            {isDemo ? 'Demo data — upload a spreadsheet to see real requests' : `${rows.length} total requests`}
-          </p>
-        </div>
-        <button
-          onClick={() => useAppStore.getState().fireHelena('Analyse the current service requests — which suburbs and request types are generating the most open items? Are there any resolution time concerns?')}
-          style={{ padding: '7px 14px', borderRadius: 8, background: 'rgba(124,58,237,0.12)', border: '1px solid rgba(124,58,237,0.28)', color: '#C4B5FD', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: FONT }}
-        >
-          Ask HLNΛ
-        </button>
-      </div>
+      <PageHeader
+        title="Service Requests"
+        meta={highPriOpen.length > 0 ? <Badge state="error">{highPriOpen.length} HIGH PRIORITY</Badge> : undefined}
+        description={isDemo ? 'Demo data — upload a spreadsheet to see real requests' : `${rows.length} total requests`}
+        actions={
+          <Button
+            variant="secondary"
+            onClick={() => useAppStore.getState().fireHelena('Analyse the current service requests — which suburbs and request types are generating the most open items? Are there any resolution time concerns?')}
+          >
+            Ask HLNΛ
+          </Button>
+        }
+      />
 
       {/* ── Data source / demo banner ── */}
       {!isDemo && uploadMeta ? <DataSourceBanner meta={uploadMeta} /> : isDemo ? <DemoBanner /> : null}
@@ -205,29 +200,29 @@ export default function ServiceRequestsClient({ isDemo, uploadMeta, rows, monthO
       {!isDemo && <HlnaInsightBanner dashboardType="service_requests" />}
 
       {/* ── KPI strip ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 22 }}>
-        <KpiCard label="Open"           value={String(open.length)}    sub={highPriOpen.length > 0 ? `${highPriOpen.length} high priority` : 'None high priority'} accent="#F59E0B" />
-        <KpiCard label="Avg Days Open"  value={avgDaysOpen > 0 ? avgDaysOpen.toFixed(1) : '—'} sub="For open requests" accent={avgDaysOpen > 7 ? '#EF4444' : '#22C55E'} />
-        <KpiCard label="Resolution Rate" value={`${resolutionRate}%`}  sub={`${closed.length} closed`} accent={resolutionRate >= 70 ? '#22C55E' : '#F59E0B'} />
-        <KpiCard label="Pending"        value={String(pending.length)} sub="Awaiting action"  accent="#818CF8" />
-        <KpiCard label="Total Cost"     value={fmt$(totalCost)}        sub="All requests"      accent="#A78BFA" />
-      </div>
+      <MetricStrip>
+        <Metric label="Open"            value={String(open.length)}    sub={highPriOpen.length > 0 ? `${highPriOpen.length} high priority` : 'None high priority'} />
+        <Metric label="Avg Days Open"   value={avgDaysOpen > 0 ? avgDaysOpen.toFixed(1) : '—'} sub="For open requests" tone={avgDaysOpen > 7 ? 'danger' : undefined} />
+        <Metric label="Resolution Rate" value={`${resolutionRate}%`}   sub={`${closed.length} closed`} tone={resolutionRate >= 70 ? 'success' : 'warning'} />
+        <Metric label="Pending"         value={String(pending.length)} sub="Awaiting action" />
+        <Metric label="Total Cost"      value={fmt$(totalCost)}        sub="All requests" />
+      </MetricStrip>
 
       {/* ── Tabs ── */}
-      <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.07)', marginBottom: 18, gap: 0 }}>
-        {([
-          { id: 'queue',  label: 'Open Queue' },
-          { id: 'trend',  label: 'Monthly Trend' },
-          { id: 'suburb', label: 'By Suburb' },
-          { id: 'type',   label: 'By Type' },
-        ] as const).map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{
-            padding: '8px 16px', background: 'none', border: 'none',
-            borderBottom: tab === t.id ? '2px solid #8B5CF6' : '2px solid transparent',
-            color: tab === t.id ? '#C4B5FD' : 'rgba(255,255,255,0.40)',
-            fontSize: 12, fontWeight: tab === t.id ? 600 : 400, cursor: 'pointer',
-            transition: 'all 0.15s', fontFamily: FONT, marginBottom: -1,
-          }}>
+      <div role="tablist" aria-label="Service request views" className={s.tabList} onKeyDown={onTabKeyDown}>
+        {TABS.map((t, i) => (
+          <button
+            key={t.id}
+            ref={el => { tabRefs.current[i] = el; }}
+            type="button"
+            role="tab"
+            id={`${baseId}-tab-${t.id}`}
+            aria-selected={tab === t.id}
+            aria-controls={`${baseId}-panel`}
+            tabIndex={tab === t.id ? 0 : -1}
+            onClick={() => setTab(t.id)}
+            className={s.tab}
+          >
             {t.label}
           </button>
         ))}
@@ -235,66 +230,61 @@ export default function ServiceRequestsClient({ isDemo, uploadMeta, rows, monthO
 
       {/* ── Queue tab ── */}
       {tab === 'queue' && (
-        <div>
+        <div {...panelProps}>
           {/* Filters */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-            {(['All','Open','Closed','Pending'] as const).map(s => (
-              <button key={s} onClick={() => setStatusFilter(s)} style={{
-                padding: '4px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s', fontFamily: FONT,
-                background: statusFilter === s ? (s === 'All' ? 'rgba(124,58,237,0.25)' : `${STATUS_COLOR[s] ?? '#7C3AED'}28`) : 'rgba(255,255,255,0.04)',
-                border: `1px solid ${statusFilter === s ? (STATUS_COLOR[s] ?? '#7C3AED') + '60' : 'rgba(255,255,255,0.08)'}`,
-                color: statusFilter === s ? (STATUS_COLOR[s] ?? '#C4B5FD') : 'rgba(255,255,255,0.45)',
-              }}>
-                {s}
-              </button>
-            ))}
-            <div style={{ height: 24, width: 1, background: 'rgba(255,255,255,0.08)', margin: '0 4px', alignSelf: 'center' }} />
-            {(['All','High','Medium','Low'] as const).map(p => (
-              <button key={p} onClick={() => setPriorityFilter(p)} style={{
-                padding: '4px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s', fontFamily: FONT,
-                background: priorityFilter === p ? `${PRIORITY_COLOR[p] ?? '#7C3AED'}28` : 'rgba(255,255,255,0.04)',
-                border: `1px solid ${priorityFilter === p ? (PRIORITY_COLOR[p] ?? '#7C3AED') + '60' : 'rgba(255,255,255,0.08)'}`,
-                color: priorityFilter === p ? (PRIORITY_COLOR[p] ?? '#C4B5FD') : 'rgba(255,255,255,0.45)',
-              }}>
-                {p}
-              </button>
-            ))}
-            <span style={{ fontSize: 11, color: T3, alignSelf: 'center', marginLeft: 4 }}>
+          <div className={s.filters}>
+            <div className={s.segment} role="group" aria-label="Filter by status">
+              {(['All','Open','Closed','Pending'] as const).map(st => (
+                <button key={st} type="button" aria-pressed={statusFilter === st} onClick={() => setStatusFilter(st)} className={s.segmentButton}>
+                  {st}
+                </button>
+              ))}
+            </div>
+            <div className={s.segment} role="group" aria-label="Filter by priority">
+              {(['All','High','Medium','Low'] as const).map(p => (
+                <button key={p} type="button" aria-pressed={priorityFilter === p} onClick={() => setPriorityFilter(p)} className={s.segmentButton}>
+                  {p}
+                </button>
+              ))}
+            </div>
+            <span className={s.count}>
               {filtered.length} of {rows.length}
             </span>
           </div>
 
           {/* Table */}
-          <div style={{ ...DC, padding: 0, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead>
-                <tr style={{ background: 'rgba(255,255,255,0.025)' }}>
-                  {['ID','Type','Suburb','Month','Status','Priority','Days Open','Cost'].map(h => (
-                    <th key={h} style={{ padding: '9px 14px', textAlign: 'left', fontSize: 9, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: T3, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.slice(0, 80).map((r, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                    <td style={{ padding: '9px 14px', fontFamily: 'monospace', fontSize: 11, color: T3 }}>{r.request_id}</td>
-                    <td style={{ padding: '9px 14px', color: T2 }}>{r.service_type}</td>
-                    <td style={{ padding: '9px 14px', color: T1, fontWeight: 500 }}>{r.suburb}</td>
-                    <td style={{ padding: '9px 14px', color: T3 }}>{r.month}</td>
-                    <td style={{ padding: '9px 14px' }}><Pill label={r.status}   color={STATUS_COLOR[r.status]   ?? '#A78BFA'} /></td>
-                    <td style={{ padding: '9px 14px' }}><Pill label={r.priority} color={PRIORITY_COLOR[r.priority] ?? '#A78BFA'} /></td>
-                    <td style={{ padding: '9px 14px', color: r.days_open > 7 ? '#FCA5A5' : T2, fontWeight: r.days_open > 7 ? 600 : 400 }}>
-                      {r.days_open}d
-                    </td>
-                    <td style={{ padding: '9px 14px', color: T2 }}>{fmt$(r.cost)}</td>
+          <div className={s.tableBlock}>
+            <TableContainer label="Service request queue" minWidth={760}>
+              <table className={tableStyles.table}>
+                <thead>
+                  <tr>
+                    {['ID','Type','Suburb','Month','Status','Priority','Days Open','Cost'].map(h => (
+                      <th key={h} scope="col" className={h === 'Days Open' || h === 'Cost' ? tableStyles.num : undefined}>{h}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {filtered.slice(0, 80).map((r, i) => (
+                    <tr key={i}>
+                      <td className={s.mono}>{r.request_id}</td>
+                      <td>{r.service_type}</td>
+                      <td className={tableStyles.primary}>{r.suburb}</td>
+                      <td>{r.month}</td>
+                      <td><Badge state={STATUS_STATE[r.status] ?? 'inactive'}>{r.status}</Badge></td>
+                      <td><Badge state={PRIORITY_STATE[r.priority] ?? 'inactive'}>{r.priority}</Badge></td>
+                      <td className={tableStyles.num}>
+                        <span className={r.days_open > 7 ? s.dangerText : undefined}>{r.days_open}d</span>
+                      </td>
+                      <td className={tableStyles.num}>{fmt$(r.cost)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableContainer>
             {filtered.length > 80 && (
-              <div style={{ padding: '10px 14px', textAlign: 'center', fontSize: 11, color: T3, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+              <p className={s.overflowNote}>
                 Showing 80 of {filtered.length} — refine filters to narrow results
-              </div>
+              </p>
             )}
           </div>
         </div>
@@ -302,115 +292,125 @@ export default function ServiceRequestsClient({ isDemo, uploadMeta, rows, monthO
 
       {/* ── Monthly trend tab ── */}
       {tab === 'trend' && (
-        <div style={DC}>
-          <SectionLabel>Request Volume by Month</SectionLabel>
-          {trendData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={trendData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                <XAxis dataKey="month" tick={{ fill: T3, fontSize: 10 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: T3, fontSize: 10 }} axisLine={false} tickLine={false} />
-                <Tooltip {...DTT} />
-                <Bar dataKey="Closed"  fill="#22C55E" stackId="s" radius={[0,0,0,0]} />
-                <Bar dataKey="Pending" fill="#818CF8" stackId="s" />
-                <Bar dataKey="Open"    fill="#F59E0B" stackId="s" radius={[4,4,0,0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T3, fontSize: 12 }}>No trend data</div>
-          )}
-          <div style={{ display: 'flex', gap: 16, marginTop: 10, justifyContent: 'center' }}>
-            {[['Closed','#22C55E'],['Pending','#818CF8'],['Open','#F59E0B']].map(([label, color]) => (
-              <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: T3 }}>
-                <div style={{ width: 8, height: 8, borderRadius: 2, background: color }} />
-                {label}
+        <div {...panelProps}>
+          <Panel title="Request Volume by Month">
+            {trendData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={trendData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                  <XAxis dataKey="month" tick={chart.tick} axisLine={false} tickLine={false} />
+                  <YAxis tick={chart.tick} axisLine={false} tickLine={false} />
+                  <Tooltip {...chart.tooltip} />
+                  <Bar dataKey="Closed"  fill={chart.palette.success} stackId="s" radius={[0,0,0,0]} />
+                  <Bar dataKey="Pending" fill={chart.palette.info} stackId="s" />
+                  <Bar dataKey="Open"    fill={chart.palette.warning} stackId="s" radius={[4,4,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className={s.chartEmpty}>
+                <StateMessage kind="empty" title="No trend data" />
               </div>
-            ))}
-          </div>
+            )}
+            <ul className={s.legend} aria-label="Legend">
+              {trendSeries.map(({ key, color }) => (
+                <li key={key} className={s.legendItem}>
+                  <span className={s.swatch} style={{ background: color }} aria-hidden="true" />
+                  {key}
+                </li>
+              ))}
+            </ul>
+          </Panel>
         </div>
       )}
 
       {/* ── By suburb tab ── */}
       {tab === 'suburb' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          <div style={DC}>
-            <SectionLabel>Open Requests by Suburb</SectionLabel>
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={suburbData.slice(0,8)} layout="vertical" margin={{ top: 0, right: 10, bottom: 0, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
-                <XAxis type="number" tick={{ fill: T3, fontSize: 9 }} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="suburb" tick={{ fill: T2, fontSize: 10 }} axisLine={false} tickLine={false} width={90} />
-                <Tooltip {...DTT} />
-                <Bar dataKey="open" fill="#F59E0B" radius={[0,4,4,0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div style={{ ...DC, padding: 0, overflow: 'hidden' }}>
-            <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: T3 }}>Suburb Summary</div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead>
-                <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
-                  {['Suburb','Open','High Priority','Avg Days'].map(h => (
-                    <th key={h} style={{ padding: '8px 14px', textAlign: 'left', fontSize: 9, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: T3, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {suburbData.map((s, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                    <td style={{ padding: '9px 14px', fontWeight: 500, color: T1 }}>{s.suburb}</td>
-                    <td style={{ padding: '9px 14px', color: s.open > 3 ? '#FCD34D' : T2 }}>{s.open}</td>
-                    <td style={{ padding: '9px 14px', color: s.high > 0 ? '#FCA5A5' : T3 }}>{s.high}</td>
-                    <td style={{ padding: '9px 14px', color: s.avgDays > 7 ? '#FCA5A5' : T3 }}>{s.avgDays}d</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <div {...panelProps}>
+          <div className={s.split}>
+            <Panel title="Open Requests by Suburb">
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={suburbData.slice(0,8)} layout="vertical" margin={{ top: 0, right: 10, bottom: 0, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} horizontal={false} />
+                  <XAxis type="number" tick={chart.tick} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="suburb" tick={chart.tick} axisLine={false} tickLine={false} width={90} />
+                  <Tooltip {...chart.tooltip} />
+                  <Bar dataKey="open" fill={chart.palette.warning} radius={[0,4,4,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </Panel>
+            <div className={s.tableBlock}>
+              <h2 className={s.blockTitle}>Suburb Summary</h2>
+              <TableContainer label="Suburb summary" minWidth={420}>
+                <table className={tableStyles.table}>
+                  <thead>
+                    <tr>
+                      {['Suburb','Open','High Priority','Avg Days'].map(h => (
+                        <th key={h} scope="col" className={h === 'Suburb' ? undefined : tableStyles.num}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {suburbData.map((row, i) => (
+                      <tr key={i}>
+                        <td className={tableStyles.primary}>{row.suburb}</td>
+                        <td className={tableStyles.num}><span className={row.open > 3 ? s.warnText : undefined}>{row.open}</span></td>
+                        <td className={tableStyles.num}><span className={row.high > 0 ? s.dangerText : undefined}>{row.high}</span></td>
+                        <td className={tableStyles.num}><span className={row.avgDays > 7 ? s.dangerText : undefined}>{row.avgDays}d</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableContainer>
+            </div>
           </div>
         </div>
       )}
 
       {/* ── By type tab ── */}
       {tab === 'type' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          <div style={DC}>
-            <SectionLabel>Requests by Service Type</SectionLabel>
-            <ResponsiveContainer width="100%" height={260}>
-              <PieChart>
-                <Pie data={typeData} dataKey="count" nameKey="type" cx="50%" cy="50%" outerRadius={90} label={(p) => `${(p as { type?: string; percent?: number }).type ?? ''} ${(((p as { percent?: number }).percent ?? 0) * 100).toFixed(0)}%`} labelLine={{ stroke: T3, strokeWidth: 0.5 }} fontSize={10} fill={T3}>
-                  {typeData.map((_, i) => (
-                    <Cell key={i} fill={['#A78BFA','#38BDF8','#4ADE80','#F59E0B','#F87171','#818CF8','#34D399','#FB923C'][i % 8]} />
-                  ))}
-                </Pie>
-                <Tooltip {...DTT} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          <div style={{ ...DC, padding: 0, overflow: 'hidden' }}>
-            <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: T3 }}>Type Breakdown</div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead>
-                <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
-                  {['Service Type','Total','Open','Total Cost'].map(h => (
-                    <th key={h} style={{ padding: '8px 14px', textAlign: 'left', fontSize: 9, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: T3, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {typeData.map((t, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                    <td style={{ padding: '9px 14px', fontWeight: 500, color: T1 }}>{t.type}</td>
-                    <td style={{ padding: '9px 14px', color: T2 }}>{t.count}</td>
-                    <td style={{ padding: '9px 14px', color: t.open > 2 ? '#FCD34D' : T3 }}>{t.open}</td>
-                    <td style={{ padding: '9px 14px', color: T2 }}>{fmt$(t.cost)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <div {...panelProps}>
+          <div className={s.split}>
+            <Panel title="Requests by Service Type">
+              <ResponsiveContainer width="100%" height={260}>
+                <PieChart>
+                  <Pie data={typeData} dataKey="count" nameKey="type" cx="50%" cy="50%" outerRadius={90} label={(p) => `${(p as { type?: string; percent?: number }).type ?? ''} ${(((p as { percent?: number }).percent ?? 0) * 100).toFixed(0)}%`} labelLine={{ stroke: chart.palette.axis, strokeWidth: 0.5 }} fontSize={10} fill={chart.palette.axis}>
+                    {typeData.map((_, i) => (
+                      <Cell key={i} fill={chart.series[i % chart.series.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip {...chart.tooltip} />
+                </PieChart>
+              </ResponsiveContainer>
+            </Panel>
+            <div className={s.tableBlock}>
+              <h2 className={s.blockTitle}>Type Breakdown</h2>
+              <TableContainer label="Type breakdown" minWidth={420}>
+                <table className={tableStyles.table}>
+                  <thead>
+                    <tr>
+                      {['Service Type','Total','Open','Total Cost'].map(h => (
+                        <th key={h} scope="col" className={h === 'Service Type' ? undefined : tableStyles.num}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {typeData.map((t, i) => (
+                      <tr key={i}>
+                        <td className={tableStyles.primary}>{t.type}</td>
+                        <td className={tableStyles.num}>{t.count}</td>
+                        <td className={tableStyles.num}><span className={t.open > 2 ? s.warnText : undefined}>{t.open}</span></td>
+                        <td className={tableStyles.num}>{fmt$(t.cost)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableContainer>
+            </div>
           </div>
         </div>
       )}
 
-    </div>
+      </div>
+    </main>
   );
 }

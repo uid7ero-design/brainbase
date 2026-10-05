@@ -1,0 +1,385 @@
+/* HLNΛ Insight card (tennis client dashboard). Tokens only so it follows
+   light and dark: flat surface, no ambient glows, no gradients, no violet
+   chrome. HLNΛ identity is the approved broken-orbit mark in the HLNΛ
+   accent. Briefing line kinds keep their meaning through status tokens
+   (stripe = -dot, label = status foreground). */
+
+.card {
+  overflow: hidden;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: var(--bb-font-sans);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  min-height: 64px;
+  padding: 12px 19px;
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.eyebrow {
+  margin-bottom: 3px;
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.content {
+  padding: 18px 19px 19px;
+}
+
+.summaryBlock {
+  margin-bottom: 15px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.summaryLabel {
+  margin-bottom: 6px;
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.summary {
+  margin: 0;
+  max-width: 900px;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  position: relative;
+  min-width: 0;
+  min-height: 118px;
+  padding: 13px 13px 13px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.itemAccent {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+}
+
+.itemLabel {
+  margin-bottom: 8px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.item[data-kind='info'] .itemAccent { background: var(--bb-info-dot); }
+.item[data-kind='info'] .itemLabel { color: var(--status-info); }
+.item[data-kind='neutral'] .itemAccent { background: var(--border-strong); }
+.item[data-kind='neutral'] .itemLabel { color: var(--text-secondary); }
+.item[data-kind='warning'] .itemAccent { background: var(--bb-warning-dot); }
+.item[data-kind='warning'] .itemLabel { color: var(--status-warning); }
+.item[data-kind='success'] .itemAccent { background: var(--bb-success-dot); }
+.item[data-kind='success'] .itemLabel { color: var(--status-success); }
+
+.itemCopy {
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.answer {
+  margin-top: 15px;
+  padding: 14px 15px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.answerHeader {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 9px;
+}
+
+.answerMark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.answerEyebrow {
+  margin-bottom: 2px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.answerTitle {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.answerCopy {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 190px;
+  padding: 24px 20px;
+  text-align: center;
+}
+
+.emptyIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+}
+
+.emptyTitle {
+  margin-bottom: 5px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.emptyCopy {
+  max-width: 420px;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.loading {
+  padding: 3px 0 2px;
+}
+
+.loadingSummary {
+  margin-bottom: 15px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.loadingGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.loadingCard {
+  min-height: 118px;
+  padding: 14px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.skeleton {
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  animation: hlnaSkeleton 1.6s ease-in-out infinite;
+}
+
+@keyframes hlnaSkeleton {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+.skeletonWide { width: 78%; height: 11px; margin-bottom: 8px; }
+.skeletonMedium { width: 55%; height: 9px; }
+.skeletonLabel { width: 42%; height: 7px; margin-bottom: 12px; }
+.skeletonLine { width: 100%; height: 8px; margin-bottom: 7px; }
+.skeletonShort { width: 72%; height: 8px; }
+
+.askForm {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 58px;
+  padding: 10px 13px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-sunken);
+}
+
+.askIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+}
+
+.askInput {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.8125rem;
+}
+.askInput::placeholder {
+  color: var(--text-subtle);
+}
+.askInput:focus-visible {
+  border-color: var(--border-focus);
+}
+.askInput:disabled {
+  cursor: not-allowed;
+  color: var(--text-muted);
+}
+
+.askButton {
+  flex-shrink: 0;
+  min-width: 74px;
+}
+
+.thinkingDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: hlnaThinking 1s ease-in-out infinite;
+}
+
+@keyframes hlnaThinking {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+@media (max-width: 880px) {
+  .grid,
+  .loadingGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .header {
+    padding: 12px 15px;
+  }
+  .content {
+    padding: 16px 15px 17px;
+  }
+  .grid,
+  .loadingGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .item {
+    min-height: 0;
+  }
+  .askForm {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+}
+
+@media (max-width: 430px) {
+  .askIcon {
+    display: none;
+  }
+  .askButton {
+    min-width: 62px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton,
+  .thinkingDot {
+    animation: none;
+  }
+}

@@ -88,8 +88,13 @@ describe('app/dashboard/sessions/page.tsx — selected-state colour stripe fix',
     const fnStart = source.indexOf('function CalendarEntry(')
     const fnEnd = source.indexOf('\nfunction WeekGrid(')
     const body = source.slice(fnStart, fnEnd)
-    expect(body).toContain("const fullBorderColor = selected ? 'rgba(99,102,241,.50)'")
-    expect(body).toContain("const compactBorderColor = selected ? 'rgba(99,102,241,.45)'")
+    // Visual-convergence update (authenticated visual-completion pass): the
+    // selected ring is the product accent border token (both themes) rather
+    // than the dark-only rgba(99,102,241,…) indigo literal. Same structure:
+    // a selected-derived colour for the three non-type sides only.
+    expect(body).toContain("const fullBorderColor = selected ? 'var(--brand-brainbase-accent-border)'")
+    expect(body).toContain("const compactBorderColor = selected ? 'var(--brand-brainbase-accent-border)'")
+    expect(body).not.toMatch(/rgba\(99,\s*102,\s*241/)
     // Every side but the left uses that selected-derived colour, not the type colour.
     expect(body).toMatch(/borderTop: `1px solid \$\{(full|compact)BorderColor\}`/)
     expect(body).toMatch(/borderRight: `1px solid \$\{(full|compact)BorderColor\}`/)

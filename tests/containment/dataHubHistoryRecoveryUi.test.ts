@@ -371,6 +371,8 @@ describe("T32/M20: no new backend route", () => {
         "app/api/data-hub/import-batches/[id]/worksheets/route.ts",
         // 6.2D3C addition (read-only governed schema comparison):
         "app/api/data-hub/import-batches/[id]/schema-match/route.ts",
+        // 6.2D3D addition (governed schema lineage pinning):
+        "app/api/data-hub/import-batches/[id]/schema-selection/route.ts",
         "app/api/data-hub/import-batches/route.ts",
         "app/api/data-hub/worksheets/[id]/confirm-illegal-dumping/route.ts",
         "app/api/data-hub/worksheets/[id]/preview/route.ts",
@@ -390,6 +392,10 @@ describe("T32/M20: no new backend route", () => {
         "app/api/data-hub/source-mappings/[id]/versions/route.ts",
         "app/api/data-hub/source-mappings/[id]/activate-version/route.ts",
         "app/api/data-hub/mapping-versions/[id]/route.ts",
+        // 6.2D4B addition (governed raw-staging execution):
+        "app/api/data-hub/worksheets/[id]/stage/route.ts",
+        // 6.2D4B2B addition (thin manager+ normalization execution/status):
+        "app/api/data-hub/worksheets/[id]/normalize/route.ts",
       ].sort()
     );
   });

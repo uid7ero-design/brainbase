@@ -411,13 +411,22 @@ describe('Accessibility (source-level)', () => {
 describe('S — D.4.6O-R1: the confirmation card can never be flex-shrunk to a sliver by a long conversation', () => {
   it('OrganiserActionCard\'s own root wrapper sets flexShrink: 0 directly on the same style object as its overflow: hidden', () => {
     const card = sliceFrom(CHATPANEL_SOURCE, 'function OrganiserActionCard(', 'export function ChatPanel(')
+    // Visual-convergence update (authenticated visual-completion pass): the
+    // end anchor used to be the header title's raw amber literal
+    // (`<span style={{ color: "#FBBF24"`), which only pinned a colour. The
+    // title now takes its warning colour from the --status-warning token via
+    // a CSS-module class, so the slice ends at that element instead — the
+    // same root style object is still isolated, and the warning framing
+    // itself is now asserted explicitly (token border + fill) below.
     const rootStyleBlock = stripLineComments(sliceFrom(
       card,
       'aria-label="Helena Organiser action awaiting your confirmation"',
-      '<span style={{ color: "#FBBF24"',
+      '<span className={styles.actionTitle}>',
     ))
     expect(rootStyleBlock).toContain('overflow: "hidden"')
     expect(rootStyleBlock).toContain('flexShrink: 0')
+    expect(rootStyleBlock).toContain('border: "1px solid var(--status-warning-border)"')
+    expect(rootStyleBlock).toContain('background: "var(--status-warning-muted)"')
   })
 
   it('the guard is not accidentally placed on some other, unrelated card\'s root wrapper (AgentBadge/AnalysisCard) instead — both share the exact same vulnerable overflow:hidden pattern but are out of this phase\'s strict scope', () => {

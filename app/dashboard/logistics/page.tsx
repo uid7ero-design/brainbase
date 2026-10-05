@@ -3,34 +3,41 @@
 import { useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, CartesianGrid, Legend } from "recharts";
 import DashboardShell, { KPI, MonthlyPoint, CostAccount, SLATarget, Action, IndustryTab, InsightCard } from "@/components/dashboard/DashboardShell";
+import { useDashboardChart, type DashboardChart } from "@/components/dashboard/ui/chartTheme";
 
-const C = { blue:"#38bdf8", green:"#4ade80", amber:"#fbbf24", red:"#f87171", purple:"#a78bfa", cyan:"#22d3ee" };
-const TT = { background:"#0d0f14", border:"1px solid rgba(255,255,255,0.08)", borderRadius:10 };
+// Authenticated visual-completion pass: HTML colours are theme tokens (status
+// tokens are AA as text in both themes); SVG chart marks resolve the same
+// keys through the theme-aware chart palette (chartColors).
+const C = { blue:"var(--status-info)", green:"var(--status-success)", amber:"var(--status-warning)", red:"var(--status-danger)", purple:"var(--brand-brainbase-accent)", cyan:"var(--status-info)" };
+type ColorKey = keyof typeof C;
+function chartColors(chart: DashboardChart): Record<ColorKey, string> {
+  const p = chart.palette;
+  return { blue:p.info, green:p.success, amber:p.warning, red:p.danger, purple:p.primary, cyan:p.info };
+}
 const fmt = (n:number) => `$${n.toLocaleString("en-AU",{maximumFractionDigits:0})}`;
 
-const T1 = "#F5F7FA";
-const T2 = "rgba(230,237,243,0.55)";
-const T3 = "rgba(230,237,243,0.35)";
-const DC: React.CSSProperties = { background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:12, padding:20 };
+const T1 = "var(--text-primary)";
+const T2 = "var(--text-secondary)";
+const T3 = "var(--text-muted)";
+const DC: React.CSSProperties = { background:"var(--bg-surface)", border:"1px solid var(--border)", borderRadius:8, padding:20 };
+const STRIPE = "var(--bg-sunken)";
 const tbl: React.CSSProperties = { width:"100%", borderCollapse:"collapse", fontSize:13 };
 const th: React.CSSProperties  = { padding:"10px 12px", textAlign:"left", color:T3, fontWeight:600, fontSize:11, letterSpacing:".05em" };
 const td: React.CSSProperties  = { padding:"12px", color:T2 };
-const GRID = "rgba(255,255,255,0.05)";
-const TICK = { fill:T3, fontSize:12 };
 
 const shipStatus: Record<string,[string,string]> = {
-  Delivered:    ["rgba(74,222,128,0.12)", C.green],
-  "In Transit": ["rgba(56,189,248,0.12)", C.blue],
-  Delayed:      ["rgba(248,113,113,0.12)", C.red],
+  Delivered:    ["var(--status-success-muted)", C.green],
+  "In Transit": ["var(--status-info-muted)", C.blue],
+  Delayed:      ["var(--status-danger-muted)", C.red],
 };
 const impactStatus: Record<string,[string,string]> = {
-  High:   ["rgba(248,113,113,0.12)",  C.red],
-  Medium: ["rgba(245,158,11,0.12)",   C.amber],
-  Low:    ["rgba(74,222,128,0.12)",  C.green],
+  High:   ["var(--status-danger-muted)",  C.red],
+  Medium: ["var(--status-warning-muted)",   C.amber],
+  Low:    ["var(--status-success-muted)",  C.green],
 };
 
 function StatusBadge({ v, map }: { v:string; map:Record<string,[string,string]> }) {
-  const [bg, color] = map[v] ?? ["rgba(255,255,255,0.08)", T3];
+  const [bg, color] = map[v] ?? ["var(--status-inactive-muted)", T3];
   return <span style={{ padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, background:bg, color }}>{v}</span>;
 }
 
@@ -148,12 +155,14 @@ const KPI_DATA: KPI[] = [
 ];
 
 function OverviewContent() {
+  const chart = useDashboardChart();
+  const P = chartColors(chart);
   const total     = SHIPMENTS.reduce((s,r)=>s+r.cost,0);
   const onTimePct = Math.round(SHIPMENTS.filter(s=>s.onTime).length/SHIPMENTS.length*100);
   const delayed   = SHIPMENTS.filter(s=>s.status==="Delayed").length;
   const pieData   = [
-    {name:"On Time",value:onTimePct,   fill:C.green},
-    {name:"Late",   value:100-onTimePct, fill:C.red},
+    {name:"On Time",value:onTimePct,   fill:P.green},
+    {name:"Late",   value:100-onTimePct, fill:P.red},
   ];
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:20, color:T1 }}>
@@ -168,12 +177,12 @@ function OverviewContent() {
           <p style={{ fontWeight:700, marginBottom:20, color:T1 }}>Monthly Shipment Volume</p>
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={MONTHLY}>
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-              <XAxis dataKey="month" tick={TICK} axisLine={false} tickLine={false} />
-              <YAxis tick={TICK} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={TT} />
-              <Legend wrapperStyle={{ color:T2, fontSize:12 }} />
-              <Bar dataKey="shipments" fill={C.blue} name="Shipments" radius={[4,4,0,0]} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+              <XAxis dataKey="month" tick={chart.tick} axisLine={false} tickLine={false} />
+              <YAxis tick={chart.tick} axisLine={false} tickLine={false} />
+              <Tooltip {...chart.tooltip} />
+              <Legend wrapperStyle={chart.legend} />
+              <Bar dataKey="shipments" fill={P.blue} name="Shipments" radius={[4,4,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -184,8 +193,8 @@ function OverviewContent() {
               <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} dataKey="value">
                 {pieData.map((e,i)=><Cell key={i} fill={e.fill}/>)}
               </Pie>
-              <Tooltip contentStyle={TT} formatter={(v:any)=>`${v}%`} />
-              <Legend wrapperStyle={{ color:T2, fontSize:12 }} />
+              <Tooltip {...chart.tooltip} formatter={(v:any)=>`${v}%`} />
+              <Legend wrapperStyle={chart.legend} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -194,11 +203,11 @@ function OverviewContent() {
         <p style={{ fontWeight:700, marginBottom:20, color:T1 }}>On-Time Rate Trend</p>
         <ResponsiveContainer width="100%" height={180}>
           <LineChart data={MONTHLY}>
-            <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-            <XAxis dataKey="month" tick={TICK} axisLine={false} tickLine={false} />
-            <YAxis domain={[80,100]} tick={TICK} axisLine={false} tickLine={false} />
-            <Tooltip contentStyle={TT} formatter={(v:any)=>`${v}%`} />
-            <Line type="monotone" dataKey="onTime" stroke={C.green} strokeWidth={2.5} dot={{ r:4 }} name="On-Time %" />
+            <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+            <XAxis dataKey="month" tick={chart.tick} axisLine={false} tickLine={false} />
+            <YAxis domain={[80,100]} tick={chart.tick} axisLine={false} tickLine={false} />
+            <Tooltip {...chart.tooltip} formatter={(v:any)=>`${v}%`} />
+            <Line type="monotone" dataKey="onTime" stroke={P.green} strokeWidth={2.5} dot={{ r:4 }} name="On-Time %" />
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -213,22 +222,23 @@ function ShipmentsTab() {
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
         <p style={{ fontWeight:700, fontSize:16, color:T1 }}>Active Shipments</p>
         <input
+          aria-label="Search shipments"
           placeholder="Search…"
           value={search}
           onChange={e=>setSearch(e.target.value)}
-          style={{ padding:"8px 14px", borderRadius:8, border:"1px solid rgba(255,255,255,0.1)", background:"rgba(255,255,255,0.05)", color:T1, fontSize:13, outline:"none" }}
+          style={{ padding:"8px 14px", borderRadius:6, border:"1px solid var(--border-strong)", background:"var(--bg-raised)", color:T1, fontSize:13 }}
         />
       </div>
       <table style={tbl}>
-        <thead><tr style={{ borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
+        <thead><tr style={{ borderBottom:"1px solid var(--border)" }}>
           {["ID","Origin","Destination","Carrier","Weight (kg)","Cost","Days","Status"].map(h=>(
             <th key={h} style={th}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
           {SHIPMENTS.filter(s=>!search||s.id.toLowerCase().includes(search.toLowerCase())||s.carrier.toLowerCase().includes(search.toLowerCase())).map((s,i)=>(
-            <tr key={s.id} style={{ borderBottom:"1px solid rgba(255,255,255,0.05)", background:i%2===0?"transparent":"rgba(255,255,255,0.02)" }}>
-              <td style={{ padding:"12px", fontWeight:700, fontFamily:"monospace", color:T1 }}>{s.id}</td>
+            <tr key={s.id} style={{ borderBottom:"1px solid var(--border)", background:i%2===0?"transparent":STRIPE }}>
+              <td style={{ padding:"12px", fontWeight:700, fontFamily:"var(--bb-font-mono)", color:T1 }}>{s.id}</td>
               <td style={td}>{s.origin}</td>
               <td style={td}>{s.dest}</td>
               <td style={{ padding:"12px", color:T2 }}>{s.carrier}</td>
@@ -245,6 +255,8 @@ function ShipmentsTab() {
 }
 
 function CarriersTab() {
+  const chart = useDashboardChart();
+  const P = chartColors(chart);
   return (<>
     <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16, marginBottom:20 }}>
       <StatCard label="Carriers"      value={String(CARRIERS.length)} sub="Active contracts"   />
@@ -255,23 +267,23 @@ function CarriersTab() {
       <p style={{ fontWeight:700, marginBottom:20, color:T1 }}>Carrier On-Time Performance</p>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={CARRIERS} layout="vertical">
-          <XAxis type="number" domain={[0,100]} tick={TICK} tickFormatter={v=>`${v}%`} axisLine={false} tickLine={false} />
-          <YAxis dataKey="name" type="category" tick={{ fill:T2, fontSize:12 }} width={100} axisLine={false} tickLine={false} />
-          <Tooltip contentStyle={TT} formatter={(v:any)=>`${v}%`} />
-          <Bar dataKey="onTime" fill={C.blue} name="On-Time %" radius={[0,4,4,0]} />
+          <XAxis type="number" domain={[0,100]} tick={chart.tick} tickFormatter={v=>`${v}%`} axisLine={false} tickLine={false} />
+          <YAxis dataKey="name" type="category" tick={chart.tick} width={100} axisLine={false} tickLine={false} />
+          <Tooltip {...chart.tooltip} formatter={(v:any)=>`${v}%`} />
+          <Bar dataKey="onTime" fill={P.blue} name="On-Time %" radius={[0,4,4,0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>
     <div style={DC}>
       <table style={tbl}>
-        <thead><tr style={{ borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
+        <thead><tr style={{ borderBottom:"1px solid var(--border)" }}>
           {["Carrier","Shipments","On-Time %","Avg Cost","Damage Claims","Rating"].map(h=>(
             <th key={h} style={th}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
           {CARRIERS.map((c,i)=>(
-            <tr key={c.name} style={{ borderBottom:"1px solid rgba(255,255,255,0.05)", background:i%2===0?"transparent":"rgba(255,255,255,0.02)" }}>
+            <tr key={c.name} style={{ borderBottom:"1px solid var(--border)", background:i%2===0?"transparent":STRIPE }}>
               <td style={{ padding:"12px", fontWeight:700, color:T1 }}>{c.name}</td>
               <td style={td}>{c.shipments}</td>
               <td style={{ padding:"12px" }}><span style={{ color:c.onTime>=90?C.green:c.onTime>=80?C.amber:C.red, fontWeight:700 }}>{c.onTime}%</span></td>
@@ -287,30 +299,32 @@ function CarriersTab() {
 }
 
 function LanesTab() {
+  const chart = useDashboardChart();
+  const P = chartColors(chart);
   return (<>
     <div style={{ ...DC, marginBottom:20 }}>
       <p style={{ fontWeight:700, marginBottom:20, color:T1 }}>Volume by Lane</p>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={LANES}>
-          <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-          <XAxis dataKey="lane" tick={TICK} axisLine={false} tickLine={false} />
-          <YAxis tick={TICK} axisLine={false} tickLine={false} />
-          <Tooltip contentStyle={TT} />
-          <Bar dataKey="vol" fill={C.purple} name="Shipments" radius={[4,4,0,0]} />
+          <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+          <XAxis dataKey="lane" tick={chart.tick} axisLine={false} tickLine={false} />
+          <YAxis tick={chart.tick} axisLine={false} tickLine={false} />
+          <Tooltip {...chart.tooltip} />
+          <Bar dataKey="vol" fill={P.purple} name="Shipments" radius={[4,4,0,0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>
     <div style={DC}>
       <table style={tbl}>
-        <thead><tr style={{ borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
+        <thead><tr style={{ borderBottom:"1px solid var(--border)" }}>
           {["Lane","Volume","Avg Cost","Avg Transit (days)","On-Time %"].map(h=>(
             <th key={h} style={th}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
           {LANES.map((l,i)=>(
-            <tr key={l.lane} style={{ borderBottom:"1px solid rgba(255,255,255,0.05)", background:i%2===0?"transparent":"rgba(255,255,255,0.02)" }}>
-              <td style={{ padding:"12px", fontWeight:700, fontFamily:"monospace", color:T1 }}>{l.lane}</td>
+            <tr key={l.lane} style={{ borderBottom:"1px solid var(--border)", background:i%2===0?"transparent":STRIPE }}>
+              <td style={{ padding:"12px", fontWeight:700, fontFamily:"var(--bb-font-mono)", color:T1 }}>{l.lane}</td>
               <td style={td}>{l.vol}</td>
               <td style={{ padding:"12px", fontWeight:600, color:T1 }}>{fmt(l.avgCost)}</td>
               <td style={td}>{l.transit}d</td>
@@ -324,6 +338,8 @@ function LanesTab() {
 }
 
 function CostAnalysisTab() {
+  const chart = useDashboardChart();
+  const P = chartColors(chart);
   return (<>
     <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16, marginBottom:20 }}>
       <StatCard label="Quarterly Spend"   value={fmt(672800)} sub="Apr–Jun 2025"             />
@@ -334,11 +350,11 @@ function CostAnalysisTab() {
       <p style={{ fontWeight:700, marginBottom:20, color:T1 }}>Monthly Freight Cost</p>
       <ResponsiveContainer width="100%" height={240}>
         <BarChart data={MONTHLY}>
-          <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-          <XAxis dataKey="month" tick={TICK} axisLine={false} tickLine={false} />
-          <YAxis tickFormatter={v=>`$${(v/1000).toFixed(0)}k`} tick={TICK} axisLine={false} tickLine={false} />
-          <Tooltip contentStyle={TT} formatter={(v:any)=>fmt(v)} />
-          <Bar dataKey="cost" fill={C.amber} name="Freight Cost" radius={[4,4,0,0]} />
+          <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+          <XAxis dataKey="month" tick={chart.tick} axisLine={false} tickLine={false} />
+          <YAxis tickFormatter={v=>`$${(v/1000).toFixed(0)}k`} tick={chart.tick} axisLine={false} tickLine={false} />
+          <Tooltip {...chart.tooltip} formatter={(v:any)=>fmt(v)} />
+          <Bar dataKey="cost" fill={P.amber} name="Freight Cost" radius={[4,4,0,0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -355,15 +371,15 @@ function ExceptionsTab() {
     <div style={DC}>
       <p style={{ fontWeight:700, marginBottom:20, fontSize:16, color:T1 }}>Exception Register</p>
       <table style={tbl}>
-        <thead><tr style={{ borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
+        <thead><tr style={{ borderBottom:"1px solid var(--border)" }}>
           {["Ref","Shipment","Reason","Impact","Customer","Delay","Resolution"].map(h=>(
             <th key={h} style={th}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
           {EXCEPTIONS.map((e,i)=>(
-            <tr key={e.id} style={{ borderBottom:"1px solid rgba(255,255,255,0.05)", background:i%2===0?"transparent":"rgba(255,255,255,0.02)" }}>
-              <td style={{ padding:"12px", fontWeight:700, fontFamily:"monospace", color:T1 }}>{e.id}</td>
+            <tr key={e.id} style={{ borderBottom:"1px solid var(--border)", background:i%2===0?"transparent":STRIPE }}>
+              <td style={{ padding:"12px", fontWeight:700, fontFamily:"var(--bb-font-mono)", color:T1 }}>{e.id}</td>
               <td style={td}>{e.shipment}</td>
               <td style={{ padding:"12px", color:T2 }}>{e.reason}</td>
               <td style={{ padding:"12px" }}><StatusBadge v={e.impact} map={impactStatus} /></td>
@@ -379,31 +395,33 @@ function ExceptionsTab() {
 }
 
 function FuelSurchargeTab() {
+  const chart = useDashboardChart();
+  const P = chartColors(chart);
   return (<>
     <div style={{ ...DC, marginBottom:20 }}>
       <p style={{ fontWeight:700, marginBottom:20, color:T1 }}>Fuel Surcharge by Carrier</p>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={FUEL_SURCHARGE}>
-          <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-          <XAxis dataKey="carrier" tick={TICK} axisLine={false} tickLine={false} />
-          <YAxis tickFormatter={v=>`$${v}`} tick={TICK} axisLine={false} tickLine={false} />
-          <Tooltip contentStyle={TT} formatter={(v:any)=>fmt(v)} />
-          <Legend wrapperStyle={{ color:T2, fontSize:12 }} />
-          <Bar dataKey="baseCost"      fill={C.blue}  name="Base Rate"      stackId="a" />
-          <Bar dataKey="fuelSurcharge" fill={C.amber} name="Fuel Surcharge" stackId="a" radius={[4,4,0,0]} />
+          <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+          <XAxis dataKey="carrier" tick={chart.tick} axisLine={false} tickLine={false} />
+          <YAxis tickFormatter={v=>`$${v}`} tick={chart.tick} axisLine={false} tickLine={false} />
+          <Tooltip {...chart.tooltip} formatter={(v:any)=>fmt(v)} />
+          <Legend wrapperStyle={chart.legend} />
+          <Bar dataKey="baseCost"      fill={P.blue}  name="Base Rate"      stackId="a" />
+          <Bar dataKey="fuelSurcharge" fill={P.amber} name="Fuel Surcharge" stackId="a" radius={[4,4,0,0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>
     <div style={DC}>
       <table style={tbl}>
-        <thead><tr style={{ borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
+        <thead><tr style={{ borderBottom:"1px solid var(--border)" }}>
           {["Carrier","Base Cost","Fuel Surcharge","Total","Surcharge %"].map(h=>(
             <th key={h} style={th}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
           {FUEL_SURCHARGE.map((r,i)=>(
-            <tr key={r.carrier} style={{ borderBottom:"1px solid rgba(255,255,255,0.05)", background:i%2===0?"transparent":"rgba(255,255,255,0.02)" }}>
+            <tr key={r.carrier} style={{ borderBottom:"1px solid var(--border)", background:i%2===0?"transparent":STRIPE }}>
               <td style={{ padding:"12px", fontWeight:700, color:T1 }}>{r.carrier}</td>
               <td style={{ padding:"12px", color:T2 }}>{fmt(r.baseCost)}</td>
               <td style={{ padding:"12px", color:C.amber, fontWeight:600 }}>{fmt(r.fuelSurcharge)}</td>
@@ -418,28 +436,30 @@ function FuelSurchargeTab() {
 }
 
 function CustomerImpactTab() {
+  const chart = useDashboardChart();
+  const P = chartColors(chart);
   return (<>
     <div style={{ ...DC, marginBottom:20 }}>
       <p style={{ fontWeight:700, marginBottom:20, color:T1 }}>Customer On-Time Rate</p>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={CUSTOMER_IMPACT} layout="vertical">
-          <XAxis type="number" domain={[0,100]} tick={TICK} tickFormatter={v=>`${v}%`} axisLine={false} tickLine={false} />
-          <YAxis dataKey="customer" type="category" tick={{ fill:T2, fontSize:12 }} width={120} axisLine={false} tickLine={false} />
-          <Tooltip contentStyle={TT} formatter={(v:any)=>`${v}%`} />
-          <Bar dataKey="onTime" fill={C.cyan} name="On-Time %" radius={[0,4,4,0]} />
+          <XAxis type="number" domain={[0,100]} tick={chart.tick} tickFormatter={v=>`${v}%`} axisLine={false} tickLine={false} />
+          <YAxis dataKey="customer" type="category" tick={chart.tick} width={120} axisLine={false} tickLine={false} />
+          <Tooltip {...chart.tooltip} formatter={(v:any)=>`${v}%`} />
+          <Bar dataKey="onTime" fill={P.cyan} name="On-Time %" radius={[0,4,4,0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>
     <div style={DC}>
       <table style={tbl}>
-        <thead><tr style={{ borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
+        <thead><tr style={{ borderBottom:"1px solid var(--border)" }}>
           {["Customer","Shipments","On-Time %","Delayed","Complaints","CSAT"].map(h=>(
             <th key={h} style={th}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
           {CUSTOMER_IMPACT.map((c,i)=>(
-            <tr key={c.customer} style={{ borderBottom:"1px solid rgba(255,255,255,0.05)", background:i%2===0?"transparent":"rgba(255,255,255,0.02)" }}>
+            <tr key={c.customer} style={{ borderBottom:"1px solid var(--border)", background:i%2===0?"transparent":STRIPE }}>
               <td style={{ padding:"12px", fontWeight:700, color:T1 }}>{c.customer}</td>
               <td style={td}>{c.shipments}</td>
               <td style={{ padding:"12px" }}><span style={{ color:c.onTime>=90?C.green:c.onTime>=80?C.amber:C.red, fontWeight:700 }}>{c.onTime}%</span></td>
@@ -467,7 +487,6 @@ const INDUSTRY_TABS: IndustryTab[] = [
 export default function LogisticsDashboard() {
   return (
     <DashboardShell
-      theme="dark"
       title="Logistics & Freight Intelligence"
       subtitle="Shipment tracking · Carrier performance · Lane analytics"
       headerColor="#1e293b"

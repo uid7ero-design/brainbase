@@ -1,0 +1,251 @@
+/* Public-site primitives. All colour comes from --bb-* tokens
+   (styles/brainbase-tokens.css), so every rule works in both themes. */
+
+/* ─── Page shell ─── */
+.page {
+  min-height: 100vh;
+  background: var(--bb-bg);
+  color: var(--bb-text);
+  font-family: var(--bb-font-sans);
+  overflow-x: clip;
+  -webkit-font-smoothing: antialiased;
+}
+
+.container {
+  width: 100%;
+  max-width: var(--bb-container);
+  margin: 0 auto;
+  padding-left: var(--bb-gutter);
+  padding-right: var(--bb-gutter);
+}
+
+.section {
+  padding-top: var(--bb-section-gap);
+  scroll-margin-top: 72px;
+}
+
+.rule {
+  border: 0;
+  border-top: 1px solid var(--bb-border);
+  margin: 0;
+}
+
+/* ─── Section heading ───
+   The one header pattern for every public section: [index][rule][eyebrow],
+   title, optional lede. Always left-aligned to the container guide. The
+   index has a fixed width so eyebrows line up across sections. */
+.heading {
+  max-width: 44rem;
+  margin-bottom: var(--bb-head-gap);
+}
+.eyebrowRow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  line-height: 1;
+}
+.eyebrowIndex {
+  display: inline-block;
+  width: 2ch;
+  font-variant-numeric: tabular-nums;
+  color: var(--bb-accent);
+}
+.eyebrowRule {
+  align-self: center;
+  flex: none;
+  width: 20px;
+  height: 1px;
+  background: var(--bb-border-strong);
+}
+.title {
+  margin: 12px 0 0;
+  font-size: clamp(1.75rem, 3.2vw, 2.375rem);
+  line-height: 1.12;
+  font-weight: 600;
+  letter-spacing: -0.028em;
+  text-wrap: balance;
+}
+.lede {
+  margin: 12px 0 0;
+  max-width: 40rem;
+  font-size: clamp(1rem, 1.4vw, 1.0625rem);
+  line-height: 1.65;
+  color: var(--bb-text-muted);
+  text-wrap: pretty;
+}
+
+/* ─── Buttons ─── */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: var(--bb-radius);
+  font-size: 0.875rem;
+  font-weight: 550;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+.buttonPrimary {
+  background: var(--bb-accent);
+  color: var(--bb-accent-contrast);
+  border: 1px solid var(--bb-accent);
+}
+.buttonPrimary:hover {
+  background: var(--bb-accent-hover);
+  border-color: var(--bb-accent-hover);
+}
+.buttonSecondary {
+  background: var(--bb-surface);
+  color: var(--bb-text);
+  border: 1px solid var(--bb-border-strong);
+}
+.buttonSecondary:hover {
+  border-color: var(--bb-text-muted);
+  background: var(--bb-surface-raised);
+}
+.buttonArrow {
+  transition: transform 150ms ease;
+}
+.button:hover .buttonArrow,
+.textLink:hover .buttonArrow {
+  transform: translateX(2px);
+}
+.textLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.875rem;
+  font-weight: 550;
+  color: var(--bb-text);
+  text-decoration: none;
+}
+.textLinkLabel {
+  text-decoration: underline;
+  text-decoration-color: var(--bb-border-strong);
+  text-underline-offset: 0.22em;
+  text-decoration-thickness: 1px;
+  transition: text-decoration-color 150ms ease;
+}
+.textLink:hover .textLinkLabel {
+  text-decoration-color: currentColor;
+}
+.textLink .buttonArrow {
+  color: var(--bb-accent);
+}
+
+/* ─── Panel: bordered surface, optional technical header bar ─── */
+.panel {
+  position: relative;
+  border: 1px solid var(--bb-border);
+  border-radius: var(--bb-radius-lg);
+  background: var(--bb-surface);
+  overflow: hidden;
+}
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 38px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--bb-border);
+  background: var(--bb-surface-raised);
+}
+.panelTitle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--bb-font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  color: var(--bb-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.panelTicks {
+  display: inline-flex;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.panelTicks span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid var(--bb-border-strong);
+}
+.panelBody {
+  padding: 18px;
+}
+
+/* ─── Chip (mono, bordered) ─── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--bb-border);
+  border-radius: var(--bb-radius-sm);
+  background: var(--bb-surface);
+  font-family: var(--bb-font-mono);
+  font-size: 0.75rem;
+  color: var(--bb-text);
+  white-space: nowrap;
+}
+.chipAccent {
+  border-color: var(--bb-accent-border);
+  background: var(--bb-accent-soft);
+}
+.chipSignal {
+  border-color: var(--bb-signal-border);
+  border-style: dashed;
+  background: var(--bb-signal-soft);
+}
+.chipGhost {
+  border-style: dashed;
+  background: transparent;
+  color: var(--bb-text-muted);
+}
+
+/* ─── Theme toggle ─── */
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid transparent;
+  border-radius: var(--bb-radius);
+  background: transparent;
+  color: var(--bb-text-muted);
+  cursor: pointer;
+}
+.iconButton:hover {
+  color: var(--bb-text);
+  border-color: var(--bb-border);
+}
+.onlyLight,
+.onlyDark {
+  display: none;
+}
+:global(:root[data-theme='light']) .onlyLight {
+  display: block;
+}
+:global(:root:not([data-theme='light'])) .onlyDark {
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button,
+  .buttonArrow,
+  .textLinkLabel {
+    transition: none;
+  }
+}

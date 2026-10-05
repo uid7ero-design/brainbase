@@ -1,8 +1,19 @@
 ﻿'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useId, useRef } from 'react';
 import { memoryManager } from '../../lib/memory/memoryManager';
 import { useAppStore } from '../../lib/state/useAppStore';
-import { GLASS_LIGHT, CYAN } from '../../lib/utils/constants';
+import { buttonProps } from '../ui/app/Button';
+import { useOverlayFocus } from './useOverlayFocus';
+import overlay from './PanelOverlay.module.css';
+import styles from './MemoryPanel.module.css';
+
+// Visual (remaining visual islands pass): the near-black glass sheet,
+// white-alpha neutrals, GLASS_LIGHT cards and the old violet "CYAN" accent
+// are replaced by app tokens (PanelOverlay.module.css + this module) so the
+// sheet reads in light and dark. The sheet carries dialog semantics, the
+// tabs are a real tablist, the hover-only forget buttons also appear on
+// keyboard focus and every icon-only control is named. memoryManager calls
+// and the Escape handler are unchanged.
 
 function relativeTime(ts) {
   const diff = Date.now() - ts;
@@ -16,40 +27,37 @@ function relativeTime(ts) {
 
 function EmptyState({ label }) {
   return (
-    <div style={{ textAlign: 'center', padding: '32px 0', color: 'rgba(255,255,255,.38)', fontSize: 12 }}>
+    <p className={styles.empty}>
       {label}
-    </div>
+    </p>
   );
 }
 
 function MemoryItem({ item, onDelete }) {
-  const [hover, setHover] = useState(false);
   return (
-    <div
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', borderRadius: 8, background: hover ? 'rgba(255,255,255,.04)' : 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.05)', marginBottom: 5, transition: 'background .15s' }}
-    >
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12, color: 'rgba(255,255,255,.80)', lineHeight: 1.45 }}>{item.fact}</div>
-        <div style={{ fontSize: 10, color: 'rgba(255,255,255,.46)', marginTop: 3 }}>{relativeTime(item.ts)}</div>
+    <li className={styles.item}>
+      <div className={styles.itemText}>
+        <div className={styles.fact}>{item.fact}</div>
+        <div className={styles.meta}>{relativeTime(item.ts)}</div>
       </div>
       <button
+        type="button"
         onClick={() => onDelete(item.ts)}
-        style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 5, border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.04)', color: 'rgba(255,255,255,.52)', fontSize: 11, cursor: 'pointer', opacity: hover ? 1 : 0, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-      >×</button>
-    </div>
+        aria-label="Forget this memory"
+        className={`${overlay.iconButton} ${styles.reveal}`}
+      ><span aria-hidden="true">×</span></button>
+    </li>
   );
 }
 
 function SectionHeader({ title, count, onClear }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, marginTop: 18 }}>
-      <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.70)', letterSpacing: '.12em' }}>{title}</span>
-      <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 3, background: 'rgba(255,255,255,.06)', color: 'rgba(255,255,255,.52)' }}>{count}</span>
-      <div style={{ flex: 1 }} />
+    <div className={styles.sectionHeader}>
+      <h3 className={overlay.sectionLabel}>{title}</h3>
+      <span className={styles.count}>{count}</span>
+      <div className={styles.spacer} />
       {count > 0 && (
-        <button onClick={onClear} style={{ fontSize: 9, padding: '2px 8px', borderRadius: 4, border: '1px solid rgba(255,255,255,.08)', background: 'transparent', color: 'rgba(255,255,255,.46)', cursor: 'pointer' }}>
+        <button type="button" onClick={onClear} aria-label={`Clear ${title.toLowerCase()}`} {...buttonProps('ghost', 'sm')}>
           Clear
         </button>
       )}
@@ -63,13 +71,13 @@ function MemoryTab({ longTerm, shortTerm, onDeleteLong, onDeleteShort, onClearLo
       <SectionHeader title="LONG-TERM" count={longTerm.length} onClear={onClearLong} />
       {longTerm.length === 0
         ? <EmptyState label="Nothing stored yet. Say 'remember…' to add." />
-        : [...longTerm].reverse().map(item => <MemoryItem key={item.ts} item={item} onDelete={onDeleteLong} />)
+        : <ul className={styles.list}>{[...longTerm].reverse().map(item => <MemoryItem key={item.ts} item={item} onDelete={onDeleteLong} />)}</ul>
       }
 
       <SectionHeader title="SHORT-TERM" count={shortTerm.length} onClear={onClearShort} />
       {shortTerm.length === 0
         ? <EmptyState label="No short-term memory." />
-        : [...shortTerm].reverse().map(item => <MemoryItem key={item.ts} item={item} onDelete={onDeleteShort} />)
+        : <ul className={styles.list}>{[...shortTerm].reverse().map(item => <MemoryItem key={item.ts} item={item} onDelete={onDeleteShort} />)}</ul>
       }
     </div>
   );
@@ -82,15 +90,15 @@ function PrefsTab({ prefs, onDelete, onClear }) {
       <SectionHeader title="PREFERENCES" count={entries.length} onClear={onClear} />
       {entries.length === 0
         ? <EmptyState label="No preferences saved. Helena learns them from conversation." />
-        : entries.map(([key, value]) => (
-            <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.05)', marginBottom: 5 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 10, color: CYAN, letterSpacing: '.06em', fontWeight: 600, marginBottom: 2 }}>{key}</div>
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,.72)' }}>{String(value)}</div>
+        : <ul className={styles.list}>{entries.map(([key, value]) => (
+            <li key={key} className={styles.item}>
+              <div className={styles.itemText}>
+                <div className={styles.prefKey}>{key}</div>
+                <div className={styles.prefValue}>{String(value)}</div>
               </div>
-              <button onClick={() => onDelete(key)} style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 5, border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.04)', color: 'rgba(255,255,255,.52)', fontSize: 11, cursor: 'pointer' }}>×</button>
-            </div>
-          ))
+              <button type="button" onClick={() => onDelete(key)} aria-label={`Remove preference ${key}`} className={overlay.iconButton}><span aria-hidden="true">×</span></button>
+            </li>
+          ))}</ul>
       }
     </div>
   );
@@ -100,16 +108,16 @@ function HistoryTab({ history }) {
   if (history.length === 0) return <EmptyState label="No conversation history yet." />;
   return (
     <div>
-      <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.70)', letterSpacing: '.12em', marginBottom: 12 }}>RECENT EXCHANGES</div>
+      <h3 className={`${overlay.sectionLabel} ${styles.historyHeading}`}>RECENT EXCHANGES</h3>
       {[...history].reverse().map((entry, i) => (
-        <div key={i} style={{ marginBottom: 12, ...GLASS_LIGHT, borderRadius: 10, overflow: 'hidden' }}>
-          <div style={{ padding: '9px 12px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
-            <div style={{ fontSize: 9, color: 'rgba(255,255,255,.70)', letterSpacing: '.08em', marginBottom: 3 }}>YOU · {relativeTime(entry.ts)}</div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,.65)', lineHeight: 1.4 }}>{entry.user}</div>
+        <div key={i} className={styles.exchange}>
+          <div className={styles.turn}>
+            <div className={styles.speaker}>YOU · {relativeTime(entry.ts)}</div>
+            <div className={styles.said}>{entry.user}</div>
           </div>
-          <div style={{ padding: '9px 12px' }}>
-            <div style={{ fontSize: 9, fontWeight: 600, color: CYAN, letterSpacing: '.08em', marginBottom: 3 }}>HELENA</div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,.65)', lineHeight: 1.4 }}>{entry.assistant}</div>
+          <div className={styles.turn}>
+            <div className={styles.speaker} data-speaker="helena">HELENA</div>
+            <div className={styles.said}>{entry.assistant}</div>
           </div>
         </div>
       ))}
@@ -126,6 +134,10 @@ export function MemoryPanel() {
   const [shortTerm, setST]    = useState([]);
   const [prefs, setPrefs]     = useState({});
   const [history, setHistory] = useState([]);
+  const panelRef = useRef(null);
+  const uid = useId();
+
+  useOverlayFocus(memoryPanelOpen, panelRef);
 
   const refresh = useCallback(() => {
     setLT(memoryManager.getLongTerm());
@@ -135,6 +147,20 @@ export function MemoryPanel() {
   }, []);
 
   useEffect(() => { if (memoryPanelOpen) { setTab('Memory'); refresh(); } }, [memoryPanelOpen, refresh]);
+
+  // WAI-ARIA tabs keyboard model: arrows / Home / End move between tabs (roving tabindex).
+  function onTabKeyDown(e) {
+    const i = TABS.indexOf(tab);
+    const next = e.key === 'ArrowRight' ? TABS[(i + 1) % TABS.length]
+      : e.key === 'ArrowLeft' ? TABS[(i - 1 + TABS.length) % TABS.length]
+      : e.key === 'Home' ? TABS[0]
+      : e.key === 'End' ? TABS[TABS.length - 1]
+      : null;
+    if (!next) return;
+    e.preventDefault();
+    setTab(next);
+    document.getElementById(`${uid}-tab-${next}`)?.focus();
+  }
 
   // Esc to close
   useEffect(() => {
@@ -146,38 +172,67 @@ export function MemoryPanel() {
   if (!memoryPanelOpen) return null;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 80, display: 'flex', flexDirection: 'column', background: 'rgba(7,9,16,0.94)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', animation: 'chatSlideUp .25s cubic-bezier(0.16,1,0.3,1)' }}>
+    <div
+      ref={panelRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={`${uid}-title`}
+      tabIndex={-1}
+      className={`${overlay.sheet} ${styles.sheet}`}
+      style={{ zIndex: 80 }}
+    >
 
       {/* Header */}
-      <div style={{ height: 52, display: 'flex', alignItems: 'center', padding: '0 20px', gap: 12, borderBottom: '1px solid rgba(255,255,255,.06)', flexShrink: 0 }}>
-        <div style={{ width: 22, height: 22, borderRadius: 5, background: 'rgba(0,207,234,.12)', border: '1px solid rgba(0,207,234,.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={CYAN} strokeWidth="2"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6v6l4 2"/></svg>
+      <div className={`${overlay.header} ${styles.header}`}>
+        <div className={overlay.headerIcon} aria-hidden="true">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6v6l4 2"/></svg>
         </div>
-        <span style={{ fontSize: 14, fontWeight: 700, color: 'rgba(255,255,255,.88)', letterSpacing: '-.02em' }}>Helena Memory</span>
-        <div style={{ flex: 1 }} />
-        <button
-          onClick={() => { memoryManager.clearAll(); refresh(); }}
-          style={{ fontSize: 10, padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(239,68,68,.30)', background: 'rgba(239,68,68,.08)', color: 'rgba(239,68,68,.70)', cursor: 'pointer', letterSpacing: '.04em' }}
-        >
-          CLEAR ALL
-        </button>
-        <button
-          onClick={() => setMemoryPanelOpen(false)}
-          style={{ width: 30, height: 30, borderRadius: 7, border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.04)', color: 'rgba(255,255,255,.66)', fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-        >×</button>
+        <h2 id={`${uid}-title`} className={overlay.title}>Helena Memory</h2>
+        <div className={overlay.headerActions}>
+          <button
+            type="button"
+            onClick={() => { memoryManager.clearAll(); refresh(); }}
+            {...buttonProps('danger', 'sm')}
+          >
+            CLEAR ALL
+          </button>
+          <button
+            type="button"
+            onClick={() => setMemoryPanelOpen(false)}
+            aria-label="Close Helena memory"
+            className={overlay.iconButton}
+          ><span aria-hidden="true">×</span></button>
+        </div>
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', padding: '0 20px', borderBottom: '1px solid rgba(255,255,255,.06)', flexShrink: 0, gap: 0 }}>
+      <div className={styles.tabs} role="tablist" aria-label="Memory views" onKeyDown={onTabKeyDown}>
         {TABS.map(t => (
-          <button key={t} onClick={() => setTab(t)} style={{ padding: '10px 14px', fontSize: 11, fontWeight: tab === t ? 600 : 400, color: tab === t ? CYAN : 'rgba(255,255,255,.35)', background: 'none', border: 'none', borderBottom: tab === t ? `2px solid ${CYAN}` : '2px solid transparent', cursor: 'pointer', letterSpacing: '.04em', transition: 'all .2s', marginBottom: -1 }}>
+          <button
+            key={t}
+            type="button"
+            role="tab"
+            id={`${uid}-tab-${t}`}
+            aria-selected={tab === t}
+            aria-controls={`${uid}-panel`}
+            tabIndex={tab === t ? 0 : -1}
+            data-initial-focus={tab === t ? '' : undefined}
+            onClick={() => setTab(t)}
+            className={styles.tab}
+          >
             {t}
           </button>
         ))}
       </div>
 
       {/* Content */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 20px 32px', maxWidth: 720, width: '100%', margin: '0 auto', alignSelf: 'stretch' }}>
+      <div
+        className={styles.content}
+        role="tabpanel"
+        id={`${uid}-panel`}
+        aria-labelledby={`${uid}-tab-${tab}`}
+        data-dialog-body=""
+      >
         {tab === 'Memory' && (
           <MemoryTab
             longTerm={longTerm}

@@ -1,0 +1,138 @@
+/* Waste & Recycling module frame + shared sub-page layout grids
+   (authenticated visual-completion pass). Theme tokens only — the frame
+   follows the app's light/dark theme. */
+
+/* ── Frame ─────────────────────────────────────────────────────────── */
+
+.frame {
+  min-height: 100vh;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--bb-font-sans);
+  min-width: 0;
+}
+
+.header {
+  padding: 24px clamp(16px, 4vw, 32px) 0;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.headerInner {
+  max-width: 80rem;
+  margin: 0 auto;
+  min-width: 0;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--text-primary);
+}
+
+/* ── Tabs ──────────────────────────────────────────────────────────── */
+
+.tabsNav {
+  margin-top: 16px;
+  /* Scroll the tab row itself on narrow screens; never the page. */
+  overflow-x: auto;
+  scrollbar-width: thin;
+  max-width: 100%;
+}
+
+.tabList {
+  display: flex;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: max-content;
+}
+
+.tab {
+  display: block;
+  padding: 10px 14px;
+  border-bottom: 2px solid transparent;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.tab:hover {
+  color: var(--text-primary);
+}
+
+.tab[aria-current='page'] {
+  border-bottom-color: var(--brand-brainbase-accent);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.tab:focus-visible {
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab {
+    transition: none;
+  }
+}
+
+/* ── Sub-page grids (collapse on narrow screens) ───────────────────── */
+
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 16px;
+}
+
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.grid2,
+.grid12,
+.grid21 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.grid12 {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+}
+
+.grid21 {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+}
+
+@media (max-width: 1024px) {
+  .grid3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .grid2,
+  .grid12,
+  .grid21 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

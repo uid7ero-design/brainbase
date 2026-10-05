@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import Image from 'next/image';
 import { CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { resolvePublicEventTheme, applyAccentOverride, cssVarsFor } from '@/lib/events/publicEventTheme';
 import { InstitutionalHeader, InstitutionalFooter } from '@/components/publicEvents/InstitutionalChrome';
+import { BrainbaseLockup } from '@/components/public/BrainbaseLockup';
 import type { PublicOrganisationBranding } from '@/lib/organisations/branding';
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
@@ -138,7 +138,7 @@ export default function CheckoutSuccessClient({ organisationSlug, eventSlug, org
         <InstitutionalHeader branding={branding} organisationName={organisationName} />
       ) : (
         <header style={{ padding: '13px 20px', borderBottom: `1px solid ${BORDER_SOFT}` }}>
-          <Image src="/Brand/brainbase-logo-dark.svg" alt="BRΛINBΛSE" width={132} height={30} priority style={{ display: 'block', width: 120, height: 'auto' }} />
+          <BrainbaseLockup idPrefix="public-events-brainbase" width={120} title="BrainBase" />
         </header>
       )}
 

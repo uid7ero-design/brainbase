@@ -21,7 +21,10 @@ export type  { DashboardGridProps }    from './DashboardGrid';
 
 export {
   COLORS, PRIORITY_COLORS, STATUS_COLORS, SPACING, TYPOGRAPHY,
-  LIGHT_TOKENS, DARK_TOKENS,
-  getTheme, statusColor, priorityBorderColor,
+  LIGHT_TOKENS, DARK_TOKENS, DASHBOARD_TOKENS, TONE, PRIORITY_TONE,
+  getTheme, statusColor, priorityBorderColor, tint,
 } from './tokens';
-export type { ThemeTokens } from './tokens';
+export type { ThemeTokens, Tone } from './tokens';
+
+export { useDashboardChart, dashboardChart } from './chartTheme';
+export type { DashboardChart } from './chartTheme';

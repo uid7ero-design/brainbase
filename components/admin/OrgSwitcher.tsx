@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { setAppHeaderExtraOffsetPx } from '@/lib/layout/headerOffset';
 import type { Role } from '@/lib/session';
+import styles from './OrgSwitcher.module.css';
 
 type Org = { id: string; name: string; slug: string };
 type State = {
@@ -68,6 +70,13 @@ export default function OrgSwitcher({ initialRole }: { initialRole: Role | null 
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const dropRef = useRef<HTMLDivElement>(null);
+  // Keyboard support only (Phase B chrome): which option to focus when the
+  // list opens from the keyboard, and the trigger to return focus to.
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const focusOnOpen = useRef<'active' | 'last' | null>(null);
+  const panelId = useId();
+  const headingId = useId();
 
   useEffect(() => {
     async function load() {
@@ -119,6 +128,17 @@ export default function OrgSwitcher({ initialRole }: { initialRole: Role | null 
     document.addEventListener('mousedown', onClickOutside);
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (!open || !focusOnOpen.current) return;
+    const options = optionButtons(panelRef.current);
+    const target =
+      focusOnOpen.current === 'last'
+        ? options[options.length - 1]
+        : options.find(o => o.getAttribute('aria-current') === 'true') ?? options[0];
+    target?.focus();
+    focusOnOpen.current = null;
+  }, [open]);
 
   // Phase D.4.5C-W2 — this bar is the ONE source of "extra" height above
   // TopNav that the shared --app-header-offset custom property (see
@@ -184,123 +204,182 @@ export default function OrgSwitcher({ initialRole }: { initialRole: Role | null 
 
   const isOverriding = !!state.activeOrgId;
   const currentLabel = isOverriding ? state.activeOrgName : (homeOrgName ?? 'Brainbase');
+  const contextLabel = isOverriding ? 'Viewing as' : 'Organisation';
+
+  function closeAndReturnFocus() {
+    setOpen(false);
+    triggerRef.current?.focus();
+  }
+
+  function handleTriggerClick(e: ReactMouseEvent<HTMLButtonElement>) {
+    // detail === 0: activated from the keyboard (Enter / Space).
+    if (!open && e.detail === 0) focusOnOpen.current = 'active';
+    setOpen(o => !o);
+  }
+
+  function handleTriggerKeyDown(e: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      focusOnOpen.current = e.key === 'ArrowDown' ? 'active' : 'last';
+      if (open) {
+        const options = optionButtons(panelRef.current);
+        options[e.key === 'ArrowDown' ? 0 : options.length - 1]?.focus();
+        focusOnOpen.current = null;
+      } else {
+        setOpen(true);
+      }
+    } else if (e.key === 'Escape' && open) {
+      e.preventDefault();
+      setOpen(false);
+    }
+  }
+
+  function handlePanelKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
+    const options = optionButtons(panelRef.current);
+    const index = options.indexOf(document.activeElement as HTMLButtonElement);
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeAndReturnFocus();
+    } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && options.length > 0) {
+      e.preventDefault();
+      const step = e.key === 'ArrowDown' ? 1 : -1;
+      options[(index + step + options.length) % options.length].focus();
+    } else if ((e.key === 'Home' || e.key === 'End') && options.length > 0) {
+      e.preventDefault();
+      options[e.key === 'Home' ? 0 : options.length - 1].focus();
+    }
+  }
 
   return (
     <div
       ref={dropRef}
+      className={styles.bar}
+      data-impersonating={isOverriding ? 'true' : undefined}
+      onBlur={e => {
+        // Keyboard dismissal: close once focus moves to another element
+        // outside the bar. A null relatedTarget (window blur, press on a
+        // non-focusable area) is left to the outside-press handler above.
+        const next = e.relatedTarget as Node | null;
+        if (open && next && !e.currentTarget.contains(next)) setOpen(false);
+      }}
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'flex-end',
-        gap: 10,
-        padding: '5px 20px',
         fontSize: 12,
         fontFamily: 'var(--font-inter), -apple-system, sans-serif',
-        background: isOverriding ? '#7C3AED' : 'rgba(255,255,255,.03)',
-        borderBottom: '1px solid rgba(255,255,255,.06)',
-        color: isOverriding ? '#fff' : 'rgba(226,232,240,.7)',
-        position: 'relative',
-        // Dropdown layering fix: this bar sits BEFORE TopNav in normal
-        // document flow (that's what fixed the original invisibility
-        // bug — see the header comment above), but TopNav's own header
-        // has an EXPLICIT zIndex: 100, which makes it establish its own
-        // stacking context. A position:relative ancestor with no
-        // explicit z-index of its own (z-index: auto) does NOT let its
-        // descendants (the dropdown below, zIndex: 50) outrank a LATER
-        // sibling's higher stacking context — z-index only arbitrates
-        // between siblings that both establish one. So the open
-        // dropdown, which extends downward past this bar's own height
-        // into the screen region TopNav occupies, was being painted
-        // UNDER TopNav. Giving THIS wrapper its own explicit z-index
-        // above TopNav's 100 makes the whole bar (and everything
-        // absolutely positioned inside it) its own higher-ranked
-        // stacking context, so the dropdown is no longer clipped —
-        // without moving anything back to position: fixed.
-        zIndex: 110,
+        whiteSpace: 'nowrap',
       }}
     >
-      <span style={{ opacity: isOverriding ? 0.75 : 0.5, textTransform: 'uppercase', fontSize: 10, letterSpacing: '.08em', fontWeight: 600 }}>
-        {isOverriding ? 'Viewing as' : 'Organisation'}
-      </span>
-
-      <button
-        onClick={() => setOpen(o => !o)}
-        disabled={busy}
+      <div
+        className={styles.barInner}
         style={{
-          display: 'flex', alignItems: 'center', gap: 5,
-          background: isOverriding ? 'rgba(255,255,255,.15)' : 'rgba(255,255,255,.06)',
-          border: `1px solid ${isOverriding ? 'rgba(255,255,255,.25)' : 'rgba(255,255,255,.1)'}`,
-          borderRadius: 7, padding: '4px 10px', fontSize: 12, fontWeight: 600,
-          color: isOverriding ? '#fff' : '#F5F7FA', cursor: busy ? 'not-allowed' : 'pointer',
-          opacity: busy ? 0.5 : 1,
+          position: 'relative',
+          // Dropdown layering fix: this bar sits BEFORE TopNav in normal
+          // document flow (that's what fixed the original invisibility
+          // bug — see the header comment above), but TopNav's own header
+          // has an EXPLICIT zIndex: 100, which makes it establish its own
+          // stacking context. A position:relative ancestor with no
+          // explicit z-index of its own (z-index: auto) does NOT let its
+          // descendants (the dropdown below, zIndex: 50) outrank a LATER
+          // sibling's higher stacking context — z-index only arbitrates
+          // between siblings that both establish one. So the open
+          // dropdown, which extends downward past this bar's own height
+          // into the screen region TopNav occupies, was being painted
+          // UNDER TopNav. Giving THIS wrapper its own explicit z-index
+          // above TopNav's 100 makes the whole bar (and everything
+          // absolutely positioned inside it) its own higher-ranked
+          // stacking context, so the dropdown is no longer clipped —
+          // without moving anything back to position: fixed.
+          zIndex: 110,
         }}
       >
-        {currentLabel}
-        <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" style={{ transform: open ? 'rotate(180deg)' : undefined, transition: 'transform .12s' }}>
-          <path d="M1 2l3 3 3-3" />
-        </svg>
-      </button>
+        {isOverriding ? (
+          <span className={styles.badge}>{contextLabel}</span>
+        ) : (
+          <span className={styles.label}>{contextLabel}</span>
+        )}
 
-      {isOverriding && (
         <button
-          onClick={() => switchOrg(null)}
+          ref={triggerRef}
+          type="button"
+          className={styles.trigger}
+          onClick={handleTriggerClick}
+          onKeyDown={handleTriggerKeyDown}
           disabled={busy}
-          style={{
-            background: 'none', border: 'none', color: '#fff', textDecoration: 'underline',
-            textUnderlineOffset: 2, fontSize: 12, fontWeight: 500, cursor: busy ? 'not-allowed' : 'pointer',
-            opacity: busy ? 0.4 : 0.9,
-          }}
+          aria-busy={busy || undefined}
+          aria-expanded={open}
+          aria-controls={open ? panelId : undefined}
+          aria-label={`${contextLabel}: ${currentLabel ?? ''}. Switch organisation`}
         >
-          Return to Brainbase
+          <span className={styles.triggerText}>{currentLabel}</span>
+          <svg className={styles.chevron} width="8" height="8" viewBox="0 0 8 8" fill="currentColor" aria-hidden="true" focusable="false">
+            <path d="M1 2l3 3 3-3" />
+          </svg>
         </button>
-      )}
 
-      {open && (
+        {isOverriding && (
+          <button
+            type="button"
+            className={styles.returnLink}
+            onClick={() => switchOrg(null)}
+            disabled={busy}
+            aria-label="Return to Brainbase"
+          >
+            Return<span className={styles.returnSuffix}> to Brainbase</span>
+          </button>
+        )}
+
+        {open && (
         <div
-          style={{
-            position: 'absolute', top: '100%', right: 20, marginTop: 4, width: 240,
-            background: '#0e1014', border: '1px solid rgba(255,255,255,.1)', borderRadius: 10,
-            boxShadow: '0 12px 40px rgba(0,0,0,.5)', overflow: 'hidden', zIndex: 50, textAlign: 'left',
-          }}
+          ref={panelRef}
+          id={panelId}
+          className={styles.panel}
+          onKeyDown={handlePanelKeyDown}
+          style={{ zIndex: 50 }}
         >
-          <div style={{ padding: '8px 12px', color: 'rgba(226,232,240,.4)', textTransform: 'uppercase', fontSize: 10, letterSpacing: '.08em', fontWeight: 600 }}>
+          <p id={headingId} className={styles.panelHeading}>
             Switch organisation
-          </div>
-          {state.orgs.map(org => (
-            <button
-              key={org.id}
-              onClick={() => switchOrg(org.id)}
-              disabled={busy}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
-                padding: '8px 12px', background: 'none', border: 'none', cursor: busy ? 'not-allowed' : 'pointer',
-                color: state.activeOrgId === org.id ? '#C4B5FD' : '#E2E8F0', fontSize: 12.5,
-                fontWeight: state.activeOrgId === org.id ? 600 : 400,
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,.05)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
-            >
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: state.activeOrgId === org.id ? '#C4B5FD' : 'transparent', flexShrink: 0 }} />
-              {org.name}
-            </button>
-          ))}
+          </p>
+          <ul className={styles.list} aria-labelledby={headingId}>
+            {state.orgs.map(org => {
+              const isCurrent = state.activeOrgId === org.id;
+              return (
+                <li key={org.id}>
+                  <button
+                    type="button"
+                    className={styles.option}
+                    onClick={() => switchOrg(org.id)}
+                    disabled={busy}
+                    aria-current={isCurrent ? 'true' : undefined}
+                  >
+                    <svg className={styles.check} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+                      <path d="M2.5 6.2 5 8.6l4.5-5" />
+                    </svg>
+                    <span className={styles.optionText}>{org.name}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
           {isOverriding && (
             <>
-              <div style={{ height: 1, background: 'rgba(255,255,255,.08)', margin: '4px 12px' }} />
+              <div className={styles.separator} aria-hidden="true" />
               <button
+                type="button"
+                className={`${styles.option} ${styles.optionReturn}`}
                 onClick={() => switchOrg(null)}
                 disabled={busy}
-                style={{
-                  width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none',
-                  color: 'rgba(226,232,240,.6)', fontSize: 12.5, cursor: busy ? 'not-allowed' : 'pointer',
-                }}
               >
-                Return to Brainbase
+                <svg className={styles.check} viewBox="0 0 12 12" aria-hidden="true" focusable="false" />
+                <span className={styles.optionText}>Return to Brainbase</span>
               </button>
             </>
           )}
         </div>
-      )}
+        )}
+      </div>
     </div>
   );
+}
+
+function optionButtons(panel: HTMLElement | null): HTMLButtonElement[] {
+  return panel ? Array.from(panel.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')) : [];
 }

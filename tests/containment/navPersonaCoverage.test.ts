@@ -1,6 +1,18 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'fs'
 import path from 'path'
+// Nav consolidation update (feat/authenticated-nav-consolidation): the pure
+// nav model is imported so persona invariants are pinned behaviourally too.
+import {
+  BRAINBASE_ITEMS,
+  flattenNavLinks,
+  isGateOpen,
+  resolveNav,
+  type NavContext,
+  type NavEntry,
+  type NavGroup,
+  type NavLink,
+} from '@/components/nav/navModel'
 
 // Static source-text assertion, not a claim of proven rendering behaviour —
 // this project has no jsdom/React Testing Library harness (same caveat as
@@ -68,122 +80,295 @@ function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
 }
 
-const topNavSource = stripComments(read('components/nav/TopNav.tsx'))
+// Nav consolidation update (feat/authenticated-nav-consolidation): the
+// two-branch `isLdTennis ? (...) : (...)` AppNav, OpsDropdown/AdminDropdown,
+// OPS_ITEMS/ADMIN_ITEMS and the isBrainbaseHQ/isSuperAdmin/hasEvents JSX
+// gates no longer exist. TopNav now renders ONE universal tree resolved by
+// components/nav/navModel.ts (resolveNav). Every persona invariant below is
+// re-pinned against (a) the descriptor/gate source in navModel.ts and (b)
+// behaviour via the pure resolveNav() — strictly stronger than the old
+// JSX-region text matching. APPROVED changes relative to the old pins:
+// Operations + Platform (old Ops/Admin dropdowns) now live in the single
+// "Brainbase" menu, visible iff the REAL role is super_admin independent of
+// dashboardVariant (so an impersonating super_admin viewing LD Tennis keeps
+// it); the old Operations "CRM" duplicate is gone (CRM lives in Work); the
+// old Admin "Pipeline" entry is "Client requests" (/admin/pipeline).
 
-const ldTennisBranchStart = topNavSource.indexOf('isLdTennis ? (')
-const ldTennisBranchEnd = topNavSource.indexOf(') : (', ldTennisBranchStart)
-const ldTennisRegion = topNavSource.slice(ldTennisBranchStart, ldTennisBranchEnd)
-// The shared branch: rendered for every session that is not LD Tennis —
-// generic clients AND Brainbase HQ staff together, distinguished only by
-// per-item gates within it.
-const sharedRegion = topNavSource.slice(ldTennisBranchEnd, topNavSource.indexOf('width: 185,', ldTennisBranchEnd))
+const topNavSource = stripComments(read('components/nav/TopNav.tsx'))
+const navModelSource = stripComments(read('components/nav/navModel.ts'))
+
+function sliceBetween(src: string, startMarker: string, endMarker: string): string {
+  const start = src.indexOf(startMarker)
+  expect(start, `${startMarker} not found`).toBeGreaterThan(-1)
+  const end = src.indexOf(endMarker, start + startMarker.length)
+  expect(end, `${endMarker} not found after ${startMarker}`).toBeGreaterThan(-1)
+  return src.slice(start, end)
+}
+
+const workItemsSource = sliceBetween(navModelSource, 'export const WORK_ITEMS', 'export const REQUESTS_LINK')
+const brainbaseItemsSource = sliceBetween(navModelSource, 'export const BRAINBASE_ITEMS', 'export const ACCOUNT_PROFILE_LINK')
+
+const ALL_CAPS = ['events', 'crm', 'quotes', 'organiser', 'people']
+const VARIANTS: NavContext['dashboardVariant'][] = [null, 'ld-tennis', 'brainbase-hq']
+const NON_SUPER_ROLES = ['viewer', 'manager', 'admin', 'analyst']
+
+function ctx(role: string, caps: string[] = [], dashboardVariant: NavContext['dashboardVariant'] = null): NavContext {
+  return { role, enabledCapabilities: caps, dashboardVariant }
+}
+function hrefs(entries: readonly NavEntry[]): string[] {
+  return entries.flatMap(e => (e.kind === 'group' ? e.children.map(c => c.href) : [e.href]))
+}
+function allHrefs(c: NavContext): string[] {
+  return flattenNavLinks(resolveNav(c)).map(l => l.href)
+}
+function group(entries: readonly NavEntry[], id: string): NavGroup | undefined {
+  return entries.find((e): e is NavGroup => e.kind === 'group' && e.id === id)
+}
+
+const FOUNDER = ctx('super_admin', [], 'brainbase-hq')
+const INTERNAL_HREFS = [
+  '/admin/founder', '/command', '/clients', '/admin/pipeline',
+  '/dashboard/wste', '/dashboard/fleet', '/dashboard/social', '/dashboards',
+  '/data', '/reports',
+  '/admin/orgs', '/admin/users', '/admin/client-events', '/onboarding',
+]
+const TENNIS_HREFS = ['/dashboard/leads', '/dashboard/contacts', '/dashboard/sessions', '/dashboard/blog']
 
 describe('Persona 1 — Founder / super_admin: Operations and Admin dropdowns are populated, independent of enabledModules', () => {
-  it('OpsDropdown is rendered for isBrainbaseHQ (narrower than the old isManager check — implies super_admin at the Brainbase org specifically) — only in the shared branch, never in the LD Tennis branch', () => {
-    expect(sharedRegion).toMatch(/\{isBrainbaseHQ && \(\s*\n\s*<OpsDropdown/)
-    expect(ldTennisRegion).not.toContain('OpsDropdown')
-  })
-
-  it('AdminDropdown is rendered for isSuperAdmin — only in the shared branch, never in the LD Tennis branch', () => {
-    expect(sharedRegion).toMatch(/\{isSuperAdmin && \(\s*\n\s*<AdminDropdown/)
-    expect(ldTennisRegion).not.toContain('AdminDropdown')
-  })
-
-  it('OPS_ITEMS contains the expected founder Operations entries — Waste, Fleet, Social (unconditional) and CRM (capability-gated)', () => {
-    const start = topNavSource.indexOf('const OPS_ITEMS')
-    const opsBody = topNavSource.slice(start, topNavSource.indexOf('\n];', start))
-    for (const label of ['Waste', 'Fleet', 'Social', 'CRM']) {
-      expect(opsBody).toMatch(new RegExp(`label:\\s*'${label}'`))
+  // Nav consolidation update (feat/authenticated-nav-consolidation): was
+  // `{isBrainbaseHQ && (<OpsDropdown` in the shared branch and absent from
+  // the LD Tennis branch. OpsDropdown's content is now the Brainbase menu's
+  // internal-gated "Operations" group, rendered by the single generic
+  // NavMenu only when resolveNav() yields a non-empty `brainbase` list.
+  it('the Operations group (old OpsDropdown) is an internal-gated group inside the Brainbase menu, rendered only when nav.brainbase is non-empty — shown to a real super_admin, never to any non-super_admin in any tenant variant', () => {
+    expect(topNavSource).not.toContain('OpsDropdown')
+    expect(topNavSource).toMatch(/\{nav\.brainbase\.length > 0 && \(\s*\n\s*<NavMenu label="Brainbase"/)
+    expect(brainbaseItemsSource).toMatch(/kind: 'group', id: 'operations', label: 'Operations', gate: INTERNAL,/)
+    expect(navModelSource).toMatch(/const INTERNAL: NavGate = \{ internal: true \};/)
+    expect(group(resolveNav(FOUNDER).brainbase, 'operations')).toBeDefined()
+    for (const variant of VARIANTS) {
+      for (const role of NON_SUPER_ROLES) {
+        expect(resolveNav(ctx(role, ALL_CAPS, variant)).brainbase, `${role}/${variant}`).toEqual([])
+      }
     }
   })
 
-  it('ADMIN_ITEMS contains the expected founder Admin entries — Organisations, Users, Client Events, Pipeline, Setup', () => {
-    const start = topNavSource.indexOf('const ADMIN_ITEMS')
-    const adminBody = topNavSource.slice(start, topNavSource.indexOf('\n];', start))
-    for (const label of ['Organisations', 'Users', 'Client Events', 'Pipeline', 'Setup']) {
-      expect(adminBody).toMatch(new RegExp(`label:\\s*'${label}'`))
+  // Nav consolidation update (feat/authenticated-nav-consolidation): was
+  // `{isSuperAdmin && (<AdminDropdown`. AdminDropdown's content is now the
+  // Brainbase menu's internal-gated "Platform" group.
+  it('the Platform group (old AdminDropdown) is internal-gated inside the Brainbase menu — present for a real super_admin in every variant, never for a non-super_admin', () => {
+    expect(topNavSource).not.toContain('AdminDropdown')
+    expect(brainbaseItemsSource).toMatch(/kind: 'group', id: 'platform', label: 'Platform', gate: INTERNAL,/)
+    for (const variant of VARIANTS) {
+      expect(group(resolveNav(ctx('super_admin', [], variant)).brainbase, 'platform'), `super_admin/${variant}`).toBeDefined()
+      for (const role of NON_SUPER_ROLES) {
+        expect(group(resolveNav(ctx(role, ALL_CAPS, variant)).brainbase, 'platform'), `${role}/${variant}`).toBeUndefined()
+      }
     }
   })
 
-  it('ADMIN_ITEMS is rendered unconditionally — no .filter(...) call sits between the array and its render map, so no capability/module gate can ever empty it', () => {
-    const renderIdx = topNavSource.indexOf('{ADMIN_ITEMS.map(item =>')
-    expect(renderIdx).toBeGreaterThan(-1)
-    const declIdx = topNavSource.indexOf('const ADMIN_ITEMS')
-    const between = topNavSource.slice(declIdx, renderIdx)
-    expect(between).not.toMatch(/ADMIN_ITEMS\s*=\s*ADMIN_ITEMS\.filter/)
+  // Nav consolidation update (feat/authenticated-nav-consolidation): was
+  // OPS_ITEMS containing Waste, Fleet, Social and a capability-gated CRM.
+  // APPROVED: the Operations "CRM" duplicate is gone (CRM lives in Work);
+  // "All dashboards" (/dashboards) joins Operations.
+  it('the Operations group contains exactly Waste, Fleet, Social and All dashboards (unconditional for a super_admin) — and no CRM duplicate; CRM lives in Work, capability-gated', () => {
+    const ops = group(resolveNav(FOUNDER).brainbase, 'operations')!
+    expect(ops.children.map(c => [c.label, c.href])).toEqual([
+      ['Waste', '/dashboard/wste'],
+      ['Fleet', '/dashboard/fleet'],
+      ['Social', '/dashboard/social'],
+      ['All dashboards', '/dashboards'],
+    ])
+    expect(brainbaseItemsSource).not.toMatch(/label: 'CRM'/)
+    expect(hrefs(resolveNav(ctx('super_admin', ALL_CAPS, 'brainbase-hq')).brainbase)).not.toContain('/crm')
+    expect(workItemsSource).toMatch(/id: 'crm', label: 'CRM', href: '\/crm'[\s\S]{0,160}?gate: \{ anyCapability: \['crm'\] \}/)
   })
 
-  it('OPS_ITEMS filtering is keyed on enabledCapabilities only — enabledModules is never referenced anywhere in the OpsDropdown/AdminDropdown definitions', () => {
-    const opsDropdownStart = topNavSource.indexOf('function OpsDropdown')
-    const opsDropdownEnd = topNavSource.indexOf('function AdminDropdown')
-    const dropdownsSource = topNavSource.slice(opsDropdownStart, topNavSource.indexOf('function Logo', opsDropdownEnd))
-    expect(dropdownsSource).not.toMatch(/enabledModules/)
+  // Nav consolidation update (feat/authenticated-nav-consolidation): was
+  // ADMIN_ITEMS containing Organisations, Users, Client Events, Pipeline,
+  // Setup. APPROVED: "Pipeline" is now the top-level Brainbase entry
+  // "Client requests" (same /admin/pipeline destination).
+  it('the Platform group contains Organisations, Users, Client Events, Setup, and the old Admin "Pipeline" is the Brainbase "Client requests" entry (/admin/pipeline)', () => {
+    const nav = resolveNav(FOUNDER)
+    const platform = group(nav.brainbase, 'platform')!
+    expect(platform.children.map(c => [c.label, c.href])).toEqual([
+      ['Organisations', '/admin/orgs'],
+      ['Users', '/admin/users'],
+      ['Client Events', '/admin/client-events'],
+      ['Setup', '/onboarding'],
+    ])
+    const clientRequests = nav.brainbase.find(e => e.kind === 'link' && e.id === 'client-requests') as NavLink | undefined
+    expect(clientRequests?.label).toBe('Client requests')
+    expect(clientRequests?.href).toBe('/admin/pipeline')
   })
 
-  it('isBrainbaseHQ and isLdTennis are mutually-exclusive derivations of the SAME single dashboardVariant field (DashboardVariant = \'ld-tennis\' | \'brainbase-hq\' | null — see lib/dashboard/clientDashboard.ts), so a founder/super_admin session can never simultaneously satisfy both, or fall into the LD Tennis branch while also being Brainbase HQ; and per that resolver\'s own role gate (dashboardVariantForSlug: \'brainbase-hq\' requires role === \'super_admin\', asserted directly in clientDashboardResolver.test.ts), isBrainbaseHQ can only ever be true for an actual super_admin session — never merely because enabledModules/enabledCapabilities happened to be non-empty (defensive: enabledModules is currently always empty due to a separate, pre-existing organisation_modules.module_id/modules.id schema mismatch bug)', () => {
-    expect(topNavSource).toMatch(/const isLdTennis =\s*dashboardVariant === 'ld-tennis';/)
-    expect(topNavSource).toMatch(/const isBrainbaseHQ =\s*dashboardVariant === 'brainbase-hq';/)
+  // Nav consolidation update (feat/authenticated-nav-consolidation): was "no
+  // ADMIN_ITEMS.filter between the array and its render map". The rendered
+  // list is now resolveNav().brainbase; the equivalent (stronger) invariant
+  // is that every Brainbase descriptor's gate is exactly INTERNAL, so for a
+  // super_admin NO capability/module/variant/role-floor can empty any of it.
+  it('the Brainbase tree is unconditional for a super_admin — every descriptor is gated exactly INTERNAL (no capability/variant/minRole gate), so the full tree resolves for any capabilities and any variant', () => {
+    const gates = brainbaseItemsSource.match(/gate:\s*(\{|\w+)/g) ?? []
+    expect(gates.length).toBe(17) // 4 top-level links + 3 groups + 10 children
+    for (const g of gates) expect(g).toBe('gate: INTERNAL')
+    expect(brainbaseItemsSource).not.toMatch(/anyCapability|minRole|variant|hideForVariant/)
+    const full = hrefs(BRAINBASE_ITEMS)
+    expect(full.sort()).toEqual([...INTERNAL_HREFS].sort())
+    for (const variant of VARIANTS) {
+      for (const caps of [[], ALL_CAPS]) {
+        expect(hrefs(resolveNav(ctx('super_admin', caps, variant)).brainbase).sort(), `${variant}/${caps.length}`).toEqual(full)
+      }
+    }
   })
 
-  it('Founder-only pills (Founder OS, Clients) are gated on isSuperAdmin, never on enabledModules, and only ever appear in the shared branch, never the LD Tennis branch', () => {
-    expect(sharedRegion).toMatch(/\{isSuperAdmin && \(\s*\n\s*<NavItem\s*\n\s*href="\/admin\/founder"/)
-    expect(sharedRegion).toMatch(/\{isSuperAdmin && \(\s*\n\s*<NavItem\s*\n\s*href="\/clients"/)
-    expect(ldTennisRegion).not.toMatch(/href="\/admin\/founder"|href="\/clients"/)
+  // Nav consolidation update (feat/authenticated-nav-consolidation): was "no
+  // enabledModules in the OpsDropdown/AdminDropdown definitions". Those
+  // definitions are gone; the equivalent is that the visibility model never
+  // sees enabledModules at all and TopNav feeds it only role, capabilities
+  // and dashboardVariant.
+  it('visibility is keyed on role/enabledCapabilities/dashboardVariant only — enabledModules is never referenced in navModel.ts, never passed to resolveNav, and never referenced by the generic NavMenu/MenuEntries renderers', () => {
+    expect(navModelSource).not.toMatch(/enabledModules/)
+    expect(navModelSource).toMatch(/export type NavContext = \{\s*\n\s*role: string;\s*\n\s*enabledCapabilities: readonly string\[\];\s*\n\s*dashboardVariant: DashboardVariant;\s*\n\s*\};/)
+    expect(topNavSource).toMatch(/const nav = resolveNav\(\{ role, enabledCapabilities, dashboardVariant \}\);/)
+    const renderers = sliceBetween(topNavSource, 'function NavMenu(', 'function BrandMark()')
+    expect(renderers).not.toMatch(/enabledModules/)
+  })
+
+  // Nav consolidation update (feat/authenticated-nav-consolidation): was
+  // `const isLdTennis = dashboardVariant === 'ld-tennis'` / `const
+  // isBrainbaseHQ = dashboardVariant === 'brainbase-hq'` in TopNav. TopNav no
+  // longer derives either; the single dashboardVariant field is compared only
+  // inside navModel's isGateOpen, and the internal (founder) gate is keyed on
+  // the REAL role alone — never on enabledModules/enabledCapabilities.
+  it('tenant variant is still ONE field (DashboardVariant = \'ld-tennis\' | \'brainbase-hq\' | null) compared only inside isGateOpen; TopNav has no isLdTennis/isBrainbaseHQ branching; founder tools are keyed on role === \'super_admin\' alone, never on capabilities', () => {
+    expect(navModelSource).toMatch(/export type DashboardVariant = 'ld-tennis' \| 'brainbase-hq' \| null;/)
+    expect(navModelSource).toMatch(/if \(gate\.internal && ctx\.role !== 'super_admin'\) return false;/)
+    expect(navModelSource).toMatch(/if \(gate\.variant && ctx\.dashboardVariant !== gate\.variant\) return false;/)
+    expect(navModelSource).toMatch(/if \(gate\.hideForVariant && ctx\.dashboardVariant === gate\.hideForVariant\) return false;/)
+    expect(topNavSource).not.toMatch(/isLdTennis|isBrainbaseHQ|isSuperAdmin/)
+    expect(topNavSource).not.toMatch(/dashboardVariant\s*===/)
+    // A non-super_admin at a brainbase-hq-variant org (unreachable per the
+    // resolver's own role gate, defensive here) still gets no founder tools,
+    // even with every capability enabled.
+    expect(resolveNav(ctx('manager', ALL_CAPS, 'brainbase-hq')).brainbase).toEqual([])
+    expect(isGateOpen({ internal: true }, ctx('admin', ALL_CAPS, 'brainbase-hq'))).toBe(false)
+    expect(isGateOpen({ internal: true }, ctx('super_admin', [], null))).toBe(true)
+  })
+
+  // Nav consolidation update (feat/authenticated-nav-consolidation): was
+  // `{isSuperAdmin && (<NavItem href="/admin/founder"` / `href="/clients"` in
+  // the shared branch only. Both are now INTERNAL Brainbase descriptors.
+  it('Founder OS and Clients are INTERNAL Brainbase entries — never gated on enabledModules, visible to a real super_admin, and never to any non-super_admin (including every LD Tennis role)', () => {
+    expect(brainbaseItemsSource).toMatch(/id: 'founder-os', label: 'Founder OS', href: '\/admin\/founder', match: \['\/admin\/founder'\], gate: INTERNAL/)
+    expect(brainbaseItemsSource).toMatch(/id: 'clients', label: 'Clients', href: '\/clients', match: \['\/clients'\], gate: INTERNAL/)
+    expect(hrefs(resolveNav(FOUNDER).brainbase)).toEqual(expect.arrayContaining(['/admin/founder', '/clients']))
+    for (const variant of VARIANTS) {
+      for (const role of NON_SUPER_ROLES) {
+        const all = allHrefs(ctx(role, ALL_CAPS, variant))
+        expect(all, `${role}/${variant}`).not.toContain('/admin/founder')
+        expect(all, `${role}/${variant}`).not.toContain('/clients')
+      }
+    }
   })
 })
 
 describe('Persona 2 — generic client manager (e.g. School Test Organisation): no founder items leak in', () => {
-  it('every founder-only surface (OpsDropdown, AdminDropdown, Founder OS, Clients, Reports, Data, Command) that appears in the shared branch is individually gated behind isBrainbaseHQ or isSuperAdmin — both false for a generic client — rather than being physically confined to a separate region (there is no separate region any more; a generic client and Brainbase HQ staff share this exact branch)', () => {
-    for (const marker of ['<OpsDropdown', '<AdminDropdown']) {
-      const idx = sharedRegion.indexOf(marker)
-      expect(idx, `${marker} not found in the shared branch`).toBeGreaterThan(-1)
-      const preceding = sharedRegion.slice(Math.max(0, idx - 60), idx)
-      expect(preceding, `${marker} must be immediately preceded by an isBrainbaseHQ/isSuperAdmin gate`).toMatch(/\{is(BrainbaseHQ|SuperAdmin) && \(/)
+  // Nav consolidation update (feat/authenticated-nav-consolidation): was
+  // "each founder surface in the shared branch is preceded by an
+  // isBrainbaseHQ/isSuperAdmin JSX gate". Every founder surface is now a
+  // descriptor in BRAINBASE_ITEMS gated INTERNAL, and TopNav hardcodes none
+  // of their hrefs — so a generic client can reach none of them.
+  it('every founder-only surface (Operations, Platform, Founder OS, Clients, Client requests, Reports, Data, Command) is an INTERNAL descriptor, TopNav hardcodes none of them, and a generic client in any role sees none of them anywhere in the resolved tree', () => {
+    for (const href of INTERNAL_HREFS) {
+      const esc = href.replace(/\//g, '\\/')
+      expect(brainbaseItemsSource, href).toMatch(new RegExp(`href: '${esc}', match: \\['${esc}'\\], gate: INTERNAL`))
+      expect(topNavSource, href).not.toContain(`'${href}'`)
+      expect(topNavSource, href).not.toContain(`"${href}"`)
     }
-    for (const href of ['/admin/founder', '/clients', '/reports', '/data', '/command']) {
-      const idx = sharedRegion.indexOf(`href="${href}"`)
-      expect(idx, `href="${href}" not found in the shared branch`).toBeGreaterThan(-1)
-      const gateIdx = sharedRegion.lastIndexOf('{is', idx)
-      expect(gateIdx, `href="${href}" not preceded by an is*-gate`).toBeGreaterThan(-1)
-      expect(sharedRegion.slice(gateIdx, idx)).toMatch(/\{is(BrainbaseHQ|SuperAdmin) && \(/)
+    for (const role of NON_SUPER_ROLES) {
+      const nav = resolveNav(ctx(role, ALL_CAPS, null))
+      expect(nav.brainbase, role).toEqual([])
+      const all = flattenNavLinks(nav).map(l => l.href)
+      for (const href of INTERNAL_HREFS) expect(all, `${role} ${href}`).not.toContain(href)
     }
   })
 
-  it('Events remains visible when enabledCapabilities includes it (via hasEvents), and Requests remains visible unconditional on isLdTennis (gated only on !isBrainbaseHQ) — the two items a generic client IS meant to see in the shared branch', () => {
-    expect(sharedRegion).toMatch(/\{hasEvents && \(/)
-    expect(sharedRegion).toMatch(/href="\/dashboard\/pipeline"[\s\S]{0,80}label="Requests"/)
-    const requestsIdx = sharedRegion.indexOf('href="/dashboard/pipeline"')
-    expect(sharedRegion.lastIndexOf('{!isBrainbaseHQ && (', requestsIdx)).toBeGreaterThan(-1)
+  // Nav consolidation update (feat/authenticated-nav-consolidation): was
+  // `{hasEvents && (` and Requests under `{!isBrainbaseHQ && (`. Events is
+  // now the Work descriptor gated on the 'events' capability; Requests is
+  // REQUESTS_LINK gated only on hideForVariant 'brainbase-hq'.
+  it('Events & Ticketing is visible exactly when enabledCapabilities includes \'events\', and Requests is visible for every non-brainbase-hq tenant (gated only on hideForVariant: \'brainbase-hq\')', () => {
+    expect(workItemsSource).toMatch(/id: 'events', label: 'Events & Ticketing', href: '\/events'[\s\S]{0,200}?gate: \{ anyCapability: \['events'\] \}/)
+    expect(navModelSource).toMatch(/label: 'Requests', href: '\/dashboard\/pipeline', match: \['\/dashboard\/pipeline'\],\s*\n\s*gate: \{ hideForVariant: 'brainbase-hq' \},/)
+    expect(hrefs(resolveNav(ctx('manager', ['events'])).work)).toContain('/events')
+    expect(hrefs(resolveNav(ctx('manager', [])).work)).not.toContain('/events')
+    expect(resolveNav(ctx('manager', [], null)).requests?.href).toBe('/dashboard/pipeline')
+    expect(resolveNav(ctx('manager', [], 'ld-tennis')).requests?.href).toBe('/dashboard/pipeline')
+    expect(resolveNav(ctx('super_admin', [], 'brainbase-hq')).requests).toBeNull()
   })
 
-  it('Squad, Sessions, Leads, and Blog do not exist anywhere in the shared branch — a generic client organisation never sees them, because these items are written only inside the isLdTennis-true branch (proven exhaustively in clientNavOwnership.test.ts; re-asserted here as part of full persona coverage)', () => {
-    expect(sharedRegion).not.toMatch(/href="\/dashboard\/leads"/)
-    expect(sharedRegion).not.toContain('<SquadItem')
-    expect(sharedRegion).not.toMatch(/href="\/dashboard\/sessions"/)
-    expect(sharedRegion).not.toMatch(/href="\/dashboard\/blog"/)
+  // Nav consolidation update (feat/authenticated-nav-consolidation): was
+  // "Leads/Squad/Sessions/Blog absent from the shared JSX branch". They are
+  // now only the children of the Work "Tennis" group, gated on
+  // { variant: 'ld-tennis' }; TopNav hardcodes none of them.
+  it('Squad, Sessions, Leads, and Blog exist only inside the Tennis group gated on { variant: \'ld-tennis\' } — a generic client organisation never sees them, in any role or capability set', () => {
+    const tennis = sliceBetween(workItemsSource, "kind: 'group', id: 'tennis'", ']')
+    expect(tennis).toMatch(/gate: \{ variant: 'ld-tennis' \}/)
+    for (const href of TENNIS_HREFS) {
+      expect(topNavSource).not.toContain(href)
+      expect(navModelSource.split(`href: '${href}'`).length - 1, href).toBe(1)
+    }
+    expect(topNavSource).not.toContain('SquadItem')
+    for (const role of ['viewer', 'manager', 'admin', 'super_admin']) {
+      const all = allHrefs(ctx(role, ALL_CAPS, null))
+      for (const href of TENNIS_HREFS) expect(all, `${role} ${href}`).not.toContain(href)
+    }
   })
 })
 
 describe('Persona 3 — LD Tennis manager: full tennis navigation retained, founder tools never leak in', () => {
-  it('LD Tennis takes the isLdTennis-true branch, which structurally never references OpsDropdown/AdminDropdown at all — regardless of the LD Tennis user\'s own role (manager or super_admin), since dashboardVariant is a single value and \'ld-tennis\'/\'brainbase-hq\' are mutually exclusive, an LD-Tennis-org session can never also be isBrainbaseHQ, and the founder-tool gates live only in the OTHER (shared) branch this session never reaches', () => {
-    expect(topNavSource).toMatch(/const isLdTennis =\s*dashboardVariant === 'ld-tennis';/)
-    expect(ldTennisRegion).not.toContain('OpsDropdown')
-    expect(ldTennisRegion).not.toContain('AdminDropdown')
+  // Nav consolidation update (feat/authenticated-nav-consolidation): was
+  // "the isLdTennis-true JSX branch never references OpsDropdown/
+  // AdminDropdown". There is no LD Tennis branch now; the equivalent is that
+  // an LD Tennis (non-super_admin) session resolves an empty Brainbase menu.
+  // APPROVED: a REAL super_admin impersonating LD Tennis keeps Brainbase.
+  it('an LD Tennis session in any non-super_admin role resolves NO Brainbase menu (no Operations/Platform) — founder tools depend on the real role, never on the tenant; a real super_admin viewing LD Tennis keeps them (approved)', () => {
+    expect(topNavSource).not.toMatch(/isLdTennis/)
+    for (const role of NON_SUPER_ROLES) {
+      expect(resolveNav(ctx(role, ALL_CAPS, 'ld-tennis')).brainbase, role).toEqual([])
+    }
+    const impersonating = resolveNav(ctx('super_admin', [], 'ld-tennis'))
+    expect(group(impersonating.brainbase, 'operations')).toBeDefined()
+    expect(group(impersonating.brainbase, 'platform')).toBeDefined()
   })
 
-  it('Leads, Squad, Sessions, Blog, Requests, and Events are all reachable for isLdTennis (proven functionally in clientNavOwnership.test.ts; asserted here as part of full persona coverage)', () => {
-    expect(ldTennisRegion).toMatch(/isLdTennis && \(/)
-    expect(ldTennisRegion).toContain('href="/dashboard/leads"')
-    expect(ldTennisRegion).toContain('<SquadItem')
-    expect(ldTennisRegion).toContain('href="/dashboard/sessions"')
-    expect(ldTennisRegion).toContain('href="/dashboard/blog"')
-    expect(ldTennisRegion).toContain('href="/dashboard/pipeline"')
-    expect(ldTennisRegion).toMatch(/enabledCapabilities\.includes\(\s*\n?\s*'events',?\s*\n?\s*\)/)
+  // Nav consolidation update (feat/authenticated-nav-consolidation): was the
+  // LD Tennis JSX region containing each href + SquadItem +
+  // `enabledCapabilities.includes('events')`. Now asserted behaviourally
+  // through resolveNav for the LD Tennis variant.
+  it('Leads, Squad, Sessions, Blog, Requests, and Events are all reachable for an LD Tennis manager (tennis via the variant gate, Events via its capability)', () => {
+    const nav = resolveNav(ctx('manager', ['events'], 'ld-tennis'))
+    const tennis = group(nav.work, 'tennis')!
+    expect(tennis.children.map(c => [c.label, c.href])).toEqual([
+      ['Leads', '/dashboard/leads'],
+      ['Squad', '/dashboard/contacts'],
+      ['Sessions', '/dashboard/sessions'],
+      ['Blog', '/dashboard/blog'],
+    ])
+    expect(nav.requests?.href).toBe('/dashboard/pipeline')
+    expect(hrefs(nav.work)).toContain('/events')
+    // Events stays capability-gated for LD Tennis too.
+    expect(hrefs(resolveNav(ctx('manager', [], 'ld-tennis')).work)).not.toContain('/events')
   })
 
-  it('no founder Admin tool (AdminDropdown, /admin/founder, /clients) is reachable from LD Tennis\'s branch', () => {
-    expect(ldTennisRegion).not.toContain('AdminDropdown')
-    expect(ldTennisRegion).not.toMatch(/href="\/admin\/founder"|href="\/clients"/)
+  // Nav consolidation update (feat/authenticated-nav-consolidation): was a
+  // text check on the LD Tennis JSX region; now behavioural over every
+  // non-super_admin LD Tennis role and the whole resolved tree.
+  it('no founder Admin tool (Platform group, /admin/founder, /clients) is reachable by an LD Tennis non-super_admin session', () => {
+    for (const role of NON_SUPER_ROLES) {
+      const all = allHrefs(ctx(role, ALL_CAPS, 'ld-tennis'))
+      for (const href of INTERNAL_HREFS) expect(all, `${role} ${href}`).not.toContain(href)
+    }
   })
 })
 
@@ -241,30 +426,54 @@ describe('Phase D.4.2 — capability icons across all three personas', () => {
   // HR-1 People Foundation added People as a fifth real capability-gated
   // NavItem, mirroring Events/CRM/Organiser/Commercial exactly in both
   // branches — counts updated from 4 to 5.
-  it('Persona 2/3 (shared branch + LD Tennis branch): only Events, CRM, Organiser, Commercial, and People NavItem entries carry a capability prop, using this file\'s own already-computed regions — no icon leaked onto a founder-only or LD-Tennis-bespoke item', () => {
-    const sharedCapabilityProps = sharedRegion.match(/capability="[a-zA-Z]+"/g) ?? []
-    const ldTennisCapabilityProps = ldTennisRegion.match(/capability="[a-zA-Z]+"/g) ?? []
-    expect(sharedCapabilityProps.length).toBe(5) // Events & Ticketing, CRM, Commercial, Organiser, People
-    expect(ldTennisCapabilityProps.length).toBe(5) // Events, CRM, Commercial, Organiser, People
-    for (const prop of [...sharedCapabilityProps, ...ldTennisCapabilityProps]) {
-      expect(['capability="events"', 'capability="crm"', 'capability="organiser"', 'capability="quotes"', 'capability="people"']).toContain(prop)
+  // Nav consolidation update (feat/authenticated-nav-consolidation): the
+  // per-branch `capability="..."` NavItem props are gone. Icons now come from
+  // a descriptor's `icon` key and are rendered (CapabilityIcon
+  // capability={link.icon}) only by MenuLink when `withIcon` is set, which
+  // TopNav passes only for the Work entries (desktop Work menu + mobile Work
+  // section). Same five-icon contract, now over the single shared tree.
+  it('Persona 2/3 (generic + LD Tennis): only the Events, CRM, Commercial, Organiser, People and Assurance entries carry an icon — no icon leaked onto a founder-only or LD-Tennis-bespoke item', () => {
+    const iconKeys = (navModelSource.match(/icon: '[a-zA-Z]+'/g) ?? [])
+    expect(iconKeys).toEqual(["icon: 'events'", "icon: 'crm'", "icon: 'quotes'", "icon: 'organiser'", "icon: 'people'", "icon: 'assurance'"])
+    expect(topNavSource).not.toMatch(/capability="[a-zA-Z]+"/)
+    expect((topNavSource.match(/<CapabilityIcon/g) ?? []).length).toBe(1)
+    expect(topNavSource).toMatch(/\{withIcon && link\.icon && \(\s*\n\s*<CapabilityIcon\s*\n\s*capability=\{link\.icon\}/)
+    // withIcons is passed only for nav.work (desktop menu + mobile section).
+    const withIconsUses = topNavSource.match(/<MenuEntries[^>]*\/>/g) ?? []
+    expect(withIconsUses.length).toBe(6) // work, manage, brainbase — desktop menus + mobile sections
+    for (const use of withIconsUses) {
+      if (use.includes('withIcons')) expect(use).toContain('entries={nav.work}')
+      if (use.includes('entries={nav.work}')) expect(use).toContain('withIcons')
+    }
+    for (const variant of ['ld-tennis', null] as const) {
+      for (const role of ['manager', 'super_admin']) {
+        const withIcon = flattenNavLinks(resolveNav(ctx(role, ALL_CAPS, variant))).filter(l => l.icon)
+        expect(withIcon.map(l => [l.id, l.icon]), `${role}/${variant}`).toEqual([
+          ['events', 'events'], ['crm', 'crm'], ['commercial', 'quotes'], ['organiser', 'organiser'], ['people', 'people'],
+        ])
+      }
     }
   })
 
-  it('Persona 1 (Founder/super_admin): OPS_ITEMS\' own CRM entry (the Operations-dropdown internal shortcut) does NOT render CapabilityIcon — audited and deliberately left as a text-only dropdown row, a different pattern from the top-level pill', () => {
-    const start = topNavSource.indexOf('const OPS_ITEMS')
-    const opsBody = topNavSource.slice(start, topNavSource.indexOf('\n];', start))
-    expect(opsBody).toMatch(/label:\s*'CRM'/)
-    expect(opsBody).not.toMatch(/CapabilityIcon/)
+  // Nav consolidation update (feat/authenticated-nav-consolidation): was
+  // "OPS_ITEMS' CRM entry does not render CapabilityIcon". APPROVED: the
+  // Operations CRM duplicate is gone entirely; the Operations group has no
+  // CRM and no icon, and the Brainbase menu is rendered without withIcons.
+  it('Persona 1 (Founder/super_admin): the Operations group has no CRM entry and no icon, and the Brainbase menu renders its entries text-only (no withIcons)', () => {
+    const ops = group(resolveNav(ctx('super_admin', ALL_CAPS, 'brainbase-hq')).brainbase, 'operations')!
+    expect(ops.children.map(c => c.label)).not.toContain('CRM')
+    for (const c of ops.children) expect(c.icon).toBeUndefined()
+    expect(topNavSource).toMatch(/<MenuEntries entries=\{nav\.brainbase\} activeId=\{activeId\} onNavigate=\{close\} \/>/)
+    expect(topNavSource).toMatch(/<MenuEntries entries=\{nav\.brainbase\} activeId=\{activeId\} onNavigate=\{onNavigate\} \/>/)
   })
 
-  it('Persona 1: no founder-only item (Founder OS, Clients, Reports, Data, Command, OpsDropdown, AdminDropdown) carries a capability prop', () => {
-    for (const href of ['/admin/founder', '/clients', '/reports', '/data', '/command']) {
-      const idx = sharedRegion.indexOf(`href="${href}"`)
-      expect(idx).toBeGreaterThan(-1)
-      const blockEnd = sharedRegion.indexOf('/>', idx)
-      const block = sharedRegion.slice(idx, blockEnd)
-      expect(block).not.toMatch(/capability=/)
-    }
+  // Nav consolidation update (feat/authenticated-nav-consolidation): was
+  // "no founder-only NavItem carries a capability prop"; now no Brainbase
+  // descriptor carries an `icon` key (source) or resolves with one.
+  it('Persona 1: no founder-only item (Founder OS, Clients, Client requests, Reports, Data, Command, Operations, Platform) carries an icon', () => {
+    expect(brainbaseItemsSource).not.toMatch(/icon:/)
+    const internal = flattenNavLinks(resolveNav(ctx('super_admin', ALL_CAPS, 'brainbase-hq'))).filter(l => INTERNAL_HREFS.includes(l.href))
+    expect(internal.map(l => l.href).sort()).toEqual([...INTERNAL_HREFS].sort())
+    for (const link of internal) expect(link.icon, link.href).toBeUndefined()
   })
 })

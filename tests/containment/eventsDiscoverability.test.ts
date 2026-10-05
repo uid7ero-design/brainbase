@@ -1,6 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import fs from 'fs'
 import path from 'path'
+// Nav consolidation update (feat/authenticated-nav-consolidation): the pure
+// nav model (no DB/React imports) now owns Events' visibility.
+import {
+  BRAINBASE_ITEMS,
+  WORK_ITEMS,
+  resolveNav,
+  workModuleCards,
+  type NavContext,
+  type NavEntry,
+  type NavLink,
+} from '@/components/nav/navModel'
 
 // Events Phase 4 final integration — navigation/dashboard discoverability,
 // the public organisation events hub, and the retry return-flow slug fix.
@@ -36,84 +47,90 @@ function stripComments(src: string): string {
 // to, and promotes it out of the Operations dropdown into an
 // always-visible pill in the non-client branch too (a hover-only menu
 // entry is not sufficiently discoverable for a major module).
+// Nav consolidation update (feat/authenticated-nav-consolidation): AppNav no
+// longer has branches. Events is ONE descriptor in components/nav/navModel.ts
+// WORK_ITEMS (label 'Events & Ticketing' everywhere — APPROVED), gated purely
+// by { anyCapability: ['events'] }, and TopNav renders the same resolved tree
+// for every organisation (desktop Work menu and ≤767px mobile menu alike). The
+// guarantee is unchanged and now asserted behaviourally for every
+// role × variant: Events is capability-gated, reachable by every organisation
+// type, and never buried in the internal Brainbase/Operations menu.
 describe('TopNav — Events is a first-class, always-visible entry in BOTH AppNav branches', () => {
   const code = stripComments(read('components/nav/TopNav.tsx'))
+  const model = stripComments(read('components/nav/navModel.ts'))
+  const VARIANTS: NavContext['dashboardVariant'][] = [null, 'ld-tennis', 'brainbase-hq']
+  const ROLES = ['viewer', 'manager', 'admin', 'super_admin', 'analyst']
+  const flat = (entries: readonly NavEntry[]): NavLink[] =>
+    entries.flatMap(e => (e.kind === 'group' ? [...e.children] : [e]))
+  const workLinks = (role: string, caps: string[], dashboardVariant: NavContext['dashboardVariant']) =>
+    flat(resolveNav({ role, enabledCapabilities: caps, dashboardVariant }).work)
+  const eventsDescriptor = flat(WORK_ITEMS).find(l => l.id === 'events')
 
   it('OPS_ITEMS no longer contains Events — it was promoted out of the hover-only Operations dropdown', () => {
-    const opsStart = code.indexOf('const OPS_ITEMS')
-    const opsBody = code.slice(opsStart, code.indexOf('\n];', opsStart))
-    expect(opsBody).not.toMatch(/label:\s*'Events'/)
+    // Nav consolidation update (feat/authenticated-nav-consolidation): OPS_ITEMS
+    // is replaced by BRAINBASE_ITEMS (incl. its Operations group); Events must
+    // not be in it, and TopNav keeps no OPS_ITEMS list of its own.
+    expect(code).not.toMatch(/OPS_ITEMS/)
+    expect(flat(BRAINBASE_ITEMS).some(l => /Events/.test(l.label) && l.href === '/events')).toBe(false)
+    expect(flat(BRAINBASE_ITEMS).some(l => l.href === '/events')).toBe(false)
   })
 
-  // Updated during the D.2.3 origin/main reconciliation merge: the
-  // isClientOrg heuristic this comment block above describes is gone —
-  // C.2D replaced it with dashboardVariant-driven isLdTennis/isBrainbaseHQ
-  // classification (see tenantAwareNavigation.test.ts/clientNavOwnership
-  // .test.ts). AppNav's top-level branch pair is now `isLdTennis ? ( ... )
-  // : ( ... )` — the true side is LD Tennis's own bespoke nav, the false
-  // side is shared by every other session (generic clients AND
-  // Brainbase-internal staff together, individually gated within it by
-  // isBrainbaseHQ/isSuperAdmin/hasEvents). The semantic guarantee this
-  // describe block protects — Events is capability-gated and reachable
-  // from both branches, never buried only in the Operations dropdown —
-  // still holds; only the anchor text changed. Note the label text also
-  // legitimately differs per branch: 'Events' in the LD Tennis branch
-  // (mirroring generic clients' own always-visible pill), 'Events &
-  // Ticketing' in the shared branch (a fuller label there's room for).
   it('an always-visible Events NavItem, gated by enabledCapabilities, exists in the isLdTennis branch (the branch LD Tennis actually renders)', () => {
-    const clientBranchStart = code.indexOf('isLdTennis ? (')
-    const clientBranchEnd = code.indexOf(') : (', clientBranchStart)
-    expect(clientBranchStart).toBeGreaterThan(-1)
-    const region = code.slice(clientBranchStart, clientBranchEnd)
-    expect(region).toMatch(/enabledCapabilities\.includes\(\s*'events'\s*,?\s*\)/)
-    expect(region).toMatch(/href="\/events"/)
-    expect(region).toMatch(/label="Events"/)
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // "isLdTennis branch" is the ld-tennis variant of the one resolved tree.
+    for (const role of ROLES) {
+      const hit = workLinks(role, ['events'], 'ld-tennis').find(l => l.href === '/events')
+      expect(hit?.label, role).toBe('Events & Ticketing')
+      expect(workLinks(role, [], 'ld-tennis').some(l => l.href === '/events'), role).toBe(false)
+    }
   })
 
   it('an always-visible Events NavItem, gated by enabledCapabilities (via the hasEvents variable), also exists in the shared generic-client + internal-staff branch — not only inside the Operations dropdown', () => {
-    const clientBranchEnd = code.indexOf(') : (')
-    const nonClientBranchEnd = code.indexOf('width: 185,', clientBranchEnd)
-    const region = code.slice(clientBranchEnd, nonClientBranchEnd)
-    // hasEvents is declared once, above AppNav's return, as exactly
-    // enabledCapabilities.includes('events') — asserted separately below —
-    // so checking the gate uses hasEvents here is equivalent to checking
-    // the raw enabledCapabilities call inline.
-    expect(region).toMatch(/\{hasEvents && \(/)
-    expect(region).toMatch(/href="\/events"/)
-    expect(region).toMatch(/label="Events & Ticketing"/)
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // hasEvents flag is now the descriptor gate; it lives in Work, top of tree.
+    expect(eventsDescriptor?.gate).toEqual({ anyCapability: ['events'] })
+    expect(WORK_ITEMS[0]).toBe(eventsDescriptor)
+    for (const v of [null, 'brainbase-hq'] as const) {
+      for (const role of ROLES) {
+        const hit = workLinks(role, ['events'], v).find(l => l.href === '/events')
+        expect(hit?.label, `${role}/${v}`).toBe('Events & Ticketing')
+        expect(workLinks(role, [], v).some(l => l.href === '/events'), `${role}/${v}`).toBe(false)
+      }
+    }
+    // TopNav renders the Work list (where Events lives) on desktop and mobile.
+    expect(code).toMatch(/<NavMenu label="Work" panelLabel="Work"/)
+    expect(code).toMatch(/<MobileSection title="Work">/)
+    expect((code.match(/entries=\{nav\.work\}/g) ?? []).length).toBe(2)
   })
 
   it('href is exactly /events in both branches — never a different or LD-Tennis-specific route', () => {
-    const matches = code.match(/href="\/events"/g) ?? []
-    expect(matches.length).toBeGreaterThanOrEqual(2)
+    // Nav consolidation update (feat/authenticated-nav-consolidation): one
+    // declaration in the model (was ≥2 JSX literals in TopNav).
+    expect((model.match(/href: '\/events'/g) ?? []).length).toBe(1)
+    expect(eventsDescriptor?.href).toBe('/events')
+    for (const v of VARIANTS) {
+      const hrefs = workLinks('admin', ['events'], v).map(l => l.href)
+      expect(hrefs.filter(h => h.includes('events')), String(v)).toEqual(['/events'])
+    }
+    expect(model).not.toMatch(/\/events\/ld-tennis|\/dashboard\/events/)
     expect(code).not.toMatch(/href="\/events\/ld-tennis|href="\/dashboard\/events/)
   })
 
   it('uses the SAME generic capability-gating mechanism CRM already relies on — no special-cased branch for Events or for any organisation', () => {
-    // The file as a whole now legitimately references 'ld-tennis'
-    // elsewhere (dashboardVariant gates LD Tennis's OWN coaching-business
-    // nav items — Leads/Squad/Sessions/Blog — added in a later,
-    // independent pass; see the "generic client navigation" describe
-    // block below). What must remain true is narrower and still checked
-    // here directly: Events itself, in both AppNav branches, is gated
-    // purely by enabledCapabilities (directly, or via the hasEvents
-    // variable that is itself nothing but enabledCapabilities.includes
-    // ('events')), with no ld-tennis/organisation special-case anywhere
-    // near its own NavItem.
-    expect(code).toMatch(/const hasEvents =\s*\n?\s*enabledCapabilities\.includes\(\s*\n?\s*'events',?\s*\n?\s*\);/)
-
-    const clientBranchStart = code.indexOf('isLdTennis ? (')
-    const clientBranchEnd = code.indexOf(') : (', clientBranchStart)
-    const clientRegion = code.slice(clientBranchStart, clientBranchStart + code.indexOf('label="Events"', clientBranchStart) - clientBranchStart + 40)
-    expect(clientRegion).not.toMatch(/ld-tennis|LD Tennis|ld_tennis/i)
-
-    const nonClientBranchEnd = code.indexOf('width: 185,', clientBranchEnd)
-    const eventsIdxNonClient = code.indexOf('label="Events & Ticketing"', clientBranchEnd)
-    expect(eventsIdxNonClient).toBeGreaterThan(-1)
-    expect(eventsIdxNonClient).toBeLessThan(nonClientBranchEnd)
-    const eventsBlockStart = code.lastIndexOf('{hasEvents && (', eventsIdxNonClient)
-    const nonClientEventsRegion = code.slice(eventsBlockStart, eventsIdxNonClient + 40)
-    expect(nonClientEventsRegion).not.toMatch(/ld-tennis|LD Tennis|ld_tennis/i)
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // shared mechanism is isGateOpen's anyCapability check; Events and CRM
+    // descriptors differ only in the key.
+    const crmDescriptor = flat(WORK_ITEMS).find(l => l.id === 'crm')
+    expect(eventsDescriptor?.gate).toEqual({ anyCapability: ['events'] })
+    expect(crmDescriptor?.gate).toEqual({ anyCapability: ['crm'] })
+    expect(model).toMatch(/const enabled = gate\.anyCapability\.some\(key => ctx\.enabledCapabilities\.includes\(key\)\);/)
+    const eventsStart = model.indexOf("id: 'events'")
+    const eventsBlock = model.slice(eventsStart, model.indexOf("id: 'crm'", eventsStart))
+    expect(eventsBlock).toMatch(/gate: \{ anyCapability: \['events'\] \}/)
+    expect(eventsBlock).not.toMatch(/ld-tennis|LD Tennis|ld_tennis|variant|minRole|internal/i)
+    // TopNav itself carries no Events- or organisation-specific branch.
+    expect(code).not.toMatch(/'events'/)
+    expect(code).not.toMatch(/isLdTennis|isBrainbaseHQ|dashboardVariant\s*===/)
   })
 
   it('no second/parallel navigation or capability system was introduced — Events reuses enabledCapabilities, the exact prop TopNav already receives from the session', () => {
@@ -126,8 +143,13 @@ describe('TopNav — Events is a first-class, always-visible entry in BOTH AppNa
   // whole describe block already protects — the icon does not add or alter
   // any discoverability/gating condition.
   it('the Events icon rides on top of the existing gate, not a new one — capability="events" appears exactly twice (both branches), both still inside their pre-existing hasEvents/enabledCapabilities.includes(\'events\') gate', () => {
-    const capabilityEventsProps = code.match(/capability="events"/g) ?? []
-    expect(capabilityEventsProps).toHaveLength(2)
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the icon
+    // is the descriptor's `icon: 'events'` (declared once, on the gated
+    // descriptor itself); TopNav reads it generically via link.icon.
+    expect(eventsDescriptor?.icon).toBe('events')
+    expect((model.match(/icon: 'events'/g) ?? []).length).toBe(1)
+    expect(code).not.toMatch(/capability="events"/)
+    expect(code).toMatch(/<CapabilityIcon\s+capability=\{link\.icon\}/)
   })
 })
 
@@ -145,24 +167,42 @@ describe('Authenticated dashboard — Events participates in the generic ModuleA
   })
 
   it('Events is a real entry in the generic ModuleAccessCard pattern, not a parallel one-off component', () => {
+    // Nav consolidation update (feat/authenticated-nav-consolidation):
+    // MODULE_ENTRIES is replaced by navModel.workModuleCards — Events is a
+    // card-flagged Work descriptor, and ModuleAccessCard maps those generically.
     const cardCode = stripComments(read('components/dashboard/ModuleAccessCard.tsx'))
-    const entriesStart = cardCode.indexOf('const MODULE_ENTRIES')
-    const entriesEnd = cardCode.indexOf('];', entriesStart)
-    const entriesBlock = cardCode.slice(entriesStart, entriesEnd)
-    expect(entriesBlock).toMatch(/key:\s*'events'/)
-    expect(entriesBlock).toMatch(/href:\s*'\/events'/)
+    expect(cardCode).toMatch(/import \{ workModuleCards, type DashboardVariant \} from '@\/components\/nav\/navModel'/)
+    expect(cardCode).toMatch(/workModuleCards\(\{ role, enabledCapabilities, dashboardVariant \}\)\.map\(link =>/)
+    expect(cardCode).not.toMatch(/Events.*Dashboard|EventsCard/)
+    const events = workModuleCards({ role: 'viewer', enabledCapabilities: ['events'], dashboardVariant: null })
+    expect(events.map(l => [l.id, l.href, l.card])).toEqual([['events', '/events', true]])
   })
 
   it("Events' visibility inside ModuleAccessCard remains capability-gated, not unconditionally rendered", () => {
-    const cardCode = stripComments(read('components/dashboard/ModuleAccessCard.tsx'))
-    expect(cardCode).toMatch(/entries\s*=\s*MODULE_ENTRIES\.filter\(e => enabledCapabilities\.includes\(e\.key\)\)/)
+    // Nav consolidation update (feat/authenticated-nav-consolidation): gating
+    // is workModuleCards → the descriptor's anyCapability gate.
+    for (const v of [null, 'ld-tennis', 'brainbase-hq'] as const) {
+      for (const role of ['viewer', 'manager', 'admin', 'super_admin', 'analyst', '']) {
+        const ids = (caps: string[]) => workModuleCards({ role, enabledCapabilities: caps, dashboardVariant: v }).map(l => l.id)
+        expect(ids(['events']), `${role}/${v}`).toContain('events')
+        expect(ids([]), `${role}/${v}`).not.toContain('events')
+      }
+    }
   })
 
   it('no second/duplicate Events navigation architecture was introduced alongside ModuleAccessCard — TopNav\'s own existing Events link and gating are untouched', () => {
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // card and TopNav now share ONE Events descriptor — exactly one
+    // capability check for 'events' exists in the model, none in TopNav or
+    // ModuleAccessCard.
     const topNavCode = stripComments(read('components/nav/TopNav.tsx'))
-    const eventsOccurrences = (topNavCode.match(/enabledCapabilities\.includes\(\s*\n?\s*'events',?\s*\n?\s*\)/g) ?? []).length
-    expect(eventsOccurrences).toBe(2)
-    expect(topNavCode).toMatch(/href="\/events"/)
+    const cardCode = stripComments(read('components/dashboard/ModuleAccessCard.tsx'))
+    const model = stripComments(read('components/nav/navModel.ts'))
+    expect((model.match(/anyCapability: \['events'\]/g) ?? []).length).toBe(1)
+    expect(topNavCode).not.toMatch(/enabledCapabilities\.includes\(\s*'events'/)
+    expect(cardCode).not.toMatch(/enabledCapabilities\.includes\(\s*'events'/)
+    expect(topNavCode).toMatch(/import \{[\s\S]*?resolveNav,[\s\S]*?\} from '\.\/navModel';/)
+    expect(topNavCode).toMatch(/href=\{link\.href\}/)
   })
 })
 
@@ -325,10 +365,12 @@ describe('LD Tennis public site — mobile fallback for the desktop-only link ro
 })
 
 describe('BrainBase marketing site — Events & Ticketing as a first-class capability', () => {
-  const code = stripComments(read('app/page.tsx'))
+  // Homepage copy moved to components/public/home/content.tsx in the
+  // public-site visual redesign; app/page.tsx renders it.
+  const code = stripComments(read('app/page.tsx') + '\n' + read('components/public/home/content.tsx'))
 
   it('CAPABILITIES includes an Events & Ticketing entry describing the actual product, not LD Tennis', () => {
-    const start = code.indexOf('const CAPABILITIES')
+    const start = code.indexOf('export const CAPABILITIES')
     const body = code.slice(start, code.indexOf('\n];', start))
     expect(body).toMatch(/title:\s*'Events & Ticketing'/)
     expect(body).not.toMatch(/ld-tennis|LD Tennis/i)

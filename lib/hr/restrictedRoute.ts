@@ -7,6 +7,10 @@ import type { Role } from '@/lib/session';
 
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
+export function isRestrictedCaseId(value: string): boolean {
+  return UUID_RE.test(value);
+}
+
 export type HrRestrictedRequestContext = {
   userId: string;
   organisationId: string;
@@ -97,7 +101,7 @@ async function resolveRestrictedCase(
   session: OrgSession,
   caseId: string,
 ): Promise<ResolveRestrictedCaseResult> {
-  if (!UUID_RE.test(caseId)) return { ok: false };
+  if (!isRestrictedCaseId(caseId)) return { ok: false };
 
   const ctx = restrictedRequestContext(session);
   const isSuperAdmin = ctx.role === 'super_admin';

@@ -49,6 +49,13 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(__dirname),
   },
+  // Assurance in-app Help reads docs/assurance/**/*.md at request time
+  // (lib/assurance/help/content.ts). Ship exactly those files with the two
+  // Help routes' server bundles — nothing else from the repository.
+  outputFileTracingIncludes: {
+    '/assurance/help': ['./docs/assurance/**/*.md'],
+    '/assurance/help/\\[slug\\]': ['./docs/assurance/**/*.md'],
+  },
   // Organiser was promoted to its canonical route (/organiser) in Phase D.2
   // — it's a real BrainBase capability, not a Command Centre tool, and no
   // longer lives nested under /command. This keeps existing bookmarks/links

@@ -1,17 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import SlidePanel from './SlidePanel';
+import { StateMessage, buttonProps } from '@/components/ui/app';
 
-// Exported (not just used internally) so app/people/page.tsx can type the
-// person object it receives back from onEdit() without redeclaring an
-// equivalent shape — team_id/manager_person_id are included because
-// PersonForm's edit mode needs the real ids (not just team_name/manager_
-// first_name/manager_last_name's display-only join columns) to
-// pre-select the Team/Manager dropdowns; both are already returned by
-// GET /api/hr/people/[id] today (lib/hr/personFieldTiers.ts classifies
-// both 'internal' — visible to anyone who can view the record at all),
-// this type just wasn't capturing them before since the read-only view
-// never needed them.
 export type PersonDetail = {
   id: string;
   first_name: string;
@@ -24,82 +15,200 @@ export type PersonDetail = {
   employment_status: string;
   team_id?: string | null;
   manager_person_id?: string | null;
-  // HR-2 Step 1D2 — 'internal' tier (lib/hr/personFieldTiers.ts), same
-  // as team_id/manager_person_id/employment_status above: visible to
-  // anyone who can view the record at all, not gated behind canManage
-  // (unlike the Linked BrainBase Account row below, which is a
-  // deliberate authority-model exception, not a field-tier one).
-  // Already returned as a canonical 'YYYY-MM-DD' string (or null) by
-  // GET /api/hr/people/[id] — that route's own loadPerson() applies
-  // normalizePersonDates() before ever returning a row, so this
-  // component never receives a raw Date object to handle.
   start_date?: string | null;
   end_date?: string | null;
-  // HR-2 Step 1D1 — same reason team_id/manager_person_id are captured
-  // above: PersonForm's edit mode needs the real, current value to
-  // pre-select the Linked Account control; already returned by GET
-  // /api/hr/people/[id] today (lib/hr/personFieldTiers.ts classifies
-  // it 'internal', same tier as team_id/manager_person_id).
   linked_user_id?: string | null;
   team_name?: string | null;
   manager_first_name?: string | null;
   manager_last_name?: string | null;
 };
 
-// Read-only detail view — "basic profile page or drawer" per the HR-1
-// brief, using the panel convention already established by
-// app/crm/_components/SlidePanel.tsx rather than a second, dedicated
-// /people/[id] route. Renders only whatever fields GET /api/hr/people/
-// [id] actually returned — the server already applied lib/hr/access.ts's
-// field-tier filtering, so this component never has to (and never
-// could) show a field the caller isn't permitted to see.
-//
-// canManage/onEdit: the Edit action itself lives in app/people/page.tsx
-// (a sibling SlidePanel plus PersonForm given an existing person,
-// mirroring the existing Add-Person pattern exactly) — this component
-// only decides whether to SHOW the button (canManage, the same
-// HR-administrator UX flag already gating "+ Add Person") and hands the
-// already-fetched person back up via onEdit(). It never renders
-// PersonForm or performs any write itself, so it stays a pure read-only
-// view regardless of this addition. canManage is a UX courtesy only, not
-// the security boundary — PATCH /api/hr/people/[id]'s own
-// canEditPerson()/canManageEmployment() checks remain authoritative
-// regardless of whether this button is shown.
+type EmployeeDocumentSummary = {
+  id: string;
+  document_type: string;
+  title: string;
+  lifecycle_task_id: string | null;
+  created_at: string;
+  current_version: {
+    id: string;
+    version_number: number;
+    expires_at: string | null;
+    created_at: string;
+  } | null;
+};
+
+type DocumentAssurance = {
+  employee_acknowledgement: {
+    acknowledged: boolean;
+    acknowledged_at: string | null;
+  };
+  latest_verification: {
+    decision: 'VERIFIED' | 'REJECTED';
+    verified_at: string;
+  } | null;
+};
+
+type AssuranceState =
+  | { state: 'loading' }
+  | { state: 'ready'; assurance: DocumentAssurance }
+  | { state: 'error' };
+
+type DocumentsState = 'idle' | 'loading' | 'ready' | 'error' | 'hidden';
+
+function dateOnly(value: string): string {
+  return value.slice(0, 10);
+}
+
 export default function PersonDrawer({ personId, canManage, onClose, onEdit }: { personId: string | null; canManage: boolean; onClose: () => void; onEdit: (person: PersonDetail) => void }) {
   const [person, setPerson] = useState<PersonDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [documents, setDocuments] = useState<EmployeeDocumentSummary[]>([]);
+  const [documentsState, setDocumentsState] = useState<DocumentsState>('idle');
+  const [assuranceByDocument, setAssuranceByDocument] = useState<Record<string, AssuranceState>>({});
 
   useEffect(() => {
+    let cancelled = false;
+
     queueMicrotask(() => {
-      if (!personId) { setPerson(null); return; }
-      setLoading(true); setError(''); setPerson(null);
-      fetch(`/api/hr/people/${personId}`)
-        .then(async r => {
-          const data = await r.json();
-          if (!r.ok) { setError(data.error ?? 'Could not load person.'); return; }
+      if (!personId) {
+        setPerson(null);
+        setDocuments([]);
+        setDocumentsState('idle');
+        setAssuranceByDocument({});
+        return;
+      }
+
+      setLoading(true);
+      setError('');
+      setPerson(null);
+      setDocuments([]);
+      setDocumentsState('loading');
+      setAssuranceByDocument({});
+
+      void fetch(`/api/hr/people/${personId}`)
+        .then(async response => {
+          const data = await response.json();
+          if (cancelled) return;
+          if (!response.ok) {
+            setError(data.error ?? 'Could not load person.');
+            return;
+          }
           setPerson(data.person);
         })
-        .finally(() => setLoading(false));
+        .catch(() => {
+          if (!cancelled) setError('Could not load person.');
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+
+      void fetch(`/api/hr/people/${personId}/documents`)
+        .then(async response => {
+          if (cancelled) return;
+
+          if (response.status === 404) {
+            setDocuments([]);
+            setDocumentsState('hidden');
+            setAssuranceByDocument({});
+            return;
+          }
+
+          const data = await response.json().catch(() => ({}));
+          if (cancelled) return;
+
+          if (!response.ok) {
+            setDocuments([]);
+            setDocumentsState('error');
+            setAssuranceByDocument({});
+            return;
+          }
+
+          const loadedDocuments = Array.isArray(data.documents)
+            ? data.documents as EmployeeDocumentSummary[]
+            : [];
+
+          setDocuments(loadedDocuments);
+          setDocumentsState('ready');
+
+          const assuranceEntries: Record<string, AssuranceState> = {};
+          for (const document of loadedDocuments) {
+            if (document.current_version) assuranceEntries[document.id] = { state: 'loading' };
+          }
+          setAssuranceByDocument(assuranceEntries);
+
+          for (const document of loadedDocuments) {
+            const version = document.current_version;
+            if (!version) continue;
+
+            void fetch(
+              `/api/hr/people/${personId}/documents/${document.id}/versions/${version.id}/assurance`,
+            )
+              .then(async assuranceResponse => {
+                const assuranceData = await assuranceResponse.json().catch(() => ({}));
+                if (cancelled) return;
+
+                if (!assuranceResponse.ok || !assuranceData.assurance) {
+                  setAssuranceByDocument(current => ({
+                    ...current,
+                    [document.id]: { state: 'error' },
+                  }));
+                  return;
+                }
+
+                setAssuranceByDocument(current => ({
+                  ...current,
+                  [document.id]: {
+                    state: 'ready',
+                    assurance: {
+                      employee_acknowledgement: assuranceData.assurance.employee_acknowledgement,
+                      latest_verification: assuranceData.assurance.latest_verification,
+                    },
+                  },
+                }));
+              })
+              .catch(() => {
+                if (!cancelled) {
+                  setAssuranceByDocument(current => ({
+                    ...current,
+                    [document.id]: { state: 'error' },
+                  }));
+                }
+              });
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setDocuments([]);
+            setDocumentsState('error');
+            setAssuranceByDocument({});
+          }
+        });
     });
+
+    return () => {
+      cancelled = true;
+    };
   }, [personId]);
+
+  const editButton = buttonProps('secondary', 'sm');
 
   return (
     <SlidePanel open={personId !== null} onClose={onClose} title="Person">
-      {loading && <p style={{ color: '#6b7280', fontSize: 13 }}>Loading…</p>}
-      {error && <p style={{ color: '#f87171', fontSize: 13 }}>{error}</p>}
+      {loading && <StateMessage kind="loading" title="Loading person…" />}
+      {error && <StateMessage kind="error" title={error} />}
       {person && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
             <div>
               <div style={{ fontSize: 18, fontWeight: 700 }}>
                 {person.first_name} {person.last_name}
-                {person.preferred_name ? <span style={{ color: '#6b7280', fontWeight: 400 }}> ({person.preferred_name})</span> : null}
+                {person.preferred_name ? <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}> ({person.preferred_name})</span> : null}
               </div>
-              {person.job_title && <div style={{ color: '#9ca3af', fontSize: 13, marginTop: 2 }}>{person.job_title}</div>}
+              {person.job_title && <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 2 }}>{person.job_title}</div>}
             </div>
             {canManage && (
-              <button onClick={() => onEdit(person)} style={{ padding: '6px 12px', background: 'rgba(255,255,255,.06)', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>
+              <button onClick={() => onEdit(person)} type="button" {...editButton} style={{ flexShrink: 0 }}>
                 Edit
               </button>
             )}
@@ -112,22 +221,79 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
           <Row label="End Date" value={person.end_date ?? '—'} />
           {'work_email' in person && <Row label="Work Email" value={person.work_email ?? '—'} />}
           {'work_phone' in person && <Row label="Work Phone" value={person.work_phone ?? '—'} />}
-          {/* HR-2 Step 1D1 — management control, not a general
-              employee-directory field: gated on canManage (the same
-              flag that already gates the Edit button below), NOT on
-              this field's own 'internal' API tier — a direct manager
-              or the person themself can already see this same field
-              tier elsewhere (e.g. team_id/manager_person_id), but
-              account-linking state specifically stays HR-admin-only
-              here, matching this slice's own locked authority model.
-              A safe state only (Linked/Not linked) — resolving the
-              linked account's own name/email here would require
-              fetching the full org-wide GET /api/hr/linkable-users
-              list just to enrich one read-only row, which this drawer
-              does not otherwise need; PersonForm's own edit-mode
-              picker (which already fetches that list for its own
-              purpose) is where the human-readable account is shown. */}
           {canManage && <Row label="Linked BrainBase Account" value={person.linked_user_id ? 'Linked' : 'Not linked'} />}
+
+          {documentsState !== 'hidden' && documentsState !== 'idle' && (
+            <section aria-labelledby="person-documents-heading" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 14, marginTop: 2 }}>
+              <div id="person-documents-heading" style={{ color: 'var(--text-primary)', fontSize: 14, fontWeight: 700, marginBottom: 10 }}>
+                Documents
+              </div>
+
+              {documentsState === 'loading' && (
+                <StateMessage kind="loading" title="Loading documents…" />
+              )}
+
+              {documentsState === 'error' && (
+                <StateMessage kind="error" title="Could not load documents." />
+              )}
+
+              {documentsState === 'ready' && documents.length === 0 && (
+                <StateMessage kind="empty" title="No documents" />
+              )}
+
+              {documentsState === 'ready' && documents.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {documents.map(document => {
+                    const assurance = assuranceByDocument[document.id];
+
+                    return (
+                      <div key={document.id} style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 10 }}>
+                        <div style={{ color: 'var(--text-primary)', fontSize: 14, fontWeight: 600 }}>
+                          {document.title}
+                        </div>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 3 }}>
+                          {document.document_type}
+                          {document.current_version ? ` · Version ${document.current_version.version_number}` : ' · No current version'}
+                        </div>
+                        {document.current_version?.expires_at && (
+                          <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 3 }}>
+                            Expires {document.current_version.expires_at}
+                          </div>
+                        )}
+
+                        {document.current_version && assurance?.state === 'loading' && (
+                          <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 7 }}>
+                            Loading assurance status…
+                          </div>
+                        )}
+
+                        {document.current_version && assurance?.state === 'error' && (
+                          <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 7 }}>
+                            Assurance status unavailable.
+                          </div>
+                        )}
+
+                        {document.current_version && assurance?.state === 'ready' && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 7, color: 'var(--text-secondary)', fontSize: 12 }}>
+                            <div>
+                              {assurance.assurance.employee_acknowledgement.acknowledged
+                                ? `Acknowledged ${dateOnly(assurance.assurance.employee_acknowledgement.acknowledged_at!)}`
+                                : 'Not acknowledged'}
+                            </div>
+                            <div>
+                              {assurance.assurance.latest_verification
+                                ? `${assurance.assurance.latest_verification.decision === 'VERIFIED' ? 'Verified' : 'Rejected'} ${dateOnly(assurance.assurance.latest_verification.verified_at)}`
+                                : 'Not verified'}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
         </div>
       )}
     </SlidePanel>
@@ -137,8 +303,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div style={{ color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
-      <div style={{ color: '#f9fafb', fontSize: 14, marginTop: 2 }}>{value}</div>
+      <div style={{ color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
+      <div style={{ color: 'var(--text-primary)', fontSize: 14, marginTop: 2 }}>{value}</div>
     </div>
   );
 }

@@ -28,6 +28,7 @@
 
 import { useCallback, useEffect, useReducer, useState } from "react";
 import Link from "next/link";
+import { Badge as SemanticBadge, buttonProps, fieldControlClassName } from "@/components/ui/app";
 import {
   listSourceSystemsAdmin,
   createSourceSystem,
@@ -59,33 +60,21 @@ import { validateMappingRows, buildMappingDocumentFields, type MappingFieldRow }
 // own _components) rather than introducing a new component library.
 // ---------------------------------------------------------------------------
 
-const CARD = "#0e1014";
-const BORDER = "#1a1d24";
-const TEXT_PRIMARY = "#f9fafb";
-const TEXT_MUTED = "#6b7280";
-const TEXT_SECONDARY = "#9ca3af";
-const ACCENT = "#8a4dff";
-const RED = "#f87171";
-const GREEN = "#4ade80";
+const CARD = "var(--bg-surface)";
+const BORDER = "var(--border)";
+const TEXT_PRIMARY = "var(--text-primary)";
+const TEXT_MUTED = "var(--text-secondary)";
+const TEXT_SECONDARY = "var(--text-secondary)";
+const ACCENT = "var(--brand-brainbase-accent)"; // selection / product state only
+const RED = "var(--status-danger)";
+const GREEN = "var(--status-success)";
 
 const panelStyle: React.CSSProperties = {
   background: CARD,
   border: `1px solid ${BORDER}`,
-  borderRadius: 12,
+  borderRadius: "var(--radius-lg)",
   padding: 20,
   marginBottom: 20,
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "9px 11px",
-  background: "#111318",
-  border: `1px solid ${BORDER}`,
-  borderRadius: 8,
-  color: TEXT_PRIMARY,
-  fontSize: 13,
-  boxSizing: "border-box",
-  fontFamily: "inherit",
 };
 
 const labelStyle: React.CSSProperties = {
@@ -98,19 +87,10 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 6,
 };
 
-function buttonStyle(kind: "primary" | "secondary" | "danger", disabled: boolean): React.CSSProperties {
-  const base: React.CSSProperties = {
-    padding: "7px 14px",
-    borderRadius: 7,
-    fontSize: 12,
-    fontWeight: 600,
-    cursor: disabled ? "not-allowed" : "pointer",
-    opacity: disabled ? 0.45 : 1,
-    border: "1px solid transparent",
-  };
-  if (kind === "primary") return { ...base, background: ACCENT, color: "#fff" };
-  if (kind === "danger") return { ...base, background: "transparent", color: RED, border: `1px solid ${RED}` };
-  return { ...base, background: "transparent", color: TEXT_SECONDARY, border: `1px solid ${BORDER}` };
+// Phase D4: buttons use the shared app button (every call site also sets
+// the real `disabled` attribute, which the shared style keys on).
+function sourceButton(kind: "primary" | "secondary" | "danger") {
+  return buttonProps(kind, "sm");
 }
 
 function humanize(canonicalTarget: string): string {
@@ -139,7 +119,7 @@ function isSuccessBody<T extends object, K extends string>(body: unknown, key: K
 
 function ErrorBanner({ message }: { message: string }) {
   return (
-    <div style={{ background: "rgba(248,113,113,.08)", border: `1px solid ${RED}`, borderRadius: 8, padding: "10px 12px", color: RED, fontSize: 12.5, marginBottom: 12 }} role="alert">
+    <div style={{ background: "var(--status-danger-muted)", border: "1px solid var(--status-danger-border)", borderRadius: "var(--radius-md)", padding: "10px 12px", color: RED, fontSize: 12.5, marginBottom: 12 }} role="alert">
       {message}
     </div>
   );
@@ -147,29 +127,17 @@ function ErrorBanner({ message }: { message: string }) {
 
 function SuccessBanner({ message }: { message: string }) {
   return (
-    <div style={{ background: "rgba(74,222,128,.08)", border: `1px solid ${GREEN}`, borderRadius: 8, padding: "10px 12px", color: GREEN, fontSize: 12.5, marginBottom: 12 }}>
+    <div style={{ background: "var(--status-success-muted)", border: "1px solid var(--status-success-border)", borderRadius: "var(--radius-md)", padding: "10px 12px", color: GREEN, fontSize: 12.5, marginBottom: 12 }}>
       {message}
     </div>
   );
 }
 
+// Phase C (work surfaces): the canonical semantic Badge. "Active" here is a
+// configuration that is switched on, so it uses the product `active` state
+// rather than `success`; text is always visible.
 function Badge({ active }: { active: boolean }) {
-  return (
-    <span
-      style={{
-        fontSize: 10.5,
-        fontWeight: 700,
-        letterSpacing: ".03em",
-        textTransform: "uppercase",
-        padding: "2px 8px",
-        borderRadius: 999,
-        color: active ? GREEN : TEXT_MUTED,
-        border: `1px solid ${active ? GREEN : BORDER}`,
-      }}
-    >
-      {active ? "Active" : "Inactive"}
-    </span>
-  );
+  return <SemanticBadge state={active ? "active" : "inactive"}>{active ? "Active" : "Inactive"}</SemanticBadge>;
 }
 
 /** Two-step inline confirmation for activate/deactivate — this codebase has
@@ -196,10 +164,10 @@ function ActivationToggle({
     return (
       <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
         <span style={{ fontSize: 11.5, color: TEXT_SECONDARY }}>Deactivate this? Existing history is preserved.</span>
-        <button type="button" style={buttonStyle("danger", busy)} disabled={busy} onClick={() => { setConfirming(false); onToggle(); }}>
+        <button type="button" {...sourceButton("danger")} disabled={busy} onClick={() => { setConfirming(false); onToggle(); }}>
           Confirm
         </button>
-        <button type="button" style={buttonStyle("secondary", false)} onClick={() => setConfirming(false)}>
+        <button type="button" {...sourceButton("secondary")} onClick={() => setConfirming(false)}>
           Cancel
         </button>
       </span>
@@ -209,7 +177,7 @@ function ActivationToggle({
   return (
     <button
       type="button"
-      style={buttonStyle(active ? "danger" : "primary", disabled || busy)}
+      {...sourceButton(active ? "danger" : "primary")}
       disabled={disabled || busy}
       title={disabled ? "Requires admin" : undefined}
       onClick={() => (active ? setConfirming(true) : onToggle())}
@@ -265,7 +233,7 @@ export default function SourcesAdminClient({ isAdmin }: { isAdmin: boolean }) {
         <code>source_external_id</code> identity field. This does not import any data itself.
       </p>
       {!isAdmin && (
-        <div style={{ background: "rgba(249,250,251,.05)", border: `1px solid ${BORDER}`, borderRadius: 8, padding: "10px 12px", fontSize: 12.5, color: TEXT_SECONDARY, marginBottom: 20 }}>
+        <div style={{ background: "var(--bg-sunken)", border: `1px solid ${BORDER}`, borderRadius: 8, padding: "10px 12px", fontSize: 12.5, color: TEXT_SECONDARY, marginBottom: 20 }}>
           You can view existing source configuration, but creating, editing, or activating anything here requires the
           <strong> admin</strong> role.
         </div>
@@ -406,7 +374,7 @@ function SourceSystemsSection({
         <h2 style={{ fontSize: 15, fontWeight: 700 }}>Source systems</h2>
         <button
           type="button"
-          style={buttonStyle("primary", !isAdmin)}
+          {...sourceButton("primary")}
           disabled={!isAdmin}
           title={!isAdmin ? "Requires admin" : undefined}
           onClick={() => setShowCreate((v) => !v)}
@@ -420,13 +388,13 @@ function SourceSystemsSection({
           {formError && <ErrorBanner message={formError} />}
           <div style={{ marginBottom: 10 }}>
             <label style={labelStyle} htmlFor="new-source-system-name">Name</label>
-            <input id="new-source-system-name" style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. City of Onkaparinga operational export" />
+            <input id="new-source-system-name" className={fieldControlClassName} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. City of Onkaparinga operational export" />
           </div>
           <div style={{ marginBottom: 12 }}>
             <label style={labelStyle} htmlFor="new-source-system-description">Description (optional)</label>
-            <input id="new-source-system-description" style={inputStyle} value={description} onChange={(e) => setDescription(e.target.value)} />
+            <input id="new-source-system-description" className={fieldControlClassName} value={description} onChange={(e) => setDescription(e.target.value)} />
           </div>
-          <button type="button" style={buttonStyle("primary", creating)} disabled={creating} onClick={handleCreate}>
+          <button type="button" {...sourceButton("primary")} disabled={creating} onClick={handleCreate}>
             {creating ? "Creating..." : "Create source system"}
           </button>
         </div>
@@ -446,24 +414,26 @@ function SourceSystemsSection({
               key={s.id}
               style={{
                 display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
                 justifyContent: "space-between",
                 alignItems: "center",
                 padding: "10px 12px",
                 borderRadius: 8,
                 border: `1px solid ${selected?.id === s.id ? ACCENT : BORDER}`,
-                background: selected?.id === s.id ? "rgba(138,77,255,.06)" : "transparent",
+                background: selected?.id === s.id ? "var(--brand-brainbase-accent-muted)" : "transparent",
               }}
             >
               {editingId === s.id ? (
                 <div style={{ flex: 1, marginRight: 12 }}>
                   {formError && <ErrorBanner message={formError} />}
-                  <input style={{ ...inputStyle, marginBottom: 6 }} value={editName} onChange={(e) => setEditName(e.target.value)} />
-                  <input style={inputStyle} value={editDescription} onChange={(e) => setEditDescription(e.target.value)} placeholder="Description" />
+                  <input aria-label="Source system name" className={fieldControlClassName} style={{ marginBottom: 6 }} value={editName} onChange={(e) => setEditName(e.target.value)} />
+                  <input aria-label="Source system description" className={fieldControlClassName} value={editDescription} onChange={(e) => setEditDescription(e.target.value)} placeholder="Description" />
                   <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
-                    <button type="button" style={buttonStyle("primary", busyId === s.id)} disabled={busyId === s.id} onClick={() => handleSaveEdit(s.id)}>
+                    <button type="button" {...sourceButton("primary")} disabled={busyId === s.id} onClick={() => handleSaveEdit(s.id)}>
                       Save
                     </button>
-                    <button type="button" style={buttonStyle("secondary", false)} onClick={() => setEditingId(null)}>
+                    <button type="button" {...sourceButton("secondary")} onClick={() => setEditingId(null)}>
                       Cancel
                     </button>
                   </div>
@@ -475,11 +445,11 @@ function SourceSystemsSection({
                 </button>
               )}
               {editingId !== s.id && (
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
                   <Badge active={s.active} />
                   <button
                     type="button"
-                    style={buttonStyle("secondary", !isAdmin)}
+                    {...sourceButton("secondary")}
                     disabled={!isAdmin}
                     title={!isAdmin ? "Requires admin" : undefined}
                     onClick={() => {
@@ -493,7 +463,7 @@ function SourceSystemsSection({
                   </button>
                   <button
                     type="button"
-                    style={buttonStyle("secondary", !isAdmin)}
+                    {...sourceButton("secondary")}
                     disabled={!isAdmin || busyId === s.id}
                     title={
                       !isAdmin
@@ -621,7 +591,7 @@ function SourceMappingsSection({
         <h2 style={{ fontSize: 15, fontWeight: 700 }}>
           Mappings for <span style={{ color: ACCENT }}>{sourceSystem.name}</span>
         </h2>
-        <button type="button" style={buttonStyle("primary", !isAdmin)} disabled={!isAdmin} title={!isAdmin ? "Requires admin" : undefined} onClick={() => setShowCreate((v) => !v)}>
+        <button type="button" {...sourceButton("primary")} disabled={!isAdmin} title={!isAdmin ? "Requires admin" : undefined} onClick={() => setShowCreate((v) => !v)}>
           {showCreate ? "Cancel" : "New mapping"}
         </button>
       </div>
@@ -631,9 +601,9 @@ function SourceMappingsSection({
           {formError && <ErrorBanner message={formError} />}
           <div style={{ marginBottom: 12 }}>
             <label style={labelStyle} htmlFor="new-mapping-name">Name</label>
-            <input id="new-mapping-name" style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Illegal Dumping monthly export" />
+            <input id="new-mapping-name" className={fieldControlClassName} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Illegal Dumping monthly export" />
           </div>
-          <button type="button" style={buttonStyle("primary", creating)} disabled={creating} onClick={handleCreate}>
+          <button type="button" {...sourceButton("primary")} disabled={creating} onClick={handleCreate}>
             {creating ? "Creating..." : "Create mapping"}
           </button>
         </div>
@@ -651,23 +621,25 @@ function SourceMappingsSection({
               key={m.id}
               style={{
                 display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
                 justifyContent: "space-between",
                 alignItems: "center",
                 padding: "10px 12px",
                 borderRadius: 8,
                 border: `1px solid ${selected?.id === m.id ? ACCENT : BORDER}`,
-                background: selected?.id === m.id ? "rgba(138,77,255,.06)" : "transparent",
+                background: selected?.id === m.id ? "var(--brand-brainbase-accent-muted)" : "transparent",
               }}
             >
               {editingId === m.id ? (
                 <div style={{ flex: 1, marginRight: 12 }}>
                   {formError && <ErrorBanner message={formError} />}
-                  <input style={inputStyle} value={editName} onChange={(e) => setEditName(e.target.value)} />
+                  <input aria-label="Mapping name" className={fieldControlClassName} value={editName} onChange={(e) => setEditName(e.target.value)} />
                   <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
-                    <button type="button" style={buttonStyle("primary", busyId === m.id)} disabled={busyId === m.id} onClick={() => handleSaveEdit(m.id)}>
+                    <button type="button" {...sourceButton("primary")} disabled={busyId === m.id} onClick={() => handleSaveEdit(m.id)}>
                       Save
                     </button>
-                    <button type="button" style={buttonStyle("secondary", false)} onClick={() => setEditingId(null)}>
+                    <button type="button" {...sourceButton("secondary")} onClick={() => setEditingId(null)}>
                       Cancel
                     </button>
                   </div>
@@ -681,11 +653,11 @@ function SourceMappingsSection({
                 </button>
               )}
               {editingId !== m.id && (
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
                   <Badge active={m.active} />
                   <button
                     type="button"
-                    style={buttonStyle("secondary", !isAdmin)}
+                    {...sourceButton("secondary")}
                     disabled={!isAdmin}
                     title={!isAdmin ? "Requires admin" : undefined}
                     onClick={() => {
@@ -828,7 +800,7 @@ function MappingVersionsSection({
                     {!active && (
                       <button
                         type="button"
-                        style={buttonStyle("primary", !isAdmin || activatingId === v.id)}
+                        {...sourceButton("primary")}
                         disabled={!isAdmin || activatingId === v.id}
                         title={!isAdmin ? "Requires admin" : undefined}
                         onClick={() => handleActivate(v.id)}
@@ -865,15 +837,19 @@ function MappingVersionsSection({
             return (
               <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <input
-                  style={{ ...inputStyle, flex: 1 }}
+                  aria-label={`Source column header, row ${i + 1}`}
+                  className={fieldControlClassName}
+                  style={{ flex: 1 }}
                   placeholder="Source column header, e.g. Ticket #"
                   value={row.sourceHeader}
                   onChange={(e) => updateRow(i, { sourceHeader: e.target.value })}
                   maxLength={MAX_SOURCE_HEADER_LENGTH}
                 />
-                <span style={{ color: TEXT_MUTED, fontSize: 13 }}>→</span>
+                <span aria-hidden="true" style={{ color: TEXT_MUTED, fontSize: 13 }}>→</span>
                 <select
-                  style={{ ...inputStyle, flex: 1 }}
+                  aria-label={`Target field, row ${i + 1}`}
+                  className={fieldControlClassName}
+                  style={{ flex: 1 }}
                   value={row.canonicalTarget}
                   onChange={(e) => updateRow(i, { canonicalTarget: e.target.value })}
                 >
@@ -884,7 +860,7 @@ function MappingVersionsSection({
                     </option>
                   ))}
                 </select>
-                <button type="button" style={buttonStyle("secondary", rows.length <= 1)} disabled={rows.length <= 1} onClick={() => removeRow(i)}>
+                <button type="button" {...sourceButton("secondary")} disabled={rows.length <= 1} onClick={() => removeRow(i)}>
                   Remove
                 </button>
               </div>
@@ -893,10 +869,10 @@ function MappingVersionsSection({
         </div>
 
         <div style={{ display: "flex", gap: 8 }}>
-          <button type="button" style={buttonStyle("secondary", rows.length >= CANONICAL_TARGET_FIELDS.length)} disabled={rows.length >= CANONICAL_TARGET_FIELDS.length} onClick={addRow}>
+          <button type="button" {...sourceButton("secondary")} disabled={rows.length >= CANONICAL_TARGET_FIELDS.length} onClick={addRow}>
             Add field
           </button>
-          <button type="button" style={buttonStyle("primary", !isAdmin || creating)} disabled={!isAdmin || creating} title={!isAdmin ? "Requires admin" : undefined} onClick={handleCreate}>
+          <button type="button" {...sourceButton("primary")} disabled={!isAdmin || creating} title={!isAdmin ? "Requires admin" : undefined} onClick={handleCreate}>
             {creating ? "Creating..." : "Create version"}
           </button>
         </div>

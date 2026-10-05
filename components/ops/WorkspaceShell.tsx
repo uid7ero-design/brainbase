@@ -4,7 +4,6 @@ import { usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
 import OpBar from './OpBar';
 import IntelRail from './IntelRail';
-import { useOpsTheme } from './theme';
 import { APP_HEADER_OFFSET_VAR } from '@/lib/layout/headerOffset';
 
 interface WorkspaceShellProps {
@@ -25,7 +24,6 @@ export default function WorkspaceShell({
   intelRail = false,
 }: WorkspaceShellProps) {
   const pathname = usePathname();
-  const t = useOpsTheme();
   const [collapsed, setCollapsed]   = useState(false);
   const [session, setSession]       = useState<Session>(null);
   const [mounted, setMounted]       = useState(false);
@@ -70,53 +68,36 @@ export default function WorkspaceShell({
     <>
       <style dangerouslySetInnerHTML={{ __html: `
         @keyframes ws-fadein  { from{opacity:0} to{opacity:1} }
-        @keyframes ws-breathe { 0%,100%{opacity:.7} 50%{opacity:1} }
         body { overflow: hidden !important; }
-        * { box-sizing: border-box; }
-        ::-webkit-scrollbar       { width: 3px; height: 3px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: ${t.ink(.09)}; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: ${t.ink(.18)}; }
+        /* Phase D1 — scoped to the workspace instead of the whole document. */
+        .ws-shell, .ws-shell * { box-sizing: border-box; }
+        .ws-shell ::-webkit-scrollbar       { width: 6px; height: 6px; }
+        .ws-shell ::-webkit-scrollbar-track { background: transparent; }
+        .ws-shell ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+        @media (prefers-reduced-motion: reduce) { .ws-shell { animation: none !important; } }
+        /* Narrow screens: keep the title, alerts and avatar; drop secondary status. */
+        @media (max-width: 767px) { .ws-shell .ob-hide-sm { display: none !important; } }
+        /* Phase D2 — with the intelligence rail, narrow screens stack the rail
+           under the canvas (one vertical scroll) instead of squeezing the
+           canvas to a sliver beside a 260px rail. Nothing is hidden. Scoped
+           to .ws-body--rail so rail-less pages (bin-maintenance) are unchanged. */
+        @media (max-width: 767px) {
+          .ws-shell .ws-body--rail { flex-direction: column; overflow-y: auto !important; }
+          .ws-shell .ws-body--rail > .ws-canvas { flex: none !important; overflow-y: visible !important; }
+          .ws-shell .ws-body--rail > aside { width: 100% !important; height: auto !important; border-left: 0 !important; border-top: 1px solid var(--border); }
+        }
       `}} />
 
-      <div style={{
+      <div className="ws-shell" style={{
         // Phase D.4.5C-W2 — shared --app-header-offset custom property
         // (lib/layout/headerOffset.ts) instead of a hardcoded `top: 52`.
         position: 'fixed', top: APP_HEADER_OFFSET_VAR, left: 0, right: 0, bottom: 0, display: 'flex',
-        background: t.pageBg,
+        background: 'var(--bg-base)',
         fontFamily: 'var(--font-inter),"Inter",-apple-system,sans-serif',
         animation: 'ws-fadein .3s ease',
         zIndex: 50,
         overflow: 'hidden',
       }}>
-
-        {/* ── Layer 1: deep ambient gradient — subtler in light, since a big purple */}
-        {/* glow against white reads as gaudy rather than moody like it does on black */}
-        <div style={{
-          position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
-          background: `radial-gradient(ellipse 100% 60% at 50% -10%, rgba(109,40,217,${t.isDark ? .18 : .07}) 0%, transparent 58%)`,
-          animation: 'ws-breathe 8s ease-in-out infinite',
-        }} />
-        {/* ── Layer 2: bottom counter-vignette — dark-mode only (would just muddy a light page) ── */}
-        {t.isDark && (
-          <div style={{
-            position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
-            background: 'radial-gradient(ellipse 80% 40% at 50% 110%, rgba(6,5,20,.70) 0%, transparent 65%)',
-          }} />
-        )}
-        {/* ── Layer 3: corner vignettes — dark-mode only ── */}
-        {t.isDark && (
-          <div style={{
-            position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
-            background: 'radial-gradient(ellipse 50% 80% at 0% 50%, rgba(4,4,12,.55) 0%, transparent 55%), radial-gradient(ellipse 30% 60% at 100% 0%, rgba(80,30,180,.07) 0%, transparent 50%)',
-          }} />
-        )}
-        {/* ── Layer 4: grid ── */}
-        <div style={{
-          position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
-          backgroundImage: `linear-gradient(${t.ink(t.isDark ? .009 : .035)} 1px,transparent 1px),linear-gradient(90deg,${t.ink(t.isDark ? .009 : .035)} 1px,transparent 1px)`,
-          backgroundSize: '48px 48px',
-        }} />
 
         {/* ── Sidebar ── */}
         <div style={{ position: 'relative', zIndex: 10, flexShrink: 0 }}>
@@ -126,12 +107,6 @@ export default function WorkspaceShell({
             pathname={pathname ?? '/'}
             alertCount={alertCount}
           />
-          {/* edge light between sidebar and canvas */}
-          <div style={{
-            position: 'absolute', top: 0, right: -1, width: 1, height: '100%',
-            background: `linear-gradient(180deg, transparent 0%, rgba(139,92,246,${t.isDark ? .18 : .14}) 30%, rgba(139,92,246,${t.isDark ? .08 : .06}) 70%, transparent 100%)`,
-            pointerEvents: 'none', zIndex: 11,
-          }} />
         </div>
 
         {/* ── Main area ── */}
@@ -144,8 +119,8 @@ export default function WorkspaceShell({
           />
 
           {/* Canvas + optional Intel Rail */}
-          <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-            <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', minWidth: 0 }}>
+          <div className={intelRail ? 'ws-body ws-body--rail' : 'ws-body'} style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+            <div className="ws-canvas" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', minWidth: 0 }}>
               {children}
             </div>
             {intelRail && <IntelRail />}

@@ -1,6 +1,20 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useId } from 'react';
+import {
+  PageHeader,
+  WorkToolbar,
+  toolbarControlClassName,
+  MetricStrip,
+  Metric,
+  Panel,
+  StateMessage,
+  TableContainer,
+  tableStyles,
+  buttonProps,
+  type MetricTone,
+} from '@/components/ui/app';
+import styles from './AgentRuns.module.css';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -48,26 +62,42 @@ type Filters = {
 const AGENT_NAMES = ['InsightAgent', 'ActionAgent', 'BriefingAgent', 'DataIntakeAgent', 'HLNAChatAgent'];
 const ROUTE_TYPES = ['insight', 'action', 'briefing', 'dataIntake', 'chat'];
 
+// Agent / route identity hues (data encoding). Resolved per theme from
+// AgentRuns.module.css; used on dots and bars only, labels stay on text
+// tokens (the raw hues failed text contrast in light).
 const AGENT_COLOR: Record<string, string> = {
-  InsightAgent:    '#38BDF8',
-  ActionAgent:     '#A78BFA',
-  BriefingAgent:   '#34D399',
-  DataIntakeAgent: '#FBBF24',
-  HLNAChatAgent:   '#6366F1',
+  InsightAgent:    'var(--agent-insight)',
+  ActionAgent:     'var(--agent-action)',
+  BriefingAgent:   'var(--agent-briefing)',
+  DataIntakeAgent: 'var(--agent-intake)',
+  HLNAChatAgent:   'var(--agent-chat)',
 };
 const ROUTE_COLOR: Record<string, string> = {
-  insight:    '#38BDF8',
-  action:     '#A78BFA',
-  briefing:   '#34D399',
-  dataIntake: '#FBBF24',
-  chat:       '#6366F1',
+  insight:    'var(--agent-insight)',
+  action:     'var(--agent-action)',
+  briefing:   'var(--agent-briefing)',
+  dataIntake: 'var(--agent-intake)',
+  chat:       'var(--agent-chat)',
 };
 
+/** Inline custom property carrying an identity hue into the CSS module. */
+function hueVar(color: string): React.CSSProperties {
+  return { ['--hue' as string]: color } as React.CSSProperties;
+}
+
 function confColor(c: number | null): string {
-  if (c == null) return '#6b7280';
-  if (c >= 0.8) return '#34D399';
-  if (c >= 0.5) return '#FBBF24';
-  return '#F87171';
+  if (c == null) return 'var(--text-muted)';
+  if (c >= 0.8) return 'var(--status-success)';
+  if (c >= 0.5) return 'var(--status-warning)';
+  return 'var(--status-danger)';
+}
+
+/** Same thresholds as confColor, as a MetricStrip tone. */
+function confTone(c: number | null): MetricTone | undefined {
+  if (c == null) return undefined;
+  if (c >= 0.8) return 'success';
+  if (c >= 0.5) return 'warning';
+  return 'danger';
 }
 
 function timeAgo(iso: string): string {
@@ -84,23 +114,6 @@ function isoDate(offset = 0): string {
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
-function StatCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
-  return (
-    <div style={{
-      background: '#0f1117', border: '1px solid #1f2433', borderRadius: 10, padding: '18px 20px',
-      display: 'flex', flexDirection: 'column', gap: 6,
-    }}>
-      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: '#4b5563' }}>
-        {label}
-      </div>
-      <div style={{ fontSize: 26, fontWeight: 800, color: color ?? '#f9fafb', letterSpacing: '-0.01em' }}>
-        {value}
-      </div>
-      {sub && <div style={{ fontSize: 11, color: '#6b7280' }}>{sub}</div>}
-    </div>
-  );
-}
-
 function MiniBarTable({
   title, rows, colorMap,
 }: {
@@ -110,43 +123,36 @@ function MiniBarTable({
 }) {
   const max = Math.max(...rows.map(r => r.count), 1);
   return (
-    <div style={{ background: '#0f1117', border: '1px solid #1f2433', borderRadius: 10, padding: '18px 20px' }}>
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: '#4b5563', marginBottom: 14 }}>
-        {title}
-      </div>
+    <Panel title={title}>
       {rows.length === 0 && (
-        <div style={{ fontSize: 13, color: '#374151', textAlign: 'center', padding: '20px 0' }}>No data</div>
+        <div className={styles.noData}>No data</div>
       )}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <ul className={styles.bars}>
         {rows.map(row => {
-          const color = colorMap[row.label] ?? '#6366F1';
+          const color = colorMap[row.label] ?? 'var(--text-muted)';
           const pct   = (row.count / max) * 100;
           return (
-            <div key={row.label}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <span style={{ fontSize: 12, color: '#e5e7eb' }}>
+            <li key={row.label} style={hueVar(color)}>
+              <div className={styles.barHead}>
+                <span className={styles.barLabel}>
+                  <span className={styles.dot} aria-hidden="true" />
                   {row.label.replace(/Agent$/, ' Agent')}
                 </span>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                  {row.sub && <span style={{ fontSize: 11, color: '#6b7280' }}>{row.sub}</span>}
-                  <span style={{ fontSize: 13, fontWeight: 700, color, minWidth: 28, textAlign: 'right' }}>
+                <div className={styles.barMeta}>
+                  {row.sub && <span className={styles.barSub}>{row.sub}</span>}
+                  <span className={styles.barCount}>
                     {row.count}
                   </span>
                 </div>
               </div>
-              <div style={{ height: 4, borderRadius: 2, background: '#1f2433', overflow: 'hidden' }}>
-                <div style={{
-                  height: '100%', borderRadius: 2,
-                  width: `${pct}%`,
-                  background: color,
-                  transition: 'width 0.4s ease',
-                }} />
+              <div className={styles.track} aria-hidden="true">
+                <div className={styles.fill} style={{ width: `${pct}%` }} />
               </div>
-            </div>
+            </li>
           );
         })}
-      </div>
-    </div>
+      </ul>
+    </Panel>
   );
 }
 
@@ -159,58 +165,40 @@ function FilterBar({
   onReset: () => void;
   loading: boolean;
 }) {
-  const selectStyle: React.CSSProperties = {
-    background: '#0f1117', border: '1px solid #1f2433', borderRadius: 7,
-    color: '#e5e7eb', fontSize: 13, padding: '7px 10px', outline: 'none',
-    cursor: 'pointer', fontFamily: 'inherit',
-  };
-  const inputStyle: React.CSSProperties = {
-    ...selectStyle, cursor: 'text',
-  };
+  const fromId = useId();
+  const toId   = useId();
 
   return (
-    <div style={{
-      display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center',
-      padding: '14px 20px', background: '#0b0d13',
-      border: '1px solid #1f2433', borderRadius: 10, marginBottom: 24,
-    }}>
-      <select value={filters.orgId} onChange={e => onChange('orgId', e.target.value)} style={selectStyle}>
+    <WorkToolbar
+      count={loading ? <span className={styles.refreshing}>Refreshing…</span> : undefined}
+      actions={
+        <button type="button" onClick={onReset} {...buttonProps('secondary', 'sm')}>
+          Reset
+        </button>
+      }
+    >
+      <select aria-label="Organisation" value={filters.orgId} onChange={e => onChange('orgId', e.target.value)} className={toolbarControlClassName}>
         <option value="">All organisations</option>
         {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
       </select>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ fontSize: 12, color: '#6b7280' }}>From</span>
-        <input type="date" value={filters.from} onChange={e => onChange('from', e.target.value)} style={inputStyle} />
-        <span style={{ fontSize: 12, color: '#6b7280' }}>to</span>
-        <input type="date" value={filters.to}   onChange={e => onChange('to',   e.target.value)} style={inputStyle} />
+      <div className={styles.dates}>
+        <label htmlFor={fromId} className={styles.dateLabel}>From</label>
+        <input id={fromId} type="date" value={filters.from} onChange={e => onChange('from', e.target.value)} className={toolbarControlClassName} />
+        <label htmlFor={toId} className={styles.dateLabel}>to</label>
+        <input id={toId} type="date" value={filters.to}   onChange={e => onChange('to',   e.target.value)} className={toolbarControlClassName} />
       </div>
 
-      <select value={filters.agentName} onChange={e => onChange('agentName', e.target.value)} style={selectStyle}>
+      <select aria-label="Agent" value={filters.agentName} onChange={e => onChange('agentName', e.target.value)} className={toolbarControlClassName}>
         <option value="">All agents</option>
         {AGENT_NAMES.map(a => <option key={a} value={a}>{a.replace(/Agent$/, ' Agent')}</option>)}
       </select>
 
-      <select value={filters.routeType} onChange={e => onChange('routeType', e.target.value)} style={selectStyle}>
+      <select aria-label="Route type" value={filters.routeType} onChange={e => onChange('routeType', e.target.value)} className={toolbarControlClassName}>
         <option value="">All routes</option>
         {ROUTE_TYPES.map(r => <option key={r} value={r}>{r}</option>)}
       </select>
-
-      <button
-        onClick={onReset}
-        style={{
-          padding: '7px 14px', borderRadius: 7, fontSize: 12, fontWeight: 600,
-          background: 'transparent', border: '1px solid #374151', color: '#6b7280',
-          cursor: 'pointer', fontFamily: 'inherit',
-        }}
-      >
-        Reset
-      </button>
-
-      {loading && (
-        <span style={{ fontSize: 11, color: '#4b5563', marginLeft: 4 }}>Refreshing…</span>
-      )}
-    </div>
+    </WorkToolbar>
   );
 }
 
@@ -267,15 +255,13 @@ export default function AgentRunsDashboard({ orgs }: { orgs: Org[] }) {
     : null;
 
   return (
-    <div style={{ maxWidth: 1100, fontFamily: 'var(--font-inter), Inter, sans-serif' }}>
+    <div className={styles.root}>
 
       {/* Header */}
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f9fafb', marginBottom: 6 }}>Agent Runs</h1>
-        <p style={{ fontSize: 14, color: '#6b7280' }}>
-          Audit log of every specialist agent invocation — routing decisions, confidence, and query history.
-        </p>
-      </div>
+      <PageHeader
+        title="Agent Runs"
+        description="Audit log of every specialist agent invocation — routing decisions, confidence, and query history."
+      />
 
       {/* Filters */}
       <FilterBar
@@ -287,39 +273,43 @@ export default function AgentRunsDashboard({ orgs }: { orgs: Org[] }) {
       />
 
       {error && (
-        <div style={{ padding: '12px 16px', borderRadius: 8, background: '#1a0a0a', border: '1px solid #7f1d1d', color: '#fca5a5', marginBottom: 20 }}>
-          {error}
-        </div>
+        <StateMessage kind="error" title={error} className={styles.error} />
       )}
 
       {/* Stat cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
-        <StatCard label="Total Runs"     value={stats.total_runs.toLocaleString()} />
-        <StatCard
-          label="Avg Confidence"
-          value={avgConfPct != null ? `${avgConfPct}%` : '—'}
-          color={avgConfPct != null ? confColor(stats.avg_confidence) : undefined}
-        />
-        <StatCard
-          label="Fallback Rate"
-          value={`${fallbackPct}%`}
-          sub={`${stats.fallback_count} chat fallbacks`}
-          color={fallbackPct > 30 ? '#F87171' : fallbackPct > 15 ? '#FBBF24' : '#34D399'}
-        />
-        <StatCard
-          label="Top Route"
-          value={data?.topRoute ?? '—'}
-          color={data?.topRoute ? ROUTE_COLOR[data.topRoute] : undefined}
-        />
-        <StatCard
-          label="Agents Used"
-          value={String(data?.byAgent?.length ?? 0)}
-          sub="distinct agents"
-        />
+      <div className={styles.metrics}>
+        <MetricStrip>
+          <Metric label="Total Runs" value={stats.total_runs.toLocaleString()} />
+          <Metric
+            label="Avg Confidence"
+            value={avgConfPct != null ? `${avgConfPct}%` : '—'}
+            tone={avgConfPct != null ? confTone(stats.avg_confidence) : undefined}
+          />
+          <Metric
+            label="Fallback Rate"
+            value={`${fallbackPct}%`}
+            sub={`${stats.fallback_count} chat fallbacks`}
+            tone={fallbackPct > 30 ? 'danger' : fallbackPct > 15 ? 'warning' : 'success'}
+          />
+          <Metric
+            label="Top Route"
+            value={data?.topRoute ? (
+              <span className={styles.tag} style={hueVar(ROUTE_COLOR[data.topRoute] ?? 'var(--text-muted)')}>
+                <span className={styles.dot} aria-hidden="true" />
+                {data.topRoute}
+              </span>
+            ) : '—'}
+          />
+          <Metric
+            label="Agents Used"
+            value={String(data?.byAgent?.length ?? 0)}
+            sub="distinct agents"
+          />
+        </MetricStrip>
       </div>
 
       {/* Bar charts */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
+      <div className={styles.charts}>
         <MiniBarTable
           title="Runs by Agent"
           rows={(data?.byAgent ?? []).map(r => ({
@@ -340,94 +330,77 @@ export default function AgentRunsDashboard({ orgs }: { orgs: Org[] }) {
       </div>
 
       {/* Recent runs table */}
-      <div style={{ background: '#0f1117', border: '1px solid #1f2433', borderRadius: 10, overflow: 'hidden' }}>
-        <div style={{
-          padding: '14px 20px', borderBottom: '1px solid #1f2433',
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        }}>
-          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: '#4b5563' }}>
+      <div>
+        <div className={styles.sectionHead}>
+          <h2 className={styles.sectionTitle}>
             Recent Runs
-          </span>
-          <span style={{ fontSize: 11, color: '#374151' }}>
+          </h2>
+          <span className={styles.shown}>
             {data?.recent?.length ?? 0} shown
           </span>
         </div>
 
         {(data?.recent?.length ?? 0) === 0 && !loading && (
-          <div style={{ padding: '40px 20px', textAlign: 'center', color: '#374151', fontSize: 13 }}>
-            No agent runs found for the selected filters.
-          </div>
+          <StateMessage kind="empty" title="No agent runs found for the selected filters." />
         )}
 
         {(data?.recent?.length ?? 0) > 0 && (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <TableContainer label="Recent runs" minWidth={760}>
+            <table className={tableStyles.table}>
               <thead>
-                <tr style={{ borderBottom: '1px solid #1f2433' }}>
+                <tr>
                   {['Time', 'Org', 'Agent', 'Route', 'Query', 'Confidence', 'Rows'].map(h => (
-                    <th key={h} style={{
-                      padding: '8px 14px', textAlign: 'left',
-                      fontSize: 10, fontWeight: 700, letterSpacing: '0.07em',
-                      textTransform: 'uppercase', color: '#4b5563',
-                    }}>
+                    <th key={h} scope="col" className={h === 'Confidence' || h === 'Rows' ? tableStyles.num : undefined}>
                       {h}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {(data?.recent ?? []).map((row, i) => (
-                  <tr
-                    key={row.id}
-                    style={{ borderBottom: i < (data?.recent?.length ?? 0) - 1 ? '1px solid #141720' : undefined }}
-                  >
-                    <td style={{ padding: '9px 14px', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                {(data?.recent ?? []).map(row => (
+                  <tr key={row.id}>
+                    <td className={styles.nowrap}>
                       {timeAgo(row.created_at)}
                     </td>
-                    <td style={{ padding: '9px 14px', color: '#9ca3af', maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {row.org_name ?? '—'}
+                    <td>
+                      <span className={`${styles.truncate} ${styles.org}`}>{row.org_name ?? '—'}</span>
                     </td>
-                    <td style={{ padding: '9px 14px', whiteSpace: 'nowrap' }}>
-                      <span style={{
-                        fontSize: 11, fontWeight: 600, letterSpacing: '0.04em',
-                        padding: '2px 7px', borderRadius: 12,
-                        background: `${AGENT_COLOR[row.agent_name] ?? '#6366F1'}18`,
-                        color: AGENT_COLOR[row.agent_name] ?? '#6366F1',
-                        border: `1px solid ${AGENT_COLOR[row.agent_name] ?? '#6366F1'}30`,
-                      }}>
+                    <td>
+                      <span className={styles.tag} style={hueVar(AGENT_COLOR[row.agent_name] ?? 'var(--text-muted)')}>
+                        <span className={styles.dot} aria-hidden="true" />
                         {row.agent_name.replace(/Agent$/, '')}
                       </span>
                     </td>
-                    <td style={{ padding: '9px 14px', whiteSpace: 'nowrap' }}>
-                      <span style={{
-                        fontSize: 11, color: ROUTE_COLOR[row.route_type] ?? '#6b7280',
-                        fontWeight: 600,
-                      }}>
+                    <td>
+                      <span className={styles.tag} style={hueVar(ROUTE_COLOR[row.route_type] ?? 'var(--text-muted)')}>
+                        <span className={styles.dot} aria-hidden="true" />
                         {row.route_type}
                       </span>
                     </td>
-                    <td style={{ padding: '9px 14px', color: '#9ca3af', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {row.input_query
-                        ? row.input_query.length > 55
-                          ? row.input_query.slice(0, 55) + '…'
-                          : row.input_query
-                        : <span style={{ color: '#374151' }}>—</span>}
+                    <td>
+                      <span className={`${styles.truncate} ${styles.query}`}>
+                        {row.input_query
+                          ? row.input_query.length > 55
+                            ? row.input_query.slice(0, 55) + '…'
+                            : row.input_query
+                          : <span className={tableStyles.muted}>—</span>}
+                      </span>
                     </td>
-                    <td style={{ padding: '9px 14px', whiteSpace: 'nowrap' }}>
+                    <td className={tableStyles.num}>
                       {row.confidence != null ? (
                         <span style={{ color: confColor(row.confidence), fontWeight: 700 }}>
                           {Math.round(row.confidence * 100)}%
                         </span>
-                      ) : <span style={{ color: '#374151' }}>—</span>}
+                      ) : <span className={tableStyles.muted}>—</span>}
                     </td>
-                    <td style={{ padding: '9px 14px', color: '#6b7280', textAlign: 'right' }}>
+                    <td className={tableStyles.num}>
                       {row.source_rows > 0 ? row.source_rows.toLocaleString() : '—'}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableContainer>
         )}
       </div>
     </div>

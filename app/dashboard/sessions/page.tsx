@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useId } from 'react'
 import {
   parseLocalDate, formatDateAU, addDays, addWeeks, addMonths, toDateStr, isSameDay,
   getWeekRange, getMonthGridRange, formatWeekHeading, formatMonthHeading, eachDayInRange, type DateRange,
@@ -10,7 +10,7 @@ import {
   SESSION_TYPE_COLOUR_KEYS, SESSION_TYPE_COLOUR_PALETTE, SESSION_TYPE_COLOUR_NAMES, type SessionTypeRow,
 } from '@/lib/sessionDisplay'
 
-const FONT = "var(--font-inter),-apple-system,sans-serif"
+const FONT = 'var(--bb-font-sans)'
 const API  = '/api/dashboard/sessions'
 
 type EndMode = 'ongoing' | 'after_weeks' | 'on_date'
@@ -73,8 +73,8 @@ const ATTENDANCE_CYCLE: Record<string, string> = {
   null: 'attending', attending: 'absent', absent: 'null',
 }
 const ATTENDANCE_STYLE: Record<string, { label: string; color: string; bg: string; border: string }> = {
-  attending: { label: '✓ Here',   color: '#4ade80', bg: 'rgba(34,197,94,.12)',  border: 'rgba(34,197,94,.30)'  },
-  absent:    { label: '✗ Absent', color: '#f87171', bg: 'rgba(239,68,68,.12)',  border: 'rgba(239,68,68,.30)'  },
+  attending: { label: '✓ Here',   color: 'var(--status-success)', bg: 'var(--status-success-muted)',  border: 'var(--status-success-border)'  },
+  absent:    { label: '✗ Absent', color: 'var(--status-danger)', bg: 'var(--status-danger-muted)',  border: 'var(--status-danger-border)'  },
 }
 
 const SESSION_PRICES: Record<string, number> = {
@@ -101,23 +101,25 @@ function sessionRevenue(pricePerSession: number, type: string, count: number) {
 function fmtMoney(n: number) { return n === 0 ? '—' : `$${n.toLocaleString()}` }
 
 const inp: React.CSSProperties = {
-  width: '100%', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.10)',
-  borderRadius: 8, padding: '8px 11px', fontSize: 13, color: '#F5F7FA',
-  outline: 'none', fontFamily: FONT, boxSizing: 'border-box',
+  width: '100%', background: 'var(--bg-raised)', border: '1px solid var(--border-strong)',
+  borderRadius: 'var(--radius-md)', padding: '8px 11px', fontSize: 13, color: 'var(--text-primary)',
+  fontFamily: FONT, boxSizing: 'border-box',
 }
 
 const navBtn: React.CSSProperties = {
   fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 20, cursor: 'pointer',
-  background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.12)',
-  color: 'rgba(255,255,255,.55)', fontFamily: FONT,
+  background: 'var(--bg-sunken)', border: '1px solid var(--border)',
+  color: 'var(--text-secondary)', fontFamily: FONT,
 }
 
 function toggleBtn(active: boolean): React.CSSProperties {
+  // Raised segment: accent text on --bg-surface (accent-on-accent-tint over the
+  // sunken strip was 4.35:1 in light). Border, not outline, so the focus ring wins.
   return {
     fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 18, cursor: 'pointer', fontFamily: FONT,
-    background: active ? 'rgba(99,102,241,.22)' : 'transparent',
-    border: 'none',
-    color: active ? '#a5b4fc' : 'rgba(255,255,255,.40)',
+    background: active ? 'var(--bg-surface)' : 'transparent',
+    border: `1px solid ${active ? 'var(--brand-brainbase-accent-border)' : 'transparent'}`,
+    color: active ? 'var(--brand-brainbase-accent)' : 'var(--text-muted)',
   }
 }
 
@@ -151,7 +153,12 @@ const SESSION_TYPE_GROUPS: SelectGroup[] = [
 
 const LOCATION_OPTIONS: SelectOption[] = LOCATIONS.map(l => ({ value: l, label: l }))
 
-function CustomSelect({ value, onChange, placeholder, options, groups }: {
+// Native-button reset for listbox options (keyboard reachable, same effect as a click).
+const optionReset: React.CSSProperties = { display: 'block', width: '100%', textAlign: 'left', border: 'none', background: 'transparent' }
+
+function CustomSelect({ value, onChange, placeholder, options, groups, id, ariaLabel }: {
+  id?: string
+  ariaLabel?: string
   value: string
   onChange: (v: string) => void
   placeholder?: string
@@ -184,49 +191,58 @@ function CustomSelect({ value, onChange, placeholder, options, groups }: {
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <div
+      <button
+        type="button"
+        id={id}
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
         onClick={() => setOpen(v => !v)}
-        style={{ ...inp, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', userSelect: 'none' }}
+        style={{ ...inp, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', userSelect: 'none', textAlign: 'left' }}
       >
-        <span style={{ color: value ? '#F5F7FA' : 'rgba(255,255,255,.30)' }}>{displayLabel}</span>
-        <span style={{ color: 'rgba(255,255,255,.28)', fontSize: 10, flexShrink: 0 }}>{open ? '▲' : '▼'}</span>
-      </div>
+        <span style={{ color: value ? 'var(--text-primary)' : 'var(--text-muted)' }}>{displayLabel}</span>
+        <span aria-hidden="true" style={{ color: 'var(--text-muted)', fontSize: 10, flexShrink: 0 }}>{open ? '▲' : '▼'}</span>
+      </button>
       {open && (
-        <div style={{
+        <div role="listbox" style={{
           position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
-          zIndex: 9999, background: '#16181d', border: '1px solid rgba(255,255,255,.14)',
-          borderRadius: 10, overflow: 'hidden', maxHeight: 280, overflowY: 'auto',
+          zIndex: 9999, background: 'var(--bg-overlay)', border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-lg)', overflow: 'hidden', maxHeight: 280, overflowY: 'auto',
+          boxShadow: 'var(--shadow-menu)',
         }}>
           {placeholder && (
-            <div
+            <button type="button" role="option" aria-selected={!value}
               onMouseDown={() => { onChange(''); setOpen(false) }}
-              style={{ padding: '9px 14px', cursor: 'pointer', fontSize: 13, fontFamily: FONT, color: 'rgba(255,255,255,.30)' }}
-              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,.05)')}
+              onClick={() => { onChange(''); setOpen(false) }}
+              style={{ ...optionReset, padding: '9px 14px', cursor: 'pointer', fontSize: 13, fontFamily: FONT, color: 'var(--text-muted)' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-sunken)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-            >{placeholder}</div>
+            >{placeholder}</button>
           )}
           {options?.map(o => (
-            <div key={o.value}
+            <button type="button" role="option" aria-selected={value === o.value} key={o.value}
               onMouseDown={() => { onChange(o.value); setOpen(false) }}
-              style={{ padding: '9px 14px', cursor: 'pointer', fontSize: 13, fontFamily: FONT,
-                color: value === o.value ? '#a5b4fc' : '#F5F7FA',
-                background: value === o.value ? 'rgba(99,102,241,.18)' : 'transparent' }}
-              onMouseEnter={e => { if (value !== o.value) e.currentTarget.style.background = 'rgba(255,255,255,.06)' }}
+              onClick={() => { onChange(o.value); setOpen(false) }}
+              style={{ ...optionReset, padding: '9px 14px', cursor: 'pointer', fontSize: 13, fontFamily: FONT,
+                color: value === o.value ? 'var(--brand-brainbase-accent)' : 'var(--text-primary)',
+                background: value === o.value ? 'var(--brand-brainbase-accent-muted)' : 'transparent' }}
+              onMouseEnter={e => { if (value !== o.value) e.currentTarget.style.background = 'var(--bg-sunken)' }}
               onMouseLeave={e => { if (value !== o.value) e.currentTarget.style.background = 'transparent' }}
-            >{o.label}</div>
+            >{o.label}</button>
           ))}
           {groups?.map(g => (
             <div key={g.label}>
-              <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,.28)', fontFamily: FONT }}>{g.label}</div>
+              <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-muted)', fontFamily: FONT }}>{g.label}</div>
               {g.options.map(o => (
-                <div key={o.value}
+                <button type="button" role="option" aria-selected={value === o.value} key={o.value}
                   onMouseDown={() => { onChange(o.value); setOpen(false) }}
-                  style={{ padding: '9px 14px 9px 20px', cursor: 'pointer', fontSize: 13, fontFamily: FONT,
-                    color: value === o.value ? '#a5b4fc' : '#F5F7FA',
-                    background: value === o.value ? 'rgba(99,102,241,.18)' : 'transparent' }}
-                  onMouseEnter={e => { if (value !== o.value) e.currentTarget.style.background = 'rgba(255,255,255,.06)' }}
+                  onClick={() => { onChange(o.value); setOpen(false) }}
+                  style={{ ...optionReset, padding: '9px 14px 9px 20px', cursor: 'pointer', fontSize: 13, fontFamily: FONT,
+                    color: value === o.value ? 'var(--brand-brainbase-accent)' : 'var(--text-primary)',
+                    background: value === o.value ? 'var(--brand-brainbase-accent-muted)' : 'transparent' }}
+                  onMouseEnter={e => { if (value !== o.value) e.currentTarget.style.background = 'var(--bg-sunken)' }}
                   onMouseLeave={e => { if (value !== o.value) e.currentTarget.style.background = 'transparent' }}
-                >{o.label}</div>
+                >{o.label}</button>
               ))}
             </div>
           ))}
@@ -259,12 +275,12 @@ function ColourPicker({ value, onChange }: { value: string; onChange: (v: string
             style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 20,
               cursor: 'pointer', fontFamily: FONT,
-              background: isSelected ? 'rgba(99,102,241,.18)' : 'rgba(255,255,255,.03)',
-              border: `1px solid ${isSelected ? 'rgba(99,102,241,.45)' : 'rgba(255,255,255,.09)'}`,
+              background: isSelected ? 'var(--brand-brainbase-accent-muted)' : 'var(--bg-surface)',
+              border: `1px solid ${isSelected ? 'var(--brand-brainbase-accent-border)' : 'var(--border)'}`,
             }}
           >
             <span style={{ width: 12, height: 12, borderRadius: '50%', background: c.text, flexShrink: 0 }} />
-            <span style={{ fontSize: 11, fontWeight: 600, color: isSelected ? '#c7d2fe' : 'rgba(255,255,255,.60)' }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: isSelected ? 'var(--brand-brainbase-accent)' : 'var(--text-secondary)' }}>
               {SESSION_TYPE_COLOUR_NAMES[key] ?? key}
             </span>
           </button>
@@ -281,9 +297,9 @@ function endTime(start: string, dur: number) {
 }
 
 function capacityColor(enrolled: number, max: number) {
-  if (enrolled >= max)        return '#f87171'
-  if (enrolled >= max * 0.75) return '#fbbf24'
-  return '#4ade80'
+  if (enrolled >= max)        return 'var(--status-danger)'
+  if (enrolled >= max * 0.75) return 'var(--status-warning)'
+  return 'var(--status-success)'
 }
 
 function scheduleSummary(s: Session): string {
@@ -354,7 +370,7 @@ const FLAT_LEGACY_TYPE_OPTIONS: SelectOption[] = SESSION_TYPE_GROUPS.flatMap(g =
 
 const fieldLbl: React.CSSProperties = {
   display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.08em',
-  textTransform: 'uppercase', color: 'rgba(255,255,255,.35)', marginBottom: 5,
+  textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 5,
 }
 // Used only inside multi-column field rows (Start Date/Start Time/Duration,
 // Max Capacity/Price): a fixed minHeight + explicit lineHeight reserves the
@@ -364,15 +380,15 @@ const fieldLbl: React.CSSProperties = {
 // not a per-field margin patch.
 const fieldRowLbl: React.CSSProperties = { ...fieldLbl, minHeight: 28, lineHeight: '14px' }
 const sectionLbl: React.CSSProperties = {
-  fontSize: 10, fontWeight: 800, letterSpacing: '.10em', textTransform: 'uppercase', color: 'rgba(255,255,255,.24)',
+  fontSize: 10, fontWeight: 800, letterSpacing: '.10em', textTransform: 'uppercase', color: 'var(--text-muted)',
 }
 
 function pillStyle(active: boolean): React.CSSProperties {
   return {
     fontSize: 11, fontWeight: 700, padding: '5px 12px', borderRadius: 20, cursor: 'pointer',
-    background: active ? 'rgba(99,102,241,.25)' : 'rgba(255,255,255,.04)',
-    border: `1px solid ${active ? 'rgba(99,102,241,.45)' : 'rgba(255,255,255,.10)'}`,
-    color: active ? '#a5b4fc' : 'rgba(255,255,255,.40)', fontFamily: FONT,
+    background: active ? 'var(--brand-brainbase-accent-muted)' : 'var(--bg-sunken)',
+    border: `1px solid ${active ? 'var(--brand-brainbase-accent-border)' : 'var(--border)'}`,
+    color: active ? 'var(--brand-brainbase-accent)' : 'var(--text-muted)', fontFamily: FONT,
   }
 }
 
@@ -393,6 +409,7 @@ function SessionFormFields({ form, set, sessionTypes, onManageTypes }: {
   // reads as "Use type colour — Green", not just a bare, unhelpful label.
   const typeColourKey = sessionTypes.find(t => t.slug === form.session_type)?.colour_key
   const typeColourName = typeColourKey ? (SESSION_TYPE_COLOUR_NAMES[typeColourKey] ?? typeColourKey) : null
+  const fid = useId()
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -401,14 +418,14 @@ function SessionFormFields({ form, set, sessionTypes, onManageTypes }: {
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
             <label style={fieldLbl}>Type</label>
-            <button type="button" onClick={onManageTypes} style={{ background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 11, fontFamily: FONT, padding: 0, marginBottom: 5 }}>Manage types</button>
+            <button type="button" onClick={onManageTypes} style={{ background: 'none', border: 'none', color: 'var(--brand-brainbase-accent)', cursor: 'pointer', fontSize: 11, fontFamily: FONT, padding: 0, marginBottom: 5 }}>Manage types</button>
           </div>
-          <CustomSelect value={form.session_type} onChange={v => set('session_type', v)} placeholder="Select session type" options={typeOptions} />
+          <CustomSelect ariaLabel="Type" value={form.session_type} onChange={v => set('session_type', v)} placeholder="Select session type" options={typeOptions} />
         </div>
         <div>
           <label style={fieldLbl}>Optional Label</label>
-          <input style={inp} value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Green Ball Advanced" />
-          <p style={{ margin: '4px 0 0', fontSize: 11, color: 'rgba(255,255,255,.28)' }}>
+          <input aria-label="Optional Label" style={inp} value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Green Ball Advanced" />
+          <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--text-muted)' }}>
             Use only when you need to distinguish this class from others of the same type. Leave blank to just show the type name.
           </p>
         </div>
@@ -417,12 +434,12 @@ function SessionFormFields({ form, set, sessionTypes, onManageTypes }: {
             <label style={fieldLbl}>Session Colour</label>
             {form.session_colour_key && (
               <button type="button" onClick={() => set('session_colour_key', '')}
-                style={{ background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 11, fontFamily: FONT, padding: 0, marginBottom: 5 }}>
+                style={{ background: 'none', border: 'none', color: 'var(--brand-brainbase-accent)', cursor: 'pointer', fontSize: 11, fontFamily: FONT, padding: 0, marginBottom: 5 }}>
                 Use type colour
               </button>
             )}
           </div>
-          <p style={{ margin: '0 0 8px', fontSize: 11, color: form.session_colour_key ? '#a5b4fc' : 'rgba(255,255,255,.35)' }}>
+          <p style={{ margin: '0 0 8px', fontSize: 11, color: form.session_colour_key ? 'var(--brand-brainbase-accent)' : 'var(--text-muted)' }}>
             {form.session_colour_key
               ? `Session override — ${SESSION_TYPE_COLOUR_NAMES[form.session_colour_key] ?? form.session_colour_key}`
               : `Use type colour${typeColourName ? ` — ${typeColourName}` : ''}`}
@@ -434,56 +451,56 @@ function SessionFormFields({ form, set, sessionTypes, onManageTypes }: {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={sectionLbl}>Schedule</div>
         <div>
-          <label style={fieldLbl}>Day</label>
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          <span id={`${fid}-day`} style={fieldLbl}>Day</span>
+          <div role="group" aria-labelledby={`${fid}-day`} style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             {DAYS_ORDER.map(d => (
-              <button key={d} type="button" onClick={() => set('day_of_week', d)} style={pillStyle(form.day_of_week === d)}>{DAY_LABEL[d]}</button>
+              <button key={d} type="button" aria-pressed={form.day_of_week === d} onClick={() => set('day_of_week', d)} style={pillStyle(form.day_of_week === d)}>{DAY_LABEL[d]}</button>
             ))}
           </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-          <div><label style={fieldRowLbl}>Start Date</label><input style={{ ...inp, colorScheme: 'dark' }} type="date" value={form.start_date} onChange={e => set('start_date', e.target.value)} /></div>
-          <div><label style={fieldRowLbl}>Start Time</label><input style={{ ...inp, colorScheme: 'dark' }} type="time" value={form.start_time} onChange={e => set('start_time', e.target.value)} /></div>
-          <div><label style={fieldRowLbl}>Duration (min)</label><input style={inp} type="number" min={15} max={480} value={form.duration_minutes} onChange={e => set('duration_minutes', parseInt(e.target.value) || 60)} /></div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12 }}>
+          <div><label htmlFor={`${fid}-start-date`} style={fieldRowLbl}>Start Date</label><input id={`${fid}-start-date`} style={inp} type="date" value={form.start_date} onChange={e => set('start_date', e.target.value)} /></div>
+          <div><label htmlFor={`${fid}-start-time`} style={fieldRowLbl}>Start Time</label><input id={`${fid}-start-time`} style={inp} type="time" value={form.start_time} onChange={e => set('start_time', e.target.value)} /></div>
+          <div><label htmlFor={`${fid}-duration`} style={fieldRowLbl}>Duration (min)</label><input id={`${fid}-duration`} style={inp} type="number" min={15} max={480} value={form.duration_minutes} onChange={e => set('duration_minutes', parseInt(e.target.value) || 60)} /></div>
         </div>
         <div>
-          <label style={fieldLbl}>Ends</label>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-            <button type="button" onClick={() => set('end_mode', 'after_weeks')} style={pillStyle(form.end_mode === 'after_weeks')}>After weeks</button>
+          <span id={`${fid}-ends`} style={fieldLbl}>Ends</span>
+          <div role="group" aria-labelledby={`${fid}-ends`} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button type="button" aria-pressed={form.end_mode === 'after_weeks'} onClick={() => set('end_mode', 'after_weeks')} style={pillStyle(form.end_mode === 'after_weeks')}>After weeks</button>
             {form.end_mode === 'after_weeks' && (
               <>
-                <input style={{ ...inp, width: 60 }} type="number" min={1} max={104} value={form.end_after_weeks} onChange={e => set('end_after_weeks', parseInt(e.target.value) || 1)} />
-                <span style={{ fontSize: 12, color: 'rgba(255,255,255,.40)' }}>weeks</span>
+                <input aria-label="Number of weeks" style={{ ...inp, width: 60 }} type="number" min={1} max={104} value={form.end_after_weeks} onChange={e => set('end_after_weeks', parseInt(e.target.value) || 1)} />
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>weeks</span>
               </>
             )}
-            <button type="button" onClick={() => set('end_mode', 'on_date')} style={pillStyle(form.end_mode === 'on_date')}>On date</button>
+            <button type="button" aria-pressed={form.end_mode === 'on_date'} onClick={() => set('end_mode', 'on_date')} style={pillStyle(form.end_mode === 'on_date')}>On date</button>
             {form.end_mode === 'on_date' && (
-              <input style={{ ...inp, width: 150, colorScheme: 'dark' }} type="date" value={form.end_date} onChange={e => set('end_date', e.target.value)} />
+              <input aria-label="End date" style={{ ...inp, width: 150 }} type="date" value={form.end_date} onChange={e => set('end_date', e.target.value)} />
             )}
-            <button type="button" onClick={() => set('end_mode', 'ongoing')} style={pillStyle(form.end_mode === 'ongoing')}>Ongoing</button>
+            <button type="button" aria-pressed={form.end_mode === 'ongoing'} onClick={() => set('end_mode', 'ongoing')} style={pillStyle(form.end_mode === 'ongoing')}>Ongoing</button>
           </div>
         </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={sectionLbl}>Capacity &amp; Price</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <div><label style={fieldRowLbl}>Max Capacity</label><input style={inp} type="number" min={1} max={100} value={form.max_capacity} onChange={e => set('max_capacity', parseInt(e.target.value) || 8)} /></div>
-          <div><label style={fieldRowLbl}>Price ($)</label><input style={inp} type="number" min={0} step={0.5} value={form.price_per_session} onChange={e => set('price_per_session', parseFloat(e.target.value) || 0)} /></div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
+          <div><label htmlFor={`${fid}-capacity`} style={fieldRowLbl}>Max Capacity</label><input id={`${fid}-capacity`} style={inp} type="number" min={1} max={100} value={form.max_capacity} onChange={e => set('max_capacity', parseInt(e.target.value) || 8)} /></div>
+          <div><label htmlFor={`${fid}-price`} style={fieldRowLbl}>Price ($)</label><input id={`${fid}-price`} style={inp} type="number" min={0} step={0.5} value={form.price_per_session} onChange={e => set('price_per_session', parseFloat(e.target.value) || 0)} /></div>
         </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={sectionLbl}>Location</div>
-        <CustomSelect value={form.resource_id} onChange={v => set('resource_id', v)} placeholder="— Select location —" options={LOCATION_OPTIONS} />
+        <CustomSelect ariaLabel="Location" value={form.resource_id} onChange={v => set('resource_id', v)} placeholder="— Select location —" options={LOCATION_OPTIONS} />
       </div>
 
       <div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-          <input type="checkbox" checked={form.recurring} onChange={e => set('recurring', e.target.checked)} style={{ width: 16, height: 16, accentColor: '#6366f1' }} />
-          <span style={{ fontSize: 13, color: 'rgba(255,255,255,.55)' }}>Allow weekly (recurring) enrolment</span>
+          <input type="checkbox" checked={form.recurring} onChange={e => set('recurring', e.target.checked)} style={{ width: 16, height: 16, accentColor: 'var(--brand-brainbase-accent)' }} />
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Allow weekly (recurring) enrolment</span>
         </label>
-        <p style={{ margin: '4px 0 0 26px', fontSize: 11, color: 'rgba(255,255,255,.28)' }}>
+        <p style={{ margin: '4px 0 0 26px', fontSize: 11, color: 'var(--text-muted)' }}>
           Lets players choose Weekly when enrolling in this class. Separate from the Schedule above, which controls how often the class itself runs.
         </p>
       </div>
@@ -505,6 +522,12 @@ function CreateModal({ onClose, onCreate, sessionTypes, onManageTypes }: {
   })
   const [saving, setSaving] = useState(false)
   const [err, setErr]       = useState<string | null>(null)
+  const titleId = useId()
+  const closeRef = useRef<HTMLButtonElement>(null)
+  // Focus moves into the dialog on open. (No Escape handler here on purpose:
+  // Manage Types can open on top of this form, and a document-level Escape
+  // would discard the half-filled form underneath it.)
+  useEffect(() => { closeRef.current?.focus() }, [])
 
   const set = (k: keyof SessionFormState, v: string | number | boolean) => setForm(f => ({ ...f, [k]: v }))
 
@@ -527,20 +550,19 @@ function CreateModal({ onClose, onCreate, sessionTypes, onManageTypes }: {
 
   return (
     <>
-      <style>{`@keyframes cm-fade{from{opacity:0}to{opacity:1}}@keyframes cm-in{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}`}</style>
-      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.70)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'cm-fade .15s ease' }}
+      <div style={{ position: 'fixed', inset: 0, background: 'var(--scrim)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
         onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-        <div style={{ background: '#111215', border: '1px solid rgba(255,255,255,.10)', borderRadius: 16, padding: '26px 28px', width: '100%', maxWidth: 480, maxHeight: '88vh', overflowY: 'auto', fontFamily: FONT, animation: 'cm-in .18s ease' }}>
+        <div role="dialog" aria-modal="true" aria-labelledby={titleId} style={{ background: 'var(--bg-overlay)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '26px 28px', width: '100%', maxWidth: 480, maxHeight: '88vh', overflowY: 'auto', fontFamily: FONT, boxShadow: 'var(--shadow-dialog)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#F5F7FA' }}>New Session</div>
-            <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.35)', cursor: 'pointer', fontSize: 18 }}>✕</button>
+            <h2 id={titleId} style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>New Session</h2>
+            <button ref={closeRef} type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18 }}>✕</button>
           </div>
           <SessionFormFields form={form} set={set} sessionTypes={sessionTypes} onManageTypes={onManageTypes} />
-          {err && <p style={{ margin: '12px 0 0', fontSize: 12, color: '#f87171' }}>{err}</p>}
+          {err && <p style={{ margin: '12px 0 0', fontSize: 12, color: 'var(--status-danger)' }}>{err}</p>}
           <div style={{ display: 'flex', gap: 8, marginTop: 22 }}>
-            <button onClick={onClose} style={{ flex: 1, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.09)', color: 'rgba(255,255,255,.40)', fontFamily: FONT }}>Cancel</button>
+            <button onClick={onClose} style={{ flex: 1, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'var(--bg-sunken)', border: '1px solid var(--border)', color: 'var(--text-muted)', fontFamily: FONT }}>Cancel</button>
             <button onClick={submit} disabled={!form.session_type.trim() || saving}
-              style={{ flex: 2, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(99,102,241,.22)', border: '1px solid rgba(99,102,241,.40)', color: '#a5b4fc', fontFamily: FONT, opacity: !form.session_type.trim() || saving ? .45 : 1 }}>
+              style={{ flex: 2, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'var(--brand-brainbase-accent-muted)', border: '1px solid var(--brand-brainbase-accent-border)', color: 'var(--brand-brainbase-accent)', fontFamily: FONT, opacity: !form.session_type.trim() || saving ? .45 : 1 }}>
               {saving ? 'Creating…' : 'Create Session'}
             </button>
           </div>
@@ -608,27 +630,26 @@ function EditModal({ session, onClose, onSave, sessionTypes, onManageTypes }: {
 
   return (
     <>
-      <style>{`@keyframes cm-fade{from{opacity:0}to{opacity:1}}@keyframes cm-in{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}`}</style>
       <div role="dialog" aria-modal="true" aria-label="Edit session"
-        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.70)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'cm-fade .15s ease' }}
+        style={{ position: 'fixed', inset: 0, background: 'var(--scrim)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
         onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-        <div style={{ background: '#111215', border: '1px solid rgba(255,255,255,.10)', borderRadius: 16, padding: '26px 28px', width: '100%', maxWidth: 480, maxHeight: '88vh', overflowY: 'auto', fontFamily: FONT, animation: 'cm-in .18s ease' }}>
+        <div style={{ background: 'var(--bg-overlay)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '26px 28px', width: '100%', maxWidth: 480, maxHeight: '88vh', overflowY: 'auto', fontFamily: FONT, boxShadow: 'var(--shadow-dialog)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#F5F7FA' }}>Edit Session</div>
-            <button ref={closeRef} onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.35)', cursor: 'pointer', fontSize: 18 }}>✕</button>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>Edit Session</h2>
+            <button ref={closeRef} onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18 }}>✕</button>
           </div>
           <SessionFormFields form={form} set={set} sessionTypes={sessionTypes} onManageTypes={onManageTypes} />
-          {err && <p style={{ margin: '12px 0 0', fontSize: 12, color: '#f87171' }}>{err}</p>}
+          {err && <p style={{ margin: '12px 0 0', fontSize: 12, color: 'var(--status-danger)' }}>{err}</p>}
           {reconcileNote && (
-            <div style={{ margin: '12px 0 0', padding: '10px 12px', borderRadius: 8, background: 'rgba(251,191,36,.10)', border: '1px solid rgba(251,191,36,.28)' }}>
-              <p style={{ margin: 0, fontSize: 12, color: '#fbbf24' }}>{reconcileNote}</p>
-              <button onClick={onClose} style={{ marginTop: 8, background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 12, fontFamily: FONT, padding: 0 }}>Close</button>
+            <div style={{ margin: '12px 0 0', padding: '10px 12px', borderRadius: 8, background: 'var(--status-warning-muted)', border: '1px solid var(--status-warning-border)' }}>
+              <p style={{ margin: 0, fontSize: 12, color: 'var(--status-warning)' }}>{reconcileNote}</p>
+              <button onClick={onClose} style={{ marginTop: 8, background: 'none', border: 'none', color: 'var(--brand-brainbase-accent)', cursor: 'pointer', fontSize: 12, fontFamily: FONT, padding: 0 }}>Close</button>
             </div>
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 22 }}>
-            <button onClick={onClose} style={{ flex: 1, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.09)', color: 'rgba(255,255,255,.40)', fontFamily: FONT }}>Cancel</button>
+            <button onClick={onClose} style={{ flex: 1, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'var(--bg-sunken)', border: '1px solid var(--border)', color: 'var(--text-muted)', fontFamily: FONT }}>Cancel</button>
             <button onClick={submit} disabled={!form.session_type.trim() || saving}
-              style={{ flex: 2, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(99,102,241,.22)', border: '1px solid rgba(99,102,241,.40)', color: '#a5b4fc', fontFamily: FONT, opacity: !form.session_type.trim() || saving ? .45 : 1 }}>
+              style={{ flex: 2, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'var(--brand-brainbase-accent-muted)', border: '1px solid var(--brand-brainbase-accent-border)', color: 'var(--brand-brainbase-accent)', fontFamily: FONT, opacity: !form.session_type.trim() || saving ? .45 : 1 }}>
               {saving ? 'Saving…' : 'Save Changes'}
             </button>
           </div>
@@ -697,38 +718,37 @@ function ManageSessionTypesModal({ types, onClose, onChanged }: {
 
   return (
     <>
-      <style>{`@keyframes cm-fade{from{opacity:0}to{opacity:1}}@keyframes cm-in{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}`}</style>
-      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', backdropFilter: 'blur(4px)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'cm-fade .15s ease' }}
+      <div role="dialog" aria-modal="true" aria-label="Manage session types" style={{ position: 'fixed', inset: 0, background: 'var(--scrim)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
         onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-        <div style={{ background: '#111215', border: '1px solid rgba(255,255,255,.10)', borderRadius: 16, padding: '24px 26px', width: '100%', maxWidth: 440, maxHeight: '82vh', overflowY: 'auto', fontFamily: FONT, animation: 'cm-in .18s ease' }}>
+        <div style={{ background: 'var(--bg-overlay)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '24px 26px', width: '100%', maxWidth: 440, maxHeight: '82vh', overflowY: 'auto', fontFamily: FONT, boxShadow: 'var(--shadow-dialog)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#F5F7FA' }}>Manage Session Types</div>
-            <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.35)', cursor: 'pointer', fontSize: 18 }}>✕</button>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>Manage Session Types</h2>
+            <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18 }}>✕</button>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {sorted.length === 0 && <p style={{ fontSize: 12, color: 'rgba(255,255,255,.30)' }}>No session types yet. Add your first one below.</p>}
+            {sorted.length === 0 && <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>No session types yet. Add your first one below.</p>}
             {sorted.map(t => (
-              <div key={t.id} style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)', opacity: t.active ? 1 : .5 }}>
+              <div key={t.id} style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 10px', borderRadius: 8, background: 'var(--bg-surface)', border: '1px solid var(--border)', opacity: t.active ? 1 : .5 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <button type="button" onClick={() => setRecolouringId(id => id === t.id ? null : t.id)}
                     aria-label={`Change colour — currently ${SESSION_TYPE_COLOUR_NAMES[t.colour_key] ?? t.colour_key}`}
                     aria-expanded={recolouringId === t.id}
-                    style={{ width: 16, height: 16, borderRadius: 5, background: SESSION_TYPE_COLOUR_PALETTE[t.colour_key]?.text ?? '#94a3b8', flexShrink: 0, border: recolouringId === t.id ? '2px solid rgba(255,255,255,.60)' : 'none', cursor: 'pointer', padding: 0 }} />
+                    style={{ width: 16, height: 16, borderRadius: 5, background: SESSION_TYPE_COLOUR_PALETTE[t.colour_key]?.text ?? '#94a3b8', flexShrink: 0, border: recolouringId === t.id ? '2px solid var(--text-primary)' : '1px solid var(--border)', cursor: 'pointer', padding: 0 }} />
                   {renamingId === t.id ? (
-                    <input autoFocus style={{ ...inp, flex: 1, padding: '4px 8px' }} value={renameValue}
+                    <input autoFocus aria-label={`Rename ${t.name}`} style={{ ...inp, flex: 1, padding: '4px 8px' }} value={renameValue}
                       onChange={e => setRenameValue(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') saveRename(t); if (e.key === 'Escape') setRenamingId(null) }} />
                   ) : (
-                    <span style={{ flex: 1, fontSize: 13, color: '#F5F7FA' }}>{t.name}</span>
+                    <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)' }}>{t.name}</span>
                   )}
-                  {!t.active && <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.35)', background: 'rgba(255,255,255,.06)', borderRadius: 20, padding: '1px 6px', flexShrink: 0 }}>Archived</span>}
+                  {!t.active && <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', background: 'var(--bg-sunken)', borderRadius: 20, padding: '1px 6px', flexShrink: 0 }}>Archived</span>}
                   {renamingId === t.id ? (
-                    <button onClick={() => saveRename(t)} disabled={busyId === t.id} style={{ background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 11, fontFamily: FONT }}>Save</button>
+                    <button onClick={() => saveRename(t)} disabled={busyId === t.id} style={{ background: 'none', border: 'none', color: 'var(--brand-brainbase-accent)', cursor: 'pointer', fontSize: 11, fontFamily: FONT }}>Save</button>
                   ) : (
-                    <button onClick={() => { setRenamingId(t.id); setRenameValue(t.name) }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.40)', cursor: 'pointer', fontSize: 11, fontFamily: FONT }}>Rename</button>
+                    <button onClick={() => { setRenamingId(t.id); setRenameValue(t.name) }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 11, fontFamily: FONT }}>Rename</button>
                   )}
-                  <button onClick={() => toggleActive(t)} disabled={busyId === t.id} style={{ background: 'none', border: 'none', color: t.active ? '#f87171' : '#4ade80', cursor: 'pointer', fontSize: 11, fontFamily: FONT, flexShrink: 0 }}>
+                  <button onClick={() => toggleActive(t)} disabled={busyId === t.id} style={{ background: 'none', border: 'none', color: t.active ? 'var(--status-danger)' : 'var(--status-success)', cursor: 'pointer', fontSize: 11, fontFamily: FONT, flexShrink: 0 }}>
                     {t.active ? 'Archive' : 'Restore'}
                   </button>
                 </div>
@@ -739,20 +759,20 @@ function ManageSessionTypesModal({ types, onClose, onChanged }: {
             ))}
           </div>
 
-          {err && <p style={{ margin: '10px 0 0', fontSize: 12, color: '#f87171' }}>{err}</p>}
+          {err && <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--status-danger)' }}>{err}</p>}
 
-          <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,.07)' }}>
+          <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
             {adding ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <input style={inp} placeholder="New type name" value={newName} onChange={e => setNewName(e.target.value)} autoFocus />
+                <input aria-label="New type name" style={inp} placeholder="New type name" value={newName} onChange={e => setNewName(e.target.value)} autoFocus />
                 <ColourPicker value={newColour} onChange={setNewColour} />
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <button onClick={() => setAdding(false)} style={{ flex: 1, fontSize: 12, fontWeight: 600, padding: '7px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.09)', color: 'rgba(255,255,255,.40)', fontFamily: FONT }}>Cancel</button>
-                  <button onClick={addType} disabled={!newName.trim()} style={{ flex: 1, fontSize: 12, fontWeight: 600, padding: '7px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(99,102,241,.22)', border: '1px solid rgba(99,102,241,.40)', color: '#a5b4fc', fontFamily: FONT, opacity: !newName.trim() ? .5 : 1 }}>Add type</button>
+                  <button onClick={() => setAdding(false)} style={{ flex: 1, fontSize: 12, fontWeight: 600, padding: '7px 0', borderRadius: 8, cursor: 'pointer', background: 'var(--bg-sunken)', border: '1px solid var(--border)', color: 'var(--text-muted)', fontFamily: FONT }}>Cancel</button>
+                  <button onClick={addType} disabled={!newName.trim()} style={{ flex: 1, fontSize: 12, fontWeight: 600, padding: '7px 0', borderRadius: 8, cursor: 'pointer', background: 'var(--brand-brainbase-accent-muted)', border: '1px solid var(--brand-brainbase-accent-border)', color: 'var(--brand-brainbase-accent)', fontFamily: FONT, opacity: !newName.trim() ? .5 : 1 }}>Add type</button>
                 </div>
               </div>
             ) : (
-              <button onClick={() => setAdding(true)} style={{ width: '100%', fontSize: 12, fontWeight: 600, padding: '8px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(99,102,241,.15)', border: '1px solid rgba(99,102,241,.35)', color: '#a5b4fc', fontFamily: FONT }}>+ Add session type</button>
+              <button onClick={() => setAdding(true)} style={{ width: '100%', fontSize: 12, fontWeight: 600, padding: '8px 0', borderRadius: 8, cursor: 'pointer', background: 'var(--brand-brainbase-accent-muted)', border: '1px solid var(--brand-brainbase-accent-border)', color: 'var(--brand-brainbase-accent)', fontFamily: FONT }}>+ Add session type</button>
             )}
           </div>
         </div>
@@ -835,28 +855,27 @@ function ManageSessionsModal({ sessions, sessionTypes, contacts, onClose, onEdit
 
   return (
     <>
-      <style>{`@keyframes cm-fade{from{opacity:0}to{opacity:1}}@keyframes cm-in{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}`}</style>
       <div role="dialog" aria-modal="true" aria-label="Manage sessions"
-        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', backdropFilter: 'blur(4px)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'cm-fade .15s ease', padding: 16 }}
+        style={{ position: 'fixed', inset: 0, background: 'var(--scrim)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
         onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-        <div style={{ background: '#111215', border: '1px solid rgba(255,255,255,.10)', borderRadius: 16, padding: '24px 26px', width: '100%', maxWidth: 560, maxHeight: '86vh', overflowY: 'auto', fontFamily: FONT, animation: 'cm-in .18s ease' }}>
+        <div style={{ background: 'var(--bg-overlay)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '24px 26px', width: '100%', maxWidth: 560, maxHeight: '86vh', overflowY: 'auto', fontFamily: FONT, boxShadow: 'var(--shadow-dialog)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
             <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#F5F7FA' }}>Manage Sessions</div>
-              <p style={{ margin: '2px 0 0', fontSize: 12, color: 'rgba(255,255,255,.35)' }}>Every session template, including any with no dates currently on the calendar.</p>
+              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>Manage Sessions</h2>
+              <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>Every session template, including any with no dates currently on the calendar.</p>
             </div>
-            <button ref={closeRef} onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.35)', cursor: 'pointer', fontSize: 18 }}>✕</button>
+            <button ref={closeRef} onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18 }}>✕</button>
           </div>
 
           {archivedCount > 0 && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 14, cursor: 'pointer', width: 'fit-content' }}>
               <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)}
-                style={{ width: 14, height: 14, accentColor: '#6366f1' }} />
-              <span style={{ fontSize: 11, color: 'rgba(255,255,255,.45)' }}>Show archived ({archivedCount})</span>
+                style={{ width: 14, height: 14, accentColor: 'var(--brand-brainbase-accent)' }} />
+              <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Show archived ({archivedCount})</span>
             </label>
           )}
 
-          {sorted.length === 0 && <p style={{ fontSize: 12, color: 'rgba(255,255,255,.30)' }}>{showArchived || archivedCount === 0 ? 'No sessions yet.' : 'No active sessions.'}</p>}
+          {sorted.length === 0 && <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{showArchived || archivedCount === 0 ? 'No sessions yet.' : 'No active sessions.'}</p>}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {sorted.map(s => {
@@ -868,63 +887,63 @@ function ManageSessionsModal({ sessions, sessionTypes, contacts, onClose, onEdit
               const capClr = capacityColor(s.enrolled_count, s.max_capacity)
               return (
                 <div key={s.id} style={{
-                  padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,.03)',
-                  border: '1px solid rgba(255,255,255,.08)', borderLeft: `3px solid ${sessionColourDot(s.session_type, sessionTypes, s.session_colour_key)}`,
+                  padding: '10px 12px', borderRadius: 10, background: 'var(--bg-surface)',
+                  border: '1px solid var(--border)', borderLeft: `3px solid ${sessionColourDot(s.session_type, sessionTypes, s.session_colour_key)}`,
                   opacity: archived ? .6 : 1,
                 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: '#F5F7FA' }}>{title}</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{title}</div>
                         {archived && (
-                          <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.35)', background: 'rgba(255,255,255,.06)', borderRadius: 20, padding: '1px 6px', flexShrink: 0 }}>Archived</span>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', background: 'var(--bg-sunken)', borderRadius: 20, padding: '1px 6px', flexShrink: 0 }}>Archived</span>
                         )}
                       </div>
-                      {label && <div style={{ fontSize: 11, color: 'rgba(255,255,255,.45)', marginTop: 1 }}>{label}</div>}
-                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,.35)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      {label && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 1 }}>{label}</div>}
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                         <span>{DAY_FULL[s.day_of_week]} · {s.start_time}–{endTime(s.start_time, s.duration_minutes)}</span>
                         {s.resource_id && <span>· {s.resource_id}</span>}
                       </div>
-                      <div style={{ fontSize: 11, color: 'rgba(165,180,252,.65)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                         <span>{endRuleSummary(s)}</span>
                         <span style={{ fontWeight: 700, color: capClr }}>{s.enrolled_count}/{s.max_capacity}</span>
-                        {full && <span style={{ fontWeight: 700, color: '#f87171' }}>Full</span>}
+                        {full && <span style={{ fontWeight: 700, color: 'var(--status-danger)' }}>Full</span>}
                       </div>
                       {sessionContacts.length > 0 && (
-                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,.32)', marginTop: 3 }}>{sessionContacts.map(c => c.name).join(', ')}</div>
+                        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>{sessionContacts.map(c => c.name).join(', ')}</div>
                       )}
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
                       {archived ? (
                         <button onClick={() => handleRestoreClick(s.id)} disabled={busyId === s.id} aria-label={`Restore ${title}`}
-                          style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: busyId === s.id ? 'not-allowed' : 'pointer', background: 'rgba(99,102,241,.15)', border: '1px solid rgba(99,102,241,.35)', color: '#a5b4fc', fontFamily: FONT, opacity: busyId === s.id ? .5 : 1 }}>
+                          style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: busyId === s.id ? 'not-allowed' : 'pointer', background: 'var(--brand-brainbase-accent-muted)', border: '1px solid var(--brand-brainbase-accent-border)', color: 'var(--brand-brainbase-accent)', fontFamily: FONT, opacity: busyId === s.id ? .5 : 1 }}>
                           {busyId === s.id ? 'Restoring…' : 'Restore'}
                         </button>
                       ) : (
                         <button onClick={() => handleRepair(s.id)} disabled={busyId === s.id} aria-label={`Repair future dates for ${title}`}
-                          style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: busyId === s.id ? 'not-allowed' : 'pointer', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.10)', color: 'rgba(255,255,255,.45)', fontFamily: FONT, opacity: busyId === s.id ? .5 : 1 }}>
+                          style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: busyId === s.id ? 'not-allowed' : 'pointer', background: 'var(--bg-sunken)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontFamily: FONT, opacity: busyId === s.id ? .5 : 1 }}>
                           {busyId === s.id ? 'Repairing…' : 'Repair'}
                         </button>
                       )}
                       <button onClick={() => onEdit(s)} aria-label={`Edit ${title}`}
-                        style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: 'pointer', background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.12)', color: 'rgba(255,255,255,.55)', fontFamily: FONT }}>
+                        style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: 'pointer', background: 'var(--bg-sunken)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontFamily: FONT }}>
                         Edit
                       </button>
                       {!archived && (
                         confirmArchiveId === s.id ? (
                           <>
                             <button onClick={() => handleArchiveConfirmed(s.id)} disabled={busyId === s.id} aria-label={`Confirm archive ${title}`}
-                              style={{ fontSize: 11, fontWeight: 700, padding: '5px 10px', borderRadius: 20, cursor: 'pointer', background: 'rgba(251,191,36,.18)', border: '1px solid rgba(251,191,36,.45)', color: '#fbbf24', fontFamily: FONT }}>
+                              style={{ fontSize: 11, fontWeight: 700, padding: '5px 10px', borderRadius: 20, cursor: 'pointer', background: 'var(--status-warning-muted)', border: '1px solid var(--status-warning-border)', color: 'var(--status-warning)', fontFamily: FONT }}>
                               Confirm
                             </button>
                             <button onClick={() => setConfirmArchiveId(null)} aria-label="Cancel archive"
-                              style={{ fontSize: 11, padding: '5px 8px', borderRadius: 20, cursor: 'pointer', background: 'none', border: '1px solid rgba(255,255,255,.10)', color: 'rgba(255,255,255,.30)', fontFamily: FONT }}>
+                              style={{ fontSize: 11, padding: '5px 8px', borderRadius: 20, cursor: 'pointer', background: 'none', border: '1px solid var(--border)', color: 'var(--text-muted)', fontFamily: FONT }}>
                               ✕
                             </button>
                           </>
                         ) : (
                           <button onClick={() => setConfirmArchiveId(s.id)} aria-label={`Archive ${title}`}
-                            style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: 'pointer', background: 'rgba(251,191,36,.08)', border: '1px solid rgba(251,191,36,.22)', color: '#fbbf24', fontFamily: FONT }}>
+                            style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: 'pointer', background: 'var(--status-warning-muted)', border: '1px solid var(--status-warning-border)', color: 'var(--status-warning)', fontFamily: FONT }}>
                             Archive
                           </button>
                         )
@@ -932,24 +951,24 @@ function ManageSessionsModal({ sessions, sessionTypes, contacts, onClose, onEdit
                       {confirmDeleteId === s.id ? (
                         <>
                           <button onClick={() => handleDeleteConfirmed(s.id)} disabled={busyId === s.id} aria-label={`Confirm delete ${title}`}
-                            style={{ fontSize: 11, fontWeight: 700, padding: '5px 10px', borderRadius: 20, cursor: 'pointer', background: 'rgba(239,68,68,.22)', border: '1px solid rgba(239,68,68,.50)', color: '#f87171', fontFamily: FONT }}>
+                            style={{ fontSize: 11, fontWeight: 700, padding: '5px 10px', borderRadius: 20, cursor: 'pointer', background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', color: 'var(--status-danger)', fontFamily: FONT }}>
                             Confirm
                           </button>
                           <button onClick={() => setConfirmDeleteId(null)} aria-label="Cancel delete"
-                            style={{ fontSize: 11, padding: '5px 8px', borderRadius: 20, cursor: 'pointer', background: 'none', border: '1px solid rgba(255,255,255,.10)', color: 'rgba(255,255,255,.30)', fontFamily: FONT }}>
+                            style={{ fontSize: 11, padding: '5px 8px', borderRadius: 20, cursor: 'pointer', background: 'none', border: '1px solid var(--border)', color: 'var(--text-muted)', fontFamily: FONT }}>
                             ✕
                           </button>
                         </>
                       ) : (
                         <button onClick={() => setConfirmDeleteId(s.id)} aria-label={`Delete ${title}`}
-                          style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: 'pointer', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.22)', color: '#f87171', fontFamily: FONT }}>
+                          style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: 'pointer', background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', color: 'var(--status-danger)', fontFamily: FONT }}>
                           Delete
                         </button>
                       )}
                     </div>
                   </div>
                   {notes[s.id] && (
-                    <div style={{ marginTop: 8, fontSize: 11, color: '#a5b4fc' }}>{notes[s.id]}</div>
+                    <div style={{ marginTop: 8, fontSize: 11, color: 'var(--brand-brainbase-accent)' }}>{notes[s.id]}</div>
                   )}
                 </div>
               )
@@ -968,6 +987,9 @@ function ManageSessionsModal({ sessions, sessionTypes, contacts, onClose, onEdit
 // "Repair future dates" recovery action) / recurrence / pause remain the
 // only ways instances come into existence; this just browses them.
 
+// Native-button reset for calendar entries: keyboard operable, same look.
+const entryReset: React.CSSProperties = { width: '100%', textAlign: 'left', margin: 0, font: 'inherit' }
+
 function CalendarEntry({ inst, compact, selected, sessionTypes, onSelect }: {
   inst: WeekInstance; compact?: boolean; selected?: boolean; sessionTypes: SessionTypeRow[]; onSelect: () => void
 }) {
@@ -983,58 +1005,60 @@ function CalendarEntry({ inst, compact, selected, sessionTypes, onSelect }: {
   if (compact) {
     // Month view: tight on space, but the start time must still be visible
     // without clicking — "10:00 Hot Shots Tennis · 3/8".
-    const compactBorderColor = selected ? 'rgba(99,102,241,.45)' : 'transparent'
+    const compactBorderColor = selected ? 'var(--brand-brainbase-accent-border)' : 'transparent'
     return (
-      <div onClick={onSelect} style={{
+      <button type="button" aria-pressed={!!selected} onClick={onSelect} style={{
+        ...entryReset,
         fontSize: 9.5, padding: '2px 5px', borderRadius: 4, cursor: 'pointer', fontFamily: FONT,
-        background: selected ? 'rgba(99,102,241,.22)' : 'rgba(255,255,255,.05)',
+        background: selected ? 'var(--brand-brainbase-accent-muted)' : 'var(--bg-sunken)',
         borderTop: `1px solid ${compactBorderColor}`,
         borderRight: `1px solid ${compactBorderColor}`,
         borderBottom: `1px solid ${compactBorderColor}`,
         borderLeft: `2px solid ${typeColour}`,
-        color: selected ? '#c7d2fe' : 'rgba(255,255,255,.65)',
+        color: selected ? 'var(--brand-brainbase-accent)' : 'var(--text-secondary)',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4,
       }}
-        onMouseEnter={e => { if (!selected) e.currentTarget.style.background = 'rgba(255,255,255,.10)' }}
-        onMouseLeave={e => { if (!selected) e.currentTarget.style.background = 'rgba(255,255,255,.05)' }}
+        onMouseEnter={e => { if (!selected) e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 7%, transparent)' }}
+        onMouseLeave={e => { if (!selected) e.currentTarget.style.background = 'var(--bg-sunken)' }}
       >
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          <span style={{ fontWeight: 700, color: selected ? '#c7d2fe' : 'rgba(255,255,255,.85)' }}>{inst.start_time}</span> {title}
+          <span style={{ fontWeight: 700, color: selected ? 'var(--brand-brainbase-accent)' : 'var(--text-primary)' }}>{inst.start_time}</span> {title}
         </span>
         <span style={{ fontWeight: 700, color: capClr, flexShrink: 0 }}>{inst.enrolled_count}/{inst.max_capacity}</span>
-      </div>
+      </button>
     )
   }
   const label = optionalLabel(inst.session_name, inst.session_type, sessionTypes)
-  const fullBorderColor = selected ? 'rgba(99,102,241,.50)' : 'rgba(255,255,255,.08)'
+  const fullBorderColor = selected ? 'var(--brand-brainbase-accent-border)' : 'var(--border)'
   return (
-    <div onClick={onSelect} style={{
+    <button type="button" aria-pressed={!!selected} onClick={onSelect} style={{
+      ...entryReset,
       padding: '5px 8px', borderRadius: 6, cursor: 'pointer', fontFamily: FONT,
-      background: selected ? 'rgba(99,102,241,.18)' : 'rgba(255,255,255,.04)',
+      background: selected ? 'var(--brand-brainbase-accent-muted)' : 'var(--bg-sunken)',
       borderTop: `1px solid ${fullBorderColor}`,
       borderRight: `1px solid ${fullBorderColor}`,
       borderBottom: `1px solid ${fullBorderColor}`,
       borderLeft: `3px solid ${typeColour}`,
       display: 'flex', flexDirection: 'column', gap: 2,
     }}
-      onMouseEnter={e => { if (!selected) e.currentTarget.style.background = 'rgba(255,255,255,.08)' }}
-      onMouseLeave={e => { if (!selected) e.currentTarget.style.background = 'rgba(255,255,255,.04)' }}
+      onMouseEnter={e => { if (!selected) e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 7%, transparent)' }}
+      onMouseLeave={e => { if (!selected) e.currentTarget.style.background = 'var(--bg-sunken)' }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, color: selected ? '#c7d2fe' : '#F5F7FA', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
+      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: selected ? 'var(--brand-brainbase-accent)' : 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
         <span style={{ fontSize: 10, fontWeight: 800, color: capClr, flexShrink: 0 }}>{inst.enrolled_count}/{inst.max_capacity}</span>
-      </div>
+      </span>
       {label && (
-        <div style={{ fontSize: 10, color: 'rgba(255,255,255,.45)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</div>
+        <span style={{ display: 'block', fontSize: 10, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
       )}
-      <div style={{ fontSize: 10, fontWeight: 600, color: selected ? '#a5b4fc' : 'rgba(255,255,255,.60)' }}>
+      <span style={{ display: 'block', fontSize: 10, fontWeight: 600, color: selected ? 'var(--brand-brainbase-accent)' : 'var(--text-secondary)' }}>
         {inst.start_time}–{endTime(inst.start_time, inst.duration_minutes)}
-      </div>
-      <div style={{ fontSize: 10, color: 'rgba(255,255,255,.32)', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+      </span>
+      <span style={{ fontSize: 10, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
         {inst.resource_id && <span>{inst.resource_id}</span>}
-        {full && <span style={{ fontWeight: 700, color: '#f87171' }}>Full</span>}
-      </div>
-    </div>
+        {full && <span style={{ fontWeight: 700, color: 'var(--status-danger)' }}>Full</span>}
+      </span>
+    </button>
   )
 }
 
@@ -1056,14 +1080,14 @@ function WeekGrid({ range, instances, selectedInstanceId, sessionTypes, onSelect
           <div key={dateStr}>
             <div style={{
               fontSize: 11, fontWeight: 700, textAlign: 'center', marginBottom: 8, paddingBottom: 8,
-              borderBottom: `1px solid ${today_ ? 'rgba(99,102,241,.35)' : 'rgba(255,255,255,.06)'}`,
-              color: today_ ? '#a5b4fc' : 'rgba(255,255,255,.30)',
+              borderBottom: `1px solid ${today_ ? 'var(--brand-brainbase-accent-border)' : 'var(--border-light)'}`,
+              color: today_ ? 'var(--brand-brainbase-accent)' : 'var(--text-muted)',
             }}>
-              {DAY_LABEL_MON[i]} <span style={{ color: today_ ? '#a5b4fc' : 'rgba(255,255,255,.45)' }}>{day.getDate()}</span>
+              {DAY_LABEL_MON[i]} <span style={{ color: today_ ? 'var(--brand-brainbase-accent)' : 'var(--text-secondary)' }}>{day.getDate()}</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 5, minHeight: 32 }}>
               {dayInstances.length === 0
-                ? <div style={{ height: 32, border: '1px dashed rgba(255,255,255,.05)', borderRadius: 6 }} />
+                ? <div style={{ height: 32, border: '1px dashed var(--border-light)', borderRadius: 6 }} />
                 : dayInstances.map(inst => (
                     <CalendarEntry key={inst.id} inst={inst} selected={inst.id === selectedInstanceId} sessionTypes={sessionTypes} onSelect={() => onSelectInstance(inst.session_id, inst.id)} />
                   ))
@@ -1092,7 +1116,7 @@ function MonthGrid({ range, monthAnchor, instances, selectedInstanceId, sessionT
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 700 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
         {DAY_LABEL_MON.map(l => (
-          <div key={l} style={{ fontSize: 10, fontWeight: 700, textAlign: 'center', color: 'rgba(255,255,255,.28)', letterSpacing: '.06em', textTransform: 'uppercase' }}>{l}</div>
+          <div key={l} style={{ fontSize: 10, fontWeight: 700, textAlign: 'center', color: 'var(--text-muted)', letterSpacing: '.06em', textTransform: 'uppercase' }}>{l}</div>
         ))}
       </div>
       {weeks.map((week, wi) => (
@@ -1107,16 +1131,16 @@ function MonthGrid({ range, monthAnchor, instances, selectedInstanceId, sessionT
             return (
               <div key={dateStr} style={{
                 minHeight: 74, padding: 6, borderRadius: 8,
-                background: today_ ? 'rgba(99,102,241,.08)' : 'rgba(255,255,255,.02)',
-                border: `1px solid ${today_ ? 'rgba(99,102,241,.30)' : 'rgba(255,255,255,.06)'}`,
+                background: today_ ? 'var(--brand-brainbase-accent-muted)' : 'var(--bg-surface)',
+                border: `1px solid ${today_ ? 'var(--brand-brainbase-accent-border)' : 'var(--border-light)'}`,
                 opacity: inMonth ? 1 : .35,
               }}>
-                <div style={{ fontSize: 10, fontWeight: today_ ? 800 : 600, color: today_ ? '#a5b4fc' : 'rgba(255,255,255,.35)', marginBottom: 4 }}>{day.getDate()}</div>
+                <div style={{ fontSize: 10, fontWeight: today_ ? 800 : 600, color: today_ ? 'var(--brand-brainbase-accent)' : 'var(--text-muted)', marginBottom: 4 }}>{day.getDate()}</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {shown.map(inst => (
                     <CalendarEntry key={inst.id} inst={inst} compact selected={inst.id === selectedInstanceId} sessionTypes={sessionTypes} onSelect={() => onSelectInstance(inst.session_id, inst.id)} />
                   ))}
-                  {extra > 0 && <div style={{ fontSize: 9, color: 'rgba(255,255,255,.30)' }}>+{extra} more</div>}
+                  {extra > 0 && <div style={{ fontSize: 9, color: 'var(--text-muted)' }}>+{extra} more</div>}
                 </div>
               </div>
             )
@@ -1302,32 +1326,33 @@ function InstanceRoster({ detail, sessionRecurring, hasOtherInstances, onBooking
   const capClr = capacityColor(bookings.length, instance.max_capacity)
 
   return (
-    <div style={{ marginTop: 12, background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 12, overflow: 'hidden' }}>
-      <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#F5F7FA' }}>{formatDateAU(instance.date)} · {instance.start_time}–{end}</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+    <div style={{ marginTop: 12, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{formatDateAU(instance.date)} · {instance.start_time}–{end}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: capClr }}>{bookings.length}/{instance.max_capacity} enrolled</span>
-          <span style={{ fontSize: 12, color: 'rgba(255,255,255,.40)' }}>{paid}/{bookings.length} paid</span>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{paid}/{bookings.length} paid</span>
           <button onClick={() => { setShowEnroll(v => !v); setEnrollErr(null) }} style={{
             fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 20, cursor: 'pointer',
-            background: 'rgba(99,102,241,.18)', border: '1px solid rgba(99,102,241,.38)',
-            color: '#a5b4fc', fontFamily: FONT,
+            background: 'var(--brand-brainbase-accent-muted)', border: '1px solid var(--brand-brainbase-accent-border)',
+            color: 'var(--brand-brainbase-accent)', fontFamily: FONT,
           }}>+ Enroll</button>
         </div>
       </div>
 
       {notice && (
-        <div style={{ padding: '8px 20px', fontSize: 12, color: '#a5b4fc', background: 'rgba(99,102,241,.08)', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ padding: '8px 20px', fontSize: 12, color: 'var(--brand-brainbase-accent)', background: 'var(--brand-brainbase-accent-muted)', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>{notice}</span>
-          <button onClick={() => setNotice(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.30)', cursor: 'pointer', fontSize: 13 }}>✕</button>
+          <button type="button" aria-label="Dismiss" onClick={() => setNotice(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13 }}>✕</button>
         </div>
       )}
 
       {showEnroll && (
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border-light)', display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 180, position: 'relative' }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,.30)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 4 }}>Search Contact *</div>
+            <label htmlFor={`enrol-search-${instance.id}`} style={{ display: 'block', fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 4 }}>Search Contact *</label>
             <input
+              id={`enrol-search-${instance.id}`}
               style={inp}
               placeholder="Type a name to search…"
               value={nameQuery}
@@ -1337,77 +1362,78 @@ function InstanceRoster({ detail, sessionRecurring, hasOtherInstances, onBooking
               onBlur={() => setTimeout(() => setShowDrop(false), 150)}
             />
             {showDrop && filtered.length > 0 && (
-              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200, background: '#16181d', border: '1px solid rgba(255,255,255,.12)', borderRadius: 8, marginTop: 2, overflow: 'hidden' }}>
+              <div role="listbox" aria-label="Matching contacts" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200, background: 'var(--bg-overlay)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', marginTop: 2, overflow: 'hidden', boxShadow: 'var(--shadow-menu)' }}>
                 {filtered.map(c => (
-                  <div key={c.id} onMouseDown={() => selectContact(c)} style={{ padding: '9px 12px', cursor: 'pointer', fontSize: 13, color: '#F5F7FA', display: 'flex', flexDirection: 'column', gap: 2 }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(99,102,241,.15)')}
+                  <div key={c.id} role="option" aria-selected={false} onMouseDown={() => selectContact(c)} style={{ padding: '9px 12px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', display: 'flex', flexDirection: 'column', gap: 2 }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--brand-brainbase-accent-muted)')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
                     <span style={{ fontWeight: 600 }}>{c.name}</span>
-                    {c.email && <span style={{ fontSize: 11, color: 'rgba(255,255,255,.35)' }}>{c.email}</span>}
+                    {c.email && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{c.email}</span>}
                   </div>
                 ))}
               </div>
             )}
           </div>
           <div style={{ flex: 1, minWidth: 160 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,.30)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 4 }}>Email (optional)</div>
-            <input style={inp} placeholder="client@email.com" type="email" value={enrollForm.email} onChange={e => setEnrollForm(f => ({ ...f, email: e.target.value }))} />
+            <label htmlFor={`enrol-email-${instance.id}`} style={{ display: 'block', fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 4 }}>Email (optional)</label>
+            <input id={`enrol-email-${instance.id}`} style={inp} placeholder="client@email.com" type="email" value={enrollForm.email} onChange={e => setEnrollForm(f => ({ ...f, email: e.target.value }))} />
           </div>
           {canOfferWeekly && (
             <div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,.30)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 4 }}>Booking frequency</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 4 }}>Booking frequency</div>
               <div style={{ display: 'flex', gap: 6 }}>
                 {(['weekly', 'once'] as const).map(f => (
-                  <button key={f} onClick={() => setFrequency(f)} style={{
+                  <button key={f} aria-pressed={frequency === f} onClick={() => setFrequency(f)} style={{
                     fontSize: 12, fontWeight: 600, padding: '7px 14px', borderRadius: 8, cursor: 'pointer', fontFamily: FONT,
-                    background: frequency === f ? 'rgba(99,102,241,.22)' : 'rgba(255,255,255,.04)',
-                    border: `1px solid ${frequency === f ? 'rgba(99,102,241,.45)' : 'rgba(255,255,255,.09)'}`,
-                    color: frequency === f ? '#a5b4fc' : 'rgba(255,255,255,.40)',
+                    background: frequency === f ? 'var(--brand-brainbase-accent-muted)' : 'var(--bg-sunken)',
+                    border: `1px solid ${frequency === f ? 'var(--brand-brainbase-accent-border)' : 'var(--border)'}`,
+                    color: frequency === f ? 'var(--brand-brainbase-accent)' : 'var(--text-muted)',
                   }}>{f === 'weekly' ? '↻ Weekly' : 'Once'}</button>
                 ))}
               </div>
             </div>
           )}
           <div style={{ display: 'flex', gap: 6 }}>
-            <button onClick={() => { setShowEnroll(false); setEnrollErr(null); setNameQuery('') }} style={{ fontSize: 12, fontWeight: 600, padding: '8px 14px', borderRadius: 8, cursor: 'pointer', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.09)', color: 'rgba(255,255,255,.35)', fontFamily: FONT }}>Cancel</button>
-            <button onClick={submitEnroll} disabled={!enrollForm.name.trim() || enrolling} style={{ fontSize: 12, fontWeight: 600, padding: '8px 16px', borderRadius: 8, cursor: 'pointer', background: 'rgba(99,102,241,.22)', border: '1px solid rgba(99,102,241,.40)', color: '#a5b4fc', fontFamily: FONT, opacity: !enrollForm.name.trim() || enrolling ? .45 : 1 }}>{enrolling ? 'Enrolling…' : 'Confirm'}</button>
+            <button onClick={() => { setShowEnroll(false); setEnrollErr(null); setNameQuery('') }} style={{ fontSize: 12, fontWeight: 600, padding: '8px 14px', borderRadius: 8, cursor: 'pointer', background: 'var(--bg-sunken)', border: '1px solid var(--border)', color: 'var(--text-muted)', fontFamily: FONT }}>Cancel</button>
+            <button onClick={submitEnroll} disabled={!enrollForm.name.trim() || enrolling} style={{ fontSize: 12, fontWeight: 600, padding: '8px 16px', borderRadius: 8, cursor: 'pointer', background: 'var(--brand-brainbase-accent-muted)', border: '1px solid var(--brand-brainbase-accent-border)', color: 'var(--brand-brainbase-accent)', fontFamily: FONT, opacity: !enrollForm.name.trim() || enrolling ? .45 : 1 }}>{enrolling ? 'Enrolling…' : 'Confirm'}</button>
           </div>
-          {enrollErr && <div style={{ width: '100%', fontSize: 12, color: '#f87171' }}>{enrollErr}</div>}
+          {enrollErr && <div style={{ width: '100%', fontSize: 12, color: 'var(--status-danger)' }}>{enrollErr}</div>}
         </div>
       )}
 
       {bookings.length === 0 ? (
-        <div style={{ padding: '28px 20px', textAlign: 'center', color: 'rgba(255,255,255,.22)', fontSize: 13 }}>No clients booked yet. Use + Enroll to add one.</div>
+        <div style={{ padding: '28px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No clients booked yet. Use + Enroll to add one.</div>
       ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', minWidth: 640, borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+            <tr style={{ borderBottom: '1px solid var(--border-light)' }}>
               {['Client', 'Email', 'Payment', 'Attendance', 'Recurring', ''].map(h => (
-                <th key={h} style={{ padding: '10px 20px', fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,.28)', textAlign: 'left' }}>{h}</th>
+                <th key={h} style={{ padding: '10px 20px', fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-muted)', textAlign: 'left' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {bookings.map((b, i) => (
-              <tr key={b.id} style={{ borderBottom: i < bookings.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none' }}>
+              <tr key={b.id} style={{ borderBottom: i < bookings.length - 1 ? '1px solid var(--border-light)' : 'none' }}>
                 <td style={{ padding: '12px 20px' }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F7FA', display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 7 }}>
                     {b.client_name}
                     {b.is_recurring && (
-                      <span style={{ fontSize: 9, fontWeight: 700, color: '#818cf8', background: 'rgba(99,102,241,.15)', border: '1px solid rgba(99,102,241,.28)', borderRadius: 20, padding: '1px 6px' }}>Recurring</span>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--brand-brainbase-accent)', background: 'var(--brand-brainbase-accent-muted)', border: '1px solid var(--brand-brainbase-accent-border)', borderRadius: 20, padding: '1px 6px' }}>Recurring</span>
                     )}
                   </div>
                   {b.is_recurring && (
-                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,.28)', marginTop: 2 }}>Applies to future sessions</div>
+                    <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>Applies to future sessions</div>
                   )}
                 </td>
-                <td style={{ padding: '12px 20px', fontSize: 12, color: 'rgba(255,255,255,.40)' }}>{b.client_email ?? '—'}</td>
+                <td style={{ padding: '12px 20px', fontSize: 12, color: 'var(--text-muted)' }}>{b.client_email ?? '—'}</td>
                 <td style={{ padding: '12px 20px' }}>
                   <button onClick={() => togglePaid(b)} style={{
                     fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT,
-                    background: b.paid ? 'rgba(34,197,94,.12)' : 'rgba(255,255,255,.04)',
-                    border: `1px solid ${b.paid ? 'rgba(34,197,94,.35)' : 'rgba(255,255,255,.12)'}`,
-                    color: b.paid ? '#4ade80' : 'rgba(255,255,255,.35)',
+                    background: b.paid ? 'var(--status-success-muted)' : 'var(--bg-sunken)',
+                    border: `1px solid ${b.paid ? 'var(--status-success-border)' : 'var(--border)'}`,
+                    color: b.paid ? 'var(--status-success)' : 'var(--text-muted)',
                   }}>{b.paid ? '✓ Paid' : 'Unpaid'}</button>
                 </td>
                 <td style={{ padding: '12px 20px' }}>
@@ -1421,7 +1447,7 @@ function InstanceRoster({ detail, sessionRecurring, hasOtherInstances, onBooking
                   ) : (
                     <button onClick={() => cycleAttendance(b)} style={{
                       fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT,
-                      background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.09)', color: 'rgba(255,255,255,.28)',
+                      background: 'var(--bg-sunken)', border: '1px solid var(--border)', color: 'var(--text-muted)',
                     }}>Mark</button>
                   )}
                 </td>
@@ -1429,36 +1455,36 @@ function InstanceRoster({ detail, sessionRecurring, hasOtherInstances, onBooking
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
                     <button onClick={() => toggleRecurring(b)} style={{
                       fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT,
-                      background: b.is_recurring ? 'rgba(99,102,241,.18)' : 'rgba(255,255,255,.04)',
-                      border: `1px solid ${b.is_recurring ? 'rgba(99,102,241,.40)' : 'rgba(255,255,255,.09)'}`,
-                      color: b.is_recurring ? '#a5b4fc' : 'rgba(255,255,255,.28)',
+                      background: b.is_recurring ? 'var(--brand-brainbase-accent-muted)' : 'var(--bg-sunken)',
+                      border: `1px solid ${b.is_recurring ? 'var(--brand-brainbase-accent-border)' : 'var(--border)'}`,
+                      color: b.is_recurring ? 'var(--brand-brainbase-accent)' : 'var(--text-muted)',
                     }}>{b.is_recurring ? '↻ Weekly' : 'Once'}</button>
                     {toggleErrId === b.id && toggleErr && (
-                      <div style={{ fontSize: 10, color: '#f87171', maxWidth: 180 }}>{toggleErr}</div>
+                      <div style={{ fontSize: 10, color: 'var(--status-danger)', maxWidth: 180 }}>{toggleErr}</div>
                     )}
                     {b.is_recurring && b.active_pause_from && b.active_pause_until && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, color: '#fbbf24', background: 'rgba(251,191,36,.12)', border: '1px solid rgba(251,191,36,.28)', borderRadius: 20, padding: '1px 6px' }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--status-warning)', background: 'var(--status-warning-muted)', border: '1px solid var(--status-warning-border)', borderRadius: 20, padding: '1px 6px' }}>
                           Paused {formatDateAU(b.active_pause_from)}–{formatDateAU(b.active_pause_until)}
                         </span>
-                        <button onClick={() => resumeEarly(b)} style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT, background: 'none', border: '1px solid rgba(255,255,255,.12)', color: 'rgba(255,255,255,.40)' }}>Resume early</button>
+                        <button onClick={() => resumeEarly(b)} style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT, background: 'none', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>Resume early</button>
                       </div>
                     )}
                     {b.is_recurring && !b.active_pause_from && pausingId !== b.id && (
-                      <button onClick={() => { setPausingId(b.id); setPauseErr(null) }} style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT, background: 'none', border: '1px solid rgba(255,255,255,.10)', color: 'rgba(255,255,255,.30)' }}>Pause</button>
+                      <button onClick={() => { setPausingId(b.id); setPauseErr(null) }} style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT, background: 'none', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>Pause</button>
                     )}
                     {pausingId === b.id && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 8, borderRadius: 8, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', minWidth: 180 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 8, borderRadius: 8, background: 'var(--bg-surface)', border: '1px solid var(--border)', minWidth: 180 }}>
                         <div style={{ display: 'flex', gap: 4 }}>
-                          <input type="date" value={pauseForm.from} onChange={e => setPauseForm(f => ({ ...f, from: e.target.value }))} style={{ ...inp, padding: '4px 6px', fontSize: 11 }} />
-                          <input type="date" value={pauseForm.until} onChange={e => setPauseForm(f => ({ ...f, until: e.target.value }))} style={{ ...inp, padding: '4px 6px', fontSize: 11 }} />
+                          <input type="date" aria-label="Pause from" value={pauseForm.from} onChange={e => setPauseForm(f => ({ ...f, from: e.target.value }))} style={{ ...inp, padding: '4px 6px', fontSize: 11 }} />
+                          <input type="date" aria-label="Pause until" value={pauseForm.until} onChange={e => setPauseForm(f => ({ ...f, until: e.target.value }))} style={{ ...inp, padding: '4px 6px', fontSize: 11 }} />
                         </div>
-                        <input placeholder="Reason (optional)" value={pauseForm.reason} onChange={e => setPauseForm(f => ({ ...f, reason: e.target.value }))} style={{ ...inp, padding: '4px 6px', fontSize: 11 }} />
+                        <input aria-label="Pause reason (optional)" placeholder="Reason (optional)" value={pauseForm.reason} onChange={e => setPauseForm(f => ({ ...f, reason: e.target.value }))} style={{ ...inp, padding: '4px 6px', fontSize: 11 }} />
                         <div style={{ display: 'flex', gap: 4 }}>
-                          <button onClick={() => submitPause(b)} style={{ fontSize: 10, fontWeight: 600, padding: '4px 10px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT, background: 'rgba(251,191,36,.15)', border: '1px solid rgba(251,191,36,.35)', color: '#fbbf24' }}>Confirm pause</button>
-                          <button onClick={() => { setPausingId(null); setPauseErr(null) }} style={{ fontSize: 10, padding: '4px 8px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT, background: 'none', border: '1px solid rgba(255,255,255,.10)', color: 'rgba(255,255,255,.30)' }}>✕</button>
+                          <button onClick={() => submitPause(b)} style={{ fontSize: 10, fontWeight: 600, padding: '4px 10px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT, background: 'var(--status-warning-muted)', border: '1px solid var(--status-warning-border)', color: 'var(--status-warning)' }}>Confirm pause</button>
+                          <button aria-label="Cancel pause" onClick={() => { setPausingId(null); setPauseErr(null) }} style={{ fontSize: 10, padding: '4px 8px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT, background: 'none', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>✕</button>
                         </div>
-                        {pauseErr && <div style={{ fontSize: 10, color: '#f87171' }}>{pauseErr}</div>}
+                        {pauseErr && <div style={{ fontSize: 10, color: 'var(--status-danger)' }}>{pauseErr}</div>}
                       </div>
                     )}
                   </div>
@@ -1468,21 +1494,22 @@ function InstanceRoster({ detail, sessionRecurring, hasOtherInstances, onBooking
                     <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
                       <button
                         onClick={() => { removeBooking(b); setRemovingId(null) }}
-                        style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT, background: 'rgba(239,68,68,.14)', border: '1px solid rgba(239,68,68,.35)', color: '#f87171' }}
+                        style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT, background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', color: 'var(--status-danger)' }}
                       >This session</button>
                       <button
                         onClick={() => { removeFuture(b); setRemovingId(null) }}
-                        style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT, background: 'rgba(239,68,68,.07)', border: '1px solid rgba(239,68,68,.22)', color: '#fca5a5' }}
+                        style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT, background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', color: 'var(--status-danger)' }}
                       >All future</button>
                       <button
+                        aria-label="Cancel remove"
                         onClick={() => setRemovingId(null)}
-                        style={{ fontSize: 11, padding: '4px 8px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT, background: 'none', border: '1px solid rgba(255,255,255,.10)', color: 'rgba(255,255,255,.30)' }}
+                        style={{ fontSize: 11, padding: '4px 8px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT, background: 'none', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
                       >✕</button>
                     </div>
                   ) : (
                     <button onClick={() => setRemovingId(b.id)} style={{
                       fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT,
-                      background: 'rgba(239,68,68,.07)', border: '1px solid rgba(239,68,68,.20)', color: '#f87171',
+                      background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', color: 'var(--status-danger)',
                     }}>Remove</button>
                   )}
                 </td>
@@ -1490,6 +1517,7 @@ function InstanceRoster({ detail, sessionRecurring, hasOtherInstances, onBooking
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   )
@@ -1761,18 +1789,22 @@ export default function SessionsPage() {
   // when no specific date is selected yet.
   const selectedCapacity       = instanceDetail ? instanceDetail.instance.max_capacity : (selectedSession?.max_capacity ?? 0)
   const selectedPlayers        = instanceDetail ? instanceDetail.bookings.length : (selectedSession?.enrolled_count ?? 0)
-  const selCapClr              = selectedSession ? capacityColor(selectedPlayers, selectedCapacity) : '#4ade80'
+  const selCapClr              = selectedSession ? capacityColor(selectedPlayers, selectedCapacity) : 'var(--status-success)'
   const selUtilisation         = selectedCapacity > 0 ? Math.round(selectedPlayers / selectedCapacity * 100) : 0
   const instancesTotalRevenue  = instances.reduce((sum, i) => sum + (i.revenue ?? 0), 0)
   const paidCount              = instanceDetail ? instanceDetail.bookings.filter(b => b.paid).length : null
 
   const lbl10: React.CSSProperties = {
     fontSize: 10, fontWeight: 700, letterSpacing: '.08em',
-    textTransform: 'uppercase', color: 'rgba(255,255,255,.28)', marginBottom: 4,
+    textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 4,
   }
 
   return (
-    <div style={{ maxWidth: 1400, margin: '0 auto', padding: '32px 24px', fontFamily: FONT }}>
+    // width/boxSizing: as a flex child with auto side margins this root would
+    // otherwise shrink-to-fit its content, letting the week grid's 700px
+    // minimum widen the whole page at phone width instead of scrolling
+    // inside the calendar's own overflow-x wrapper.
+    <div style={{ width: '100%', boxSizing: 'border-box', maxWidth: 1400, margin: '0 auto', padding: '32px 16px', fontFamily: FONT, color: 'var(--text-primary)', minWidth: 0 }}>
       {showCreate && <CreateModal onClose={() => setShowCreate(false)} onCreate={handleCreate} sessionTypes={sessionTypes} onManageTypes={() => setShowManageTypes(true)} />}
       {editingSession && <EditModal session={editingSession} onClose={() => setEditingSession(null)} onSave={handleSave} sessionTypes={sessionTypes} onManageTypes={() => setShowManageTypes(true)} />}
       {showManageTypes && <ManageSessionTypesModal types={sessionTypes} onClose={() => setShowManageTypes(false)} onChanged={loadSessionTypes} />}
@@ -1789,31 +1821,31 @@ export default function SessionsPage() {
       )}
 
       {/* ── Page header ──────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, gap: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#F5F7FA', margin: 0, letterSpacing: '-.02em' }}>Sessions</h1>
-          <p style={{ fontSize: 12, color: 'rgba(255,255,255,.28)', margin: '4px 0 0' }}>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', margin: 0, letterSpacing: '-.02em' }}>Sessions</h1>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0' }}>
             {activeSessions.length} session{activeSessions.length !== 1 ? 's' : ''} · click a date below to view its roster
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <button onClick={() => setShowManageSessions(true)} style={{
             fontSize: 12, fontWeight: 600, padding: '7px 14px', borderRadius: 20, cursor: 'pointer',
-            background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.10)',
-            color: 'rgba(255,255,255,.45)', fontFamily: FONT,
+            background: 'var(--bg-sunken)', border: '1px solid var(--border)',
+            color: 'var(--text-secondary)', fontFamily: FONT,
           }}>Manage sessions</button>
           <button onClick={() => setShowCreate(true)} style={{
             fontSize: 13, fontWeight: 600, padding: '8px 18px', borderRadius: 20, cursor: 'pointer',
-            background: 'rgba(99,102,241,.20)', border: '1px solid rgba(99,102,241,.40)',
-            color: '#a5b4fc', fontFamily: FONT,
+            background: 'var(--brand-brainbase-accent-muted)', border: '1px solid var(--brand-brainbase-accent-border)',
+            color: 'var(--brand-brainbase-accent)', fontFamily: FONT,
           }}>+ New Session</button>
         </div>
       </div>
 
       {!loading && sessions.length === 0 && (
-        <div style={{ marginTop: 20, border: '1px dashed rgba(255,255,255,.08)', borderRadius: 14, padding: '48px 24px', textAlign: 'center', color: 'rgba(255,255,255,.22)', fontSize: 13 }}>
+        <div style={{ marginTop: 20, border: '1px dashed var(--border)', borderRadius: 14, padding: '48px 24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
           No sessions yet.{' '}
-          <button onClick={() => setShowCreate(true)} style={{ background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 13, fontFamily: FONT, padding: 0 }}>
+          <button onClick={() => setShowCreate(true)} style={{ background: 'none', border: 'none', color: 'var(--brand-brainbase-accent)', cursor: 'pointer', fontSize: 13, fontFamily: FONT, padding: 0 }}>
             Create your first session →
           </button>
         </div>
@@ -1824,9 +1856,9 @@ export default function SessionsPage() {
           it only surfaces this dismissible note and points at the manual
           "Repair future dates" fallback. */}
       {reconcileWarning && (
-        <div style={{ marginTop: 16, padding: '10px 16px', borderRadius: 10, background: 'rgba(251,191,36,.08)', border: '1px solid rgba(251,191,36,.24)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 12, color: '#fbbf24' }}>{reconcileWarning}</span>
-          <button onClick={() => setReconcileWarning(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.30)', cursor: 'pointer', fontSize: 13, flexShrink: 0 }}>✕</button>
+        <div style={{ marginTop: 16, padding: '10px 16px', borderRadius: 10, background: 'var(--status-warning-muted)', border: '1px solid var(--status-warning-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 12, color: 'var(--status-warning)' }}>{reconcileWarning}</span>
+          <button type="button" aria-label="Dismiss" onClick={() => setReconcileWarning(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13, flexShrink: 0 }}>✕</button>
         </div>
       )}
 
@@ -1834,15 +1866,15 @@ export default function SessionsPage() {
           Week/Month navigation over already-scheduled session_instances rows.
           Read-only — never generates, mutates, or propagates anything. */}
       {loading ? (
-        <div style={{ color: 'rgba(255,255,255,.25)', fontSize: 13 }}>Loading…</div>
+        <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading…</div>
       ) : sessions.length > 0 && (
         <div style={{ marginTop: 8 }}>
           {/* Summary / controls row: Weekly Revenue (left) · Prev/Today/Next + Week|Month (right) */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 14, flexWrap: 'wrap' }}>
             {weeklyRevenue > 0 ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(167,139,250,.55)' }}>Weekly Revenue</span>
-                <span style={{ fontSize: 18, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.02em' }}>{fmtMoney(weeklyRevenue)}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Weekly Revenue</span>
+                <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-.02em' }}>{fmtMoney(weeklyRevenue)}</span>
               </div>
             ) : <div />}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -1851,20 +1883,20 @@ export default function SessionsPage() {
                 <button onClick={calendarToday} style={navBtn}>Today</button>
                 <button onClick={calendarNext} style={navBtn}>Next ›</button>
               </div>
-              <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 20, padding: 2 }}>
-                <button onClick={() => setCalendarViewAndReload('week')} style={toggleBtn(calendarView === 'week')}>Week</button>
-                <button onClick={() => setCalendarViewAndReload('month')} style={toggleBtn(calendarView === 'month')}>Month</button>
+              <div style={{ display: 'flex', gap: 2, background: 'var(--bg-sunken)', border: '1px solid var(--border)', borderRadius: 20, padding: 2 }}>
+                <button aria-pressed={calendarView === 'week'} onClick={() => setCalendarViewAndReload('week')} style={toggleBtn(calendarView === 'week')}>Week</button>
+                <button aria-pressed={calendarView === 'month'} onClick={() => setCalendarViewAndReload('month')} style={toggleBtn(calendarView === 'month')}>Month</button>
               </div>
             </div>
           </div>
 
           {/* Date heading (left) — already carried by the controls row above on desktop; shown here for the calendar itself */}
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#F5F7FA', marginBottom: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>
             {calendarView === 'week' ? formatWeekHeading(getWeekRange(calendarAnchor)) : formatMonthHeading(calendarAnchor)}
           </div>
 
           {calendarLoading ? (
-            <div style={{ padding: '24px 0', color: 'rgba(255,255,255,.25)', fontSize: 13 }}>Loading calendar…</div>
+            <div style={{ padding: '24px 0', color: 'var(--text-muted)', fontSize: 13 }}>Loading calendar…</div>
           ) : (
             <div style={{ overflowX: 'auto', paddingBottom: 4 }}>
               {calendarView === 'week' ? (
@@ -1878,57 +1910,57 @@ export default function SessionsPage() {
       )}
 
       {selectedSessionId && selectedSession && (
-        <div style={{ marginTop: 32, background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 16, overflow: 'hidden' }}>
+        <div style={{ marginTop: 32, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
 
           {/* Session header + actions */}
-          <div style={{ padding: '16px 22px', borderBottom: '1px solid rgba(255,255,255,.07)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: '#F5F7FA', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: sessionColourDot(selectedSession.session_type, sessionTypes, selectedSession.session_colour_key), flexShrink: 0 }} />
                 {sessionLabel(selectedSession.session_type, sessionTypes)}
               </div>
               {optionalLabel(selectedSession.name, selectedSession.session_type, sessionTypes) && (
-                <div style={{ fontSize: 13, color: 'rgba(255,255,255,.50)', marginTop: 2 }}>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
                   {optionalLabel(selectedSession.name, selectedSession.session_type, sessionTypes)}
                 </div>
               )}
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,.35)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 {DAY_FULL[selectedSession.day_of_week]} · {selectedSession.start_time}–{endTime(selectedSession.start_time, selectedSession.duration_minutes)}
                 {selectedSession.resource_id && <><span>·</span><span>📍 {selectedSession.resource_id}</span></>}
               </div>
-              <div style={{ fontSize: 12, color: 'rgba(165,180,252,.65)', marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <span>Schedule: {scheduleSummary(selectedSession)}</span>
-                <button onClick={() => setEditingSession(selectedSession)} style={{ background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 12, fontFamily: FONT, padding: 0, textDecoration: 'underline' }}>Edit schedule</button>
+                <button onClick={() => setEditingSession(selectedSession)} style={{ background: 'none', border: 'none', color: 'var(--brand-brainbase-accent)', cursor: 'pointer', fontSize: 12, fontFamily: FONT, padding: 0, textDecoration: 'underline' }}>Edit schedule</button>
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center', flexWrap: 'wrap' }}>
-              <button onClick={generateInstances} disabled={generating} title="Force-reconcile future dates now, without waiting for the next automatic check" style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: generating ? 'not-allowed' : 'pointer', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.10)', color: 'rgba(255,255,255,.40)', fontFamily: FONT, opacity: generating ? .5 : 1 }}>{generating ? 'Repairing…' : 'Repair future dates'}</button>
-              <button onClick={() => setEditingSession(selectedSession)} style={{ fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 20, cursor: 'pointer', background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.12)', color: 'rgba(255,255,255,.50)', fontFamily: FONT }}>Edit</button>
+              <button onClick={generateInstances} disabled={generating} title="Force-reconcile future dates now, without waiting for the next automatic check" style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: generating ? 'not-allowed' : 'pointer', background: 'var(--bg-sunken)', border: '1px solid var(--border)', color: 'var(--text-muted)', fontFamily: FONT, opacity: generating ? .5 : 1 }}>{generating ? 'Repairing…' : 'Repair future dates'}</button>
+              <button onClick={() => setEditingSession(selectedSession)} style={{ fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 20, cursor: 'pointer', background: 'var(--bg-sunken)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontFamily: FONT }}>Edit</button>
               {confirmDel ? (
                 <>
-                  <button onClick={() => handleDelete(selectedSession.id)} style={{ fontSize: 12, fontWeight: 700, padding: '6px 14px', borderRadius: 20, cursor: 'pointer', background: 'rgba(239,68,68,.22)', border: '1px solid rgba(239,68,68,.50)', color: '#f87171', fontFamily: FONT }}>Confirm delete</button>
-                  <button onClick={() => setConfirmDel(false)} style={{ fontSize: 12, fontWeight: 600, padding: '6px 10px', borderRadius: 20, cursor: 'pointer', background: 'none', border: '1px solid rgba(255,255,255,.12)', color: 'rgba(255,255,255,.35)', fontFamily: FONT }}>Cancel</button>
+                  <button onClick={() => handleDelete(selectedSession.id)} style={{ fontSize: 12, fontWeight: 700, padding: '6px 14px', borderRadius: 20, cursor: 'pointer', background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', color: 'var(--status-danger)', fontFamily: FONT }}>Confirm delete</button>
+                  <button onClick={() => setConfirmDel(false)} style={{ fontSize: 12, fontWeight: 600, padding: '6px 10px', borderRadius: 20, cursor: 'pointer', background: 'none', border: '1px solid var(--border)', color: 'var(--text-muted)', fontFamily: FONT }}>Cancel</button>
                 </>
               ) : (
-                <button onClick={() => setConfirmDel(true)} style={{ fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 20, cursor: 'pointer', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.22)', color: '#f87171', fontFamily: FONT }}>Delete</button>
+                <button onClick={() => setConfirmDel(true)} style={{ fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 20, cursor: 'pointer', background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', color: 'var(--status-danger)', fontFamily: FONT }}>Delete</button>
               )}
             </div>
           </div>
-          {deleteErr && <div style={{ padding: '8px 22px', fontSize: 12, color: '#f87171', background: 'rgba(239,68,68,.07)', borderBottom: '1px solid rgba(239,68,68,.15)' }}>{deleteErr}</div>}
+          {deleteErr && <div style={{ padding: '8px 22px', fontSize: 12, color: 'var(--status-danger)', background: 'var(--status-danger-muted)', borderBottom: '1px solid var(--status-danger-border)' }}>{deleteErr}</div>}
           {repairNote && (
-            <div style={{ padding: '8px 22px', fontSize: 12, color: '#a5b4fc', background: 'rgba(99,102,241,.07)', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ padding: '8px 22px', fontSize: 12, color: 'var(--brand-brainbase-accent)', background: 'var(--brand-brainbase-accent-muted)', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>{repairNote}</span>
-              <button onClick={() => setRepairNote(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.30)', cursor: 'pointer', fontSize: 13 }}>✕</button>
+              <button type="button" aria-label="Dismiss" onClick={() => setRepairNote(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13 }}>✕</button>
             </div>
           )}
 
           {/* Stats: players · fill rate · revenue · instances total · paid */}
-          <div style={{ padding: '14px 22px', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', gap: 32, flexWrap: 'wrap' }}>
+          <div style={{ padding: '14px 22px', borderBottom: '1px solid var(--border-light)', display: 'flex', gap: 32, flexWrap: 'wrap' }}>
             <div>
               <div style={lbl10}>Players{instanceDetail ? ' (this date)' : ''}</div>
               <div style={{ fontSize: 20, fontWeight: 700, color: selCapClr, letterSpacing: '-.02em' }}>
                 {selectedPlayers}
-                <span style={{ fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,.28)' }}>/{selectedCapacity}</span>
+                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-muted)' }}>/{selectedCapacity}</span>
               </div>
             </div>
             <div>
@@ -1938,21 +1970,21 @@ export default function SessionsPage() {
             {selRevenue > 0 && (
               <div>
                 <div style={lbl10}>Per Session</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.02em' }}>{fmtMoney(selRevenue)}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-.02em' }}>{fmtMoney(selRevenue)}</div>
               </div>
             )}
             {instancesTotalRevenue > 0 && (
               <div>
                 <div style={lbl10}>6-Week Revenue</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: '#4ade80', letterSpacing: '-.02em' }}>{fmtMoney(instancesTotalRevenue)}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--status-success)', letterSpacing: '-.02em' }}>{fmtMoney(instancesTotalRevenue)}</div>
               </div>
             )}
             {paidCount !== null && instanceDetail && (
               <div>
                 <div style={lbl10}>Paid (this date)</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: '#4ade80', letterSpacing: '-.02em' }}>
+                <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--status-success)', letterSpacing: '-.02em' }}>
                   {paidCount}
-                  <span style={{ fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,.28)' }}>/{instanceDetail.bookings.length}</span>
+                  <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-muted)' }}>/{instanceDetail.bookings.length}</span>
                 </div>
               </div>
             )}
@@ -1960,14 +1992,14 @@ export default function SessionsPage() {
 
           {/* Upcoming date chips */}
           {instancesLoading ? (
-            <div style={{ padding: '24px 22px', color: 'rgba(255,255,255,.25)', fontSize: 13 }}>Loading dates…</div>
+            <div style={{ padding: '24px 22px', color: 'var(--text-muted)', fontSize: 13 }}>Loading dates…</div>
           ) : instances.length === 0 ? (
-            <div style={{ padding: '28px 22px', textAlign: 'center', color: 'rgba(255,255,255,.25)', fontSize: 13 }}>
+            <div style={{ padding: '28px 22px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
               No dates yet.{' '}
-              <button onClick={generateInstances} style={{ background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 13, fontFamily: FONT, padding: 0 }}>Generate →</button>
+              <button onClick={generateInstances} style={{ background: 'none', border: 'none', color: 'var(--brand-brainbase-accent)', cursor: 'pointer', fontSize: 13, fontFamily: FONT, padding: 0 }}>Generate →</button>
             </div>
           ) : (
-            <div style={{ padding: '12px 22px', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+            <div style={{ padding: '12px 22px', borderBottom: '1px solid var(--border-light)' }}>
               <div style={lbl10}>Upcoming Dates</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
                 {instances.map(inst => {
@@ -1975,18 +2007,18 @@ export default function SessionsPage() {
                   const today_ = isToday(inst.date)
                   const capC   = capacityColor(inst.enrolled_count, inst.max_capacity)
                   return (
-                    <button key={inst.id} onClick={() => loadRoster(selectedSessionId, inst.id)}
+                    <button key={inst.id} aria-pressed={sel} onClick={() => loadRoster(selectedSessionId, inst.id)}
                       style={{
                         padding: '6px 13px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT,
                         display: 'inline-flex', alignItems: 'center', gap: 7,
-                        background: sel ? 'rgba(99,102,241,.22)' : today_ ? 'rgba(255,255,255,.07)' : 'rgba(255,255,255,.04)',
-                        border: `1px solid ${sel ? 'rgba(99,102,241,.48)' : today_ ? 'rgba(255,255,255,.18)' : 'rgba(255,255,255,.09)'}`,
-                        color: sel ? '#a5b4fc' : today_ ? '#F5F7FA' : 'rgba(255,255,255,.55)',
+                        background: sel ? 'var(--brand-brainbase-accent-muted)' : today_ ? 'color-mix(in srgb, var(--text-primary) 7%, transparent)' : 'var(--bg-sunken)',
+                        border: `1px solid ${sel ? 'var(--brand-brainbase-accent-border)' : today_ ? 'var(--border-strong)' : 'var(--border)'}`,
+                        color: sel ? 'var(--brand-brainbase-accent)' : today_ ? 'var(--text-primary)' : 'var(--text-secondary)',
                       }}>
                       <span style={{ fontSize: 12, fontWeight: today_ ? 700 : 500 }}>{formatDateAU(inst.date)}</span>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: sel ? '#a5b4fc' : capC }}>{inst.enrolled_count}/{inst.max_capacity}</span>
-                      {inst.revenue > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: '#4ade80' }}>${inst.revenue}</span>}
-                      {today_ && <span style={{ fontSize: 9, fontWeight: 700, color: '#a5b4fc', background: 'rgba(99,102,241,.18)', border: '1px solid rgba(99,102,241,.32)', borderRadius: 20, padding: '1px 5px' }}>Today</span>}
+                      <span style={{ fontSize: 11, fontWeight: 700, color: sel ? 'var(--brand-brainbase-accent)' : capC }}>{inst.enrolled_count}/{inst.max_capacity}</span>
+                      {inst.revenue > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--status-success)' }}>${inst.revenue}</span>}
+                      {today_ && <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--brand-brainbase-accent)', background: 'var(--brand-brainbase-accent-muted)', border: '1px solid var(--brand-brainbase-accent-border)', borderRadius: 20, padding: '1px 5px' }}>Today</span>}
                     </button>
                   )
                 })}
@@ -1996,11 +2028,11 @@ export default function SessionsPage() {
 
           {/* Roster — stacked below dates */}
           {!selectedInstanceId && !instancesLoading && instances.length > 0 ? (
-            <div style={{ padding: '32px 22px', textAlign: 'center', color: 'rgba(255,255,255,.22)', fontSize: 13 }}>
+            <div style={{ padding: '32px 22px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
               ↑ Select a date above to view the roster
             </div>
           ) : rosterLoading ? (
-            <div style={{ padding: '32px 22px', textAlign: 'center', color: 'rgba(255,255,255,.25)', fontSize: 13 }}>Loading roster…</div>
+            <div style={{ padding: '32px 22px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Loading roster…</div>
           ) : instanceDetail ? (
             <InstanceRoster
               key={instanceDetail.instance.id}

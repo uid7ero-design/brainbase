@@ -27,8 +27,25 @@ import { ModuleAccessCard } from "./dashboard/ModuleAccessCard";
 import { CommandSuggestions } from "./hlna/CommandSuggestions";
 import { KEYFRAMES } from "../lib/utils/constants";
 import { getDeptConfig } from "../lib/hlna/departmentConfigs";
+import { buttonProps } from "./ui/app/Button";
 
-const FONT = "var(--font-inter),-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif";
+// Visual (authenticated visual-completion pass): this shell's own chrome —
+// page, header, controls, the HLNA operator panel, the ask input and the
+// transcript overlay — is on app tokens so it reads in light and dark. The
+// decorative vignette, ambient/halo radial glows, glow shadows, gradient
+// accent bars and backdrop blur were removed; HelenaOrbital (and the text
+// state label beside it) carry the assistant state. MODULE_COLORS below is
+// a per-module category encoding (dots only; text stays --text-primary).
+// The private mapHelenaPhaseToVisualState copy is deliberately untouched.
+
+// Looping status pulse, switched off under prefers-reduced-motion.
+const BRAINBASE_MOTION_CSS = `
+  .bb-hlna-pulse { animation: agentPulse 1.2s ease-in-out infinite; }
+  .bb-hlna-pulse-alert { animation: agentPulse 1.5s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) {
+    .bb-hlna-pulse, .bb-hlna-pulse-alert { animation: none; }
+  }
+`;
 
 const MODULE_COLORS = {
   waste_recycling:   '#34D399',
@@ -41,11 +58,11 @@ const MODULE_COLORS = {
 
 // Orb state labels
 const ORB_STATE_LABEL = {
-  idle:       { label: 'ACTIVE',     color: 'rgba(167,139,250,.55)' },
-  listening:  { label: 'LISTENING',  color: '#38BDF8' },
-  processing: { label: 'THINKING',   color: '#FBBF24' },
-  speaking:   { label: 'SPEAKING',   color: '#A78BFA' },
-  alert:      { label: 'DETECTING',  color: '#FB7185' },
+  idle:       { label: 'ACTIVE',     color: 'var(--text-secondary)' },
+  listening:  { label: 'LISTENING',  color: 'var(--status-info)' },
+  processing: { label: 'THINKING',   color: 'var(--status-warning)' },
+  speaking:   { label: 'SPEAKING',   color: 'var(--brand-brainbase-accent)' },
+  alert:      { label: 'DETECTING',  color: 'var(--status-danger)' },
 };
 
 // Phase C — Hybrid Orbit / HelenaOrbital integration.
@@ -80,26 +97,20 @@ function AskInput({ onSend }) {
         value={val}
         onChange={e => setVal(e.target.value)}
         placeholder="Ask HLNA…"
+        aria-label="Ask HLNA"
         style={{
-          flex: 1, background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.09)',
-          borderRadius: 8, padding: '7px 11px', fontSize: 11, color: '#F4F4F5',
-          fontFamily: FONT, outline: 'none', minWidth: 0,
+          flex: 1, background: 'var(--bg-raised)', border: '1px solid var(--border-strong)',
+          borderRadius: 'var(--radius-md)', padding: '7px 11px', fontSize: 12, color: 'var(--text-primary)',
+          fontFamily: 'inherit', minWidth: 0,
         }}
-        onFocus={e => { e.currentTarget.style.borderColor = 'rgba(124,58,237,.40)'; }}
-        onBlur={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.09)'; }}
       />
       <button
         type="submit"
-        style={{
-          padding: '7px 13px', borderRadius: 8, fontSize: 12, fontWeight: 700,
-          background: 'rgba(124,58,237,.20)', border: '1px solid rgba(124,58,237,.40)',
-          color: '#C4B5FD', cursor: 'pointer', fontFamily: FONT, flexShrink: 0,
-          transition: 'all .18s',
-        }}
-        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(124,58,237,.32)'; }}
-        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(124,58,237,.20)'; }}
+        aria-label="Send to HLNA"
+        {...buttonProps('primary', 'sm')}
+        style={{ flexShrink: 0 }}
       >
-        →
+        <span aria-hidden="true">→</span>
       </button>
     </form>
   );
@@ -268,7 +279,7 @@ export default function BrainBase({ enabledCapabilities = [], isSuperAdmin = fal
   const orbState     = orbAlert ? 'alert' : helena.orbPhase;
   const orbLabel     = ORB_STATE_LABEL[orbState] ?? ORB_STATE_LABEL.idle;
   const helenaVisualState = mapHelenaPhaseToVisualState(helena.orbPhase, orbAlert);
-  const activeModColor = activeModule ? (MODULE_COLORS[activeModule] ?? '#A78BFA') : '#A78BFA';
+  const activeModColor = activeModule ? (MODULE_COLORS[activeModule] ?? 'var(--brand-brainbase-accent)') : 'var(--brand-brainbase-accent)';
   const activeModName  = enabledModules.find(m => m.key === activeModule)?.name ?? 'Select module';
 
   // Active operator state — derived from current department config
@@ -280,66 +291,54 @@ export default function BrainBase({ enabledCapabilities = [], isSuperAdmin = fal
   return (
     <div style={{
       height: "100vh", overflow: "hidden",
-      background: "radial-gradient(ellipse 130% 90% at 50% 0%, #07050F 0%, #050309 50%, #020205 100%)",
-      fontFamily: FONT, position: "relative", display: "flex", flexDirection: "column",
+      background: "var(--bg-base)", color: "var(--text-primary)",
+      fontFamily: "var(--bb-font-sans)", position: "relative", display: "flex", flexDirection: "column",
     }}>
-
-      {/* Vignette */}
-      <div style={{
-        position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
-        background: "radial-gradient(ellipse 90% 90% at 50% 50%, transparent 35%, rgba(0,0,0,.60) 100%)",
-      }} />
-
-      {/* Ambient glow — shifts with HLNA state */}
-      <div style={{
-        position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
-        background: helena.listening
-          ? "radial-gradient(ellipse 50% 40% at 50% 50%, rgba(56,189,248,.07) 0%, transparent 65%)"
-          : helena.responding
-          ? "radial-gradient(ellipse 50% 40% at 50% 50%, rgba(139,92,246,.07) 0%, transparent 65%)"
-          : orbAlert
-          ? "radial-gradient(ellipse 45% 35% at 50% 50%, rgba(251,113,133,.06) 0%, transparent 65%)"
-          : "radial-gradient(ellipse 40% 30% at 50% 50%, rgba(90,50,200,.04) 0%, transparent 65%)",
-        transition: "background 1.2s ease",
-      }} />
+      {/* Page heading for assistive tech: this /dashboard fallback shell has no
+          other h1 (the header shows the wordmark). Visually hidden, so layout is
+          unchanged. */}
+      <h1 className="bb-visually-hidden">Dashboard</h1>
 
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <header style={{
         height: 50, flexShrink: 0, zIndex: 30, position: "relative",
         display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: "0 16px",
-        background: "rgba(4,3,10,.88)", backdropFilter: "blur(14px)",
-        borderBottom: "1px solid rgba(255,255,255,.06)",
+        background: "var(--bg-surface)",
+        borderBottom: "1px solid var(--border)",
         gap: 10,
       }}>
         {/* Left — toggle + wordmark */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           <button
+            type="button"
             onClick={toggleSidebar}
-            style={{ background: "none", border: "none", cursor: "pointer", padding: 6, color: "rgba(255,255,255,.35)", lineHeight: 0 }}
+            aria-label="Toggle sidebar"
+            aria-expanded={!!sidebarOpen}
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 6, color: "var(--text-secondary)", lineHeight: 0, borderRadius: "var(--radius-sm)" }}
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
               <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
             </svg>
           </button>
-          <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: ".04em", color: "#F5F7FA", userSelect: "none", whiteSpace: "nowrap" }}>
-            BR<span style={{ color: "#A78BFA" }}>Λ</span>INBASE
+          <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: ".04em", color: "var(--text-primary)", userSelect: "none", whiteSpace: "nowrap" }}>
+            BR<span style={{ color: "var(--brand-brainbase-accent)" }}>Λ</span>INBASE
           </span>
           {enabledModules.length > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 5, marginLeft: 6 }}>
-              <div style={{ width: 5, height: 5, borderRadius: "50%", background: activeModColor, boxShadow: `0 0 5px ${activeModColor}` }} />
+              <div aria-hidden="true" style={{ width: 6, height: 6, borderRadius: "50%", background: activeModColor }} />
               <select
                 value={activeModule ?? ''}
                 onChange={e => setActiveModule(e.target.value)}
+                aria-label="Active module"
                 style={{
-                  background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.09)",
-                  borderRadius: 6, color: "#D4D4D8", fontSize: 11, fontWeight: 600,
-                  padding: "3px 7px", cursor: "pointer", fontFamily: FONT,
-                  outline: "none", letterSpacing: "-0.01em",
+                  background: "var(--bg-raised)", border: "1px solid var(--border-strong)",
+                  borderRadius: "var(--radius-md)", color: "var(--text-primary)", fontSize: 12, fontWeight: 600,
+                  padding: "3px 7px", cursor: "pointer", fontFamily: "inherit",
                 }}
               >
                 {enabledModules.map(m => (
-                  <option key={m.key} value={m.key} style={{ background: "#0D0D15" }}>{m.name}</option>
+                  <option key={m.key} value={m.key}>{m.name}</option>
                 ))}
               </select>
             </div>
@@ -347,17 +346,19 @@ export default function BrainBase({ enabledCapabilities = [], isSuperAdmin = fal
         </div>
 
         {/* Centre — Exec / Ops toggle */}
-        <div style={{ display: "flex", alignItems: "center", gap: 1, background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.07)", borderRadius: 8, padding: 2, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 2, background: "var(--bg-sunken)", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 2, flexShrink: 0 }}>
           {['executive', 'operational'].map(mode => (
             <button
               key={mode}
+              type="button"
               onClick={() => setViewMode(mode)}
+              aria-pressed={viewMode === mode}
               style={{
-                padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 700,
-                letterSpacing: "0.05em", cursor: "pointer", border: "none",
-                background: viewMode === mode ? "rgba(124,58,237,.28)" : "transparent",
-                color: viewMode === mode ? "#C4B5FD" : "rgba(255,255,255,.28)",
-                transition: "all 0.18s", textTransform: "capitalize", fontFamily: FONT,
+                padding: "3px 10px", borderRadius: "var(--radius-sm)", fontSize: 11, fontWeight: 700,
+                letterSpacing: "0.04em", cursor: "pointer", border: "none",
+                background: viewMode === mode ? "var(--brand-brainbase-accent-muted)" : "transparent",
+                color: viewMode === mode ? "var(--brand-brainbase-accent)" : "var(--text-secondary)",
+                textTransform: "capitalize", fontFamily: "inherit",
               }}
             >
               {mode === 'executive' ? '◈ Exec' : '⚙ Ops'}
@@ -370,37 +371,28 @@ export default function BrainBase({ enabledCapabilities = [], isSuperAdmin = fal
           <div style={{
             display: "flex", alignItems: "center", gap: 5,
             padding: "4px 10px", borderRadius: 999,
-            background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.07)",
+            background: "var(--bg-sunken)", border: "1px solid var(--border)",
           }}>
-            <div style={{
-              width: 6, height: 6, borderRadius: "50%",
-              background: orbLabel.color,
-              boxShadow: `0 0 7px ${orbLabel.color}`,
-              transition: "all .4s",
-              animation: helena.listening || helena.responding ? "agentPulse 1.2s ease-in-out infinite" : undefined,
-            }} />
+            <div
+              aria-hidden="true"
+              className={helena.listening || helena.responding ? "bb-hlna-pulse" : undefined}
+              style={{ width: 6, height: 6, borderRadius: "50%", background: orbLabel.color }}
+            />
             <span style={{
-              fontSize: 9, fontWeight: 700, letterSpacing: ".10em",
+              fontSize: 10, fontWeight: 700, letterSpacing: ".10em",
               color: orbLabel.color, textTransform: "uppercase",
-              transition: "color .3s",
             }}>
               HLNΛ {orbLabel.label}
             </span>
           </div>
 
           <button
+            type="button"
             onClick={toggleBrainGraph}
             title="Performance Graph"
-            style={{
-              display: "flex", alignItems: "center", gap: 5,
-              padding: "5px 10px", borderRadius: 7, fontSize: 11, fontWeight: 600,
-              background: "rgba(139,92,246,.10)", border: "1px solid rgba(139,92,246,.22)",
-              color: "#B4A0E8", cursor: "pointer", fontFamily: FONT, transition: "all .18s",
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = "rgba(139,92,246,.18)"; e.currentTarget.style.borderColor = "rgba(139,92,246,.38)"; }}
-            onMouseLeave={e => { e.currentTarget.style.background = "rgba(139,92,246,.10)"; e.currentTarget.style.borderColor = "rgba(139,92,246,.22)"; }}
+            {...buttonProps('secondary', 'sm')}
           >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
             </svg>
             Performance
@@ -409,14 +401,14 @@ export default function BrainBase({ enabledCapabilities = [], isSuperAdmin = fal
           <a
             href="/account/profile"
             title="Profile"
+            aria-label="Profile"
             style={{
               width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-              background: "rgba(124,58,237,.14)", border: "1px solid rgba(124,58,237,.26)",
-              color: "#C4B5FD", textDecoration: "none", fontSize: 11, fontWeight: 700,
-              transition: "all .18s",
+              background: "var(--bg-raised)", border: "1px solid var(--border-strong)",
+              color: "var(--text-secondary)", textDecoration: "none", fontSize: 12, fontWeight: 700,
             }}
           >
-            ◎
+            <span aria-hidden="true">◎</span>
           </a>
         </div>
       </header>
@@ -452,49 +444,33 @@ export default function BrainBase({ enabledCapabilities = [], isSuperAdmin = fal
                   flex: "38", minWidth: 0,
                   display: "flex", flexDirection: "column", alignItems: "center",
                   padding: "16px 14px 14px",
-                  borderRadius: 16,
-                  background: "linear-gradient(145deg, rgba(8,6,20,.97) 0%, rgba(14,10,28,.95) 100%)",
+                  borderRadius: "var(--radius-lg)",
+                  background: "var(--bg-surface)",
                   border: hasHighAlerts
-                    ? "1px solid rgba(251,113,133,.38)"
-                    : "1px solid rgba(167,139,250,.18)",
+                    ? "1px solid var(--status-danger-border)"
+                    : "1px solid var(--border)",
                   boxShadow: hasHighAlerts
-                    ? "0 0 48px rgba(251,113,133,.10), 0 0 80px rgba(251,113,133,.04)"
-                    : helena.listening
-                    ? "0 0 36px rgba(56,189,248,.09)"
-                    : helena.responding
-                    ? "0 0 32px rgba(124,58,237,.09)"
-                    : "0 0 24px rgba(124,58,237,.06)",
-                  transition: "border-color .4s, box-shadow .4s",
+                    ? "inset 3px 0 0 var(--status-danger)"
+                    : "inset 3px 0 0 var(--brand-brainbase-accent)",
                   position: "relative", overflow: "hidden",
                 }}>
 
-                  {/* Left accent bar */}
-                  <div style={{
-                    position: "absolute", left: 0, top: 0, bottom: 0, width: 3,
-                    background: hasHighAlerts
-                      ? "linear-gradient(180deg, #FB7185 0%, #A78BFA 60%, #38BDF8 100%)"
-                      : "linear-gradient(180deg, #A78BFA 0%, #38BDF8 100%)",
-                    borderRadius: "16px 0 0 16px",
-                  }} />
-
                   {/* ── Wordmark + live detection state ── */}
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 10, width: "100%" }}>
-                    <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".28em", color: "rgba(255,255,255,.25)", textTransform: "uppercase" }}>
-                      HLN<span style={{ color: "rgba(167,139,250,.60)" }}>Λ</span>
+                    <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".28em", color: "var(--text-muted)", textTransform: "uppercase" }}>
+                      HLN<span style={{ color: "var(--brand-brainbase-accent)" }}>Λ</span>
                     </span>
-                    <div style={{ width: 1, height: 10, background: "rgba(255,255,255,.12)", flexShrink: 0 }} />
+                    <div aria-hidden="true" style={{ width: 1, height: 10, background: "var(--border-strong)", flexShrink: 0 }} />
                     <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                      <div style={{
-                        width: 5, height: 5, borderRadius: "50%",
-                        background: hasHighAlerts ? "#FB7185" : orbLabel.color,
-                        boxShadow: `0 0 7px ${hasHighAlerts ? "#FB7185" : orbLabel.color}`,
-                        transition: "all .4s",
-                        animation: hasHighAlerts ? "agentPulse 1.5s ease-in-out infinite" : (helena.listening || helena.responding ? "agentPulse 1.2s ease-in-out infinite" : undefined),
-                      }} />
+                      <div
+                        aria-hidden="true"
+                        className={hasHighAlerts ? "bb-hlna-pulse-alert" : (helena.listening || helena.responding ? "bb-hlna-pulse" : undefined)}
+                        style={{ width: 6, height: 6, borderRadius: "50%", background: hasHighAlerts ? "var(--status-danger)" : orbLabel.color }}
+                      />
                       <span style={{
-                        fontSize: 9, fontWeight: 800, letterSpacing: ".12em",
-                        color: hasHighAlerts ? "#FB7185" : orbLabel.color,
-                        textTransform: "uppercase", transition: "color .3s",
+                        fontSize: 10, fontWeight: 800, letterSpacing: ".12em",
+                        color: hasHighAlerts ? "var(--status-danger)" : orbLabel.color,
+                        textTransform: "uppercase",
                       }}>
                         {hasHighAlerts && (orbState === "idle" || orbState === "alert") ? "ISSUE DETECTED" : orbLabel.label}
                       </span>
@@ -503,28 +479,6 @@ export default function BrainBase({ enabledCapabilities = [], isSuperAdmin = fal
 
                   {/* ── Orb ── */}
                   <div style={{ position: "relative", display: "flex", alignItems: "center", marginBottom: 10 }}>
-                    <div style={{
-                      position: "absolute", width: 220, height: 220, borderRadius: "50%",
-                      background: hasHighAlerts
-                        ? "radial-gradient(circle, rgba(251,113,133,.09) 0%, transparent 65%)"
-                        : helena.listening
-                        ? "radial-gradient(circle, rgba(56,189,248,.10) 0%, transparent 65%)"
-                        : helena.responding
-                        ? "radial-gradient(circle, rgba(139,92,246,.09) 0%, transparent 65%)"
-                        : "radial-gradient(circle, rgba(80,44,200,.07) 0%, transparent 65%)",
-                      transition: "background 1.2s", pointerEvents: "none",
-                      top: "50%", left: "50%", transform: "translate(-50%, -50%)",
-                    }} />
-                    <div style={{
-                      position: "absolute", width: 145, height: 145, borderRadius: "50%",
-                      background: hasHighAlerts
-                        ? "radial-gradient(circle, rgba(251,113,133,.14) 0%, transparent 70%)"
-                        : helena.listening
-                        ? "radial-gradient(circle, rgba(56,189,248,.14) 0%, transparent 70%)"
-                        : "radial-gradient(circle, rgba(124,58,237,.10) 0%, transparent 70%)",
-                      transition: "background 0.8s", pointerEvents: "none",
-                      top: "50%", left: "50%", transform: "translate(-50%, -50%)",
-                    }} />
                     {USE_HELENA_ORBITAL ? (
                       <HelenaOrbital size={120} state={helenaVisualState} speechRef={orbSpeechRef} />
                     ) : (
@@ -538,14 +492,14 @@ export default function BrainBase({ enabledCapabilities = [], isSuperAdmin = fal
                       <>
                         {/* Detection card */}
                         <div style={{
-                          padding: "10px 12px", borderRadius: 9,
-                          background: "rgba(251,113,133,.04)",
-                          border: "1px solid rgba(251,113,133,.14)",
+                          padding: "10px 12px", borderRadius: "var(--radius-md)",
+                          background: "var(--status-danger-muted)",
+                          border: "1px solid var(--status-danger-border)",
                         }}>
-                          <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: ".12em", color: "#FB7185", textTransform: "uppercase", marginBottom: 5 }}>
+                          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".12em", color: "var(--status-danger)", textTransform: "uppercase", marginBottom: 5 }}>
                             HLNΛ detected an issue
                           </div>
-                          <p style={{ margin: 0, fontSize: 11, color: "rgba(230,237,243,.72)", lineHeight: 1.55 }}>
+                          <p style={{ margin: 0, fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.55 }}>
                             {deptConfig.briefing.action}
                           </p>
                         </div>
@@ -553,17 +507,17 @@ export default function BrainBase({ enabledCapabilities = [], isSuperAdmin = fal
                         {/* Priority actions reference */}
                         {priorityActions.length > 0 && (
                           <div style={{
-                            padding: "8px 10px", borderRadius: 8,
-                            background: "rgba(124,58,237,.06)",
-                            border: "1px solid rgba(124,58,237,.15)",
+                            padding: "8px 10px", borderRadius: "var(--radius-md)",
+                            background: "var(--bg-sunken)",
+                            border: "1px solid var(--border)",
                           }}>
-                            <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: ".10em", color: "rgba(167,139,250,.55)", textTransform: "uppercase", marginBottom: 6 }}>
+                            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".10em", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 6 }}>
                               I've identified {priorityActions.length} priority action{priorityActions.length !== 1 ? "s" : ""}
                             </div>
                             {priorityActions.slice(0, 2).map(action => (
                               <div key={action.id} style={{ display: "flex", alignItems: "flex-start", gap: 6, marginBottom: 4 }}>
-                                <span style={{ color: "#A78BFA", fontSize: 10, flexShrink: 0, marginTop: 2 }}>→</span>
-                                <span style={{ fontSize: 11, color: "rgba(196,181,253,.82)", lineHeight: 1.4 }}>{action.title}</span>
+                                <span aria-hidden="true" style={{ color: "var(--brand-brainbase-accent)", fontSize: 11, flexShrink: 0, marginTop: 1 }}>→</span>
+                                <span style={{ fontSize: 12, color: "var(--text-primary)", lineHeight: 1.4 }}>{action.title}</span>
                               </div>
                             ))}
                           </div>
@@ -571,38 +525,20 @@ export default function BrainBase({ enabledCapabilities = [], isSuperAdmin = fal
 
                         {/* Execute Action — primary */}
                         <button
+                          type="button"
                           onClick={() => { fireHelena(primaryAction.command); setChatOpen(true); }}
-                          style={{
-                            width: "100%", padding: "10px 0", borderRadius: 8, fontSize: 12, fontWeight: 700,
-                            background: "linear-gradient(135deg, rgba(124,58,237,.34) 0%, rgba(109,40,217,.26) 100%)",
-                            border: "1px solid rgba(124,58,237,.52)", color: "#DDD6FE",
-                            cursor: "pointer", fontFamily: FONT, letterSpacing: ".04em",
-                            boxShadow: "0 0 14px rgba(124,58,237,.14)",
-                            transition: "all .18s",
-                          }}
-                          onMouseEnter={e => {
-                            e.currentTarget.style.background = "linear-gradient(135deg, rgba(124,58,237,.52) 0%, rgba(109,40,217,.42) 100%)";
-                            e.currentTarget.style.boxShadow = "0 0 22px rgba(124,58,237,.26)";
-                          }}
-                          onMouseLeave={e => {
-                            e.currentTarget.style.background = "linear-gradient(135deg, rgba(124,58,237,.34) 0%, rgba(109,40,217,.26) 100%)";
-                            e.currentTarget.style.boxShadow = "0 0 14px rgba(124,58,237,.14)";
-                          }}
+                          {...buttonProps('primary')}
+                          style={{ width: "100%" }}
                         >
                           ⚡ Execute Action
                         </button>
 
                         {/* Review Details — secondary */}
                         <button
+                          type="button"
                           onClick={() => { fireHelena(`Analyse the current situation and give me a detailed briefing on ${deptConfig.label} performance, priority issues, and recommended actions.`); setChatOpen(true); }}
-                          style={{
-                            width: "100%", padding: "8px 0", borderRadius: 8, fontSize: 11, fontWeight: 600,
-                            background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.09)",
-                            color: "rgba(212,212,216,.65)", cursor: "pointer", fontFamily: FONT, letterSpacing: ".02em",
-                            transition: "all .18s",
-                          }}
-                          onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,.08)"; e.currentTarget.style.color = "rgba(212,212,216,.85)"; }}
-                          onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,.04)"; e.currentTarget.style.color = "rgba(212,212,216,.65)"; }}
+                          {...buttonProps('secondary')}
+                          style={{ width: "100%" }}
                         >
                           Review Details / Analyse
                         </button>
@@ -611,28 +547,24 @@ export default function BrainBase({ enabledCapabilities = [], isSuperAdmin = fal
                       <>
                         {/* Idle state */}
                         <div style={{ textAlign: "center" }}>
-                          <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: ".18em", color: orbLabel.color, textTransform: "uppercase" }}>
+                          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".18em", color: orbLabel.color, textTransform: "uppercase" }}>
                             {orbLabel.label}
                           </div>
-                          <p style={{ fontSize: 11, color: "rgba(161,161,170,.50)", margin: "4px 0 0", lineHeight: 1.4 }}>
+                          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "4px 0 0", lineHeight: 1.4 }}>
                             All systems normal. No priority issues detected.
                           </p>
                           {activeModule && (
-                            <div style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 8, padding: "3px 10px", borderRadius: 20, background: `${activeModColor}14`, border: `1px solid ${activeModColor}30` }}>
-                              <div style={{ width: 5, height: 5, borderRadius: "50%", background: activeModColor, boxShadow: `0 0 5px ${activeModColor}` }} />
-                              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".10em", color: activeModColor, textTransform: "uppercase" }}>{activeModName}</span>
+                            <div style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 8, padding: "3px 10px", borderRadius: 20, background: "var(--bg-sunken)", border: "1px solid var(--border)" }}>
+                              <div aria-hidden="true" style={{ width: 6, height: 6, borderRadius: "50%", background: activeModColor }} />
+                              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".10em", color: "var(--text-primary)", textTransform: "uppercase" }}>{activeModName}</span>
                             </div>
                           )}
                         </div>
                         <button
+                          type="button"
                           onClick={() => { fireHelena(`Give me today's full operations briefing for ${deptConfig.label}.`); setChatOpen(true); }}
-                          style={{
-                            width: "100%", padding: "9px 0", borderRadius: 8, fontSize: 11, fontWeight: 700,
-                            background: "rgba(124,58,237,.20)", border: "1px solid rgba(124,58,237,.38)",
-                            color: "#C4B5FD", cursor: "pointer", fontFamily: FONT, transition: "all .18s",
-                          }}
-                          onMouseEnter={e => { e.currentTarget.style.background = "rgba(124,58,237,.32)"; }}
-                          onMouseLeave={e => { e.currentTarget.style.background = "rgba(124,58,237,.20)"; }}
+                          {...buttonProps('primary')}
+                          style={{ width: "100%" }}
                         >
                           Run Briefing
                         </button>
@@ -645,10 +577,10 @@ export default function BrainBase({ enabledCapabilities = [], isSuperAdmin = fal
 
                   {/* ── Input + Explore further ── */}
                   <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 8 }}>
-                    <div style={{ height: 1, background: "rgba(255,255,255,.06)" }} />
+                    <div aria-hidden="true" style={{ height: 1, background: "var(--border)" }} />
                     <AskInput onSend={(q) => { helena.sendMessage(q); setChatOpen(true); }} />
                     <div>
-                      <div style={{ fontSize: 8, fontWeight: 800, letterSpacing: ".12em", color: "rgba(255,255,255,.20)", textTransform: "uppercase", marginBottom: 6 }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".12em", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 6 }}>
                         Explore further
                       </div>
                       <CommandSuggestions panelMode />
@@ -686,11 +618,11 @@ export default function BrainBase({ enabledCapabilities = [], isSuperAdmin = fal
               zIndex: 22, maxWidth: "min(520px,80vw)", pointerEvents: "none",
             }}>
               <div style={{
-                padding: "7px 14px", borderRadius: 8,
-                background: "rgba(4,3,10,.88)", border: "1px solid rgba(255,255,255,.08)",
-                backdropFilter: "blur(12px)",
+                padding: "7px 14px", borderRadius: "var(--radius-md)",
+                background: "var(--bg-overlay)", border: "1px solid var(--border)",
+                boxShadow: "var(--shadow-popover)",
               }}>
-                <span style={{ fontSize: 11, color: "rgba(230,237,243,.65)", fontStyle: "italic" }}>
+                <span style={{ fontSize: 12, color: "var(--text-secondary)", fontStyle: "italic" }}>
                   {helena.transcript}
                 </span>
               </div>
@@ -728,6 +660,7 @@ export default function BrainBase({ enabledCapabilities = [], isSuperAdmin = fal
       <MicButton helena={helena} chatOpen={chatOpen} onChatToggle={toggleChat} llmSource={llmSource} orbAlert={orbAlert} />
 
       <style>{KEYFRAMES}</style>
+      <style>{BRAINBASE_MOTION_CSS}</style>
     </div>
   );
 }

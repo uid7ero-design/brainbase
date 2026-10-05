@@ -1,13 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
-import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
 
-const FONT =
-  'var(--font-inter), "Inter", -apple-system, sans-serif';
+import { BrainbaseLockup } from '@/components/public/BrainbaseLockup';
+import { PublicFooter } from '@/components/public/PublicFooter';
+import { ArrowIcon, ButtonLink } from '@/components/public/primitives';
+import { FormField, SelectShell } from '@/components/public/request-demo/FormField';
+import { Alert, LiveRegion } from '@/components/ui/semantic';
+import publicStyles from '@/components/public/public.module.css';
+import styles from '@/components/public/request-demo/requestDemo.module.css';
 
-const BG = '#07080B';
+// Visual redesign only: the form's fields, values, validation, request
+// (POST /api/request-demo with the whole form as JSON) and success/error
+// handling are unchanged. Presentation moved to --bb-* tokens; labels are
+// now programmatically associated, required fields are named in text, and
+// the send / received transitions are announced politely.
 
 const BUSINESS_TYPES = [
   'Professional Services',
@@ -45,84 +53,14 @@ const CLIENT_RANGES = [
   'Not applicable',
 ];
 
-function Field({
-  label,
-  required,
-  helper,
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  helper?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      style={{
-        marginBottom: 20,
-      }}
-    >
-      <label
-        style={{
-          display: 'block',
-          marginBottom: 7,
-          fontSize: 11,
-          fontWeight: 650,
-          letterSpacing: '.025em',
-          color:
-            'rgba(226,232,240,.60)',
-        }}
-      >
-        {label}
+const STEPS = [
+  "Tell us what's creating friction",
+  'Tell us what systems you already rely on',
+  "We'll discuss where BrainBase could fit",
+  'Start focused, expand later if needed',
+];
 
-        {required && (
-          <span
-            style={{
-              color: '#A78BFA',
-              marginLeft: 3,
-            }}
-          >
-            *
-          </span>
-        )}
-      </label>
-
-      {children}
-
-      {helper && (
-        <div
-          style={{
-            marginTop: 6,
-            fontSize: 10,
-            lineHeight: 1.5,
-            color:
-              'rgba(255,255,255,.24)',
-          }}
-        >
-          {helper}
-        </div>
-      )}
-    </div>
-  );
-}
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  minHeight: 44,
-  padding: '11px 13px',
-  borderRadius: 9,
-  border:
-    '1px solid rgba(255,255,255,.09)',
-  background:
-    'rgba(255,255,255,.035)',
-  color: '#F1F5F9',
-  fontSize: 13,
-  outline: 'none',
-  boxSizing: 'border-box',
-  fontFamily: 'inherit',
-  transition:
-    'border-color .15s, box-shadow .15s, background .15s',
-};
+const REQUIRED_MESSAGE = 'Name, email and organisation name are required.';
 
 export default function RequestDemoPage() {
   const [form, setForm] = useState({
@@ -138,9 +76,6 @@ export default function RequestDemoPage() {
     referral: '',
   });
 
-  const [focusField, setFocusField] =
-    useState<string | null>(null);
-
   const [submitting, setSubmitting] =
     useState(false);
 
@@ -149,6 +84,14 @@ export default function RequestDemoPage() {
 
   const [error, setError] =
     useState('');
+
+  const errorId = useId();
+  const doneHeadingRef = useRef<HTMLHeadingElement>(null);
+
+  // Move focus to the confirmation heading when the form is replaced.
+  useEffect(() => {
+    if (done) doneHeadingRef.current?.focus();
+  }, [done]);
 
   function set(
     key: keyof typeof form,
@@ -166,26 +109,6 @@ export default function RequestDemoPage() {
       }));
   }
 
-  function focusStyle(
-    name: string,
-  ): React.CSSProperties {
-    const active =
-      focusField === name;
-
-    return {
-      ...inputStyle,
-      borderColor: active
-        ? 'rgba(138,77,255,.58)'
-        : 'rgba(255,255,255,.09)',
-      boxShadow: active
-        ? '0 0 0 3px rgba(138,77,255,.09)'
-        : 'none',
-      background: active
-        ? 'rgba(138,77,255,.035)'
-        : 'rgba(255,255,255,.035)',
-    };
-  }
-
   async function submit(
     e: React.FormEvent,
   ) {
@@ -198,7 +121,7 @@ export default function RequestDemoPage() {
       !form.business_name.trim()
     ) {
       setError(
-        'Name, email and organisation name are required.',
+        REQUIRED_MESSAGE,
       );
 
       return;
@@ -242,866 +165,331 @@ export default function RequestDemoPage() {
     }
   }
 
+  // Which required fields to flag while the "required" message is showing.
+  const missing = error === REQUIRED_MESSAGE;
+  const invalid = {
+    name: missing && !form.name.trim(),
+    email: missing && !form.email.trim(),
+    business_name: missing && !form.business_name.trim(),
+  };
+
+  // Validation failures are routine, user-correctable feedback: announced
+  // politely through the persistent live region (a region inserted together
+  // with its text is not reliably read). A failed send is the one genuinely
+  // critical state and keeps the interrupting alert below.
+  const announcement = done
+    ? 'Request received'
+    : submitting
+      ? 'Sending your request'
+      : missing
+        ? `Your request wasn't sent. ${error}`
+        : '';
+
   return (
-    <main
-      style={{
-        minHeight: '100vh',
-        background: BG,
-        color: '#F5F7FA',
-        fontFamily: FONT,
-        position: 'relative',
-        overflow: 'hidden',
-      }}
-    >
-      <style>{`
-        @keyframes bbPulse {
-          0%, 100% {
-            opacity: 1;
-          }
+    <main className={`bb-public ${publicStyles.page}`}>
+      <LiveRegion message={announcement} />
 
-          50% {
-            opacity: .42;
-          }
-        }
+      <div className={styles.stage}>
+        <div className={`${styles.backdrop} bb-grid-bg`} aria-hidden="true" />
 
-        @keyframes bbFadeUp {
-          from {
-            opacity: 0;
-            transform: translateY(14px);
-          }
-
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-
-        .bb-request-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 16px;
-        }
-
-        .bb-request-input::placeholder,
-        .bb-request-textarea::placeholder {
-          color: rgba(255,255,255,.20);
-        }
-
-        .bb-request-select option {
-          background: #121319;
-          color: #F1F5F9;
-        }
-
-        @media (max-width: 680px) {
-          .bb-request-grid {
-            grid-template-columns: 1fr;
-            gap: 0;
-          }
-
-          .bb-request-shell {
-            padding-left: 18px !important;
-            padding-right: 18px !important;
-          }
-
-          .bb-request-card {
-            padding: 24px 20px !important;
-          }
-
-          .bb-request-hero {
-            padding-top: 42px !important;
-          }
-        }
-      `}</style>
-
-      {/* Ambient background */}
-      <div
-        aria-hidden="true"
-        style={{
-          position: 'fixed',
-          inset: 0,
-          zIndex: 0,
-          pointerEvents: 'none',
-          background: `
-            radial-gradient(
-              ellipse 68% 42% at 50% -5%,
-              rgba(138,77,255,.13) 0%,
-              rgba(92,124,255,.035) 44%,
-              transparent 72%
-            )
-          `,
-        }}
-      />
-
-      <div
-        aria-hidden="true"
-        style={{
-          position: 'fixed',
-          width: 420,
-          height: 420,
-          right: '-180px',
-          top: '28%',
-          zIndex: 0,
-          pointerEvents: 'none',
-          borderRadius: '50%',
-          background:
-            'rgba(92,124,255,.035)',
-          filter: 'blur(90px)',
-        }}
-      />
-
-      <div
-        className="bb-request-shell"
-        style={{
-          maxWidth: 720,
-          margin: '0 auto',
-          padding: '0 24px 96px',
-          position: 'relative',
-          zIndex: 1,
-        }}
-      >
-        {/* Back */}
-        <div
-          style={{
-            paddingTop: 28,
-          }}
-        >
-          <Link
-            href="/"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              fontSize: 11,
-              color:
-                'rgba(255,255,255,.34)',
-              textDecoration: 'none',
-              transition: 'color .15s',
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.color =
-                'rgba(255,255,255,.65)';
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.color =
-                'rgba(255,255,255,.34)';
-            }}
-          >
-            ← Back to BRΛINBΛSE
+        <div className={styles.shell}>
+          <Link href="/" className={styles.back}>
+            ← Back to BrainBase
           </Link>
-        </div>
 
-        {done ? (
-          <div
-            style={{
-              paddingTop: 86,
-              textAlign: 'center',
-              animation:
-                'bbFadeUp .4s ease both',
-            }}
-          >
-            <div
-              style={{
-                width: 260,
-                maxWidth: '76vw',
-                margin: '0 auto 34px',
-              }}
-            >
-              <BrainBaseWordmark
-                width={260}
-                style={{ maxWidth: '100%' }}
-              />
-            </div>
+          {done ? (
+            <section className={styles.done} aria-labelledby="request-done-title">
+              <BrainbaseLockup idPrefix="bb-request-done-lockup" width={220} className={styles.lockupCentred} />
 
-            <div
-              style={{
-                width: 58,
-                height: 58,
-                borderRadius: '50%',
-                margin: '0 auto 25px',
-                background:
-                  'rgba(138,77,255,.10)',
-                border:
-                  '1px solid rgba(138,77,255,.28)',
-                boxShadow:
-                  '0 0 32px rgba(138,77,255,.10)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#C4B5FD',
-                fontSize: 24,
-                fontWeight: 700,
-              }}
-            >
-              ✓
-            </div>
+              <span className={styles.doneMark} aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" focusable="false">
+                  <path d="m5 12.5 4.2 4L19 7" />
+                </svg>
+              </span>
 
-            <div
-              style={{
-                marginBottom: 10,
-                fontSize: 9,
-                fontWeight: 700,
-                letterSpacing: '.13em',
-                textTransform: 'uppercase',
-                color:
-                  'rgba(167,139,250,.72)',
-              }}
-            >
-              Request received
-            </div>
-
-            <h1
-              style={{
-                margin: '0 0 14px',
-                fontSize:
-                  'clamp(29px, 5vw, 40px)',
-                fontWeight: 650,
-                letterSpacing: '-.04em',
-                lineHeight: 1.1,
-                color: '#F5F7FA',
-              }}
-            >
-              Thanks — we&apos;ve received
-              your request.
-            </h1>
-
-            <p
-              style={{
-                margin:
-                  '0 auto 32px',
-                maxWidth: 460,
-                fontSize: 14,
-                lineHeight: 1.75,
-                color:
-                  'rgba(226,232,240,.52)',
-              }}
-            >
-              We&apos;ll review what
-              you&apos;re trying to
-              improve and contact you to
-              discuss where BRΛINBΛSE
-              could fit.
-            </p>
-
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'center',
-                gap: 9,
-                flexWrap: 'wrap',
-              }}
-            >
-              <Link
-                href="/demo"
-                style={{
-                  minHeight: 41,
-                  padding: '0 18px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: 9,
-                  background:
-                    'linear-gradient(100deg, #6A3DFF 0%, #8A4DFF 55%, #5677FF 100%)',
-                  color: '#FFFFFF',
-                  textDecoration: 'none',
-                  fontSize: 12,
-                  fontWeight: 650,
-                }}
-              >
-                Explore the platform →
-              </Link>
-
-              <Link
-                href="/"
-                style={{
-                  minHeight: 39,
-                  padding: '0 18px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: 9,
-                  border:
-                    '1px solid rgba(255,255,255,.09)',
-                  background:
-                    'rgba(255,255,255,.025)',
-                  color:
-                    'rgba(226,232,240,.58)',
-                  textDecoration: 'none',
-                  fontSize: 12,
-                  fontWeight: 550,
-                }}
-              >
-                Back to BRΛINBΛSE
-              </Link>
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Header */}
-            <section
-              className="bb-request-hero"
-              style={{
-                padding: '56px 0 38px',
-                textAlign: 'center',
-              }}
-            >
-              <div
-                style={{
-                  width: 300,
-                  maxWidth: '80vw',
-                  margin: '0 auto 28px',
-                  display: 'flex',
-                  justifyContent: 'center',
-                }}
-              >
-                <BrainBaseWordmark
-                  width={260}
-                  style={{ maxWidth: '100%' }}
-                />
-              </div>
-
-              <div
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '5px 11px',
-                  borderRadius: 999,
-                  marginBottom: 21,
-                  background:
-                    'rgba(138,77,255,.07)',
-                  border:
-                    '1px solid rgba(138,77,255,.18)',
-                }}
-              >
-                <span
-                  style={{
-                    width: 5,
-                    height: 5,
-                    borderRadius: '50%',
-                    background: '#A78BFA',
-                    boxShadow:
-                      '0 0 7px rgba(167,139,250,.8)',
-                    animation:
-                      'bbPulse 2.5s ease-in-out infinite',
-                  }}
-                />
-
-                <span
-                  style={{
-                    fontSize: 9,
-                    fontWeight: 700,
-                    color:
-                      'rgba(196,181,253,.84)',
-                    letterSpacing: '.12em',
-                    textTransform:
-                      'uppercase',
-                  }}
-                >
-                  Discuss your operation
-                </span>
-              </div>
+              <p className="bb-eyebrow">Request received</p>
 
               <h1
-                style={{
-                  margin: '0 auto 14px',
-                  maxWidth: 650,
-                  fontSize:
-                    'clamp(31px, 5vw, 46px)',
-                  fontWeight: 650,
-                  letterSpacing: '-.04em',
-                  lineHeight: 1.08,
-                  color: '#F5F7FA',
-                }}
+                id="request-done-title"
+                ref={doneHeadingRef}
+                tabIndex={-1}
+                className={styles.doneTitle}
               >
-                Tell us what you&apos;re
-                trying to improve.
+                Thanks — we&apos;ve received
+                your request.
               </h1>
 
-              <p
-                style={{
-                  margin: '0 auto',
-                  maxWidth: 570,
-                  fontSize: 14,
-                  lineHeight: 1.75,
-                  color:
-                    'rgba(226,232,240,.52)',
-                }}
-              >
-                You don&apos;t need to know
-                exactly how BRΛINBΛSE
-                should be configured. Tell
-                us where the friction is,
-                what you use today and
-                what you want to improve —
-                we can help identify the
-                right starting point.
+              <p className={styles.doneBody}>
+                We&apos;ll review what
+                you&apos;re trying to
+                improve and contact you to
+                discuss where BrainBase
+                could fit.
               </p>
+
+              <div className={styles.doneActions}>
+                <ButtonLink href="/demo">Explore the platform</ButtonLink>
+                <ButtonLink href="/" variant="secondary">
+                  Back to BrainBase
+                </ButtonLink>
+              </div>
             </section>
+          ) : (
+            <div className={styles.layout}>
+              {/* Header */}
+              <header className={styles.intro}>
+                <BrainbaseLockup idPrefix="bb-request-lockup" width={200} className={styles.lockup} />
 
-            {/* How this works */}
-            <div
-              style={{
-                marginBottom: 14,
-                padding: '18px 20px',
-                borderRadius: 13,
-                background:
-                  'rgba(138,77,255,.035)',
-                border:
-                  '1px solid rgba(138,77,255,.10)',
-              }}
-            >
-              <div
-                style={{
-                  marginBottom: 12,
-                  fontSize: 12,
-                  fontWeight: 650,
-                  color:
-                    'rgba(245,247,250,.80)',
-                }}
-              >
-                Start with the problem, not the software.
-              </div>
+                <p className={`bb-eyebrow ${styles.eyebrow}`}>
+                  <span className={styles.eyebrowDot} aria-hidden="true" />
+                  Discuss your operation
+                </p>
 
-              <div
-                style={{
-                  display: 'grid',
-                  gap: 7,
-                  marginBottom: 12,
-                }}
-              >
-                {[
-                  "Tell us what's creating friction",
-                  'Tell us what systems you already rely on',
-                  "We'll discuss where BRΛINBΛSE could fit",
-                  'Start focused, expand later if needed',
-                ].map(point => (
-                  <div
-                    key={point}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: 4,
-                        height: 4,
-                        borderRadius: '50%',
-                        flexShrink: 0,
-                        background:
-                          'rgba(167,139,250,.7)',
-                      }}
-                    />
+                <h1 className={styles.title}>
+                  Tell us what you&apos;re
+                  trying to improve.
+                </h1>
 
-                    <span
-                      style={{
-                        fontSize: 11,
-                        lineHeight: 1.5,
-                        color:
-                          'rgba(226,232,240,.55)',
-                      }}
-                    >
-                      {point}
-                    </span>
-                  </div>
-                ))}
-              </div>
+                <p className={styles.lede}>
+                  You don&apos;t need to know
+                  exactly how BrainBase
+                  should be configured. Tell
+                  us where the friction is,
+                  what you use today and
+                  what you want to improve —
+                  we can help identify the
+                  right starting point.
+                </p>
 
-              <div
-                style={{
-                  fontSize: 10,
-                  lineHeight: 1.5,
-                  color:
-                    'rgba(226,232,240,.35)',
-                }}
-              >
-                BRΛINBΛSE can work alongside external
-                systems where it makes sense.
-              </div>
-            </div>
+                {/* How this works */}
+                <div className={styles.how}>
+                  <h2 className={styles.howTitle}>
+                    Start with the problem, not the software.
+                  </h2>
 
-            {/* Form */}
-            <form
-              onSubmit={submit}
-              style={{
-                animation:
-                  'bbFadeUp .35s ease both',
-              }}
-            >
-              <div
-                className="bb-request-card"
-                style={{
-                  padding: '32px',
-                  borderRadius: 17,
-                  background:
-                    'rgba(255,255,255,.022)',
-                  border:
-                    '1px solid rgba(255,255,255,.075)',
-                  boxShadow:
-                    '0 28px 80px rgba(0,0,0,.16)',
-                }}
-              >
-                {/* Contact */}
-                <SectionLabel>
-                  Your details
-                </SectionLabel>
+                  <ol className={styles.steps}>
+                    {STEPS.map((point, index) => (
+                      <li key={point} className={styles.step}>
+                        <span className={styles.stepIndex} aria-hidden="true">
+                          {String(index + 1).padStart(2, '0')}
+                        </span>
+                        <span>{point}</span>
+                      </li>
+                    ))}
+                  </ol>
 
-                <div className="bb-request-grid">
-                  <Field
-                    label="Full name"
-                    required
-                  >
-                    <input
-                      className="bb-request-input"
-                      autoComplete="name"
-                      value={form.name}
-                      onChange={set('name')}
-                      placeholder="Jane Smith"
-                      style={focusStyle('name')}
-                      onFocus={() =>
-                        setFocusField('name')
-                      }
-                      onBlur={() =>
-                        setFocusField(null)
-                      }
-                    />
-                  </Field>
-
-                  <Field
-                    label="Work email"
-                    required
-                  >
-                    <input
-                      className="bb-request-input"
-                      type="email"
-                      autoComplete="email"
-                      value={form.email}
-                      onChange={set('email')}
-                      placeholder="jane@business.com.au"
-                      style={focusStyle(
-                        'email',
-                      )}
-                      onFocus={() =>
-                        setFocusField(
-                          'email',
-                        )
-                      }
-                      onBlur={() =>
-                        setFocusField(null)
-                      }
-                    />
-                  </Field>
+                  <p className={styles.howNote}>
+                    BrainBase can work alongside external
+                    systems where it makes sense.
+                  </p>
                 </div>
+              </header>
 
-                <Field label="Phone">
-                  <input
-                    className="bb-request-input"
-                    type="tel"
-                    autoComplete="tel"
-                    value={form.phone}
-                    onChange={set('phone')}
-                    placeholder="+61 4xx xxx xxx"
-                    style={focusStyle(
-                      'phone',
+              {/* Form */}
+              <form onSubmit={submit} className={styles.form} aria-label="Demo request">
+                {/* Contact */}
+                <fieldset className={styles.group}>
+                  <legend className={`bb-eyebrow ${styles.legend}`}>
+                    Your details
+                  </legend>
+
+                  <div className={styles.grid}>
+                    <FormField label="Full name" required invalid={invalid.name} errorId={errorId}>
+                      {control => (
+                        <input
+                          {...control}
+                          className={styles.input}
+                          autoComplete="name"
+                          value={form.name}
+                          onChange={set('name')}
+                          placeholder="Jane Smith"
+                        />
+                      )}
+                    </FormField>
+
+                    <FormField label="Work email" required invalid={invalid.email} errorId={errorId}>
+                      {control => (
+                        <input
+                          {...control}
+                          className={styles.input}
+                          type="email"
+                          autoComplete="email"
+                          value={form.email}
+                          onChange={set('email')}
+                          placeholder="jane@business.com.au"
+                        />
+                      )}
+                    </FormField>
+                  </div>
+
+                  <FormField label="Phone">
+                    {control => (
+                      <input
+                        {...control}
+                        className={styles.input}
+                        type="tel"
+                        autoComplete="tel"
+                        value={form.phone}
+                        onChange={set('phone')}
+                        placeholder="+61 4xx xxx xxx"
+                      />
                     )}
-                    onFocus={() =>
-                      setFocusField('phone')
-                    }
-                    onBlur={() =>
-                      setFocusField(null)
-                    }
-                  />
-                </Field>
-
-                <Divider />
+                  </FormField>
+                </fieldset>
 
                 {/* Organisation */}
-                <SectionLabel>
-                  Your organisation
-                </SectionLabel>
+                <fieldset className={styles.group}>
+                  <legend className={`bb-eyebrow ${styles.legend}`}>
+                    Your organisation
+                  </legend>
 
-                <div className="bb-request-grid">
-                  <Field
-                    label="Organisation / Business name"
-                    required
+                  <div className={styles.grid}>
+                    <FormField
+                      label="Organisation / Business name"
+                      required
+                      invalid={invalid.business_name}
+                      errorId={errorId}
+                    >
+                      {control => (
+                        <input
+                          {...control}
+                          className={styles.input}
+                          autoComplete="organization"
+                          value={form.business_name}
+                          onChange={set('business_name')}
+                          placeholder="Your organisation"
+                        />
+                      )}
+                    </FormField>
+
+                    <FormField label="Organisation type">
+                      {control => (
+                        <SelectShell>
+                          <select
+                            {...control}
+                            className={styles.select}
+                            value={form.business_type}
+                            onChange={set('business_type')}
+                          >
+                            <option value="">
+                              Select type…
+                            </option>
+
+                            {BUSINESS_TYPES.map(type => (
+                              <option key={type} value={type}>
+                                {type}
+                              </option>
+                            ))}
+                          </select>
+                        </SelectShell>
+                      )}
+                    </FormField>
+                  </div>
+
+                  <FormField
+                    label="Tell us about your operation"
+                    helper="A few sentences is enough. Include any systems or tools you currently rely on, if relevant."
                   >
-                    <input
-                      className="bb-request-input"
-                      autoComplete="organization"
-                      value={
-                        form.business_name
-                      }
-                      onChange={set(
-                        'business_name',
-                      )}
-                      placeholder="Your organisation"
-                      style={focusStyle(
-                        'business_name',
-                      )}
-                      onFocus={() =>
-                        setFocusField(
-                          'business_name',
-                        )
-                      }
-                      onBlur={() =>
-                        setFocusField(null)
-                      }
-                    />
-                  </Field>
-
-                  <Field label="Organisation type">
-                    <select
-                      className="bb-request-select"
-                      value={
-                        form.business_type
-                      }
-                      onChange={set(
-                        'business_type',
-                      )}
-                      style={{
-                        ...focusStyle(
-                          'business_type',
-                        ),
-                        colorScheme: 'dark',
-                        appearance: 'none',
-                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='rgba(255,255,255,0.35)' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")`,
-                        backgroundRepeat:
-                          'no-repeat',
-                        backgroundPosition:
-                          'right 13px center',
-                        paddingRight: 38,
-                        cursor: 'pointer',
-                      }}
-                      onFocus={() =>
-                        setFocusField(
-                          'business_type',
-                        )
-                      }
-                      onBlur={() =>
-                        setFocusField(null)
-                      }
-                    >
-                      <option value="">
-                        Select type…
-                      </option>
-
-                      {BUSINESS_TYPES.map(
-                        type => (
-                          <option
-                            key={type}
-                            value={type}
-                          >
-                            {type}
-                          </option>
-                        ),
-                      )}
-                    </select>
-                  </Field>
-                </div>
-
-                <Field
-                  label="Tell us about your operation"
-                  helper="A few sentences is enough. Include any systems or tools you currently rely on, if relevant."
-                >
-                  <textarea
-                    className="bb-request-textarea"
-                    value={
-                      form.description
-                    }
-                    onChange={set(
-                      'description',
+                    {control => (
+                      <textarea
+                        {...control}
+                        className={styles.textarea}
+                        value={form.description}
+                        onChange={set('description')}
+                        placeholder="What does your organisation do, and how are you managing the work today?"
+                        rows={4}
+                      />
                     )}
-                    placeholder="What does your organisation do, and how are you managing the work today?"
-                    rows={4}
-                    style={{
-                      ...focusStyle(
-                        'description',
-                      ),
-                      resize: 'vertical',
-                      lineHeight: 1.65,
-                    }}
-                    onFocus={() =>
-                      setFocusField(
-                        'description',
-                      )
-                    }
-                    onBlur={() =>
-                      setFocusField(null)
-                    }
-                  />
-                </Field>
+                  </FormField>
 
-                <div className="bb-request-grid">
-                  <Field label="Clients / Customers">
-                    <select
-                      className="bb-request-select"
-                      value={
-                        form.num_clients
-                      }
-                      onChange={set(
-                        'num_clients',
-                      )}
-                      style={{
-                        ...focusStyle(
-                          'num_clients',
-                        ),
-                        colorScheme: 'dark',
-                        appearance: 'none',
-                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='rgba(255,255,255,0.35)' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")`,
-                        backgroundRepeat:
-                          'no-repeat',
-                        backgroundPosition:
-                          'right 13px center',
-                        paddingRight: 38,
-                        cursor: 'pointer',
-                      }}
-                      onFocus={() =>
-                        setFocusField(
-                          'num_clients',
-                        )
-                      }
-                      onBlur={() =>
-                        setFocusField(null)
-                      }
-                    >
-                      <option value="">
-                        Select range…
-                      </option>
-
-                      {CLIENT_RANGES.map(
-                        range => (
-                          <option
-                            key={range}
-                            value={range}
+                  <div className={styles.grid}>
+                    <FormField label="Clients / Customers">
+                      {control => (
+                        <SelectShell>
+                          <select
+                            {...control}
+                            className={styles.select}
+                            value={form.num_clients}
+                            onChange={set('num_clients')}
                           >
-                            {range}
-                          </option>
-                        ),
-                      )}
-                    </select>
-                  </Field>
+                            <option value="">
+                              Select range…
+                            </option>
 
-                  <Field label="Team / Users">
-                    <select
-                      className="bb-request-select"
-                      value={
-                        form.num_users
-                      }
-                      onChange={set(
-                        'num_users',
+                            {CLIENT_RANGES.map(range => (
+                              <option key={range} value={range}>
+                                {range}
+                              </option>
+                            ))}
+                          </select>
+                        </SelectShell>
                       )}
-                      style={{
-                        ...focusStyle(
-                          'num_users',
-                        ),
-                        colorScheme: 'dark',
-                        appearance: 'none',
-                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='rgba(255,255,255,0.35)' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")`,
-                        backgroundRepeat:
-                          'no-repeat',
-                        backgroundPosition:
-                          'right 13px center',
-                        paddingRight: 38,
-                        cursor: 'pointer',
-                      }}
-                      onFocus={() =>
-                        setFocusField(
-                          'num_users',
-                        )
-                      }
-                      onBlur={() =>
-                        setFocusField(null)
-                      }
-                    >
-                      <option value="">
-                        Select size…
-                      </option>
+                    </FormField>
 
-                      {TEAM_SIZES.map(
-                        size => (
-                          <option
-                            key={size}
-                            value={size}
+                    <FormField label="Team / Users">
+                      {control => (
+                        <SelectShell>
+                          <select
+                            {...control}
+                            className={styles.select}
+                            value={form.num_users}
+                            onChange={set('num_users')}
                           >
-                            {size}
-                          </option>
-                        ),
-                      )}
-                    </select>
-                  </Field>
-                </div>
+                            <option value="">
+                              Select size…
+                            </option>
 
-                <Divider />
+                            {TEAM_SIZES.map(size => (
+                              <option key={size} value={size}>
+                                {size}
+                              </option>
+                            ))}
+                          </select>
+                        </SelectShell>
+                      )}
+                    </FormField>
+                  </div>
+                </fieldset>
 
                 {/* Goals */}
-                <SectionLabel>
-                  Where would you like BRΛINBΛSE to help first?
-                </SectionLabel>
+                <fieldset className={styles.group}>
+                  <legend className={`bb-eyebrow ${styles.legend}`}>
+                    Where would you like BrainBase to help first?
+                  </legend>
 
-                <Field
-                  label="What would you most like to improve?"
-                  helper="For example: lead follow-up, scheduling, client visibility, reporting, disconnected systems, website enquiries or manual admin."
-                >
-                  <textarea
-                    className="bb-request-textarea"
-                    value={form.goal}
-                    onChange={set('goal')}
-                    placeholder="Tell us where the current process is creating work, gaps or frustration."
-                    rows={4}
-                    style={{
-                      ...focusStyle(
-                        'goal',
-                      ),
-                      resize: 'vertical',
-                      lineHeight: 1.65,
-                    }}
-                    onFocus={() =>
-                      setFocusField('goal')
-                    }
-                    onBlur={() =>
-                      setFocusField(null)
-                    }
-                  />
-                </Field>
-
-                <Field label="How did you hear about BRΛINBΛSE?">
-                  <input
-                    className="bb-request-input"
-                    value={form.referral}
-                    onChange={set(
-                      'referral',
+                  <FormField
+                    label="What would you most like to improve?"
+                    helper="For example: lead follow-up, scheduling, client visibility, reporting, disconnected systems, website enquiries or manual admin."
+                  >
+                    {control => (
+                      <textarea
+                        {...control}
+                        className={styles.textarea}
+                        value={form.goal}
+                        onChange={set('goal')}
+                        placeholder="Tell us where the current process is creating work, gaps or frustration."
+                        rows={4}
+                      />
                     )}
-                    placeholder="Google, referral, LinkedIn, word of mouth…"
-                    style={focusStyle(
-                      'referral',
-                    )}
-                    onFocus={() =>
-                      setFocusField(
-                        'referral',
-                      )
-                    }
-                    onBlur={() =>
-                      setFocusField(null)
-                    }
-                  />
-                </Field>
+                  </FormField>
 
-                <div
-                  style={{
-                    marginBottom: 18,
-                    padding: '12px 14px',
-                    borderRadius: 9,
-                    background:
-                      'rgba(255,255,255,.018)',
-                    border:
-                      '1px solid rgba(255,255,255,.06)',
-                    fontSize: 10.5,
-                    lineHeight: 1.6,
-                    color:
-                      'rgba(226,232,240,.42)',
-                  }}
-                >
+                  <FormField label="How did you hear about BrainBase?">
+                    {control => (
+                      <input
+                        {...control}
+                        className={styles.input}
+                        value={form.referral}
+                        onChange={set('referral')}
+                        placeholder="Google, referral, LinkedIn, word of mouth…"
+                      />
+                    )}
+                  </FormField>
+                </fieldset>
+
+                {/* Legal collection notice: names the legal entity and its
+                    registered trading name, so it is kept verbatim (brand
+                    spelling in legal text is pending a separate decision). */}
+                <p className={styles.privacy}>
                   Brainbase (ABN 32 207 559 504),
                   trading as BRΛINBΛSE, collects
                   the information in this form so we
@@ -1117,115 +505,41 @@ export default function RequestDemoPage() {
                   another lawful purpose. Submitting
                   this form does not subscribe you
                   to marketing. See our{' '}
-                  <Link
-                    href="/privacy"
-                    style={{
-                      color:
-                        'rgba(196,181,253,.75)',
-                    }}
-                  >
+                  <Link href="/privacy" className={styles.inlineLink}>
                     Privacy Policy
                   </Link>{' '}
                   for details.
-                </div>
+                </p>
 
                 {error && (
-                  <div
-                    role="alert"
-                    style={{
-                      padding: '11px 13px',
-                      marginBottom: 20,
-                      borderRadius: 9,
-                      background:
-                        'rgba(239,68,68,.07)',
-                      border:
-                        '1px solid rgba(239,68,68,.18)',
-                      color: '#FCA5A5',
-                      fontSize: 12,
-                      lineHeight: 1.5,
-                    }}
+                  <Alert
+                    state="error"
+                    urgency={missing ? 'static' : 'critical'}
+                    title="Your request wasn't sent"
+                    className={styles.error}
                   >
-                    {error}
-                  </div>
+                    <span id={errorId}>{error}</span>
+                  </Alert>
                 )}
 
                 <button
                   type="submit"
                   disabled={submitting}
-                  style={{
-                    width: '100%',
-                    minHeight: 47,
-                    padding: '0 18px',
-                    borderRadius: 10,
-                    fontWeight: 650,
-                    fontSize: 13,
-                    letterSpacing: '.01em',
-                    background:
-                      submitting
-                        ? 'rgba(138,77,255,.10)'
-                        : 'linear-gradient(100deg, #6A3DFF 0%, #8A4DFF 55%, #5677FF 100%)',
-                    border:
-                      submitting
-                        ? '1px solid rgba(138,77,255,.16)'
-                        : '1px solid rgba(167,139,250,.25)',
-                    boxShadow:
-                      submitting
-                        ? 'none'
-                        : '0 10px 30px rgba(106,61,255,.16)',
-                    color:
-                      submitting
-                        ? 'rgba(245,247,250,.38)'
-                        : '#FFFFFF',
-                    cursor:
-                      submitting
-                        ? 'not-allowed'
-                        : 'pointer',
-                    transition:
-                      'opacity .15s, transform .15s, box-shadow .15s',
-                    fontFamily: 'inherit',
-                  }}
-                  onMouseEnter={e => {
-                    if (!submitting) {
-                      e.currentTarget.style.opacity =
-                        '0.92';
-
-                      e.currentTarget.style.transform =
-                        'translateY(-1px)';
-
-                      e.currentTarget.style.boxShadow =
-                        '0 14px 36px rgba(106,61,255,.22)';
-                    }
-                  }}
-                  onMouseLeave={e => {
-                    if (!submitting) {
-                      e.currentTarget.style.opacity =
-                        '1';
-
-                      e.currentTarget.style.transform =
-                        'translateY(0)';
-
-                      e.currentTarget.style.boxShadow =
-                        '0 10px 30px rgba(106,61,255,.16)';
-                    }
-                  }}
+                  className={styles.submit}
                 >
-                  {submitting
-                    ? 'Sending…'
-                    : 'Discuss my operation →'}
+                  {submitting ? (
+                    'Sending…'
+                  ) : (
+                    <>
+                      Discuss my operation
+                      <ArrowIcon className={styles.submitArrow} />
+                    </>
+                  )}
                 </button>
 
-                <p
-                  style={{
-                    margin: '14px 0 0',
-                    textAlign: 'center',
-                    fontSize: 10,
-                    lineHeight: 1.55,
-                    color:
-                      'rgba(255,255,255,.24)',
-                  }}
-                >
+                <p className={styles.reassure}>
                   You don&apos;t need the whole
-                  platform on day one — BRΛINBΛSE
+                  platform on day one — BrainBase
                   can begin with the part of the
                   operation that matters most and
                   expand as requirements grow.
@@ -1235,46 +549,13 @@ export default function RequestDemoPage() {
                   contact you to discuss the
                   right next step.
                 </p>
-              </div>
-            </form>
-          </>
-        )}
+              </form>
+            </div>
+          )}
+        </div>
       </div>
+
+      <PublicFooter />
     </main>
-  );
-}
-
-function SectionLabel({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      style={{
-        marginBottom: 20,
-        fontSize: 9,
-        fontWeight: 700,
-        letterSpacing: '.13em',
-        textTransform: 'uppercase',
-        color:
-          'rgba(167,139,250,.62)',
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function Divider() {
-  return (
-    <div
-      style={{
-        height: 1,
-        margin: '8px 0 25px',
-        background:
-          'rgba(255,255,255,.055)',
-      }}
-    />
   );
 }

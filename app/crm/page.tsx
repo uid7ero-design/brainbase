@@ -2,13 +2,20 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { CapabilityIcon } from '@/components/brand/CapabilityIcon';
+import { Metric, MetricStrip, PageHeader, Panel, StateMessage, tableStyles } from '@/components/ui/app';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
-const STAGE_COLORS: Record<string, string> = { lead: '#6b7280', qualified: '#60a5fa', proposal: '#a78bfa', negotiation: '#fbbf24', closed_won: '#34d399', closed_lost: '#f87171' };
+// Domain category encoding (kept) — deal pipeline stages. Stages whose
+// meaning matches a semantic state use the status tokens; "proposal" has
+// no semantic equivalent and keeps its own category hue. Colour is only
+// ever drawn as a dot beside the written stage label.
+const STAGE_COLORS: Record<string, string> = { lead: 'var(--status-inactive)', qualified: 'var(--status-info)', proposal: '#f472b6', negotiation: 'var(--status-warning)', closed_won: 'var(--status-success)', closed_lost: 'var(--status-danger)' };
 const TYPE_ICONS: Record<string, string> = { call: '📞', email: '✉️', note: '📝', meeting: '🤝' };
 
 type Deal = { id: string; title: string; value: number | null; stage: string; company_name: string | null };
 type Activity = { id: string; type: string; subject: string; body: string | null; activity_date: string; created_by_name: string; contact_name: string | null; company_name: string | null; deal_title: string | null };
+
+const LIST: React.CSSProperties = { listStyle: 'none', margin: 0, padding: 0 };
+const ROW_BORDER = '1px solid var(--border)';
 
 export default function CrmOverviewPage() {
   const [deals, setDeals] = useState<Deal[]>([]);
@@ -36,102 +43,111 @@ export default function CrmOverviewPage() {
 
   return (
     <div style={{ maxWidth: 1000 }}>
-      <div style={{ marginBottom: 28 }}>
-        {/* Module identity moment (Phase D.4.3) — the same Users/violet
-            CapabilityIcon already shown in ModuleAccessCard and TopNav for
-            this capability, decorative since the heading right beside it
-            already supplies the accessible name. This is the tenant's own
-            `crm` capability, distinct from BrainBase HQ's app/clients/**
-            and Founder OS's own internal "CRM clients" pipeline tracking —
-            neither of those gets this icon. */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <CapabilityIcon capability="crm" size="md" />
-          <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>CRM</h1>
-        </div>
-        <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 0' }}>Companies, contacts, deals & activities</p>
-      </div>
+      {/* Module identity moment (Phase D.4.3) — the same Users/violet
+          CapabilityIcon already shown in ModuleAccessCard and TopNav for
+          this capability, decorative since the heading right beside it
+          already supplies the accessible name. This is the tenant's own
+          `crm` capability, distinct from BrainBase HQ's app/clients/**
+          and Founder OS's own internal "CRM clients" pipeline tracking —
+          neither of those gets this icon. */}
+      <PageHeader
+        title={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+            <CapabilityIcon capability="crm" size="md" />
+            CRM
+          </span>
+        }
+        description="Companies, contacts, deals & activities"
+      />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 28 }}>
+      <MetricStrip style={{ marginBottom: 24 }}>
         {[
-          { label: 'Companies', value: counts.companies, href: '/crm/companies', color: '#60a5fa' },
-          { label: 'Contacts', value: counts.contacts, href: '/crm/contacts', color: '#a78bfa' },
-          { label: 'Active Deals', value: pipeline.length, href: '/crm/deals', color: '#fbbf24' },
-          { label: 'Pipeline Value', value: `$${pipelineValue.toLocaleString()}`, href: '/crm/deals', color: '#34d399' },
-          { label: 'Won', value: `$${wonValue.toLocaleString()}`, href: '/crm/deals', color: '#34d399' },
+          { label: 'Companies', value: counts.companies, href: '/crm/companies' },
+          { label: 'Contacts', value: counts.contacts, href: '/crm/contacts' },
+          { label: 'Active Deals', value: pipeline.length, href: '/crm/deals' },
+          { label: 'Pipeline Value', value: `$${pipelineValue.toLocaleString()}`, href: '/crm/deals' },
+          { label: 'Won', value: `$${wonValue.toLocaleString()}`, href: '/crm/deals' },
         ].map(s => (
-          <Link
+          <Metric
             key={s.label}
-            href={s.href}
-            style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 10, padding: '16px 18px', textDecoration: 'none', display: 'block' }}
-          >
-            <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{loading ? '—' : s.value}</div>
-            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              {s.label}
-            </div>
-          </Link>
+            label={<Link href={s.href} style={{ color: 'inherit' }}>{s.label}</Link>}
+            value={s.value}
+            loading={loading}
+          />
         ))}
-      </div>
+      </MetricStrip>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px', borderBottom: `1px solid ${BORDER}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>Open Deals</span>
-            <Link href="/crm/deals" style={{ fontSize: 12, color: '#6b7280', textDecoration: 'none' }}>View all →</Link>
-          </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))', gap: 20 }}>
+        <Panel
+          title="Open Deals"
+          padding="none"
+          actions={<Link href="/crm/deals" className={tableStyles.link} aria-label="View all deals">View all →</Link>}
+        >
           {loading ? (
-            <p style={{ padding: 20, color: '#4b5563', fontSize: 13 }}>Loading…</p>
+            <StateMessage kind="loading" title="Loading…" />
           ) : pipeline.length === 0 ? (
-            <p style={{ padding: 20, color: '#4b5563', fontSize: 13 }}>
-              No open deals. <Link href="/crm/deals" style={{ color: '#1a6aff', textDecoration: 'none' }}>Add one →</Link>
-            </p>
+            <StateMessage
+              kind="empty"
+              title="No open deals."
+              action={<Link href="/crm/deals" className={tableStyles.link}>Add one →</Link>}
+            />
           ) : (
-            pipeline.slice(0, 6).map((d, i) => (
-              <Link
-                key={d.id}
-                href="/crm/deals"
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: i < Math.min(pipeline.length, 6) - 1 ? `1px solid ${BORDER}` : 'none', textDecoration: 'none' }}
-              >
-                <div>
-                  <div style={{ fontSize: 13, color: '#f9fafb', fontWeight: 500 }}>{d.title}</div>
-                  {d.company_name && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{d.company_name}</div>}
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  {d.value != null && <div style={{ fontSize: 13, fontWeight: 600, color: STAGE_COLORS[d.stage] }}>${Number(d.value).toLocaleString()}</div>}
-                  <div style={{ fontSize: 11, color: '#4b5563', marginTop: 2, textTransform: 'capitalize' }}>{d.stage.replace('_', ' ')}</div>
-                </div>
-              </Link>
-            ))
+            <ul style={LIST}>
+              {pipeline.slice(0, 6).map((d, i) => (
+                <li key={d.id} style={{ borderTop: i > 0 ? ROW_BORDER : 'none' }}>
+                  <Link
+                    href="/crm/deals"
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 20px', textDecoration: 'none' }}
+                  >
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{d.title}</span>
+                      {d.company_name && <span style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>{d.company_name}</span>}
+                    </span>
+                    <span style={{ textAlign: 'right', flexShrink: 0 }}>
+                      {d.value != null && <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>${Number(d.value).toLocaleString()}</span>}
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)', marginTop: 2, textTransform: 'capitalize' }}>
+                        <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: STAGE_COLORS[d.stage] ?? 'var(--status-inactive)' }} />
+                        {d.stage.replace('_', ' ')}
+                      </span>
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
           )}
-        </div>
+        </Panel>
 
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px', borderBottom: `1px solid ${BORDER}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>Recent Activity</span>
-            <Link href="/crm/activities" style={{ fontSize: 12, color: '#6b7280', textDecoration: 'none' }}>View all →</Link>
-          </div>
+        <Panel
+          title="Recent Activity"
+          padding="none"
+          actions={<Link href="/crm/activities" className={tableStyles.link} aria-label="View all activity">View all →</Link>}
+        >
           {loading ? (
-            <p style={{ padding: 20, color: '#4b5563', fontSize: 13 }}>Loading…</p>
+            <StateMessage kind="loading" title="Loading…" />
           ) : activities.length === 0 ? (
-            <p style={{ padding: 20, color: '#4b5563', fontSize: 13 }}>No activity yet.</p>
+            <StateMessage kind="empty" title="No activity yet." />
           ) : (
-            activities.slice(0, 8).map((a, i) => (
-              <div key={a.id} style={{ padding: '11px 20px', borderBottom: i < Math.min(activities.length, 8) - 1 ? `1px solid ${BORDER}` : 'none' }}>
-                <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                  <span style={{ fontSize: 14, flexShrink: 0 }}>{TYPE_ICONS[a.type] ?? '•'}</span>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 13, color: '#f9fafb', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {a.subject}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-                      {a.contact_name ?? a.company_name ?? a.deal_title ?? ''} ·{' '}
-                      {new Date(a.activity_date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
+            <ul style={LIST}>
+              {activities.slice(0, 8).map((a, i) => (
+                <li key={a.id} style={{ padding: '11px 20px', borderTop: i > 0 ? ROW_BORDER : 'none' }}>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                    <span aria-hidden="true" style={{ fontSize: 14, flexShrink: 0 }}>{TYPE_ICONS[a.type] ?? '•'}</span>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <span className="bb-visually-hidden">{a.type}: </span>
+                        {a.subject}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                        {a.contact_name ?? a.company_name ?? a.deal_title ?? ''} ·{' '}
+                        {new Date(a.activity_date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            ))
+                </li>
+              ))}
+            </ul>
           )}
-        </div>
+        </Panel>
       </div>
     </div>
   );

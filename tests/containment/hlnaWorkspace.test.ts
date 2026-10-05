@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
+// Nav consolidation update (feat/authenticated-nav-consolidation): HLNA's
+// destination now lives in the pure nav model.
+import { resolveNav } from '@/components/nav/navModel';
 
 // Phase C.2B / C.2B.1 — dedicated full-screen /hlna conversation workspace.
 // C.2B.1 reworked the page into a two-column "talk to HLNA" layout: Helena
@@ -341,8 +344,21 @@ describe('Phase C.2B/C.2B.1 — routing/navigation containment', () => {
   // assert the new, intentional state rather than the old one.
   it('TopNav.tsx canonical HLNA destination is /hlna (Phase C.2D), never a route into HelenaWorkspace source directly', () => {
     const topNav = fs.readFileSync(path.join(root, 'components/nav/TopNav.tsx'), 'utf-8');
-    expect(topNav).toMatch(/['"]\/hlna['"]/);
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // '/hlna' literal moved from TopNav into navModel.ts HLNA_LINK; TopNav
+    // renders the resolved nav.hlna link. HLNA -> /hlna now holds for EVERY
+    // tenant (LD Tennis no longer points HLNA at /dashboard).
+    const navModel = fs.readFileSync(path.join(root, 'components/nav/navModel.ts'), 'utf-8');
+    expect(navModel).toMatch(/export const HLNA_LINK: NavLink = \{\s*kind: 'link', id: 'hlna', label: 'HLNA', href: '\/hlna', match: \['\/hlna'\],\s*\};/);
+    expect(topNav).toMatch(/import \{[^}]*\bresolveNav\b[^}]*\} from '\.\/navModel';/);
+    expect(topNav).toMatch(/<NavPill link=\{nav\.hlna\}/);
+    for (const dashboardVariant of [null, 'ld-tennis', 'brainbase-hq'] as const) {
+      for (const role of ['viewer', 'manager', 'admin', 'super_admin']) {
+        expect(resolveNav({ role, enabledCapabilities: [], dashboardVariant }).hlna.href).toBe('/hlna');
+      }
+    }
     expect(topNav).not.toContain('HelenaWorkspace');
+    expect(navModel).not.toContain('HelenaWorkspace');
   });
 
   it('LeftSidebar.jsx HLNA entry routes to /hlna (Phase C.2D)', () => {
@@ -354,17 +370,45 @@ describe('Phase C.2B/C.2B.1 — routing/navigation containment', () => {
     expect(sidebar).not.toContain('HelenaWorkspace');
   });
 
-  it('components/BrainBase.jsx is byte-for-byte untouched this phase', () => {
-    // BrainBase.jsx keeps its own private mapHelenaPhaseToVisualState copy
-    // this phase (see lib/helena/visualState.js's header comment for why) —
-    // guards that neither C.2B nor C.2B.1 touched the already-shipped
-    // Phase C file, even though ChatPanel.jsx (which it also renders) did
-    // change — the change there is additive-only (see the docked-layout
-    // describe block above).
-    const brainBase = fs.readFileSync(path.join(root, 'components/BrainBase.jsx'), 'utf-8');
-    expect(brainBase).toMatch(/function mapHelenaPhaseToVisualState\(orbPhase, orbAlert\) \{/);
+  it('components/BrainBase.jsx keeps its own Helena wiring untouched (private mapper, orbital flag/render lines, imports)', () => {
+    // Visual-convergence update (authenticated visual-completion pass): this
+    // was titled "byte-for-byte untouched", but the visual-completion pass
+    // legitimately converted BrainBase.jsx's CHROME (page, header, operator
+    // panel, ask input) to theme tokens. What the original pin protected is
+    // BrainBase.jsx's Helena behaviour, which must stay exactly as shipped —
+    // so it is now asserted directly and more strictly than before:
+    //   - the private mapHelenaPhaseToVisualState copy is present with its
+    //     exact, known-buggy body ('processing'/'speaking' are never values
+    //     orbPhase holds, so thinking/speaking never fire on /dashboard —
+    //     see lib/helena/visualState.js's header). It is deliberately NOT
+    //     fixed and NOT swapped for the shared module in a visual pass.
+    //   - the USE_HELENA_ORBITAL flag and both orb render lines.
+    //   - the imports of HelenaOrbital / HlnaOrb / ChatPanel / MicButton.
+    const brainBase = fs.readFileSync(path.join(root, 'components/BrainBase.jsx'), 'utf-8').replace(/\r\n/g, '\n');
+    expect(brainBase).toContain([
+      'function mapHelenaPhaseToVisualState(orbPhase, orbAlert) {',
+      "  if (orbAlert) return 'error';",
+      "  if (orbPhase === 'processing') return 'thinking';",
+      "  if (orbPhase === 'speaking') return 'speaking';",
+      "  if (orbPhase === 'listening') return 'listening';",
+      "  return 'idle';",
+      '}',
+    ].join('\n'));
+    expect(brainBase).toContain('const USE_HELENA_ORBITAL = true;');
+    expect(brainBase).toContain('<HelenaOrbital size={120} state={helenaVisualState} speechRef={orbSpeechRef} />');
+    expect(brainBase).toContain('<HlnaOrb size={120} state={orbState} speechRef={orbSpeechRef} />');
+    expect(brainBase).toContain('const helenaVisualState = mapHelenaPhaseToVisualState(helena.orbPhase, orbAlert);');
+    for (const imp of [
+      'import { HlnaOrb } from "./brand/HlnaOrb";',
+      'import { HelenaOrbital } from "./brand/HelenaOrbital";',
+      'import { ChatPanel } from "./chat/ChatPanel";',
+      'import { MicButton } from "./voice/MicButton";',
+      'import { useHelena } from "../hooks/useHelena";',
+    ]) {
+      expect(brainBase).toContain(imp);
+    }
     expect(brainBase).not.toContain('HelenaWorkspace');
-    expect(brainBase).not.toContain("from \"../../lib/helena/visualState\"");
+    expect(brainBase).not.toContain('lib/helena/visualState');
   });
 
   it('Events & Ticketing files are untouched this phase', () => {

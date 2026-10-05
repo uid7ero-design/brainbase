@@ -231,7 +231,30 @@ export type WebhookProcessResult = { handled: boolean; type: string };
 export async function processStripeWebhookEvent(event: Stripe.Event): Promise<WebhookProcessResult> {
   const eventAccount = event.account ?? null;
   switch (event.type) {
-    case 'checkout.session.completed': {
+    // checkout.session.completed and checkout.session.async_payment_succeeded
+    // are deliberately routed to the SAME handler. Stripe's own fulfilment
+    // guidance (docs.stripe.com/checkout/fulfillment) recommends exactly
+    // this: a delayed/asynchronous payment method (e.g. certain bank
+    // debits) can complete the hosted Checkout flow with `.completed`
+    // firing at payment_status 'unpaid'/'processing' — handleCheckoutSessionCompleted's
+    // own `if (session.payment_status !== 'paid') return;` guard already
+    // no-ops that case — and Stripe later sends a SEPARATE
+    // `checkout.session.async_payment_succeeded` event, whose `data.object`
+    // is the identical `checkout.session` object type (confirmed via
+    // Stripe's event-types reference), once payment actually settles. Prior
+    // to this, that second event was never listened for at all, so an
+    // order paid via a delayed method would sit at payment_status=PENDING
+    // until its Checkout Session simply expired — this closes that gap by
+    // reusing, not duplicating, the existing idempotent finalisation path
+    // (same stripe_checkout_session_id + payment_status='PENDING' guard,
+    // same ticket/booking-token issuance, same ticket_email_status
+    // scheduling). checkout.session.async_payment_failed is intentionally
+    // NOT handled — mirrors handlePaymentIntentFailed's own existing
+    // "best-effort only" philosophy below: checkout.session.expired remains
+    // the authoritative release path regardless of whether a failure event
+    // is ever handled.
+    case 'checkout.session.completed':
+    case 'checkout.session.async_payment_succeeded': {
       const session = event.data.object as Stripe.Checkout.Session;
       await handleCheckoutSessionCompleted(session, eventAccount);
       return { handled: true, type: event.type };
@@ -257,6 +280,12 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<We
 
 // A paid order becomes ACTIVE only here, only from a verified webhook
 // — never from the browser's success-page redirect alone (§5, §15).
+// Reached from BOTH checkout.session.completed AND
+// checkout.session.async_payment_succeeded (see processStripeWebhookEvent's
+// own comment on that dispatch) — this function's own payment_status
+// check and stripe_checkout_session_id-scoped idempotency guard make it
+// safe and correct for either event type without any branch on which one
+// triggered the call.
 //
 // Checked BEFORE anything else: `session.payment_status === 'paid'`.
 // Stripe's own `checkout.session.completed` event type does not, by

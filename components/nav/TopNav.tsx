@@ -1,18 +1,34 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useId } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
+import { BrokenOrbitMark } from '@/components/brand/BrokenOrbitMark';
 import { CapabilityIcon } from '@/components/brand/CapabilityIcon';
+import { useTheme } from '@/components/theme/ThemeProvider';
 import { resolvePublicEventTheme } from '@/lib/events/publicEventTheme';
 import { TOP_NAV_HEIGHT_PX } from '@/lib/layout/headerOffset';
+import { PublicNav } from '@/components/public/PublicNav';
+import {
+  activeNavId,
+  containsActive,
+  resolveNav,
+  type NavEntry,
+  type NavLink,
+  type ResolvedNav,
+} from './navModel';
+import styles from './AppChrome.module.css';
 
 type Session = {
   role: string;
   name: string;
   avatarUrl?: string;
+  /** Name of the organisation currently in view (the impersonated one for a
+   *  super_admin using the organisation-context bar). Display only. */
+  organisationName?: string | null;
   enabledModules?: string[];
   enabledCapabilities?: string[];
   dashboardVariant?: 'ld-tennis' | 'brainbase-hq' | null;
@@ -21,978 +37,468 @@ type Session = {
 const FONT =
   'var(--font-inter), "Inter", -apple-system, sans-serif';
 
-// ─── Shared pill nav item ────────────────────────────────────────────────────
+// Authenticated navigation consolidation. WHAT is offered and to WHOM lives
+// in ./navModel.ts (one descriptor tree + pure visibility rules, shared with
+// the dashboard "Your tools" card). This file only renders that resolved
+// tree: one universal path for every organisation — desktop menus and the
+// ≤767px mobile menu read the SAME resolved model. No tenant branches.
+//
+// Visual treatment for every chrome control lives in AppChrome.module.css
+// (semantic app tokens, one hover/active/focus language for both themes).
+// Inline styles below are layout only.
 
-function NavItem({
-  href,
+// ─── Top-level pill ──────────────────────────────────────────────────────────
+
+function NavPill({
+  link,
+  active,
+  hlna = false,
+}: {
+  link: NavLink;
+  active: boolean;
+  hlna?: boolean;
+}) {
+  return (
+    <Link
+      href={link.href}
+      className={hlna ? `${styles.item} ${styles.hlna}` : styles.item}
+      aria-current={active ? 'page' : undefined}
+      style={{ flexShrink: 0 }}
+    >
+      {link.label}
+    </Link>
+  );
+}
+
+// ─── Shared menu behaviour ───────────────────────────────────────────────────
+//
+// Every chrome menu (Work, Manage, Brainbase, Account) is a disclosure button
+// that reveals a panel of native links/buttons — not an ARIA menu. Pointer
+// hover opens a menu (as the old Operations/Admin menus did); click / Enter /
+// Space / ArrowDown pin it open. Escape closes and returns focus to the
+// trigger; an outside press, focus leaving, scroll or resize closes it.
+// Panels are portaled to document.body with position: fixed so the
+// horizontally scrolling nav row can never clip them (see
+// tests/containment/dropdownPanelPortal.test.ts).
+
+const MENU_WIDTH = 264;
+
+function clampMenuLeft(left: number, width = MENU_WIDTH): number {
+  if (typeof window === 'undefined') return left;
+  return Math.max(8, Math.min(left, window.innerWidth - width - 8));
+}
+
+const FOCUSABLE = 'a[href], button:not([disabled])';
+
+function menuFocusables(panel: HTMLElement | null): HTMLElement[] {
+  return panel ? Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)) : [];
+}
+
+function useMenuDismissal({
+  open,
+  setOpen,
+  timerRef,
+  wrapperRef,
+  panelRef,
+  triggerRef,
+}: {
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  timerRef: RefObject<ReturnType<typeof setTimeout> | null>;
+  wrapperRef: RefObject<HTMLDivElement | null>;
+  panelRef: RefObject<HTMLDivElement | null>;
+  triggerRef: RefObject<HTMLButtonElement | null>;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const close = () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      setOpen(false);
+    };
+    const inside = (target: EventTarget | null) =>
+      target instanceof Node &&
+      (!!wrapperRef.current?.contains(target) || !!panelRef.current?.contains(target));
+    const onPointerDown = (e: PointerEvent) => {
+      if (!inside(e.target)) close();
+    };
+    const onFocusIn = (e: FocusEvent) => {
+      if (!inside(e.target)) close();
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const hadFocus = inside(document.activeElement);
+      close();
+      if (hadFocus) triggerRef.current?.focus();
+    };
+    const onViewportChange = (e: Event) => {
+      // Scrolling inside the menu itself is not a reason to close it.
+      if (e.type === 'scroll' && inside(e.target)) return;
+      // The fixed panel would be left at stale coordinates. Close it, and
+      // never strand keyboard focus on <body> when it was inside the menu.
+      const focusInPanel = !!panelRef.current?.contains(document.activeElement);
+      close();
+      if (focusInPanel) triggerRef.current?.focus();
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('focusin', onFocusIn);
+    document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', onViewportChange);
+    window.addEventListener('scroll', onViewportChange, true);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('focusin', onFocusIn);
+      document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', onViewportChange);
+      window.removeEventListener('scroll', onViewportChange, true);
+    };
+  }, [open, setOpen, timerRef, wrapperRef, panelRef, triggerRef]);
+}
+
+/** Arrow / Home / End movement inside an open menu; Tab leaves it in page order. */
+function handleMenuKeyDown(
+  e: ReactKeyboardEvent<HTMLDivElement>,
+  panel: HTMLDivElement | null,
+  trigger: HTMLButtonElement | null,
+) {
+  const items = menuFocusables(panel);
+  if (items.length === 0) return;
+  const index = items.indexOf(document.activeElement as HTMLElement);
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const step = e.key === 'ArrowDown' ? 1 : -1;
+    items[(index + step + items.length) % items.length].focus();
+  } else if (e.key === 'Home' || e.key === 'End') {
+    e.preventDefault();
+    items[e.key === 'Home' ? 0 : items.length - 1].focus();
+  } else if (e.key === 'Tab') {
+    // The panel is portaled to the end of <body>, so native Tab order
+    // would leave the page. Hand focus back to the trigger: Shift+Tab
+    // stops there, Tab continues to whatever follows the trigger.
+    if (e.shiftKey && index <= 0) {
+      e.preventDefault();
+      trigger?.focus();
+    } else if (!e.shiftKey && index === items.length - 1) {
+      trigger?.focus();
+    }
+  }
+}
+
+function Chevron() {
+  return (
+    <svg
+      className={styles.chevron}
+      width="10"
+      height="6"
+      viewBox="0 0 10 6"
+      fill="none"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d="M1 1L5 5L9 1"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// ─── Generic desktop menu ────────────────────────────────────────────────────
+
+function NavMenu({
   label,
+  trigger,
+  triggerClassName,
+  panelLabel,
   active,
-  capability,
+  align = 'start',
+  width = MENU_WIDTH,
+  children,
 }: {
-  href: string;
-  label: string;
+  /** Visible trigger text (omit when `trigger` supplies custom content). */
+  label?: string;
+  /** Custom trigger content (Account: avatar + identity). */
+  trigger?: ReactNode;
+  triggerClassName?: string;
+  /** Accessible name of the panel's navigation landmark. */
+  panelLabel: string;
+  /** A destination inside this menu is the current page. */
   active: boolean;
-  /** Canonical capability id (e.g. 'events' | 'crm') for the ONLY items
-      that are genuinely gated by that capability elsewhere in this file
-      (the `hasEvents`/`hasCrm` checks the caller already performed to
-      decide whether to render this item at all). Omit for every generic/
-      HQ/bespoke item — NavItem does not gate on this prop itself, it only
-      chooses whether to render CapabilityIcon, so no entitlement logic is
-      duplicated here. */
-  capability?: string;
+  align?: 'start' | 'end';
+  width?: number;
+  children: (close: () => void) => ReactNode;
 }) {
-  return (
-    <Link
-      href={href}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 6,
-        fontSize: 13,
-        fontWeight: 500,
-        letterSpacing: '-0.01em',
-        padding: '5px 10px',
-        borderRadius: 7,
-        textDecoration: 'none',
-        color: active
-          ? '#C4B5FD'
-          : 'rgba(255,255,255,.45)',
-        background: active
-          ? 'rgba(139,92,246,.10)'
-          : 'transparent',
-        border: `1px solid ${
-          active
-            ? 'rgba(139,92,246,.22)'
-            : 'transparent'
-        }`,
-        transition:
-          'color .14s, background .14s, border-color .14s',
-        whiteSpace: 'nowrap',
-        flexShrink: 0,
-      }}
-      onMouseEnter={e => {
-        if (active) return;
-
-        e.currentTarget.style.color =
-          'rgba(255,255,255,.85)';
-
-        e.currentTarget.style.background =
-          'rgba(255,255,255,.05)';
-      }}
-      onMouseLeave={e => {
-        if (active) return;
-
-        e.currentTarget.style.color =
-          'rgba(255,255,255,.45)';
-
-        e.currentTarget.style.background =
-          'transparent';
-      }}
-    >
-      {capability && (
-        <CapabilityIcon
-          capability={capability}
-          size="sm"
-          state={active ? 'active' : 'default'}
-          container={false}
-        />
-      )}
-      <span>{label}</span>
-    </Link>
-  );
-}
-
-// ─── HLNA hero item ──────────────────────────────────────────────────────────
-
-function HlnaItem({
-  href,
-  active,
-}: {
-  href: string;
-  active: boolean;
-}) {
-  return (
-    <Link
-      href={href}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        padding: '5px 11px',
-        borderRadius: 7,
-        textDecoration: 'none',
-        background: active
-          ? 'rgba(139,92,246,.13)'
-          : 'transparent',
-        border: `1px solid ${
-          active
-            ? 'rgba(167,139,250,.28)'
-            : 'transparent'
-        }`,
-        boxShadow: active
-          ? '0 0 14px rgba(139,92,246,.18)'
-          : 'none',
-        transition: 'all .18s',
-        flexShrink: 0,
-      }}
-      onMouseEnter={e => {
-        if (active) return;
-
-        e.currentTarget.style.background =
-          'rgba(139,92,246,.07)';
-
-        e.currentTarget.style.borderColor =
-          'rgba(167,139,250,.14)';
-      }}
-      onMouseLeave={e => {
-        if (active) return;
-
-        e.currentTarget.style.background =
-          'transparent';
-
-        e.currentTarget.style.borderColor =
-          'transparent';
-      }}
-    >
-      <svg
-        width="46"
-        height="14"
-        viewBox="0 0 211 62"
-        style={{
-          display: 'block',
-          filter: active
-            ? 'drop-shadow(0 0 7px rgba(167,139,250,.60))'
-            : 'none',
-          opacity: active ? 1 : 0.6,
-          transition:
-            'filter .18s, opacity .18s',
-        }}
-        aria-label="HLNA"
-      >
-        <g fill="rgba(245,247,250,0.95)">
-          <path d="M28.59 48L21.81 48L21.81 10.17L28.59 10.17L28.59 25.81L46.18 25.81L46.18 10.17L52.96 10.17L52.96 48L46.18 48L46.18 31.52L28.59 31.52L28.59 48Z" />
-
-          <path d="M93.07 48L69.58 48L69.58 10.17L76.36 10.17L76.36 42.29L93.07 42.29L93.07 48Z" />
-
-          <path d="M114.89 48L107.98 48L107.98 10.17L115.65 10.17L128.73 31.01Q129.54 32.31 130.45 33.95Q131.37 35.58 132.36 37.59L132.36 37.59Q132.87 38.66 133.37 39.80L133.37 39.80Q133.30 38.76 133.25 37.69L133.25 37.69Q133.09 35.46 133.03 33.44Q132.97 31.42 132.97 30.02L132.97 30.02L132.97 10.17L139.85 10.17L139.85 48L132.15 48L120.35 29.24Q119.23 27.43 118.24 25.68Q117.25 23.93 116.11 21.72L116.11 21.72Q115.37 20.27 114.41 18.47L114.41 18.47Q114.51 20.10 114.58 21.62L114.58 21.62Q114.71 24.11 114.80 26.06Q114.89 28.02 114.89 29.21L114.89 29.21L114.89 48Z" />
-        </g>
-
-        <path
-          d="M 153,48 L 172,7 L 191,48"
-          fill="none"
-          stroke="url(#tnav-lg)"
-          strokeWidth="8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-
-        <defs>
-          <linearGradient
-            id="tnav-lg"
-            gradientUnits="userSpaceOnUse"
-            x1="172"
-            y1="48"
-            x2="172"
-            y2="7"
-          >
-            <stop
-              offset="0%"
-              stopColor="#6D28D9"
-            />
-
-            <stop
-              offset="100%"
-              stopColor="#C084FC"
-            />
-          </linearGradient>
-        </defs>
-      </svg>
-    </Link>
-  );
-}
-
-// ─── Operations dropdown ─────────────────────────────────────────────────────
-
-const OPS_ITEMS = [
-  {
-    label: 'Waste',
-    href: '/dashboard/wste',
-    description:
-      'Service verification & tracking',
-  },
-  {
-    label: 'Fleet',
-    href: '/dashboard/fleet',
-    description:
-      'Asset lifecycle & cost analysis',
-  },
-  {
-    label: 'Social',
-    href: '/dashboard/social',
-    description:
-      'Instagram intelligence & sentiment',
-  },
-  {
-    label: 'CRM',
-    href: '/crm',
-    description:
-      'Companies, contacts, deals & activities',
-    capabilityKey: 'crm',
-  },
-];
-
-function OpsDropdown({
-  pathname,
-  enabledCapabilities,
-}: {
-  pathname: string;
-  enabledCapabilities: string[];
-}) {
-  const [open, setOpen] =
-    useState(false);
-
-  // The panel is portaled to document.body (see below) so its own
-  // position must be computed in viewport coordinates rather than
-  // relying on CSS `position: absolute` against this wrapper — the
-  // centre nav row it lives in has `overflowX: 'auto'` (added for
-  // horizontal scroll on a crowded nav), and ANY ancestor with overflow
-  // other than 'visible' clips ALL descendants that paint outside its
-  // box — including absolutely-positioned ones — regardless of what
-  // element establishes their own containing block. That silently
-  // clipped this panel to invisible (confirmed in a real browser: the
-  // panel existed in the DOM with correct computed styles, but was
-  // rendered with zero visible pixels) even though `open` and the item
-  // list were both completely correct. A portal is the only fix that
-  // is actually robust to this — position:fixed alone does not reliably
-  // escape an ancestor's overflow clip while the element remains a DOM
-  // descendant of that ancestor.
-  const wrapperRef =
-    useRef<HTMLDivElement>(null);
-
-  const [coords, setCoords] =
-    useState<{ top: number; left: number } | null>(
-      null,
-    );
-
-  const timerRef =
-    useRef<ReturnType<typeof setTimeout> | null>(
-      null,
-    );
-
-  // Items without a capabilityKey are always shown (Waste/Fleet/Social
-  // predate the capability system and aren't gated by it); an item with
-  // a capabilityKey is shown only once that capability is confirmed
-  // enabled for the organisation, so CRM never advertises a dead end to
-  // an organisation that doesn't have it.
-  const items = OPS_ITEMS.filter(
-    item =>
-      !item.capabilityKey ||
-      enabledCapabilities.includes(
-        item.capabilityKey,
-      ),
-  );
-
-  const isActive = items.some(item =>
-    pathname.startsWith(item.href),
-  );
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const focusOnOpen = useRef<'first' | 'last' | null>(null);
+  // 'hover' menus close when the pointer leaves; a click or key press
+  // pins the menu open until Escape, a second click, or a press outside.
+  const openedBy = useRef<'hover' | 'press' | null>(null);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const panelId = useId();
 
   function handleEnter() {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-    }
-
-    const rect =
-      wrapperRef.current?.getBoundingClientRect();
-
+    if (timerRef.current) clearTimeout(timerRef.current);
+    const rect = wrapperRef.current?.getBoundingClientRect();
     if (rect) {
       setCoords({
-        top: rect.bottom + 10,
-        left: rect.left,
+        top: rect.bottom + 6,
+        left: clampMenuLeft(align === 'end' ? rect.right - width : rect.left, width),
       });
     }
-
     setOpen(true);
   }
 
   function handleLeave() {
-    timerRef.current = setTimeout(
-      () => setOpen(false),
-      140,
-    );
+    if (openedBy.current === 'press') return;
+    timerRef.current = setTimeout(() => setOpen(false), 140);
   }
+
+  function close() {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setOpen(false);
+  }
+
+  function handleTriggerClick(e: ReactMouseEvent<HTMLButtonElement>) {
+    if (open && openedBy.current === 'press') {
+      close();
+      return;
+    }
+    // detail === 0: activated from the keyboard (Enter / Space).
+    if (e.detail === 0) focusOnOpen.current = 'first';
+    openedBy.current = 'press';
+    handleEnter();
+  }
+
+  function handleTriggerKeyDown(e: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      focusOnOpen.current = e.key === 'ArrowDown' ? 'first' : 'last';
+      if (open) {
+        const items = menuFocusables(panelRef.current);
+        items[e.key === 'ArrowDown' ? 0 : items.length - 1]?.focus();
+        focusOnOpen.current = null;
+      } else {
+        openedBy.current = 'press';
+        handleEnter();
+      }
+    }
+  }
+
+  useMenuDismissal({ open, setOpen, timerRef, wrapperRef, panelRef, triggerRef });
+
+  useEffect(() => {
+    if (!open || !focusOnOpen.current) return;
+    const items = menuFocusables(panelRef.current);
+    items[focusOnOpen.current === 'first' ? 0 : items.length - 1]?.focus();
+    focusOnOpen.current = null;
+  }, [open, coords]);
+
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
 
   return (
     <div
       ref={wrapperRef}
-      style={{
-        position: 'relative',
-        flexShrink: 0,
+      style={{ position: 'relative', flexShrink: 0 }}
+      onPointerEnter={e => {
+        if (e.pointerType !== 'mouse') return;
+        if (!open) openedBy.current = 'hover';
+        handleEnter();
       }}
-      onMouseEnter={handleEnter}
-      onMouseLeave={handleLeave}
+      onPointerLeave={e => {
+        if (e.pointerType === 'mouse') handleLeave();
+      }}
     >
       <button
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 5,
-          fontSize: 13,
-          fontWeight: 500,
-          letterSpacing: '-0.01em',
-          padding: '5px 10px',
-          borderRadius: 7,
-
-          color: isActive
-            ? '#C4B5FD'
-            : open
-              ? 'rgba(255,255,255,.85)'
-              : 'rgba(255,255,255,.45)',
-
-          background: isActive
-            ? 'rgba(139,92,246,.10)'
-            : open
-              ? 'rgba(255,255,255,.05)'
-              : 'transparent',
-
-          border: `1px solid ${
-            isActive
-              ? 'rgba(139,92,246,.22)'
-              : 'transparent'
-          }`,
-
-          cursor: 'pointer',
-          fontFamily: FONT,
-          transition:
-            'color .14s, background .14s',
-          whiteSpace: 'nowrap',
-        }}
+        ref={triggerRef}
+        type="button"
+        className={triggerClassName ?? styles.item}
+        data-active={active ? 'true' : undefined}
+        aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
+        onClick={handleTriggerClick}
+        onKeyDown={handleTriggerKeyDown}
+        style={{ fontFamily: FONT }}
       >
-        Operations
-
-        <svg
-          width="10"
-          height="6"
-          viewBox="0 0 10 6"
-          fill="none"
-          style={{
-            opacity: 0.45,
-            transform: open
-              ? 'rotate(180deg)'
-              : 'rotate(0deg)',
-            transition:
-              'transform .18s',
-          }}
-        >
-          <path
-            d="M1 1L5 5L9 1"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        {trigger ?? label}
+        {/* Not colour alone: a menu holding the current page says so. */}
+        {active && <span className={styles.srOnly}> (current section)</span>}
+        <Chevron />
       </button>
 
       {open &&
         coords &&
-        typeof document !==
-          'undefined' &&
+        typeof document !== 'undefined' &&
         createPortal(
-        <div
-          onMouseEnter={handleEnter}
-          onMouseLeave={handleLeave}
-          style={{
-            position: 'fixed',
-            top: coords.top,
-            left: coords.left,
-            background:
-              'rgba(7,5,16,.98)',
-            border:
-              '1px solid rgba(255,255,255,.09)',
-            borderRadius: 11,
-            padding: 5,
-            minWidth: 220,
-            boxShadow:
-              '0 12px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.04)',
-            zIndex: 200,
-          }}
-        >
           <div
+            onMouseEnter={handleEnter}
+            onMouseLeave={handleLeave}
+            ref={panelRef}
+            id={panelId}
+            className={styles.menu}
+            onKeyDown={e => handleMenuKeyDown(e, panelRef.current, triggerRef.current)}
             style={{
-              position: 'absolute',
-              top: -5,
-              left: 18,
-              width: 8,
-              height: 8,
-              background:
-                'rgba(7,5,16,.98)',
-              border:
-                '1px solid rgba(255,255,255,.09)',
-              borderRight: 'none',
-              borderBottom: 'none',
-              transform:
-                'rotate(45deg)',
-            }}
-          />
-
-          {items.map(item => {
-            const itemActive =
-              pathname.startsWith(
-                item.href,
-              );
-
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                style={{
-                  display: 'flex',
-                  flexDirection:
-                    'column',
-                  gap: 2,
-                  padding:
-                    '9px 13px',
-                  borderRadius: 8,
-                  textDecoration:
-                    'none',
-                  background:
-                    itemActive
-                      ? 'rgba(139,92,246,.10)'
-                      : 'transparent',
-                  transition:
-                    'background .12s',
-                }}
-                onMouseEnter={e => {
-                  if (!itemActive) {
-                    e.currentTarget.style.background =
-                      'rgba(255,255,255,.05)';
-                  }
-                }}
-                onMouseLeave={e => {
-                  if (!itemActive) {
-                    e.currentTarget.style.background =
-                      'transparent';
-                  }
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 500,
-                    letterSpacing:
-                      '-0.01em',
-                    color:
-                      itemActive
-                        ? '#C4B5FD'
-                        : 'rgba(255,255,255,.80)',
-                  }}
-                >
-                  {item.label}
-                </span>
-
-                <span
-                  style={{
-                    fontSize: 11,
-                    color:
-                      'rgba(255,255,255,.30)',
-                    lineHeight: 1.4,
-                  }}
-                >
-                  {item.description}
-                </span>
-              </Link>
-            );
-          })}
-
-          <div
-            style={{
-              height: 1,
-              background:
-                'rgba(255,255,255,.07)',
-              margin:
-                '4px 4px 3px',
-            }}
-          />
-
-          <Link
-            href="/dashboards"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent:
-                'space-between',
-              padding:
-                '8px 13px',
-              borderRadius: 8,
-              textDecoration: 'none',
-              transition:
-                'background .12s',
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.background =
-                'rgba(255,255,255,.05)';
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.background =
-                'transparent';
+              position: 'fixed',
+              top: coords.top,
+              left: coords.left,
+              width,
+              minWidth: 220,
+              zIndex: 200,
             }}
           >
-            <span
-              style={{
-                fontSize: 12,
-                fontWeight: 500,
-                color:
-                  'rgba(255,255,255,.38)',
-                letterSpacing:
-                  '-0.01em',
-              }}
-            >
-              All dashboards
-            </span>
-
-            <span
-              style={{
-                fontSize: 11,
-                color:
-                  'rgba(255,255,255,.22)',
-              }}
-            >
-              →
-            </span>
-          </Link>
-        </div>,
-        document.body,
-      )}
+            <nav aria-label={panelLabel}>
+              <MenuPanelBody render={children} close={close} />
+            </nav>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
 
-// ─── Admin dropdown ──────────────────────────────────────────────────────────
-
-const ADMIN_ITEMS = [
-  {
-    label: 'Organisations',
-    href: '/admin/orgs',
-    description:
-      'Manage accounts & modules',
-  },
-  {
-    label: 'Users',
-    href: '/admin/users',
-    description:
-      'Roles, access & invitations',
-  },
-  {
-    label: 'Client Events',
-    href: '/admin/client-events',
-    description:
-      'Platform-wide event oversight across client organisations',
-  },
-  {
-    label: 'Pipeline',
-    href: '/admin/pipeline',
-    description:
-      'Client requests & issues',
-  },
-  {
-    label: 'Setup',
-    href: '/onboarding',
-    description:
-      'Onboarding & configuration',
-  },
-];
-
-function AdminDropdown({
-  pathname,
+/** Calls a NavMenu's render prop from its own component, so `close` (which
+ *  touches refs) is handed on as a prop rather than invoked in NavMenu's
+ *  render. */
+function MenuPanelBody({
+  render,
+  close,
 }: {
-  pathname: string;
+  render: (close: () => void) => ReactNode;
+  close: () => void;
 }) {
-  const [open, setOpen] =
-    useState(false);
+  return <>{render(close)}</>;
+}
 
-  // Portaled to document.body for the same reason OpsDropdown's panel
-  // is — see that component's own comment. The centre nav row's
-  // overflowX:'auto' silently clips this panel to invisible otherwise,
-  // even though `open` and ADMIN_ITEMS are both completely correct.
-  const wrapperRef =
-    useRef<HTMLDivElement>(null);
+// ─── Menu contents (shared by desktop menus and the mobile menu) ─────────────
 
-  const [coords, setCoords] =
-    useState<{ top: number; left: number } | null>(
-      null,
-    );
-
-  const timerRef =
-    useRef<ReturnType<typeof setTimeout> | null>(
-      null,
-    );
-
-  const isActive = ADMIN_ITEMS.some(
-    item =>
-      pathname.startsWith(
-        item.href,
-      ),
-  );
-
-  function handleEnter() {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-    }
-
-    const rect =
-      wrapperRef.current?.getBoundingClientRect();
-
-    if (rect) {
-      setCoords({
-        top: rect.bottom + 10,
-        left: rect.left,
-      });
-    }
-
-    setOpen(true);
-  }
-
-  function handleLeave() {
-    timerRef.current =
-      setTimeout(
-        () => setOpen(false),
-        140,
-      );
-  }
-
+function MenuLink({
+  link,
+  activeId,
+  onNavigate,
+  withIcon = false,
+}: {
+  link: NavLink;
+  activeId: string | null;
+  onNavigate: () => void;
+  withIcon?: boolean;
+}) {
+  const active = link.id === activeId;
   return (
-    <div
-      ref={wrapperRef}
-      style={{
-        position: 'relative',
-        flexShrink: 0,
-      }}
-      onMouseEnter={handleEnter}
-      onMouseLeave={handleLeave}
-    >
-      <button
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 5,
-          fontSize: 13,
-          fontWeight: 500,
-          letterSpacing: '-0.01em',
-          padding: '5px 10px',
-          borderRadius: 7,
-
-          color: isActive
-            ? '#C4B5FD'
-            : open
-              ? 'rgba(255,255,255,.85)'
-              : 'rgba(255,255,255,.45)',
-
-          background: isActive
-            ? 'rgba(139,92,246,.10)'
-            : open
-              ? 'rgba(255,255,255,.05)'
-              : 'transparent',
-
-          border: `1px solid ${
-            isActive
-              ? 'rgba(139,92,246,.22)'
-              : 'transparent'
-          }`,
-
-          cursor: 'pointer',
-          fontFamily: FONT,
-          transition:
-            'color .14s, background .14s',
-          whiteSpace: 'nowrap',
-        }}
+    <li>
+      <Link
+        href={link.href}
+        className={styles.menuItem}
+        aria-current={active ? 'page' : undefined}
+        onClick={onNavigate}
       >
-        Admin
-
-        <svg
-          width="10"
-          height="6"
-          viewBox="0 0 10 6"
-          fill="none"
-          style={{
-            opacity: 0.45,
-            transform: open
-              ? 'rotate(180deg)'
-              : 'rotate(0deg)',
-            transition:
-              'transform .18s',
-          }}
-        >
-          <path
-            d="M1 1L5 5L9 1"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
-
-      {open &&
-        coords &&
-        typeof document !==
-          'undefined' &&
-        createPortal(
-        <div
-          onMouseEnter={handleEnter}
-          onMouseLeave={handleLeave}
-          style={{
-            position: 'fixed',
-            top: coords.top,
-            left: coords.left,
-            background:
-              'rgba(7,5,16,.98)',
-            border:
-              '1px solid rgba(255,255,255,.09)',
-            borderRadius: 11,
-            padding: 5,
-            minWidth: 220,
-            boxShadow:
-              '0 12px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.04)',
-            zIndex: 200,
-          }}
-        >
-          <div
-            style={{
-              position: 'absolute',
-              top: -5,
-              left: 18,
-              width: 8,
-              height: 8,
-              background:
-                'rgba(7,5,16,.98)',
-              border:
-                '1px solid rgba(255,255,255,.09)',
-              borderRight: 'none',
-              borderBottom: 'none',
-              transform:
-                'rotate(45deg)',
-            }}
-          />
-
-          {ADMIN_ITEMS.map(item => {
-            const itemActive =
-              pathname.startsWith(
-                item.href,
-              );
-
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                style={{
-                  display: 'flex',
-                  flexDirection:
-                    'column',
-                  gap: 2,
-                  padding:
-                    '9px 13px',
-                  borderRadius: 8,
-                  textDecoration:
-                    'none',
-                  background:
-                    itemActive
-                      ? 'rgba(139,92,246,.10)'
-                      : 'transparent',
-                  transition:
-                    'background .12s',
-                }}
-                onMouseEnter={e => {
-                  if (!itemActive) {
-                    e.currentTarget.style.background =
-                      'rgba(255,255,255,.05)';
-                  }
-                }}
-                onMouseLeave={e => {
-                  if (!itemActive) {
-                    e.currentTarget.style.background =
-                      'transparent';
-                  }
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 500,
-                    letterSpacing:
-                      '-0.01em',
-                    color:
-                      itemActive
-                        ? '#C4B5FD'
-                        : 'rgba(255,255,255,.80)',
-                  }}
-                >
-                  {item.label}
-                </span>
-
-                <span
-                  style={{
-                    fontSize: 11,
-                    color:
-                      'rgba(255,255,255,.30)',
-                    lineHeight: 1.4,
-                  }}
-                >
-                  {item.description}
-                </span>
-              </Link>
-            );
-          })}
-        </div>,
-        document.body,
-      )}
-    </div>
+        <span className={styles.menuLabelRow}>
+          {withIcon && link.icon && (
+            <CapabilityIcon
+              capability={link.icon}
+              size="sm"
+              state={active ? 'active' : 'default'}
+              container={false}
+            />
+          )}
+          <span className={styles.menuLabel}>{link.label}</span>
+        </span>
+        {link.description && (
+          <span className={styles.menuDescription}>{link.description}</span>
+        )}
+      </Link>
+    </li>
   );
 }
 
-// ─── BRΛINBΛSE logo ──────────────────────────────────────────────────────────
-
-function Logo({
-  compact = false,
+function MenuEntries({
+  entries,
+  activeId,
+  onNavigate,
+  withIcons = false,
 }: {
-  compact?: boolean;
+  entries: readonly NavEntry[];
+  activeId: string | null;
+  onNavigate: () => void;
+  withIcons?: boolean;
 }) {
-  const visualWidth =
-    compact ? 170 : 180;
+  const groupHeadingBase = useId();
+  const links = entries.filter((e): e is NavLink => e.kind === 'link');
+  const groups = entries.filter(e => e.kind === 'group');
+  return (
+    <>
+      {links.length > 0 && (
+        <ul className={styles.menuList}>
+          {links.map(link => (
+            <MenuLink
+              key={link.id}
+              link={link}
+              activeId={activeId}
+              onNavigate={onNavigate}
+              withIcon={withIcons}
+            />
+          ))}
+        </ul>
+      )}
+      {groups.map(group =>
+        group.kind === 'group' ? (
+          <div key={group.id} className={styles.menuGroup}>
+            <div className={styles.menuSeparator} aria-hidden="true" />
+            <p id={`${groupHeadingBase}-${group.id}`} className={styles.menuGroupLabel}>
+              {group.label}
+            </p>
+            <ul className={styles.menuList} aria-labelledby={`${groupHeadingBase}-${group.id}`}>
+              {group.children.map(link => (
+                <MenuLink key={link.id} link={link} activeId={activeId} onNavigate={onNavigate} />
+              ))}
+            </ul>
+          </div>
+        ) : null,
+      )}
+    </>
+  );
+}
 
+// ─── BrandMark (canonical BRΛINBΛSE lockup) ──────────────────────────────────
+
+function BrandMark() {
+  // The one product lockup this header renders — width 124px at rest
+  // (118–130px range), shrinking via the .wordmark class's own responsive
+  // overrides at the 960–1279 and <640 bands (AppChrome.module.css). The
+  // link itself is the >=44px click target; the mark inside is decorative,
+  // the link carries the accessible name.
   return (
     <Link
       href="/"
-      aria-label="BRΛINBΛSE home"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        textDecoration: 'none',
-        flexShrink: 0,
-        overflow: 'visible',
-      }}
+      aria-label="BrainBase home"
+      className={styles.brand}
     >
-      <BrainBaseWordmark
-        width={visualWidth}
-      />
-    </Link>
-  );
-}
-
-// ─── Squad nav item ──────────────────────────────────────────────────────────
-
-function SquadItem({
-  active,
-}: {
-  active: boolean;
-}) {
-  return (
-    <Link
-      href="/dashboard/contacts"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        fontSize: 13,
-        fontWeight: 500,
-        letterSpacing: '-0.01em',
-        padding: '5px 10px',
-        borderRadius: 7,
-        textDecoration: 'none',
-        color: active
-          ? '#C4B5FD'
-          : 'rgba(255,255,255,.45)',
-        background: active
-          ? 'rgba(139,92,246,.10)'
-          : 'transparent',
-        border: `1px solid ${
-          active
-            ? 'rgba(139,92,246,.22)'
-            : 'transparent'
-        }`,
-        transition:
-          'color .14s, background .14s, border-color .14s',
-        whiteSpace: 'nowrap',
-        flexShrink: 0,
-      }}
-      onMouseEnter={e => {
-        if (active) return;
-
-        e.currentTarget.style.color =
-          'rgba(255,255,255,.85)';
-
-        e.currentTarget.style.background =
-          'rgba(255,255,255,.05)';
-      }}
-      onMouseLeave={e => {
-        if (active) return;
-
-        e.currentTarget.style.color =
-          'rgba(255,255,255,.45)';
-
-        e.currentTarget.style.background =
-          'transparent';
-      }}
-    >
-      {'Squ'}
-
-      <svg
-        width="9"
-        height="11"
-        viewBox="153 7 38 41"
-        style={{
-          display: 'inline',
-          verticalAlign: 'middle',
-          margin: '0 1px',
-          flexShrink: 0,
-        }}
-      >
-        <defs>
-          <linearGradient
-            id="squad-lg"
-            gradientUnits="userSpaceOnUse"
-            x1="172"
-            y1="48"
-            x2="172"
-            y2="7"
-          >
-            <stop
-              offset="0%"
-              stopColor="#6D28D9"
-            />
-
-            <stop
-              offset="100%"
-              stopColor="#C084FC"
-            />
-          </linearGradient>
-        </defs>
-
-        <path
-          d="M 153,48 L 172,7 L 191,48"
-          fill="none"
-          stroke="url(#squad-lg)"
-          strokeWidth="8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
+      <span className={styles.brandFull} aria-hidden="true">
+        <BrainBaseWordmark
+          width={140}
+          className={styles.wordmark}
         />
-      </svg>
-
-      {'d'}
+      </span>
+      <span className={styles.brandMark} aria-hidden="true">
+        <BrokenOrbitMark size={24} context="brainbase" />
+      </span>
     </Link>
   );
 }
 
 // ─── Divider ─────────────────────────────────────────────────────────────────
 
-function Divider() {
+function Divider({ className }: { className?: string }) {
   return (
     <div
-      style={{
-        width: 1,
-        height: 16,
-        background:
-          'rgba(255,255,255,.08)',
-        flexShrink: 0,
-      }}
+      aria-hidden="true"
+      className={className ? `${styles.divider} ${className}` : styles.divider}
     />
   );
 }
@@ -1002,7 +508,6 @@ function Divider() {
 function Clock() {
   const [time, setTime] =
     useState('');
-
   const [date, setDate] =
     useState('');
 
@@ -1045,161 +550,310 @@ function Clock() {
 
   if (!time) return null;
 
+  // Ticking every second: kept out of the accessibility tree so screen
+  // readers are not handed a constantly changing string.
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 7,
-        fontFamily:
-          'var(--font-geist-mono,"Geist Mono",monospace)',
-        flexShrink: 0,
-      }}
-    >
-      <span
-        style={{
-          fontSize: 12,
-          fontWeight: 600,
-          color:
-            'rgba(255,255,255,.55)',
-          letterSpacing: '.04em',
-        }}
-      >
+    <div className={styles.clock} aria-hidden="true">
+      <span className={styles.clockTime}>
         {time}
       </span>
-
-      <span
-        style={{
-          fontSize: 10,
-          color:
-            'rgba(255,255,255,.22)',
-          letterSpacing: '.04em',
-        }}
-      >
+      <span className={styles.clockDate}>
         {date}
       </span>
     </div>
   );
 }
 
-// ─── Public navigation ───────────────────────────────────────────────────────
+// ─── Theme control ───────────────────────────────────────────────────────────
 
-function PublicNav({
-  pathname,
-}: {
-  pathname: string;
-}) {
+function ThemeMenuItem() {
+  // Same ThemeProvider as the public ThemeToggle (bb-theme persistence and
+  // the layout's pre-paint script are unchanged). The icon is chosen by CSS
+  // from <html data-theme>, so it is right on first paint.
+  const { theme, toggleTheme } = useTheme();
+  const next = theme === 'dark' ? 'light' : 'dark';
   return (
-    <nav
-      style={{
-        height: TOP_NAV_HEIGHT_PX,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent:
-          'space-between',
-        padding: '0 28px',
-        borderBottom:
-          '1px solid rgba(255,255,255,.06)',
-        background:
-          'rgba(7,8,11,.92)',
-        backdropFilter:
-          'blur(16px)',
-        position: 'sticky',
-        top: 0,
-        zIndex: 100,
-        fontFamily: FONT,
-        flexShrink: 0,
-      }}
-    >
-      <Logo />
-
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 4,
-        }}
+    <li>
+      <button
+        type="button"
+        className={styles.menuButton}
+        onClick={toggleTheme}
+        aria-label={`Switch to ${next} theme`}
       >
-        <NavItem
-          href="/#product"
-          label="Product"
-          active={false}
-        />
-
-        <NavItem
-          href="/client-operations"
-          label="Client Operations"
-          active={pathname.startsWith(
-            '/client-operations',
-          )}
-        />
-
-        <NavItem
-          href="/web-systems"
-          label="Web Systems"
-          active={pathname.startsWith(
-            '/web-systems',
-          )}
-        />
-
-        <NavItem
-          href="/pricing"
-          label="Pricing"
-          active={pathname.startsWith(
-            '/pricing',
-          )}
-        />
-
-        <NavItem
-          href="/demo"
-          label="Demo"
-          active={
-            pathname === '/demo'
-          }
-        />
-
-        <Divider />
-
-        <NavItem
-          href="/login"
-          label="Login"
-          active={
-            pathname === '/login'
-          }
-        />
-
-        <Link
-          href="/request-demo"
-          style={{
-            fontSize: 13,
-            fontWeight: 600,
-            textDecoration: 'none',
-            background:
-              'linear-gradient(135deg, #6D28D9, #A78BFA)',
-            color: '#fff',
-            padding:
-              '6px 14px',
-            borderRadius: 8,
-            letterSpacing: '.01em',
-            transition:
-              'opacity .15s',
-            marginLeft: 4,
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.opacity =
-              '0.88';
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.opacity =
-              '1';
-          }}
+        <svg
+          className={styles.onlyDark}
+          viewBox="0 0 16 16"
+          width="15"
+          height="15"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+          focusable="false"
         >
-          Get Started
-        </Link>
-      </div>
-    </nav>
+          <path d="M13.2 9.6A5.6 5.6 0 0 1 6.4 2.8a5.6 5.6 0 1 0 6.8 6.8Z" />
+        </svg>
+        <svg
+          className={styles.onlyLight}
+          viewBox="0 0 16 16"
+          width="15"
+          height="15"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <circle cx="8" cy="8" r="3" />
+          <path d="M8 1.5v1.3M8 13.2v1.3M1.5 8h1.3M13.2 8h1.3M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9" />
+        </svg>
+        <span className={styles.menuLabel}>
+          {theme === 'dark' ? 'Light theme' : 'Dark theme'}
+        </span>
+      </button>
+    </li>
   );
 }
+
+function SignOutMenuItem() {
+  return (
+    <li>
+      <button
+        type="button"
+        className={`${styles.menuButton} ${styles.signOut}`}
+        onClick={async () => {
+          const { logout } =
+            await import(
+              '@/app/actions/auth'
+            );
+
+          await logout();
+        }}
+        style={{
+          fontFamily: FONT,
+        }}
+      >
+        <span className={styles.menuLabel}>Sign out</span>
+      </button>
+    </li>
+  );
+}
+
+function formatRole(role: string): string {
+  const text = role.replace(/_/g, ' ');
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+type Identity = {
+  name: string;
+  role: string;
+  initials: string;
+  avatarUrl?: string;
+  organisationName: string | null;
+};
+
+function Avatar({ identity }: { identity: Identity }) {
+  return (
+    <span className={styles.avatar} aria-hidden="true">
+      {identity.avatarUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element -- arbitrary user-supplied avatar URL, decorative beside the visible name
+        <img
+          src={identity.avatarUrl}
+          alt=""
+        />
+      ) : (
+        identity.initials
+      )}
+    </span>
+  );
+}
+
+/** Who is signed in and which organisation is in view — the Account menu's
+ *  heading, shared by the desktop and mobile menus. */
+function AccountSummary({ identity }: { identity: Identity }) {
+  return (
+    <div className={styles.accountSummary}>
+      <span className={styles.accountName}>{identity.name}</span>
+      <span className={styles.accountMeta}>{formatRole(identity.role)}</span>
+      {identity.organisationName && (
+        <span className={styles.accountOrg}>
+          <span className={styles.accountOrgLabel}>Organisation</span>
+          {identity.organisationName}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function AccountEntries({
+  nav,
+  activeId,
+  onNavigate,
+}: {
+  nav: ResolvedNav;
+  activeId: string | null;
+  onNavigate: () => void;
+}) {
+  return (
+    <ul className={styles.menuList}>
+      <MenuLink link={nav.account.profile} activeId={activeId} onNavigate={onNavigate} />
+      <ThemeMenuItem />
+      <SignOutMenuItem />
+    </ul>
+  );
+}
+
+// ─── Mobile menu (≤767px) ────────────────────────────────────────────────────
+//
+// The same resolved tree as the desktop menus, in one panel under the bar.
+// Focus moves into the panel on open, Tab / Shift+Tab stay inside it while
+// it is open, Escape or an outside press closes it and focus returns to the
+// Menu button, and choosing a destination closes it.
+
+function MobileMenu({
+  nav,
+  activeId,
+  identity,
+}: {
+  nav: ResolvedNav;
+  activeId: string | null;
+  identity: Identity;
+}) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const panelId = useId();
+  const pathname = usePathname();
+  // The panel is open only on the path it was opened on, so a client-side
+  // navigation closes it without a state reset in an effect.
+  const [openOn, setOpenOn] = useState<string | null>(null);
+  const open = openOn !== null && openOn === pathname;
+  const setOpen = (next: boolean) => setOpenOn(next ? pathname : null);
+
+  const close = (returnFocus = false) => {
+    setOpen(false);
+    if (returnFocus) triggerRef.current?.focus();
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    menuFocusables(panelRef.current)[0]?.focus();
+    const onPointerDown = (e: PointerEvent) => {
+      const t = e.target;
+      if (!(t instanceof Node)) return;
+      if (panelRef.current?.contains(t) || triggerRef.current?.contains(t)) return;
+      setOpenOn(null);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setOpenOn(null);
+        triggerRef.current?.focus();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const items = menuFocusables(panelRef.current);
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    const onResize = () => {
+      if (window.innerWidth > 767) setOpenOn(null);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', onResize);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [open]);
+
+  const onNavigate = () => close(false);
+  const topLinks = [nav.home, nav.hlna, ...(nav.requests ? [nav.requests] : [])];
+
+  return (
+    <div className={styles.mobileOnly}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`${styles.item} ${styles.mobileTrigger}`}
+        aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
+        onClick={() => setOpen(!open)}
+        style={{ fontFamily: FONT }}
+      >
+        <Avatar identity={identity} />
+        <span>Menu</span>
+        <Chevron />
+      </button>
+
+      {open &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            ref={panelRef}
+            id={panelId}
+            className={styles.mobilePanel}
+            style={{ top: TOP_NAV_HEIGHT_PX }}
+          >
+            <nav aria-label="Main menu">
+              <AccountSummary identity={identity} />
+              <ul className={styles.menuList}>
+                {topLinks.map(link => (
+                  <MenuLink key={link.id} link={link} activeId={activeId} onNavigate={onNavigate} />
+                ))}
+              </ul>
+              {nav.work.length > 0 && (
+                <MobileSection title="Work">
+                  <MenuEntries entries={nav.work} activeId={activeId} onNavigate={onNavigate} withIcons />
+                </MobileSection>
+              )}
+              {nav.manage.length > 0 && (
+                <MobileSection title="Manage">
+                  <MenuEntries entries={nav.manage} activeId={activeId} onNavigate={onNavigate} />
+                </MobileSection>
+              )}
+              {nav.brainbase.length > 0 && (
+                <MobileSection title="Brainbase">
+                  <MenuEntries entries={nav.brainbase} activeId={activeId} onNavigate={onNavigate} />
+                </MobileSection>
+              )}
+              <MobileSection title="Account">
+                <AccountEntries nav={nav} activeId={activeId} onNavigate={onNavigate} />
+              </MobileSection>
+            </nav>
+          </div>,
+          document.body,
+        )}
+    </div>
+  );
+}
+
+function MobileSection({ title, children }: { title: string; children: ReactNode }) {
+  const headingId = useId();
+  return (
+    <section className={styles.mobileSection} aria-labelledby={headingId}>
+      <h2 id={headingId} className={styles.mobileSectionTitle}>{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+// ─── Public navigation ───────────────────────────────────────────────────────
+// Extracted to components/public/PublicNav.tsx (public-site visual system).
+// Same destinations; restyled onto the --bb-* tokens with a theme toggle and
+// a mobile menu.
 
 // ─── Authenticated navigation ────────────────────────────────────────────────
 
@@ -1214,790 +868,139 @@ function AppNav({
     role,
     name,
     avatarUrl,
+    organisationName = null,
     enabledCapabilities = [],
     dashboardVariant = null,
   } = session;
 
-  const isSuperAdmin =
-    role === 'super_admin';
+  // `role` is the REAL signed-in role (an impersonating super_admin stays
+  // super_admin); capabilities and the dashboard variant describe the
+  // organisation in view — app/layout.tsx resolves both server-side. The
+  // model turns them into the visible tree; nothing here re-derives access.
+  const nav = resolveNav({ role, enabledCapabilities, dashboardVariant });
+  const activeId = activeNavId(nav, pathname);
 
-  // Data Hub 5A.3C.1 — manager+ visibility for the canonical Data Hub
-  // import entry, matching the exact same array-membership check
-  // app/data/page.tsx's own isAdmin computation already uses for a role
-  // gate in this codebase (lib/session.ts's ROLE_ORDER/roleGte is
-  // server-only — `import 'server-only'` — and cannot be imported into
-  // this client component). Never a new authorization table: the API
-  // layer's own requireRole('manager') (identical minimum) remains the
-  // real security boundary; this only decides pill visibility.
-  const isManagerPlus =
-    ['manager', 'admin', 'super_admin'].includes(
-      role,
-    );
-
-  // Tenant classification reuses the exact same slug-driven resolver
-  // app/dashboard/page.tsx already uses to pick between the Founder OS
-  // redirect, TennisDashboard, and the generic organisation dashboard
-  // (see lib/dashboard/clientDashboard.ts, wired in server-side in
-  // app/layout.tsx) — not a second, independent classification system.
-  //
-  // Previously this branch was chosen by checking whether the caller was
-  // a non-super-admin AND had zero rows back from the (separately
-  // broken) enabledModules query — since that query always throws and
-  // fails closed to an empty array, that old condition was functionally
-  // true for every non-super-admin session on every organisation, so
-  // every generic tenant (Emma's School Test Organisation included) was
-  // silently receiving LD Tennis's bespoke Leads/SquAd/Sessions/
-  // Requests/Blog menu.
-  const isLdTennis =
-    dashboardVariant === 'ld-tennis';
-
-  const isBrainbaseHQ =
-    dashboardVariant === 'brainbase-hq';
-
-  const hasEvents =
-    enabledCapabilities.includes(
-      'events',
-    );
-
-  // Phase 6.2 — same capability-driven pattern as hasEvents above.
-  // Previously CRM only appeared inside OpsDropdown, which is itself
-  // gated on isBrainbaseHQ (see below) — meaning a client organisation
-  // with the crm capability enabled had no way to reach CRM from this
-  // nav at all, regardless of entitlement. This flag drives a
-  // standalone, client-facing NavItem instead; OpsDropdown's own CRM
-  // entry (Brainbase HQ's internal ops shortcut) is untouched.
-  const hasCrm =
-    enabledCapabilities.includes(
-      'crm',
-    );
-
-  // Phase D.4.4E — same capability-driven pattern as hasEvents/hasCrm
-  // above. Organiser is a real, first-class workspace (its own TopNav
-  // entry, its own dedicated shell) now that D.4.4C enforces the
-  // capability server-side; gated purely on entitlement, never on
-  // dashboardVariant/isBrainbaseHQ/role, exactly like Events/CRM.
-  const hasOrganiser =
-    enabledCapabilities.includes(
-      'organiser',
-    );
-
-  // Phase C3 — same capability-driven pattern as hasEvents/hasCrm/
-  // hasOrganiser above. Originally gated on 'quotes' alone (not a
-  // dedicated 'commercial' key — none exists), because Quotes was the
-  // only real Commercial transactional workflow that phase built.
-  //
-  // Phase C7.2 — widened to 'quotes' OR 'invoicing' OR 'purchasing'.
-  // app/commercial/layout.tsx (the actual server-side gate this pill
-  // links to) already checks all three and only blocks entry when NONE
-  // are enabled — this pill had fallen behind that gate, so a
-  // purchasing-only organisation (entitled, and able to reach every
-  // Purchasing route/page directly) saw no way to discover /commercial
-  // from the top nav at all. This is a visibility-only fix: nothing
-  // here is a security boundary (the layout and every Commercial route
-  // already enforce their own capability checks independently), so
-  // widening which capabilities SHOW this pill cannot grant access to
-  // anything a viewer couldn't already reach by URL.
-  const hasCommercial =
-    enabledCapabilities.includes(
-      'quotes',
-    ) ||
-    enabledCapabilities.includes(
-      'invoicing',
-    ) ||
-    enabledCapabilities.includes(
-      'purchasing',
-    ) ||
-    enabledCapabilities.includes(
-      'budgeting',
-    );
-
-  // HR-1 People Foundation — same capability-driven pattern as
-  // hasEvents/hasCrm/hasOrganiser/hasCommercial above. Gated purely on
-  // the 'people' entitlement, never on role/dashboardVariant — People
-  // is a joinable per-organisation module like every other capability
-  // here, not a Founder OS/internal tool.
-  //
-  // HR-2 — `isSuperAdmin ||` reuses this file's own existing
-  // isSuperAdmin convention (see above) to mirror the same HR-specific
-  // module bypass app/people/layout.tsx and every HR API route under
-  // app/api/hr now apply via lib/hr/capability.ts's checkHrCapability()/
-  // requireHrCapability() — a super_admin sees this nav item even in an
-  // organisation that hasn't enabled People, since the page and every
-  // API route behind it are already independently reachable for them
-  // regardless of this pill's own visibility. No other capability pill
-  // in this file gains a role bypass from this change.
-  const hasPeople =
-    isSuperAdmin ||
-    enabledCapabilities.includes(
-      'people',
-    );
-
-  const initials = name
-    .split(' ')
-    .map(
-      (p: string) => p[0],
-    )
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
+  const identity: Identity = {
+    name,
+    role,
+    avatarUrl,
+    organisationName,
+    initials: name
+      .split(' ')
+      .map((p: string) => p[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase(),
+  };
 
   return (
     <nav
+      aria-label="Primary"
+      className={styles.nav}
       style={{
         height: TOP_NAV_HEIGHT_PX,
-        display: 'flex',
-        alignItems: 'center',
-        padding: '0 20px',
-        borderBottom:
-          '1px solid rgba(255,255,255,.06)',
-        background:
-          'rgba(7,8,11,.92)',
-        backdropFilter:
-          'blur(16px)',
         position: 'sticky',
         top: 0,
         zIndex: 100,
         fontFamily: FONT,
         flexShrink: 0,
-        gap: 16,
       }}
     >
-      {/* Left balance spacer */}
-      <div
-        aria-hidden="true"
-        style={{
-          width: 150,
-          flexShrink: 0,
-        }}
-      />
+      {/* Three-zone row: BrandMark / PrimaryNav / right-side controls.
+          Width-constrained and centred independently of .nav's own
+          edge-to-edge surface — see .navInner (AppChrome.module.css). */}
+      <div className={styles.navInner}>
+        {/* Product lockup — leads the bar, compact, never the loudest element. */}
+        <BrandMark />
 
-      {/* Centre navigation — overflowX auto + flexShrink:0 on every item
-          (see each item's own style below) is the smallest fix for a
-          crowded/narrow nav: items keep their natural, legible width and
-          the row scrolls horizontally instead of squeezing/clipping pill
-          text unreadable. scrollbarWidth/msOverflowStyle hide the
-          scrollbar chrome (Firefox/older Edge) without needing a
-          stylesheet; WebKit browsers show a slim default scrollbar, which
-          is an acceptable, non-blocking affordance here. */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 2,
-          flex: 1,
-          minWidth: 0,
-          overflowX: 'auto',
-          overflowY: 'hidden',
-          scrollbarWidth: 'none',
-          msOverflowStyle: 'none',
-        }}
-      >
-        {isLdTennis ? (
-          <>
-            {/* LD Tennis keeps its bespoke HLNA entry pointing at
-                /dashboard (its own TennisDashboard, not the generic
-                /hlna workspace) — audited this phase and left
-                unchanged rather than guessed at, since LD Tennis is a
-                distinct bespoke product and there's no live LD Tennis
-                session available this phase to confirm /hlna's
-                tenant-aware chat is even part of its intended flow. */}
-            <HlnaItem
-              href="/dashboard"
-              active={
-                pathname ===
-                '/dashboard'
-              }
-            />
-
-            {/*
-              Events is a first-class, always-visible pill here (never
-              behind a hover-only dropdown) because a client
-              organisation's nav — unlike the internal-staff branch
-              below — has no Operations dropdown to bury it in at all.
-              Gated by the real enabledCapabilities projection, same as
-              every other capability-gated entry in this file.
-            */}
-            {enabledCapabilities.includes(
-              'events',
-            ) && (
-              <NavItem
-                href="/events"
-                label="Events"
-                capability="events"
-                active={pathname.startsWith(
-                  '/events',
-                )}
-              />
-            )}
-
-            {/* Phase 6.2 — same capability gate as Events immediately
-                above; not currently expected to be true for LD Tennis,
-                but this branch shouldn't silently hide CRM from a
-                client whose org happens to be dashboardVariant
-                'ld-tennis' AND has crm enabled — capability-driven,
-                never variant-driven. */}
-            {hasCrm && (
-              <NavItem
-                href="/crm"
-                label="CRM"
-                capability="crm"
-                active={pathname.startsWith(
-                  '/crm',
-                )}
-              />
-            )}
-
-            {/* Phase D.4.4E — same capability gate as Events/CRM above;
-                not currently expected to be true for LD Tennis, but this
-                branch shouldn't silently hide Organiser from a client
-                whose org happens to be dashboardVariant 'ld-tennis' AND
-                has organiser enabled — capability-driven, never
-                variant-driven, same rule as Events/CRM. */}
-            {hasCommercial && (
-              <NavItem
-                href="/commercial"
-                label="Commercial"
-                capability="quotes"
-                active={pathname.startsWith(
-                  '/commercial',
-                )}
-              />
-            )}
-
-            {hasOrganiser && (
-              <NavItem
-                href="/organiser"
-                label="Organiser"
-                capability="organiser"
-                active={pathname.startsWith(
-                  '/organiser',
-                )}
-              />
-            )}
-
-            {/* HR-1 People Foundation — same capability-gated pattern as
-                Organiser/CRM/Commercial above, never role-driven. */}
-            {hasPeople && (
-              <NavItem
-                href="/people"
-                label="People"
-                capability="people"
-                active={pathname.startsWith(
-                  '/people',
-                )}
-              />
-            )}
-
-            {/* Data Hub 5A.3C.1 — canonical manager-facing Illegal Dumping
-                CSV import experience. Role-gated only (isManagerPlus,
-                same minimum as the API layer's own requireRole('manager')),
-                never capability-gated — Data Hub has no dedicated
-                capability key, matching the backend's own role-only
-                authorization. */}
-            {isManagerPlus && (
-              <NavItem
-                href="/data-hub/import"
-                label="Data Hub Import"
-                active={pathname.startsWith(
-                  '/data-hub/import',
-                )}
-              />
-            )}
-
-            {/*
-              Leads/Squad(Contacts)/Sessions/Blog are LD Tennis's own
-              coaching-business tools (tennis_leads, the "Program"/
-              "Session Times" contact fields, the tennis session-type
-              catalogue, and the /api/tennis/blog namespace — none of
-              this is generic client data). Gated on dashboardVariant,
-              the SAME slug-driven resolver app/dashboard/page.tsx
-              already uses to render TennisDashboard instead of the
-              generic BrainBase shell for this one organisation — not a
-              new capability, not a hardcoded organisation id. A generic
-              client organisation (e.g. School Test Organisation) never
-              matches 'ld-tennis' and correctly never sees these.
-            */}
-            {isLdTennis && (
-              <>
-                <NavItem
-                  href="/dashboard/leads"
-                  label="Leads"
-                  active={pathname.startsWith(
-                    '/dashboard/leads',
-                  )}
-                />
-
-                <SquadItem
-                  active={pathname.startsWith(
-                    '/dashboard/contacts',
-                  )}
-                />
-
-                <NavItem
-                  href="/dashboard/sessions"
-                  label="Sessions"
-                  active={pathname.startsWith(
-                    '/dashboard/sessions',
-                  )}
-                />
-              </>
-            )}
-
-            {/*
-              Requests (client_pipeline) is a genuine platform-global
-              channel — feature requests/issues/feedback from ANY
-              BrainBase client to the BrainBase founder, not tied to
-              tennis or any other vertical — so it stays visible for
-              every client organisation, not just LD Tennis.
-            */}
-            <NavItem
-              href="/dashboard/pipeline"
-              label="Requests"
-              active={pathname.startsWith(
-                '/dashboard/pipeline',
-              )}
-            />
-
-            {isLdTennis && (
-              <NavItem
-                href="/dashboard/blog"
-                label="Blog"
-                active={pathname.startsWith(
-                  '/dashboard/blog',
-                )}
-              />
-            )}
-          </>
-        ) : (
-          <>
-            {isSuperAdmin && (
-              <NavItem
-                href="/admin/founder"
-                label="Founder OS"
-                active={pathname.startsWith(
-                  '/admin/founder',
-                )}
-              />
-            )}
-
-            {/* Command Centre, Operations, Reports and Data are
-                Brainbase-internal tooling — gated on isBrainbaseHQ
-                (super_admin at the Brainbase org specifically), not the
-                broader isManager role check every tenant's own
-                manager/admin staff also satisfy. Previously gated by
-                isManager alone, which couldn't distinguish Brainbase's
-                own staff from a client tenant's staff who happen to
-                hold the same role — the same class of problem as the
-                broken tenant heuristic this phase replaced above — so
-                every manager-role client-tenant user (Emma included)
-                saw these too. */}
-            {isBrainbaseHQ && (
-              <NavItem
-                href="/command"
-                label="Command"
-                active={pathname.startsWith(
-                  '/command',
-                )}
-              />
-            )}
-
-            {/* Generic tenant dashboard entry — not shown for
-                Brainbase HQ super_admin, who already has an
-                equivalent entry point via Founder OS above (and
-                whose own /dashboard just redirects back to
-                /admin/founder). Dashboard and Command Centre
-                (/command) are separate concepts; this does not
-                replace it. */}
-            {!isBrainbaseHQ && (
-              <NavItem
-                href="/dashboard"
-                label="Dashboard"
-                active={
-                  pathname ===
-                  '/dashboard'
-                }
-              />
-            )}
-
-            {/* Canonical HLNA destination is now the dedicated
-                /hlna workspace (Phase C.2B), not /dashboard — the
-                old link was only ever correct because /dashboard
-                used to render the HLNA-flavoured BrainBase shell;
-                now that /dashboard is the organisation dashboard
-                (Phase C.2C), pointing HLNA at it would land users on
-                the wrong page. */}
-            <HlnaItem
-              href="/hlna"
-              active={pathname.startsWith(
-                '/hlna',
-              )}
-            />
-
-            {/* Requests (client_pipeline) is a genuine platform-global
-                channel — feature requests/issues/feedback from ANY
-                BrainBase client to the BrainBase founder, not tied to
-                LD Tennis or any other vertical — so it stays visible
-                for every generic client organisation. Restored during
-                the D.2.3 origin/main reconciliation: C.2D's rewrite
-                had folded it into the isLdTennis-only bundle alongside
-                Leads/Squad/Sessions/Blog, silently dropping it for
-                every non-LD-Tennis client. Not shown to Brainbase HQ
-                staff — they are the request's recipient, not its
-                sender — same !isBrainbaseHQ gate as the Dashboard
-                entry above. */}
-            {!isBrainbaseHQ && (
-              <NavItem
-                href="/dashboard/pipeline"
-                label="Requests"
-                active={pathname.startsWith(
-                  '/dashboard/pipeline',
-                )}
-              />
-            )}
-
-            {/* Surfaced only once the organisation's real `events`
-                capability is confirmed enabled (enabledCapabilities,
-                the same trusted m.key = om.module_key projection
-                used elsewhere) — never guessed, never hardcoded to a
-                specific org. */}
-            {hasEvents && (
-              <NavItem
-                href="/events"
-                label="Events & Ticketing"
-                capability="events"
-                active={pathname.startsWith(
-                  '/events',
-                )}
-              />
-            )}
-
-            {/* Phase 6.2 — capability-driven, mirrors the Events item
-                immediately above exactly. Never gated on isBrainbaseHQ
-                or any organisation id/slug/name — any organisation
-                (client or Brainbase HQ) with crm enabled sees it. */}
-            {hasCrm && (
-              <NavItem
-                href="/crm"
-                label="CRM"
-                capability="crm"
-                active={pathname.startsWith(
-                  '/crm',
-                )}
-              />
-            )}
-
-            {/* Phase D.4.4E — capability-driven, mirrors the Events/CRM
-                items immediately above exactly. Never gated on
-                isBrainbaseHQ or any organisation id/slug/name — any
-                organisation (client or Brainbase HQ) with organiser
-                enabled sees it. Deliberately not inside OpsDropdown
-                (which is isBrainbaseHQ-only and would hide Organiser
-                from every entitled client tenant) and not a new "Tools"
-                dropdown — same direct-top-level-item precedent Phase 6.2
-                established for CRM. */}
-            {hasCommercial && (
-              <NavItem
-                href="/commercial"
-                label="Commercial"
-                capability="quotes"
-                active={pathname.startsWith(
-                  '/commercial',
-                )}
-              />
-            )}
-
-            {hasOrganiser && (
-              <NavItem
-                href="/organiser"
-                label="Organiser"
-                capability="organiser"
-                active={pathname.startsWith(
-                  '/organiser',
-                )}
-              />
-            )}
-
-            {/* HR-1 People Foundation — same capability-gated pattern as
-                Organiser/CRM/Commercial above, never role-driven. */}
-            {hasPeople && (
-              <NavItem
-                href="/people"
-                label="People"
-                capability="people"
-                active={pathname.startsWith(
-                  '/people',
-                )}
-              />
-            )}
-
-            {/* Data Hub 5A.3C.1 — canonical manager-facing Illegal Dumping
-                CSV import experience. Role-gated only (isManagerPlus, same
-                minimum as the API layer's own requireRole('manager')),
-                never capability-gated — Data Hub has no dedicated
-                capability key, matching the backend's own role-only
-                authorization. */}
-            {isManagerPlus && (
-              <NavItem
-                href="/data-hub/import"
-                label="Data Hub Import"
-                active={pathname.startsWith(
-                  '/data-hub/import',
-                )}
-              />
-            )}
-
-            {isSuperAdmin && (
-              <NavItem
-                href="/clients"
-                label="Clients"
-                active={pathname.startsWith(
-                  '/clients',
-                )}
-              />
-            )}
-
-            {isBrainbaseHQ && (
-              <OpsDropdown
-                pathname={pathname}
-                enabledCapabilities={
-                  enabledCapabilities
-                }
-              />
-            )}
-
-            {isBrainbaseHQ && (
-              <NavItem
-                href="/reports"
-                label="Reports"
-                active={pathname.startsWith(
-                  '/reports',
-                )}
-              />
-            )}
-
-            {isBrainbaseHQ && (
-              <NavItem
-                href="/data"
-                label="Data"
-                active={pathname.startsWith(
-                  '/data',
-                )}
-              />
-            )}
-
-            {isSuperAdmin && (
-              <AdminDropdown
-                pathname={pathname}
-              />
-            )}
-          </>
-        )}
-      </div>
-
-      {/* Far-right system cluster */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent:
-            'flex-end',
-          gap: 10,
-          flexShrink: 0,
-        }}
-      >
-        {/* Larger BRΛINBΛSE mark */}
+        {/* Centre navigation (desktop). A handful of permanent items; modules
+            live inside Work, so the row no longer grows with every module.
+            overflowX stays as a safety net for very narrow desktop widths. */}
         <div
+          className={`${styles.navRow} ${styles.desktopOnly}`}
+          // No inline display: .desktopOnly supplies flex and must be able to
+          // hide the row below the mobile-Menu breakpoint (an inline display
+          // would override it).
           style={{
-            width: 185,
-            display: 'flex',
-            alignItems: 'center',
             justifyContent: 'center',
-            overflow: 'visible',
+            minWidth: 0,
+            overflowX: 'auto',
+            overflowY: 'hidden',
           }}
         >
-          <Logo compact />
+          <NavPill link={nav.home} active={activeId === nav.home.id} />
+          <NavPill link={nav.hlna} active={activeId === nav.hlna.id} hlna />
+
+          {nav.work.length > 0 && (
+            <NavMenu label="Work" panelLabel="Work" active={containsActive(nav.work, activeId)}>
+              {close => <MenuEntries entries={nav.work} activeId={activeId} onNavigate={close} withIcons />}
+            </NavMenu>
+          )}
+
+          {nav.requests && (
+            <NavPill link={nav.requests} active={activeId === nav.requests.id} />
+          )}
+
+          {nav.manage.length > 0 && (
+            <NavMenu label="Manage" panelLabel="Manage" active={containsActive(nav.manage, activeId)}>
+              {close => <MenuEntries entries={nav.manage} activeId={activeId} onNavigate={close} />}
+            </NavMenu>
+          )}
+
+          {nav.brainbase.length > 0 && (
+            <NavMenu label="Brainbase" panelLabel="Brainbase" active={containsActive(nav.brainbase, activeId)}>
+              {close => <MenuEntries entries={nav.brainbase} activeId={activeId} onNavigate={close} />}
+            </NavMenu>
+          )}
         </div>
 
-        <Divider />
+        <div className={`${styles.spacer} ${styles.mobileOnly}`} aria-hidden="true" />
 
-        <Clock />
+        {/* Right-side controls: UtilityMeta (clock) → divider → AccountControl.
+            OrganisationSwitcher (super_admin only) is a separate element
+            rendered immediately before this whole header — see
+            app/layout.tsx and components/admin/OrgSwitcher.tsx's own
+            visual-integration styling. */}
+        <div className={styles.rightCluster}>
+          <Clock />
 
-        <Divider />
+          <Divider className={styles.clockDivider} />
 
-        <Link
-          href="/account/profile"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 7,
-            textDecoration: 'none',
-            padding:
-              '4px 8px 4px 5px',
-            borderRadius: 20,
-            transition: 'all .15s',
-            background:
-              pathname.startsWith(
-                '/account/profile',
-              )
-                ? 'rgba(167,139,250,.10)'
-                : 'transparent',
-
-            border: `1px solid ${
-              pathname.startsWith(
-                '/account/profile',
-              )
-                ? 'rgba(167,139,250,.22)'
-                : 'transparent'
-            }`,
-          }}
-          onMouseEnter={e => {
-            if (
-              pathname.startsWith(
-                '/account/profile',
-              )
-            ) {
-              return;
-            }
-
-            e.currentTarget.style.background =
-              'rgba(255,255,255,.05)';
-
-            e.currentTarget.style.borderColor =
-              'rgba(255,255,255,.08)';
-          }}
-          onMouseLeave={e => {
-            if (
-              pathname.startsWith(
-                '/account/profile',
-              )
-            ) {
-              return;
-            }
-
-            e.currentTarget.style.background =
-              'transparent';
-
-            e.currentTarget.style.borderColor =
-              'transparent';
-          }}
-        >
-          <div
-            style={{
-              width: 24,
-              height: 24,
-              borderRadius: '50%',
-              flexShrink: 0,
-
-              background:
-                avatarUrl
-                  ? 'transparent'
-                  : 'linear-gradient(135deg, #6D28D9, #A78BFA)',
-
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent:
-                'center',
-
-              fontSize: 10,
-              fontWeight: 700,
-              color: '#fff',
-              overflow: 'hidden',
-              letterSpacing: '.02em',
-            }}
-          >
-            {avatarUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={avatarUrl}
-                alt="avatar"
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                }}
-              />
-            ) : (
-              initials
-            )}
+          <div className={styles.desktopOnly}>
+            <NavMenu
+              panelLabel="Account"
+              align="end"
+              triggerClassName={styles.profile}
+              active={activeId === nav.account.profile.id}
+              trigger={
+                <>
+                  <Avatar identity={identity} />
+                  <span className={styles.identity}>
+                    <span className={styles.identityName}>
+                      {name.split(' ')[0]}
+                    </span>
+                    {/* Not rendered in the flex column; keeps the accessible
+                        name "Sam Admin", not "SamAdmin". */}
+                    {' '}
+                    <span className={styles.identityRole}>
+                      {formatRole(role)}
+                    </span>
+                  </span>
+                  <span className={styles.srOnly}>, account menu</span>
+                </>
+              }
+            >
+              {close => (
+                <>
+                  <AccountSummary identity={identity} />
+                  <AccountEntries nav={nav} activeId={activeId} onNavigate={close} />
+                </>
+              )}
+            </NavMenu>
           </div>
 
-          <span
-            style={{
-              fontSize: 13,
-              fontWeight: 500,
-              color:
-                'rgba(245,247,250,.65)',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {name.split(' ')[0]}
-          </span>
-        </Link>
-
-        {/* Organisation Branding (Phase 2) — admin+ only, matching the
-            settings page/API's own auth floor exactly (see
-            app/api/organisations/branding/route.ts). Inline
-            role === 'admin' || role === 'super_admin' check, matching
-            this file's own existing isSuperAdmin convention above —
-            lib/session.ts's roleGte/ROLE_ORDER are behind a
-            'server-only' import and cannot be imported into this
-            client component. */}
-        {(role === 'admin' || role === 'super_admin') && (
-          <>
-            <Divider />
-            <Link
-              href="/settings/branding"
-              style={{
-                fontSize: 13,
-                fontWeight: 500,
-                textDecoration: 'none',
-                padding: '5px 8px',
-                borderRadius: 7,
-                color: pathname.startsWith('/settings/branding') ? '#A78BFA' : 'rgba(255,255,255,.5)',
-              }}
-            >
-              Branding
-            </Link>
-          </>
-        )}
-
-        <Divider />
-
-        <button
-          onClick={async () => {
-            const { logout } =
-              await import(
-                '@/app/actions/auth'
-              );
-
-            await logout();
-          }}
-          style={{
-            background: 'none',
-            border: 'none',
-            fontSize: 13,
-            fontWeight: 500,
-            color:
-              'rgba(255,255,255,.28)',
-            cursor: 'pointer',
-            fontFamily: FONT,
-            padding: '5px 8px',
-            borderRadius: 7,
-            transition:
-              'color .14s',
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.color =
-              'rgba(255,255,255,.65)';
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.color =
-              'rgba(255,255,255,.28)';
-          }}
-        >
-          Sign out
-        </button>
+          <MobileMenu nav={nav} activeId={activeId} identity={identity} />
+        </div>
       </div>
     </nav>
   );

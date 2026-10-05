@@ -2,8 +2,13 @@
 
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
 import Widget from '@/components/ops/widgets/Widget';
+import { useDashboardChart } from '@/components/dashboard/ui/chartTheme';
 import type { BinMaintenancePatterns } from '@/modules/bin-maintenance/calculations';
-import { DOW_LABELS, GRID, TICK, TOOLTIP_STYLE } from './constants';
+import { DOW_LABELS } from './constants';
+
+// Weekend days / out-of-hours bars are the same series drawn at reduced
+// opacity (the business-hours shading is explained in the widget subtitle).
+const DIM = 0.35;
 
 export default function PatternsTab({
   patterns, loading, empty,
@@ -12,6 +17,9 @@ export default function PatternsTab({
   loading: boolean;
   empty: boolean;
 }) {
+  const chart = useDashboardChart();
+  const pal = chart.palette;
+
   const dowRows = DOW_LABELS.map((label, i) => ({ label, count: patterns?.by_dow[i] ?? 0, weekend: i >= 5 }));
 
   const hours = Array.from({ length: 24 }, (_, h) => h);
@@ -23,12 +31,12 @@ export default function PatternsTab({
         {patterns && (
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={dowRows}>
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
-              <XAxis dataKey="label" tick={TICK} axisLine={false} tickLine={false} />
-              <YAxis tick={TICK} axisLine={false} tickLine={false} allowDecimals={false} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+              <XAxis dataKey="label" tick={chart.tick} axisLine={false} tickLine={false} />
+              <YAxis tick={chart.tick} axisLine={false} tickLine={false} allowDecimals={false} />
+              <Tooltip {...chart.tooltip} />
               <Bar dataKey="count" radius={[3, 3, 0, 0]}>
-                {dowRows.map((r, i) => <Cell key={i} fill={r.weekend ? 'rgba(167,139,250,0.35)' : '#A78BFA'} />)}
+                {dowRows.map((r, i) => <Cell key={i} fill={pal.primary} fillOpacity={r.weekend ? DIM : 1} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -39,12 +47,12 @@ export default function PatternsTab({
         {patterns && (
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={hourRows}>
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
-              <XAxis dataKey="label" tick={{ ...TICK, fontSize: 9 }} interval={1} axisLine={false} tickLine={false} />
-              <YAxis tick={TICK} axisLine={false} tickLine={false} allowDecimals={false} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+              <XAxis dataKey="label" tick={{ ...chart.tick, fontSize: 9 }} interval={1} axisLine={false} tickLine={false} />
+              <YAxis tick={chart.tick} axisLine={false} tickLine={false} allowDecimals={false} />
+              <Tooltip {...chart.tooltip} />
               <Bar dataKey="count" radius={[2, 2, 0, 0]}>
-                {hourRows.map((r, i) => <Cell key={i} fill={r.business ? '#A78BFA' : 'rgba(167,139,250,0.3)'} />)}
+                {hourRows.map((r, i) => <Cell key={i} fill={pal.primary} fillOpacity={r.business ? 1 : DIM} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>

@@ -1,0 +1,87 @@
+/* Authenticated-app filter / action bar. Tokens only (app/globals.css). */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 12px;
+  min-width: 0;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.count {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.control {
+  height: 32px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+.control::placeholder {
+  color: var(--text-subtle);
+}
+
+.control:focus-visible {
+  border-color: var(--border-focus);
+}
+
+.search {
+  min-width: 0;
+}
+
+.searchInput {
+  width: 220px;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .controls,
+  .search,
+  .searchInput {
+    width: 100%;
+  }
+  .controls > * {
+    flex: 1 1 140px;
+  }
+  .actions {
+    margin-left: 0;
+  }
+}

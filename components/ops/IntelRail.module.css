@@ -1,0 +1,267 @@
+/* Command Centre intelligence rail (Phase D2). Same surface, border, type
+   and semantic colours as the rest of the app. No glow, gradients, edge
+   lighting or ambient animation; state is written as text. */
+
+.rail {
+  position: relative;
+  z-index: 8;
+  width: 260px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: var(--font-inter), "Inter", -apple-system, sans-serif;
+}
+
+.core {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.identity {
+  flex: 1;
+  min-width: 0;
+}
+
+.name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 3px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.stateLine {
+  margin-bottom: 4px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.bar {
+  height: 3px;
+  flex: 1;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--bg-sunken);
+}
+.barFill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--brand-brainbase-accent);
+  transition: width 1.5s ease;
+}
+
+.mono {
+  font-family: var(--font-geist-mono, "Geist Mono", monospace);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.body {
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.section + .section {
+  border-top: 1px solid var(--border);
+}
+
+.sectionHeader {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.list {
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 14px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.fresh {
+  animation: slide 0.35s ease both;
+}
+@keyframes slide {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.itemText {
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.itemMeta {
+  margin-top: 2px;
+  font-family: var(--font-geist-mono, "Geist Mono", monospace);
+  font-size: 0.625rem;
+  color: var(--text-muted);
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  margin-top: 5px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--status-colour, var(--text-subtle));
+}
+
+.tone[data-status='danger'] { --status-colour: var(--status-danger); }
+.tone[data-status='warning'] { --status-colour: var(--status-warning); }
+.tone[data-status='success'] { --status-colour: var(--status-success); }
+.tone[data-status='info'] { --status-colour: var(--status-info); }
+.tone[data-status='accent'] { --status-colour: var(--brand-brainbase-accent); }
+
+.statusText {
+  color: var(--status-colour, var(--text-secondary));
+}
+
+.taskLink {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-decoration: none;
+}
+.taskLink:hover {
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+}
+.taskLink:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: -2px;
+}
+.taskLink .dot {
+  margin-top: 0;
+}
+
+.pulse {
+  min-height: 80px;
+  padding: 12px 14px;
+}
+.pulseInner {
+  transition: opacity 0.35s ease;
+}
+.pulseText {
+  margin: 0 0 8px;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--text-primary);
+}
+.pips {
+  display: flex;
+  gap: 5px;
+  margin-top: 6px;
+}
+.pip {
+  width: 4px;
+  height: 3px;
+  border-radius: 1px;
+  background: var(--border-strong);
+}
+.pip[data-active] {
+  width: 14px;
+  background: var(--brand-brainbase-accent);
+}
+
+.health {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+  margin: 0;
+  padding: 8px 14px 10px;
+}
+.healthLabel {
+  font-size: 0.625rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.healthValue {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  font-family: var(--font-geist-mono, "Geist Mono", monospace);
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+.healthValue .dot {
+  margin-top: 0;
+}
+
+.radar {
+  height: 140px;
+  padding: 8px 20px 14px;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px 10px;
+  border-top: 1px solid var(--border);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fresh,
+  .pulseInner,
+  .barFill {
+    animation: none;
+    transition: none;
+  }
+}

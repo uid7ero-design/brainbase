@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
-import { Field, lbl } from './CustomerForm';
+import { Field } from './CustomerForm';
+import { Button, Field as AppField, FormActions, FormError, fieldControlClassName } from '@/components/ui/app';
 
 type Supplier = {
   id?: string; name?: string; legalName?: string | null; contactName?: string | null;
@@ -51,7 +52,7 @@ export default function SupplierForm({ initial, onSaved }: { initial?: Supplier;
 
   return (
     <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <Field label="Supplier Name *" value={form.name ?? ''} onChange={set('name')} required />
+      <Field label="Supplier Name" value={form.name ?? ''} onChange={set('name')} required />
       <Field label="Legal Name" value={form.legalName ?? ''} onChange={set('legalName')} />
       <Field label="Contact Name" value={form.contactName ?? ''} onChange={set('contactName')} />
       <Field label="Email" value={form.email ?? ''} onChange={set('email')} placeholder="accounts@supplier.com" />
@@ -59,21 +60,23 @@ export default function SupplierForm({ initial, onSaved }: { initial?: Supplier;
       <Field label="Address" value={form.billingAddress ?? ''} onChange={set('billingAddress')} />
       <Field label="Tax / Business Number" value={form.taxBusinessNumber ?? ''} onChange={set('taxBusinessNumber')} placeholder="ABN, GST number, ..." />
       <Field label="Supplier Reference" value={form.supplierReference ?? ''} onChange={set('supplierReference')} placeholder="Your account/reference number with this supplier" />
-      <div>
-        <label style={lbl}>Payment Terms (days)</label>
-        <input value={form.paymentTermsDays ?? ''} onChange={e => setForm(f => ({ ...f, paymentTermsDays: e.target.value === '' ? null : Number(e.target.value) }))}
-          inputMode="numeric" placeholder="e.g. 30"
-          style={{ width: '100%', padding: '9px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
-      </div>
-      <div>
-        <label style={lbl}>Notes</label>
-        <textarea value={form.notes ?? ''} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={3}
-          style={{ width: '100%', padding: '9px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14, resize: 'vertical', lineHeight: 1.5, boxSizing: 'border-box' }} />
-      </div>
-      {error && <p style={{ color: '#f87171', fontSize: 13, margin: 0 }}>{error}</p>}
-      <button type="submit" disabled={saving} style={{ padding: '10px 0', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
-        {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Supplier'}
-      </button>
+      <AppField label="Payment Terms (days)">
+        {control => (
+          <input {...control} value={form.paymentTermsDays ?? ''} onChange={e => setForm(f => ({ ...f, paymentTermsDays: e.target.value === '' ? null : Number(e.target.value) }))}
+            inputMode="numeric" placeholder="e.g. 30" className={fieldControlClassName} />
+        )}
+      </AppField>
+      <AppField label="Notes">
+        {control => (
+          <textarea {...control} value={form.notes ?? ''} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={3} className={fieldControlClassName} />
+        )}
+      </AppField>
+      {error && <FormError>{error}</FormError>}
+      <FormActions align="stretch">
+        <Button type="submit" variant="primary" disabled={saving}>
+          {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Supplier'}
+        </Button>
+      </FormActions>
     </form>
   );
 }

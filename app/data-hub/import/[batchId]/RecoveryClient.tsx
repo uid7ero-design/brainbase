@@ -95,10 +95,26 @@ function RecoveryBody({
     return <XlsxWorksheetPreviewPanel state={state} onBack={() => session.backToWorksheetInventory()} onRetry={() => void session.retryXlsxWorksheetPreview()} onRestart={() => router.push("/data-hub/import")} />;
   }
 
-  // Data Hub 6.2D3C — read-only governed schema comparison of a recovered
-  // XLSX batch. Same narrow callbacks; no session handed over.
-  if (state.phase === "schemaMatchLoading" || state.phase === "schemaMatchReady" || state.phase === "schemaMatchFailed") {
-    return <SchemaMatchReportPanel state={state} onBack={() => session.backToWorksheetInventory()} onRetry={() => session.compareToGovernedSchema().catch(() => {})} onRestart={() => router.push("/data-hub/import")} />;
+  // Data Hub 6.2D3C/6.2D3D — read-only governed schema comparison, plus the
+  // durable lineage-pin action, for a recovered XLSX batch. Same narrow
+  // callbacks; no session handed over.
+  if (
+    state.phase === "schemaMatchLoading" ||
+    state.phase === "schemaMatchReady" ||
+    state.phase === "schemaMatchFailed" ||
+    state.phase === "schemaSelectionSaving" ||
+    state.phase === "schemaSelected" ||
+    state.phase === "schemaSelectionFailed"
+  ) {
+    return (
+      <SchemaMatchReportPanel
+        state={state}
+        onBack={() => session.backToWorksheetInventory()}
+        onRetry={() => session.compareToGovernedSchema().catch(() => {})}
+        onSelectSchema={() => session.selectGovernedSchema().catch(() => {})}
+        onRestart={() => router.push("/data-hub/import")}
+      />
+    );
   }
 
   if (state.phase === "confirming") {
@@ -155,7 +171,7 @@ function RecoveryBody({
 
 function RecoveryStatusText({ text }: { text: string }) {
   return (
-    <div aria-live="polite" aria-busy="true" style={{ fontSize: 13, color: "rgba(249,250,251,.7)" }}>
+    <div aria-live="polite" aria-busy="true" style={{ fontSize: 13, color: "var(--text-secondary)" }}>
       {text}
     </div>
   );

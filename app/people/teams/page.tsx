@@ -1,6 +1,18 @@
 'use client';
 import { useEffect, useState } from 'react';
 import SlidePanel from '../_components/SlidePanel';
+import {
+  Badge,
+  Field,
+  FormActions,
+  FormError,
+  PageHeader,
+  TableContainer,
+  TableStateRow,
+  buttonProps,
+  fieldControlClassName,
+  tableStyles,
+} from '@/components/ui/app';
 
 // HR-2 Step 1B — minimal Teams management UI, reusing app/people/
 // page.tsx's own styling constants/structure rather than introducing a
@@ -17,7 +29,6 @@ import SlidePanel from '../_components/SlidePanel';
 // authorization boundary is the API route itself (PATCH/archive/restore
 // each independently require ctx.isHrAdministrator, and
 // ?include_archived=1 independently 403s for a non-admin caller).
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
 
 type Team = {
   id: string;
@@ -90,79 +101,83 @@ export default function TeamsPage() {
 
   return (
     <div style={{ maxWidth: 900 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>Teams</h1>
-          <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 0' }}>
-            Manage your organisation&apos;s teams.
-          </p>
-        </div>
-        {canManage && (
-          <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#9ca3af', fontSize: 13, cursor: 'pointer' }}>
-              <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} />
-              Show archived
-            </label>
-            <button onClick={() => setShowCreate(true)} style={btn('#1a6aff')}>+ Create Team</button>
-          </div>
-        )}
-      </div>
+      <PageHeader
+        title="Teams"
+        description={<>Manage your organisation&apos;s teams.</>}
+        actions={
+          <>
+            {canManage && (
+              <>
+                <label style={checkboxLabel}>
+                  <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} />
+                  Show archived
+                </label>
+                <button onClick={() => setShowCreate(true)} type="button" {...buttonProps('primary')}>+ Create Team</button>
+              </>
+            )}
+          </>
+        }
+      />
 
-      {actionError && <p style={{ color: '#f87171', fontSize: 13, margin: '8px 0 0' }}>{actionError}</p>}
+      {actionError && <div style={{ marginBottom: 12 }}><FormError>{actionError}</FormError></div>}
 
-      <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden', marginTop: 20 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <TableContainer label="Teams" minWidth={680}>
+        <table className={tableStyles.table}>
           <thead>
-            <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-              {['Name', 'Description', 'Manager', 'Status', ''].map(h => (
-                <th key={h} style={th}>{h}</th>
-              ))}
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Description</th>
+              <th scope="col">Manager</th>
+              <th scope="col">Status</th>
+              <th scope="col" className={tableStyles.actions}><span className="bb-visually-hidden">Actions</span></th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={5} style={empty}>Loading…</td></tr>}
-            {!loading && error && <tr><td colSpan={5} style={{ ...empty, color: '#f87171' }}>{error}</td></tr>}
+            {loading && <TableStateRow colSpan={5} kind="loading">Loading…</TableStateRow>}
+            {!loading && error && <TableStateRow colSpan={5} kind="error">{error}</TableStateRow>}
             {!loading && !error && teams.length === 0 && (
-              <tr><td colSpan={5} style={empty}>No teams yet.</td></tr>
+              <TableStateRow colSpan={5} kind="empty">No teams yet.</TableStateRow>
             )}
-            {!loading && !error && teams.map((t, i) => {
+            {!loading && !error && teams.map(t => {
               const archived = t.archived_at !== null;
               return (
-                <tr key={t.id} style={{ borderBottom: i < teams.length - 1 ? `1px solid ${BORDER}` : 'none', opacity: archived ? 0.55 : 1 }}>
-                  <td style={{ padding: '13px 16px', color: '#f9fafb', fontWeight: 500, fontSize: 14 }}>{t.name}</td>
-                  <td style={td}>{t.description ?? <span style={{ color: '#4b5563' }}>—</span>}</td>
-                  <td style={td}>{managerName(t.manager_person_id) ?? <span style={{ color: '#4b5563' }}>—</span>}</td>
-                  <td style={td}>
+                <tr key={t.id} style={{ opacity: archived ? 0.7 : 1 }}>
+                  <td className={tableStyles.primary}>{t.name}</td>
+                  <td>{t.description ?? <span className={tableStyles.muted}>—</span>}</td>
+                  <td>{managerName(t.manager_person_id) ?? <span className={tableStyles.muted}>—</span>}</td>
+                  <td>
                     {archived
-                      ? <span style={{ color: '#9ca3af' }}>Archived</span>
-                      : <span style={{ color: '#6ee7b7' }}>Active</span>}
+                      ? <Badge state="inactive">Archived</Badge>
+                      : <Badge state="success">Active</Badge>}
                   </td>
-                  <td style={{ padding: '13px 16px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <td className={tableStyles.actions}>
+                    <div style={rowActions}>
                     {canManage && !archived && (
                       confirmArchiveId === t.id ? (
                         <>
-                          <span style={{ color: '#9ca3af', fontSize: 12, marginRight: 6 }}>Archive this team?</span>
-                          <button onClick={() => archive(t.id)} style={{ ...linkBtn, color: '#f87171' }}>Confirm</button>
-                          <button onClick={() => setConfirmArchiveId(null)} style={linkBtn}>Cancel</button>
+                          <span style={confirmPrompt}>Archive this team?</span>
+                          <button onClick={() => archive(t.id)} type="button" {...buttonProps('danger', 'sm')} aria-label={`Confirm archive ${t.name}`}>Confirm</button>
+                          <button onClick={() => setConfirmArchiveId(null)} type="button" {...buttonProps('ghost', 'sm')}>Cancel</button>
                         </>
                       ) : (
                         <>
-                          <button onClick={() => setEditingTeam(t)} style={linkBtn}>Edit</button>
-                          <button onClick={() => setConfirmArchiveId(t.id)} style={linkBtn}>Archive</button>
+                          <button onClick={() => setEditingTeam(t)} type="button" {...buttonProps('ghost', 'sm')} aria-label={`Edit ${t.name}`}>Edit</button>
+                          <button onClick={() => setConfirmArchiveId(t.id)} type="button" {...buttonProps('ghost', 'sm')} aria-label={`Archive ${t.name}`}>Archive</button>
                         </>
                       )
                     )}
                     {/* Archived teams have no Edit action while archived — restore, edit, optionally archive again. */}
                     {canManage && archived && (
-                      <button onClick={() => restore(t.id)} style={linkBtn}>Restore</button>
+                      <button onClick={() => restore(t.id)} type="button" {...buttonProps('secondary', 'sm')} aria-label={`Restore ${t.name}`}>Restore</button>
                     )}
+                    </div>
                   </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
-      </div>
+      </TableContainer>
 
       <SlidePanel open={showCreate} onClose={() => setShowCreate(false)} title="Create Team">
         <TeamForm managers={managers} onSaved={() => { setShowCreate(false); load(); }} />
@@ -201,34 +216,30 @@ function TeamForm({ initial, managers, onSaved }: {
 
   return (
     <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div>
-        <label style={lbl}>Name *</label>
-        <input value={name} onChange={e => setName(e.target.value)} required style={inputStyle} />
-      </div>
-      <div>
-        <label style={lbl}>Description</label>
-        <input value={description ?? ''} onChange={e => setDescription(e.target.value)} style={inputStyle} />
-      </div>
-      <div>
-        <label style={lbl}>Manager</label>
-        <select value={managerPersonId ?? ''} onChange={e => setManagerPersonId(e.target.value)} style={sel}>
-          <option value="">— No manager —</option>
-          {managers.map(m => <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>)}
-        </select>
-      </div>
-      {error && <p style={{ color: '#f87171', fontSize: 13, margin: 0 }}>{error}</p>}
-      <button type="submit" disabled={saving} style={{ padding: '10px 0', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
-        {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Team'}
-      </button>
+      <Field label="Name" required>
+        {control => <input {...control} value={name} onChange={e => setName(e.target.value)} required className={fieldControlClassName} />}
+      </Field>
+      <Field label="Description">
+        {control => <input {...control} value={description ?? ''} onChange={e => setDescription(e.target.value)} className={fieldControlClassName} />}
+      </Field>
+      <Field label="Manager">
+        {control => (
+          <select {...control} value={managerPersonId ?? ''} onChange={e => setManagerPersonId(e.target.value)} className={fieldControlClassName}>
+            <option value="">— No manager —</option>
+            {managers.map(m => <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>)}
+          </select>
+        )}
+      </Field>
+      {error && <FormError>{error}</FormError>}
+      <FormActions align="stretch">
+        <button type="submit" disabled={saving} {...buttonProps('primary')}>
+          {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Team'}
+        </button>
+      </FormActions>
     </form>
   );
 }
 
-const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: '#9ca3af' };
-const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: '#4b5563', fontSize: 14 };
-const linkBtn: React.CSSProperties = { background: 'none', border: 'none', padding: '0 6px', fontSize: 12, color: '#6b7280', cursor: 'pointer' };
-const lbl: React.CSSProperties = { display: 'block', color: '#9ca3af', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const inputStyle: React.CSSProperties = { width: '100%', padding: '9px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14, outline: 'none', boxSizing: 'border-box' };
-const sel: React.CSSProperties = { width: '100%', padding: '9px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14 };
-function btn(bg: string): React.CSSProperties { return { padding: '8px 16px', background: bg, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }; }
+const checkboxLabel: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' };
+const rowActions: React.CSSProperties = { display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end', gap: 4 };
+const confirmPrompt: React.CSSProperties = { color: 'var(--text-secondary)', fontSize: 12, marginRight: 4 };

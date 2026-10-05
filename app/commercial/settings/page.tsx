@@ -1,8 +1,17 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Field, lbl, sel } from '../_components/CustomerForm';
+import { Field } from '../_components/CustomerForm';
+import {
+  Field as AppField,
+  FormError,
+  PageHeader,
+  TableContainer,
+  buttonProps,
+  fieldControlClassName,
+  tableStyles,
+} from '@/components/ui/app';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+const SECTION: React.CSSProperties = { background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px 24px' };
 
 type Profile = { tradingName: string | null; address: string | null; email: string | null; phone: string | null; abn: string | null };
 type TaxCode = { id: string; code: string; name: string; rate: string; is_default: boolean; active: boolean };
@@ -84,11 +93,11 @@ export default function CommercialSettingsPage() {
 
   return (
     <div style={{ maxWidth: 720 }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: '0 0 24px' }}>Commercial Settings</h1>
+      <PageHeader title="Commercial Settings" />
 
-      <section style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px', marginBottom: 24 }}>
-        <h2 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 4px' }}>Business Profile</h2>
-        <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 16px' }}>
+      <section aria-labelledby="settings-business-profile" style={{ ...SECTION, marginBottom: 24 }}>
+        <h2 id="settings-business-profile" style={{ fontSize: 15, fontWeight: 600, margin: '0 0 4px', color: 'var(--text-primary)' }}>Business Profile</h2>
+        <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 16px' }}>
           Shown as the &ldquo;From&rdquo; details on Quote and Invoice PDFs and emails. Any field left blank falls back to your organisation name ({orgName || '—'}) or is omitted.
         </p>
         <form onSubmit={saveProfile} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -97,63 +106,78 @@ export default function CommercialSettingsPage() {
           <Field label="Business Email" value={profile.email ?? ''} onChange={e => setProfile(p => ({ ...p, email: e.target.value }))} />
           <Field label="Business Phone" value={profile.phone ?? ''} onChange={e => setProfile(p => ({ ...p, phone: e.target.value }))} />
           <Field label="ABN" value={profile.abn ?? ''} onChange={e => setProfile(p => ({ ...p, abn: e.target.value }))} />
-          <div>
-            <button type="submit" disabled={savingProfile} style={{ padding: '9px 16px', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button type="submit" disabled={savingProfile} {...buttonProps('primary')}>
               {savingProfile ? 'Saving…' : 'Save Business Profile'}
             </button>
-            {profileSaved && <span style={{ marginLeft: 12, color: '#4ade80', fontSize: 13 }}>Saved.</span>}
+            <span role="status" style={{ color: 'var(--status-success)', fontSize: 13 }}>{profileSaved ? 'Saved.' : ''}</span>
           </div>
         </form>
       </section>
 
-      <section style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+      <section aria-labelledby="settings-tax-codes" style={SECTION}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
           <div>
-            <h2 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 4px' }}>Tax Codes</h2>
-            <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Used on Products and Quote/Invoice lines. Deactivating a code never affects quotes or invoices already issued with it (their tax rate is snapshotted).</p>
+            <h2 id="settings-tax-codes" style={{ fontSize: 15, fontWeight: 600, margin: '0 0 4px', color: 'var(--text-primary)' }}>Tax Codes</h2>
+            <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0 }}>Used on Products and Quote/Invoice lines. Deactivating a code never affects quotes or invoices already issued with it (their tax rate is snapshotted).</p>
           </div>
           {taxCodes.length === 0 && (
-            <button onClick={seedDefaults} disabled={seeding} style={{ padding: '8px 14px', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            <button type="button" onClick={seedDefaults} disabled={seeding} {...buttonProps('primary')}>
               {seeding ? 'Seeding…' : 'Seed Standard Australian Tax Codes'}
             </button>
           )}
         </div>
 
         {taxCodes.length > 0 && (
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
-            <tbody>
-              {taxCodes.map((t, i) => (
-                <tr key={t.id} style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none' }}>
-                  <td style={{ padding: '10px 0', fontSize: 13, color: '#f9fafb', fontWeight: 500 }}>{t.code}{t.is_default && <span style={{ color: '#6b7280', fontWeight: 400 }}> · default</span>}</td>
-                  <td style={{ padding: '10px 0', fontSize: 13, color: '#9ca3af' }}>{t.name}</td>
-                  <td style={{ padding: '10px 0', fontSize: 13, color: '#9ca3af', textAlign: 'right' }}>{t.rate}%</td>
-                  <td style={{ padding: '10px 0', textAlign: 'right' }}>
-                    <button onClick={() => deactivateTaxCode(t.id)} disabled={busy} style={{ background: 'none', border: 'none', color: '#f87171', fontSize: 12, cursor: 'pointer' }}>Deactivate</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ marginBottom: 16 }}>
+            <TableContainer label="Tax codes" minWidth={480}>
+              <table className={tableStyles.table}>
+                <thead>
+                  <tr>
+                    <th scope="col">Code</th>
+                    <th scope="col">Name</th>
+                    <th scope="col" className={tableStyles.num}>Rate</th>
+                    <th scope="col" className={tableStyles.actions}><span className="bb-visually-hidden">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {taxCodes.map(t => (
+                    <tr key={t.id}>
+                      <td className={tableStyles.primary}>{t.code}{t.is_default && <span className={tableStyles.muted} style={{ fontWeight: 400 }}> · default</span>}</td>
+                      <td>{t.name}</td>
+                      <td className={tableStyles.num}>{t.rate}%</td>
+                      <td className={tableStyles.actions}>
+                        <button type="button" onClick={() => deactivateTaxCode(t.id)} disabled={busy} className={tableStyles.link} style={{ color: 'var(--status-danger)' }} aria-label={`Deactivate tax code ${t.code}`}>Deactivate</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableContainer>
+          </div>
         )}
 
         <form onSubmit={createTaxCode} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 100px' }}>
-            <div style={lbl}>Code</div>
-            <input value={newCode} onChange={e => setNewCode(e.target.value)} style={sel} placeholder="e.g. GST" />
+            <AppField label="Code">
+              {control => <input {...control} value={newCode} onChange={e => setNewCode(e.target.value)} className={fieldControlClassName} placeholder="e.g. GST" />}
+            </AppField>
           </div>
           <div style={{ flex: '2 1 160px' }}>
-            <div style={lbl}>Name</div>
-            <input value={newName} onChange={e => setNewName(e.target.value)} style={sel} placeholder="e.g. GST 10%" />
+            <AppField label="Name">
+              {control => <input {...control} value={newName} onChange={e => setNewName(e.target.value)} className={fieldControlClassName} placeholder="e.g. GST 10%" />}
+            </AppField>
           </div>
           <div style={{ width: 90 }}>
-            <div style={lbl}>Rate %</div>
-            <input value={newRate} onChange={e => setNewRate(e.target.value)} style={sel} inputMode="decimal" placeholder="10.00" />
+            <AppField label="Rate %">
+              {control => <input {...control} value={newRate} onChange={e => setNewRate(e.target.value)} className={fieldControlClassName} inputMode="decimal" placeholder="10.00" />}
+            </AppField>
           </div>
-          <button type="submit" disabled={busy} style={{ padding: '9px 16px', background: '#1f2937', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          <button type="submit" disabled={busy} {...buttonProps('secondary')}>
             Add Tax Code
           </button>
         </form>
-        {taxError && <p style={{ color: '#f87171', fontSize: 13, margin: '12px 0 0' }}>{taxError}</p>}
+        {taxError && <div style={{ marginTop: 12 }}><FormError>{taxError}</FormError></div>}
       </section>
     </div>
   );

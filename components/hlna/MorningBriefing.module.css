@@ -1,0 +1,224 @@
+/* HLNA operations briefing card (the /dashboard fallback) — remaining
+   visual islands pass. Flat --bg-surface card, thin borders, urgency on the
+   card edge / accent bar via semantic status tokens. No gradient, grid
+   texture, glow or violet literals. Tokens only. */
+
+.card {
+  position: relative;
+  overflow: hidden;
+  padding: 18px 20px 18px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+.card[data-urgency='critical'],
+.card[data-urgency='high'] {
+  border-color: var(--status-danger-border);
+}
+.card[data-urgency='medium'] {
+  border-color: var(--status-warning-border);
+}
+
+/* Urgency bar on the leading edge — solid status colour. */
+.bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: var(--status-success);
+}
+.card[data-urgency='critical'] .bar,
+.card[data-urgency='high'] .bar {
+  background: var(--status-danger);
+}
+.card[data-urgency='medium'] .bar {
+  background: var(--status-warning);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.liveDot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--brand-brainbase-accent);
+  animation: briefingPulse 2s ease-in-out infinite;
+}
+
+.title {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.elapsed {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.875rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.refresh:hover {
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+}
+
+.metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.metric {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--status-success-border);
+  border-radius: var(--radius-md);
+  background: var(--status-success-muted);
+}
+.metric[data-bad='true'] {
+  border-color: var(--status-danger-border);
+  background: var(--status-danger-muted);
+}
+
+.metricLabel {
+  margin-bottom: 2px;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.metricValues {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.metricValue {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.metricDelta {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.section {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+.section[data-section='changed'] { border-left-color: var(--status-info); }
+.section[data-section='why'] { border-left-color: var(--brand-brainbase-accent); }
+.section[data-section='risk'] { border-left-color: var(--status-danger); }
+.section[data-section='action'] { border-left-color: var(--status-success); }
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.sectionIcon {
+  font-size: 0.6875rem;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+.sectionText {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* Loading skeleton. */
+.skeletonRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.skeletonPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.bone {
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+}
+
+@keyframes briefingPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.82); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liveDot {
+    animation: none;
+  }
+}

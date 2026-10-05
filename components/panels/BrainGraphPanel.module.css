@@ -1,0 +1,314 @@
+/* Brain graph chrome (/hlna "Performance" overlay, /dashboard fallback and
+   the LeftSidebar mini widget) — remaining visual islands pass.
+
+   Classification: the THREE.js canvas sits in a deliberately dark, theme-
+   invariant WELL (.well). The visualisation uses additive blending (purple
+   nodes, edges, signal particles and CSS2D labels), which would wash out to
+   nothing over a light surface, so the well keeps one fixed dark fill in
+   both themes — the same exception a video or map viewport gets. Everything
+   AROUND and ON TOP of the well (header bar, controls, demo notice,
+   selection panel, interaction hint) is app chrome on theme tokens. */
+
+.overlay {
+  position: fixed;
+  top: 52px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+.overlay:focus-visible {
+  outline-offset: -2px;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  flex-shrink: 0;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.barIcon {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+}
+
+.stats {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.building {
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+.barActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Theme-invariant dark canvas well (see header note). */
+.well {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  background: #06070b;
+}
+
+.inlineWell {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  background: #06070b;
+}
+
+.mount {
+  position: absolute;
+  inset: 0;
+}
+
+.loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loadingDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand-brainbase-accent);
+  animation: graphPulse 1.2s ease-in-out infinite;
+}
+
+/* Chrome floating over the well: opaque app surfaces, so text reads in
+   both themes regardless of the dark canvas beneath. */
+.notice {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 10;
+  max-width: calc(100% - 32px);
+  padding: 5px 12px;
+  border: 1px solid var(--status-info-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-overlay);
+  box-shadow: var(--shadow-popover);
+  font-size: 0.6875rem;
+  color: var(--text-primary);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.hint {
+  position: absolute;
+  z-index: 10;
+  bottom: 16px;
+  left: 50%;
+  max-width: calc(100% - 32px);
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-overlay);
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.selection {
+  position: absolute;
+  z-index: 10;
+  top: 16px;
+  right: 16px;
+  width: 240px;
+  max-width: calc(100% - 32px);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-overlay);
+  box-shadow: var(--shadow-popover);
+  color: var(--text-primary);
+}
+
+.selectionInline {
+  position: absolute;
+  z-index: 10;
+  right: 8px;
+  bottom: 10px;
+  left: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-overlay);
+  box-shadow: var(--shadow-popover);
+  color: var(--text-primary);
+}
+
+.selectionHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 12px 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.selectionInline .selectionHead {
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border-bottom: 0;
+}
+
+.nodeDot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--brand-brainbase-accent);
+}
+.selectionInline .nodeDot {
+  width: 6px;
+  height: 6px;
+  margin-top: 0;
+}
+
+.nodeText {
+  flex: 1;
+  min-width: 0;
+}
+
+.nodeLabel {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.3;
+  word-break: break-word;
+  color: var(--text-primary);
+}
+.selectionInline .nodeLabel {
+  overflow: hidden;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nodeMeta {
+  margin-top: 3px;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+.close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.close:hover {
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+}
+
+.neighbours {
+  padding: 10px 14px 12px;
+}
+.selectionInline .neighbours {
+  padding: 6px 0 0;
+}
+
+.neighboursTitle {
+  margin: 0 0 8px;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.neighbourList {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.selectionInline .neighbourList {
+  gap: 3px;
+}
+
+.neighbour {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* Strength dot — its purple ramp is a data encoding (inline). */
+.strengthDot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.neighbourLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.6875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.strength {
+  flex-shrink: 0;
+  font-family: var(--bb-font-mono);
+  font-size: 0.625rem;
+  color: var(--text-muted);
+}
+
+@keyframes graphPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.82); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loadingDot {
+    animation: none;
+  }
+}

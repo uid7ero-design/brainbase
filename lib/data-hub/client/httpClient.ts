@@ -51,6 +51,8 @@ import type {
   PeriodSelectionResult,
   SchemaMatchFetchResult,
   SchemaMatchResponseBody,
+  SchemaSelectionResponseBody,
+  SchemaSelectionResult,
   TransportResult,
   WorksheetPreviewResponseBody,
   WorksheetPreviewResult,
@@ -464,6 +466,30 @@ export async function fetchSchemaMatchReport(
     config,
     resolveUrl(config, `/api/data-hub/import-batches/${encodeURIComponent(importBatchId)}/schema-match`),
     { method: "GET" },
+    callOptions
+  );
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/data-hub/import-batches/[id]/schema-selection (Data Hub 6.2D3D)
+//
+// NO REQUEST BODY — the route reads no body and every input it needs comes
+// from the server's own session + path id. This call sends `{ method:
+// "POST" }` only, mirroring finalizeImportBatch's own no-body POST shape
+// exactly. Nothing here can ever send a schema id, dataset id, match
+// result, override, organisation id or actor id — there is no parameter to
+// carry one.
+// ---------------------------------------------------------------------------
+
+export async function selectImportBatchSchemaLineage(
+  importBatchId: string,
+  config?: HttpClientConfig,
+  callOptions?: CallOptions
+): Promise<SchemaSelectionResult> {
+  return executeCall<SchemaSelectionResponseBody>(
+    config,
+    resolveUrl(config, `/api/data-hub/import-batches/${encodeURIComponent(importBatchId)}/schema-selection`),
+    { method: "POST" },
     callOptions
   );
 }

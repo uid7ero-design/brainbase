@@ -69,7 +69,7 @@ function ImportFlow({ onRestart }: { onRestart: () => void }) {
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "32px 24px" }}>
-      <div ref={headingRef} tabIndex={-1} style={{ outline: "none" }} aria-live="polite">
+      <div ref={headingRef} tabIndex={-1} aria-live="polite">
         {screenGroup === "select" && (
           <>
             <FileSelector session={session} />
@@ -147,13 +147,25 @@ function ImportFlow({ onRestart }: { onRestart: () => void }) {
         {screenGroup === "xlsxPreview" && (state.phase === "xlsxWorksheetPreviewing" || state.phase === "xlsxWorksheetPreviewReady" || state.phase === "xlsxWorksheetPreviewFailed") && (
           <XlsxWorksheetPreviewPanel state={state} onBack={() => session.backToWorksheetInventory()} onRetry={() => void session.retryXlsxWorksheetPreview()} onRestart={onRestart} />
         )}
-        {screenGroup === "schemaMatch" && (state.phase === "schemaMatchLoading" || state.phase === "schemaMatchReady" || state.phase === "schemaMatchFailed") && (
-          <SchemaMatchReportPanel state={state} onBack={() => session.backToWorksheetInventory()} onRetry={() => session.compareToGovernedSchema().catch(() => {})} onRestart={onRestart} />
-        )}
+        {screenGroup === "schemaMatch" &&
+          (state.phase === "schemaMatchLoading" ||
+            state.phase === "schemaMatchReady" ||
+            state.phase === "schemaMatchFailed" ||
+            state.phase === "schemaSelectionSaving" ||
+            state.phase === "schemaSelected" ||
+            state.phase === "schemaSelectionFailed") && (
+            <SchemaMatchReportPanel
+              state={state}
+              onBack={() => session.backToWorksheetInventory()}
+              onRetry={() => session.compareToGovernedSchema().catch(() => {})}
+              onSelectSchema={() => session.selectGovernedSchema().catch(() => {})}
+              onRestart={onRestart}
+            />
+          )}
 
         {screenGroup === "confirm" &&
           (state.phase === "confirming" ? (
-            <div aria-live="polite" aria-busy="true" style={{ fontSize: 13, color: "rgba(249,250,251,.7)" }}>
+            <div aria-live="polite" aria-busy="true" style={{ fontSize: 13, color: "var(--text-secondary)" }}>
               Confirming import…
             </div>
           ) : isErrorOverlayPhase(state.phase) ? (

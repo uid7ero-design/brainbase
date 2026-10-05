@@ -1,6 +1,7 @@
 "use client";
 
 import type { DataHubImportState } from "@/lib/data-hub/client/orchestrator";
+import { buttonProps } from "@/components/ui/app";
 
 // Data Hub 5A.3C.1 — the SUCCESS screen: imported / alreadyImported. Both
 // are genuine successes, never styled as errors, with distinct copy —
@@ -29,10 +30,10 @@ export default function ImportSuccess({
 
   return (
     <div role="status" aria-live="polite">
-      <h2 style={{ fontSize: 16, fontWeight: 600, color: "#4ADE80", marginBottom: 4 }}>
+      <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--status-success)", marginBottom: 4 }}>
         {isFresh ? "Import complete" : "Already imported"}
       </h2>
-      <p style={{ fontSize: 13, color: "rgba(249,250,251,.72)" }}>
+      <p style={{ fontSize: 13, color: "var(--text-secondary)" }}>
         {isFresh
           ? `${state.importedRows} row(s) were processed.`
           : "This worksheet had already been imported. No new rows were created."}
@@ -41,17 +42,8 @@ export default function ImportSuccess({
       <button
         type="button"
         onClick={onStartAnother}
-        style={{
-          marginTop: 18,
-          fontSize: 13,
-          fontWeight: 600,
-          padding: "9px 18px",
-          borderRadius: 8,
-          border: "none",
-          background: "linear-gradient(135deg, #6D28D9, #A78BFA)",
-          color: "#fff",
-          cursor: "pointer",
-        }}
+        {...buttonProps("primary")}
+        style={{ marginTop: 18 }}
       >
         Start another import
       </button>

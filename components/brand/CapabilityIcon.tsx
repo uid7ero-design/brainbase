@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { CalendarClock, LayoutGrid, Ticket, Users, UserRound } from 'lucide-react';
+import { CalendarClock, LayoutGrid, ShieldCheck, Ticket, Users, UserRound } from 'lucide-react';
 
 // Phase D.4 — live production call sites: components/dashboard/
 // ModuleAccessCard.tsx (full container treatment) and, since D.4.2,
@@ -68,6 +68,8 @@ const CAPABILITY_ICON_MAP: Record<string, { Icon: typeof Users; color: string }>
   // HR-1 People Foundation — distinct from 'crm's Users icon/colour so
   // the two capabilities read as visually different at a glance.
   people: { Icon: UserRound, color: '#34D399' },
+  // BrainBase Assurance — presentation-only mapping for the 'assurance' key.
+  assurance: { Icon: ShieldCheck, color: '#2DD4BF' },
 };
 
 function alphaHex(base: string, hover: string, active: string, state: CapabilityIconState) {

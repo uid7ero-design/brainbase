@@ -11,17 +11,23 @@ import type { OrganisationBranding } from '@/lib/organisations/branding';
 // server-side page (page.tsx) already gates access at admin+ before
 // this component ever mounts.
 
-const CARD = '#0e1014';
-const BORDER = '#1a1d24';
-const TEXT_PRIMARY = '#f9fafb';
-const TEXT_MUTED = '#6b7280';
-const TEXT_SECONDARY = '#9ca3af';
+const CARD = 'var(--bg-surface)';
+const BORDER = 'var(--border)';
+const TEXT_PRIMARY = 'var(--text-primary)';
+const TEXT_MUTED = 'var(--text-muted)';
+const TEXT_SECONDARY = 'var(--text-secondary)';
 const ACCENT = '#8a4dff';
-const RED = '#f87171';
-const GREEN = '#4ade80';
+const RED = 'var(--status-danger)';
+const GREEN = 'var(--status-success)';
+// The preview mirrors the customer-facing ticket, which is always dark
+// (components/events/TicketCard.tsx TICKET_BG), so it keeps a fixed dark
+// palette in both app themes rather than following the settings page.
+const PREVIEW_BG = '#07080b';
+const PREVIEW_TEXT = '#f9fafb';
+const PREVIEW_MUTED = '#9ca3af';
 
 const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '9px 11px', background: '#111318', border: `1px solid ${BORDER}`,
+  width: '100%', padding: '9px 11px', background: 'var(--bg-surface)', border: `1px solid ${BORDER}`,
   borderRadius: 8, color: TEXT_PRIMARY, fontSize: 13, boxSizing: 'border-box', fontFamily: 'inherit',
 };
 const labelStyle: React.CSSProperties = {
@@ -259,7 +265,7 @@ export default function BrandingSettingsClient({
               <div
                 style={{
                   width: 64, height: 64, borderRadius: 10, border: `1px solid ${BORDER}`,
-                  background: '#111318', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: 'var(--bg-surface)', display: 'flex', alignItems: 'center', justifyContent: 'center',
                   overflow: 'hidden', flexShrink: 0,
                 }}
               >
@@ -274,7 +280,7 @@ export default function BrandingSettingsClient({
                 <div style={{ display: 'flex', gap: 8 }}>
                   <label
                     style={{
-                      padding: '7px 14px', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8,
+                      padding: '7px 14px', background: 'var(--brand-brainbase-accent)', color: 'var(--brand-brainbase-on-accent)', border: 'none', borderRadius: 8,
                       fontSize: 12.5, fontWeight: 600, cursor: uploadingLogo ? 'default' : 'pointer',
                       opacity: uploadingLogo ? 0.6 : 1, display: 'inline-block',
                     }}
@@ -365,7 +371,7 @@ export default function BrandingSettingsClient({
             type="submit"
             disabled={saving}
             style={{
-              padding: '10px 20px', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8,
+              padding: '10px 20px', background: 'var(--brand-brainbase-accent)', color: 'var(--brand-brainbase-on-accent)', border: 'none', borderRadius: 8,
               fontSize: 13, fontWeight: 600, cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1,
             }}
           >
@@ -386,7 +392,7 @@ export default function BrandingSettingsClient({
         <div
           style={{
             width: 260, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden',
-            background: '#07080b', boxShadow: '0 10px 30px rgba(0,0,0,.3)',
+            background: PREVIEW_BG,
           }}
         >
           <div style={{ height: 4, background: previewAccent }} />
@@ -397,8 +403,8 @@ export default function BrandingSettingsClient({
             ) : (
               <div style={{ width: 48, height: 48, borderRadius: 8, background: previewAccent, opacity: 0.85 }} />
             )}
-            <div style={{ fontSize: 14, fontWeight: 700, color: TEXT_PRIMARY }}>{previewName}</div>
-            <div style={{ fontSize: 10, letterSpacing: '.04em', textTransform: 'uppercase', color: TEXT_MUTED }}>Sample ticket header</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: PREVIEW_TEXT }}>{previewName}</div>
+            <div style={{ fontSize: 10, letterSpacing: '.04em', textTransform: 'uppercase', color: PREVIEW_MUTED }}>Sample ticket header</div>
           </div>
         </div>
       </div>

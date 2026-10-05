@@ -1,18 +1,29 @@
 'use client';
-import { useState, useRef, useEffect } from "react";
-import { CYAN } from "../../lib/utils/constants";
+import { useState, useRef, useEffect, useId } from "react";
 import { generateReportHTML } from "../../lib/evidence-report";
+import { buttonProps } from "../ui/app/Button";
+import styles from "../helena/HelenaChat.module.css";
 
-const FONT = "var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+// Visual (authenticated visual-completion pass): every surface, border and
+// text colour here is an app token (app/globals.css), so the conversation
+// reads in light and dark. No backdrop blur, glow shadows, gradient accent
+// lines or legacy violet literals; the floating panel keeps a single
+// --shadow-popover. Semantic encodings (confidence, agent kind, trend /
+// anomaly, the Organiser confirmation card's warning framing) map onto the
+// --status-* tokens rather than raw hues.
 
-const CONFIDENCE_COLOR = { High: '#34D399', Medium: '#FBBF24', Low: '#F87171' };
+const CONFIDENCE_COLOR = { High: 'var(--status-success)', Medium: 'var(--status-warning)', Low: 'var(--status-danger)' };
+
+function confidenceColor(pct) {
+  return pct >= 80 ? 'var(--status-success)' : pct >= 50 ? 'var(--status-warning)' : 'var(--status-danger)';
+}
 
 const AGENT_COLOR = {
-  InsightAgent:    '#38BDF8',
-  ActionAgent:     '#A78BFA',
-  BriefingAgent:   '#34D399',
-  DataIntakeAgent: '#FBBF24',
-  HLNAChatAgent:   '#6366F1',
+  InsightAgent:    'var(--status-info)',
+  ActionAgent:     'var(--brand-brainbase-accent)',
+  BriefingAgent:   'var(--status-success)',
+  DataIntakeAgent: 'var(--status-warning)',
+  HLNAChatAgent:   'var(--brand-brainbase-accent)',
 };
 const AGENT_ICON = {
   InsightAgent:    '◎',
@@ -22,50 +33,45 @@ const AGENT_ICON = {
   HLNAChatAgent:   '◈',
 };
 
+function tint(color, pct) {
+  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
+}
+
 function AgentBadge({ agentName, confidence, findings, warnings, hasEvidence, evidenceOpen, onViewEvidence }) {
-  const color = AGENT_COLOR[agentName] ?? '#A78BFA';
+  const color = AGENT_COLOR[agentName] ?? 'var(--brand-brainbase-accent)';
   const icon  = AGENT_ICON[agentName]  ?? '◈';
   const pct   = confidence != null ? Math.round(confidence * 100) : null;
-  const confColor = pct >= 80 ? '#34D399' : pct >= 50 ? '#FBBF24' : '#F87171';
+  const confColor = confidenceColor(pct);
   const hasMeta = (findings?.length > 0) || (warnings?.length > 0);
 
   return (
-    <div style={{
-      maxWidth: "84%", borderRadius: 8, overflow: "hidden",
-      border: `1px solid ${color}20`,
-      background: `${color}08`,
-      fontSize: 10, color: "rgba(255,255,255,0.60)",
-      marginTop: 2,
+    <div className={styles.metaCard} style={{
+      overflow: "hidden",
+      borderColor: tint(color, 35),
     }}>
       {/* header */}
-      <div style={{
-        display: "flex", alignItems: "center", gap: 8,
-        padding: "5px 10px",
-        borderBottom: hasMeta ? `1px solid rgba(255,255,255,0.05)` : undefined,
-        background: `${color}06`,
+      <div className={styles.metaHeader} style={{
+        borderBottom: hasMeta ? "1px solid var(--border)" : undefined,
+        background: tint(color, 8),
       }}>
-        <span style={{ color, fontWeight: 700, letterSpacing: "0.09em", fontSize: 8 }}>
+        <span className={styles.metaTag} style={{ color }}>
           {icon} {agentName?.replace(/([A-Z])/g, ' $1').trim().toUpperCase() ?? 'AGENT'}
         </span>
         <span style={{ flex: 1 }} />
         {pct != null && (
-          <span style={{ color: confColor, fontWeight: 700, fontSize: 8, letterSpacing: "0.06em" }}>
+          <span className={styles.metaTag} style={{ color: confColor }}>
             {pct}% CONFIDENCE
           </span>
         )}
         {warnings?.length > 0 && (
-          <span style={{ color: '#FBBF24', fontSize: 8, marginLeft: 6 }}>⚠ {warnings.length}</span>
+          <span className={styles.metaTag} style={{ color: 'var(--status-warning)', marginLeft: 6 }}>⚠ {warnings.length}</span>
         )}
         {hasEvidence && (
           <button
+            type="button"
             onClick={onViewEvidence}
-            style={{
-              background: "none", border: `1px solid ${evidenceOpen ? color : 'rgba(255,255,255,0.12)'}`,
-              borderRadius: 4, cursor: "pointer", padding: "1px 6px",
-              color: evidenceOpen ? color : "rgba(255,255,255,0.28)",
-              fontSize: 8, fontWeight: 700, letterSpacing: "0.07em",
-              fontFamily: FONT, marginLeft: 4, transition: "all 0.15s",
-            }}
+            aria-expanded={!!evidenceOpen}
+            className={styles.evidenceToggle}
           >
             {evidenceOpen ? "▲ EVIDENCE" : "▼ EVIDENCE"}
           </button>
@@ -76,7 +82,7 @@ function AgentBadge({ agentName, confidence, findings, warnings, hasEvidence, ev
       {findings?.length > 0 && (
         <div style={{ padding: "6px 10px" }}>
           {findings.slice(0, 2).map((f, i) => (
-            <div key={i} style={{ fontSize: 10, color: "rgba(255,255,255,0.50)", lineHeight: 1.4, marginBottom: i < findings.length - 1 ? 3 : 0 }}>
+            <div key={i} style={{ lineHeight: 1.4, marginBottom: i < findings.length - 1 ? 3 : 0 }}>
               · {f}
             </div>
           ))}
@@ -90,55 +96,47 @@ const PIPELINE_STEPS = ['Routing…', 'Analysing data…', 'Generating response�
 
 function EvidenceDrawer({ evidence, confidence, onExport, onCopy, copied, onSend, sendDone, onSave, saveDone }) {
   const pct    = confidence != null ? Math.round(confidence * 100) : null;
-  const cColor = pct >= 80 ? '#34D399' : pct >= 50 ? '#FBBF24' : '#F87171';
+  const cColor = confidenceColor(pct);
 
   const sampleHeaders = evidence?.sampleRows?.length > 0
     ? Object.keys(evidence.sampleRows[0]).slice(0, 5)
     : [];
 
   const row = (label, content, mono = false) => (
-    <div style={{ padding: "7px 10px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-      <div style={{ color: "rgba(255,255,255,0.22)", fontSize: 8, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 3 }}>
+    <div style={{ padding: "7px 10px", borderBottom: "1px solid var(--border-light)" }}>
+      <div className={styles.metaLabel}>
         {label}
       </div>
-      <div style={{ color: mono ? "#38BDF8" : "rgba(255,255,255,0.62)", fontSize: 10, lineHeight: 1.55, fontFamily: mono ? "monospace" : FONT }}>
+      <div className={mono ? `${styles.metaValue} ${styles.mono}` : styles.metaValue}>
         {content}
       </div>
     </div>
   );
 
+  const DONE_STYLE = {
+    borderColor: "var(--status-success-border)",
+    background: "var(--status-success-muted)",
+    color: "var(--status-success)",
+  };
+
   return (
-    <div style={{
-      maxWidth: "84%", borderRadius: 8, overflow: "hidden",
-      border: "1px solid rgba(255,255,255,0.08)",
-      background: "rgba(8,10,18,0.97)",
-      fontSize: 10,
-      animation: "chatSlideUp 0.18s ease",
-    }}>
+    <div className={`${styles.metaCard} ${styles.enter}`} style={{ overflow: "hidden" }}>
 
       {/* Datasets + columns */}
-      <div style={{ padding: "8px 10px", borderBottom: "1px solid rgba(255,255,255,0.04)", display: "flex", gap: 16, flexWrap: "wrap" }}>
+      <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--border-light)", display: "flex", gap: 16, flexWrap: "wrap" }}>
         <div>
-          <div style={{ color: "rgba(255,255,255,0.22)", fontSize: 8, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Datasets</div>
+          <div className={styles.metaLabel}>Datasets</div>
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
             {(evidence?.sourceDataset ?? []).map(d => (
-              <span key={d} style={{
-                fontSize: 9, padding: "2px 6px", borderRadius: 4,
-                background: "rgba(56,189,248,0.10)", border: "1px solid rgba(56,189,248,0.22)",
-                color: "#38BDF8", fontWeight: 600, letterSpacing: "0.03em",
-              }}>{d}</span>
+              <span key={d} className={styles.chip} data-kind="dataset">{d}</span>
             ))}
           </div>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ color: "rgba(255,255,255,0.22)", fontSize: 8, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Columns queried</div>
+          <div className={styles.metaLabel}>Columns queried</div>
           <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
             {(evidence?.sourceColumns ?? []).slice(0, 10).map(c => (
-              <span key={c} style={{
-                fontSize: 9, padding: "1px 5px", borderRadius: 3,
-                background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.10)",
-                color: "rgba(255,255,255,0.50)",
-              }}>{c}</span>
+              <span key={c} className={`${styles.chip} ${styles.mono}`}>{c}</span>
             ))}
           </div>
         </div>
@@ -148,10 +146,10 @@ function EvidenceDrawer({ evidence, confidence, onExport, onCopy, copied, onSend
       {row("Calculation", evidence?.calculationUsed ?? "—", true)}
 
       {/* Confidence reason with % badge */}
-      <div style={{ padding: "7px 10px", borderBottom: sampleHeaders.length > 0 ? "1px solid rgba(255,255,255,0.04)" : undefined, display: "flex", gap: 10, alignItems: "flex-start" }}>
+      <div style={{ padding: "7px 10px", borderBottom: sampleHeaders.length > 0 ? "1px solid var(--border-light)" : undefined, display: "flex", gap: 10, alignItems: "flex-start" }}>
         <div style={{ flex: 1 }}>
-          <div style={{ color: "rgba(255,255,255,0.22)", fontSize: 8, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 3 }}>Confidence reason</div>
-          <div style={{ color: "rgba(255,255,255,0.62)", fontSize: 10, lineHeight: 1.55 }}>{evidence?.confidenceReason ?? "—"}</div>
+          <div className={styles.metaLabel}>Confidence reason</div>
+          <div className={styles.metaValue}>{evidence?.confidenceReason ?? "—"}</div>
         </div>
         {pct != null && (
           <div style={{ fontSize: 18, fontWeight: 800, color: cColor, flexShrink: 0, lineHeight: 1, paddingTop: 2 }}>{pct}%</div>
@@ -160,16 +158,16 @@ function EvidenceDrawer({ evidence, confidence, onExport, onCopy, copied, onSend
 
       {/* Sample rows */}
       {sampleHeaders.length > 0 && evidence?.sampleRows?.length > 0 && (
-        <div style={{ padding: "7px 10px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-          <div style={{ color: "rgba(255,255,255,0.22)", fontSize: 8, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 5 }}>
+        <div style={{ padding: "7px 10px", borderBottom: "1px solid var(--border-light)" }}>
+          <div className={styles.metaLabel}>
             Sample data ({Math.min(evidence.sampleRows.length, 3)} of {evidence.sampleRows.length} rows)
           </div>
           <div style={{ overflowX: "auto" }}>
-            <table style={{ borderCollapse: "collapse", fontSize: 9, width: "100%" }}>
+            <table className={styles.sampleTable}>
               <thead>
                 <tr>
                   {sampleHeaders.map(h => (
-                    <th key={h} style={{ padding: "2px 8px 4px", textAlign: "left", color: "rgba(255,255,255,0.28)", borderBottom: "1px solid rgba(255,255,255,0.07)", whiteSpace: "nowrap", fontWeight: 700, letterSpacing: "0.05em" }}>
+                    <th key={h} scope="col">
                       {h}
                     </th>
                   ))}
@@ -179,7 +177,7 @@ function EvidenceDrawer({ evidence, confidence, onExport, onCopy, copied, onSend
                 {evidence.sampleRows.slice(0, 3).map((r, ri) => (
                   <tr key={ri}>
                     {sampleHeaders.map(h => (
-                      <td key={h} style={{ padding: "3px 8px", color: "rgba(255,255,255,0.52)", borderBottom: ri < 2 ? "1px solid rgba(255,255,255,0.04)" : undefined, whiteSpace: "nowrap" }}>
+                      <td key={h}>
                         {String(r[h] ?? '—')}
                       </td>
                     ))}
@@ -198,23 +196,15 @@ function EvidenceDrawer({ evidence, confidence, onExport, onCopy, copied, onSend
           { label: copied  ? "✓ Copied"  : "⎘ Copy summary",  key: "copy",   onClick: onCopy,   active: copied },
           { label: saveDone ? "✓ Saved"  : "☁ Save briefing", key: "save",   onClick: onSave,   active: saveDone },
           { label: sendDone ? "✓ Sent"   : "↪ Send to manager", key: "send", onClick: onSend,   active: sendDone },
-        ].map(btn => (
+        ].map(b => (
           <button
-            key={btn.key}
-            onClick={btn.onClick}
-            style={{
-              background: btn.active ? "rgba(52,211,153,0.12)" : "rgba(255,255,255,0.04)",
-              border: `1px solid ${btn.active ? "rgba(52,211,153,0.35)" : "rgba(255,255,255,0.10)"}`,
-              borderRadius: 5, cursor: "pointer",
-              padding: "4px 9px",
-              color: btn.active ? "#34D399" : "rgba(255,255,255,0.45)",
-              fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
-              fontFamily: FONT, transition: "all 0.15s",
-            }}
-            onMouseEnter={e => { if (!btn.active) { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; e.currentTarget.style.color = "rgba(255,255,255,0.75)"; }}}
-            onMouseLeave={e => { if (!btn.active) { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.color = "rgba(255,255,255,0.45)"; }}}
+            key={b.key}
+            type="button"
+            onClick={b.onClick}
+            {...buttonProps('secondary', 'sm')}
+            style={b.active ? DONE_STYLE : undefined}
           >
-            {btn.label}
+            {b.label}
           </button>
         ))}
       </div>
@@ -226,54 +216,50 @@ function AnalysisCard({ analysis }) {
   const { dataSources, rowsQueried, trend, anomaly, confidence, timestamp } = analysis;
   const ts = new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   return (
-    <div style={{
-      maxWidth: "84%", borderRadius: 8, overflow: "hidden",
-      border: "1px solid rgba(56,189,248,0.18)",
-      background: "rgba(14,22,38,0.70)",
-      fontSize: 10, color: "rgba(255,255,255,0.60)",
-      marginTop: 2,
+    <div className={styles.metaCard} style={{
+      overflow: "hidden",
+      borderColor: "var(--status-info-border)",
     }}>
       {/* header row */}
-      <div style={{
-        display: "flex", alignItems: "center", gap: 8,
-        padding: "5px 10px", borderBottom: "1px solid rgba(56,189,248,0.10)",
-        background: "rgba(56,189,248,0.05)",
+      <div className={styles.metaHeader} style={{
+        borderBottom: "1px solid var(--status-info-border)",
+        background: "var(--status-info-muted)",
       }}>
-        <span style={{ color: "rgba(56,189,248,0.75)", fontWeight: 700, letterSpacing: "0.09em", fontSize: 8 }}>◈ ANALYSIS</span>
+        <span className={styles.metaTag} style={{ color: "var(--status-info)" }}>◈ ANALYSIS</span>
         <span style={{ flex: 1 }} />
-        <span style={{ color: CONFIDENCE_COLOR[confidence], fontWeight: 700, letterSpacing: "0.06em", fontSize: 8 }}>
+        <span className={styles.metaTag} style={{ color: CONFIDENCE_COLOR[confidence] }}>
           {confidence.toUpperCase()} CONFIDENCE
         </span>
-        <span style={{ color: "rgba(255,255,255,0.20)", fontSize: 8 }}>{ts}</span>
+        <span className={styles.mono} style={{ color: "var(--text-muted)", fontSize: 10 }}>{ts}</span>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0 }}>
         {/* data source */}
-        <div style={{ padding: "6px 10px", borderRight: "1px solid rgba(255,255,255,0.05)" }}>
-          <div style={{ color: "rgba(255,255,255,0.30)", letterSpacing: "0.07em", marginBottom: 2, fontSize: 8 }}>SOURCE</div>
-          <div style={{ color: "rgba(255,255,255,0.70)", lineHeight: 1.4 }}>
+        <div style={{ padding: "6px 10px", borderRight: "1px solid var(--border-light)" }}>
+          <div className={styles.metaLabel}>SOURCE</div>
+          <div className={styles.metaValue}>
             {dataSources.length ? dataSources.join(', ') : '—'}
           </div>
         </div>
         {/* rows */}
         <div style={{ padding: "6px 10px" }}>
-          <div style={{ color: "rgba(255,255,255,0.30)", letterSpacing: "0.07em", marginBottom: 2, fontSize: 8 }}>ROWS ANALYSED</div>
-          <div style={{ color: "rgba(255,255,255,0.70)" }}>{rowsQueried.toLocaleString()}</div>
+          <div className={styles.metaLabel}>ROWS ANALYSED</div>
+          <div className={styles.metaValue}>{rowsQueried.toLocaleString()}</div>
         </div>
       </div>
 
       {(trend || anomaly) && (
-        <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+        <div style={{ borderTop: "1px solid var(--border-light)" }}>
           {trend && (
-            <div style={{ padding: "6px 10px", display: "flex", gap: 6, alignItems: "flex-start", borderBottom: anomaly ? "1px solid rgba(255,255,255,0.05)" : undefined }}>
-              <span style={{ color: "#34D399", fontWeight: 700, fontSize: 8, letterSpacing: "0.07em", flexShrink: 0, paddingTop: 1 }}>TREND</span>
-              <span style={{ color: "rgba(255,255,255,0.65)", lineHeight: 1.4 }}>{trend}</span>
+            <div style={{ padding: "6px 10px", display: "flex", gap: 6, alignItems: "flex-start", borderBottom: anomaly ? "1px solid var(--border-light)" : undefined }}>
+              <span className={styles.metaTag} style={{ color: "var(--status-success)", flexShrink: 0, paddingTop: 1 }}>TREND</span>
+              <span className={styles.metaValue}>{trend}</span>
             </div>
           )}
           {anomaly && (
             <div style={{ padding: "6px 10px", display: "flex", gap: 6, alignItems: "flex-start" }}>
-              <span style={{ color: "#FBBF24", fontWeight: 700, fontSize: 8, letterSpacing: "0.07em", flexShrink: 0, paddingTop: 1 }}>ANOMALY</span>
-              <span style={{ color: "rgba(255,255,255,0.65)", lineHeight: 1.4 }}>{anomaly}</span>
+              <span className={styles.metaTag} style={{ color: "var(--status-warning)", flexShrink: 0, paddingTop: 1 }}>ANOMALY</span>
+              <span className={styles.metaValue}>{anomaly}</span>
             </div>
           )}
         </div>
@@ -321,13 +307,12 @@ function OrganiserActionCard({ action, submitting, onConfirm, onCancel }) {
     <div
       role="region"
       aria-label="Helena Organiser action awaiting your confirmation"
+      className={styles.enter}
       style={{
-        maxWidth: "84%", borderRadius: 10, overflow: "hidden",
-        border: "1px solid rgba(251,191,36,0.30)",
-        background: "rgba(251,191,36,0.06)",
-        fontFamily: FONT,
+        maxWidth: "84%", borderRadius: "var(--radius-lg)", overflow: "hidden",
+        border: "1px solid var(--status-warning-border)",
+        background: "var(--status-warning-muted)",
         marginTop: 2,
-        animation: "chatSlideUp 0.18s ease",
         // Phase D.4.6O-R1 — this card's own `overflow: hidden` (needed for
         // its rounded corners) makes the flexbox spec's "automatic minimum
         // size" resolve to 0 instead of the card's actual content height
@@ -346,17 +331,12 @@ function OrganiserActionCard({ action, submitting, onConfirm, onCancel }) {
         flexShrink: 0,
       }}
     >
-      <div style={{
-        display: "flex", alignItems: "center", gap: 8,
-        padding: "7px 12px",
-        borderBottom: "1px solid rgba(251,191,36,0.16)",
-        background: "rgba(251,191,36,0.08)",
-      }}>
-        <span style={{ color: "#FBBF24", fontWeight: 700, letterSpacing: "0.1em", fontSize: 9 }}>
+      <div className={styles.actionHeader}>
+        <span className={styles.actionTitle}>
           ⚠ ACTION AWAITING YOUR CONFIRMATION
         </span>
         <span style={{ flex: 1 }} />
-        <span style={{ color: "rgba(251,191,36,0.55)", fontSize: 9, fontVariantNumeric: "tabular-nums" }}>
+        <span className={styles.actionExpiry}>
           {likelyExpired ? 'may have expired' : `expires in ${formatCountdown(msLeft)}`}
         </span>
       </div>
@@ -370,57 +350,49 @@ function OrganiserActionCard({ action, submitting, onConfirm, onCancel }) {
           adding another explicit branch here, not a generic
           renderer. */}
       {action.tool === 'propose_organiser_status_change' ? (
-        <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className={styles.actionBody}>
           <div>
-            <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+            <div className={styles.fieldLabel}>
               Action
             </div>
-            <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12 }}>Change status</div>
+            <div className={styles.fieldValue}>Change status</div>
           </div>
 
           <div>
-            <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+            <div className={styles.fieldLabel}>
               Target
             </div>
-            <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: 600 }}>
+            <div className={styles.fieldValue} data-emphasis="target">
               {action.proposal?.item_name || 'Untitled item'}
             </div>
           </div>
 
           <div style={{ display: "flex", gap: 16 }}>
             <div style={{ flex: 1 }}>
-              <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+              <div className={styles.fieldLabel}>
                 Current status
               </div>
-              <div style={{ color: "rgba(255,255,255,0.75)", fontSize: 12 }}>
+              <div className={styles.fieldValue}>
                 {action.proposal?.current_status || '—'}
               </div>
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+              <div className={styles.fieldLabel}>
                 New status
               </div>
-              <div style={{ color: "#34D399", fontSize: 12, fontWeight: 600 }}>
+              <div className={styles.fieldValue} data-emphasis="new">
                 {action.proposal?.desired_status || '—'}
               </div>
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+          <div className={styles.actionButtons}>
             <button
               type="button"
               onClick={onConfirm}
               disabled={submitting}
               aria-label="Confirm: change this item's status now"
-              style={{
-                flex: 1, padding: "8px 12px", borderRadius: 7,
-                background: submitting ? "rgba(52,211,153,0.10)" : "rgba(52,211,153,0.20)",
-                border: `1px solid ${submitting ? "rgba(52,211,153,0.18)" : "rgba(52,211,153,0.45)"}`,
-                color: submitting ? "rgba(52,211,153,0.45)" : "#34D399",
-                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
-                cursor: submitting ? "default" : "pointer",
-                fontFamily: FONT, transition: "all 0.15s",
-              }}
+              {...buttonProps('primary', 'sm')}
             >
               {submitting ? 'Changing…' : 'Confirm'}
             </button>
@@ -429,72 +401,56 @@ function OrganiserActionCard({ action, submitting, onConfirm, onCancel }) {
               onClick={onCancel}
               disabled={submitting}
               aria-label="Cancel: do not change this item's status"
-              style={{
-                flex: 1, padding: "8px 12px", borderRadius: 7,
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.12)",
-                color: submitting ? "rgba(255,255,255,0.20)" : "rgba(255,255,255,0.60)",
-                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
-                cursor: submitting ? "default" : "pointer",
-                fontFamily: FONT, transition: "all 0.15s",
-              }}
+              {...buttonProps('secondary', 'sm')}
             >
               Cancel
             </button>
           </div>
         </div>
       ) : action.tool === 'propose_organiser_group_move' ? (
-        <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className={styles.actionBody}>
           <div>
-            <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+            <div className={styles.fieldLabel}>
               Action
             </div>
-            <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12 }}>Move item</div>
+            <div className={styles.fieldValue}>Move item</div>
           </div>
 
           <div>
-            <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+            <div className={styles.fieldLabel}>
               Target
             </div>
-            <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: 600 }}>
+            <div className={styles.fieldValue} data-emphasis="target">
               {action.proposal?.item_name || 'Untitled item'}
             </div>
           </div>
 
           <div style={{ display: "flex", gap: 16 }}>
             <div style={{ flex: 1 }}>
-              <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+              <div className={styles.fieldLabel}>
                 From
               </div>
-              <div style={{ color: "rgba(255,255,255,0.75)", fontSize: 12 }}>
+              <div className={styles.fieldValue}>
                 {action.proposal?.source_group_name || 'No group'}
               </div>
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+              <div className={styles.fieldLabel}>
                 To
               </div>
-              <div style={{ color: "#34D399", fontSize: 12, fontWeight: 600 }}>
+              <div className={styles.fieldValue} data-emphasis="new">
                 {action.proposal?.destination_group_name || '—'}
               </div>
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+          <div className={styles.actionButtons}>
             <button
               type="button"
               onClick={onConfirm}
               disabled={submitting}
               aria-label="Confirm: move this item now"
-              style={{
-                flex: 1, padding: "8px 12px", borderRadius: 7,
-                background: submitting ? "rgba(52,211,153,0.10)" : "rgba(52,211,153,0.20)",
-                border: `1px solid ${submitting ? "rgba(52,211,153,0.18)" : "rgba(52,211,153,0.45)"}`,
-                color: submitting ? "rgba(52,211,153,0.45)" : "#34D399",
-                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
-                cursor: submitting ? "default" : "pointer",
-                fontFamily: FONT, transition: "all 0.15s",
-              }}
+              {...buttonProps('primary', 'sm')}
             >
               {submitting ? 'Moving…' : 'Confirm'}
             </button>
@@ -503,72 +459,56 @@ function OrganiserActionCard({ action, submitting, onConfirm, onCancel }) {
               onClick={onCancel}
               disabled={submitting}
               aria-label="Cancel: do not move this item"
-              style={{
-                flex: 1, padding: "8px 12px", borderRadius: 7,
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.12)",
-                color: submitting ? "rgba(255,255,255,0.20)" : "rgba(255,255,255,0.60)",
-                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
-                cursor: submitting ? "default" : "pointer",
-                fontFamily: FONT, transition: "all 0.15s",
-              }}
+              {...buttonProps('secondary', 'sm')}
             >
               Cancel
             </button>
           </div>
         </div>
       ) : action.tool === 'propose_organiser_assignee_change' ? (
-        <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className={styles.actionBody}>
           <div>
-            <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+            <div className={styles.fieldLabel}>
               Action
             </div>
-            <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12 }}>Change assignee</div>
+            <div className={styles.fieldValue}>Change assignee</div>
           </div>
 
           <div>
-            <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+            <div className={styles.fieldLabel}>
               Target
             </div>
-            <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: 600 }}>
+            <div className={styles.fieldValue} data-emphasis="target">
               {action.proposal?.item_name || 'Untitled item'}
             </div>
           </div>
 
           <div style={{ display: "flex", gap: 16 }}>
             <div style={{ flex: 1 }}>
-              <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+              <div className={styles.fieldLabel}>
                 Currently assigned
               </div>
-              <div style={{ color: "rgba(255,255,255,0.75)", fontSize: 12 }}>
+              <div className={styles.fieldValue}>
                 {action.proposal?.previous_assignee_name || 'Unassigned'}
               </div>
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+              <div className={styles.fieldLabel}>
                 New assignee
               </div>
-              <div style={{ color: "#34D399", fontSize: 12, fontWeight: 600 }}>
+              <div className={styles.fieldValue} data-emphasis="new">
                 {action.proposal?.new_assignee_name || '—'}
               </div>
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+          <div className={styles.actionButtons}>
             <button
               type="button"
               onClick={onConfirm}
               disabled={submitting}
               aria-label="Confirm: assign this item now"
-              style={{
-                flex: 1, padding: "8px 12px", borderRadius: 7,
-                background: submitting ? "rgba(52,211,153,0.10)" : "rgba(52,211,153,0.20)",
-                border: `1px solid ${submitting ? "rgba(52,211,153,0.18)" : "rgba(52,211,153,0.45)"}`,
-                color: submitting ? "rgba(52,211,153,0.45)" : "#34D399",
-                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
-                cursor: submitting ? "default" : "pointer",
-                fontFamily: FONT, transition: "all 0.15s",
-              }}
+              {...buttonProps('primary', 'sm')}
             >
               {submitting ? 'Assigning…' : 'Confirm'}
             </button>
@@ -577,67 +517,46 @@ function OrganiserActionCard({ action, submitting, onConfirm, onCancel }) {
               onClick={onCancel}
               disabled={submitting}
               aria-label="Cancel: do not change this item's assignee"
-              style={{
-                flex: 1, padding: "8px 12px", borderRadius: 7,
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.12)",
-                color: submitting ? "rgba(255,255,255,0.20)" : "rgba(255,255,255,0.60)",
-                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
-                cursor: submitting ? "default" : "pointer",
-                fontFamily: FONT, transition: "all 0.15s",
-              }}
+              {...buttonProps('secondary', 'sm')}
             >
               Cancel
             </button>
           </div>
         </div>
       ) : (
-        <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className={styles.actionBody}>
           <div>
-            <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+            <div className={styles.fieldLabel}>
               Action
             </div>
-            <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12 }}>Post comment</div>
+            <div className={styles.fieldValue}>Post comment</div>
           </div>
 
           <div>
-            <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+            <div className={styles.fieldLabel}>
               Target
             </div>
-            <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: 600 }}>
+            <div className={styles.fieldValue} data-emphasis="target">
               {action.proposal?.item_name || 'Untitled item'}
             </div>
           </div>
 
           <div>
-            <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+            <div className={styles.fieldLabel}>
               Comment
             </div>
-            <div style={{
-              color: "rgba(255,255,255,0.75)", fontSize: 12, lineHeight: 1.5,
-              padding: "6px 8px", borderRadius: 6,
-              background: "rgba(0,0,0,0.22)", border: "1px solid rgba(255,255,255,0.06)",
-              whiteSpace: "pre-wrap", wordBreak: "break-word",
-            }}>
+            <div className={`${styles.fieldValue} ${styles.commentQuote}`}>
               &ldquo;{action.proposal?.body || ''}&rdquo;
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+          <div className={styles.actionButtons}>
             <button
               type="button"
               onClick={onConfirm}
               disabled={submitting}
               aria-label="Confirm: post this exact comment now"
-              style={{
-                flex: 1, padding: "8px 12px", borderRadius: 7,
-                background: submitting ? "rgba(52,211,153,0.10)" : "rgba(52,211,153,0.20)",
-                border: `1px solid ${submitting ? "rgba(52,211,153,0.18)" : "rgba(52,211,153,0.45)"}`,
-                color: submitting ? "rgba(52,211,153,0.45)" : "#34D399",
-                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
-                cursor: submitting ? "default" : "pointer",
-                fontFamily: FONT, transition: "all 0.15s",
-              }}
+              {...buttonProps('primary', 'sm')}
             >
               {submitting ? 'Posting…' : 'Confirm'}
             </button>
@@ -646,15 +565,7 @@ function OrganiserActionCard({ action, submitting, onConfirm, onCancel }) {
               onClick={onCancel}
               disabled={submitting}
               aria-label="Cancel: do not post this comment"
-              style={{
-                flex: 1, padding: "8px 12px", borderRadius: 7,
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.12)",
-                color: submitting ? "rgba(255,255,255,0.20)" : "rgba(255,255,255,0.60)",
-                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
-                cursor: submitting ? "default" : "pointer",
-                fontFamily: FONT, transition: "all 0.15s",
-              }}
+              {...buttonProps('secondary', 'sm')}
             >
               Cancel
             </button>
@@ -696,6 +607,7 @@ export function ChatPanel({
   const [savedStates, setSavedStates]     = useState({});
   const bottomRef = useRef(null);
   const inputRef  = useRef(null);
+  const inputId   = useId();
 
   function toggleEvidence(i) {
     setOpenEvidence(prev => {
@@ -769,16 +681,15 @@ export function ChatPanel({
   };
 
   const docked = layout === 'docked';
+  const sendDisabled = !input.trim() || responding;
 
   return (
-    <div style={docked ? {
+    <div className={docked ? styles.panel : `${styles.panel} ${styles.enter}`} style={docked ? {
       position: "relative", width: "100%", maxWidth, height: "100%", maxHeight,
       display: "flex", flexDirection: "column",
-      borderRadius: 14, overflow: "hidden",
-      background: "rgba(7, 7, 16, 0.97)",
-      border: "1px solid rgba(124,58,237,0.18)",
-      boxShadow: "0 0 0 1px rgba(124,58,237,0.05), 0 24px 60px rgba(0,0,0,0.45)",
-      fontFamily: FONT,
+      borderRadius: "var(--radius-lg)", overflow: "hidden",
+      background: "var(--bg-surface)",
+      border: "1px solid var(--border)",
     } : {
       position: "fixed", bottom: 86, right: 20,
       width: "min(520px, calc(100vw - 40px))", zIndex: 60,
@@ -789,71 +700,40 @@ export function ChatPanel({
       // past the viewport on short screens.
       maxHeight: "calc(100vh - 106px)",
       display: "flex", flexDirection: "column",
-      animation: "chatSlideUp 0.28s cubic-bezier(0.16,1,0.3,1)",
-      borderRadius: 14, overflow: "hidden",
-      background: "rgba(7, 7, 16, 0.97)",
-      border: "1px solid rgba(124,58,237,0.18)",
-      boxShadow: "0 0 0 1px rgba(124,58,237,0.05), 0 28px 70px rgba(0,0,0,0.90), 0 0 100px rgba(124,58,237,0.06)",
-      backdropFilter: "blur(32px)",
-      WebkitBackdropFilter: "blur(32px)",
-      fontFamily: FONT,
+      borderRadius: "var(--radius-lg)", overflow: "hidden",
+      background: "var(--bg-overlay)",
+      border: "1px solid var(--border)",
+      boxShadow: "var(--shadow-popover)",
     }}>
 
-      {/* Top accent gradient */}
-      <div style={{ height: 1, background: "linear-gradient(90deg, transparent, rgba(124,58,237,0.6), rgba(56,189,248,0.3), transparent)" }} />
-
       {/* Header */}
-      <div style={{
-        padding: "10px 14px", display: "flex", alignItems: "center", gap: 10,
-        borderBottom: "1px solid rgba(255,255,255,0.05)",
-        background: "rgba(124,58,237,0.04)",
-      }}>
-        <div style={{ display: "flex", gap: 6, alignItems: "center", flex: 1 }}>
-          <div style={{
-            width: 6, height: 6, borderRadius: "50%",
-            background: responding ? "#A78BFA" : CYAN,
-            boxShadow: `0 0 8px ${responding ? "#A78BFA" : CYAN}`,
-            animation: "agentPulse 2s ease-in-out infinite",
-          }} />
-          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", color: "rgba(255,255,255,0.80)", textTransform: "uppercase" }}>
+      <div className={styles.header}>
+        <div className={styles.identity}>
+          <span className={styles.stateDot} data-responding={responding ? 'true' : 'false'} aria-hidden="true" />
+          <span className={styles.title}>
             HLNΛ
           </span>
-          <span style={{ fontSize: 9, letterSpacing: "0.06em", color: "rgba(255,255,255,0.22)", textTransform: "uppercase" }}>
+          <span className={styles.subtitle}>
             · Hyper Learning Neural Agent
           </span>
         </div>
-        <a
-          href="/briefings"
-          style={{
-            fontSize: 9, color: "rgba(167,139,250,0.55)", letterSpacing: "0.06em",
-            textDecoration: "none", fontWeight: 700,
-            border: "1px solid rgba(167,139,250,0.15)", borderRadius: 4,
-            padding: "2px 7px", transition: "all 0.15s",
-          }}
-          onMouseEnter={e => { e.currentTarget.style.color = "#C4B5FD"; e.currentTarget.style.borderColor = "rgba(167,139,250,0.40)"; }}
-          onMouseLeave={e => { e.currentTarget.style.color = "rgba(167,139,250,0.55)"; e.currentTarget.style.borderColor = "rgba(167,139,250,0.15)"; }}
-        >
+        <a href="/briefings" className={styles.headerLink}>
           SAVED BRIEFINGS
         </a>
         {!docked && (
-          <div style={{ fontSize: 9, color: "rgba(255,255,255,0.18)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+          <div className={styles.escHint}>
             ESC TO CLOSE
           </div>
         )}
         {onClose && (
           <button
+            type="button"
             onClick={onClose}
-            style={{
-              width: 24, height: 24, borderRadius: 6,
-              background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-              color: "rgba(255,255,255,0.38)", fontSize: 11, cursor: "pointer",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              transition: "all 0.2s", fontFamily: FONT,
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; e.currentTarget.style.color = "rgba(255,255,255,0.75)"; }}
-            onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.color = "rgba(255,255,255,0.38)"; }}
+            aria-label="Close chat"
+            {...buttonProps('ghost', 'sm')}
+            style={{ width: 28, padding: 0 }}
           >
-            ✕
+            <span aria-hidden="true">✕</span>
           </button>
         )}
       </div>
@@ -870,14 +750,14 @@ export function ChatPanel({
           the fixed header/footer, so it scrolls correctly and never
           overlaps either sibling. */}
       {/* Messages */}
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+      <div role="region" aria-label="HLNA conversation" tabIndex={0} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
         {messages.length === 0 && !responding && (
-          <div style={{ textAlign: "center", padding: "28px 0" }}>
-            <div style={{ fontSize: 22, color: "rgba(124,58,237,0.45)", marginBottom: 8, letterSpacing: "0.1em" }}>◈</div>
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", letterSpacing: "0.04em" }}>
+          <div className={styles.empty}>
+            <div className={styles.emptyGlyph} aria-hidden="true">◈</div>
+            <div className={styles.emptyTitle}>
               {emptyStateTitle}
             </div>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.15)", marginTop: 6 }}>
+            <div className={styles.emptyHint}>
               {emptyStateHint}
             </div>
           </div>
@@ -885,23 +765,10 @@ export function ChatPanel({
 
         {messages.map((m, i) => (
           <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: m.role === "user" ? "flex-end" : "flex-start", gap: 3 }}>
-            <div style={{
-              fontSize: 8, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase",
-              color: m.role === "user" ? "rgba(255,255,255,0.22)" : "rgba(167,139,250,0.70)",
-              paddingLeft: m.role === "user" ? 0 : 2, paddingRight: m.role === "user" ? 2 : 0,
-            }}>
+            <div className={styles.byline} data-role={m.role === "user" ? "user" : "assistant"}>
               {m.role === "user" ? "YOU" : "◈ HLNΛ"}
             </div>
-            <div style={{
-              maxWidth: "84%", padding: "9px 12px", borderRadius: m.role === "user" ? "10px 10px 3px 10px" : "10px 10px 10px 3px",
-              background: m.role === "user"
-                ? "rgba(255,255,255,0.06)"
-                : "rgba(99,102,241,0.14)",
-              border: m.role === "user"
-                ? "1px solid rgba(255,255,255,0.08)"
-                : "1px solid rgba(99,102,241,0.25)",
-              fontSize: 12, color: "rgba(255,255,255,0.88)", lineHeight: 1.65,
-            }}>
+            <div className={styles.bubble} data-role={m.role === "user" ? "user" : "assistant"}>
               {m.content}
             </div>
             {m.meta?.analysis && <AnalysisCard analysis={m.meta.analysis} />}
@@ -937,8 +804,9 @@ export function ChatPanel({
         {/* Organiser action confirmation card — Phase D.4.6J. Rendered
             outside the messages.map loop above (it is not a chat message
             and must never be visually confused with one — no YOU/HLNΛ
-            byline, distinct amber framing) but inside the same scrolling
-            thread so it appears at the natural point in the conversation. */}
+            byline, distinct warning-token framing) but inside the same
+            scrolling thread so it appears at the natural point in the
+            conversation. */}
         {pendingOrganiserAction && (
           <OrganiserActionCard
             action={pendingOrganiserAction}
@@ -951,12 +819,8 @@ export function ChatPanel({
         {/* Live transcript */}
         {transcript && (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}>
-            <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.12em", color: "rgba(255,255,255,0.18)", paddingRight: 2 }}>YOU</div>
-            <div style={{
-              maxWidth: "84%", padding: "9px 12px", borderRadius: "10px 10px 3px 10px",
-              background: "rgba(0,207,234,0.05)", border: "1px dashed rgba(0,207,234,0.18)",
-              fontSize: 12, color: "rgba(255,255,255,0.50)", lineHeight: 1.65, fontStyle: "italic",
-            }}>
+            <div className={styles.byline} data-role="user">YOU</div>
+            <div className={styles.bubble} data-role="transcript">
               {transcript}
             </div>
           </div>
@@ -964,17 +828,13 @@ export function ChatPanel({
 
         {/* Thinking indicator */}
         {responding && (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3 }}>
-            <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.12em", color: "rgba(167,139,250,0.70)" }}>◈ HLNΛ</div>
-            <div style={{
-              padding: "10px 14px", borderRadius: "10px 10px 10px 3px",
-              background: "rgba(99,102,241,0.10)", border: "1px solid rgba(99,102,241,0.22)",
-              display: "flex", gap: 6, alignItems: "center",
-            }}>
+          <div role="status" style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3 }}>
+            <div className={styles.byline} data-role="assistant">◈ HLNΛ</div>
+            <div className={styles.thinking}>
               {[0, 0.2, 0.4].map(d => (
-                <div key={d} style={{ width: 4, height: 4, borderRadius: "50%", background: "#8B5CF6", animation: `agentPulse 1s ${d}s ease-in-out infinite` }} />
+                <span key={d} className={styles.thinkingDot} style={{ animationDelay: `${d}s` }} aria-hidden="true" />
               ))}
-              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.30)", letterSpacing: "0.04em", marginLeft: 4 }}>
+              <span className={styles.pipelineStep}>
                 {PIPELINE_STEPS[pipelineStep]}
               </span>
             </div>
@@ -985,36 +845,22 @@ export function ChatPanel({
       </div>
 
       {/* Input bar */}
-      <div style={{
-        borderTop: "1px solid rgba(255,255,255,0.05)",
-        background: "rgba(255,255,255,0.015)",
-        padding: "9px 14px", display: "flex", alignItems: "center", gap: 10,
-      }}>
-        <span style={{ fontSize: 13, color: "rgba(124,58,237,0.60)", fontWeight: 700, flexShrink: 0, lineHeight: 1 }}>›</span>
+      <div className={styles.composer}>
+        <label htmlFor={inputId} className={styles.srOnly}>Message HLNA</label>
         <input
+          id={inputId}
           ref={inputRef}
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === "Enter" && !e.shiftKey && submit()}
           placeholder="Ask HLNΛ anything…"
-          style={{
-            flex: 1, background: "transparent", border: "none", outline: "none",
-            color: "rgba(255,255,255,0.88)", fontSize: 12, lineHeight: 1.5,
-            caretColor: CYAN, padding: "2px 0", fontFamily: FONT,
-          }}
+          className={styles.input}
         />
         <button
+          type="button"
           onClick={submit}
-          disabled={!input.trim() || responding}
-          style={{
-            padding: "5px 14px", borderRadius: 7, flexShrink: 0,
-            background: (!input.trim() || responding) ? "rgba(99,102,241,0.06)" : "rgba(124,58,237,0.25)",
-            border: `1px solid ${(!input.trim() || responding) ? "rgba(99,102,241,0.10)" : "rgba(124,58,237,0.40)"}`,
-            color: (!input.trim() || responding) ? "rgba(163,163,240,0.28)" : "#C4B5FD",
-            fontSize: 10, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase",
-            cursor: (!input.trim() || responding) ? "default" : "pointer",
-            transition: "all 0.2s", fontFamily: FONT,
-          }}
+          disabled={sendDisabled}
+          {...buttonProps('primary', 'sm')}
         >
           Send
         </button>

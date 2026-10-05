@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import fs from 'fs'
 import path from 'path'
+// Nav consolidation update (feat/authenticated-nav-consolidation): the
+// Branding nav entry now lives in the pure nav model.
+import { resolveNav } from '@/components/nav/navModel'
 
 // Organisation Branding — Phase 2 (settings UI + logo upload). Every
 // DB call and every Blob call is mocked — no real database or network
@@ -531,9 +534,30 @@ describe('Settings page — route, auth, and V1 field coverage (static)', () => 
 describe('TopNav — Branding link', () => {
   const code = stripComments(read('components/nav/TopNav.tsx'))
   it('is gated to admin+ (or super_admin), not shown to every authenticated user', () => {
-    const linkIdx = code.indexOf('href="/settings/branding"')
-    expect(linkIdx).toBeGreaterThan(-1)
-    const before = code.slice(Math.max(0, linkIdx - 400), linkIdx)
-    expect(before).toMatch(/role === 'admin' \|\| role === 'super_admin'/)
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // Branding link (and .brandingLink) left TopNav's JSX and became the
+    // navModel.ts MANAGE_ITEMS 'branding' descriptor with gate
+    // { minRole: 'admin' } (super_admin passes via NAV_ROLE_ORDER). The old
+    // `role === 'admin' || role === 'super_admin'` guard is now pinned on the
+    // model source AND on resolveNav() for every role.
+    expect(code).not.toContain('/settings/branding')
+    expect(code).toMatch(/nav\.manage\.length > 0\s*&&/)
+    const navModel = stripComments(read('components/nav/navModel.ts'))
+    const start = navModel.indexOf('export const MANAGE_ITEMS')
+    expect(start).toBeGreaterThan(-1)
+    const manageBody = navModel.slice(start, navModel.indexOf('\n];', start))
+    expect(manageBody).toMatch(
+      /\{\s*kind: 'link', id: 'branding', label: 'Branding', href: '\/settings\/branding',[^{}]*gate: \{ minRole: 'admin' \},\s*\}/,
+    )
+    expect(navModel).toMatch(/export const NAV_ROLE_ORDER = \['viewer', 'manager', 'admin', 'super_admin'\] as const;/)
+    const brandingVisible = (role: string) =>
+      resolveNav({ role, enabledCapabilities: [], dashboardVariant: null }).manage
+        .some(e => e.kind === 'link' && e.href === '/settings/branding')
+    expect(brandingVisible('admin')).toBe(true)
+    expect(brandingVisible('super_admin')).toBe(true)
+    expect(brandingVisible('manager')).toBe(false)
+    expect(brandingVisible('viewer')).toBe(false)
+    expect(brandingVisible('analyst')).toBe(false)
+    expect(brandingVisible('')).toBe(false)
   })
 })

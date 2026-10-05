@@ -26,24 +26,25 @@ function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
 }
 
-describe('app/events/_components/ui.tsx — shared inputStyle sets colorScheme: dark', () => {
+describe('app/events/_components/ui.tsx — shared inputs follow the global theme color-scheme', () => {
   const uiSrc = stripComments(read('app/events/_components/ui.tsx'))
 
-  it('inputStyle includes colorScheme: \'dark\' alongside its existing explicit dark background/light color', () => {
+  it('inputStyle keeps explicit themed background/text styling without forcing dark native chrome', () => {
     const start = uiSrc.indexOf('export const inputStyle')
     const end = uiSrc.indexOf('};', start)
     const block = uiSrc.slice(start, end)
-    expect(block).toContain("colorScheme: 'dark'")
-    // Not a replacement for the existing closed-state styling — both
-    // must coexist (colorScheme fixes the open popup; background/color
-    // still governs the closed control).
-    expect(block).toMatch(/background:\s*'rgba\(255,255,255,\.03\)'/)
+    expect(block).not.toContain("colorScheme: 'dark'")
+    expect(block).toContain('var(--bg-raised)')
     expect(block).toContain('color: TEXT_PRIMARY')
   })
 
-  it('no other exported style constant in this file was touched by this fix', () => {
-    // fieldStyle (the label wrapper, not a form control) must remain
-    // exactly as it was — this fix is scoped to inputStyle only.
+  it('the global theme owns native control color-scheme for both dark and light modes', () => {
+    const globals = read('app/globals.css')
+    expect(globals).toContain('color-scheme: dark;')
+    expect(globals).toMatch(/:root\[data-theme='light'\][\s\S]*color-scheme: light;/)
+  })
+
+  it('fieldStyle remains a label wrapper and does not override color-scheme itself', () => {
     const fieldStart = uiSrc.indexOf('export const fieldStyle')
     const fieldEnd = uiSrc.indexOf(';', fieldStart)
     const fieldBlock = uiSrc.slice(fieldStart, fieldEnd)

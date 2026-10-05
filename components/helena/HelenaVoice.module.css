@@ -1,0 +1,196 @@
+/* Helena voice controls — HelenaMic (/hlna primary mic) and MicButton (the
+   floating voice dock on /dashboard and service dashboards). Tokens only:
+   no blur, glow, gradients or violet literals. The listening/responding
+   state is still communicated (colour + pulse + text), but the pulse is a
+   plain opacity ring and is switched off under prefers-reduced-motion. */
+
+/* ── HelenaMic ─────────────────────────────────────────────────────── */
+
+.mic {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  color: var(--brand-brainbase-accent);
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+.mic:hover {
+  background: var(--brand-brainbase-accent-muted);
+  border-color: var(--brand-brainbase-accent-border);
+}
+.mic[data-active='true'] {
+  background: var(--status-info-muted);
+  border-color: var(--status-info);
+  color: var(--status-info);
+}
+
+/* Listening pulse — a thin ring that fades out, not a glow. */
+.mic[data-active='true']::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 1px solid var(--status-info);
+  opacity: 0;
+  animation: helenaMicPulse 1.6s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes helenaMicPulse {
+  0%   { opacity: 0.7; transform: scale(0.94); }
+  100% { opacity: 0;   transform: scale(1.12); }
+}
+
+/* ── MicButton dock ────────────────────────────────────────────────── */
+
+.dock {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 50;
+  pointer-events: none;
+}
+
+.dockPanel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-overlay);
+  box-shadow: var(--shadow-popover);
+  color: var(--text-primary);
+  font-family: var(--bb-font-sans);
+  pointer-events: auto;
+  transition: border-color 200ms ease;
+}
+.dockPanel[data-active='true'] {
+  border-color: var(--status-info-border);
+}
+
+.orbButton {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+
+.status {
+  flex: 1;
+  min-width: 0;
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: currentColor;
+}
+.statusDot[data-pulse='true'] {
+  animation: helenaDotPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes helenaDotPulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+.statusLabel {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hint {
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.sourceBadge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.sourceBadge[data-source='ollama'] {
+  border-color: var(--status-success-border);
+  background: var(--status-success-muted);
+  color: var(--status-success);
+}
+
+.divider {
+  width: 1px;
+  height: 28px;
+  flex-shrink: 0;
+  background: var(--border);
+}
+
+.chatToggle {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.chatToggle:hover {
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+}
+.chatToggle[aria-expanded='true'] {
+  background: var(--brand-brainbase-accent-muted);
+  border-color: var(--brand-brainbase-accent-border);
+  color: var(--brand-brainbase-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mic,
+  .dockPanel,
+  .chatToggle {
+    transition: none;
+  }
+  .mic[data-active='true']::after,
+  .statusDot[data-pulse='true'] {
+    animation: none;
+  }
+  /* Static state cue in place of the pulse ring. */
+  .mic[data-active='true']::after {
+    opacity: 0.6;
+  }
+}

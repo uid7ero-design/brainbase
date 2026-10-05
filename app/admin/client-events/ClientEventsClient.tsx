@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { Badge, buttonProps, type SemanticState } from '@/components/ui/app';
 
 const FONT = "var(--font-inter), -apple-system, sans-serif";
 
@@ -35,14 +36,12 @@ function fmtDate(iso: string, timezone: string) {
   return new Intl.DateTimeFormat('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: timezone }).format(new Date(iso));
 }
 
-const STATUS_COLOR: Record<string, string> = { DRAFT: '#94A3B8', PUBLISHED: '#4ADE80', CANCELLED: '#F87171' };
+// Event lifecycle → canonical semantic state (text stays the lifecycle word).
+const STATUS_STATE: Record<string, SemanticState> = { DRAFT: 'inactive', PUBLISHED: 'success', CANCELLED: 'error' };
 
-function smallBtn(bg: string, color: string, border: string): React.CSSProperties {
-  return { padding: '4px 10px', background: bg, color, border: `1px solid ${border}`, borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: FONT };
-}
 const selectStyle: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 7,
-  color: '#e5e7eb', fontSize: 12.5, padding: '7px 10px', fontFamily: FONT,
+  background: 'var(--bg-sunken)', border: '1px solid var(--border)', borderRadius: 7,
+  color: 'var(--text-primary)', fontSize: 12.5, padding: '7px 10px', fontFamily: FONT,
 };
 
 // Platform-wide event oversight (§ EVENTS — BRAINBASE CLIENT EVENTS
@@ -138,27 +137,27 @@ export default function ClientEventsClient() {
   }
 
   return (
-    <div style={{ fontFamily: FONT, color: '#F4F4F5', maxWidth: 1280, margin: '0 auto' }}>
+    <div style={{ fontFamily: FONT, color: 'var(--text-primary)', maxWidth: 1280, margin: '0 auto' }}>
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Client Events</h1>
-        <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)', margin: '4px 0 0' }}>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '4px 0 0' }}>
           Platform-wide oversight of client organisations&rsquo; events — read-only. Use &ldquo;Open event&rdquo; to switch into that organisation and manage it in the normal Events module.
         </p>
       </div>
 
       {error && (
-        <div role="alert" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.22)', color: '#FCA5A5', borderRadius: 8, padding: '10px 14px', fontSize: 13, marginBottom: 14 }}>
+        <div role="alert" style={{ background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', color: 'var(--status-danger)', borderRadius: 8, padding: '10px 14px', fontSize: 13, marginBottom: 14 }}>
           {error}
         </div>
       )}
       {openError && (
-        <div role="alert" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.22)', color: '#FCA5A5', borderRadius: 8, padding: '10px 14px', fontSize: 13, marginBottom: 14 }}>
+        <div role="alert" style={{ background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', color: 'var(--status-danger)', borderRadius: 8, padding: '10px 14px', fontSize: 13, marginBottom: 14 }}>
           {openError}
         </div>
       )}
 
       {/* Filters */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: 12 }}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
         <input
           type="text" placeholder="Search event name…" value={search} onChange={e => setSearch(e.target.value)}
           style={{ ...selectStyle, width: 200 }}
@@ -178,26 +177,26 @@ export default function ClientEventsClient() {
           <option value="upcoming">Upcoming</option>
           <option value="past">Past</option>
         </select>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
           <input type="checkbox" checked={paymentIssueOnly} onChange={e => setPaymentIssueOnly(e.target.checked)} />
           Pending payments only
         </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
           <input type="checkbox" checked={includeBrainbase} onChange={e => setIncludeBrainbase(e.target.checked)} />
           Include BrainBase
         </label>
       </div>
 
       {/* Table */}
-      <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, overflow: 'hidden' }}>
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)' }}>
+      <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
           {events === null ? 'Loading…' : `${events.length} event${events.length === 1 ? '' : 's'}`}
         </div>
 
         {events === null ? (
-          <div style={{ padding: 24, textAlign: 'center', color: 'rgba(255,255,255,0.25)', fontSize: 13 }}>Loading…</div>
+          <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-subtle)', fontSize: 13 }}>Loading…</div>
         ) : events.length === 0 ? (
-          <div style={{ padding: 24, textAlign: 'center', color: 'rgba(255,255,255,0.25)', fontSize: 13 }}>
+          <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-subtle)', fontSize: 13 }}>
             {orgFilter || statusFilter || timingFilter || search || paymentIssueOnly
               ? 'No events match the current filters.'
               : 'No client events yet — organisations with the Events capability enabled haven’t created any events.'}
@@ -206,9 +205,9 @@ export default function ClientEventsClient() {
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 1100 }}>
               <thead>
-                <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                <tr style={{ background: 'var(--bg-surface)' }}>
                   {['Organisation', 'Event', 'Date', 'Status', 'Regs', 'Paid', 'Pending', 'Cancelled', 'Sold / Capacity', 'Gross', 'Refunds', 'Net', ''].map(h => (
-                    <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.32)', borderBottom: '1px solid rgba(255,255,255,0.05)', whiteSpace: 'nowrap' }}>{h}</th>
+                    <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-light)', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -217,30 +216,28 @@ export default function ClientEventsClient() {
                   const netCents = Number(row.gross_revenue_cents) - Number(row.refunded_cents);
                   const hasPendingIssue = row.pending_count > 0;
                   return (
-                    <tr key={row.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    <tr key={row.id} style={{ borderBottom: '1px solid var(--border-light)' }}>
                       <td style={{ padding: '10px 12px', fontWeight: 600 }}>{row.organisation_name}</td>
                       <td style={{ padding: '10px 12px' }}>{row.name}</td>
-                      <td style={{ padding: '10px 12px', color: 'rgba(255,255,255,0.55)', whiteSpace: 'nowrap' }}>{fmtDate(row.starts_at, row.timezone)}</td>
+                      <td style={{ padding: '10px 12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{fmtDate(row.starts_at, row.timezone)}</td>
                       <td style={{ padding: '10px 12px' }}>
-                        <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, background: `${STATUS_COLOR[row.status]}18`, color: STATUS_COLOR[row.status], border: `1px solid ${STATUS_COLOR[row.status]}30` }}>
-                          {row.status}
-                        </span>
+                        <Badge state={STATUS_STATE[row.status] ?? 'inactive'}>{row.status}</Badge>
                       </td>
                       <td style={{ padding: '10px 12px' }}>{row.registration_count}</td>
-                      <td style={{ padding: '10px 12px', color: '#4ADE80' }}>{row.paid_count}</td>
-                      <td style={{ padding: '10px 12px', color: hasPendingIssue ? '#FBBF24' : 'rgba(255,255,255,0.55)', fontWeight: hasPendingIssue ? 700 : 400 }}>
+                      <td style={{ padding: '10px 12px', color: 'var(--status-success)' }}>{row.paid_count}</td>
+                      <td style={{ padding: '10px 12px', color: hasPendingIssue ? 'var(--status-warning)' : 'var(--text-secondary)', fontWeight: hasPendingIssue ? 700 : 400 }}>
                         {row.pending_count > 0 ? `⚠ ${row.pending_count}` : row.pending_count}
                       </td>
-                      <td style={{ padding: '10px 12px', color: 'rgba(255,255,255,0.45)' }}>{row.cancelled_count}</td>
-                      <td style={{ padding: '10px 12px', color: 'rgba(255,255,255,0.55)', whiteSpace: 'nowrap' }}>{row.tickets_sold} / {row.total_capacity}</td>
+                      <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>{row.cancelled_count}</td>
+                      <td style={{ padding: '10px 12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{row.tickets_sold} / {row.total_capacity}</td>
                       <td style={{ padding: '10px 12px', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{fmtMoney(row.gross_revenue_cents, row.currency)}</td>
-                      <td style={{ padding: '10px 12px', fontFamily: 'monospace', whiteSpace: 'nowrap', color: row.refunded_cents > 0 ? '#F87171' : 'rgba(255,255,255,0.35)' }}>{fmtMoney(row.refunded_cents, row.currency)}</td>
+                      <td style={{ padding: '10px 12px', fontFamily: 'monospace', whiteSpace: 'nowrap', color: row.refunded_cents > 0 ? 'var(--status-danger)' : 'var(--text-muted)' }}>{fmtMoney(row.refunded_cents, row.currency)}</td>
                       <td style={{ padding: '10px 12px', fontFamily: 'monospace', whiteSpace: 'nowrap', fontWeight: 700 }}>{fmtMoney(netCents, row.currency)}</td>
                       <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
                         <button
                           onClick={() => openEvent(row)}
                           disabled={openingEventId === row.id}
-                          style={smallBtn('rgba(124,58,237,0.15)', '#C4B5FD', 'rgba(124,58,237,0.30)')}
+                          {...buttonProps('secondary', 'sm')}
                         >
                           {openingEventId === row.id ? 'Opening…' : 'Open event'}
                         </button>

@@ -79,6 +79,30 @@ describe('restricted-HR audit policy', () => {
     expect(serialized).not.toContain('grievance');
   });
 
+  it('retains only participant ids/role metadata for restricted participant events', async () => {
+    await logHrEvent(
+      { organisationId: 'org-a', userId: 'admin-user' },
+      {
+        action: 'hr_restricted_case_participant.added',
+        resourceType: 'hr_restricted_case_participant',
+        resourceId: 'participant-1',
+        afterState: {
+          case_id: 'case-1',
+          person_id: 'person-1',
+          role_in_case: 'witness',
+          invented_sensitive_field: 'do not store me',
+        },
+      },
+    );
+
+    expect(jsonStates()).toContainEqual({
+      case_id: 'case-1',
+      person_id: 'person-1',
+      role_in_case: 'witness',
+      invented_sensitive_field: '[redacted]',
+    });
+  });
+
   it('never writes restricted note body content but may retain case/author ids', async () => {
     await logHrEvent(
       { organisationId: 'org-a', userId: 'author-user' },
@@ -153,6 +177,51 @@ describe('restricted-HR audit policy', () => {
     )).rejects.toThrow('audit database unavailable');
   });
 
+  it('accepts approved participant and note read events and redacts note body', async () => {
+    await logRestrictedHrReadEvent(
+      { organisationId: 'org-a', userId: 'reader-user' },
+      {
+        action: 'hr_restricted_case_participant.read',
+        resourceType: 'hr_restricted_case_participant',
+        resourceId: 'participant-1',
+        afterState: { case_id: 'case-1', person_id: 'person-1', role_in_case: 'subject' },
+      },
+    );
+    await logRestrictedHrReadEvent(
+      { organisationId: 'org-a', userId: 'reader-user' },
+      {
+        action: 'hr_restricted_case_note.read',
+        resourceType: 'hr_restricted_case_note',
+        resourceId: 'note-1',
+        afterState: { case_id: 'case-1', author_id: 'author-1', body: 'secret note' },
+      },
+    );
+
+    expect(sqlMock).toHaveBeenCalledTimes(2);
+    const allArgs = JSON.stringify(sqlMock.mock.calls);
+    expect(allArgs).not.toContain('secret note');
+    expect(allArgs).toContain('[redacted]');
+  });
+
+  it('accepts strict restricted-document reads while redacting filename metadata', async () => {
+    await logRestrictedHrReadEvent(
+      { organisationId: 'org-a', userId: 'reader-user' },
+      {
+        action: 'hr_restricted_case_document.read',
+        resourceType: 'hr_restricted_case_document',
+        resourceId: 'document-1',
+        afterState: {
+          case_id: 'case-1', uploaded_by: 'reader-user', original_filename: 'sensitive-name.pdf',
+          content_type: 'application/pdf', byte_size: 123, deleted_at: null, storage_key: 'private/key',
+        },
+      },
+    );
+    const args = JSON.stringify(sqlMock.mock.calls);
+    expect(args).not.toContain('sensitive-name.pdf');
+    expect(args).not.toContain('private/key');
+    expect(args).toContain('[redacted]');
+  });
+
   it('rejects misuse of the strict restricted-read helper before writing an audit row', async () => {
     await expect(logRestrictedHrReadEvent(
       { organisationId: 'org-a', userId: 'reader-user' },
@@ -161,7 +230,7 @@ describe('restricted-HR audit policy', () => {
         resourceType: 'hr_restricted_case',
         resourceId: 'case-1',
       },
-    )).rejects.toThrow('only accepts restricted-case read events');
+    )).rejects.toThrow('only accepts approved restricted-HR read events');
     expect(sqlMock).not.toHaveBeenCalled();
   });
 

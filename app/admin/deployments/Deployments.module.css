@@ -1,0 +1,582 @@
+/*
+ * Web Systems deployment operations (remaining visual islands pass).
+ * Tokens only (app/globals.css) for chrome; light and dark first-class.
+ *
+ * Proposal-type and onboarding-stage hues are data encodings, defined here
+ * per theme so each keeps >= 3:1 on the surfaces it sits on. They are only
+ * used on dots, rules and progress fills — never as text colour.
+ */
+
+.page {
+  --dep-type-website: #6b8bff;
+  --dep-type-operational: #b09aff;
+  --dep-type-coaching: #3fbf7f;
+  --dep-type-automation: #eaa53a;
+  --dep-type-full-system: #f07aa8;
+
+  --dep-stage-discovery: #6b8bff;
+  --dep-stage-content: #b09aff;
+  --dep-stage-infrastructure: #38bdf8;
+  --dep-stage-website-build: #d98bf0;
+  --dep-stage-integrations: #eaa53a;
+  --dep-stage-review: #f7894a;
+  --dep-stage-deployment: #f07aa8;
+  --dep-stage-live: #3fbf7f;
+  --dep-stage-maintenance: #2dd4bf;
+
+  min-height: 100vh;
+  min-width: 0;
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+:global(:root[data-theme='light']) .page {
+  --dep-type-website: #3558e0;
+  --dep-type-operational: #6d4cd6;
+  --dep-type-coaching: #1f8a52;
+  --dep-type-automation: #a26207;
+  --dep-type-full-system: #c0306b;
+
+  --dep-stage-discovery: #3558e0;
+  --dep-stage-content: #6d4cd6;
+  --dep-stage-infrastructure: #0277b0;
+  --dep-stage-website-build: #a23cbe;
+  --dep-stage-integrations: #a26207;
+  --dep-stage-review: #c2410c;
+  --dep-stage-deployment: #c0306b;
+  --dep-stage-live: #1f8a52;
+  --dep-stage-maintenance: #0f766e;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── Tabs (sticky strip) ────────────────────────────────────────────── */
+
+.tabBar {
+  margin-bottom: 20px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-base);
+  scrollbar-width: thin;
+}
+
+.tabList {
+  display: flex;
+  gap: 4px;
+  min-width: max-content;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--text-primary);
+}
+
+.tab:focus-visible {
+  outline-offset: -2px;
+}
+
+.tab[aria-selected='true'] {
+  border-bottom-color: var(--brand-brainbase-accent);
+  color: var(--text-primary);
+}
+
+.tabCount {
+  min-width: 22px;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+/* ── Summary counts (status / stage) ────────────────────────────────── */
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.summaryItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.summaryCount {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.summaryBlock {
+  margin-bottom: 16px;
+}
+
+.hueDot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--hue);
+}
+
+/* ── New proposal form ──────────────────────────────────────────────── */
+
+.formPanel {
+  margin-bottom: 20px;
+}
+
+.form {
+  display: grid;
+  gap: 14px;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 14px;
+}
+
+.groupLabel {
+  margin: 0 0 6px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.toggle {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toggle:hover {
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+}
+
+.toggle[aria-pressed='true'] {
+  border-color: var(--brand-brainbase-accent-border);
+  background: var(--bg-surface);
+  color: var(--brand-brainbase-accent);
+}
+
+/* ── Card grids ─────────────────────────────────────────────────────── */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+  gap: 12px;
+}
+
+.gridWide {
+  grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr));
+}
+
+.empty {
+  grid-column: 1 / -1;
+}
+
+.card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--hue, var(--border));
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  transition: border-color 120ms ease;
+}
+
+.card:hover {
+  border-color: var(--border-strong);
+  border-top-color: var(--hue, var(--border-strong));
+}
+
+.card[data-selected='true'] {
+  border-color: var(--brand-brainbase-accent-border);
+  background: var(--brand-brainbase-accent-muted);
+}
+
+.cardBody {
+  padding: 16px;
+}
+
+.cardHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.cardTitle {
+  margin: 0 0 2px;
+  overflow: hidden;
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.35;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+}
+
+.cardSub {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.cardBadges {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.typeTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.pricing {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin-bottom: 14px;
+}
+
+.price {
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.unit {
+  margin-left: 2px;
+  font-size: 0.6875rem;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.priceLabel {
+  margin-top: 1px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.muted {
+  padding-top: 4px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+.tag {
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.more {
+  align-self: center;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.cardFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.date {
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+/* ── Onboarding card ────────────────────────────────────────────────── */
+
+.stage {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.progress {
+  margin-bottom: 16px;
+}
+
+.progressHead {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.progressValue {
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--bg-sunken);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--hue);
+  transition: width 0.4s;
+}
+
+.fill[data-tone='success'] {
+  background: var(--status-success);
+}
+
+.checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.checkDot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-inactive);
+}
+
+.checkDot[data-tone='success'] {
+  background: var(--status-success);
+}
+
+.checkDot[data-tone='warning'] {
+  background: var(--status-warning);
+}
+
+.checklist {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.checklistHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.checklistCount {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.checklistCount[data-complete='true'] {
+  color: var(--status-success);
+}
+
+.checklistTrack {
+  margin-bottom: 10px;
+}
+
+.items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+
+.item[data-done='true'] {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--bg-surface);
+  color: var(--status-success);
+}
+
+.item[data-done='true'] .box {
+  border-color: var(--status-success);
+  background: var(--status-success-muted);
+}
+
+.moreTasks {
+  margin-top: 4px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.mrr {
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+/* ── Managed services table ─────────────────────────────────────────── */
+
+.row[data-cancelled='true'] td,
+.row[data-cancelled='true'] td * {
+  color: var(--text-muted);
+}
+
+.cell {
+  display: block;
+  max-width: 180px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.renewal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.note {
+  margin: 12px 0 0;
+  font-size: 0.75rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.metrics {
+  margin-bottom: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fill,
+  .card {
+    transition: none;
+  }
+}

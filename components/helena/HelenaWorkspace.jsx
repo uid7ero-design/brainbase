@@ -38,8 +38,8 @@ import { HelenaMic } from "./HelenaMic";
 import { BrainGraphPanel } from "../panels/BrainGraphPanel";
 import { KEYFRAMES } from "../../lib/utils/constants";
 import { mapHelenaPhaseToVisualState, HELENA_VISUAL_STATE_LABEL } from "../../lib/helena/visualState";
-
-const FONT = "var(--font-inter),-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif";
+import { buttonProps } from "../ui/app/Button";
+import styles from "./HelenaWorkspace.module.css";
 
 const NARROW_QUERY = '(max-width: 860px)';
 
@@ -116,9 +116,16 @@ export default function HelenaWorkspace() {
   const stateLabel = HELENA_VISUAL_STATE_LABEL[helenaVisualState] ?? HELENA_VISUAL_STATE_LABEL.idle;
   const hint = defaultHint(helena.messages, helena.transcript, helena.micError);
   const orbitalSize = isNarrow ? 220 : 320;
+  // Selected-state accent for the Performance toggle — inline so it always
+  // wins over the shared secondary-button rule regardless of CSS order.
+  const perfSelected = brainGraphOpen ? {
+    background: "var(--brand-brainbase-accent-muted)",
+    borderColor: "var(--brand-brainbase-accent-border)",
+    color: "var(--brand-brainbase-accent)",
+  } : undefined;
 
   return (
-    <div style={{
+    <div className={styles.page} style={{
       // Phase C.2B.2: app/layout.tsx renders the global TopNav (a <nav>,
       // ~52px tall in its single-row state) as a plain sibling before
       // {children} — not inside a flex container that would give this page
@@ -130,63 +137,40 @@ export default function HelenaWorkspace() {
       // (e.g. it wraps to two rows, or the super_admin org-impersonation
       // banner is showing) this approximation would need revisiting; a
       // fully robust fix belongs in app/layout.tsx, out of scope here.
-      height: "calc(100vh - 52px)", overflow: "hidden",
-      background: "radial-gradient(ellipse 130% 90% at 50% 0%, #07050F 0%, #050309 50%, #020205 100%)",
-      fontFamily: FONT, position: "relative", display: "flex", flexDirection: "column",
+      height: "calc(100vh - 52px)",
     }}>
 
-      {/* Vignette */}
-      <div style={{
-        position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
-        background: "radial-gradient(ellipse 90% 90% at 50% 50%, transparent 35%, rgba(0,0,0,.60) 100%)",
-      }} />
-
-      {/* Ambient glow — shifts with HLNA state, same treatment as BrainBase.jsx */}
-      <div style={{
-        position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
-        background: helena.listening
-          ? "radial-gradient(ellipse 50% 40% at 50% 50%, rgba(56,189,248,.07) 0%, transparent 65%)"
-          : helena.responding
-          ? "radial-gradient(ellipse 50% 40% at 50% 50%, rgba(139,92,246,.07) 0%, transparent 65%)"
-          : orbAlert
-          ? "radial-gradient(ellipse 45% 35% at 50% 50%, rgba(251,113,133,.06) 0%, transparent 65%)"
-          : "radial-gradient(ellipse 40% 30% at 50% 50%, rgba(90,50,200,.04) 0%, transparent 65%)",
-        transition: "background 1.2s ease",
-      }} />
+      {/* Visual-convergence (authenticated visual-completion pass): the
+          decorative vignette and state-tinted ambient radial glows that
+          used to sit here were removed — the page is a flat --bg-base
+          surface, and HelenaOrbital + the text status carry the state. */}
 
       {/* ── Header — minimal: wordmark, BrainGraph toggle, profile ─────── */}
-      <header style={{
-        height: 50, flexShrink: 0, zIndex: 30, position: "relative",
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "0 16px",
-        background: "rgba(4,3,10,.88)", backdropFilter: "blur(14px)",
-        borderBottom: "1px solid rgba(255,255,255,.06)",
-        gap: 10, flexWrap: "wrap",
-      }}>
+      <header className={styles.header}>
+        {/* Page title for assistive tech — the BrainBase/HLNΛ wordmark is
+            the visible identity, so the h1 is visually hidden. */}
+        <h1 className="sr-only">HLNΛ workspace</h1>
         <a
           href="/dashboard"
           aria-label="BRΛINBΛSE home"
-          style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, textDecoration: "none" }}
+          className={styles.home}
         >
           <BrainBaseWordmark width={116} />
-          <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".22em", color: "rgba(167,139,250,.55)", textTransform: "uppercase" }}>
+          <span className={styles.productTag}>
             HLNΛ
           </span>
         </a>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        <div className={styles.actions}>
           <button
+            type="button"
             onClick={toggleBrainGraph}
             title="Performance Graph"
-            style={{
-              display: "flex", alignItems: "center", gap: 5,
-              padding: "5px 10px", borderRadius: 7, fontSize: 11, fontWeight: 600,
-              background: brainGraphOpen ? "rgba(139,92,246,.18)" : "rgba(139,92,246,.10)",
-              border: `1px solid ${brainGraphOpen ? "rgba(139,92,246,.38)" : "rgba(139,92,246,.22)"}`,
-              color: "#B4A0E8", cursor: "pointer", fontFamily: FONT, transition: "all .18s",
-            }}
+            aria-pressed={!!brainGraphOpen}
+            {...buttonProps('secondary', 'sm')}
+            style={perfSelected}
           >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
             </svg>
             Performance
@@ -195,14 +179,10 @@ export default function HelenaWorkspace() {
           <a
             href="/account/profile"
             title="Profile"
-            style={{
-              width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-              background: "rgba(124,58,237,.14)", border: "1px solid rgba(124,58,237,.26)",
-              color: "#C4B5FD", textDecoration: "none", fontSize: 11, fontWeight: 700,
-              transition: "all .18s", flexShrink: 0,
-            }}
+            aria-label="Profile"
+            className={styles.profile}
           >
-            ◎
+            <span aria-hidden="true">◎</span>
           </a>
         </div>
       </header>
@@ -211,34 +191,14 @@ export default function HelenaWorkspace() {
       <div className="hlna-split" style={{ flex: 1, position: "relative", zIndex: 10, overflow: "hidden" }}>
         <div className="hlna-left">
           <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <div style={{
-              position: "absolute", width: orbitalSize * 1.7, height: orbitalSize * 1.7, borderRadius: "50%",
-              background: orbAlert
-                ? "radial-gradient(circle, rgba(251,113,133,.09) 0%, transparent 65%)"
-                : helena.listening
-                ? "radial-gradient(circle, rgba(56,189,248,.10) 0%, transparent 65%)"
-                : helena.responding
-                ? "radial-gradient(circle, rgba(139,92,246,.09) 0%, transparent 65%)"
-                : "radial-gradient(circle, rgba(80,44,200,.07) 0%, transparent 65%)",
-              transition: "background 1.2s", pointerEvents: "none",
-            }} />
-            <div style={{
-              position: "absolute", width: orbitalSize * 1.2, height: orbitalSize * 1.2, borderRadius: "50%",
-              background: orbAlert
-                ? "radial-gradient(circle, rgba(251,113,133,.14) 0%, transparent 70%)"
-                : helena.listening
-                ? "radial-gradient(circle, rgba(56,189,248,.14) 0%, transparent 70%)"
-                : "radial-gradient(circle, rgba(124,58,237,.10) 0%, transparent 70%)",
-              transition: "background 0.8s", pointerEvents: "none",
-            }} />
             <HelenaOrbital size={orbitalSize} state={helenaVisualState} speechRef={orbSpeechRef} />
           </div>
 
-          <div style={{ textAlign: "center", maxWidth: 340 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: ".01em", color: stateLabel.color, transition: "color .3s" }}>
+          <div className={styles.statusBlock}>
+            <div className={styles.stateLabel} style={{ color: stateLabel.color }} aria-live="polite">
               {stateLabel.label}
             </div>
-            <p style={{ fontSize: 12, color: "rgba(161,161,170,.55)", margin: "6px 0 0", lineHeight: 1.5, minHeight: 18 }}>
+            <p className={styles.hint}>
               {hint}
             </p>
           </div>

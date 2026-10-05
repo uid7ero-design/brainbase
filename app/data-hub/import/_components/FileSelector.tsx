@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import type { DataHubIllegalDumpingImportSession } from "@/lib/data-hub/client/orchestrator";
 import { FILE_INPUT_ACCEPT, validateSelectedFile } from "../fileValidation";
 import { useSourceSystems } from "../useSourceSystems";
+import { PageHeader, buttonProps, fieldControlClassName } from "@/components/ui/app";
 
 // Data Hub 5A.3C.1 — the SELECT screen. Single file, advisory-only browser
 // checks (server remains authoritative — see fileValidation.ts). Never
@@ -86,18 +87,23 @@ export default function FileSelector({ session }: { session: DataHubIllegalDumpi
 
   return (
     <div>
-      <h1 style={{ fontSize: 20, fontWeight: 600, color: "#f9fafb", marginBottom: 6 }}>Import Illegal Dumping data</h1>
-      <p style={{ fontSize: 13, color: "rgba(249,250,251,.55)", marginBottom: 20 }}>
-        Select a CSV file to review and import. Excel (.xlsx) workbooks can be checked for their worksheets, but
-        importing them is not enabled yet.
-      </p>
+      <PageHeader
+        eyebrow="Data Hub"
+        title="Import Illegal Dumping data"
+        description={
+          <>
+            Select a CSV file to review and import. Excel (.xlsx) workbooks can be checked for their worksheets, but
+            importing them is not enabled yet.
+          </>
+        }
+      />
 
       <div style={{ marginBottom: 20 }}>
         <label
           htmlFor="data-hub-source-system-select"
-          style={{ display: "block", fontSize: 13, fontWeight: 500, color: "rgba(249,250,251,.85)", marginBottom: 6 }}
+          style={{ display: "block", fontSize: 13, fontWeight: 500, color: "var(--text-primary)", marginBottom: 6 }}
         >
-          Source System <span style={{ fontWeight: 400, color: "rgba(249,250,251,.45)" }}>(optional)</span>
+          Source System <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>(optional)</span>
         </label>
         <select
           id="data-hub-source-system-select"
@@ -105,16 +111,8 @@ export default function FileSelector({ session }: { session: DataHubIllegalDumpi
           disabled={sourceSystemsState.status === "loading"}
           onChange={(e) => setSelectedSourceSystemId(e.target.value)}
           aria-describedby={sourceSystemsState.status === "error" ? "data-hub-source-system-error" : undefined}
-          style={{
-            width: "100%",
-            maxWidth: 320,
-            fontSize: 13,
-            padding: "8px 10px",
-            borderRadius: 8,
-            border: "1px solid rgba(255,255,255,.18)",
-            background: "rgba(255,255,255,.04)",
-            color: "#f9fafb",
-          }}
+          className={fieldControlClassName}
+          style={{ maxWidth: 320 }}
         >
           {sourceSystemsState.status === "loading" ? (
             <option value={NO_SOURCE_SYSTEM_VALUE}>Loading source systems…</option>
@@ -133,13 +131,13 @@ export default function FileSelector({ session }: { session: DataHubIllegalDumpi
         </select>
 
         {sourceSystemsState.status === "error" ? (
-          <div id="data-hub-source-system-error" role="alert" style={{ marginTop: 6, fontSize: 12, color: "#fbbf24" }}>
+          <div id="data-hub-source-system-error" role="alert" style={{ marginTop: 6, fontSize: 12, color: "var(--status-warning)" }}>
             {sourceSystemsState.message} You can still continue without selecting one.
           </div>
         ) : null}
 
         {sourceSystemsState.status === "success" && sourceSystemsState.sourceSystems.length === 0 ? (
-          <div style={{ marginTop: 6, fontSize: 12, color: "rgba(249,250,251,.45)" }}>
+          <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-muted)" }}>
             No source systems are configured yet. You can still continue without selecting one.
           </div>
         ) : null}
@@ -149,15 +147,16 @@ export default function FileSelector({ session }: { session: DataHubIllegalDumpi
         onDragOver={(e) => e.preventDefault()}
         onDrop={handleDrop}
         style={{
-          border: "1px dashed rgba(255,255,255,.18)",
-          borderRadius: 10,
+          border: "1px dashed var(--border-strong)",
+          borderRadius: "var(--radius-lg)",
+          background: "var(--bg-sunken)",
           padding: 28,
           textAlign: "center",
         }}
       >
         <label
           htmlFor="data-hub-import-file-input"
-          style={{ fontSize: 13, fontWeight: 500, color: "rgba(249,250,251,.85)", cursor: "pointer" }}
+          style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)", cursor: "pointer" }}
         >
           Choose a CSV or Excel (.xlsx) file
         </label>
@@ -167,19 +166,19 @@ export default function FileSelector({ session }: { session: DataHubIllegalDumpi
           type="file"
           accept={FILE_INPUT_ACCEPT}
           onChange={handleChange}
-          style={{ display: "block", margin: "12px auto 0" }}
+          style={{ display: "block", maxWidth: "100%", margin: "12px auto 0" }}
         />
-        <div style={{ fontSize: 12, color: "rgba(249,250,251,.35)", marginTop: 8 }}>or drag and drop a file here</div>
+        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>or drag and drop a file here</div>
       </div>
 
       {pendingFile ? (
-        <div style={{ marginTop: 16, fontSize: 13, color: "rgba(249,250,251,.8)" }}>
+        <div style={{ marginTop: 16, fontSize: 13, color: "var(--text-primary)" }}>
           Selected: <strong>{pendingFile.name}</strong> ({(pendingFile.size / 1024).toFixed(1)} KB)
         </div>
       ) : null}
 
       {warnings.length > 0 ? (
-        <div role="alert" style={{ marginTop: 12, fontSize: 12, color: "#fbbf24" }}>
+        <div role="alert" style={{ marginTop: 12, fontSize: 12, color: "var(--status-warning)" }}>
           {warnings.map((w) => (
             <div key={w}>{w}</div>
           ))}
@@ -190,17 +189,8 @@ export default function FileSelector({ session }: { session: DataHubIllegalDumpi
         type="button"
         onClick={start}
         disabled={!pendingFile}
-        style={{
-          marginTop: 20,
-          fontSize: 13,
-          fontWeight: 600,
-          padding: "9px 18px",
-          borderRadius: 8,
-          border: "none",
-          background: pendingFile ? "linear-gradient(135deg, #6D28D9, #A78BFA)" : "rgba(255,255,255,.06)",
-          color: pendingFile ? "#fff" : "rgba(255,255,255,.3)",
-          cursor: pendingFile ? "pointer" : "default",
-        }}
+        {...buttonProps("primary")}
+        style={{ marginTop: 20 }}
       >
         Start import
       </button>

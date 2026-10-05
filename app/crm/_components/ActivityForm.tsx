@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { Button, Field, FormActions, FormError, buttonProps, fieldControlClassName } from '@/components/ui/app';
 
 const TYPES = [
   { value: 'note',    label: 'Note',    icon: '📝' },
@@ -7,6 +8,14 @@ const TYPES = [
   { value: 'email',   label: 'Email',   icon: '✉️' },
   { value: 'meeting', label: 'Meeting', icon: '🤝' },
 ];
+
+// Selected segment: accent tint + accent text (not a solid slab); the
+// pressed state is also exposed via aria-pressed.
+const PRESSED: React.CSSProperties = {
+  background: 'var(--brand-brainbase-accent-muted)',
+  borderColor: 'var(--brand-brainbase-accent-border)',
+  color: 'var(--brand-brainbase-accent)',
+};
 
 type Props = { contactId?: string; companyId?: string; dealId?: string; onSaved: () => void };
 
@@ -34,23 +43,31 @@ export default function ActivityForm({ contactId, companyId, dealId, onSaved }: 
   return (
     <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Type picker */}
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div role="group" aria-label="Activity type" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {TYPES.map(t => (
-          <button key={t.value} type="button" onClick={() => setType(t.value)}
-            style={{ flex: 1, padding: '8px 4px', background: type === t.value ? '#1a6aff' : '#111318', color: type === t.value ? '#fff' : '#9ca3af', border: '1px solid #1a1d24', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontWeight: 500 }}>
-            {t.icon} {t.label}
+          <button key={t.value} type="button" onClick={() => setType(t.value)} aria-pressed={type === t.value}
+            {...buttonProps('secondary', 'sm')}
+            style={{ flex: 1, ...(type === t.value ? PRESSED : undefined) }}>
+            <span aria-hidden="true">{t.icon}</span> {t.label}
           </button>
         ))}
       </div>
-      <input value={subject} onChange={e => setSubject(e.target.value)} required placeholder="Subject"
-        style={{ padding: '9px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14, outline: 'none' }} />
-      <textarea value={body} onChange={e => setBody(e.target.value)} rows={3} placeholder="Notes (optional)"
-        style={{ padding: '9px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14, outline: 'none', resize: 'vertical', lineHeight: 1.5 }} />
-      {error && <p style={{ color: '#f87171', fontSize: 13, margin: 0 }}>{error}</p>}
-      <button type="submit" disabled={saving}
-        style={{ padding: '9px 0', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
-        {saving ? 'Saving…' : 'Log Activity'}
-      </button>
+      <Field label="Subject" required>
+        {control => (
+          <input {...control} value={subject} onChange={e => setSubject(e.target.value)} required placeholder="Subject" className={fieldControlClassName} />
+        )}
+      </Field>
+      <Field label="Notes">
+        {control => (
+          <textarea {...control} value={body} onChange={e => setBody(e.target.value)} rows={3} placeholder="Notes (optional)" className={fieldControlClassName} />
+        )}
+      </Field>
+      {error && <FormError>{error}</FormError>}
+      <FormActions align="stretch">
+        <Button type="submit" variant="primary" disabled={saving}>
+          {saving ? 'Saving…' : 'Log Activity'}
+        </Button>
+      </FormActions>
     </form>
   );
 }

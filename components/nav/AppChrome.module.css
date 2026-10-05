@@ -1,0 +1,730 @@
+/*
+ * Authenticated application chrome (Phase B): AppNav, its Operations and
+ * Admin menus, the profile / theme / sign-out cluster. Semantic app tokens
+ * only (app/globals.css), so both themes resolve from one set of rules.
+ *
+ * Hierarchy: page --bg-base → chrome --bg-surface → --border → text
+ * (--text-primary / --text-secondary / --text-muted) → product accent,
+ * used only for the active destination.
+ *
+ * One interaction language for every chrome control:
+ *   hover   --bg-sunken + --text-primary
+ *   active  accent text, weight 600, 2px accent baseline (not colour alone)
+ *   focus   the global :focus-visible ring from app/globals.css
+ */
+
+/* ── HeaderShell ───────────────────────────────────────────────────────── */
+/* Owns overall header height (set inline from TOP_NAV_HEIGHT_PX — see
+   lib/layout/headerOffset.ts), border and responsive layout. The inner
+   row below is the actual three-zone grid; .nav itself only supplies the
+   full-bleed surface/border so the inner content can be width-constrained
+   and centred independently of the bar's own edge-to-edge background.
+   The faint square technical grid is the SAME token/spacing as the public
+   site's own `.bb-grid-bg` utility (styles/brainbase-tokens.css: --bb-grid,
+   32px cells) — same visual language, not a new pattern — so the header
+   reads as continuous with the BrainBase/HLNA visual language instead of a
+   plain SaaS navbar. It reads quieter here purely because the header is a
+   much smaller area than a full page, at the identical opacity — no
+   separate "quieter" token was needed.
+   Built as a `mask-image` (a repeating 1px-line SVG tile) painted with
+   `background-color: var(--bb-grid)` on a `::before`, NOT a CSS
+   `linear-gradient` background — tests/containment/
+   authenticatedChromeVisualSystem.test.ts is a real, intentional Phase B
+   regression guard against exactly that: this chrome was audited for
+   "gradient/glow branding" once already and must never reintroduce it, so
+   a literal `linear-gradient()` (even a flat, two-stop, grid-line one) is
+   correctly out of bounds here — reaching for a different, equally
+   standard CSS technique for the identical flat-line visual is the right
+   fix, not weakening that guard. The mask SVG's lines are opaque white so
+   they mask fully "in" under either alpha- or luminance-mode masking
+   (undrawn areas are transparent either way, so no drift there); the
+   header's actual colour still comes entirely from the `--bb-grid` token
+   via `background-color`, so both themes resolve automatically. */
+.nav {
+  display: flex;
+  align-items: center;
+  position: relative;
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+.nav::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: var(--bb-grid);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='32' height='1' fill='white'/%3E%3Crect width='1' height='32' fill='white'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='32' height='1' fill='white'/%3E%3Crect width='1' height='32' fill='white'/%3E%3C/svg%3E");
+  -webkit-mask-repeat: repeat;
+  mask-repeat: repeat;
+  -webkit-mask-position: -1px -1px;
+  mask-position: -1px -1px;
+  pointer-events: none;
+}
+
+/* Inner row: the actual three-zone layout, constrained and centred within
+   HeaderShell. Flex by default (<960px — brand / spacer / right cluster);
+   becomes the true three-zone grid at >=960px (see the breakpoint below). */
+.navInner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: min(calc(100% - 32px), 1560px);
+  height: 100%;
+  margin-inline: auto;
+  padding: 0 4px;
+}
+
+@media (min-width: 960px) {
+  .navInner {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) auto minmax(280px, 1fr);
+    align-items: center;
+    gap: 0;
+  }
+}
+
+/* ── BrandMark ─────────────────────────────────────────────────────────── */
+
+.brand {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 44px;
+  text-decoration: none;
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+}
+
+@media (min-width: 960px) {
+  .brand {
+    justify-self: start;
+  }
+}
+
+.brandFull {
+  display: flex;
+}
+
+.brandMark {
+  display: none;
+}
+
+/* ── PrimaryNav ────────────────────────────────────────────────────────── */
+/* The centred nav rail. A raised, bordered container (not a flat row of
+   pills) that scrolls horizontally as a safety net when a persona's items
+   exceed the available width. A thin themed scrollbar keeps that overflow
+   discoverable. */
+.navRow {
+  /* NOT align-self:stretch — measured via getBoundingClientRect (real
+     centreY comparison against BrandMark/Clock/AccountControl), this rail
+     was consistently ~10px higher than every other header control,
+     despite `.navInner`'s own `align-items:center`. Root cause: per the
+     CSS Grid/Box Alignment spec, `align-self:stretch` on a grid item that
+     ALSO has an explicit (non-auto) height cannot actually stretch — the
+     explicit height wins — and the fallback alignment for `stretch` in
+     that case is `start`, not the container's own `align-items`. That
+     silently top-aligned this rail within the 64px header row instead of
+     centering it, for as long as this rail has had an explicit height
+     (i.e. since before this pass). `center` gives the real, requested
+     behaviour. (This rail is `.desktopOnly` — see TopNav.tsx — so this
+     only ever matters in the >=960px grid layout below, never the <960px
+     flex one.) */
+  align-self: center;
+  align-items: center;
+  height: 44px;
+  padding: 4px;
+  gap: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-sunken);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+@media (min-width: 960px) {
+  .navRow {
+    justify-self: center;
+  }
+}
+
+/* ── Items ─────────────────────────────────────────────────────────────── */
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: color 0.14s, background-color 0.14s;
+}
+
+.item:hover {
+  color: var(--text-primary);
+  background: var(--bg-sunken);
+}
+
+/* Inset keeps the ring inside the horizontally scrolling rail, which
+   clips anything painted outside it. */
+.item:focus-visible {
+  outline-offset: -2px;
+}
+
+/* Soft purple-tinted fill, not a full solid-purple button or an underline —
+   aria-current/data-active are the semantic "current section" signal (see
+   the sr-only "(current section)" text on menu triggers below), this is
+   only the visual echo of it. Deliberately does NOT change font-weight (a
+   heavier weight measurably widens/shifts a monospace-adjacent label,
+   which is exactly what made the active item "feel taller/heavier than
+   inactive items" — height/padding/border/line-height/weight stay
+   IDENTICAL between active and inactive; only colour and background
+   differ). */
+.item[aria-current='page'],
+.item[data-active='true'] {
+  color: var(--brand-brainbase-accent);
+  background: var(--brand-brainbase-accent-muted);
+}
+
+.item[aria-current='page']:hover,
+.item[data-active='true']:hover {
+  color: var(--brand-brainbase-accent-hover);
+  background: var(--brand-brainbase-accent-muted);
+}
+
+.hlna {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+
+.chevron {
+  opacity: 0.7;
+  transition: transform 0.18s;
+}
+
+.item[aria-expanded='true'] {
+  color: var(--text-primary);
+  background: var(--bg-sunken);
+}
+
+.item[data-active='true'][aria-expanded='true'] {
+  color: var(--brand-brainbase-accent);
+}
+
+.item[aria-expanded='true'] .chevron {
+  transform: rotate(180deg);
+}
+
+/* ── Menus (portaled to document.body) ─────────────────────────────────── */
+
+.menu {
+  max-width: calc(100vw - 16px);
+  padding: 4px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-menu);
+  font-family: var(--font-inter), 'Inter', -apple-system, sans-serif;
+}
+
+.menuList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.menuItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px 8px 10px;
+  border-left: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: var(--text-primary);
+}
+
+.menuItem:hover {
+  background: var(--bg-sunken);
+}
+
+.menuItem:focus-visible {
+  outline-offset: -2px;
+}
+
+.menuItem[aria-current='page'] {
+  border-left-color: var(--brand-brainbase-accent);
+  background: var(--brand-brainbase-accent-muted);
+}
+
+.menuLabel {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.menuItem[aria-current='page'] .menuLabel {
+  color: var(--brand-brainbase-accent);
+  font-weight: 600;
+}
+
+.menuDescription {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* The active fill (--brand-brainbase-accent-muted) darkens the surface under
+   the description: --text-muted drops to 4.11:1 there in dark, so the
+   current item's description uses --text-secondary (6.20 dark, 6.03 light). */
+.menuItem[aria-current='page'] .menuDescription {
+  color: var(--text-secondary);
+}
+
+.menuSeparator {
+  height: 1px;
+  margin: 4px;
+  background: var(--border);
+}
+
+.menuFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+.menuFooter:hover {
+  color: var(--text-primary);
+  background: var(--bg-sunken);
+}
+
+.menuFooter:focus-visible {
+  outline-offset: -2px;
+}
+
+/* Label row of a menu link (optional module icon + label). */
+.menuLabelRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* A labelled group inside a menu (Work › Tennis, Brainbase › Operations …). */
+.menuGroup {
+  display: block;
+}
+
+.menuGroupLabel {
+  margin: 0;
+  padding: 6px 12px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Non-navigation actions inside a menu (theme, sign out). Same row
+   language as .menuItem so links and actions read as one list. */
+.menuButton {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px 8px 10px;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menuButton:hover {
+  background: var(--bg-sunken);
+}
+
+.menuButton:focus-visible {
+  outline-offset: -2px;
+}
+
+/* Who is signed in and which organisation is in view. */
+.accountSummary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.accountName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.accountMeta {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.accountOrg {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.accountOrgLabel {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Visually hidden, still announced. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── Desktop / mobile switch ───────────────────────────────────────────── */
+
+.desktopOnly {
+  display: flex;
+}
+
+.mobileOnly {
+  display: none;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.mobileTrigger {
+  gap: 8px;
+  padding: 0 8px 0 3px;
+}
+
+/* The mobile menu: one panel under the bar with the same tree as the
+   desktop menus. Scrolls inside itself; never widens the page. */
+.mobilePanel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  max-height: calc(100dvh - 52px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 12px 16px;
+  background: var(--bg-overlay);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-menu);
+  font-family: var(--font-inter), 'Inter', -apple-system, sans-serif;
+}
+
+.mobileSection {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.mobileSectionTitle {
+  margin: 0;
+  padding: 2px 12px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* ── Right cluster: OrganisationSwitcher → UtilityMeta → divider →
+   AccountControl (see TopNav.tsx's rightCluster render order) ──────────── */
+
+/* Clock -> 14px -> divider -> 14px -> AccountControl (OrganisationSwitcher's
+   own 16px lead-in gap doesn't apply within this flex container — see
+   OrgSwitcher.module.css's own header comment for why that component isn't
+   a flex child here). */
+.rightCluster {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  flex-shrink: 0;
+}
+
+.divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+/* UtilityMeta (the clock/date). Desktop-only, hidden before the nav
+   collapses — see the narrow-screen rules below. Muted mono, no
+   border/pill of its own. */
+.clock {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-geist-mono, 'Geist Mono', monospace);
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.clockTime {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.clockDate {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.14s, background-color 0.14s, border-color 0.14s;
+}
+
+.iconButton:hover {
+  color: var(--text-primary);
+  background: var(--bg-sunken);
+  border-color: var(--border-strong);
+}
+
+.onlyLight,
+.onlyDark {
+  display: none;
+}
+
+:global(:root[data-theme='light']) .onlyLight {
+  display: block;
+}
+
+:global(:root:not([data-theme='light'])) .onlyDark {
+  display: block;
+}
+
+/* AccountControl: avatar/initials, name, role, chevron. height:44 is the
+   control's own minimum click target (section 11), not a visual size —
+   the avatar circle inside it stays 32px (see .avatar below). */
+.profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 8px 0 3px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: background-color 0.14s;
+}
+
+.profile:hover {
+  background: var(--bg-sunken);
+}
+
+.profile {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.profile[aria-expanded='true'] {
+  background: var(--bg-sunken);
+}
+
+.profile[data-active='true'] {
+  box-shadow: inset 0 -2px 0 var(--brand-brainbase-accent);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 50%;
+  border: 1px solid var(--brand-brainbase-accent-border);
+  background: var(--brand-brainbase-accent-muted);
+  color: var(--brand-brainbase-accent);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  line-height: 1.1;
+}
+
+.identityName {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.identityRole {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ── Responsive bands ──────────────────────────────────────────────────── */
+/* >=1280px: full 64px header, centred rail, full OrganisationSwitcher,
+   time/date visible, account name + role visible — i.e. every rule above
+   this point at its plain desktop value, no override needed here. */
+
+/* 960–1279px: keep the desktop three-zone grid and nav rail, just
+   tighten spacing — nav item horizontal padding down to 10–12px, a
+   smaller wordmark, a narrower OrganisationSwitcher, and no time/date. */
+@media (max-width: 1279px) and (min-width: 960px) {
+  .item {
+    padding: 0 11px;
+  }
+  .clock,
+  .clockDivider {
+    display: none;
+  }
+  .wordmark {
+    width: 128px !important;
+  }
+}
+
+/* Below 960px the desktop rail and time/date never apply regardless of
+   band — kept as one rule so both bands below the grid threshold agree. */
+@media (max-width: 959px) {
+  .clock,
+  .clockDivider {
+    display: none;
+  }
+  .identityRole {
+    display: none;
+  }
+}
+
+/* <960px: [Logo] [Menu][Account] — the existing shared mobile/tablet
+   Menu replaces the centred desktop rail and the desktop Account
+   trigger. Same MobileMenu implementation/behaviour as before; only the
+   threshold moved (from 767 to 959) so it now matches the checklist's
+   own breakpoint table instead of the prior ad-hoc cutoff. */
+@media (max-width: 959px) {
+  .navInner {
+    padding: 0 12px;
+    gap: 10px;
+  }
+  .rightCluster {
+    gap: 6px;
+  }
+  .divider {
+    display: none;
+  }
+  /* Visually hidden, still the profile link's accessible name. */
+  .identity {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .profile {
+    padding: 0 3px;
+  }
+  /* One Menu control replaces the desktop row and Account trigger. */
+  .desktopOnly {
+    display: none;
+  }
+  .mobileOnly {
+    display: flex;
+  }
+}
+
+/* <640px: compact header — smaller wordmark, Menu + account trigger only
+   (no visible time/date, already hidden above). Overrides the inline
+   height (TOP_NAV_HEIGHT_PX, see TopNav.tsx) and the wordmark's own
+   inline width (set via its `width` prop) — an !important author-stylesheet
+   rule is the one thing that legitimately outranks a plain inline style. */
+@media (max-width: 639px) {
+  .nav {
+    height: 56px !important;
+  }
+  .wordmark {
+    width: 108px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .item,
+  .chevron,
+  .iconButton,
+  .profile,
+  .menuButton {
+    transition: none;
+  }
+}

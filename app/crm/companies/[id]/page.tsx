@@ -5,9 +5,13 @@ import Link from 'next/link';
 import SlidePanel from '../../_components/SlidePanel';
 import CompanyForm from '../../_components/CompanyForm';
 import ActivityForm from '../../_components/ActivityForm';
+import { PageHeader, Panel, StateMessage, buttonProps, tableStyles } from '@/components/ui/app';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
-const STAGE_COLORS: Record<string, string> = { lead:'#6b7280', qualified:'#60a5fa', proposal:'#a78bfa', negotiation:'#fbbf24', closed_won:'#34d399', closed_lost:'#f87171' };
+const BORDER = 'var(--border)';
+// Domain category encoding (kept) — deal pipeline stages. Semantic stages use
+// status tokens; "proposal" keeps its own category hue. Drawn only as a dot
+// beside the written stage label.
+const STAGE_COLORS: Record<string, string> = { lead:'var(--status-inactive)', qualified:'var(--status-info)', proposal:'#f472b6', negotiation:'var(--status-warning)', closed_won:'var(--status-success)', closed_lost:'var(--status-danger)' };
 const TYPE_ICONS: Record<string, string>   = { call:'📞', email:'✉️', note:'📝', meeting:'🤝' };
 
 type Company  = { id: string; name: string; website: string|null; industry: string|null; company_size: string|null; phone: string|null; address: string|null; notes: string|null };
@@ -45,40 +49,38 @@ export default function CompanyDetailPage() {
     router.push('/crm/companies');
   }
 
-  if (loading) return <div style={{ color: '#4b5563', padding: 32 }}>Loading…</div>;
+  if (loading) return <StateMessage kind="loading" size="page" title="Loading…" />;
   if (!company) return null;
 
   return (
     <div style={{ maxWidth: 900 }}>
-      {/* Breadcrumb + actions */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#6b7280' }}>
-          <Link href="/crm/companies" style={{ color: '#6b7280', textDecoration: 'none' }}>Companies</Link>
-          <span>/</span>
-          <span style={{ color: '#f9fafb' }}>{company.name}</span>
-        </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={() => setShowEdit(true)} style={outlineBtn}>Edit</button>
-          <button onClick={handleDelete} disabled={deleting} style={dangerBtn}>{deleting ? 'Deleting…' : 'Delete'}</button>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow={<Link href="/crm/companies" className={tableStyles.link}>← Companies</Link>}
+        title={company.name}
+        actions={
+          <>
+            <button type="button" onClick={() => setShowEdit(true)} {...buttonProps('secondary')}>Edit</button>
+            <button type="button" onClick={handleDelete} disabled={deleting} {...buttonProps('danger')}>{deleting ? 'Deleting…' : 'Delete'}</button>
+          </>
+        }
+      />
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 20 }}>
         {/* Left column */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ flex: '999 1 420px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 20 }}>
 
           {/* Contacts */}
-          <Section title="Contacts" count={contacts.length} action={<Link href={`/crm/contacts`} style={linkStyle}>+ Add</Link>}>
+          <Section title="Contacts" count={contacts.length} action={<Link href={`/crm/contacts`} className={tableStyles.link} aria-label="Add contact">+ Add</Link>}>
             {contacts.length === 0
               ? <Empty>No contacts linked to this company.</Empty>
               : contacts.map((c, i) => (
                 <Link key={c.id} href={`/crm/contacts/${c.id}`}
                   style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: i < contacts.length-1 ? `1px solid ${BORDER}` : 'none', textDecoration: 'none' }}>
                   <div>
-                    <div style={{ fontSize: 13, color: '#f9fafb', fontWeight: 500 }}>{c.first_name} {c.last_name}</div>
-                    {c.job_title && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{c.job_title}</div>}
+                    <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{c.first_name} {c.last_name}</div>
+                    {c.job_title && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>{c.job_title}</div>}
                   </div>
-                  {c.email && <div style={{ fontSize: 12, color: '#4b5563' }}>{c.email}</div>}
+                  {c.email && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{c.email}</div>}
                 </Link>
               ))}
           </Section>
@@ -90,12 +92,15 @@ export default function CompanyDetailPage() {
               : deals.map((d, i) => (
                 <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: i < deals.length-1 ? `1px solid ${BORDER}` : 'none' }}>
                   <div>
-                    <div style={{ fontSize: 13, color: '#f9fafb', fontWeight: 500 }}>{d.title}</div>
-                    {d.expected_close && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>Close {new Date(d.expected_close).toLocaleDateString('en-AU', { day:'numeric', month:'short' })}</div>}
+                    <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{d.title}</div>
+                    {d.expected_close && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>Close {new Date(d.expected_close).toLocaleDateString('en-AU', { day:'numeric', month:'short' })}</div>}
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    {d.value != null && <div style={{ fontSize: 13, fontWeight: 600, color: STAGE_COLORS[d.stage] }}>${Number(d.value).toLocaleString()}</div>}
-                    <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2, textTransform: 'capitalize' }}>{d.stage.replace('_',' ')}</div>
+                    {d.value != null && <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>${Number(d.value).toLocaleString()}</div>}
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)', marginTop: 2, textTransform: 'capitalize' }}>
+                      <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: STAGE_COLORS[d.stage] ?? 'var(--status-inactive)' }} />
+                      {d.stage.replace('_',' ')}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -108,9 +113,8 @@ export default function CompanyDetailPage() {
         </div>
 
         {/* Right column — company info + activity feed */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20 }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px' }}>{company.name}</h2>
+        <div style={{ flex: '1 1 280px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <Panel title="Details">
             {[
               { label: 'Industry',    value: company.industry },
               { label: 'Size',        value: company.company_size },
@@ -119,17 +123,17 @@ export default function CompanyDetailPage() {
               { label: 'Address',     value: company.address },
             ].map(({ label, value }) => value ? (
               <div key={label} style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 10, color: '#4b5563', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>{label}</div>
-                <div style={{ fontSize: 13, color: '#d1d5db' }}>{value}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>{label}</div>
+                <div style={{ fontSize: 13, color: 'var(--text-primary)', overflowWrap: 'anywhere' }}>{value}</div>
               </div>
             ) : null)}
             {company.notes && (
               <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${BORDER}` }}>
-                <div style={{ fontSize: 10, color: '#4b5563', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Notes</div>
-                <p style={{ fontSize: 13, color: '#9ca3af', margin: 0, lineHeight: 1.6 }}>{company.notes}</p>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Notes</div>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}>{company.notes}</p>
               </div>
             )}
-          </div>
+          </Panel>
 
           {/* Activity feed */}
           <Section title="Activity" count={activities.length}>
@@ -138,11 +142,11 @@ export default function CompanyDetailPage() {
               : activities.map((a, i) => (
                 <div key={a.id} style={{ paddingBottom: 12, marginBottom: i < activities.length-1 ? 12 : 0, borderBottom: i < activities.length-1 ? `1px solid ${BORDER}` : 'none' }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                    <span style={{ fontSize: 14 }}>{TYPE_ICONS[a.type]}</span>
+                    <span aria-hidden="true" style={{ fontSize: 14 }}>{TYPE_ICONS[a.type]}</span>
                     <div>
-                      <div style={{ fontSize: 13, color: '#f9fafb', fontWeight: 500 }}>{a.subject}</div>
-                      {a.body && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3, lineHeight: 1.4 }}>{a.body.slice(0, 120)}{a.body.length > 120 ? '…' : ''}</div>}
-                      <div style={{ fontSize: 11, color: '#4b5563', marginTop: 4 }}>
+                      <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}><span className="bb-visually-hidden">{a.type}: </span>{a.subject}</div>
+                      {a.body && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3, lineHeight: 1.4 }}>{a.body.slice(0, 120)}{a.body.length > 120 ? '…' : ''}</div>}
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
                         {new Date(a.activity_date).toLocaleDateString('en-AU', { day:'numeric', month:'short' })} · {a.created_by_name}
                       </div>
                     </div>
@@ -162,22 +166,19 @@ export default function CompanyDetailPage() {
 
 function Section({ title, count, action, children }: { title: string; count?: number; action?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: '#f9fafb' }}>{title}</span>
-          {count !== undefined && <span style={{ fontSize: 11, color: '#4b5563', background: '#1a1d24', padding: '1px 6px', borderRadius: 10 }}>{count}</span>}
-        </div>
-        {action}
-      </div>
+    <Panel
+      title={
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          {title}
+          {count !== undefined && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-muted)', background: 'var(--status-inactive-muted)', padding: '1px 6px', borderRadius: 'var(--radius-sm)', fontVariantNumeric: 'tabular-nums' }}>{count}</span>}
+        </span>
+      }
+      actions={action}
+    >
       {children}
-    </div>
+    </Panel>
   );
 }
 function Empty({ children }: { children: React.ReactNode }) {
-  return <p style={{ fontSize: 13, color: '#4b5563', margin: 0 }}>{children}</p>;
+  return <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>{children}</p>;
 }
-
-const outlineBtn: React.CSSProperties = { padding: '7px 14px', background: 'transparent', color: '#9ca3af', border: '1px solid #1a1d24', borderRadius: 8, fontSize: 13, cursor: 'pointer' };
-const dangerBtn:  React.CSSProperties = { padding: '7px 14px', background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, fontSize: 13, cursor: 'pointer' };
-const linkStyle:  React.CSSProperties = { fontSize: 12, color: '#1a6aff', textDecoration: 'none' };

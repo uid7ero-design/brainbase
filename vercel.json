@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/ticket-email-recovery",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/hr-employee-document-reminders",
+      "schedule": "15 0 * * *"
     }
   ]
 }

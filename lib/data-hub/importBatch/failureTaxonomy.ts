@@ -131,7 +131,30 @@ export type CallerOnlyOutcomeCode =
   // code covering every validation failure, mirroring this file family's
   // own established non-distinguishing discipline; never echoes the
   // caller's own invalid input back in the message.
-  | "INVALID_REPORTING_PERIOD";
+  | "INVALID_REPORTING_PERIOD"
+  // 6.2D4B — stageWorksheetRows/completeStagingRun-only outcome codes.
+  // STORAGE_NOT_FOUND, PROVIDER_FAILURE, BATCH_NOT_FOUND, BATCH_NOT_READY,
+  // STORAGE_INTEGRITY_MISMATCH, PARSER_REJECTED, INVALID_STATE are all
+  // reused verbatim from above (same precedent as inspectWorksheets.ts/
+  // establishImportBatchSchemaLineage.ts).
+  //
+  // A live lease is already held by a different caller (the partial unique
+  // index / conditional lease-claim UPDATE lost the race). Never reveals
+  // who holds it.
+  | "RUN_ALREADY_IN_PROGRESS"
+  // This upload's worksheet does not satisfy the staging-eligibility gate:
+  // disposition <> STAGING_DATASET, or role <> DATA, or the two disagree
+  // (fail-closed on any disagreement — never silently picks one).
+  | "STAGING_INELIGIBLE"
+  // A batch commit's conditional lease-verify/renew (before insert) or
+  // lease-reverify (after insert, before progress commit) did not affect
+  // exactly 1 row — the entire batch transaction rolled back; nothing was
+  // partially committed.
+  | "LEASE_LOST"
+  // The source workbook's SHA-256 no longer matches ImportBatch.sha256 at
+  // resume/completion time, re-verified independently of the run's own
+  // captured source_sha256.
+  | "WORKBOOK_INTEGRITY_CHANGED";
 
 export type FailureCode = PersistedFailureCode | CallerOnlyOutcomeCode;
 
@@ -362,6 +385,15 @@ const MESSAGE_TEMPLATES: Record<FailureCode, string> = {
   // 6.2B1 — never echoes the caller's own supplied values.
   INVALID_REPORTING_PERIOD:
     "The reporting period supplied is not valid. Provide both a start and end date, each a real calendar date, with the start on or before the end.",
+  // 6.2D4B additions.
+  RUN_ALREADY_IN_PROGRESS:
+    "A raw-staging run is already in progress for this worksheet. Wait for it to finish before starting another.",
+  STAGING_INELIGIBLE:
+    "This worksheet is not eligible for raw staging under its governed schema.",
+  LEASE_LOST:
+    "This raw-staging attempt lost ownership of its run and made no changes. It can be safely retried.",
+  WORKBOOK_INTEGRITY_CHANGED:
+    "The source workbook no longer matches its recorded checksum and cannot be staged.",
 };
 
 const MAX_MESSAGE_LENGTH = 500;

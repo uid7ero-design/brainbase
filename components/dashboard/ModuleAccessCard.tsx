@@ -1,132 +1,96 @@
 'use client';
 
-import { useState } from 'react';
+import { useId } from 'react';
 import { CapabilityIcon } from '@/components/brand/CapabilityIcon';
+import { workModuleCards, type DashboardVariant } from '@/components/nav/navModel';
+import styles from './ModuleAccessCard.module.css';
 
-const FONT = "var(--font-inter), -apple-system, sans-serif";
+// The client dashboard's own "Your tools" section — the obvious entry point
+// to the organisation's first-class Work modules on the page staff land on
+// after login (OrganisationDashboard, TennisDashboard, the BrainBase
+// fallback). WHICH modules appear is no longer decided here: it comes from
+// the same pure navigation model TopNav's Work menu uses
+// (components/nav/navModel.ts → workModuleCards), so the dashboard and the
+// chrome can never disagree about module access. Only first-class Work
+// modules are cards — never Data Hub, the Tennis group, Manage, Brainbase or
+// Account items. This component owns presentation only (copy + layout).
+//
+// Callers compute enabledCapabilities server-side (app/dashboard/page.tsx)
+// via the same organisation_modules × modules projection /api/me uses, and
+// pass the signed-in role so role-gated modules (Organiser: manager+) are
+// offered only where their route admits the user. Without a role, role-gated
+// modules fail closed.
 
-// The client dashboard's own capability-driven "Your tools" section — the
-// single place a staff user with a capability-gated module enabled sees an
-// obvious entry point for it on the page they actually land on after login
-// (app/dashboard/page.tsx -> <BrainBase>/<TennisDashboard>), not only in
-// TopNav's thin, easily-missed pill row. Deliberately data-driven, not "if
-// org has Events render a hardcoded Events card": add a new entry here when
-// a second module needs the same treatment, rather than special-casing
-// each one at the call site. Never references an organisation id or slug —
-// entirely driven by the enabledCapabilities prop, which callers compute
-// server-side (app/dashboard/page.tsx) via the SAME query
-// app/api/me/route.ts's own enabledCapabilities projection already runs —
-// this is the same capability system, not a second one, and rendering it
-// server-side (rather than this component doing its own client fetch)
-// means the entry is present in the initial page render, not only after a
-// client-side round trip resolves.
+type CardCopy = { description: string; cta: string };
+
+const CARD_COPY: Record<string, CardCopy> = {
+  events: { description: 'Create and manage events, registrations and tickets', cta: 'Open Events' },
+  crm: { description: 'Companies, contacts, deals and activities', cta: 'Open CRM' },
+  commercial: { description: 'Quotes, invoices and purchasing', cta: 'Open Commercial' },
+  organiser: { description: 'Boards and tasks for your organisation', cta: 'Open Organiser' },
+  people: { description: 'People, teams and HR records', cta: 'Open People' },
+};
+
 type ModuleEntry = {
-  key: string;
+  id: string;
+  icon: string;
   title: string;
   description: string;
   href: string;
   cta: string;
 };
 
-// Phase C.2C — added the crm/organiser entries alongside the existing
-// events one so this card covers every capability key that genuinely
-// exists in `modules` today (confirmed via a read-only audit: crm, events,
-// organiser are the only three rows). Same pattern, same verified real
-// routes (/crm, /organiser) — not a guess.
-const MODULE_ENTRIES: ModuleEntry[] = [
-  {
-    key: 'events',
-    title: 'Events & Ticketing',
-    description: 'Create and manage events, registrations and tickets',
-    href: '/events',
-    cta: 'Open Events',
-  },
-  {
-    key: 'crm',
-    title: 'CRM',
-    description: 'Companies, contacts, deals and activities',
-    href: '/crm',
-    cta: 'Open CRM',
-  },
-  {
-    key: 'organiser',
-    title: 'Organiser',
-    description: 'Boards and tasks for your organisation',
-    href: '/organiser',
-    cta: 'Open Organiser',
-  },
-];
-
+// Phase D2 — compact module access: one bordered list, one row per
+// enabled module (icon, name, purpose, direct action), instead of large
+// hover-lit tiles.
 function ModuleCard({ entry }: { entry: ModuleEntry }) {
-  const [hover, setHover] = useState(false);
-
   return (
-    <a
-      href={entry.href}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        padding: '12px 16px 14px',
-        borderRadius: 11,
-        textDecoration: 'none',
-        fontFamily: FONT,
-        background: hover ? 'rgba(124,58,237,.10)' : 'rgba(255,255,255,.025)',
-        border: `1px solid ${hover ? 'rgba(124,58,237,.38)' : 'rgba(255,255,255,.07)'}`,
-        boxShadow: hover ? '0 0 20px rgba(124,58,237,.12)' : 'none',
-        transition: 'all .18s',
-      }}
-    >
-      {/* Decorative — the title text right below already gives every card an
-          accessible name, so the icon carries no separate aria-label.
-          marginBottom trims the flex gap below just this element (8px -
-          2px = 6px) so the icon reads as grouped with the title, without
-          touching the title/description/CTA rhythm below, which keeps the
-          container's own 8px gap unchanged. */}
-      <CapabilityIcon capability={entry.key} size="md" state={hover ? 'hover' : 'default'} style={{ marginBottom: -2 }} />
-
-      <span style={{ fontSize: 13, fontWeight: 700, color: hover ? '#E2D9F3' : '#D4D4D8', lineHeight: 1.35 }}>
-        {entry.title}
-      </span>
-      <p style={{ margin: 0, fontSize: 11, color: 'rgba(161,161,170,.75)', lineHeight: 1.5 }}>
-        {entry.description}
-      </p>
-      <span style={{
-        fontSize: 10, fontWeight: 700, letterSpacing: '.04em',
-        color: hover ? '#C4B5FD' : 'rgba(167,139,250,.55)',
-        transition: 'color .18s',
-      }}>
-        {entry.cta} →
-      </span>
-    </a>
+    <li>
+      <a href={entry.href} className={styles.row}>
+        {/* Decorative — the title text beside it already gives every row an
+            accessible name, so the icon carries no separate aria-label. */}
+        <CapabilityIcon capability={entry.icon} size="sm" />
+        <span className={styles.text}>
+          <span className={styles.title}>{entry.title}</span>
+          <span className={styles.description}>{entry.description}</span>
+        </span>
+        <span className={styles.cta}>
+          {entry.cta} <span aria-hidden="true">→</span>
+        </span>
+      </a>
+    </li>
   );
 }
 
-export function ModuleAccessCard({ enabledCapabilities }: { enabledCapabilities: string[] }) {
-  const entries = MODULE_ENTRIES.filter(e => enabledCapabilities.includes(e.key));
+export function ModuleAccessCard({
+  enabledCapabilities,
+  role = '',
+  dashboardVariant = null,
+}: {
+  enabledCapabilities: string[];
+  /** Real signed-in role; omitted → role-gated modules fail closed. */
+  role?: string;
+  dashboardVariant?: DashboardVariant;
+}) {
+  const entries: ModuleEntry[] = workModuleCards({ role, enabledCapabilities, dashboardVariant }).map(link => ({
+    id: link.id,
+    icon: link.icon ?? link.id,
+    title: link.label,
+    description: CARD_COPY[link.id]?.description ?? link.description ?? '',
+    href: link.href,
+    cta: CARD_COPY[link.id]?.cta ?? `Open ${link.label}`,
+  }));
+  const headingId = useId();
   if (entries.length === 0) return null;
 
   return (
-    <div style={{ fontFamily: FONT }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <div style={{ height: 1, flex: 1, background: 'rgba(255,255,255,.06)' }} />
-        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '.14em', color: 'rgba(255,255,255,.30)', textTransform: 'uppercase' }}>
-          Your Tools
-        </span>
-        <div style={{ height: 1, flex: 1, background: 'rgba(255,255,255,.06)' }} />
-      </div>
-
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-        gap: 8,
-      }}>
+    <section className={styles.section} aria-labelledby={headingId}>
+      <h2 id={headingId} className={styles.heading}>Your Tools</h2>
+      <ul className={styles.list}>
         {entries.map(entry => (
-          <ModuleCard key={entry.key} entry={entry} />
+          <ModuleCard key={entry.id} entry={entry} />
         ))}
-      </div>
-    </div>
+      </ul>
+    </section>
   );
 }

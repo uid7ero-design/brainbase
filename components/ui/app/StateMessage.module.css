@@ -1,0 +1,65 @@
+/* Authenticated-app empty / loading / error message. Tokens only. */
+
+.message {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  padding: 12px 0;
+  color: var(--text-secondary);
+}
+
+.message[data-size='page'] {
+  justify-items: center;
+  padding: 48px 16px;
+  text-align: center;
+}
+
+.title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.message[data-kind='loading'] .title {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.message[data-kind='error'] {
+  padding-left: 12px;
+  border-left: 2px solid var(--status-danger);
+}
+
+.message[data-kind='error'][data-size='page'] {
+  padding-left: 16px;
+  border-left: 0;
+}
+
+.message[data-kind='error'] .title {
+  color: var(--status-danger);
+}
+
+.body {
+  margin: 0;
+  max-width: 60ch;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.action {
+  margin-top: 8px;
+  font-size: 0.8125rem;
+}
+
+.action a:not([data-variant]) {
+  color: var(--brand-brainbase-accent);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.action a:not([data-variant]):hover {
+  color: var(--brand-brainbase-accent-hover);
+}

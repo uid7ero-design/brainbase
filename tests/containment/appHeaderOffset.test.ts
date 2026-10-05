@@ -32,8 +32,8 @@ const orgSwitcherSource = stripComments(read('components/admin/OrgSwitcher.tsx')
 const globalsCss = read('app/globals.css')
 
 describe('lib/layout/headerOffset.ts — one shared source of truth', () => {
-  it('exports exactly one numeric height constant (TOP_NAV_HEIGHT_PX = 52)', () => {
-    expect(headerOffsetSource).toMatch(/export const TOP_NAV_HEIGHT_PX = 52;/)
+  it('exports exactly one numeric height constant (TOP_NAV_HEIGHT_PX = 64 — desktop header refinement)', () => {
+    expect(headerOffsetSource).toMatch(/export const TOP_NAV_HEIGHT_PX = 64;/)
   })
 
   it('exports the CSS custom property name and a ready-to-use var() reference', () => {
@@ -52,8 +52,8 @@ describe('lib/layout/headerOffset.ts — one shared source of truth', () => {
 })
 
 describe('app/globals.css — correct default before any client JS runs', () => {
-  it('defaults --app-header-offset to exactly 52px — correct for non-super_admin sessions and the very first paint', () => {
-    expect(globalsCss).toMatch(/--app-header-offset:\s*52px;/)
+  it('defaults --app-header-offset to exactly 64px — correct for non-super_admin sessions and the very first paint', () => {
+    expect(globalsCss).toMatch(/--app-header-offset:\s*64px;/)
   })
 })
 
@@ -62,10 +62,19 @@ describe('components/nav/TopNav.tsx — uses the shared constant, not a duplicat
     expect(topNavSource).toMatch(/import \{ TOP_NAV_HEIGHT_PX \} from '@\/lib\/layout\/headerOffset';/)
   })
 
+  // PublicNav moved to components/public/PublicNav.tsx (public-site visual
+  // system); it still takes its height from the same shared constant.
   it('both PublicNav and AppNav use TOP_NAV_HEIGHT_PX for height, not a bare 52 literal', () => {
     const occurrences = [...topNavSource.matchAll(/height: TOP_NAV_HEIGHT_PX,/g)]
-    expect(occurrences.length).toBe(2)
+    expect(occurrences.length).toBe(1)
     expect(topNavSource).not.toMatch(/height: 52,/)
+    expect(topNavSource).toMatch(/<PublicNav/)
+
+    const publicNavSource = stripComments(read('components/public/PublicNav.tsx'))
+    const publicNavCss = read('components/public/PublicNav.module.css')
+    expect(publicNavSource).toMatch(/import \{ TOP_NAV_HEIGHT_PX \} from '@\/lib\/layout\/headerOffset'/)
+    expect(publicNavSource).toMatch(/style=\{\{ height: TOP_NAV_HEIGHT_PX \}\}/)
+    expect(publicNavCss).not.toMatch(/height:\s*52px/)
   })
 })
 

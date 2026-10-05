@@ -3,12 +3,12 @@
 import { useState, useEffect, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { getOrganisationCapabilities, setOrganisationCapability, type OrganisationCapability } from '@/app/actions/orgModules';
+import { Button, Dialog, PageHeader, StateMessage, TableContainer, buttonProps, fieldControlClassName, tableStyles } from '@/components/ui/app';
 
 type Org  = { id: string; name: string; slug: string; created_at: string };
 type User = { id: string; username: string; name: string; email: string; role: string; organisation_id: string; org_name: string };
 type CrmClient = { organisation_id?: string | null; stage?: string; estimated_value?: number | null; next_action?: string | null; org?: string };
 
-const FONT  = "var(--font-inter), -apple-system, sans-serif";
 const ROLES = ['viewer', 'manager', 'admin', 'super_admin'];
 
 function fmt(ts: string) {
@@ -222,120 +222,120 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
   }
 
   // ── Styles ──────────────────────────────────────────────────
-  const inp: React.CSSProperties = {
-    width: '100%', padding: '8px 12px',
-    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)',
-    borderRadius: 8, color: '#F4F4F5', fontSize: 13, outline: 'none',
-    boxSizing: 'border-box', fontFamily: FONT,
-  };
-  const sel: React.CSSProperties = { ...inp, cursor: 'pointer' };
+  // Visual-convergence (remaining visual islands pass): form controls use
+  // the shared field control (3:1 edge, theme tokens, inherited app font).
+  const inp = fieldControlClassName;
+  const sel = fieldControlClassName;
 
   return (
-    <div style={{ minHeight: '100vh', background: '#08090C', color: '#F4F4F5', fontFamily: FONT, padding: '24px' }}>
+    <div style={{ color: 'var(--text-primary)' }}>
       <div style={{ maxWidth: 1040, margin: '0 auto' }}>
 
-        {/* Header */}
-        <div style={{ marginBottom: 24 }}>
-          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em' }}>Administration</h1>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'rgba(255,255,255,0.40)' }}>
-            Super admin panel — manage organisations and users.
-          </p>
-        </div>
+        <PageHeader title="Administration" description="Super admin panel — manage organisations and users." />
 
         {/* Tabs */}
-        <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid rgba(255,255,255,0.07)', marginBottom: 20 }}>
+        <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', marginBottom: 20 }}>
           {(['orgs', 'users'] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)} style={{
+            <button key={t} type="button" aria-pressed={tab === t} onClick={() => setTab(t)} style={{
               padding: '9px 18px', background: 'none', border: 'none',
-              borderBottom: tab === t ? '2px solid #8B5CF6' : '2px solid transparent',
-              color: tab === t ? '#C4B5FD' : 'rgba(255,255,255,0.40)',
-              fontSize: 13, fontWeight: tab === t ? 600 : 400, cursor: 'pointer',
-              textTransform: 'capitalize', transition: 'all 0.15s', fontFamily: FONT,
+              borderBottom: tab === t ? '2px solid var(--brand-brainbase-accent)' : '2px solid transparent',
+              color: tab === t ? 'var(--brand-brainbase-accent)' : 'var(--text-secondary)',
+              font: 'inherit', fontSize: 13, fontWeight: tab === t ? 600 : 400, cursor: 'pointer',
             }}>
               {t === 'orgs' ? `Organisations (${orgs.length})` : `Users (${users.length})`}
             </button>
           ))}
         </div>
 
-        {error   && <div style={{ padding: '10px 14px', background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, fontSize: 13, color: '#FCA5A5', marginBottom: 14 }}>{error} <button onClick={() => setError('')} style={{ background: 'none', border: 'none', color: '#FCA5A5', cursor: 'pointer', marginLeft: 8, fontFamily: FONT }}>×</button></div>}
-        {success && <div style={{ padding: '10px 14px', background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.22)', borderRadius: 8, fontSize: 13, color: '#86EFAC', marginBottom: 14 }}>{success} <button onClick={() => setSuccess('')} style={{ background: 'none', border: 'none', color: '#86EFAC', cursor: 'pointer', marginLeft: 8, fontFamily: FONT }}>×</button></div>}
+        {error   && <div role="alert" style={{ padding: '10px 14px', background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', borderRadius: 'var(--radius-md)', fontSize: 13, color: 'var(--status-danger)', marginBottom: 14 }}>{error} <button type="button" aria-label="Dismiss message" onClick={() => setError('')} style={DISMISS}><span aria-hidden="true">×</span></button></div>}
+        {success && <div role="status" style={{ padding: '10px 14px', background: 'var(--status-success-muted)', border: '1px solid var(--status-success-border)', borderRadius: 'var(--radius-md)', fontSize: 13, color: 'var(--status-success)', marginBottom: 14 }}>{success} <button type="button" aria-label="Dismiss message" onClick={() => setSuccess('')} style={DISMISS}><span aria-hidden="true">×</span></button></div>}
 
         {/* ── ORGANISATIONS tab ── */}
         {tab === 'orgs' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 18, alignItems: 'start' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, alignItems: 'flex-start' }}>
             {/* Table */}
-            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, overflow: 'hidden' }}>
-              <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)' }}>
-                Organisations
-              </div>
+            <section aria-labelledby="admin-orgs-heading" style={{ flex: '1 1 520px', minWidth: 0 }}>
+              <h2 id="admin-orgs-heading" style={SECTION_HEADING}>Organisations</h2>
               {orgs.length === 0 ? (
-                <div style={{ padding: 24, textAlign: 'center', color: 'rgba(255,255,255,0.25)', fontSize: 13 }}>No organisations yet.</div>
+                <StateMessage kind="empty" title="No organisations yet." />
               ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
-                      {['Name', 'Slug', 'CRM', 'Created', ''].map(h => (
-                        <th key={h} style={{ padding: '8px 16px', textAlign: 'left', fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.32)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orgs.map(o => {
-                      const crm = crmClients.find(c => c.organisation_id === o.id);
-                      const STAGE_C: Record<string, string> = { lead: '#94A3B8', contacted: '#60A5FA', demo: '#A78BFA', trial: '#FCD34D', proposal: '#FDE68A', paid: '#4ADE80', lost: '#F87171' };
-                      const stageColor = crm?.stage ? (STAGE_C[crm.stage] ?? '#94A3B8') : undefined;
-                      return (
-                        <tr key={o.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                          <td style={{ padding: '10px 16px', fontWeight: 600 }}>{o.name}</td>
-                          <td style={{ padding: '10px 16px', color: 'rgba(255,255,255,0.45)', fontFamily: 'monospace', fontSize: 12 }}>{o.slug}</td>
-                          <td style={{ padding: '10px 16px', fontSize: 11 }}>
-                            {crm ? (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                  <span style={{ padding: '1px 5px', borderRadius: 3, fontSize: 9, fontWeight: 700, background: `${stageColor}18`, color: stageColor, border: `1px solid ${stageColor}30` }}>
-                                    {(crm.stage ?? '').toUpperCase()}
-                                  </span>
-                                  {crm.estimated_value != null && (
-                                    <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', fontFamily: 'monospace' }}>${crm.estimated_value.toLocaleString()}/mo</span>
+                <TableContainer label="Organisations table" minWidth={620}>
+                  <table className={tableStyles.table}>
+                    <thead>
+                      <tr>
+                        <th scope="col">Name</th>
+                        <th scope="col">Slug</th>
+                        <th scope="col">CRM</th>
+                        <th scope="col">Created</th>
+                        <th scope="col" className={tableStyles.actions}><span className="bb-visually-hidden">Actions</span></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orgs.map(o => {
+                        const crm = crmClients.find(c => c.organisation_id === o.id);
+                        // Founder CRM pipeline stage colours — a data encoding shared with
+                        // Founder OS (STAGE_FG), kept as-is rather than forced into
+                        // generic semantic states.
+                        const STAGE_C: Record<string, string> = { lead: '#94A3B8', contacted: '#60A5FA', demo: '#A78BFA', trial: '#FCD34D', proposal: '#FDE68A', paid: '#4ADE80', lost: '#F87171' };
+                        const stageColor = crm?.stage ? (STAGE_C[crm.stage] ?? STAGE_C.lead) : undefined;
+                        return (
+                          <tr key={o.id}>
+                            <td className={tableStyles.primary}>{o.name}</td>
+                            <td style={{ fontFamily: 'var(--bb-font-mono)', fontSize: 12 }}>{o.slug}</td>
+                            <td style={{ fontSize: 11 }}>
+                              {crm ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                    {/* Stage hue on the dot + a light tint; the label stays on
+                                        --text-primary so it reads in both themes (as Founder OS). */}
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '1px 5px', borderRadius: 'var(--radius-sm)', fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', background: `color-mix(in srgb, ${stageColor} 14%, transparent)`, color: 'var(--text-primary)', border: `1px solid color-mix(in srgb, ${stageColor} 45%, transparent)` }}>
+                                      <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: stageColor, flexShrink: 0 }} />
+                                      {(crm.stage ?? '').toUpperCase()}
+                                    </span>
+                                    {crm.estimated_value != null && (
+                                      <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>${crm.estimated_value.toLocaleString()}/mo</span>
+                                    )}
+                                  </div>
+                                  {crm.next_action && (
+                                    <span style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{crm.next_action}</span>
                                   )}
+                                  <button
+                                    type="button"
+                                    onClick={() => router.push('/admin/founder')}
+                                    className={tableStyles.link}
+                                    style={{ alignSelf: 'flex-start', marginTop: 2 }}
+                                  >
+                                    View in Founder OS →
+                                  </button>
                                 </div>
-                                {crm.next_action && (
-                                  <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.30)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{crm.next_action}</span>
-                                )}
-                                <button
-                                  onClick={() => router.push('/admin/founder')}
-                                  style={{ alignSelf: 'flex-start', padding: '2px 6px', fontSize: 9, fontWeight: 600, background: 'rgba(34,211,238,0.10)', color: '#22D3EE', border: '1px solid rgba(34,211,238,0.22)', borderRadius: 3, cursor: 'pointer', fontFamily: FONT, marginTop: 2 }}
-                                >
-                                  View in Founder OS →
-                                </button>
+                              ) : (
+                                <span className={tableStyles.muted}>—</span>
+                              )}
+                            </td>
+                            <td style={{ fontSize: 12 }}>{fmt(o.created_at)}</td>
+                            <td className={tableStyles.actions}>
+                              <div style={{ display: 'inline-flex', gap: 6 }}>
+                                <button type="button" onClick={() => openEditOrg(o)} {...buttonProps('secondary', 'sm')}>Edit</button>
+                                <button type="button" onClick={() => deleteOrg(o)} {...buttonProps('danger', 'sm')}>Delete</button>
                               </div>
-                            ) : (
-                              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.20)' }}>—</span>
-                            )}
-                          </td>
-                          <td style={{ padding: '10px 16px', color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>{fmt(o.created_at)}</td>
-                          <td style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}>
-                            <div style={{ display: 'flex', gap: 6 }}>
-                              <button onClick={() => openEditOrg(o)} style={smallBtn('rgba(124,58,237,0.15)', '#C4B5FD', 'rgba(124,58,237,0.30)')}>Edit</button>
-                              <button onClick={() => deleteOrg(o)} style={smallBtn('rgba(239,68,68,0.10)', '#FCA5A5', 'rgba(239,68,68,0.22)')}>Delete</button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </TableContainer>
               )}
-            </div>
+            </section>
 
             {/* Create org form */}
-            <form onSubmit={createOrg} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>New Organisation</div>
+            <form onSubmit={createOrg} style={{ ...SIDE_FORM, gap: 12 }}>
+              <h2 style={{ ...SECTION_HEADING, marginBottom: 4 }}>New Organisation</h2>
               <Label text="Name">
-                <input required value={orgForm.name} onChange={e => setOrgForm(f => ({ ...f, name: e.target.value, slug: slugify(e.target.value) }))} placeholder="City of Springfield" style={inp} />
+                <input required value={orgForm.name} onChange={e => setOrgForm(f => ({ ...f, name: e.target.value, slug: slugify(e.target.value) }))} placeholder="City of Springfield" className={inp} />
               </Label>
               <Label text="Slug">
-                <input required value={orgForm.slug} onChange={e => setOrgForm(f => ({ ...f, slug: slugify(e.target.value) }))} placeholder="city-of-springfield" style={inp} />
+                <input required value={orgForm.slug} onChange={e => setOrgForm(f => ({ ...f, slug: slugify(e.target.value) }))} placeholder="city-of-springfield" className={inp} />
               </Label>
               <PrimaryBtn disabled={saving}>{saving ? 'Creating…' : 'Create Organisation'}</PrimaryBtn>
             </form>
@@ -344,50 +344,52 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
 
         {/* ── USERS tab ── */}
         {tab === 'users' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: 18, alignItems: 'start' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, alignItems: 'flex-start' }}>
             {/* Table */}
-            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, overflow: 'hidden' }}>
-              <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)' }}>Users</div>
+            <section aria-labelledby="admin-users-heading" style={{ flex: '1 1 520px', minWidth: 0 }}>
+              <h2 id="admin-users-heading" style={SECTION_HEADING}>Users</h2>
               {users.length === 0 ? (
-                <div style={{ padding: 24, textAlign: 'center', color: 'rgba(255,255,255,0.25)', fontSize: 13 }}>No users yet.</div>
+                <StateMessage kind="empty" title="No users yet." />
               ) : (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 540 }}>
+                <TableContainer label="Users table" minWidth={560}>
+                  <table className={tableStyles.table}>
                     <thead>
-                      <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
-                        {['Username', 'Name', 'Role', 'Organisation', ''].map(h => (
-                          <th key={h} style={{ padding: '8px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.32)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>{h}</th>
-                        ))}
+                      <tr>
+                        <th scope="col">Username</th>
+                        <th scope="col">Name</th>
+                        <th scope="col">Role</th>
+                        <th scope="col">Organisation</th>
+                        <th scope="col" className={tableStyles.actions}><span className="bb-visually-hidden">Actions</span></th>
                       </tr>
                     </thead>
                     <tbody>
                       {users.map(u => (
-                        <tr key={u.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                          <td style={{ padding: '9px 14px', fontFamily: 'monospace', fontSize: 12 }}>{u.username}</td>
-                          <td style={{ padding: '9px 14px', fontWeight: 500 }}>{u.name}</td>
-                          <td style={{ padding: '9px 14px' }}>
-                            <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, background: u.role === 'super_admin' ? 'rgba(239,68,68,0.12)' : 'rgba(124,58,237,0.12)', color: u.role === 'super_admin' ? '#FCA5A5' : '#C4B5FD', border: `1px solid ${u.role === 'super_admin' ? 'rgba(239,68,68,0.25)' : 'rgba(124,58,237,0.25)'}` }}>
+                        <tr key={u.id}>
+                          <td style={{ fontFamily: 'var(--bb-font-mono)', fontSize: 12 }}>{u.username}</td>
+                          <td className={tableStyles.primary}>{u.name}</td>
+                          <td>
+                            <span style={{ padding: '2px 7px', borderRadius: 'var(--radius-sm)', fontSize: 10, fontWeight: 700, background: u.role === 'super_admin' ? 'var(--status-danger-muted)' : 'var(--bg-sunken)', color: u.role === 'super_admin' ? 'var(--status-danger)' : 'var(--text-secondary)', border: `1px solid ${u.role === 'super_admin' ? 'var(--status-danger-border)' : 'var(--border)'}` }}>
                               {u.role}
                             </span>
                           </td>
-                          <td style={{ padding: '9px 14px', color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>{u.org_name ?? '—'}</td>
-                          <td style={{ padding: '9px 14px', whiteSpace: 'nowrap' }}>
-                            <div style={{ display: 'flex', gap: 6 }}>
-                              <button onClick={() => openEditUser(u)} style={smallBtn('rgba(124,58,237,0.15)', '#C4B5FD', 'rgba(124,58,237,0.30)')}>Edit</button>
-                              <button onClick={() => deleteUser(u)} style={smallBtn('rgba(239,68,68,0.10)', '#FCA5A5', 'rgba(239,68,68,0.22)')}>Delete</button>
+                          <td style={{ fontSize: 12 }}>{u.org_name ?? '—'}</td>
+                          <td className={tableStyles.actions}>
+                            <div style={{ display: 'inline-flex', gap: 6 }}>
+                              <button type="button" onClick={() => openEditUser(u)} {...buttonProps('secondary', 'sm')}>Edit</button>
+                              <button type="button" onClick={() => deleteUser(u)} {...buttonProps('danger', 'sm')}>Delete</button>
                             </div>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </TableContainer>
               )}
-            </div>
+            </section>
 
             {/* Create user form */}
-            <form onSubmit={createUser} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: 18, display: 'flex', flexDirection: 'column', gap: 11 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>New User</div>
+            <form onSubmit={createUser} style={{ ...SIDE_FORM, gap: 11 }}>
+              <h2 style={{ ...SECTION_HEADING, marginBottom: 4 }}>New User</h2>
               {([
                 { label: 'Full Name', key: 'name',     type: 'text',     ph: 'Jane Smith' },
                 { label: 'Username',  key: 'username', type: 'text',     ph: 'jane.smith' },
@@ -401,17 +403,17 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
                     placeholder={f.ph}
                     value={(userForm as Record<string, string>)[f.key]}
                     onChange={e => setUserForm(p => ({ ...p, [f.key]: e.target.value }))}
-                    style={inp}
+                    className={inp}
                   />
                 </Label>
               ))}
               <Label text="Role">
-                <select value={userForm.role} onChange={e => setUserForm(p => ({ ...p, role: e.target.value }))} style={sel}>
+                <select value={userForm.role} onChange={e => setUserForm(p => ({ ...p, role: e.target.value }))} className={sel}>
                   {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
               </Label>
               <Label text="Organisation">
-                <select required value={userForm.organisationId} onChange={e => setUserForm(p => ({ ...p, organisationId: e.target.value }))} style={sel}>
+                <select required value={userForm.organisationId} onChange={e => setUserForm(p => ({ ...p, organisationId: e.target.value }))} className={sel}>
                   <option value="">Select organisation…</option>
                   {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
                 </select>
@@ -428,24 +430,24 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
         <Modal title={`Edit — ${editOrg.name}`} onClose={() => setEditOrg(null)}>
           <form onSubmit={saveOrg} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <Label text="Organisation Name">
-              <input required value={editOrgForm.name} onChange={e => setEditOrgForm(f => ({ ...f, name: e.target.value }))} style={inp} />
+              <input required value={editOrgForm.name} onChange={e => setEditOrgForm(f => ({ ...f, name: e.target.value }))} className={inp} />
             </Label>
             <Label text="Slug">
-              <input required value={editOrgForm.slug} onChange={e => setEditOrgForm(f => ({ ...f, slug: slugify(e.target.value) }))} style={inp} />
+              <input required value={editOrgForm.slug} onChange={e => setEditOrgForm(f => ({ ...f, slug: slugify(e.target.value) }))} className={inp} />
             </Label>
             <PrimaryBtn disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</PrimaryBtn>
           </form>
 
           {/* ── Capabilities (Phase F.6I) ── */}
-          <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', marginBottom: 10 }}>
+          <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border)' }}>
+            <h3 style={{ ...SECTION_HEADING, marginBottom: 10 }}>
               Capabilities
-            </div>
+            </h3>
             {capabilitiesError && (
-              <div style={{ fontSize: 12, color: '#FCA5A5', marginBottom: 8 }}>{capabilitiesError}</div>
+              <div role="alert" style={{ fontSize: 12, color: 'var(--status-danger)', marginBottom: 8 }}>{capabilitiesError}</div>
             )}
             {capabilities.length === 0 && !capabilitiesError ? (
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>No registered capabilities.</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No registered capabilities.</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, opacity: isCapabilityPending ? 0.6 : 1 }}>
                 {capabilities.map(c => (
@@ -456,9 +458,9 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
                       disabled={isCapabilityPending || (!c.active && !c.enabled)}
                       onChange={e => toggleCapability(c.key, e.target.checked)}
                     />
-                    <span style={{ fontSize: 13, color: '#F4F4F5' }}>{c.name}</span>
+                    <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{c.name}</span>
                     {!c.active && (
-                      <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 3, padding: '1px 5px' }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-muted)', background: 'var(--bg-sunken)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '1px 5px' }}>
                         Inactive
                       </span>
                     )}
@@ -475,24 +477,24 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
         <Modal title={`Edit — ${editUser.username}`} onClose={() => setEditUser(null)}>
           <form onSubmit={saveUser} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <Label text="Full Name">
-              <input required value={editUserForm.name} onChange={e => setEditUserForm(f => ({ ...f, name: e.target.value }))} style={inp} />
+              <input required value={editUserForm.name} onChange={e => setEditUserForm(f => ({ ...f, name: e.target.value }))} className={inp} />
             </Label>
             <Label text="Email">
-              <input type="email" value={editUserForm.email} onChange={e => setEditUserForm(f => ({ ...f, email: e.target.value }))} placeholder="Leave blank to clear" style={inp} />
+              <input type="email" value={editUserForm.email} onChange={e => setEditUserForm(f => ({ ...f, email: e.target.value }))} placeholder="Leave blank to clear" className={inp} />
             </Label>
             <Label text="Role">
-              <select value={editUserForm.role} onChange={e => setEditUserForm(f => ({ ...f, role: e.target.value }))} style={sel}>
+              <select value={editUserForm.role} onChange={e => setEditUserForm(f => ({ ...f, role: e.target.value }))} className={sel}>
                 {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
             </Label>
             <Label text="Organisation">
-              <select required value={editUserForm.organisationId} onChange={e => setEditUserForm(f => ({ ...f, organisationId: e.target.value }))} style={sel}>
+              <select required value={editUserForm.organisationId} onChange={e => setEditUserForm(f => ({ ...f, organisationId: e.target.value }))} className={sel}>
                 <option value="">Select organisation…</option>
                 {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
               </select>
             </Label>
             <Label text="New Password (leave blank to keep)">
-              <input type="password" value={editUserForm.password} onChange={e => setEditUserForm(f => ({ ...f, password: e.target.value }))} placeholder="8+ characters" style={inp} />
+              <input type="password" value={editUserForm.password} onChange={e => setEditUserForm(f => ({ ...f, password: e.target.value }))} placeholder="8+ characters" className={inp} />
             </Label>
             <PrimaryBtn disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</PrimaryBtn>
           </form>
@@ -504,22 +506,16 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 24 }}>
-      <div style={{ background: '#0d0f14', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 14, padding: 28, width: '100%', maxWidth: 440, fontFamily: "var(--font-inter), -apple-system, sans-serif" }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#F4F4F5' }}>{title}</h2>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.40)', fontSize: 20, cursor: 'pointer', lineHeight: 1, fontFamily: 'inherit' }}>×</button>
-        </div>
-        {children}
-      </div>
-    </div>
+    <Dialog open title={title} onClose={onClose}>
+      {children}
+    </Dialog>
   );
 }
 
 function Label({ text, children }: { text: string; children: React.ReactNode }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{text}</span>
+      <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>{text}</span>
       {children}
     </label>
   );
@@ -527,18 +523,12 @@ function Label({ text, children }: { text: string; children: React.ReactNode }) 
 
 function PrimaryBtn({ children, disabled }: { children: React.ReactNode; disabled?: boolean }) {
   return (
-    <button type="submit" disabled={disabled} style={{
-      padding: '9px 14px', borderRadius: 8,
-      background: disabled ? 'rgba(124,58,237,0.15)' : 'rgba(124,58,237,0.25)',
-      border: '1px solid rgba(124,58,237,0.40)', color: '#C4B5FD',
-      fontSize: 13, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer',
-      transition: 'all 0.2s', fontFamily: "var(--font-inter), -apple-system, sans-serif",
-    }}>
+    <Button type="submit" variant="primary" disabled={disabled}>
       {children}
-    </button>
+    </Button>
   );
 }
 
-function smallBtn(bg: string, color: string, border: string): React.CSSProperties {
-  return { padding: '4px 10px', background: bg, color, border: `1px solid ${border}`, borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: "var(--font-inter), -apple-system, sans-serif" };
-}
+const SECTION_HEADING: React.CSSProperties = { margin: '0 0 8px', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)' };
+const DISMISS: React.CSSProperties = { background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', marginLeft: 8, font: 'inherit', padding: '0 4px', borderRadius: 'var(--radius-sm)' };
+const SIDE_FORM: React.CSSProperties = { flex: '1 1 300px', maxWidth: 420, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 18, display: 'flex', flexDirection: 'column' };

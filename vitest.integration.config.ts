@@ -107,14 +107,53 @@ import path from 'path';
 // .integration.test.ts proves the INTEGER -> NUMERIC(14,4) migration
 // against disposable Postgres before any Production rollout.
 //
-// C7.5D1 addition: scripts/tests/purchaseMatchAllocationsMigration.integration
-// .test.ts proves the additive allocation-ledger migration and structural
-// same-tenant/same-PO-line foreign-key invariants against disposable Postgres.
+// 6.2D4B remediation addition: scripts/tests/dataHubStageWorksheetRoute
+// .integration.test.ts proves the actual multi-request POST -> RUNNING ->
+// POST -> SUCCEEDED continuation seam against the real, unmodified route
+// handler and the real datahub_stage_raw_batch/datahub_complete_raw_staging_run
+// Postgres functions — see scripts/tests/verify-datahub-stage-worksheet-route.sh.
 //
-// C7.6B addition: scripts/tests/purchasingCommitments.integration.test.ts
-// proves the migration-free derived commitment lifecycle, READ COMMITTED
-// snapshot behavior, and receipt/match negative controls against disposable
-// Postgres using the real Purchasing domain functions.
+// Assurance UI foundation addition: scripts/tests/assuranceUi.integration.test.ts
+// (the Assurance service layer's tenant/restricted/same-org/workflow proof
+// against the real A0.1B..A0.1D-3 migrations — see
+// scripts/tests/verify-assurance-ui-services.sh), same explicit-file-argument
+// isolation as every spec above.
+//
+// Settings → Risk levels addition: scripts/tests/assuranceRiskLevelSettings
+// .integration.test.ts (see scripts/tests/verify-assurance-risk-level-settings.sh),
+// same explicit-file-argument isolation.
+//
+// Assurance risk bootstrap addition: scripts/tests/assuranceRiskBootstrap
+// .integration.test.ts (the application regression over the seeded
+// Brainbase risk scale — see scripts/tests/verify-assurance-risk-bootstrap.sh),
+// same explicit-file-argument isolation.
+//
+// 6.2D4B2A addition: scripts/tests/dataHubNormalizationExecutor
+// .integration.test.ts (the resumable normalization executor service's own
+// real-Postgres concurrency/pinning/transform/resume proof — see
+// scripts/tests/verify-datahub-normalization-executor.sh) is added
+// alongside the existing specs, for the same reason and with the same
+// explicit-file-argument isolation. Like the D.4.6K/C7.3 suites, this one
+// needs no auth seam — createOrResumeNormalizationRun/normalizeBatches/
+// completeNormalizationRun all take already-trusted organisationId/
+// uploadId/actorUserId directly.
+//
+// 6.2D4B2B addition: scripts/tests/dataHubNormalizeWorksheetRoute
+// .integration.test.ts (the thin manager+ normalization API/status route's
+// own real-Postgres proof — see
+// scripts/tests/verify-datahub-normalize-worksheet-route.sh) is added
+// alongside the existing specs, for the same reason and with the same
+// explicit-file-argument isolation. Like the 6.2D4B route suite, this one
+// DOES need the lib/org auth seam (the route itself resolves the session).
+//
+// 6.2D4D1B2 addition: scripts/tests/dataHubDatasetProfileExecution
+// .integration.test.ts (the dataset-profile execution service's own
+// real-Postgres create/complete/concurrency/reconciliation-rollback proof
+// — see scripts/tests/verify-datahub-profile-execution.sh) is added
+// alongside the existing specs, for the same reason and with the same
+// explicit-file-argument isolation. Like the D.4.6K/C7.3/6.2D4B2A suites,
+// this one needs no auth seam — profileUploadDataset takes already-
+// trusted organisationId/uploadId/actorId directly.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -133,6 +172,21 @@ export default defineConfig({
       'scripts/tests/purchaseReceiptConcurrency.integration.test.ts',
       'scripts/tests/supplierBillConcurrency.integration.test.ts',
       'scripts/tests/supplierBillFractionalQuantityMigration.integration.test.ts',
+      'scripts/tests/hrLifecycleTaskCompletion.integration.test.ts',
+      'scripts/tests/hrLifecycleTaskActionsApprovals.integration.test.ts',
+      'scripts/tests/hrLifecycleWorkflowActions.integration.test.ts',
+      'scripts/tests/dataHubStageWorksheetRoute.integration.test.ts',
+      'scripts/tests/assuranceUi.integration.test.ts',
+      'scripts/tests/assuranceRiskLevelSettings.integration.test.ts',
+      'scripts/tests/assuranceDeadlines.integration.test.ts',
+      'scripts/tests/assuranceReferenceDataSettings.integration.test.ts',
+      'scripts/tests/assuranceRiskBootstrap.integration.test.ts',
+      'scripts/tests/assuranceTemplates.integration.test.ts',
+      'scripts/tests/assuranceContractor.integration.test.ts',
+      'scripts/tests/assuranceEvidence.integration.test.ts',
+      'scripts/tests/dataHubNormalizationExecutor.integration.test.ts',
+      'scripts/tests/dataHubNormalizeWorksheetRoute.integration.test.ts',
+      'scripts/tests/dataHubDatasetProfileExecution.integration.test.ts',
       'scripts/tests/purchaseMatchAllocationsMigration.integration.test.ts',
       'scripts/tests/purchaseMatchAllocationConcurrency.integration.test.ts',
       'scripts/tests/purchasingCommitments.integration.test.ts',

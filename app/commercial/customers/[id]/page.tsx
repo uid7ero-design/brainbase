@@ -4,8 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import SlidePanel from '../../_components/SlidePanel';
 import CustomerForm from '../../_components/CustomerForm';
-
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+import { Badge, PageHeader, StateMessage, buttonProps } from '@/components/ui/app';
 
 type Customer = {
   id: string; name: string; billing_email: string | null; billing_phone: string | null;
@@ -59,33 +58,39 @@ export default function CustomerDetailPage() {
     load();
   }
 
-  if (loading) return <div style={{ color: '#6b7280', fontSize: 14 }}>Loading…</div>;
-  if (!customer) return <div style={{ color: '#6b7280', fontSize: 14 }}>Customer not found.</div>;
+  if (loading) return <StateMessage kind="loading" title="Loading customer…" size="page" />;
+  if (!customer) {
+    return (
+      <StateMessage kind="empty" size="page" title="Customer not found." action={<Link href="/commercial/customers">Back to customers</Link>} />
+    );
+  }
 
   return (
     <div style={{ maxWidth: 700 }}>
-      <Link href="/commercial/customers" style={{ color: '#6b7280', fontSize: 13, textDecoration: 'none' }}>← Customers</Link>
+      <PageHeader
+        eyebrow={<Link href="/commercial/customers">← Customers</Link>}
+        title={customer.name}
+        meta={<Badge state={customer.active ? 'active' : 'inactive'}>{customer.active ? 'Active' : 'Inactive'}</Badge>}
+        actions={
+          <>
+            <button type="button" onClick={() => setShowEdit(true)} {...buttonProps('secondary')}>Edit</button>
+            <button type="button" onClick={toggleActive} {...buttonProps('secondary')}>
+              {customer.active ? 'Deactivate' : 'Reactivate'}
+            </button>
+            {hasQuotes && <Link href={`/commercial/quotes/new?customerId=${customer.id}`} {...buttonProps('primary')}>New Quote</Link>}
+            {hasInvoicing && <Link href={`/commercial/invoices/new?customerId=${customer.id}`} {...buttonProps(hasQuotes ? 'secondary' : 'primary')}>New Invoice</Link>}
+          </>
+        }
+      />
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '16px 0 24px' }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>{customer.name}</h1>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={() => setShowEdit(true)} style={btn('#1f2937')}>Edit</button>
-          <button onClick={toggleActive} style={btn(customer.active ? 'rgba(239,68,68,0.15)' : 'rgba(74,222,128,0.15)', customer.active ? '#f87171' : '#4ade80')}>
-            {customer.active ? 'Deactivate' : 'Reactivate'}
-          </button>
-          {hasQuotes && <Link href={`/commercial/quotes/new?customerId=${customer.id}`} style={{ ...btn('#1a6aff'), textDecoration: 'none', display: 'inline-block' }}>New Quote</Link>}
-          {hasInvoicing && <Link href={`/commercial/invoices/new?customerId=${customer.id}`} style={{ ...btn('#1a6aff'), textDecoration: 'none', display: 'inline-block' }}>New Invoice</Link>}
-        </div>
-      </div>
-
-      <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+      <dl style={{ margin: 0, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px 24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 18 }}>
         <Row label="Status" value={customer.active ? 'Active' : 'Inactive'} />
         <Row label="CRM Link" value={(customer.crm_company_id || customer.crm_contact_id) ? 'Linked' : 'Not linked'} />
         <Row label="Billing Email" value={customer.billing_email} />
         <Row label="Billing Phone" value={customer.billing_phone} />
         <Row label="Billing Address" value={customer.billing_address} />
         <Row label="Tax / Business Number" value={customer.tax_business_number} />
-      </div>
+      </dl>
 
       <SlidePanel open={showEdit} onClose={() => setShowEdit(false)} title="Edit Customer">
         <CustomerForm
@@ -104,12 +109,8 @@ export default function CustomerDetailPage() {
 function Row({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
-      <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 14, color: value ? '#f9fafb' : '#4b5563' }}>{value ?? '—'}</div>
+      <dt style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</dt>
+      <dd style={{ margin: 0, fontSize: 14, color: value ? 'var(--text-primary)' : 'var(--text-muted)' }}>{value ?? '—'}</dd>
     </div>
   );
-}
-
-function btn(bg: string, color = '#fff'): React.CSSProperties {
-  return { padding: '8px 16px', background: bg, color, border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' };
 }

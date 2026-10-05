@@ -2,16 +2,20 @@
 import { useEffect, useState } from 'react';
 import SlidePanel from '../_components/SlidePanel';
 import DealForm from '../_components/DealForm';
+import { Button, PageHeader } from '@/components/ui/app';
 
-const BORDER = '#1a1d24';
+const BORDER = 'var(--border)';
 
+// Domain category encoding (kept) — deal pipeline stages. Semantic stages use
+// status tokens; "proposal" keeps its own category hue. Colour is drawn as the
+// column dot and card edge only, always beside the written stage label.
 const STAGES = [
-  { key: 'lead', label: 'Lead', color: '#6b7280' },
-  { key: 'qualified', label: 'Qualified', color: '#60a5fa' },
-  { key: 'proposal', label: 'Proposal', color: '#a78bfa' },
-  { key: 'negotiation', label: 'Negotiation', color: '#fbbf24' },
-  { key: 'closed_won', label: 'Won', color: '#34d399' },
-  { key: 'closed_lost', label: 'Lost', color: '#f87171' },
+  { key: 'lead', label: 'Lead', color: 'var(--status-inactive)' },
+  { key: 'qualified', label: 'Qualified', color: 'var(--status-info)' },
+  { key: 'proposal', label: 'Proposal', color: '#f472b6' },
+  { key: 'negotiation', label: 'Negotiation', color: 'var(--status-warning)' },
+  { key: 'closed_won', label: 'Won', color: 'var(--status-success)' },
+  { key: 'closed_lost', label: 'Lost', color: 'var(--status-danger)' },
 ];
 
 type Deal = { id: string; title: string; value: number | null; stage: string; company_name: string | null; contact_name: string | null; expected_close: string | null; assigned_to_name: string | null; probability: number };
@@ -48,71 +52,80 @@ export default function DealsPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 24 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>Deals</h1>
-          <span style={{ fontSize: 13, color: '#6b7280' }}>{deals.length} deals</span>
-          {totalPipeline > 0 && <span style={{ fontSize: 13, color: '#a78bfa' }}>${totalPipeline.toLocaleString()} in pipeline</span>}
-          {totalWon > 0 && <span style={{ fontSize: 13, color: '#34d399' }}>${totalWon.toLocaleString()} won</span>}
-        </div>
-        <button onClick={() => setShowAdd(true)} style={addBtn}>+ Add Deal</button>
-      </div>
+      <PageHeader
+        title="Deals"
+        description={
+          <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: '4px 16px', fontVariantNumeric: 'tabular-nums' }}>
+            <span>{deals.length} deals</span>
+            {totalPipeline > 0 && <span>${totalPipeline.toLocaleString()} in pipeline</span>}
+            {totalWon > 0 && <span>${totalWon.toLocaleString()} won</span>}
+          </span>
+        }
+        actions={<Button variant="primary" onClick={() => setShowAdd(true)}>+ Add Deal</Button>}
+      />
 
       <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 16 }}>
         {STAGES.map(stage => {
           const col = deals.filter(d => d.stage === stage.key);
           const colValue = col.reduce((s, d) => s + (d.value ?? 0), 0);
           return (
-            <div
+            <section
               key={stage.key}
+              aria-labelledby={`stage-${stage.key}`}
               style={{ minWidth: 240, flex: '0 0 240px' }}
               onDragOver={e => e.preventDefault()}
               onDrop={e => { e.preventDefault(); if (dragging) moveStage(dragging, stage.key); setDragging(null); }}
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, padding: '0 4px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: stage.color }} />
-                  <span style={{ fontSize: 12, fontWeight: 600, color: '#d1d5db', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{stage.label}</span>
-                  <span style={{ fontSize: 11, color: '#4b5563', background: '#1a1d24', padding: '1px 6px', borderRadius: 10 }}>{col.length}</span>
+                  <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', background: stage.color }} />
+                  <h2 id={`stage-${stage.key}`} style={{ margin: 0, fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{stage.label}</h2>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)', background: 'var(--status-inactive-muted)', padding: '1px 6px', borderRadius: 'var(--radius-sm)', fontVariantNumeric: 'tabular-nums' }}>{col.length}</span>
                 </div>
-                {colValue > 0 && <span style={{ fontSize: 11, color: '#6b7280' }}>${colValue.toLocaleString()}</span>}
+                {colValue > 0 && <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>${colValue.toLocaleString()}</span>}
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minHeight: 120 }}>
-                {loading && <div style={{ color: '#4b5563', fontSize: 13, padding: 8 }}>Loading…</div>}
+                {loading && <div style={{ color: 'var(--text-muted)', fontSize: 13, padding: 8 }}>Loading…</div>}
                 {col.map(deal => (
-                  <div
+                  // Native button: the card opens the edit drawer by click,
+                  // Enter or Space (stage can be changed there by keyboard);
+                  // drag-and-drop between columns stays as a pointer shortcut.
+                  <button
+                    type="button"
                     key={deal.id}
                     draggable
                     onDragStart={() => setDragging(deal.id)}
                     onDragEnd={() => setDragging(null)}
                     onClick={() => setEditDeal(deal)}
+                    aria-label={`Edit deal: ${deal.title}`}
                     style={{
-                      background: '#0e1014', border: `1px solid ${BORDER}`, borderRadius: 10,
+                      display: 'block', width: '100%', textAlign: 'left', font: 'inherit', color: 'inherit',
+                      background: 'var(--bg-surface)', border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)',
                       padding: '14px 14px', cursor: 'grab',
                       opacity: dragging === deal.id ? 0.4 : 1,
                       transition: 'opacity .15s',
                       borderLeft: `3px solid ${stage.color}`,
                     }}
                   >
-                    <div style={{ fontSize: 13, fontWeight: 500, color: '#f9fafb', marginBottom: 6, lineHeight: 1.3 }}>{deal.title}</div>
-                    {deal.company_name && <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>{deal.company_name}</div>}
-                    {deal.contact_name && <div style={{ fontSize: 11, color: '#4b5563' }}>{deal.contact_name}</div>}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+                    <span style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 6, lineHeight: 1.3 }}>{deal.title}</span>
+                    {deal.company_name && <span style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>{deal.company_name}</span>}
+                    {deal.contact_name && <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)' }}>{deal.contact_name}</span>}
+                    <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
                       {deal.value != null
-                        ? <span style={{ fontSize: 13, fontWeight: 600, color: stage.color }}>${Number(deal.value).toLocaleString()}</span>
-                        : <span style={{ fontSize: 11, color: '#4b5563' }}>No value</span>}
-                      {deal.probability > 0 && <span style={{ fontSize: 11, color: '#6b7280' }}>{deal.probability}%</span>}
-                    </div>
+                        ? <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>${Number(deal.value).toLocaleString()}</span>
+                        : <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>No value</span>}
+                      {deal.probability > 0 && <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{deal.probability}%</span>}
+                    </span>
                     {deal.expected_close && (
-                      <div style={{ fontSize: 11, color: '#4b5563', marginTop: 6 }}>
+                      <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
                         Close {new Date(deal.expected_close).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
-                      </div>
+                      </span>
                     )}
-                  </div>
+                  </button>
                 ))}
               </div>
-            </div>
+            </section>
           );
         })}
       </div>
@@ -130,5 +143,3 @@ export default function DealsPage() {
     </div>
   );
 }
-
-const addBtn: React.CSSProperties = { padding: '8px 16px', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' };

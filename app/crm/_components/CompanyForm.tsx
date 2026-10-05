@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { Button, Field, FormActions, FormError, fieldControlClassName } from '@/components/ui/app';
 
 type Company = { id?: string; name?: string; website?: string | null; industry?: string | null; company_size?: string | null; phone?: string | null; address?: string | null; notes?: string | null };
 
@@ -27,46 +28,47 @@ export default function CompanyForm({ initial, onSaved }: { initial?: Company; o
 
   return (
     <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <Field label="Company Name *" value={form.name ?? ''} onChange={set('name')} required />
-      <Field label="Website" value={form.website ?? ''} onChange={set('website')} placeholder="https://" />
-      <div>
-        <label style={lbl}>Industry</label>
-        <select value={form.industry ?? ''} onChange={set('industry')} style={sel}>
-          <option value="">— Select —</option>
-          {INDUSTRIES.map(i => <option key={i} value={i}>{i}</option>)}
-        </select>
-      </div>
-      <div>
-        <label style={lbl}>Company Size</label>
-        <select value={form.company_size ?? ''} onChange={set('company_size')} style={sel}>
-          <option value="">— Select —</option>
-          {SIZES.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-      </div>
-      <Field label="Phone" value={form.phone ?? ''} onChange={set('phone')} />
-      <Field label="Address" value={form.address ?? ''} onChange={set('address')} />
-      <div>
-        <label style={lbl}>Notes</label>
-        <textarea value={form.notes ?? ''} onChange={set('notes')} rows={3}
-          style={{ ...sel, resize: 'vertical', lineHeight: 1.5 }} />
-      </div>
-      {error && <p style={{ color: '#f87171', fontSize: 13, margin: 0 }}>{error}</p>}
-      <button type="submit" disabled={saving} style={{ padding: '10px 0', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
-        {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Company'}
-      </button>
+      <TextField label="Company Name" value={form.name ?? ''} onChange={set('name')} required />
+      <TextField label="Website" value={form.website ?? ''} onChange={set('website')} placeholder="https://" />
+      <Field label="Industry">
+        {control => (
+          <select {...control} value={form.industry ?? ''} onChange={set('industry')} className={fieldControlClassName}>
+            <option value="">— Select —</option>
+            {INDUSTRIES.map(i => <option key={i} value={i}>{i}</option>)}
+          </select>
+        )}
+      </Field>
+      <Field label="Company Size">
+        {control => (
+          <select {...control} value={form.company_size ?? ''} onChange={set('company_size')} className={fieldControlClassName}>
+            <option value="">— Select —</option>
+            {SIZES.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        )}
+      </Field>
+      <TextField label="Phone" value={form.phone ?? ''} onChange={set('phone')} />
+      <TextField label="Address" value={form.address ?? ''} onChange={set('address')} />
+      <Field label="Notes">
+        {control => (
+          <textarea {...control} value={form.notes ?? ''} onChange={set('notes')} rows={3} className={fieldControlClassName} />
+        )}
+      </Field>
+      {error && <FormError>{error}</FormError>}
+      <FormActions align="stretch">
+        <Button type="submit" variant="primary" disabled={saving}>
+          {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Company'}
+        </Button>
+      </FormActions>
     </form>
   );
 }
 
-function Field({ label, value, onChange, required, placeholder }: { label: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; required?: boolean; placeholder?: string }) {
+function TextField({ label, value, onChange, required, placeholder }: { label: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; required?: boolean; placeholder?: string }) {
   return (
-    <div>
-      <label style={lbl}>{label}</label>
-      <input value={value} onChange={onChange} required={required} placeholder={placeholder}
-        style={{ width: '100%', padding: '9px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
-    </div>
+    <Field label={label} required={required}>
+      {control => (
+        <input {...control} value={value} onChange={onChange} required={required} placeholder={placeholder} className={fieldControlClassName} />
+      )}
+    </Field>
   );
 }
-
-const lbl: React.CSSProperties = { display: 'block', color: '#9ca3af', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const sel: React.CSSProperties = { width: '100%', padding: '9px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14 };

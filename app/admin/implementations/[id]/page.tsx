@@ -2,14 +2,15 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { buttonProps } from '@/components/ui/app';
 
 // ── Client Implementations — detail (Phase 2A) ──────────────────────────
 // Core record view/edit only. Deliberately does NOT include: services
 // list, milestones, tasks, progress percentage, activity feed, billing,
 // or Founder OS recommendations — those are later, separate slices.
 
-const CARD = '#0e1014';
-const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)';
+const BORDER = 'var(--border)';
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
 type Implementation = {
@@ -47,16 +48,15 @@ const STAGE_OPTIONS = [
   { value: 'cancelled', label: 'Cancelled' },
 ];
 const HEALTH_OPTIONS = [
-  { value: 'on_track', label: 'On Track', color: '#34d399' },
-  { value: 'at_risk', label: 'At Risk', color: '#f59e0b' },
-  { value: 'blocked', label: 'Blocked', color: '#f87171' },
+  { value: 'on_track', label: 'On Track', color: 'var(--status-success)' },
+  { value: 'at_risk', label: 'At Risk', color: 'var(--status-warning)' },
+  { value: 'blocked', label: 'Blocked', color: 'var(--status-danger)' },
 ];
 
-const labelStyle: React.CSSProperties = { display: 'block', color: '#9ca3af', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const inputStyle: React.CSSProperties = { width: '100%', padding: '10px 12px', background: '#111318', border: `1px solid ${BORDER}`, borderRadius: 8, color: '#f9fafb', fontSize: 14, boxSizing: 'border-box', fontFamily: FONT };
-const errorStyle: React.CSSProperties = { color: '#f87171', fontSize: 13, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: 6, padding: '8px 12px', margin: 0 };
-const successStyle: React.CSSProperties = { color: '#34d399', fontSize: 13, background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)', borderRadius: 6, padding: '8px 12px', margin: 0 };
-function btnStyle(bg: string): React.CSSProperties { return { padding: '9px 18px', background: bg, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }; }
+const labelStyle: React.CSSProperties = { display: 'block', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const inputStyle: React.CSSProperties = { width: '100%', padding: '10px 12px', background: 'var(--bg-surface)', border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box', fontFamily: FONT };
+const errorStyle: React.CSSProperties = { color: 'var(--status-danger)', fontSize: 13, background: 'var(--status-danger-muted)', border: '1px solid var(--status-danger-border)', borderRadius: 6, padding: '8px 12px', margin: 0 };
+const successStyle: React.CSSProperties = { color: 'var(--status-success)', fontSize: 13, background: 'var(--status-success-muted)', border: '1px solid var(--status-success-border)', borderRadius: 6, padding: '8px 12px', margin: 0 };
 function field(label: string, node: React.ReactNode) {
   return <div><label style={labelStyle}>{label}</label>{node}</div>;
 }
@@ -147,13 +147,13 @@ export default function ImplementationDetailPage() {
   }
 
   if (loading) {
-    return <div style={{ fontFamily: FONT, color: '#9ca3af', fontSize: 14 }}>Loading…</div>;
+    return <div style={{ fontFamily: FONT, color: 'var(--text-secondary)', fontSize: 14 }}>Loading…</div>;
   }
   if (notFound) {
     return (
-      <div style={{ fontFamily: FONT, color: '#f9fafb', maxWidth: 600 }}>
-        <p style={{ color: '#9ca3af', fontSize: 14 }}>Implementation not found.</p>
-        <button onClick={() => router.push('/admin/implementations')} style={btnStyle('#1f2937')}>← Back to Implementations</button>
+      <div style={{ fontFamily: FONT, color: 'var(--text-primary)', maxWidth: 600 }}>
+        <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Implementation not found.</p>
+        <button type="button" onClick={() => router.push('/admin/implementations')} {...buttonProps('secondary')}>← Back to Implementations</button>
       </div>
     );
   }
@@ -162,11 +162,11 @@ export default function ImplementationDetailPage() {
   }
 
   return (
-    <div style={{ maxWidth: 720, fontFamily: FONT, color: '#f9fafb' }}>
-      <button onClick={() => router.push('/admin/implementations')} style={{ ...btnStyle('transparent'), color: '#6b7280', padding: '0 0 16px', fontWeight: 400 }}>← Back to Implementations</button>
+    <div style={{ maxWidth: 720, fontFamily: FONT, color: 'var(--text-primary)' }}>
+      <button type="button" onClick={() => router.push('/admin/implementations')} {...buttonProps('ghost', 'sm')} style={{ marginBottom: 12 }}>← Back to Implementations</button>
 
       <div style={{ marginBottom: 24 }}>
-        <div style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
           {impl.organisation_name ?? 'Unknown organisation'}
         </div>
         <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>{impl.name}</h1>
@@ -178,7 +178,7 @@ export default function ImplementationDetailPage() {
       <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           {field('Client / organisation', (
-            <div style={{ ...inputStyle, color: '#6b7280', cursor: 'not-allowed' }}>{impl.organisation_name ?? impl.organisation_id}</div>
+            <div style={{ ...inputStyle, color: 'var(--text-muted)', cursor: 'not-allowed' }}>{impl.organisation_name ?? impl.organisation_id}</div>
           ))}
           {field('Implementation name', (
             <input value={name} onChange={e => setName(e.target.value)} style={inputStyle} />
@@ -218,14 +218,14 @@ export default function ImplementationDetailPage() {
         ))}
 
         {(impl.source_lead_id || impl.source_proposal_id) && (
-          <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 14, fontSize: 12, color: '#6b7280' }}>
-            {impl.source_lead_id && <div>Sourced from Web Systems lead: <span style={{ color: '#9ca3af' }}>{impl.source_lead_id}</span></div>}
-            {impl.source_proposal_id && <div>Sourced from proposal: <span style={{ color: '#9ca3af' }}>{impl.source_proposal_id}</span></div>}
+          <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 14, fontSize: 12, color: 'var(--text-muted)' }}>
+            {impl.source_lead_id && <div>Sourced from Web Systems lead: <span style={{ color: 'var(--text-secondary)' }}>{impl.source_lead_id}</span></div>}
+            {impl.source_proposal_id && <div>Sourced from proposal: <span style={{ color: 'var(--text-secondary)' }}>{impl.source_proposal_id}</span></div>}
           </div>
         )}
 
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={save} disabled={saving} style={btnStyle('#1a6aff')}>{saving ? 'Saving…' : 'Save Changes'}</button>
+          <button type="button" onClick={save} disabled={saving} {...buttonProps('primary')}>{saving ? 'Saving…' : 'Save Changes'}</button>
         </div>
       </div>
     </div>

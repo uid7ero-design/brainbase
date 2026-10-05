@@ -2,10 +2,23 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { HlnaOrb } from '@/components/brand/HlnaOrb';
-import { useOpsTheme } from './theme';
+import { Badge } from '@/components/ui/app';
+import { useChartPalette, type ChartPalette } from '@/components/ui/app/chartPalette';
+import styles from './IntelRail.module.css';
+
+// Phase D2 — the Command intelligence rail on the shared app surface.
+// Retained: every section, all sample content, the simulated activity feed
+// (new item every 5s), the insight rotation (7s) and the HlnaOrb state
+// flash on AI events — behaviour is unchanged. HlnaOrb is a functional
+// assistant-state visual (class B) and renders exactly as before; only its
+// pulsing drop-shadow wrapper was removed. Removed as decoration (class C):
+// header gradient + ambient radial, edge lighting, glowing/blinking dots,
+// gradient load bars, the shimmer, and the radar sweep animation. The
+// "HLNΛ" wordmark treatment is now plain "HLNA" text. The radar is now a
+// static, theme-aware plot (chart palette) instead of a forced-dark screen.
+// All figures here are static sample content (see the audit).
 
 const FONT = 'var(--font-inter),"Inter",-apple-system,sans-serif';
-const MONO = 'var(--font-geist-mono,"Geist Mono",monospace)';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -56,28 +69,35 @@ const TASKS = [
   { priority: 'medium'   as const, text: 'Follow up contractor invoices',         href: '/crm',              age: '2d' },
 ];
 
-const HEALTH = [
-  { label: 'Ingestion API', value: 'OK',       color: '#22C55E' },
-  { label: 'Upload Queue',  value: '0 pending', color: '#22C55E' },
-  { label: 'HLNA Core',     value: 'Active',   color: '#A78BFA' },
-  { label: 'Fleet Telem.',  value: '16 / 18',  color: '#F59E0B' },
-  { label: 'AI Load',       value: '12%',      color: '#22C55E' },
-  { label: 'Data Sync',     value: '2s ago',   color: '#22C55E' },
+type Tone = 'danger' | 'warning' | 'success' | 'info' | 'accent' | 'neutral';
+
+const HEALTH: { label: string; value: string; tone: Tone }[] = [
+  { label: 'Ingestion API', value: 'OK',       tone: 'success' },
+  { label: 'Upload Queue',  value: '0 pending', tone: 'success' },
+  { label: 'HLNA Core',     value: 'Active',   tone: 'accent'  },
+  { label: 'Fleet Telem.',  value: '16 / 18',  tone: 'warning' },
+  { label: 'AI Load',       value: '12%',      tone: 'success' },
+  { label: 'Data Sync',     value: '2s ago',   tone: 'success' },
 ];
 
-const PRIORITY_COLOR = {
-  critical: '#EF4444',
-  high:     '#F59E0B',
-  medium:   '#60A5FA',
+// Priority is written next to each task for assistive tech and shown as a
+// semantic dot; colour is never the only signal.
+const PRIORITY_TONE: Record<'critical' | 'high' | 'medium', Tone> = {
+  critical: 'danger',
+  high:     'warning',
+  medium:   'info',
 };
 
-const ACTIVITY_COLOR: Record<ActivityType, string> = {
-  upload: '#60A5FA',
-  alert:  '#EF4444',
-  ai:     '#A78BFA',
-  fleet:  '#F59E0B',
-  route:  '#34D399',
-  system: '#94A3B8',
+// Activity category is written in each row's meta line; only categories
+// that carry meaning get colour (alerts = danger, HLNA/AI = product accent),
+// the rest are neutral — no rainbow of category hues.
+const ACTIVITY_TONE: Record<ActivityType, Tone> = {
+  upload: 'neutral',
+  alert:  'danger',
+  ai:     'accent',
+  fleet:  'neutral',
+  route:  'neutral',
+  system: 'neutral',
 };
 
 function formatAge(s: number) {
@@ -87,79 +107,41 @@ function formatAge(s: number) {
 }
 
 // ── Mini Radar ─────────────────────────────────────────────────────────────────
-// Kept on its own dark "radar screen" surface regardless of page theme — same
-// treatment as the bin-maintenance map's dark basemap; a dense data viz like
-// this reads better on black than re-tinted for a light page.
+// Phase D2 (class C → simplified): a static plot of the same sample
+// incident positions on the rail surface, coloured from the JS chart
+// palette so it reads in both themes. No sweep, pulses or forced-dark
+// "radar screen".
 
-function MiniRadar() {
+function MiniRadar({ chart }: { chart: ChartPalette }) {
   return (
-    <svg viewBox="0 0 120 120" style={{ display: 'block', width: '100%', height: '100%' }}>
-      <defs>
-        <radialGradient id="ir-radar-bg" cx="50%" cy="50%" r="50%">
-          <stop offset="0%"   stopColor="rgba(20,10,40,.60)" />
-          <stop offset="100%" stopColor="rgba(4,5,9,.10)" />
-        </radialGradient>
-      </defs>
-
-      {/* Base */}
-      <circle cx="60" cy="60" r="56" fill="url(#ir-radar-bg)" />
-      <circle cx="60" cy="60" r="56" fill="none" stroke="rgba(139,92,246,.12)" strokeWidth="0.6" />
-
+    <svg viewBox="0 0 120 120" style={{ display: 'block', width: '100%', height: '100%' }} role="img" aria-label="Operational radar: 2 critical and 2 warning incidents, 2 stable points, Metro Area">
       {/* Rings */}
-      <circle cx="60" cy="60" r="42" fill="none" stroke="rgba(139,92,246,.08)" strokeWidth="0.5" />
-      <circle cx="60" cy="60" r="28" fill="none" stroke="rgba(139,92,246,.09)" strokeWidth="0.5" />
-      <circle cx="60" cy="60" r="14" fill="none" stroke="rgba(139,92,246,.12)" strokeWidth="0.5" />
+      <circle cx="60" cy="60" r="56" fill="none" stroke={chart.grid} strokeWidth="0.8" />
+      <circle cx="60" cy="60" r="42" fill="none" stroke={chart.grid} strokeWidth="0.6" />
+      <circle cx="60" cy="60" r="28" fill="none" stroke={chart.grid} strokeWidth="0.6" />
+      <circle cx="60" cy="60" r="14" fill="none" stroke={chart.grid} strokeWidth="0.6" />
 
       {/* Grid lines */}
-      <line x1="4"  y1="60" x2="116" y2="60"  stroke="rgba(255,255,255,.035)" strokeWidth="0.5" />
-      <line x1="60" y1="4"  x2="60"  y2="116" stroke="rgba(255,255,255,.035)" strokeWidth="0.5" />
-      <line x1="20" y1="20" x2="100" y2="100" stroke="rgba(255,255,255,.020)" strokeWidth="0.5" />
-      <line x1="100" y1="20" x2="20" y2="100" stroke="rgba(255,255,255,.020)" strokeWidth="0.5" />
+      <line x1="4"  y1="60" x2="116" y2="60"  stroke={chart.grid} strokeWidth="0.5" />
+      <line x1="60" y1="4"  x2="60"  y2="116" stroke={chart.grid} strokeWidth="0.5" />
 
-      {/* Sweep trailing */}
-      <line x1="60" y1="60" x2="102" y2="60" stroke="rgba(139,92,246,.06)" strokeWidth="5" strokeLinecap="round">
-        <animateTransform attributeName="transform" type="rotate" from="-25 60 60" to="335 60 60" dur="4s" repeatCount="indefinite" />
-      </line>
-      <line x1="60" y1="60" x2="102" y2="60" stroke="rgba(139,92,246,.12)" strokeWidth="3" strokeLinecap="round">
-        <animateTransform attributeName="transform" type="rotate" from="-12 60 60" to="348 60 60" dur="4s" repeatCount="indefinite" />
-      </line>
-
-      {/* Main sweep arm */}
-      <line x1="60" y1="60" x2="102" y2="60" stroke="rgba(139,92,246,.65)" strokeWidth="1.2" strokeLinecap="round">
-        <animateTransform attributeName="transform" type="rotate" from="0 60 60" to="360 60 60" dur="4s" repeatCount="indefinite" />
-      </line>
-
-      {/* Critical incidents — pulsing red */}
-      <circle cx="36" cy="28" r="2.5" fill="#EF4444" opacity="0.90">
-        <animate attributeName="r" values="2;3.8;2" dur="1.8s" repeatCount="indefinite" />
-      </circle>
-      <circle cx="36" cy="28" r="6" fill="none" stroke="#EF4444" strokeWidth="0.6" opacity="0.3">
-        <animate attributeName="r"       values="4;10;4"   dur="2.2s" repeatCount="indefinite" />
-        <animate attributeName="opacity" values=".4;0;.4"  dur="2.2s" repeatCount="indefinite" />
-      </circle>
-
-      <circle cx="44" cy="80" r="2.5" fill="#EF4444" opacity="0.88">
-        <animate attributeName="r" values="2;3.5;2" dur="2.1s" repeatCount="indefinite" />
-      </circle>
-      <circle cx="44" cy="80" r="6" fill="none" stroke="#EF4444" strokeWidth="0.6" opacity="0.3">
-        <animate attributeName="r"       values="4;10;4"   dur="2.6s" repeatCount="indefinite" />
-        <animate attributeName="opacity" values=".4;0;.4"  dur="2.6s" repeatCount="indefinite" />
-      </circle>
+      {/* Critical incidents */}
+      <circle cx="36" cy="28" r="3" fill={chart.danger} />
+      <circle cx="44" cy="80" r="3" fill={chart.danger} />
 
       {/* Warning incidents */}
-      <circle cx="78" cy="44" r="2"   fill="#F59E0B" opacity="0.80" />
-      <circle cx="55" cy="36" r="1.8" fill="#F59E0B" opacity="0.70" />
+      <circle cx="78" cy="44" r="2.4" fill={chart.warning} />
+      <circle cx="55" cy="36" r="2.2" fill={chart.warning} />
 
       {/* Stable */}
-      <circle cx="84" cy="72" r="1.8" fill="#22C55E" opacity="0.65" />
-      <circle cx="68" cy="88" r="1.5" fill="#22C55E" opacity="0.55" />
+      <circle cx="84" cy="72" r="2" fill={chart.success} />
+      <circle cx="68" cy="88" r="1.8" fill={chart.success} />
 
-      {/* Centre dot */}
-      <circle cx="60" cy="60" r="2.5" fill="rgba(139,92,246,.70)" />
-      <circle cx="60" cy="60" r="1.2" fill="#A78BFA" />
+      {/* Centre */}
+      <circle cx="60" cy="60" r="2" fill={chart.primary} />
 
       {/* Corner label */}
-      <text x="6" y="116" fill="rgba(255,255,255,.18)" fontSize="5.5" fontFamily={FONT}>Metro Area</text>
+      <text x="6" y="116" fill={chart.axis} fontSize="6" fontFamily={FONT}>Metro Area</text>
     </svg>
   );
 }
@@ -167,7 +149,7 @@ function MiniRadar() {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function IntelRail() {
-  const t = useOpsTheme();
+  const chart = useChartPalette();
   const [activity, setActivity]       = useState<ActivityItem[]>(INITIAL_ACTIVITY);
   const [pulseIdx, setPulseIdx]       = useState(0);
   const [pulseFading, setPulseFading] = useState(false);
@@ -218,226 +200,147 @@ export default function IntelRail() {
   }, []);
 
   const insight = PULSE_INSIGHTS[pulseIdx];
-  const railBg = t.isDark ? 'rgba(4,5,9,.98)' : 'rgba(255,255,255,.98)';
 
   return (
-    <>
-      <style dangerouslySetInnerHTML={{ __html: `
-        @keyframes ir-slide { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:none} }
-        @keyframes ir-blink  { 0%,100%{opacity:1} 50%{opacity:.28} }
-        @keyframes ir-glow   { 0%,100%{filter:drop-shadow(0 0 6px rgba(139,92,246,.5))} 50%{filter:drop-shadow(0 0 16px rgba(139,92,246,.80))} }
-        @keyframes ir-pulse  { 0%,100%{box-shadow:0 0 5px currentColor} 50%{box-shadow:0 0 12px currentColor} }
-        @keyframes ir-shimmer{ 0%{opacity:.55} 50%{opacity:1} 100%{opacity:.55} }
-        @keyframes ir-flow   { from{transform:translateY(0)} to{transform:translateY(-2px)} }
-        .ir-fresh { animation: ir-slide .35s ease forwards }
-      `}} />
-
-      <aside style={{
-        width: 260, flexShrink: 0,
-        height: '100%', display: 'flex', flexDirection: 'column',
-        background: railBg,
-        borderLeft: `1px solid ${t.ink(.08)}`,
-        fontFamily: FONT,
-        position: 'relative', zIndex: 8, overflow: 'hidden',
-        boxShadow: `inset 1px 0 0 ${t.isDark ? 'rgba(139,92,246,.06)' : 'rgba(124,58,237,.05)'}`,
-      }}>
-        {/* Edge light */}
-        <div style={{ position: 'absolute', top: 0, left: 0, width: 1, height: '100%', background: `linear-gradient(180deg,transparent 0%,rgba(139,92,246,${t.isDark ? .14 : .10}) 25%,rgba(139,92,246,${t.isDark ? .07 : .05}) 75%,transparent 100%)`, pointerEvents: 'none', zIndex: 1 }} />
-
-        {/* ── HLNA CORE HEADER ─────────────────────────────────── */}
-        <div style={{
-          padding: '14px 16px 12px',
-          borderBottom: `1px solid ${t.isDark ? 'rgba(139,92,246,.10)' : 'rgba(124,58,237,.14)'}`,
-          background: t.isDark ? 'linear-gradient(180deg,rgba(109,40,217,.09) 0%,rgba(4,5,9,.0) 100%)' : 'linear-gradient(180deg,rgba(124,58,237,.06) 0%,rgba(255,255,255,0) 100%)',
-          flexShrink: 0,
-          position: 'relative', overflow: 'hidden',
-        }}>
-          {/* Ambient glow behind orb */}
-          <div style={{ position: 'absolute', top: -20, left: '50%', transform: 'translateX(-50%)', width: 120, height: 80, borderRadius: '50%', background: `radial-gradient(ellipse,rgba(139,92,246,${t.isDark ? .18 : .12}) 0%,transparent 70%)`, pointerEvents: 'none' }} />
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'relative' }}>
-            {/* Orb */}
-            <div style={{ flexShrink: 0, animation: 'ir-glow 4s ease-in-out infinite' }}>
-              <HlnaOrb size={46} state={orbState} speechRef={undefined} style={undefined} />
-            </div>
-
-            {/* Identity */}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.18em', color: t.ink(.85), textTransform: 'uppercase' }}>
-                  HLN<span style={{ color: t.isDark ? '#A78BFA' : '#7C3AED' }}>Λ</span>
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '1px 6px', borderRadius: 3, background: t.isDark ? 'rgba(34,197,94,.07)' : 'rgba(22,163,74,.09)', border: `1px solid ${t.isDark ? 'rgba(34,197,94,.16)' : 'rgba(22,163,74,.22)'}` }}>
-                  <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#22C55E', boxShadow: '0 0 4px #22C55E', animation: 'ir-blink 2.4s ease-in-out infinite' }} />
-                  <span style={{ fontSize: 8.5, fontWeight: 700, color: t.isDark ? 'rgba(34,197,94,.80)' : '#16A34A', letterSpacing: '.08em', textTransform: 'uppercase' }}>Live</span>
-                </div>
-              </div>
-              <div style={{ fontSize: 9, color: t.ink(.32), letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 4 }}>
-                {orbState === 'thinking' ? 'Processing analysis…' : 'Monitoring operations'}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <div style={{ height: 2, flex: 1, borderRadius: 1, background: t.ink(.08), overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: `${orbState === 'thinking' ? 65 : 32}%`, background: 'linear-gradient(90deg,#6D28D9,#A78BFA)', borderRadius: 1, transition: 'width 1.5s ease', animation: orbState === 'thinking' ? 'ir-shimmer 1.2s ease-in-out infinite' : 'none' }} />
-                </div>
-                <span style={{ fontSize: 8.5, color: t.isDark ? 'rgba(167,139,250,.45)' : 'rgba(124,58,237,.55)', fontFamily: MONO, letterSpacing: '.02em', whiteSpace: 'nowrap' }}>
-                  {orbState === 'thinking' ? '65%' : '32%'} load
-                </span>
-              </div>
-            </div>
-          </div>
+    <aside className={styles.rail} aria-label="HLNA intelligence">
+      {/* ── HLNA CORE HEADER ─────────────────────────────────── */}
+      <div className={styles.core}>
+        {/* Orb — functional assistant state (idle / thinking), unchanged. */}
+        <div style={{ flexShrink: 0 }}>
+          <HlnaOrb size={46} state={orbState} speechRef={undefined} style={undefined} />
         </div>
 
-        {/* ── Scrollable body ─────────────────────────────────────── */}
-        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+        {/* Identity */}
+        <div className={styles.identity}>
+          <p className={styles.name}>
+            HLNA
+            <Badge state="success">Live</Badge>
+          </p>
+          <div className={styles.stateLine}>
+            {orbState === 'thinking' ? 'Processing analysis…' : 'Monitoring operations'}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div className={styles.bar} aria-hidden="true">
+              <div className={styles.barFill} style={{ width: `${orbState === 'thinking' ? 65 : 32}%` }} />
+            </div>
+            <span className={styles.mono}>
+              {orbState === 'thinking' ? '65%' : '32%'} load
+            </span>
+          </div>
+        </div>
+      </div>
 
-          {/* ── A. LIVE ACTIVITY FEED ──────────────────────────── */}
-          <section>
-            <div style={{ padding: '9px 14px 7px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, background: railBg, zIndex: 2, borderBottom: `1px solid ${t.ink(.045)}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#22C55E', boxShadow: '0 0 5px #22C55E', animation: 'ir-blink 1.8s ease-in-out infinite' }} />
-                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: t.ink(.34), textTransform: 'uppercase' }}>Live Activity</span>
-              </div>
-              <span style={{ fontSize: 8.5, color: t.ink(.22), fontFamily: MONO }}>{activity.length} events</span>
-            </div>
+      {/* ── Scrollable body ─────────────────────────────────────── */}
+      <div className={styles.body}>
 
-            <div style={{ padding: '6px 0' }}>
-              {activity.map((item) => {
-                const color = ACTIVITY_COLOR[item.type];
-                return (
-                  <div key={item.id} className={item.fresh ? 'ir-fresh' : ''} style={{
-                    display: 'flex', alignItems: 'flex-start', gap: 8,
-                    padding: '5px 14px',
-                    borderBottom: `1px solid ${t.ink(.03)}`,
-                    transition: 'background .2s',
-                  }}
-                    onMouseEnter={e => (e.currentTarget.style.background = t.ink(.03))}
-                    onMouseLeave={e => (e.currentTarget.style.background = '')}
-                  >
-                    <div style={{ width: 5, height: 5, borderRadius: '50%', background: color, boxShadow: `0 0 5px ${color}`, flexShrink: 0, marginTop: 4 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 10.5, color: t.ink(.68), lineHeight: 1.45, wordBreak: 'break-word' }}>{item.text}</div>
-                      <div style={{ fontSize: 8.5, color: t.ink(.24), fontFamily: MONO, marginTop: 2, letterSpacing: '.02em' }}>
-                        {item.type.toUpperCase()} · {formatAge(item.age + tick)}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
+        {/* ── A. LIVE ACTIVITY FEED ──────────────────────────── */}
+        <section className={styles.section} aria-labelledby="ir-activity">
+          <div className={styles.sectionHeader}>
+            <h2 id="ir-activity" className={styles.sectionTitle}>Live Activity</h2>
+            <span className={styles.mono}>{activity.length} events</span>
+          </div>
 
-          {/* ── C. HLNA PULSE INSIGHTS ────────────────────────── */}
-          <section style={{ borderTop: `1px solid ${t.ink(.045)}` }}>
-            <div style={{ padding: '9px 14px 7px', display: 'flex', alignItems: 'center', gap: 5, borderBottom: `1px solid ${t.ink(.045)}` }}>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={t.isDark ? 'rgba(167,139,250,.65)' : 'rgba(124,58,237,.65)'} strokeWidth="2" strokeLinecap="round"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: t.ink(.34), textTransform: 'uppercase' }}>HLNΛ Pulse</span>
-            </div>
-            <div style={{ padding: '12px 14px', minHeight: 80 }}>
-              <div style={{
-                opacity: pulseFading ? 0 : 1,
-                transform: pulseFading ? 'translateY(4px)' : 'none',
-                transition: 'opacity .35s ease, transform .35s ease',
-              }}>
-                <div style={{ fontSize: 11, lineHeight: 1.6, color: t.ink(.76), marginBottom: 8 }}>
-                  {insight.text}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div style={{ height: 2, flex: 1, borderRadius: 1, background: t.ink(.08), overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${insight.conf}%`, borderRadius: 1, background: 'linear-gradient(90deg,#6D28D9,#A78BFA)' }} />
-                  </div>
-                  <span style={{ fontSize: 8.5, color: t.isDark ? 'rgba(167,139,250,.55)' : 'rgba(124,58,237,.60)', fontFamily: MONO }}>{insight.conf}%</span>
-                </div>
-                <div style={{ display: 'flex', gap: 5, marginTop: 6 }}>
-                  {PULSE_INSIGHTS.map((_, i) => (
-                    <div key={i} style={{ width: i === pulseIdx ? 14 : 4, height: 2, borderRadius: 1, background: i === pulseIdx ? (t.isDark ? '#A78BFA' : '#7C3AED') : t.ink(.14), transition: 'width .3s, background .3s' }} />
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* ── B. ACTIVE OPERATIONAL TASKS ───────────────────── */}
-          <section style={{ borderTop: `1px solid ${t.ink(.045)}` }}>
-            <div style={{ padding: '9px 14px 7px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${t.ink(.045)}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#F59E0B', boxShadow: '0 0 5px #F59E0B', animation: 'ir-blink 3s ease-in-out infinite' }} />
-                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: t.ink(.34), textTransform: 'uppercase' }}>Active Tasks</span>
-              </div>
-              <span style={{ fontSize: 8.5, color: t.isDark ? 'rgba(239,68,68,.55)' : 'rgba(220,38,38,.65)', fontFamily: MONO, fontWeight: 700 }}>2 critical</span>
-            </div>
-            <div style={{ padding: '6px 0' }}>
-              {TASKS.map((task, i) => {
-                const color = PRIORITY_COLOR[task.priority];
-                return (
-                  <Link key={i} href={task.href} style={{ display: 'block', textDecoration: 'none' }}>
-                    <div style={{
-                      display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px',
-                      borderBottom: `1px solid ${t.ink(.03)}`,
-                      transition: 'background .15s',
-                    }}
-                      onMouseEnter={e => (e.currentTarget.style.background = t.ink(.035))}
-                      onMouseLeave={e => (e.currentTarget.style.background = '')}
-                    >
-                      <div style={{ width: 5, height: 5, borderRadius: '50%', background: color, boxShadow: `0 0 5px ${color}`, flexShrink: 0 }} />
-                      <span style={{ fontSize: 10.5, color: t.ink(.65), flex: 1, lineHeight: 1.4 }}>{task.text}</span>
-                      <span style={{ fontSize: 8.5, color: t.ink(.26), fontFamily: MONO, whiteSpace: 'nowrap' }}>{task.age}</span>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          </section>
-
-          {/* ── D. SYSTEM HEALTH ──────────────────────────────── */}
-          <section style={{ borderTop: `1px solid ${t.ink(.045)}` }}>
-            <div style={{ padding: '9px 14px 7px', display: 'flex', alignItems: 'center', gap: 5, borderBottom: `1px solid ${t.ink(.045)}` }}>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={t.isDark ? 'rgba(96,165,250,.65)' : 'rgba(37,99,235,.65)'} strokeWidth="2" strokeLinecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: t.ink(.34), textTransform: 'uppercase' }}>System Health</span>
-            </div>
-            <div style={{ padding: '8px 14px 10px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 10px' }}>
-              {HEALTH.map(h => (
-                <div key={h.label} style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  <span style={{ fontSize: 8.5, color: t.ink(.26), letterSpacing: '.04em', textTransform: 'uppercase' }}>{h.label}</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <div style={{ width: 4, height: 4, borderRadius: '50%', background: h.color, boxShadow: `0 0 4px ${h.color}`, flexShrink: 0 }} />
-                    <span style={{ fontSize: 10, fontWeight: 600, color: h.color, fontFamily: MONO }}>{h.value}</span>
+          <ul className={styles.list}>
+            {activity.map((item) => (
+              <li key={item.id} className={`${styles.item} ${styles.tone} ${item.fresh ? styles.fresh : ''}`} data-status={ACTIVITY_TONE[item.type]}>
+                <span className={styles.dot} aria-hidden="true" />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className={styles.itemText}>{item.text}</div>
+                  <div className={styles.itemMeta}>
+                    {item.type.toUpperCase()} · {formatAge(item.age + tick)}
                   </div>
                 </div>
-              ))}
-            </div>
-          </section>
+              </li>
+            ))}
+          </ul>
+        </section>
 
-          {/* ── E. MINI RADAR ─────────────────────────────────── */}
-          <section style={{ borderTop: `1px solid ${t.ink(.045)}` }}>
-            <div style={{ padding: '9px 14px 7px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${t.ink(.045)}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={t.isDark ? 'rgba(139,92,246,.65)' : 'rgba(124,58,237,.65)'} strokeWidth="2" strokeLinecap="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: t.ink(.34), textTransform: 'uppercase' }}>Operational Radar</span>
+        {/* ── C. HLNA PULSE INSIGHTS ────────────────────────── */}
+        <section className={styles.section} aria-labelledby="ir-pulse">
+          <div className={styles.sectionHeader}>
+            <h2 id="ir-pulse" className={styles.sectionTitle}>HLNA Pulse</h2>
+          </div>
+          <div className={styles.pulse}>
+            <div className={styles.pulseInner} style={{ opacity: pulseFading ? 0 : 1 }}>
+              <p className={styles.pulseText}>
+                {insight.text}
+              </p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div className={styles.bar} aria-hidden="true">
+                  <div className={styles.barFill} style={{ width: `${insight.conf}%`, transition: 'none' }} />
+                </div>
+                <span className={styles.mono}>{insight.conf}%<span className={styles.srOnly}> confidence</span></span>
               </div>
-              <div style={{ display: 'flex', gap: 5 }}>
-                {[{ c: '#EF4444', n: '2' }, { c: '#F59E0B', n: '2' }].map(({ c, n }) => (
-                  <div key={c} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <div style={{ width: 3.5, height: 3.5, borderRadius: '50%', background: c }} />
-                    <span style={{ fontSize: 8, color: t.ink(.28) }}>{n}</span>
-                  </div>
+              <div className={styles.pips} aria-hidden="true">
+                {PULSE_INSIGHTS.map((_, i) => (
+                  <span key={i} className={styles.pip} data-active={i === pulseIdx ? '' : undefined} />
                 ))}
               </div>
             </div>
-            <div style={{ padding: '8px 20px 14px', height: 140, background: t.isDark ? 'transparent' : '#0A0D12', borderRadius: t.isDark ? 0 : 10, margin: t.isDark ? 0 : '0 12px 12px' }}>
-              <MiniRadar />
-            </div>
-          </section>
-
-          {/* ── Footer ─────────────────────────────────────────── */}
-          <div style={{ padding: '8px 14px 10px', borderTop: `1px solid ${t.ink(.04)}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 8.5, color: t.ink(.22), letterSpacing: '.04em' }}>Intelligence v2.4</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <div style={{ width: 3.5, height: 3.5, borderRadius: '50%', background: '#22C55E', animation: 'ir-blink 2.4s ease-in-out infinite' }} />
-              <span style={{ fontSize: 8.5, color: t.isDark ? 'rgba(34,197,94,.50)' : 'rgba(22,163,74,.65)', letterSpacing: '.04em' }}>Live</span>
-            </div>
           </div>
+        </section>
+
+        {/* ── B. ACTIVE OPERATIONAL TASKS ───────────────────── */}
+        <section className={styles.section} aria-labelledby="ir-tasks">
+          <div className={styles.sectionHeader}>
+            <h2 id="ir-tasks" className={styles.sectionTitle}>Active Tasks</h2>
+            <span className={`${styles.mono} ${styles.tone} ${styles.statusText}`} data-status="danger" style={{ fontWeight: 700 }}>2 critical</span>
+          </div>
+          <ul className={styles.list}>
+            {TASKS.map((task, i) => (
+              <li key={i}>
+                <Link href={task.href} className={`${styles.taskLink} ${styles.tone}`} data-status={PRIORITY_TONE[task.priority]}>
+                  <span className={styles.dot} aria-hidden="true" />
+                  <span style={{ flex: 1 }}>
+                    <span className={styles.srOnly}>{task.priority} priority: </span>
+                    {task.text}
+                  </span>
+                  <span className={styles.mono}>{task.age}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        {/* ── D. SYSTEM HEALTH ──────────────────────────────── */}
+        <section className={styles.section} aria-labelledby="ir-health">
+          <div className={styles.sectionHeader}>
+            <h2 id="ir-health" className={styles.sectionTitle}>System Health</h2>
+          </div>
+          <dl className={styles.health}>
+            {HEALTH.map(h => (
+              <div key={h.label} style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <dt className={styles.healthLabel}>{h.label}</dt>
+                <dd className={`${styles.healthValue} ${styles.tone}`} data-status={h.tone}>
+                  <span className={styles.dot} aria-hidden="true" />
+                  <span className={styles.statusText}>{h.value}</span>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+
+        {/* ── E. MINI RADAR ─────────────────────────────────── */}
+        <section className={styles.section} aria-labelledby="ir-radar">
+          <div className={styles.sectionHeader}>
+            <h2 id="ir-radar" className={styles.sectionTitle}>Operational Radar</h2>
+            <span className={styles.mono}>
+              <span className={`${styles.tone} ${styles.statusText}`} data-status="danger">2 critical</span>
+              {' · '}
+              <span className={`${styles.tone} ${styles.statusText}`} data-status="warning">2 warning</span>
+            </span>
+          </div>
+          <div className={styles.radar}>
+            <MiniRadar chart={chart} />
+          </div>
+        </section>
+
+        {/* ── Footer ─────────────────────────────────────────── */}
+        <div className={styles.footer}>
+          <span>Intelligence v2.4</span>
+          <span>Live</span>
         </div>
-      </aside>
-    </>
+      </div>
+    </aside>
   );
 }

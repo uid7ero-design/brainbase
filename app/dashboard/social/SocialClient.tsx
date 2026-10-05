@@ -1,8 +1,10 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useId, useRef } from 'react';
 import { generateReportHTML } from '../../../lib/evidence-report';
-
-const FONT = "var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+import {
+  PageHeader, MetricStrip, Metric, Button, Badge, StateMessage, type SemanticState,
+} from '@/components/ui/app';
+import s from './Social.module.css';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -74,126 +76,108 @@ function fmtDate(iso?: string) {
   return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
 }
 
-const CONF_COLOR: Record<string, string> = {
-  high:   '#34D399',
-  medium: '#FBBF24',
-  low:    '#F87171',
+// Confidence and sentiment are semantic: each renders as a Badge (written
+// label + state shape), never as a raw hue on text.
+const CONF_STATE: Record<string, SemanticState> = {
+  high:   'success',
+  medium: 'warning',
+  low:    'error',
 };
 
-const SENT_COLOR: Record<string, string> = {
-  positive: '#34D399',
-  neutral:  '#94A3B8',
-  negative: '#F87171',
-  urgent:   '#FB923C',
+const SENT_STATE: Record<string, SemanticState> = {
+  positive: 'success',
+  neutral:  'inactive',
+  negative: 'error',
+  urgent:   'warning',
 };
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function KpiCard({ label, value, sub, color = '#A78BFA' }: { label: string; value: string | number; sub?: string; color?: string }) {
-  return (
-    <div style={{
-      background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)',
-      borderRadius: 10, padding: '14px 18px',
-    }}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.30)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 800, color, letterSpacing: '-0.02em', lineHeight: 1 }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.30)', marginTop: 4 }}>{sub}</div>}
-    </div>
-  );
-}
-
 function InsightCard({ ins, idx }: { ins: Insight; idx: number }) {
   const [open, setOpen] = useState(idx === 0);
+  const bodyId = useId();
   const conf = ins.confidence?.toLowerCase() ?? 'medium';
-  const confColor = CONF_COLOR[conf] ?? '#FBBF24';
+  const confState = CONF_STATE[conf] ?? 'warning';
 
   return (
-    <div style={{
-      border: `1px solid ${open ? 'rgba(167,139,250,0.25)' : 'rgba(255,255,255,0.06)'}`,
-      borderRadius: 10, overflow: 'hidden',
-      background: open ? 'rgba(167,139,250,0.04)' : 'rgba(255,255,255,0.02)',
-      transition: 'border-color 0.2s, background 0.2s',
-    }}>
+    <li className={s.insight} data-open={open}>
       <button
+        type="button"
         onClick={() => setOpen(p => !p)}
-        style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', fontFamily: FONT }}
+        aria-expanded={open}
+        aria-controls={open ? bodyId : undefined}
+        className={s.insightToggle}
       >
-        <span style={{ fontSize: 14, color: confColor, flexShrink: 0 }}>◎</span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.88)', lineHeight: 1.3 }}>{ins.title}</div>
-        </div>
-        <span style={{ fontSize: 9, padding: '2px 7px', borderRadius: 4, background: `${confColor}18`, color: confColor, fontWeight: 700, letterSpacing: '0.06em', flexShrink: 0 }}>
-          {conf.toUpperCase()}
-        </span>
-        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', flexShrink: 0, transform: open ? 'rotate(180deg)' : undefined, transition: 'transform 0.15s' }}>▼</span>
+        <span className={s.insightGlyph} aria-hidden="true">◎</span>
+        <span className={s.insightTitle}>{ins.title}</span>
+        <Badge state={confState}>{conf.toUpperCase()}</Badge>
+        <span className={s.chevron} data-open={open} aria-hidden="true">▼</span>
       </button>
       {open && (
-        <div style={{ padding: '0 14px 14px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-          <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.70)', lineHeight: 1.65, margin: '12px 0 0' }}>{ins.summary}</p>
+        <div id={bodyId} className={s.insightBody}>
+          <p className={s.insightSummary}>{ins.summary}</p>
           {Array.isArray(ins.evidence_json) && ins.evidence_json.length > 0 && (
-            <div style={{ marginTop: 10 }}>
+            <ul className={s.evidence}>
               {ins.evidence_json.map((e, i) => (
-                <div key={i} style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', lineHeight: 1.5, marginBottom: 3 }}>· {e}</div>
+                <li key={i}>· {e}</li>
               ))}
-            </div>
+            </ul>
           )}
           {ins.recommended_action && (
-            <div style={{ marginTop: 12, padding: '8px 12px', background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.18)', borderRadius: 6 }}>
-              <div style={{ fontSize: 9, color: 'rgba(167,139,250,0.70)', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 3 }}>Recommended action</div>
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 1.5 }}>{ins.recommended_action}</div>
+            <div className={s.recommend}>
+              <p className={s.recommendLabel}>Recommended action</p>
+              <p className={s.recommendText}>{ins.recommended_action}</p>
             </div>
           )}
         </div>
       )}
-    </div>
+    </li>
   );
 }
 
 function PostCard({ post }: { post: Post }) {
   const [expanded, setExpanded] = useState(false);
+  const commentsId = useId();
   const likes    = post.like_count ?? post.likes_count ?? 0;
   const comments = post.comments_count ?? 0;
   const date     = post.posted_at ?? post.timestamp;
   const thumb    = post.thumbnail_url ?? post.media_url;
   const maxScore = 600;
   const engPct   = Math.min(100, Math.round((post.engagement_score / maxScore) * 100));
-  const engColor = engPct >= 60 ? '#34D399' : engPct >= 30 ? '#FBBF24' : '#94A3B8';
+  const engTone  = engPct >= 60 ? 'success' : engPct >= 30 ? 'warning' : undefined;
 
   return (
-    <div style={{
-      background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)',
-      borderRadius: 10, overflow: 'hidden',
-    }}>
-      <div style={{ display: 'flex', gap: 12, padding: 12 }}>
+    <li className={s.post}>
+      <div className={s.postMain}>
         {/* Thumbnail */}
-        <div style={{ width: 72, height: 72, flexShrink: 0, borderRadius: 8, overflow: 'hidden', background: 'rgba(255,255,255,0.06)', position: 'relative' }}>
+        <div className={s.thumb}>
           {thumb
             // eslint-disable-next-line @next/next/no-img-element
-            ? <img src={thumb} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: 'rgba(255,255,255,0.15)' }}>📷</div>
+            ? <img src={thumb} alt="" />
+            : <div className={s.thumbEmpty} aria-hidden="true">📷</div>
           }
           {post.media_type === 'VIDEO' && (
-            <div style={{ position: 'absolute', bottom: 3, right: 3, fontSize: 8, background: 'rgba(0,0,0,0.7)', borderRadius: 3, padding: '1px 4px', color: 'rgba(255,255,255,0.80)' }}>▶</div>
+            <div className={s.videoTag}>▶</div>
           )}
         </div>
 
         {/* Content */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const }}>
+        <div className={s.postContent}>
+          <p className={s.caption}>
             {post.caption ?? 'No caption'}
-          </div>
-          <div style={{ marginTop: 8, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>♥ {likes.toLocaleString()}</span>
-            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>💬 {comments}</span>
-            <span style={{ fontSize: 10, color: engColor, fontWeight: 700 }}>▲ {post.engagement_score}</span>
-            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)' }}>{fmtDate(date)}</span>
+          </p>
+          <div className={s.postStats}>
+            <span>♥ {likes.toLocaleString()}</span>
+            <span>💬 {comments}</span>
+            <span className={s.score} data-tone={engTone}>▲ {post.engagement_score}</span>
+            <span className={s.date}>{fmtDate(date)}</span>
             {post.permalink && (
-              <a href={post.permalink} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: 'rgba(167,139,250,0.60)', textDecoration: 'none', marginLeft: 'auto' }}>↗ View</a>
+              <a href={post.permalink} target="_blank" rel="noreferrer" className={s.permalink}>↗ View</a>
             )}
           </div>
           {/* Engagement bar */}
-          <div style={{ marginTop: 8, height: 3, background: 'rgba(255,255,255,0.07)', borderRadius: 2, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${engPct}%`, background: engColor, borderRadius: 2, transition: 'width 0.6s ease' }} />
+          <div className={s.engTrack} aria-hidden="true">
+            <div className={s.engFill} data-tone={engTone} style={{ width: `${engPct}%` }} />
           </div>
         </div>
       </div>
@@ -202,71 +186,65 @@ function PostCard({ post }: { post: Post }) {
       {(post.comments?.length ?? 0) > 0 && (
         <>
           <button
+            type="button"
             onClick={() => setExpanded(p => !p)}
-            style={{ width: '100%', background: 'none', border: 'none', borderTop: '1px solid rgba(255,255,255,0.04)', padding: '6px 12px', textAlign: 'left', cursor: 'pointer', fontFamily: FONT, fontSize: 10, color: 'rgba(255,255,255,0.30)', display: 'flex', alignItems: 'center', gap: 6 }}
+            aria-expanded={expanded}
+            aria-controls={expanded ? commentsId : undefined}
+            className={s.commentsToggle}
           >
-            <span>{expanded ? '▲' : '▼'}</span>
+            <span aria-hidden="true">{expanded ? '▲' : '▼'}</span>
             {post.comments!.length} comment{post.comments!.length !== 1 ? 's' : ''}
-            {post.comments!.some(c => c.urgency) && <span style={{ color: '#FB923C', marginLeft: 6 }}>⚠ urgent</span>}
+            {post.comments!.some(c => c.urgency) && <span className={s.urgentFlag}>⚠ urgent</span>}
           </button>
           {expanded && (
-            <div style={{ padding: '0 12px 10px' }}>
+            <ul id={commentsId} className={s.commentList}>
               {post.comments!.slice(0, 5).map((c, ci) => (
-                <div key={ci} style={{ padding: '6px 0', borderBottom: ci < post.comments!.length - 1 ? '1px solid rgba(255,255,255,0.04)' : undefined }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.50)' }}>{c.author_name ?? c.username ?? 'user'}</span>
-                    <span style={{ fontSize: 8, padding: '1px 5px', borderRadius: 3, background: `${SENT_COLOR[c.sentiment ?? 'neutral'] ?? '#94A3B8'}18`, color: SENT_COLOR[c.sentiment ?? 'neutral'] ?? '#94A3B8', fontWeight: 700 }}>
+                <li key={ci} className={s.comment}>
+                  <div className={s.commentHead}>
+                    <span className={s.author}>{c.author_name ?? c.username ?? 'user'}</span>
+                    <Badge state={c.urgency ? 'warning' : (SENT_STATE[c.sentiment ?? 'neutral'] ?? 'inactive')}>
                       {c.urgency ? 'URGENT' : (c.sentiment ?? 'neutral').toUpperCase()}
-                    </span>
-                    <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.22)', marginLeft: 'auto' }}>{timeAgo(c.created_at ?? c.timestamp)}</span>
+                    </Badge>
+                    <span className={s.when}>{timeAgo(c.created_at ?? c.timestamp)}</span>
                   </div>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.60)', lineHeight: 1.5 }}>{c.text}</div>
-                </div>
+                  <p className={s.commentText}>{c.text}</p>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
         </>
       )}
-    </div>
+    </li>
   );
 }
 
 function EmptyState({ onConnect, isDemo }: { onConnect: () => void; isDemo: boolean }) {
   return (
-    <div style={{ textAlign: 'center', padding: '80px 40px' }}>
-      <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.3 }}>📱</div>
-      <h2 style={{ fontSize: 18, fontWeight: 700, color: 'rgba(255,255,255,0.80)', marginBottom: 8 }}>
+    <div className={s.empty}>
+      <div className={s.emptyGlyph} aria-hidden="true">📱</div>
+      <h2 className={s.emptyTitle}>
         {isDemo ? 'Social Intelligence — Demo Mode' : 'Connect Instagram'}
       </h2>
-      <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.40)', maxWidth: 480, margin: '0 auto 24px', lineHeight: 1.65 }}>
+      <p className={s.emptyText}>
         {isDemo
           ? 'META_APP_ID is not configured. Load demo data to explore the Social Intelligence dashboard with realistic sample content.'
           : 'Connect Instagram to let HLNA analyse public engagement, comments and content performance. Identify sentiment trends, urgent comments, and content opportunities automatically.'}
       </p>
-      <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+      <div className={s.emptyActions}>
         {!isDemo && (
-          <button onClick={onConnect} style={primaryBtn}>
+          <Button variant="primary" onClick={onConnect}>
             Connect Instagram
-          </button>
+          </Button>
         )}
-        <button onClick={onConnect} style={isDemo ? primaryBtn : secondaryBtn}>
+        <Button variant={isDemo ? 'primary' : 'secondary'} onClick={onConnect}>
           {isDemo ? 'Load Demo Data' : 'Load Demo Data Instead'}
-        </button>
+        </Button>
       </div>
     </div>
   );
 }
 
-const primaryBtn: React.CSSProperties = {
-  padding: '9px 20px', borderRadius: 8, cursor: 'pointer', fontFamily: FONT,
-  background: 'rgba(124,58,237,0.25)', border: '1px solid rgba(124,58,237,0.45)',
-  color: '#C4B5FD', fontSize: 13, fontWeight: 700,
-};
-const secondaryBtn: React.CSSProperties = {
-  padding: '9px 20px', borderRadius: 8, cursor: 'pointer', fontFamily: FONT,
-  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)',
-  color: 'rgba(255,255,255,0.55)', fontSize: 13, fontWeight: 600,
-};
+const TABS = ['insights', 'feed', 'comments'] as const;
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -368,185 +346,199 @@ export default function SocialClient({ isDemo }: { isDemo: boolean }) {
     ? Math.round(((commentStats.positive_count ?? 0) / commentStats.total_comments) * 100)
     : null;
 
-  return (
-    <div style={{ minHeight: '100vh', background: '#06070F', color: '#F4F4F5', fontFamily: FONT, paddingBottom: 60 }}>
-      {/* Top accent */}
-      <div style={{ height: 1, background: 'linear-gradient(90deg, transparent, rgba(124,58,237,0.6), rgba(56,189,248,0.3), transparent)' }} />
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const baseId = useId();
 
+  function onTabKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    const i = TABS.indexOf(activeTab);
+    let next = -1;
+    if (e.key === 'ArrowRight') next = (i + 1) % TABS.length;
+    else if (e.key === 'ArrowLeft') next = (i - 1 + TABS.length) % TABS.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = TABS.length - 1;
+    if (next < 0) return;
+    e.preventDefault();
+    setActiveTab(TABS[next]);
+    tabRefs.current[next]?.focus();
+  }
+
+  const tabLabels = {
+    insights: `Insights${insights.length > 0 ? ` (${insights.length})` : ''}`,
+    feed:     `Feed (${posts.length})`,
+    comments: `Comments${urgentCount > 0 ? ` — ${urgentCount} urgent` : ''}`,
+  } as const;
+
+  return (
+    <main className={s.page}>
       {/* Header */}
-      <div style={{ padding: '28px 36px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-              <div style={{ fontSize: 10, color: 'rgba(124,58,237,0.70)', fontWeight: 700, letterSpacing: '0.12em' }}>◈</div>
-              <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, letterSpacing: '-0.02em', color: 'rgba(255,255,255,0.92)' }}>
-                Social Intelligence
-              </h1>
-              {isDemo && (
-                <span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 10, background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.25)', color: '#FBBF24', fontWeight: 700 }}>
-                  DEMO
-                </span>
-              )}
-            </div>
-            <p style={{ margin: 0, fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>
-              Public sentiment, engagement and content signals analysed by HLNA
-            </p>
-            {lastSynced && (
-              <p style={{ margin: '4px 0 0', fontSize: 11, color: 'rgba(255,255,255,0.22)' }}>
-                Last synced {timeAgo(lastSynced)}
+      <div className={s.header}>
+        <div className={s.headerInner}>
+          <PageHeader
+            title="Social Intelligence"
+            meta={isDemo ? <Badge state="warning">DEMO</Badge> : undefined}
+            description={
+              <>
+                Public sentiment, engagement and content signals analysed by HLNA
+                {lastSynced && (
+                  <span className={s.synced}>
+                    Last synced {timeAgo(lastSynced)}
+                  </span>
+                )}
+              </>
+            }
+            actions={
+              <div className={s.actions}>
+                {!hasPosts && (
+                  <Button variant="primary" onClick={handleConnect}>
+                    {isDemo ? 'Load Demo Data' : '+ Connect Instagram'}
+                  </Button>
+                )}
+                {hasPosts && (
+                  <>
+                    <Button variant="secondary" onClick={handleSync} disabled={syncing}>
+                      {syncing ? 'Syncing…' : '↻ Sync Now'}
+                    </Button>
+                    <Button variant="primary" onClick={handleAnalyse} disabled={analysing}>
+                      {analysing ? 'Analysing…' : '◎ Run HLNA Analysis'}
+                    </Button>
+                    {insights.length > 0 && (
+                      <Button variant="secondary" onClick={exportInsightReport}>↗ Export Report</Button>
+                    )}
+                  </>
+                )}
+              </div>
+            }
+          />
+
+          <div role="status">
+            {notice && (
+              <p className={s.notice} data-tone={/failed/i.test(notice) ? 'danger' : undefined}>
+                {notice}
               </p>
             )}
           </div>
-
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {!hasPosts && (
-              <button onClick={handleConnect} style={primaryBtn}>
-                {isDemo ? 'Load Demo Data' : '+ Connect Instagram'}
-              </button>
-            )}
-            {hasPosts && (
-              <>
-                <button onClick={handleSync} disabled={syncing} style={{ ...secondaryBtn, opacity: syncing ? 0.5 : 1 }}>
-                  {syncing ? 'Syncing…' : '↻ Sync Now'}
-                </button>
-                <button onClick={handleAnalyse} disabled={analysing} style={{ ...primaryBtn, opacity: analysing ? 0.5 : 1 }}>
-                  {analysing ? 'Analysing…' : '◎ Run HLNA Analysis'}
-                </button>
-                {insights.length > 0 && (
-                  <button onClick={exportInsightReport} style={secondaryBtn}>↗ Export Report</button>
-                )}
-              </>
-            )}
-          </div>
         </div>
-
-        {notice && (
-          <div style={{ marginTop: 12, padding: '8px 14px', background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.20)', borderRadius: 7, fontSize: 12, color: '#34D399' }}>
-            {notice}
-          </div>
-        )}
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '80px 0', color: 'rgba(255,255,255,0.25)', fontSize: 13 }}>Loading…</div>
+        <StateMessage kind="loading" title="Loading…" size="page" />
       ) : !hasPosts ? (
         <EmptyState onConnect={handleConnect} isDemo={isDemo} />
       ) : (
-        <div style={{ padding: '24px 36px' }}>
+        <div className={s.body}>
 
-          {/* KPI Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10, marginBottom: 28 }}>
-            <KpiCard label="Posts analysed" value={stats.post_count ?? posts.length} color="#A78BFA" />
-            <KpiCard label="Avg engagement" value={avgEngagement.toFixed(0)} sub="likes + comments×2" color="#38BDF8" />
-            <KpiCard label="Avg likes" value={(stats.avg_likes ?? 0).toFixed(0)} color="#34D399" />
-            <KpiCard label="Avg comments" value={(stats.avg_comments ?? 0).toFixed(1)} color="#FBBF24" />
-            <KpiCard
+          {/* KPI strip */}
+          <MetricStrip>
+            <Metric label="Posts analysed" value={stats.post_count ?? posts.length} />
+            <Metric label="Avg engagement" value={avgEngagement.toFixed(0)} sub="likes + comments×2" />
+            <Metric label="Avg likes" value={(stats.avg_likes ?? 0).toFixed(0)} />
+            <Metric label="Avg comments" value={(stats.avg_comments ?? 0).toFixed(1)} />
+            <Metric
               label="Sentiment score"
               value={sentimentScore != null ? `${sentimentScore}%` : '—'}
               sub="positive comments"
-              color={sentimentScore != null && sentimentScore >= 60 ? '#34D399' : sentimentScore != null && sentimentScore >= 40 ? '#FBBF24' : '#F87171'}
+              tone={sentimentScore != null && sentimentScore >= 60 ? 'success' : sentimentScore != null && sentimentScore >= 40 ? 'warning' : sentimentScore != null ? 'danger' : undefined}
             />
-            <KpiCard
+            <Metric
               label="Need attention"
               value={urgentCount}
               sub="urgent / negative"
-              color={urgentCount > 0 ? '#F87171' : '#34D399'}
+              tone={urgentCount > 0 ? 'danger' : 'success'}
             />
-          </div>
+          </MetricStrip>
 
           {/* Tab bar */}
-          <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid rgba(255,255,255,0.07)', marginBottom: 20 }}>
-            {([
-              { key: 'insights', label: `Insights${insights.length > 0 ? ` (${insights.length})` : ''}` },
-              { key: 'feed',     label: `Feed (${posts.length})` },
-              { key: 'comments', label: `Comments${urgentCount > 0 ? ` — ${urgentCount} urgent` : ''}` },
-            ] as const).map(t => (
+          <div role="tablist" aria-label="Social views" className={s.tabList} onKeyDown={onTabKeyDown}>
+            {TABS.map((t, i) => (
               <button
-                key={t.key}
-                onClick={() => setActiveTab(t.key)}
-                style={{
-                  padding: '8px 18px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONT,
-                  borderBottom: activeTab === t.key ? '2px solid #8B5CF6' : '2px solid transparent',
-                  color: activeTab === t.key ? '#C4B5FD' : 'rgba(255,255,255,0.40)',
-                  fontSize: 13, fontWeight: activeTab === t.key ? 600 : 400,
-                  transition: 'color 0.15s',
-                }}
+                key={t}
+                ref={el => { tabRefs.current[i] = el; }}
+                type="button"
+                role="tab"
+                id={`${baseId}-tab-${t}`}
+                aria-selected={activeTab === t}
+                aria-controls={`${baseId}-panel`}
+                tabIndex={activeTab === t ? 0 : -1}
+                onClick={() => setActiveTab(t)}
+                className={s.tab}
               >
-                {t.label}
+                {tabLabels[t]}
               </button>
             ))}
           </div>
 
-          {/* ── INSIGHTS tab ── */}
-          {activeTab === 'insights' && (
-            <div style={{ maxWidth: 740 }}>
-              {insights.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '60px 0', color: 'rgba(255,255,255,0.30)', fontSize: 13 }}>
-                  No insights yet. Click <strong style={{ color: 'rgba(255,255,255,0.55)' }}>Run HLNA Analysis</strong> to generate insights from your posts.
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {insights.map((ins, i) => <InsightCard key={ins.id ?? i} ins={ins} idx={i} />)}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ── FEED tab ── */}
-          {activeTab === 'feed' && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 10 }}>
-              {posts.map((p, i) => <PostCard key={p.id ?? i} post={p} />)}
-            </div>
-          )}
-
-          {/* ── COMMENTS tab ── */}
-          {activeTab === 'comments' && (
-            <div style={{ maxWidth: 740 }}>
-              {urgentComments.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '60px 0', color: 'rgba(255,255,255,0.30)', fontSize: 13 }}>
-                  No urgent or negative comments found.
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.28)', marginBottom: 8, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                    {urgentComments.length} comment{urgentComments.length !== 1 ? 's' : ''} needing attention
+          <div role="tabpanel" id={`${baseId}-panel`} aria-labelledby={`${baseId}-tab-${activeTab}`}>
+            {/* ── INSIGHTS tab ── */}
+            {activeTab === 'insights' && (
+              <div className={s.narrow}>
+                {insights.length === 0 ? (
+                  <div className={s.panelEmpty}>
+                    <StateMessage kind="empty" title="No insights yet.">
+                      Click <strong>Run HLNA Analysis</strong> to generate insights from your posts.
+                    </StateMessage>
                   </div>
-                  {urgentComments.map((c, i) => {
-                    const sentColor = SENT_COLOR[c.urgency ? 'urgent' : (c.sentiment ?? 'neutral')] ?? '#94A3B8';
-                    return (
-                      <div key={i} style={{
-                        padding: '12px 14px', borderRadius: 8,
-                        background: 'rgba(255,255,255,0.02)',
-                        border: `1px solid ${sentColor}22`,
-                      }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.55)' }}>
-                            {c.author_name ?? c.username ?? 'user'}
-                          </span>
-                          <span style={{ fontSize: 8, padding: '1px 6px', borderRadius: 3, background: `${sentColor}18`, color: sentColor, fontWeight: 700, letterSpacing: '0.06em' }}>
-                            {c.urgency ? 'URGENT' : (c.sentiment ?? 'neutral').toUpperCase()}
-                          </span>
-                          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.22)', marginLeft: 'auto' }}>
-                            {timeAgo(c.created_at ?? c.timestamp)}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.75)', lineHeight: 1.6 }}>{c.text}</div>
-                        <div style={{ marginTop: 8, fontSize: 10, color: 'rgba(255,255,255,0.25)', fontStyle: 'italic' }}>
-                          Suggested reply angle: {
-                            c.urgency ? 'Acknowledge urgency, provide direct contact or timeline.' :
-                            c.sentiment === 'negative' ? 'Apologise, offer explanation, direct to resolution channel.' :
-                            'Respond with helpful information.'
-                          }
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
+                ) : (
+                  <ul className={s.stackList}>
+                    {insights.map((ins, i) => <InsightCard key={ins.id ?? i} ins={ins} idx={i} />)}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {/* ── FEED tab ── */}
+            {activeTab === 'feed' && (
+              <ul className={s.feed}>
+                {posts.map((p, i) => <PostCard key={p.id ?? i} post={p} />)}
+              </ul>
+            )}
+
+            {/* ── COMMENTS tab ── */}
+            {activeTab === 'comments' && (
+              <div className={s.narrow}>
+                {urgentComments.length === 0 ? (
+                  <div className={s.panelEmpty}>
+                    <StateMessage kind="empty" title="No urgent or negative comments found." />
+                  </div>
+                ) : (
+                  <>
+                    <h2 className={s.attentionHead}>
+                      {urgentComments.length} comment{urgentComments.length !== 1 ? 's' : ''} needing attention
+                    </h2>
+                    <ul className={s.stackList}>
+                      {urgentComments.map((c, i) => {
+                        const sentState = c.urgency ? 'warning' : (SENT_STATE[c.sentiment ?? 'neutral'] ?? 'inactive');
+                        return (
+                          <li key={i} className={s.attention} data-state={sentState}>
+                            <div className={s.commentHead}>
+                              <span className={s.author}>
+                                {c.author_name ?? c.username ?? 'user'}
+                              </span>
+                              <Badge state={sentState}>
+                                {c.urgency ? 'URGENT' : (c.sentiment ?? 'neutral').toUpperCase()}
+                              </Badge>
+                              <span className={s.when}>
+                                {timeAgo(c.created_at ?? c.timestamp)}
+                              </span>
+                            </div>
+                            <p className={s.attentionText}>{c.text}</p>
+                            <p className={s.suggest}>
+                              Suggested reply angle: {
+                                c.urgency ? 'Acknowledge urgency, provide direct contact or timeline.' :
+                                c.sentiment === 'negative' ? 'Apologise, offer explanation, direct to resolution channel.' :
+                                'Respond with helpful information.'
+                              }
+                            </p>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
-    </div>
+    </main>
   );
 }

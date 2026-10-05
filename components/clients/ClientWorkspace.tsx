@@ -1,9 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useId, useState, type KeyboardEvent } from 'react'
 import Link from 'next/link'
-
-const FONT = "var(--font-inter),-apple-system,sans-serif"
+import {
+  Badge,
+  Field,
+  FormActions,
+  FormError,
+  SlidePanel,
+  StatusDot,
+  buttonProps,
+  fieldControlClassName,
+  type SemanticState,
+} from '@/components/ui/app'
+import styles from './ClientWorkspace.module.css'
 
 export type Contact = {
   id: string; name: string; email: string | null; phone: string | null
@@ -37,21 +47,25 @@ export type Person = {
 }
 
 type Tab = 'contacts' | 'leads' | 'opportunities'
+const TAB_ORDER: Tab[] = ['contacts', 'leads', 'opportunities']
 
-// ── Styles ───────────────────────────────────────────────────────────────────
+// ── Status vocabulary ────────────────────────────────────────────────────────
+//
+// Each status keeps its own meaning, expressed through the shared semantic
+// states (colour + shape + visible text) so it reads in light and dark.
 
-const CONTACT_STATUS: Record<string, { bg: string; color: string; border: string }> = {
-  lead:      { bg: 'rgba(34,197,94,.10)',   color: '#4ade80', border: 'rgba(34,197,94,.22)' },
-  contacted: { bg: 'rgba(251,191,36,.10)',  color: '#fbbf24', border: 'rgba(251,191,36,.22)' },
-  active:    { bg: 'rgba(59,130,246,.10)',  color: '#60a5fa', border: 'rgba(59,130,246,.22)' },
-  inactive:  { bg: 'rgba(113,113,122,.10)', color: '#a1a1aa', border: 'rgba(113,113,122,.22)' },
+const CONTACT_STATUS: Record<string, SemanticState> = {
+  lead:      'info',
+  contacted: 'warning',
+  active:    'success',
+  inactive:  'inactive',
 }
 
-const LEAD_STATUS: Record<string, { bg: string; color: string; border: string; label: string }> = {
-  new:       { bg: 'rgba(34,197,94,.10)',   color: '#4ade80', border: 'rgba(34,197,94,.22)',   label: 'New' },
-  contacted: { bg: 'rgba(59,130,246,.10)',  color: '#60a5fa', border: 'rgba(59,130,246,.22)',  label: 'Contacted' },
-  booked:    { bg: 'rgba(167,139,250,.10)', color: '#c4b5fd', border: 'rgba(167,139,250,.22)', label: 'Booked' },
-  closed:    { bg: 'rgba(113,113,122,.10)', color: '#a1a1aa', border: 'rgba(113,113,122,.22)', label: 'Closed' },
+const LEAD_STATUS: Record<string, { state: SemanticState; label: string }> = {
+  new:       { state: 'info',     label: 'New' },
+  contacted: { state: 'warning',  label: 'Contacted' },
+  booked:    { state: 'success',  label: 'Booked' },
+  closed:    { state: 'inactive', label: 'Closed' },
 }
 
 const LEAD_STATUS_ORDER = ['new', 'contacted', 'booked', 'closed']
@@ -65,38 +79,10 @@ const STAGE_LABEL: Record<string, string> = {
   client_review: 'Client Review', testing: 'Testing', ready_to_launch: 'Ready to Launch',
   live: 'Live', on_hold: 'On Hold', cancelled: 'Cancelled',
 }
-const HEALTH_META: Record<string, { label: string; color: string }> = {
-  on_track: { label: 'On Track', color: '#34d399' },
-  at_risk:  { label: 'At Risk',  color: '#f59e0b' },
-  blocked:  { label: 'Blocked',  color: '#f87171' },
-}
-
-function badge(style: { bg: string; color: string; border: string }, label: string) {
-  return (
-    <span style={{
-      fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
-      background: style.bg, color: style.color, border: `1px solid ${style.border}`,
-      letterSpacing: '.04em', textTransform: 'capitalize' as const, whiteSpace: 'nowrap' as const,
-    }}>
-      {label}
-    </span>
-  )
-}
-
-function inp(extra?: React.CSSProperties): React.CSSProperties {
-  return {
-    width: '100%', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.09)',
-    borderRadius: 8, padding: '8px 11px', fontSize: 12, color: '#F5F7FA',
-    outline: 'none', fontFamily: FONT, boxSizing: 'border-box', ...extra,
-  }
-}
-
-function fieldLabel(label: string) {
-  return (
-    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.10em', textTransform: 'uppercase', color: 'rgba(255,255,255,.28)', marginBottom: 4 }}>
-      {label}
-    </div>
-  )
+const HEALTH_META: Record<string, { label: string; state: SemanticState }> = {
+  on_track: { label: 'On Track', state: 'success' },
+  at_risk:  { label: 'At Risk',  state: 'warning' },
+  blocked:  { label: 'Blocked',  state: 'error' },
 }
 
 function ago(ts: string | null) {
@@ -108,6 +94,9 @@ function ago(ts: string | null) {
 }
 
 // ── Contact editor ────────────────────────────────────────────────────────────
+//
+// Opens in the shared SlidePanel: role="dialog", aria-modal, labelled by the
+// contact's name, Escape / × / scrim close, focus trapped and returned.
 
 function ContactEditor({ contact, orgId, onSave, onClose }: {
   contact: Contact; orgId: string
@@ -135,76 +124,54 @@ function ContactEditor({ contact, orgId, onSave, onClose }: {
     onSave(data.contact)
   }
 
-  const panelStyle: React.CSSProperties = {
-    background: 'rgba(15,15,22,1)', border: '1px solid rgba(255,255,255,.10)',
-    borderRadius: 14, padding: 20, display: 'flex', flexDirection: 'column', gap: 12,
-    fontFamily: FONT,
-  }
-
-  const row2: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }
-
   return (
-    <div style={panelStyle}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: '#F5F7FA' }}>{contact.name}</span>
-        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,.35)', fontSize: 16, padding: 0 }}>✕</button>
-      </div>
+    <SlidePanel open onClose={onClose} title={contact.name}>
+      <div className={styles.editor}>
+        <Field label="Name">
+          {c => <input {...c} className={fieldControlClassName} value={form.name} onChange={e => set('name', e.target.value)} />}
+        </Field>
+        <div className={styles.row2}>
+          <Field label="Email">
+            {c => <input {...c} className={fieldControlClassName} type="email" value={form.email ?? ''} onChange={e => set('email', e.target.value || null)} />}
+          </Field>
+          <Field label="Phone">
+            {c => <input {...c} className={fieldControlClassName} type="tel" value={form.phone ?? ''} onChange={e => set('phone', e.target.value || null)} />}
+          </Field>
+        </div>
+        <div className={styles.row2}>
+          <Field label="Status">
+            {c => (
+              <select {...c} className={fieldControlClassName} value={form.status} onChange={e => set('status', e.target.value)}>
+                {CONTACT_STATUS_ORDER.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            )}
+          </Field>
+          <Field label="Age">
+            {c => <input {...c} className={fieldControlClassName} value={form.age ?? ''} onChange={e => set('age', e.target.value || null)} />}
+          </Field>
+        </div>
+        <Field label="Program">
+          {c => <input {...c} className={fieldControlClassName} value={form.program ?? ''} onChange={e => set('program', e.target.value || null)} placeholder="e.g. Service or programme name" />}
+        </Field>
+        <Field label="Session times">
+          {c => <input {...c} className={fieldControlClassName} value={form.session_times ?? ''} onChange={e => set('session_times', e.target.value || null)} placeholder="e.g. Tuesday 6:00 pm" />}
+        </Field>
+        <Field label="Next action">
+          {c => <input {...c} className={fieldControlClassName} value={form.next_action ?? ''} onChange={e => set('next_action', e.target.value || null)} placeholder="e.g. Call to book trial, Send schedule…" />}
+        </Field>
+        <Field label="Address">
+          {c => <input {...c} className={fieldControlClassName} value={form.address ?? ''} onChange={e => set('address', e.target.value || null)} />}
+        </Field>
 
-      <div>
-        {fieldLabel('Name')}
-        <input style={inp()} value={form.name} onChange={e => set('name', e.target.value)} />
-      </div>
-      <div style={row2}>
-        <div>
-          {fieldLabel('Email')}
-          <input style={inp()} type="email" value={form.email ?? ''} onChange={e => set('email', e.target.value || null)} />
-        </div>
-        <div>
-          {fieldLabel('Phone')}
-          <input style={inp()} type="tel" value={form.phone ?? ''} onChange={e => set('phone', e.target.value || null)} />
-        </div>
-      </div>
-      <div style={row2}>
-        <div>
-          {fieldLabel('Status')}
-          <select style={{ ...inp(), cursor: 'pointer' }} value={form.status} onChange={e => set('status', e.target.value)}>
-            {CONTACT_STATUS_ORDER.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-        <div>
-          {fieldLabel('Age')}
-          <input style={inp()} value={form.age ?? ''} onChange={e => set('age', e.target.value || null)} />
-        </div>
-      </div>
-      <div>
-        {fieldLabel('Program')}
-        <input style={inp()} value={form.program ?? ''} onChange={e => set('program', e.target.value || null)} placeholder="e.g. Adult beginner, Junior squad…" />
-      </div>
-      <div>
-        {fieldLabel('Session times')}
-        <input style={inp()} value={form.session_times ?? ''} onChange={e => set('session_times', e.target.value || null)} placeholder="e.g. Tues 6pm, Sat 9am…" />
-      </div>
-      <div>
-        {fieldLabel('Next action')}
-        <input style={inp()} value={form.next_action ?? ''} onChange={e => set('next_action', e.target.value || null)} placeholder="e.g. Call to book trial, Send schedule…" />
-      </div>
-      <div>
-        {fieldLabel('Address')}
-        <input style={inp()} value={form.address ?? ''} onChange={e => set('address', e.target.value || null)} />
-      </div>
+        {err && <FormError>{err}</FormError>}
 
-      {err && <p style={{ fontSize: 11, color: '#f87171', margin: 0 }}>{err}</p>}
-
-      <button onClick={save} disabled={saving || !form.name.trim()}
-        style={{
-          width: '100%', padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 700,
-          background: 'rgba(99,102,241,.20)', border: '1px solid rgba(99,102,241,.40)',
-          color: '#a5b4fc', cursor: saving ? 'default' : 'pointer', fontFamily: FONT,
-          opacity: saving || !form.name.trim() ? .5 : 1,
-        }}>
-        {saving ? 'Saving…' : 'Save changes'}
-      </button>
-    </div>
+        <FormActions align="stretch">
+          <button type="button" {...buttonProps('primary')} onClick={save} disabled={saving || !form.name.trim()}>
+            {saving ? 'Saving…' : 'Save changes'}
+          </button>
+        </FormActions>
+      </div>
+    </SlidePanel>
   )
 }
 
@@ -229,68 +196,66 @@ function ContactsTab({ contacts: initial, orgId }: { contacts: Contact[]; orgId:
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: selected ? '1fr 360px' : '1fr', gap: 14 }}>
-      {/* List */}
-      <div>
-        {/* Filters */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <input
-            value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search contacts…"
-            style={{ ...inp(), flex: 1, fontSize: 12 }}
-          />
-          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-            style={{ ...inp({ width: 'auto', paddingRight: 28 }), cursor: 'pointer', fontSize: 12 }}>
-            <option value="all">All statuses</option>
-            {CONTACT_STATUS_ORDER.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
+    <div>
+      {/* Filters */}
+      <div className={styles.filters}>
+        <input
+          type="search"
+          aria-label="Search contacts"
+          className={`${fieldControlClassName} ${styles.search}`}
+          value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Search contacts…"
+        />
+        <select
+          aria-label="Filter contacts by status"
+          className={`${fieldControlClassName} ${styles.filterSelect}`}
+          value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+        >
+          <option value="all">All statuses</option>
+          {CONTACT_STATUS_ORDER.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </div>
 
-        {filtered.length === 0 ? (
-          <div style={{ padding: '40px 0', textAlign: 'center', color: 'rgba(255,255,255,.22)', fontSize: 12 }}>
-            {search || filterStatus !== 'all' ? 'No contacts match your filters.' : 'No contacts yet.'}
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {filtered.map(c => {
-              const st = CONTACT_STATUS[c.status] ?? CONTACT_STATUS.lead
-              const isActive = selected?.id === c.id
-              return (
-                <div key={c.id} onClick={() => setSelected(isActive ? null : c)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 12,
-                    padding: '11px 14px', borderRadius: 10, cursor: 'pointer',
-                    background: isActive ? 'rgba(99,102,241,.12)' : 'rgba(255,255,255,.025)',
-                    border: `1px solid ${isActive ? 'rgba(99,102,241,.30)' : 'rgba(255,255,255,.07)'}`,
-                    transition: 'background .12s',
-                  }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F7FA', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {c.name}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,.30)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {[c.email, c.phone].filter(Boolean).join(' · ')}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+      {filtered.length === 0 ? (
+        <p className={styles.emptyState}>
+          {search || filterStatus !== 'all' ? 'No contacts match your filters.' : 'No contacts yet.'}
+        </p>
+      ) : (
+        <ul className={styles.list}>
+          {filtered.map(c => {
+            const state = CONTACT_STATUS[c.status] ?? CONTACT_STATUS.lead
+            const isActive = selected?.id === c.id
+            const meta = [c.email, c.phone].filter(Boolean).join(' · ')
+            return (
+              <li key={c.id}>
+                <button
+                  type="button"
+                  className={styles.row}
+                  data-selected={isActive ? 'true' : undefined}
+                  aria-haspopup="dialog"
+                  onClick={() => setSelected(isActive ? null : c)}
+                >
+                  <span className={styles.rowMain}>
+                    <span className={styles.rowName} title={c.name}>{c.name}</span>
+                    {meta && <span className={styles.rowMeta} title={meta}>{meta}</span>}
+                  </span>
+                  <span className={styles.rowSide}>
                     {c.next_action && (
-                      <span style={{ fontSize: 10, color: 'rgba(251,191,36,.70)', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span className={styles.nextAction} title={c.next_action}>
                         → {c.next_action}
                       </span>
                     )}
-                    {badge(st, c.status)}
-                    <span style={{ fontSize: 10, color: 'rgba(255,255,255,.20)', width: 52, textAlign: 'right' }}>
-                      {ago(c.last_contacted_at)}
-                    </span>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
+                    <Badge state={state} className={styles.statusBadge}>{c.status}</Badge>
+                    <span className={styles.when}>{ago(c.last_contacted_at)}</span>
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
 
-      {/* Editor panel */}
+      {/* Editor dialog */}
       {selected && (
         <ContactEditor
           key={selected.id}
@@ -310,6 +275,7 @@ function LeadsTab({ leads: initial, orgId }: { leads: Lead[]; orgId: string }) {
   const [leads, setLeads] = useState(initial)
   const [updating, setUpdating] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const baseId = useId()
 
   async function setStatus(lead: Lead, status: string) {
     setUpdating(lead.id)
@@ -323,61 +289,56 @@ function LeadsTab({ leads: initial, orgId }: { leads: Lead[]; orgId: string }) {
   }
 
   if (leads.length === 0) {
-    return <div style={{ padding: '40px 0', textAlign: 'center', color: 'rgba(255,255,255,.22)', fontSize: 12 }}>No leads yet.</div>
+    return <p className={styles.emptyState}>No leads yet.</p>
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+    <ul className={styles.list}>
       {leads.map(lead => {
         const st = LEAD_STATUS[lead.status] ?? LEAD_STATUS.new
         const isExpanded = expanded === lead.id
         const date = new Date(lead.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
+        const detailId = `${baseId}-lead-${lead.id}`
 
         return (
-          <div key={lead.id} style={{
-            background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.07)',
-            borderRadius: 10, overflow: 'hidden',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', cursor: 'pointer' }}
-              onClick={() => setExpanded(isExpanded ? null : lead.id)}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F7FA', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {lead.name}
-                </div>
-                <div style={{ fontSize: 11, color: 'rgba(255,255,255,.30)', marginTop: 2 }}>
+          <li key={lead.id} className={styles.leadCard}>
+            <button
+              type="button"
+              className={styles.row}
+              aria-expanded={isExpanded}
+              aria-controls={detailId}
+              onClick={() => setExpanded(isExpanded ? null : lead.id)}
+            >
+              <span className={styles.rowMain}>
+                <span className={styles.rowName} title={lead.name}>{lead.name}</span>
+                <span className={styles.rowMeta}>
                   {lead.email}{lead.session_type ? ` · ${lead.session_type}` : ''}
-                </div>
-              </div>
-              <span style={{ fontSize: 11, color: 'rgba(255,255,255,.22)', flexShrink: 0 }}>{date}</span>
-              {badge(st, st.label)}
-            </div>
+                </span>
+              </span>
+              <span className={styles.rowSide}>
+                <span className={styles.when}>{date}</span>
+                <Badge state={st.state} className={styles.statusBadge}>{st.label}</Badge>
+              </span>
+            </button>
 
             {isExpanded && (
-              <div style={{
-                borderTop: '1px solid rgba(255,255,255,.06)',
-                padding: '12px 14px',
-                display: 'flex', flexDirection: 'column', gap: 10,
-              }}>
+              <div id={detailId} className={styles.leadDetail}>
                 {lead.message && (
-                  <p style={{ fontSize: 12, color: 'rgba(255,255,255,.45)', margin: 0, lineHeight: 1.6 }}>{lead.message}</p>
+                  <p className={styles.message}>{lead.message}</p>
                 )}
                 {lead.phone && (
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,.35)' }}>📞 {lead.phone}</div>
+                  <div className={styles.phone}>Phone {lead.phone}</div>
                 )}
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.10em', textTransform: 'uppercase', color: 'rgba(255,255,255,.25)', marginBottom: 6 }}>
+                <div role="group" aria-labelledby={`${detailId}-move`}>
+                  <p id={`${detailId}-move`} className={styles.moveLabel}>
                     Move to
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  </p>
+                  <div className={styles.moveActions}>
                     {LEAD_STATUS_ORDER.filter(s => s !== lead.status).map(s => {
                       const sty = LEAD_STATUS[s]
                       return (
-                        <button key={s} onClick={() => setStatus(lead, s)} disabled={updating === lead.id}
-                          style={{
-                            fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20, cursor: 'pointer',
-                            background: sty.bg, color: sty.color, border: `1px solid ${sty.border}`,
-                            fontFamily: FONT, opacity: updating === lead.id ? .5 : 1,
-                          }}>
+                        <button key={s} type="button" {...buttonProps('secondary', 'sm')}
+                          onClick={() => setStatus(lead, s)} disabled={updating === lead.id}>
                           {sty.label}
                         </button>
                       )
@@ -386,10 +347,10 @@ function LeadsTab({ leads: initial, orgId }: { leads: Lead[]; orgId: string }) {
                 </div>
               </div>
             )}
-          </div>
+          </li>
         )
       })}
-    </div>
+    </ul>
   )
 }
 
@@ -400,51 +361,33 @@ function OpportunitiesTab({ opportunities }: { opportunities: Opportunity[] }) {
 
   if (nonempty.length === 0) {
     return (
-      <div style={{ padding: '40px 0', textAlign: 'center', color: 'rgba(255,255,255,.22)', fontSize: 12 }}>
+      <p className={styles.emptyState}>
         No opportunities flagged — everything looks healthy.
-      </div>
+      </p>
     )
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div className={styles.oppList}>
       {nonempty.map(opp => (
-        <div key={opp.key} style={{
-          background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,189,36,.12)',
-          borderRadius: 14, overflow: 'hidden',
-        }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 18, lineHeight: 1 }}>
-              {opp.key === 'cold_leads' ? '🔥' : opp.key === 'no_followup' ? '📋' : opp.key === 'no_next_action' ? '⚡' : '👀'}
-            </span>
+        <section key={opp.key} className={styles.oppCard} aria-label={opp.label}>
+          <div className={styles.oppHeader}>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#fbbf24' }}>{opp.label}</div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,.30)', marginTop: 1 }}>{opp.description}</div>
+              <h3 className={styles.oppTitle}>{opp.label}</h3>
+              <p className={styles.oppDescription}>{opp.description}</p>
             </div>
-            <span style={{ marginLeft: 'auto', fontSize: 20, fontWeight: 700, color: '#fbbf24' }}>{opp.items.length}</span>
+            <span className={styles.oppCount}>{opp.items.length}</span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {opp.items.map((item, i) => (
-              <div key={item.id} style={{
-                padding: '10px 18px', fontSize: 12,
-                borderBottom: i < opp.items.length - 1 ? '1px solid rgba(255,255,255,.05)' : 'none',
-                display: 'flex', alignItems: 'center', gap: 10,
-              }}>
-                <span style={{ flex: 1, color: '#F5F7FA', fontWeight: 500 }}>{item.name}</span>
-                <span style={{ color: 'rgba(255,255,255,.35)', flexShrink: 0 }}>{item.detail}</span>
-                <span style={{
-                  fontSize: 9, fontWeight: 700, letterSpacing: '.06em', padding: '2px 7px', borderRadius: 20,
-                  background: item.type === 'contact' ? 'rgba(59,130,246,.12)' : 'rgba(34,197,94,.12)',
-                  color: item.type === 'contact' ? '#60a5fa' : '#4ade80',
-                  border: `1px solid ${item.type === 'contact' ? 'rgba(59,130,246,.25)' : 'rgba(34,197,94,.25)'}`,
-                  textTransform: 'uppercase',
-                }}>
-                  {item.type}
-                </span>
-              </div>
+          <ul className={styles.list}>
+            {opp.items.map(item => (
+              <li key={item.id} className={styles.oppItem}>
+                <span className={styles.oppItemName}>{item.name}</span>
+                <span className={styles.oppItemDetail}>{item.detail}</span>
+                <span className={styles.typeTag}>{item.type}</span>
+              </li>
             ))}
-          </div>
-        </div>
+          </ul>
+        </section>
       ))}
     </div>
   )
@@ -476,112 +419,90 @@ function AccountOverview({ modules, implementations, people, peopleTotal }: {
   modules: PlatformModule[]; implementations: Implementation[]; people: Person[]; peopleTotal: number
 }) {
   const additionalPeople = Math.max(0, peopleTotal - people.length)
-  const cardStyle: React.CSSProperties = {
-    background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.07)',
-    borderRadius: 14, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 12,
-  }
-  const sectionHeader: React.CSSProperties = {
-    fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase',
-    color: 'rgba(255,255,255,.35)',
-  }
-  const emptyStyle: React.CSSProperties = { fontSize: 12, color: 'rgba(255,255,255,.22)' }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 24 }}>
+    <div className={styles.overview}>
       {/* BrainBase Platform */}
-      <div style={cardStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={sectionHeader}>BrainBase Platform</span>
-          <Link href="/admin/orgs" style={{ fontSize: 11, color: 'rgba(255,255,255,.30)', textDecoration: 'none' }}>
+      <section className={styles.card}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardTitle}><span>BrainBase Platform</span></h2>
+          <Link href="/admin/orgs" className={styles.cardLink}>
             Manage in Admin →
           </Link>
         </div>
         {modules.length === 0 ? (
-          <div style={emptyStyle}>No platform modules enabled</div>
+          <p className={styles.empty}>No platform modules enabled</p>
         ) : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          <ul className={styles.tags}>
             {modules.map(m => (
-              <span key={m.key} title={m.description ?? undefined} style={{
-                fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 20,
-                background: 'rgba(99,102,241,.10)', color: '#a5b4fc',
-                border: '1px solid rgba(99,102,241,.22)',
-              }}>
+              <li key={m.key} title={m.description ?? undefined} className={styles.tag}>
                 {m.name}
-              </span>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
-      </div>
+      </section>
 
       {/* Implementations */}
-      <div style={cardStyle}>
-        <span style={sectionHeader}>Implementations</span>
+      <section className={styles.card}>
+        <h2 className={styles.cardTitle}><span>Implementations</span></h2>
         {implementations.length === 0 ? (
-          <div style={emptyStyle}>No implementations recorded</div>
+          <p className={styles.empty}>No implementations recorded</p>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <ul className={styles.stack}>
             {implementations.map(impl => {
               const health = HEALTH_META[impl.health] ?? HEALTH_META.on_track
               return (
-                <Link key={impl.id} href={`/admin/implementations/${impl.id}`} style={{
-                  display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none',
-                  padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,.02)',
-                  border: '1px solid rgba(255,255,255,.05)',
-                }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: health.color, flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#F5F7FA', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {impl.name}
-                    </div>
-                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,.30)', marginTop: 1 }}>
+                <li key={impl.id}>
+                  <Link href={`/admin/implementations/${impl.id}`} className={styles.item}>
+                    <span className={styles.itemName}>{impl.name}</span>
+                    <StatusDot state={health.state} label={health.label} className={styles.itemHealth} />
+                    <span className={styles.itemMeta}>
                       {STAGE_LABEL[impl.stage] ?? impl.stage}
                       {impl.service_type ? ` · ${impl.service_type}` : ''}
                       {impl.next_action ? ` · → ${impl.next_action}` : ''}
-                    </div>
-                  </div>
-                </Link>
+                    </span>
+                  </Link>
+                </li>
               )
             })}
-          </div>
+          </ul>
         )}
-      </div>
+      </section>
 
       {/* People — read-only account-user visibility. No invite/create/
           delete/deactivate/role-change control exists here; management
           happens at /admin/users. */}
-      <div style={cardStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={sectionHeader}>People</span>
-          <Link href="/admin/users" style={{ fontSize: 11, color: 'rgba(255,255,255,.30)', textDecoration: 'none' }}>
+      <section className={styles.card}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardTitle}><span>People</span></h2>
+          <Link href="/admin/users" className={styles.cardLink}>
             Manage in Admin →
           </Link>
         </div>
         {people.length === 0 ? (
-          <div style={emptyStyle}>No users on this account</div>
+          <p className={styles.empty}>No users on this account</p>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <ul className={styles.stack}>
             {people.map(person => (
-              <div key={person.id} style={{
-                padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,.02)',
-                border: '1px solid rgba(255,255,255,.05)',
-              }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#F5F7FA', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <li key={person.id} className={styles.item}>
+                <span className={styles.itemName}>
                   {person.name}
-                </div>
-                <div style={{ fontSize: 10, color: 'rgba(255,255,255,.30)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                </span>
+                <span className={styles.itemMeta}>
                   {person.email ?? 'No email'} · {ROLE_LABEL[person.role] ?? person.role}
-                </div>
-                <div style={{ fontSize: 10, color: 'rgba(255,255,255,.22)', marginTop: 1 }}>
+                </span>
+                <span className={styles.itemMeta}>
                   {lastSeen(person.last_login_at)}
-                </div>
-              </div>
+                </span>
+              </li>
             ))}
             {additionalPeople > 0 && (
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,.22)' }}>+{additionalPeople} more</div>
+              <li className={styles.more}>+{additionalPeople} more</li>
             )}
-          </div>
+          </ul>
         )}
-      </div>
+      </section>
     </div>
   )
 }
@@ -599,13 +520,34 @@ export default function ClientWorkspace({ orgId, contacts, leads, opportunities,
   peopleTotal: number
 }) {
   const [tab, setTab] = useState<Tab>('contacts')
+  const baseId = useId()
+  const panelId = `${baseId}-panel`
+  const tabId = (t: Tab) => `${baseId}-tab-${t}`
 
-  const tabStyle = (t: Tab): React.CSSProperties => ({
-    fontSize: 12, fontWeight: 600, padding: '6px 16px', borderRadius: 8,
-    border: 'none', cursor: 'pointer', fontFamily: FONT, transition: 'background .12s',
-    background: tab === t ? 'rgba(99,102,241,.22)' : 'transparent',
-    color: tab === t ? '#a5b4fc' : 'rgba(255,255,255,.38)',
+  // A real tablist: one tab in the Tab order (roving tabindex), arrow keys /
+  // Home / End move between tabs and activate them.
+  const tabStyle = (t: Tab) => ({
+    id: tabId(t),
+    role: 'tab' as const,
+    type: 'button' as const,
+    className: styles.tab,
+    'aria-selected': tab === t,
+    'aria-controls': panelId,
+    tabIndex: tab === t ? 0 : -1,
   })
+
+  function onTabKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    const i = TAB_ORDER.indexOf(tab)
+    let next: Tab | null = null
+    if (e.key === 'ArrowRight') next = TAB_ORDER[(i + 1) % TAB_ORDER.length]
+    else if (e.key === 'ArrowLeft') next = TAB_ORDER[(i - 1 + TAB_ORDER.length) % TAB_ORDER.length]
+    else if (e.key === 'Home') next = TAB_ORDER[0]
+    else if (e.key === 'End') next = TAB_ORDER[TAB_ORDER.length - 1]
+    if (!next) return
+    e.preventDefault()
+    setTab(next)
+    document.getElementById(tabId(next))?.focus()
+  }
 
   const counts = {
     contacts:      contacts.length,
@@ -619,24 +561,23 @@ export default function ClientWorkspace({ orgId, contacts, leads, opportunities,
   }
 
   return (
-    <div style={{ width: '100%', maxWidth: 1100, margin: '0 auto', padding: '24px 24px 64px', fontFamily: FONT }}>
+    <div className={styles.workspace}>
       <AccountOverview modules={modules} implementations={implementations} people={people} peopleTotal={peopleTotal} />
 
       {/* Tab bar */}
-      <div style={{
-        display: 'flex', gap: 4, marginBottom: 20,
-        background: 'rgba(255,255,255,.03)',
-        border: '1px solid rgba(255,255,255,.07)',
-        borderRadius: 12, padding: 4, alignSelf: 'flex-start', width: 'fit-content',
-      }}>
-        <button style={tabStyle('contacts')}      onClick={() => setTab('contacts')}>      {label('contacts', 'Contacts')}      </button>
-        <button style={tabStyle('leads')}         onClick={() => setTab('leads')}>         {label('leads', 'Leads')}            </button>
-        <button style={tabStyle('opportunities')} onClick={() => setTab('opportunities')}> {label('opportunities', 'Opportunities')}</button>
+      <div className={styles.tabStrip}>
+        <div className={styles.tabList} role="tablist" aria-label="Client data" onKeyDown={onTabKeyDown}>
+          <button {...tabStyle('contacts')}      onClick={() => setTab('contacts')}>      {label('contacts', 'Contacts')}      </button>
+          <button {...tabStyle('leads')}         onClick={() => setTab('leads')}>         {label('leads', 'Leads')}            </button>
+          <button {...tabStyle('opportunities')} onClick={() => setTab('opportunities')}> {label('opportunities', 'Opportunities')}</button>
+        </div>
       </div>
 
-      {tab === 'contacts'      && <ContactsTab      contacts={contacts}         orgId={orgId} />}
-      {tab === 'leads'         && <LeadsTab         leads={leads}               orgId={orgId} />}
-      {tab === 'opportunities' && <OpportunitiesTab opportunities={opportunities} />}
+      <div id={panelId} role="tabpanel" aria-labelledby={tabId(tab)}>
+        {tab === 'contacts'      && <ContactsTab      contacts={contacts}         orgId={orgId} />}
+        {tab === 'leads'         && <LeadsTab         leads={leads}               orgId={orgId} />}
+        {tab === 'opportunities' && <OpportunitiesTab opportunities={opportunities} />}
+      </div>
     </div>
   )
 }

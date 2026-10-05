@@ -56,7 +56,15 @@ export function deriveScreenGroup(phase: DataHubImportState["phase"]): ScreenGro
   if (REVIEW_PHASES.has(phase)) return "review";
   if (phase === "worksheetInventoryReady") return "inventory";
   if (phase === "xlsxWorksheetPreviewing" || phase === "xlsxWorksheetPreviewReady" || phase === "xlsxWorksheetPreviewFailed") return "xlsxPreview";
-  if (phase === "schemaMatchLoading" || phase === "schemaMatchReady" || phase === "schemaMatchFailed") return "schemaMatch";
+  if (
+    phase === "schemaMatchLoading" ||
+    phase === "schemaMatchReady" ||
+    phase === "schemaMatchFailed" ||
+    phase === "schemaSelectionSaving" ||
+    phase === "schemaSelected" ||
+    phase === "schemaSelectionFailed"
+  )
+    return "schemaMatch";
   if (CONFIRM_PHASES.has(phase)) return "confirm";
   if (SUCCESS_PHASES.has(phase)) return "success";
   // Exhaustiveness fallback — a phase this module has never seen. Never

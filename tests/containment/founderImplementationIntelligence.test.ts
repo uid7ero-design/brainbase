@@ -291,7 +291,13 @@ describe('Founder OS Clients tab renders real implementation rows linking to the
   })
 
   it('the Overview summary also links out to the full Client Implementations list page', () => {
-    expect(founderSource).toContain('<Link href="/admin/implementations" style={{ fontSize: 10, color: T.purple, textDecoration: \'none\' }}>View all →</Link>')
+    // Visual-convergence update (authenticated visual-completion pass): the
+    // pinned 10px size was an obsolete visual literal (Founder OS no longer
+    // uses sub-11px text). The contract stays exact: one Next <Link> to the
+    // list page, labelled "View all →", coloured by the theme accent token
+    // (T.purple now resolves to var(--brand-brainbase-accent)).
+    expect(founderSource).toContain('<Link href="/admin/implementations" style={{ fontSize: 11, color: T.purple, textDecoration: \'none\' }}>View all →</Link>')
+    expect(founderSource).toContain("purple:   'var(--brand-brainbase-accent)',")
   })
 })
 

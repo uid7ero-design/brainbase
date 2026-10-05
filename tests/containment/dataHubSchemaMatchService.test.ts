@@ -727,7 +727,7 @@ describe("6.2D3C UI — report panel and inventory action", () => {
   async function renderReport(report: Record<string, unknown>) {
     const { default: Panel } = await import("@/app/data-hub/import/_components/SchemaMatchReportPanel");
     const state = { phase: "schemaMatchReady" as const, batch, worksheets: [], report: report as never };
-    return renderToStaticMarkup(createElement(Panel, { state, onBack: () => {}, onRetry: () => {}, onRestart: () => {} }));
+    return renderToStaticMarkup(createElement(Panel, { state, onBack: () => {}, onRetry: () => {}, onSelectSchema: () => {}, onRestart: () => {} }));
   }
 
   it("exact match reads as structural — never accepted/approved/activated/ready to import — and offers no import CTA", async () => {

@@ -61,15 +61,15 @@ export default async function OrganiserLayout({ children }: { children: React.Re
           gap: 10,
           textAlign: 'center',
           padding: 32,
-          background: '#07080B',
-          color: '#f9fafb',
+          background: 'var(--bg-base)',
+          color: 'var(--text-primary)',
           fontFamily: 'var(--font-inter), Inter, sans-serif',
         }}
       >
-        <div style={{ fontSize: 16, fontWeight: 700 }}>Organiser isn&apos;t enabled for your organisation</div>
-        <div style={{ fontSize: 13, color: '#6b7280', maxWidth: 360 }}>
+        <h1 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Organiser isn&apos;t enabled for your organisation</h1>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', maxWidth: 360, margin: 0 }}>
           Ask a BrainBase admin to enable the Organiser capability for your organisation to access boards and tasks.
-        </div>
+        </p>
       </div>
     );
   }

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { Calendar, MapPin, ChevronRight } from 'lucide-react';
-import KpiCard from '@/components/dashboard/ui/KpiCard';
+import { Metric, MetricStrip, PageHeader } from '@/components/ui/app';
 import { CapabilityIcon } from '@/components/brand/CapabilityIcon';
 import {
   FONT, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, VIOLET_SOFT,
@@ -145,36 +145,36 @@ export default function EventsListClient({ canManage, organisationSlug }: { canM
     <div style={{ padding: 32, fontFamily: FONT, color: TEXT_PRIMARY, maxWidth: 1140, margin: '0 auto' }}>
       <EventsSharedStyles />
 
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
-        <div>
-          {/* Module identity moment (Phase D.4.3) — the same Ticket/amber
-              CapabilityIcon already shown in ModuleAccessCard and TopNav for
-              this capability, decorative since the heading right beside it
-              already supplies the accessible name. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <PageHeader
+        title={
+          // Module identity moment (Phase D.4.3) — the same Ticket/amber
+          // CapabilityIcon already shown in ModuleAccessCard and TopNav for
+          // this capability, decorative since the heading text beside it
+          // supplies the accessible name.
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
             <CapabilityIcon capability="events" size="md" />
-            <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: '-.01em' }}>Events</h1>
-          </div>
-          <p style={{ fontSize: 13, color: TEXT_MUTED, margin: '5px 0 0' }}>Create, manage and monitor registrations</p>
-        </div>
-        {canManage && (
-          <div style={{ display: 'flex', gap: 10 }}>
+            Events
+          </span>
+        }
+        description="Create, manage and monitor registrations"
+        actions={canManage && (
+          <>
             <Link href="/events/payments" style={{ ...secondaryBtnStyle, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
               Payments
             </Link>
             <button onClick={() => setShowCreate(v => !v)} style={primaryBtnStyle}>
               {showCreate ? 'Cancel' : '+ Create Event'}
             </button>
-          </div>
+          </>
         )}
-      </div>
+      />
 
-      <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
-        <KpiCard label="Total Events" value={events ? total : '—'} accentColor="#8A4DFF" theme="dark" loading={events === null} />
-        <KpiCard label="Published" value={events ? published : '—'} accentColor="#4ADE80" theme="dark" loading={events === null} />
-        <KpiCard label="Upcoming" value={events ? upcoming : '—'} accentColor="#A78BFA" theme="dark" loading={events === null} />
-        <KpiCard label="Draft" value={events ? draft : '—'} accentColor="#9ca3af" theme="dark" loading={events === null} />
-      </div>
+      <MetricStrip style={{ marginBottom: 24 }}>
+        <Metric label="Total Events" value={total} loading={events === null} />
+        <Metric label="Published" value={published} loading={events === null} />
+        <Metric label="Upcoming" value={upcoming} loading={events === null} />
+        <Metric label="Draft" value={draft} loading={events === null} />
+      </MetricStrip>
 
       {showCreate && canManage && (
         <Panel style={{ marginBottom: 24 }}>
@@ -208,7 +208,7 @@ export default function EventsListClient({ canManage, organisationSlug }: { canM
               </label>
             </div>
             <div style={{ fontSize: 11, color: TEXT_MUTED }}>Timezone: {timezone}</div>
-            {formError && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12 }}>{formError}</div>}
+            {formError && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12 }}>{formError}</div>}
             <button type="submit" disabled={saving} style={{ ...primaryBtnStyle, alignSelf: 'flex-start', opacity: saving ? 0.6 : 1, cursor: saving ? 'default' : 'pointer' }}>
               {saving ? 'Creating…' : 'Create Event'}
             </button>
@@ -216,7 +216,7 @@ export default function EventsListClient({ canManage, organisationSlug }: { canM
         </Panel>
       )}
 
-      {error && <div role="alert" style={{ color: '#FCA5A5', fontSize: 13, marginBottom: 16 }}>{error}</div>}
+      {error && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 13, marginBottom: 16 }}>{error}</div>}
 
       <Panel style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
         {events === null && (
@@ -236,7 +236,7 @@ export default function EventsListClient({ canManage, organisationSlug }: { canM
           // screen" Link; "View public page" is a sibling secondary
           // action in the same row, never nested inside it.
           <div key={ev.id} className="bb-evt-row" style={{
-            padding: '14px 16px', background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)',
+            padding: '14px 16px', background: 'var(--bg-surface)', border: '1px solid var(--border)',
             borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap',
           }}>
             <Link href={`/events/${ev.id}`} style={{ textDecoration: 'none', color: 'inherit', minWidth: 0, flex: 1 }}>
@@ -255,7 +255,7 @@ export default function EventsListClient({ canManage, organisationSlug }: { canM
                 )}
               </div>
             </Link>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '0 1 auto', flexWrap: 'wrap', minWidth: 0 }}>
               <span style={metaPillStyle}>{ev.session_count} session{ev.session_count === 1 ? '' : 's'}</span>
               <span style={metaPillStyle}>{ev.ticket_type_count} ticket type{ev.ticket_type_count === 1 ? '' : 's'}</span>
               {/* Part B — the existing public route (app/e/[organisationSlug]/
@@ -293,6 +293,6 @@ export default function EventsListClient({ canManage, organisationSlug }: { canM
 }
 
 const metaPillStyle: React.CSSProperties = {
-  fontSize: 11, fontWeight: 600, color: TEXT_MUTED, background: 'rgba(255,255,255,.04)',
-  border: '1px solid rgba(255,255,255,.07)', borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap',
+  fontSize: 11, fontWeight: 600, color: TEXT_MUTED, background: 'var(--bg-sunken)',
+  border: '1px solid var(--border)', borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap',
 };

@@ -1,0 +1,84 @@
+/* HLNA command suggestion chips (the /dashboard fallback) — remaining
+   visual islands pass. Bordered chips on app tokens; the just-sent chip uses
+   the selected treatment (raised surface + accent edge + accent text) with a
+   border, never outline, so the focus ring still wins. Tokens only. */
+
+.root {
+  width: 100%;
+}
+
+.heading {
+  margin: 0 0 9px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 7px;
+}
+.chips[data-panel='true'] {
+  justify-content: flex-start;
+  gap: 5px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.chips[data-panel='true'] .chip {
+  padding: 5px 10px;
+  font-size: 0.6875rem;
+}
+.chip:hover {
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+}
+.chip[data-active='true'] {
+  background: var(--bg-surface);
+  border-color: var(--brand-brainbase-accent-border);
+  color: var(--brand-brainbase-accent);
+}
+
+.icon {
+  color: var(--text-muted);
+}
+.chip[data-active='true'] .icon {
+  color: inherit;
+}
+
+.overflow {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip {
+    transition: none;
+  }
+}

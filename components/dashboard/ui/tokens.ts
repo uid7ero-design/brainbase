@@ -1,23 +1,52 @@
-// Design tokens for the Brainbase dashboard component system
+// Design tokens for the Brainbase dashboard component system.
+//
+// Authenticated visual-completion pass: every value here is a theme token
+// (a CSS custom property from app/globals.css), so the municipal dashboard
+// shell, its cards and every module page follow the app's light/dark theme
+// instead of carrying a hardcoded dark (or light) palette. Nothing in this
+// file resolves to a concrete colour.
+//
+// These strings are for HTML styles. SVG chart marks (recharts `fill=`,
+// `stroke=`, tick `fill`) read concrete colours from useDashboardChart()
+// in ./chartTheme (which wraps components/ui/app/chartPalette), because
+// SVG presentation attributes cannot always resolve custom properties.
+
+/** A translucent tint of any colour (token or hex) — for fills and hairlines. */
+export function tint(color: string, percent: number): string {
+  return `color-mix(in srgb, ${color} ${percent}%, transparent)`;
+}
+
+export type Tone = 'danger' | 'warning' | 'success' | 'info' | 'inactive';
+
+/** Semantic status colours: `fg` meets 4.5:1 as text on every surface. */
+export const TONE: Record<Tone, { fg: string; muted: string; border: string }> = {
+  danger:   { fg: 'var(--status-danger)',   muted: 'var(--status-danger-muted)',   border: 'var(--status-danger-border)' },
+  warning:  { fg: 'var(--status-warning)',  muted: 'var(--status-warning-muted)',  border: 'var(--status-warning-border)' },
+  success:  { fg: 'var(--status-success)',  muted: 'var(--status-success-muted)',  border: 'var(--status-success-border)' },
+  info:     { fg: 'var(--status-info)',     muted: 'var(--status-info-muted)',     border: 'var(--status-info-border)' },
+  inactive: { fg: 'var(--status-inactive)', muted: 'var(--status-inactive-muted)', border: 'var(--border)' },
+};
+
+export const PRIORITY_TONE = { High: 'danger', Medium: 'warning', Low: 'success' } as const satisfies Record<'High' | 'Medium' | 'Low', Tone>;
 
 export const COLORS = {
-  riskRed:    '#ef4444',
-  watchAmber: '#f59e0b',
-  okGreen:    '#10b981',
-  // neutral
-  white:      '#ffffff',
-  offWhite:   '#e5e7eb',
+  riskRed:    TONE.danger.fg,
+  watchAmber: TONE.warning.fg,
+  okGreen:    TONE.success.fg,
+  // neutral (kept for API compatibility; theme-following)
+  white:      'var(--text-primary)',
+  offWhite:   'var(--text-secondary)',
 } as const;
 
 export const PRIORITY_COLORS = {
-  High:   '#ef4444',
-  Medium: '#f59e0b',
-  Low:    '#10b981',
+  High:   TONE.danger.fg,
+  Medium: TONE.warning.fg,
+  Low:    TONE.success.fg,
 } as const;
 
 export const STATUS_COLORS = {
-  risk:   '#ef4444',
-  watch:  '#f59e0b',
+  risk:   TONE.danger.fg,
+  watch:  TONE.warning.fg,
   normal: null, // falls back to accentColor
 } as const;
 
@@ -32,16 +61,16 @@ export const SPACING = {
 } as const;
 
 export const TYPOGRAPHY = {
-  label:   { fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.06em' },
+  label:   { fontSize: 11, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.06em' },
   caption: { fontSize: 11, fontWeight: 400 },
   body:    { fontSize: 12.5, fontWeight: 400 },
   bodyMd:  { fontSize: 13, fontWeight: 400 },
-  kpiVal:  { fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1 },
-  headXs:  { fontSize: 10, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.08em' },
-  headSm:  { fontSize: 11, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.06em' },
+  kpiVal:  { fontSize: 20, fontWeight: 700, letterSpacing: '-0.01em', lineHeight: 1.2, fontVariantNumeric: 'tabular-nums' as const },
+  headXs:  { fontSize: 11, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.06em' },
+  headSm:  { fontSize: 11, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.06em' },
 } as const;
 
-// Shared theme token shapes — mirrors DashboardShell's `th` object
+// Shared theme token shape (kept for API compatibility).
 export interface ThemeTokens {
   bg:         string;
   card:       React.CSSProperties;
@@ -62,48 +91,41 @@ export interface ThemeTokens {
   budgetLine: string;
 }
 
-export const LIGHT_TOKENS: ThemeTokens = {
-  bg:         '#f1f5f9',
-  card:       { background: '#fff',                        border: '1.5px solid #d1d5db' },
-  t1:         '#0f172a',
-  t2:         '#475569',
-  t3:         '#94a3b8',
-  bdr:        '#d1d5db',
-  rbdr:       '#e2e8f0',
-  ralt:       '#fafafa',
-  rhead:      '#f8fafc',
-  grid:       '#f1f5f9',
-  tick:       '#94a3b8',
-  tip:        { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8 },
-  sub:        '#f1f5f9',
-  inp:        '#fff',
-  barMuted:   '#e2e8f0',
-  priorFy:    '#cbd5e1',
-  budgetLine: '#94a3b8',
+/** The one dashboard token set — theme-following, for HTML styles. */
+export const DASHBOARD_TOKENS: ThemeTokens = {
+  bg:         'var(--bg-base)',
+  card:       { background: 'var(--bg-surface)', border: '1px solid var(--border)' },
+  t1:         'var(--text-primary)',
+  t2:         'var(--text-secondary)',
+  t3:         'var(--text-muted)',
+  bdr:        'var(--border)',
+  rbdr:       'var(--border-light)',
+  ralt:       'var(--bg-sunken)',
+  rhead:      'var(--bg-sunken)',
+  grid:       'var(--border)',
+  tick:       'var(--text-muted)',
+  tip:        { background: 'var(--bg-overlay)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', boxShadow: 'var(--shadow-popover)' },
+  sub:        'var(--bg-sunken)',
+  inp:        'var(--bg-raised)',
+  barMuted:   'var(--border-strong)',
+  priorFy:    'var(--text-subtle)',
+  budgetLine: 'var(--text-muted)',
 };
 
-export const DARK_TOKENS: ThemeTokens = {
-  bg:         '#0f0f0f',
-  card:       { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' },
-  t1:         '#e5e7eb',
-  t2:         'rgba(255,255,255,0.72)',
-  t3:         'rgba(255,255,255,0.57)',
-  bdr:        'rgba(255,255,255,0.08)',
-  rbdr:       'rgba(255,255,255,0.05)',
-  ralt:       'rgba(255,255,255,0.02)',
-  rhead:      'rgba(255,255,255,0.06)',
-  grid:       'rgba(255,255,255,0.05)',
-  tick:       'rgba(255,255,255,0.62)',
-  tip:        { background: '#1a1a2e', border: 'none', borderRadius: 8 },
-  sub:        'rgba(255,255,255,0.04)',
-  inp:        'rgba(255,255,255,0.06)',
-  barMuted:   'rgba(255,255,255,0.15)',
-  priorFy:    'rgba(255,255,255,0.2)',
-  budgetLine: 'rgba(255,255,255,0.3)',
-};
+/**
+ * @deprecated Both names resolve to the same theme-following set; the
+ * light/dark split now lives in app/globals.css (data-theme), not here.
+ */
+export const LIGHT_TOKENS: ThemeTokens = DASHBOARD_TOKENS;
+/** @deprecated See LIGHT_TOKENS. */
+export const DARK_TOKENS: ThemeTokens = DASHBOARD_TOKENS;
 
-export function getTheme(theme: 'light' | 'dark'): ThemeTokens {
-  return theme === 'light' ? LIGHT_TOKENS : DARK_TOKENS;
+/**
+ * Kept for API compatibility. The `theme` argument no longer selects a
+ * palette — the tokens follow the app theme (<html data-theme>).
+ */
+export function getTheme(_theme?: 'light' | 'dark'): ThemeTokens {
+  return DASHBOARD_TOKENS;
 }
 
 export function statusColor(

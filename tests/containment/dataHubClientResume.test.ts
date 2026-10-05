@@ -714,6 +714,8 @@ describe("T30 — no new backend route was introduced", () => {
         "import-batches/[id]/worksheets/route.ts",
         // 6.2D3C addition (read-only governed schema comparison):
         "import-batches/[id]/schema-match/route.ts",
+        // 6.2D3D addition (governed schema lineage pinning):
+        "import-batches/[id]/schema-selection/route.ts",
         "worksheets/[id]/route.ts",
         "worksheets/[id]/preview/route.ts",
         "worksheets/[id]/confirm-illegal-dumping/route.ts",
@@ -732,6 +734,10 @@ describe("T30 — no new backend route was introduced", () => {
         "source-mappings/[id]/versions/route.ts",
         "source-mappings/[id]/activate-version/route.ts",
         "mapping-versions/[id]/route.ts",
+        // 6.2D4B addition (governed raw-staging execution):
+        "worksheets/[id]/stage/route.ts",
+        // 6.2D4B2B addition (thin manager+ normalization execution/status):
+        "worksheets/[id]/normalize/route.ts",
       ].sort()
     );
   });

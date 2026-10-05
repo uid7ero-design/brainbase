@@ -2,9 +2,19 @@
 import { useActionState, useState, useTransition } from 'react';
 import { createUser, updateUserRole, deleteUser, resetUserPassword, updateUserDetails } from '@/app/actions/users';
 import type { Role } from '@/lib/session';
-
-const CARD = '#0e1014';
-const BORDER = '#1a1d24';
+import {
+  Badge,
+  Button,
+  Dialog,
+  Field as AppField,
+  FormActions,
+  FormError,
+  PageHeader,
+  TableContainer,
+  fieldControlClassName,
+  tableStyles,
+  toolbarControlClassName,
+} from '@/components/ui/app';
 // Phase C1.6: ROLES (the create/edit dropdown's selectable options)
 // deliberately stays at 4 values — 'analyst' has no defined privilege
 // placement (see lib/session.ts's Role comment) and is not something an
@@ -16,12 +26,14 @@ const BORDER = '#1a1d24';
 // defensive label already used by components/clients/ClientWorkspace.tsx's
 // People card for the identical reason.
 const ROLES: Role[] = ['super_admin', 'admin', 'manager', 'viewer'];
+// Phase D1: role tones are semantic tokens (theme-aware) — super_admin uses
+// the product accent instead of the retired #a78bfa violet.
 const ROLE_COLORS: Record<Role, string> = {
-  super_admin: '#a78bfa',
-  admin: '#60a5fa',
-  manager: '#34d399',
-  viewer: '#9ca3af',
-  analyst: '#9ca3af',
+  super_admin: 'var(--brand-brainbase-accent)',
+  admin: 'var(--status-info)',
+  manager: 'var(--status-success)',
+  viewer: 'var(--text-secondary)',
+  analyst: 'var(--text-secondary)',
 };
 const ROLE_LABELS: Record<Role, string> = {
   super_admin: 'Super Admin',
@@ -55,44 +67,44 @@ export default function UsersClient({ users, orgs, currentUserId }: { users: Use
 
   return (
     <div style={{ maxWidth: 960 }}>
-      {/* Page header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>Users</h1>
-          <p style={{ color: '#6b7280', fontSize: 13, marginTop: 4, marginBottom: 0 }}>{users.length} user{users.length !== 1 ? 's' : ''}</p>
-        </div>
-        <button onClick={() => setShowAdd(true)} style={btnStyle('#1a6aff')}>+ Add User</button>
-      </div>
+      <PageHeader
+        title="Users"
+        description={`${users.length} user${users.length !== 1 ? 's' : ''}`}
+        actions={<Button variant="primary" onClick={() => setShowAdd(true)}>+ Add User</Button>}
+      />
 
-      {/* Table */}
-      <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <TableContainer label="Users" minWidth={760}>
+        <table className={tableStyles.table}>
           <thead>
-            <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-              {['Name', 'Username', 'Organisation', 'Role', 'Actions'].map(h => (
-                <th key={h} style={thStyle}>{h}</th>
-              ))}
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Username</th>
+              <th scope="col">Organisation</th>
+              <th scope="col">Role</th>
+              <th scope="col" className={tableStyles.actions}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {users.map((u, i) => (
-              <tr key={u.id} style={{ borderBottom: i < users.length - 1 ? `1px solid ${BORDER}` : 'none', opacity: isPending ? 0.6 : 1 }}>
-                <td style={{ padding: '14px 16px', fontSize: 14, fontWeight: 500 }}>
+            {users.map(u => (
+              <tr key={u.id} style={{ opacity: isPending ? 0.6 : 1 }}>
+                <td className={tableStyles.primary}>
                   {u.name}
-                  {u.id === currentUserId && <span style={{ marginLeft: 8, fontSize: 10, color: '#6b7280', background: '#1a1d24', padding: '2px 6px', borderRadius: 4 }}>you</span>}
+                  {u.id === currentUserId && <span style={{ marginLeft: 8 }}><Badge state="active" dot={false}>you</Badge></span>}
                 </td>
-                <td style={{ padding: '14px 16px', fontSize: 13, color: '#9ca3af' }}>{u.username}</td>
-                <td style={{ padding: '14px 16px', fontSize: 13, color: '#6b7280' }}>
+                <td>{u.username}</td>
+                <td>
                   {u.organisation_name
-                    ? <a href={`/admin/orgs`} style={{ color: '#9ca3af', textDecoration: 'none' }}>{u.organisation_name}</a>
-                    : <span style={{ color: '#4b5563', fontStyle: 'italic' }}>None</span>}
+                    ? <a href={`/admin/orgs`} className={tableStyles.link}>{u.organisation_name}</a>
+                    : <span className={tableStyles.muted} style={{ fontStyle: 'italic' }}>None</span>}
                 </td>
-                <td style={{ padding: '14px 16px' }}>
+                <td>
                   <select
                     value={u.role}
                     disabled={u.id === currentUserId}
                     onChange={e => handleRoleChange(u.id, e.target.value as Role)}
-                    style={{ background: '#111318', border: `1px solid ${BORDER}`, borderRadius: 6, color: ROLE_COLORS[u.role as Role] ?? '#9ca3af', fontSize: 12, padding: '4px 8px', cursor: 'pointer' }}
+                    aria-label={`Role for ${u.name}`}
+                    className={toolbarControlClassName}
+                    style={{ height: 28, color: ROLE_COLORS[u.role as Role] ?? 'var(--text-secondary)', fontSize: 12, cursor: 'pointer' }}
                   >
                     {ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
                     {/* 'analyst' is deliberately excluded from ROLES above
@@ -107,12 +119,12 @@ export default function UsersClient({ users, orgs, currentUserId }: { users: Use
                     {u.role === 'analyst' && <option value="analyst">{ROLE_LABELS.analyst}</option>}
                   </select>
                 </td>
-                <td style={{ padding: '14px 16px' }}>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => setEditTarget(u)} style={smallBtn('#1f2937', '#d1d5db')}>Edit</button>
-                    <button onClick={() => setResetTarget(u)} style={smallBtn('#1f2937', '#d1d5db')}>Reset PW</button>
+                <td className={tableStyles.actions}>
+                  <div style={{ display: 'inline-flex', gap: 6 }}>
+                    <Button size="sm" onClick={() => setEditTarget(u)}>Edit</Button>
+                    <Button size="sm" onClick={() => setResetTarget(u)}>Reset PW</Button>
                     {u.id !== currentUserId && (
-                      <button onClick={() => handleDelete(u)} style={smallBtn('rgba(239,68,68,0.1)', '#f87171')}>Delete</button>
+                      <Button size="sm" variant="danger" onClick={() => handleDelete(u)}>Delete</Button>
                     )}
                   </div>
                 </td>
@@ -120,93 +132,79 @@ export default function UsersClient({ users, orgs, currentUserId }: { users: Use
             ))}
           </tbody>
         </table>
-      </div>
+      </TableContainer>
 
       {/* Add User Modal */}
-      {showAdd && (
-        <Modal title="Add User" onClose={() => setShowAdd(false)}>
-          <form action={async (fd) => { await createAction(fd); if (!createState?.error) setShowAdd(false); }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <Field label="Full Name" name="name" />
-            <Field label="Username" name="username" />
-            <Field label="Password" name="password" type="password" />
-            <div>
-              <label style={labelStyle}>Organisation</label>
-              <select name="orgId" required style={selectStyle}>
+      <Dialog open={showAdd} title="Add User" onClose={() => setShowAdd(false)}>
+        <form action={async (fd) => { await createAction(fd); if (!createState?.error) setShowAdd(false); }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <TextField label="Full Name" name="name" />
+          <TextField label="Username" name="username" />
+          <TextField label="Password" name="password" type="password" />
+          <AppField label="Organisation" required>
+            {control => (
+              <select {...control} name="orgId" required className={fieldControlClassName}>
                 <option value="">— Select organisation —</option>
                 {orgs.map(o => <option key={o.id} value={o.id}>{o.name} ({o.slug})</option>)}
               </select>
-            </div>
-            <div>
-              <label style={labelStyle}>Role</label>
-              <select name="role" defaultValue="viewer" style={selectStyle}>
+            )}
+          </AppField>
+          <AppField label="Role">
+            {control => (
+              <select {...control} name="role" defaultValue="viewer" className={fieldControlClassName}>
                 {ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
               </select>
-            </div>
-            {createState?.error && <p style={errorStyle}>{createState.error}</p>}
-            {createState?.success && <p style={successStyle}>{createState.success}</p>}
-            <button type="submit" disabled={createPending} style={btnStyle('#1a6aff')}>{createPending ? 'Creating…' : 'Create User'}</button>
-          </form>
-        </Modal>
-      )}
+            )}
+          </AppField>
+          {createState?.error && <FormError>{createState.error}</FormError>}
+          {createState?.success && <p style={successStyle} role="status">{createState.success}</p>}
+          <FormActions align="stretch">
+            <Button type="submit" variant="primary" disabled={createPending}>{createPending ? 'Creating…' : 'Create User'}</Button>
+          </FormActions>
+        </form>
+      </Dialog>
 
       {/* Edit User Modal */}
-      {editTarget && (
-        <Modal title={`Edit — ${editTarget.name}`} onClose={() => setEditTarget(null)}>
+      <Dialog open={editTarget !== null} title={editTarget ? `Edit — ${editTarget.name}` : 'Edit user'} onClose={() => setEditTarget(null)}>
+        {editTarget && (
           <form action={async (fd) => { await editAction(fd); if (!editState?.error) setEditTarget(null); }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <input type="hidden" name="userId" value={editTarget.id} />
-            <Field label="Full Name" name="name" defaultValue={editTarget.name} />
-            <Field label="Username" name="username" defaultValue={editTarget.username} />
-            {editState?.error && <p style={errorStyle}>{editState.error}</p>}
-            {editState?.success && <p style={successStyle}>{editState.success}</p>}
-            <button type="submit" disabled={editPending} style={btnStyle('#1a6aff')}>{editPending ? 'Saving…' : 'Save changes'}</button>
+            <TextField label="Full Name" name="name" defaultValue={editTarget.name} />
+            <TextField label="Username" name="username" defaultValue={editTarget.username} />
+            {editState?.error && <FormError>{editState.error}</FormError>}
+            {editState?.success && <p style={successStyle} role="status">{editState.success}</p>}
+            <FormActions align="stretch">
+              <Button type="submit" variant="primary" disabled={editPending}>{editPending ? 'Saving…' : 'Save changes'}</Button>
+            </FormActions>
           </form>
-        </Modal>
-      )}
+        )}
+      </Dialog>
 
       {/* Reset Password Modal */}
-      {resetTarget && (
-        <Modal title={`Reset password — ${resetTarget.name}`} onClose={() => setResetTarget(null)}>
+      <Dialog open={resetTarget !== null} title={resetTarget ? `Reset password — ${resetTarget.name}` : 'Reset password'} onClose={() => setResetTarget(null)}>
+        {resetTarget && (
           <form action={async (fd) => { await resetAction(fd); if (!resetState?.error) setResetTarget(null); }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <input type="hidden" name="userId" value={resetTarget.id} />
-            <Field label="New Password" name="password" type="password" />
-            {resetState?.error && <p style={errorStyle}>{resetState.error}</p>}
-            {resetState?.success && <p style={successStyle}>{resetState.success}</p>}
-            <button type="submit" disabled={resetPending} style={btnStyle('#1a6aff')}>{resetPending ? 'Saving…' : 'Update Password'}</button>
+            <TextField label="New Password" name="password" type="password" />
+            {resetState?.error && <FormError>{resetState.error}</FormError>}
+            {resetState?.success && <p style={successStyle} role="status">{resetState.success}</p>}
+            <FormActions align="stretch">
+              <Button type="submit" variant="primary" disabled={resetPending}>{resetPending ? 'Saving…' : 'Update Password'}</Button>
+            </FormActions>
           </form>
-        </Modal>
+        )}
+      </Dialog>
+    </div>
+  );
+}
+
+function TextField({ label, name, type = 'text', defaultValue }: { label: string; name: string; type?: string; defaultValue?: string }) {
+  return (
+    <AppField label={label} required>
+      {control => (
+        <input {...control} name={name} type={type} required defaultValue={defaultValue} className={fieldControlClassName} />
       )}
-    </div>
+    </AppField>
   );
 }
 
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 24 }}>
-      <div style={{ background: '#0e1014', border: '1px solid #1a1d24', borderRadius: 14, padding: 28, width: '100%', maxWidth: 420 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{title}</h2>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>×</button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function Field({ label, name, type = 'text', defaultValue }: { label: string; name: string; type?: string; defaultValue?: string }) {
-  return (
-    <div>
-      <label style={labelStyle}>{label}</label>
-      <input name={name} type={type} required defaultValue={defaultValue}
-        style={{ width: '100%', padding: '10px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
-    </div>
-  );
-}
-
-const thStyle: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const labelStyle: React.CSSProperties = { display: 'block', color: '#9ca3af', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const selectStyle: React.CSSProperties = { width: '100%', padding: '10px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14 };
-const errorStyle: React.CSSProperties = { color: '#f87171', fontSize: 13, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: 6, padding: '8px 12px', margin: 0 };
-const successStyle: React.CSSProperties = { color: '#34d399', fontSize: 13, background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)', borderRadius: 6, padding: '8px 12px', margin: 0 };
-function btnStyle(bg: string): React.CSSProperties { return { padding: '9px 18px', background: bg, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }; }
-function smallBtn(bg: string, color: string): React.CSSProperties { return { padding: '5px 10px', background: bg, color, border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer' }; }
+const successStyle: React.CSSProperties = { color: 'var(--status-success)', fontSize: 13, background: 'var(--status-success-muted)', border: '1px solid var(--status-success-border)', borderRadius: 'var(--radius-md)', padding: '8px 12px', margin: 0 };

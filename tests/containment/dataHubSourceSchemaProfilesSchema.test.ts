@@ -466,18 +466,74 @@ describe('6.2D3A — no runtime consumer; XLSX mapping/confirm/import remain dis
   it('no app/lib/modules/components source references the new Prisma delegates, tables or lineage columns (no API/service/admin UI in D3A)', () => {
     expect(runtimeFiles.length).toBeGreaterThan(50)
     const forbidden = /\.(datasetType|sourceSchemaVersion|sourceSchemaWorksheet|sourceSchemaColumn|worksheetMappingProfile|worksheetMappingProfileVersion)\b|\b(dataset_types|source_schema_versions|source_schema_worksheets|source_schema_columns|worksheet_mapping_profiles|worksheet_mapping_profile_versions|dataset_type_id|source_schema_version_id|active_profile_version_id|profile_document)\b|\b(DatasetType|SourceSchemaVersion|SourceSchemaWorksheet|SourceSchemaColumn|WorksheetMappingProfile|WorksheetMappingProfileVersion)\b/
-    // 6.2D3C — exactly ONE authorized, READ-ONLY consumer: the governed
-    // schema loader (findFirst/findMany only; proven below and in
-    // dataHubSchemaMatchService.test.ts). Any other file still fails.
+    // 6.2D3C — the governed schema loader, READ-ONLY (findFirst/findMany
+    // only; proven below and in dataHubSchemaMatchService.test.ts).
+    // 6.2D3D — exactly ONE additional authorized consumer: the governed
+    // schema LINEAGE-PINNING service, whose only Prisma write is the one
+    // conditional ImportBatch.updateMany that freezes dataset_type_id /
+    // source_schema_version_id (proven, alongside its full read-only
+    // reuse of the D3C loader, in dataHubSchemaSelectionService.test.ts).
+    // Any other file still fails.
     const D3C_READ_ONLY_LOADER = path.join('lib', 'data-hub', 'schemaMatch', 'governedSchema.ts')
+    const D3D_LINEAGE_PIN_SERVICE = path.join('lib', 'data-hub', 'schemaMatch', 'establishImportBatchSchemaLineage.ts')
+    // 6.2D4B — two further authorized consumers: the governed staging-
+    // eligibility gate (read-only: disposition/role/profile_document/
+    // governed columns) and the staging-run lifecycle service (stores the
+    // pinned source_schema_version_id/worksheet_mapping_profile_version_id
+    // on each run). Both are legitimate, expected D4B consumption of the
+    // schema this file's own name (6.2D3A) predates — not a regression of
+    // D3A's own "no runtime consumer yet" claim, which still holds for
+    // every OTHER file.
+    const D4B_ELIGIBILITY_SERVICE = path.join('lib', 'data-hub', 'staging', 'eligibility.ts')
+    const D4B_STAGING_RUN_SERVICE = path.join('lib', 'data-hub', 'staging', 'dataHubRawStagingRun.ts')
+    // 6.2D4C-A — one further authorized consumer: the governed
+    // transformation-profile document contract/parser. It never imports
+    // Prisma and never touches the DB at all; it is flagged here purely
+    // because its own doc comments name profile_document/
+    // WorksheetMappingProfileVersion/SourceSchemaColumn to explain the
+    // governed identity its column rules target and why v1 documents must
+    // remain valid forever — legitimate prose, not a new runtime consumer.
+    const D4C_A_PROFILE_DOCUMENT_CONTRACT = path.join('lib', 'data-hub', 'schemaProfiles', 'profileDocument.ts')
+    // 6.2D4C-B2A — two further authorized consumers: the pure normalization
+    // finding/plan contracts. Neither imports Prisma or touches the DB at
+    // all (proven independently by this phase's own purity containment
+    // test); they are flagged here purely because their doc comments name
+    // SourceSchemaColumn/WorksheetMappingProfileVersion to explain the
+    // governed identity a normalization rule targets — legitimate prose,
+    // not a new runtime consumer.
+    const D4C_B2A_NORMALIZATION_CONTRACTS = path.join('lib', 'data-hub', 'normalization', 'contracts.ts')
+    const D4C_B2A_NORMALIZATION_PLAN = path.join('lib', 'data-hub', 'normalization', 'plan.ts')
+    // 6.2D4C-B2B2A — two further authorized consumers: the resumable
+    // normalization executor's own run-lifecycle service (resolves the
+    // exact pinned WorksheetMappingProfileVersion + governed
+    // SourceSchemaColumn ids to build a normalization plan, exactly the
+    // same read-only pattern D4B's own eligibility/staging-run services
+    // already use) and its batch transform/persist loop (reads governed
+    // SourceSchemaColumn ids indirectly via the plan it is handed — see
+    // dataHubNormalizationExecutorFoundation.test.ts's own pinned-profile
+    // assertions proving neither ever reads active_profile_version_id).
+    const D4C_B2B2A_NORMALIZATION_RUN_SERVICE = path.join('lib', 'data-hub', 'normalizationExecution', 'dataHubNormalizationRun.ts')
+    const D4C_B2B2A_NORMALIZE_BATCHES_SERVICE = path.join('lib', 'data-hub', 'normalizationExecution', 'normalizeWorksheetRows.ts')
+    // 6.2D4D1B2 — two further authorized consumers: the dataset-profile
+    // execution service's own run-lifecycle resolver (resolves the exact
+    // pinned normalization run's own lineage, the same read-only pattern
+    // D4C-B2B2A's own run service already uses) and its normalized-
+    // evidence adapter (resolves the exact pinned WorksheetMappingProfileVersion
+    // + governed SourceSchemaColumn ids to rebuild D4D1A's input shape,
+    // never a live/current mapping pointer).
+    const D4D1B2_PROFILE_RUN_SERVICE = path.join('lib', 'data-hub', 'profileExecution', 'dataHubDatasetProfileRun.ts')
+    const D4D1B2_EVIDENCE_ADAPTER = path.join('lib', 'data-hub', 'profileExecution', 'normalizedEvidenceAdapter.ts')
     const offenders = runtimeFiles.filter(f => forbidden.test(fs.readFileSync(f, 'utf-8'))).map(f => path.relative(REPO_ROOT, f))
-    expect(offenders).toEqual([D3C_READ_ONLY_LOADER])
+    expect(offenders.sort()).toEqual([D3D_LINEAGE_PIN_SERVICE, D4B_STAGING_RUN_SERVICE, D4B_ELIGIBILITY_SERVICE, D3C_READ_ONLY_LOADER, D4C_A_PROFILE_DOCUMENT_CONTRACT, D4C_B2A_NORMALIZATION_CONTRACTS, D4C_B2A_NORMALIZATION_PLAN, D4C_B2B2A_NORMALIZATION_RUN_SERVICE, D4C_B2B2A_NORMALIZE_BATCHES_SERVICE, D4D1B2_PROFILE_RUN_SERVICE, D4D1B2_EVIDENCE_ADAPTER].sort())
     const loader = readSource(D3C_READ_ONLY_LOADER)
     expect(loader).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\$transaction|\$executeRaw|\$queryRaw/)
     expect([...loader.matchAll(/prisma\.(\w+)\.(\w+)\(/g)].map(m => `${m[1]}.${m[2]}`)).toEqual([
       'sourceSystem.findFirst', 'datasetType.findFirst', 'sourceSchemaVersion.findFirst',
       'sourceSchemaWorksheet.findMany', 'sourceSchemaColumn.findMany', 'worksheetMappingProfileVersion.findMany',
     ])
+    const pinService = readSource(D3D_LINEAGE_PIN_SERVICE)
+    expect(pinService).not.toMatch(/\b(prisma|tx)\.\w+\.(create|createMany|update|upsert|delete|deleteMany)\(|\$transaction|\$executeRaw|\$queryRaw/)
+    expect(pinService.match(/\b(prisma|tx)\.\w+\.updateMany\(/g)).toEqual(['prisma.importBatch.updateMany('])
   })
 
   it('confirmWorksheet / selectWorksheetMapping / previewXlsxWorksheet import nothing new', () => {

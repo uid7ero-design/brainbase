@@ -2,6 +2,7 @@
 
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import DashboardShell, { KPI, MonthlyPoint, CostAccount, SLATarget, Action, IndustryTab, InsightCard } from '@/components/dashboard/DashboardShell';
+import { useDashboardChart } from '@/components/dashboard/ui/chartTheme';
 
 const SAMPLE_BAYS = [
   { id: 'B01', type: 'Heavy Vehicle', capacity: 4, occupied: 3, utilisation: 75, avgTurnaround: 42 },
@@ -37,8 +38,6 @@ const SAMPLE_INCIDENTS = [
   { id: 'INC-003', date: '2025-04-10', type: 'Spill',          location: 'Fuel Bay',   severity: 'Medium', status: 'Closed' },
   { id: 'INC-004', date: '2025-03-30', type: 'Near Miss',      location: 'Yard',       severity: 'Low',    status: 'Closed' },
 ];
-
-const PIE_COLORS = ['#7c3aed', '#a78bfa', '#ddd6fe', '#4c1d95', '#c084fc', '#6d28d9'];
 
 const MONTHLY_TREND: MonthlyPoint[] = [
   {month:"Oct",actual:84000,budget:80000,prevYear:72000},
@@ -81,12 +80,15 @@ const KPI_DATA: KPI[] = [
   {label:"Open Incidents",value:"1",sub:"Requires action",alert:true,status:"watch",icon:"⚠"},
 ];
 
-const darkCard = {background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,padding:20};
-const darkText = {color:"rgba(255,255,255,0.5)"};
+// Theme-token surfaces (follow <html data-theme>); charts read useDashboardChart().
+const darkCard = {background:"var(--bg-surface)",border:"1px solid var(--border)",borderRadius:8,padding:20};
+const darkText = {color:"var(--text-secondary)"};
 
 function OverviewContent() {
+  const chart = useDashboardChart();
+  const pal = chart.palette;
   return (
-    <div style={{background:"#0f0f0f",borderRadius:12,padding:16}}>
+    <div style={{padding:16}}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:16,marginBottom:24}}>
         {[
           {label:"Bay Utilisation",value:`${Math.round(SAMPLE_BAYS.reduce((s,b)=>s+b.utilisation,0)/SAMPLE_BAYS.length)}%`,sub:`${SAMPLE_BAYS.length} bays`},
@@ -97,59 +99,59 @@ function OverviewContent() {
           {label:"Open Incidents",value:SAMPLE_INCIDENTS.filter(i=>i.status==="Open").length,sub:"Require action"},
         ].map(k=>(
           <div key={k.label} style={{...darkCard,padding:16}}>
-            <div style={{fontSize:11,color:"rgba(255,255,255,0.4)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>{k.label}</div>
-            <div style={{fontSize:26,fontWeight:700,color:"#a78bfa"}}>{k.value}</div>
+            <div style={{fontSize:11,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>{k.label}</div>
+            <div style={{fontSize:26,fontWeight:700,color:"var(--text-primary)"}}>{k.value}</div>
             <div style={{fontSize:12,...darkText,marginTop:4}}>{k.sub}</div>
           </div>
         ))}
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
         <div style={darkCard}>
-          <h3 style={{margin:"0 0 16px",fontSize:14,color:"#e5e7eb"}}>Bay Type Utilisation</h3>
+          <h2 style={{margin:"0 0 16px",fontSize:14,color:"var(--text-primary)"}}>Bay Type Utilisation</h2>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={SAMPLE_BAYS}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)"/>
-              <XAxis dataKey="type" tick={{fill:"rgba(255,255,255,0.4)",fontSize:10}}/>
-              <YAxis tick={{fill:"rgba(255,255,255,0.4)",fontSize:11}}/>
-              <Tooltip contentStyle={{background:"#1a1a2e",border:"none",borderRadius:8}}/>
-              <Bar dataKey="utilisation" fill="#7c3aed" radius={[4,4,0,0]}/>
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid}/>
+              <XAxis dataKey="type" tick={{...chart.tick,fontSize:10}}/>
+              <YAxis tick={chart.tick}/>
+              <Tooltip {...chart.tooltip}/>
+              <Bar dataKey="utilisation" fill={pal.primary} radius={[4,4,0,0]}/>
             </BarChart>
           </ResponsiveContainer>
         </div>
         <div style={darkCard}>
-          <h3 style={{margin:"0 0 16px",fontSize:14,color:"#e5e7eb"}}>Weekly Throughput</h3>
+          <h2 style={{margin:"0 0 16px",fontSize:14,color:"var(--text-primary)"}}>Weekly Throughput</h2>
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={SAMPLE_THROUGHPUT}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)"/>
-              <XAxis dataKey="day" tick={{fill:"rgba(255,255,255,0.4)",fontSize:11}}/>
-              <YAxis tick={{fill:"rgba(255,255,255,0.4)",fontSize:11}}/>
-              <Tooltip contentStyle={{background:"#1a1a2e",border:"none",borderRadius:8}}/>
-              <Line type="monotone" dataKey="vehicles" stroke="#a78bfa" strokeWidth={2} dot={false}/>
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid}/>
+              <XAxis dataKey="day" tick={chart.tick}/>
+              <YAxis tick={chart.tick}/>
+              <Tooltip {...chart.tooltip}/>
+              <Line type="monotone" dataKey="vehicles" stroke={pal.primary} strokeWidth={2} dot={false}/>
             </LineChart>
           </ResponsiveContainer>
         </div>
         <div style={darkCard}>
-          <h3 style={{margin:"0 0 16px",fontSize:14,color:"#e5e7eb"}}>Bay Capacity Split</h3>
+          <h2 style={{margin:"0 0 16px",fontSize:14,color:"var(--text-primary)"}}>Bay Capacity Split</h2>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
-              <Pie data={SAMPLE_BAYS} dataKey="capacity" nameKey="type" cx="50%" cy="50%" outerRadius={80}>
-                {SAMPLE_BAYS.map((_,i)=><Cell key={i} fill={PIE_COLORS[i%PIE_COLORS.length]}/>)}
+              <Pie data={SAMPLE_BAYS} dataKey="capacity" nameKey="type" cx="50%" cy="50%" outerRadius={80} stroke={pal.tooltipBg}>
+                {SAMPLE_BAYS.map((_,i)=><Cell key={i} fill={chart.series[i%chart.series.length]}/>)}
               </Pie>
-              <Tooltip contentStyle={{background:"#1a1a2e",border:"none",borderRadius:8}}/>
+              <Tooltip {...chart.tooltip}/>
             </PieChart>
           </ResponsiveContainer>
         </div>
         <div style={darkCard}>
-          <h3 style={{margin:"0 0 16px",fontSize:14,color:"#e5e7eb"}}>Pre-Start Results (Today)</h3>
+          <h2 style={{margin:"0 0 16px",fontSize:14,color:"var(--text-primary)"}}>Pre-Start Results (Today)</h2>
           <div style={{display:"flex",gap:20,marginBottom:12}}>
-            <div style={{textAlign:"center"}}><div style={{fontSize:32,fontWeight:700,color:"#4ade80"}}>{SAMPLE_PRESTARTS.filter(p=>p.result==="Pass").length}</div><div style={{fontSize:12,...darkText}}>Pass</div></div>
-            <div style={{textAlign:"center"}}><div style={{fontSize:32,fontWeight:700,color:"#f87171"}}>{SAMPLE_PRESTARTS.filter(p=>p.result==="Fail").length}</div><div style={{fontSize:12,...darkText}}>Fail</div></div>
-            <div style={{textAlign:"center"}}><div style={{fontSize:32,fontWeight:700,color:"#fbbf24"}}>{SAMPLE_PRESTARTS.reduce((s,p)=>s+p.defects,0)}</div><div style={{fontSize:12,...darkText}}>Defects</div></div>
+            <div style={{textAlign:"center"}}><div style={{fontSize:32,fontWeight:700,color:"var(--status-success)"}}>{SAMPLE_PRESTARTS.filter(p=>p.result==="Pass").length}</div><div style={{fontSize:12,...darkText}}>Pass</div></div>
+            <div style={{textAlign:"center"}}><div style={{fontSize:32,fontWeight:700,color:"var(--status-danger)"}}>{SAMPLE_PRESTARTS.filter(p=>p.result==="Fail").length}</div><div style={{fontSize:12,...darkText}}>Fail</div></div>
+            <div style={{textAlign:"center"}}><div style={{fontSize:32,fontWeight:700,color:"var(--status-warning)"}}>{SAMPLE_PRESTARTS.reduce((s,p)=>s+p.defects,0)}</div><div style={{fontSize:12,...darkText}}>Defects</div></div>
           </div>
           {SAMPLE_PRESTARTS.slice(0,4).map(p=>(
-            <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,0.06)",fontSize:13,color:"#e5e7eb"}}>
+            <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid var(--border)",fontSize:13,color:"var(--text-primary)"}}>
               <span>{p.vehicle} — {p.driver}</span>
-              <span style={{color:p.result==="Pass"?"#4ade80":"#f87171",fontWeight:600}}>{p.result}</span>
+              <span style={{color:p.result==="Pass"?"var(--status-success)":"var(--status-danger)",fontWeight:600}}>{p.result}</span>
             </div>
           ))}
         </div>
@@ -160,23 +162,23 @@ function OverviewContent() {
 
 function BaysTab() {
   return (
-    <div style={{...darkCard,background:"#0f0f0f",padding:0,overflow:"hidden"}}>
-      <table style={{width:"100%",borderCollapse:"collapse",fontSize:14,color:"#e5e7eb"}}>
-        <thead><tr style={{background:"rgba(255,255,255,0.06)"}}>
+    <div style={{...darkCard,padding:0,overflow:"hidden"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:14,color:"var(--text-primary)"}}>
+        <thead><tr style={{background:"var(--bg-sunken)"}}>
           {["Bay","Type","Capacity","Occupied","Utilisation %","Avg Turnaround (min)"].map(h=>(
-            <th key={h} style={{padding:"12px 16px",textAlign:"left",fontSize:12,color:"rgba(255,255,255,0.5)",fontWeight:600}}>{h}</th>
+            <th key={h} scope="col" style={{padding:"12px 16px",textAlign:"left",fontSize:12,color:"var(--text-secondary)",fontWeight:600}}>{h}</th>
           ))}
         </tr></thead>
         <tbody>{SAMPLE_BAYS.map((b,i)=>(
-          <tr key={b.id} style={{borderBottom:"1px solid rgba(255,255,255,0.05)",background:i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
+          <tr key={b.id} style={{borderBottom:"1px solid var(--border)",background:i%2===0?"transparent":"var(--bg-sunken)"}}>
             <td style={{padding:"12px 16px"}}>{b.id}</td>
             <td style={{padding:"12px 16px"}}>{b.type}</td>
             <td style={{padding:"12px 16px"}}>{b.capacity}</td>
             <td style={{padding:"12px 16px"}}>{b.occupied}</td>
             <td style={{padding:"12px 16px"}}>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <div style={{width:80,height:6,background:"rgba(255,255,255,0.1)",borderRadius:3}}>
-                  <div style={{width:`${b.utilisation}%`,height:"100%",background:b.utilisation>=100?"#f87171":"#7c3aed",borderRadius:3}}/>
+                <div style={{width:80,height:6,background:"var(--border)",borderRadius:3}}>
+                  <div style={{width:`${b.utilisation}%`,height:"100%",background:b.utilisation>=100?"var(--status-danger)":"var(--status-info)",borderRadius:3}}/>
                 </div>
                 <span>{b.utilisation}%</span>
               </div>
@@ -191,22 +193,22 @@ function BaysTab() {
 
 function PreStartsTab() {
   return (
-    <div style={{...darkCard,background:"#0f0f0f",padding:0,overflow:"hidden"}}>
-      <table style={{width:"100%",borderCollapse:"collapse",fontSize:14,color:"#e5e7eb"}}>
-        <thead><tr style={{background:"rgba(255,255,255,0.06)"}}>
+    <div style={{...darkCard,padding:0,overflow:"hidden"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:14,color:"var(--text-primary)"}}>
+        <thead><tr style={{background:"var(--bg-sunken)"}}>
           {["ID","Vehicle","Driver","Date","Time","Result","Defects"].map(h=>(
-            <th key={h} style={{padding:"12px 16px",textAlign:"left",fontSize:12,color:"rgba(255,255,255,0.5)",fontWeight:600}}>{h}</th>
+            <th key={h} scope="col" style={{padding:"12px 16px",textAlign:"left",fontSize:12,color:"var(--text-secondary)",fontWeight:600}}>{h}</th>
           ))}
         </tr></thead>
         <tbody>{SAMPLE_PRESTARTS.map((p,i)=>(
-          <tr key={p.id} style={{borderBottom:"1px solid rgba(255,255,255,0.05)",background:i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
-            <td style={{padding:"12px 16px",color:"rgba(255,255,255,0.5)"}}>{p.id}</td>
+          <tr key={p.id} style={{borderBottom:"1px solid var(--border)",background:i%2===0?"transparent":"var(--bg-sunken)"}}>
+            <td style={{padding:"12px 16px",color:"var(--text-secondary)",fontFamily:"var(--bb-font-mono)"}}>{p.id}</td>
             <td style={{padding:"12px 16px",fontWeight:600}}>{p.vehicle}</td>
             <td style={{padding:"12px 16px"}}>{p.driver}</td>
             <td style={{padding:"12px 16px"}}>{p.date}</td>
             <td style={{padding:"12px 16px"}}>{p.time}</td>
             <td style={{padding:"12px 16px"}}>
-              <span style={{padding:"3px 10px",borderRadius:20,fontSize:12,fontWeight:600,background:p.result==="Pass"?"rgba(74,222,128,0.15)":"rgba(248,113,113,0.15)",color:p.result==="Pass"?"#4ade80":"#f87171"}}>{p.result}</span>
+              <span style={{padding:"3px 10px",borderRadius:4,fontSize:12,fontWeight:600,background:p.result==="Pass"?"color-mix(in srgb, var(--status-success) 15%, transparent)":"color-mix(in srgb, var(--status-danger) 15%, transparent)",color:p.result==="Pass"?"var(--status-success)":"var(--status-danger)"}}>{p.result}</span>
             </td>
             <td style={{padding:"12px 16px"}}>{p.defects}</td>
           </tr>
@@ -217,29 +219,31 @@ function PreStartsTab() {
 }
 
 function ThroughputTab() {
+  const chart = useDashboardChart();
+  const pal = chart.palette;
   return (
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,background:"#0f0f0f",padding:16,borderRadius:12}}>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,padding:16}}>
       <div style={darkCard}>
-        <h3 style={{margin:"0 0 16px",fontSize:14,color:"#e5e7eb"}}>Vehicles Processed per Day</h3>
+        <h2 style={{margin:"0 0 16px",fontSize:14,color:"var(--text-primary)"}}>Vehicles Processed per Day</h2>
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={SAMPLE_THROUGHPUT}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)"/>
-            <XAxis dataKey="day" tick={{fill:"rgba(255,255,255,0.4)",fontSize:11}}/>
-            <YAxis tick={{fill:"rgba(255,255,255,0.4)",fontSize:11}}/>
-            <Tooltip contentStyle={{background:"#1a1a2e",border:"none",borderRadius:8}}/>
-            <Bar dataKey="vehicles" fill="#7c3aed" radius={[4,4,0,0]}/>
+            <CartesianGrid strokeDasharray="3 3" stroke={chart.grid}/>
+            <XAxis dataKey="day" tick={chart.tick}/>
+            <YAxis tick={chart.tick}/>
+            <Tooltip {...chart.tooltip}/>
+            <Bar dataKey="vehicles" fill={pal.primary} radius={[4,4,0,0]}/>
           </BarChart>
         </ResponsiveContainer>
       </div>
       <div style={darkCard}>
-        <h3 style={{margin:"0 0 16px",fontSize:14,color:"#e5e7eb"}}>Avg Turnaround Time (min)</h3>
+        <h2 style={{margin:"0 0 16px",fontSize:14,color:"var(--text-primary)"}}>Avg Turnaround Time (min)</h2>
         <ResponsiveContainer width="100%" height={260}>
           <LineChart data={SAMPLE_THROUGHPUT}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)"/>
-            <XAxis dataKey="day" tick={{fill:"rgba(255,255,255,0.4)",fontSize:11}}/>
-            <YAxis tick={{fill:"rgba(255,255,255,0.4)",fontSize:11}}/>
-            <Tooltip contentStyle={{background:"#1a1a2e",border:"none",borderRadius:8}}/>
-            <Line type="monotone" dataKey="avgTime" stroke="#c084fc" strokeWidth={2} dot={{fill:"#7c3aed"}}/>
+            <CartesianGrid strokeDasharray="3 3" stroke={chart.grid}/>
+            <XAxis dataKey="day" tick={chart.tick}/>
+            <YAxis tick={chart.tick}/>
+            <Tooltip {...chart.tooltip}/>
+            <Line type="monotone" dataKey="avgTime" stroke={pal.primary} strokeWidth={2} dot={{fill:pal.primary}}/>
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -249,24 +253,24 @@ function ThroughputTab() {
 
 function IncidentsTab() {
   return (
-    <div style={{...darkCard,background:"#0f0f0f",padding:0,overflow:"hidden"}}>
-      <table style={{width:"100%",borderCollapse:"collapse",fontSize:14,color:"#e5e7eb"}}>
-        <thead><tr style={{background:"rgba(255,255,255,0.06)"}}>
+    <div style={{...darkCard,padding:0,overflow:"hidden"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:14,color:"var(--text-primary)"}}>
+        <thead><tr style={{background:"var(--bg-sunken)"}}>
           {["ID","Date","Type","Location","Severity","Status"].map(h=>(
-            <th key={h} style={{padding:"12px 16px",textAlign:"left",fontSize:12,color:"rgba(255,255,255,0.5)",fontWeight:600}}>{h}</th>
+            <th key={h} scope="col" style={{padding:"12px 16px",textAlign:"left",fontSize:12,color:"var(--text-secondary)",fontWeight:600}}>{h}</th>
           ))}
         </tr></thead>
         <tbody>{SAMPLE_INCIDENTS.map((inc,i)=>(
-          <tr key={inc.id} style={{borderBottom:"1px solid rgba(255,255,255,0.05)",background:i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
-            <td style={{padding:"12px 16px",color:"rgba(255,255,255,0.5)"}}>{inc.id}</td>
+          <tr key={inc.id} style={{borderBottom:"1px solid var(--border)",background:i%2===0?"transparent":"var(--bg-sunken)"}}>
+            <td style={{padding:"12px 16px",color:"var(--text-secondary)",fontFamily:"var(--bb-font-mono)"}}>{inc.id}</td>
             <td style={{padding:"12px 16px"}}>{inc.date}</td>
             <td style={{padding:"12px 16px"}}>{inc.type}</td>
             <td style={{padding:"12px 16px"}}>{inc.location}</td>
             <td style={{padding:"12px 16px"}}>
-              <span style={{padding:"3px 10px",borderRadius:20,fontSize:12,fontWeight:600,background:inc.severity==="High"?"rgba(248,113,113,0.15)":inc.severity==="Medium"?"rgba(251,191,36,0.15)":"rgba(74,222,128,0.15)",color:inc.severity==="High"?"#f87171":inc.severity==="Medium"?"#fbbf24":"#4ade80"}}>{inc.severity}</span>
+              <span style={{padding:"3px 10px",borderRadius:4,fontSize:12,fontWeight:600,background:inc.severity==="High"?"color-mix(in srgb, var(--status-danger) 15%, transparent)":inc.severity==="Medium"?"color-mix(in srgb, var(--status-warning) 15%, transparent)":"color-mix(in srgb, var(--status-success) 15%, transparent)",color:inc.severity==="High"?"var(--status-danger)":inc.severity==="Medium"?"var(--status-warning)":"var(--status-success)"}}>{inc.severity}</span>
             </td>
             <td style={{padding:"12px 16px"}}>
-              <span style={{padding:"3px 10px",borderRadius:20,fontSize:12,fontWeight:600,background:inc.status==="Open"?"rgba(251,191,36,0.15)":"rgba(255,255,255,0.08)",color:inc.status==="Open"?"#fbbf24":"rgba(255,255,255,0.5)"}}>{inc.status}</span>
+              <span style={{padding:"3px 10px",borderRadius:4,fontSize:12,fontWeight:600,background:inc.status==="Open"?"color-mix(in srgb, var(--status-warning) 15%, transparent)":"var(--bg-sunken)",color:inc.status==="Open"?"var(--status-warning)":"var(--text-secondary)"}}>{inc.status}</span>
             </td>
           </tr>
         ))}</tbody>
@@ -285,11 +289,10 @@ const INDUSTRY_TABS: IndustryTab[] = [
 export default function DepotPage() {
   return (
     <DashboardShell
-      theme="dark"
       title="Depot & Yard Operations"
       subtitle="Bay utilisation · Pre-starts · Yard throughput · Safety"
-      headerColor="#3b0764"
-      accentColor="#a78bfa"
+      headerColor="#334155"
+      accentColor="#64748b"
       breadcrumbLabel="Depot & Yard Operations"
       kpis={KPI_DATA}
       recommendedActions={[

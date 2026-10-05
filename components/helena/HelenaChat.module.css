@@ -1,0 +1,409 @@
+/* HLNA conversation surface (components/chat/ChatPanel.jsx) — docked on
+   /hlna, floating on /dashboard and service dashboards. Tokens only: flat
+   panels, thin borders, no blur, glow, gradients or violet literals; reads
+   in light and dark. Layout-critical sizing stays inline in ChatPanel.jsx
+   (pinned by hlnaWorkspace / organiserActionConfirmationUi tests). */
+
+/* ── Panel chrome ──────────────────────────────────────────────────── */
+
+.panel {
+  color: var(--text-primary);
+  font-family: var(--bb-font-sans);
+}
+
+.enter {
+  animation: helenaChatEnter 180ms ease-out;
+}
+
+@keyframes helenaChatEnter {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sunken);
+}
+
+.identity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.stateDot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--status-info);
+}
+.stateDot[data-responding='true'] {
+  background: var(--brand-brainbase-accent);
+  animation: helenaChatPulse 1.2s ease-in-out infinite;
+}
+
+.title {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.subtitle {
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.headerLink {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-decoration: none;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.headerLink:hover {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.escHint {
+  flex-shrink: 0;
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* ── Messages ──────────────────────────────────────────────────────── */
+
+.empty {
+  text-align: center;
+  padding: 28px 0;
+}
+
+.emptyGlyph {
+  margin-bottom: 8px;
+  font-size: 1.25rem;
+  color: var(--brand-brainbase-accent);
+}
+
+.emptyTitle {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.emptyHint {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.byline {
+  padding: 0 2px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.byline[data-role='assistant'] {
+  color: var(--text-secondary);
+}
+
+.bubble {
+  max-width: 84%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.bubble[data-role='user'] {
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
+  background: var(--bg-sunken);
+}
+.bubble[data-role='assistant'] {
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-lg) var(--radius-sm);
+  border-color: var(--brand-brainbase-accent-border);
+  background: var(--brand-brainbase-accent-muted);
+}
+.bubble[data-role='transcript'] {
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
+  border-style: dashed;
+  border-color: var(--status-info-border);
+  background: var(--status-info-muted);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.thinking {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border: 1px solid var(--brand-brainbase-accent-border);
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-lg) var(--radius-sm);
+  background: var(--brand-brainbase-accent-muted);
+}
+
+.thinkingDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--brand-brainbase-accent);
+  animation: helenaChatPulse 1s ease-in-out infinite;
+}
+
+.pipelineStep {
+  margin-left: 4px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+@keyframes helenaChatPulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.3; }
+}
+
+/* ── Composer ──────────────────────────────────────────────────────── */
+
+.composer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-sunken);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.8125rem;
+  caret-color: var(--brand-brainbase-accent);
+}
+.input::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+.input:focus {
+  border-color: var(--border-focus);
+}
+
+/* ── Meta cards (analysis, agent badge, evidence) ──────────────────── */
+
+.metaCard {
+  max-width: 84%;
+  margin-top: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+.metaHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+}
+
+.metaTag {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.metaLabel {
+  margin-bottom: 3px;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.metaValue {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.mono {
+  font-family: var(--bb-font-mono);
+}
+
+.chip {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+  font-size: 0.625rem;
+}
+.chip[data-kind='dataset'] {
+  border-color: var(--status-info-border);
+  background: var(--status-info-muted);
+  color: var(--status-info);
+  font-weight: 600;
+}
+
+.evidenceToggle {
+  margin-left: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+.evidenceToggle:hover,
+.evidenceToggle[aria-expanded='true'] {
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+}
+
+.sampleTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.6875rem;
+}
+.sampleTable th {
+  padding: 2px 8px 4px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.sampleTable td {
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border-light);
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+/* ── Organiser action confirmation card (Phase D.4.6J) ─────────────── */
+
+.actionHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--status-warning-border);
+}
+
+.actionTitle {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--status-warning);
+}
+
+.actionExpiry {
+  font-size: 0.625rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.actionBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.fieldLabel {
+  margin-bottom: 2px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.fieldValue {
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+}
+.fieldValue[data-emphasis='target'] {
+  font-weight: 600;
+}
+.fieldValue[data-emphasis='new'] {
+  font-weight: 600;
+  color: var(--status-success);
+}
+
+.commentQuote {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.actionButtons {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+.actionButtons > button {
+  flex: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enter,
+  .stateDot[data-responding='true'],
+  .thinkingDot {
+    animation: none;
+  }
+  .headerLink {
+    transition: none;
+  }
+}

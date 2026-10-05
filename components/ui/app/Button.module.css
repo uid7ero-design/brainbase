@@ -1,0 +1,74 @@
+/* Authenticated-app button. Tokens only (app/globals.css). */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.button[data-size='sm'] {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 0.75rem;
+}
+
+.button[data-variant='primary'] {
+  background: var(--brand-brainbase-accent);
+  border-color: var(--brand-brainbase-accent);
+  color: var(--brand-brainbase-on-accent);
+}
+.button[data-variant='primary']:hover:not(:disabled) {
+  background: var(--brand-brainbase-accent-hover);
+  border-color: var(--brand-brainbase-accent-hover);
+}
+
+.button[data-variant='secondary'] {
+  background: var(--bg-surface);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+.button[data-variant='secondary']:hover:not(:disabled) {
+  background: var(--bg-sunken);
+}
+
+.button[data-variant='ghost'] {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.button[data-variant='ghost']:hover:not(:disabled) {
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+}
+
+.button[data-variant='danger'] {
+  background: var(--bg-surface);
+  border-color: var(--status-danger-border);
+  color: var(--status-danger);
+}
+.button[data-variant='danger']:hover:not(:disabled) {
+  background: var(--status-danger-muted);
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button {
+    transition: none;
+  }
+}

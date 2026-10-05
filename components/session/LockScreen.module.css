@@ -1,0 +1,213 @@
+/*
+ * Session lock screen (remaining visual islands pass). Tokens only
+ * (app/globals.css), light and dark first-class.
+ *
+ * The backdrop is an OPAQUE page surface, not a translucent/blurred scrim:
+ * while the session is locked nothing behind the lock may be readable, and
+ * an opaque surface guarantees that without glass or blur effects.
+ */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  overflow-y: auto;
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+.card {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 400px;
+  padding: 32px 28px 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-dialog);
+  text-align: center;
+  animation: enter 160ms ease-out;
+}
+
+.card:focus-visible {
+  outline-offset: -2px;
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+}
+
+.title {
+  margin: 0 0 6px;
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.description {
+  margin: 0 0 24px;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: left;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.inputWrap {
+  position: relative;
+}
+
+.input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 48px 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.9375rem;
+}
+
+.input::placeholder {
+  color: var(--text-subtle);
+}
+
+/* Focus keeps the global :focus-visible ring; the edge also takes the
+   focus colour so the field reads as active. */
+.input:focus-visible {
+  border-color: var(--border-focus);
+}
+
+.input[aria-invalid='true'] {
+  border-color: var(--status-danger);
+}
+
+.toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.toggle:hover {
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+}
+
+.toggle[aria-pressed='true'] {
+  color: var(--text-primary);
+}
+
+.error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--status-danger);
+  background: var(--status-danger-muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--status-danger);
+}
+
+.errorIcon {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.form .submit[type='submit'] {
+  width: 100%;
+  height: 44px;
+  font-size: 0.875rem;
+}
+
+.help {
+  margin: 20px 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.help a {
+  font-weight: 600;
+  color: var(--brand-brainbase-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.help a:hover {
+  color: var(--brand-brainbase-accent-hover);
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    animation: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .card {
+    padding: 28px 20px 24px;
+  }
+}

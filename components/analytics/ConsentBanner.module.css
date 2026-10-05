@@ -1,0 +1,88 @@
+/* Consent prompt: present and fully operable, but deliberately quiet: a
+   compact corner card on desktop, full-width strip on phones. */
+.banner {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 200;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  max-width: 400px;
+  padding: 12px 14px;
+  border: 1px solid var(--bb-border);
+  border-radius: var(--bb-radius-lg);
+  background: var(--bb-surface);
+  color: var(--bb-text);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--bb-text) 8%, transparent);
+  font-family: var(--bb-font-sans);
+}
+
+.text {
+  flex: 1 1 220px;
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--bb-text-muted);
+}
+
+.link {
+  color: var(--bb-text);
+  text-decoration: underline;
+  text-decoration-color: var(--bb-border-strong);
+  text-underline-offset: 0.2em;
+}
+.link:hover {
+  text-decoration-color: currentColor;
+}
+
+.actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.decline,
+.allow {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: var(--bb-radius);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.decline {
+  border: 1px solid var(--bb-border-strong);
+  background: transparent;
+  color: var(--bb-text);
+}
+.decline:hover {
+  border-color: var(--bb-text-muted);
+}
+
+/* Same visual weight as Decline: neither choice is pushed. */
+.allow {
+  border: 1px solid var(--bb-border-strong);
+  background: var(--bb-surface-strong);
+  color: var(--bb-text);
+}
+.allow:hover {
+  border-color: var(--bb-text-muted);
+}
+
+.link:focus-visible,
+.decline:focus-visible,
+.allow:focus-visible {
+  outline: 2px solid var(--bb-focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 520px) {
+  .banner {
+    max-width: none;
+  }
+}

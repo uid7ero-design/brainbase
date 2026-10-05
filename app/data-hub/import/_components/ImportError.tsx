@@ -27,15 +27,15 @@ export default function ImportError({
       aria-live="assertive"
       data-error-code={code}
       style={{
-        border: "1px solid rgba(239,68,68,.25)",
-        background: "rgba(239,68,68,.06)",
-        borderRadius: 10,
+        border: "1px solid var(--status-danger-border)",
+        background: "var(--status-danger-muted)",
+        borderRadius: "var(--radius-lg)",
         padding: "18px 20px",
-        color: "#f9fafb",
+        color: "var(--text-primary)",
       }}
     >
       <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>{title}</div>
-      <div style={{ fontSize: 13, color: "rgba(249,250,251,.72)", lineHeight: 1.5 }}>{message}</div>
+      <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>{message}</div>
       {retryLabel && onRetry ? (
         <button
           type="button"
@@ -48,9 +48,9 @@ export default function ImportError({
             fontWeight: 500,
             padding: "7px 14px",
             borderRadius: 7,
-            border: "1px solid rgba(255,255,255,.12)",
-            background: busy ? "rgba(255,255,255,.04)" : "rgba(255,255,255,.06)",
-            color: "#f9fafb",
+            border: "1px solid var(--border)",
+            background: busy ? "var(--bg-raised)" : "var(--bg-raised)",
+            color: "var(--text-primary)",
             cursor: busy ? "default" : "pointer",
           }}
         >

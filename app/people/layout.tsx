@@ -39,13 +39,13 @@ export default async function PeopleLayout({ children }: { children: React.React
           gap: 10,
           textAlign: 'center',
           padding: 32,
-          background: '#07080B',
-          color: '#f9fafb',
+          background: 'var(--bg-base)',
+          color: 'var(--text-primary)',
           fontFamily: 'var(--font-inter), Inter, sans-serif',
         }}
       >
         <div style={{ fontSize: 16, fontWeight: 700 }}>People isn&apos;t enabled for your organisation</div>
-        <div style={{ fontSize: 13, color: '#6b7280', maxWidth: 360 }}>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', maxWidth: 360 }}>
           Ask a BrainBase admin to enable the People capability for your organisation to access your team directory.
         </div>
       </div>
@@ -56,10 +56,10 @@ export default async function PeopleLayout({ children }: { children: React.React
     <div
       style={{
         minHeight: APP_HEADER_OFFSET_VH_CALC,
-        background: '#07080B',
+        background: 'var(--bg-base)',
         fontFamily: 'var(--font-inter), Inter, sans-serif',
-        color: '#f9fafb',
-        padding: '36px 40px',
+        color: 'var(--text-primary)',
+        padding: 'clamp(20px, 4vw, 36px) clamp(16px, 4vw, 40px)',
       }}
     >
       {children}

@@ -2,6 +2,8 @@ import { requireRole } from '@/lib/org';
 import { redirect } from 'next/navigation';
 import sql from '@/lib/db';
 import ContactsClient from './ContactsClient';
+import { PageHeader } from '@/components/ui/app';
+import styles from './Contacts.module.css';
 
 export default async function ContactsPage() {
   let session;
@@ -15,11 +17,11 @@ export default async function ContactsPage() {
   `;
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white tracking-tight">Contacts</h1>
-        <p className="text-zinc-500 text-sm mt-1">{contacts.length} contact{contacts.length !== 1 ? 's' : ''}</p>
-      </div>
+    <div className={styles.page}>
+      <PageHeader
+        title="Contacts"
+        description={`${contacts.length} contact${contacts.length !== 1 ? 's' : ''}`}
+      />
       <ContactsClient contacts={contacts as Parameters<typeof ContactsClient>[0]['contacts']} />
     </div>
   );

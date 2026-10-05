@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import fs from 'fs'
 import path from 'path'
 import type { NextRequest } from 'next/server'
+// Nav consolidation update (feat/authenticated-nav-consolidation): the admin
+// nav entries moved from TopNav's ADMIN_ITEMS into the pure nav model.
+import { flattenNavLinks, resolveNav, type NavContext } from '@/components/nav/navModel'
 
 // EVENTS — BRAINBASE CLIENT EVENTS OVERSIGHT. Proves:
 //   ACCESS — GET /api/admin/client-events is reachable only via
@@ -316,19 +319,58 @@ describe('OPEN EVENT — reuses the existing impersonation mechanism, sequential
 })
 
 describe('Navigation entries are super_admin-gated, matching the existing admin nav pattern', () => {
+  // Nav consolidation update (feat/authenticated-nav-consolidation): TopNav's
+  // ADMIN_ITEMS + AdminDropdown were replaced by navModel.ts BRAINBASE_ITEMS
+  // (Platform group) rendered through the generic NavMenu. Same entry, same
+  // destination, same super_admin-only visibility — now pinned on the model
+  // source AND on resolveNav() behaviour.
+  const navModelCode = stripComments(read('components/nav/navModel.ts'))
+  const brainbaseItemsBody = (() => {
+    const start = navModelCode.indexOf('export const BRAINBASE_ITEMS')
+    expect(start).toBeGreaterThan(-1)
+    return navModelCode.slice(start, navModelCode.indexOf('\n];', start))
+  })()
+  const ALL_CAPS = ['events', 'crm', 'quotes', 'invoicing', 'purchasing', 'organiser', 'people']
+  const VARIANTS: NavContext['dashboardVariant'][] = [null, 'ld-tennis', 'brainbase-hq']
+  const clientEventsLinks = (ctx: NavContext) =>
+    flattenNavLinks(resolveNav(ctx)).filter(l => l.href === '/admin/client-events')
+
   it('TopNav ADMIN_ITEMS includes Client Events, routing to /admin/client-events', () => {
-    const code = stripComments(read('components/nav/TopNav.tsx'))
-    const start = code.indexOf('const ADMIN_ITEMS')
-    const body = code.slice(start, code.indexOf('\n];', start))
-    expect(body).toMatch(/label:\s*'Client Events'/)
-    expect(body).toMatch(/href:\s*'\/admin\/client-events'/)
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // descriptor now lives in navModel.ts BRAINBASE_ITEMS, gated INTERNAL.
+    expect(brainbaseItemsBody).toMatch(
+      /\{[^{}]*label:\s*'Client Events',\s*href:\s*'\/admin\/client-events'[^{}]*gate:\s*INTERNAL\s*\}/,
+    )
+    const links = clientEventsLinks({ role: 'super_admin', enabledCapabilities: [], dashboardVariant: null })
+    expect(links).toHaveLength(1)
+    expect(links[0].label).toBe('Client Events')
+    // TopNav itself carries no hardcoded admin link list any more.
+    const topNav = stripComments(read('components/nav/TopNav.tsx'))
+    expect(topNav).not.toContain('ADMIN_ITEMS')
+    expect(topNav).not.toContain('/admin/client-events')
   })
 
   it('ADMIN_ITEMS (and therefore Client Events) is only ever rendered via AdminDropdown, which is itself gated by isSuperAdmin', () => {
-    const code = stripComments(read('components/nav/TopNav.tsx'))
-    const dropdownUsage = code.indexOf('<AdminDropdown')
-    const before = code.slice(Math.max(0, dropdownUsage - 200), dropdownUsage)
-    expect(before).toMatch(/isSuperAdmin\s*&&/)
+    // Nav consolidation update (feat/authenticated-nav-consolidation): the
+    // isSuperAdmin && <AdminDropdown> guard became the INTERNAL gate
+    // (isGateOpen: internal && role !== 'super_admin' -> hidden) plus TopNav
+    // rendering the Brainbase menu only when nav.brainbase is non-empty.
+    expect(navModelCode).toMatch(/const INTERNAL: NavGate = \{ internal: true \};/)
+    expect(navModelCode).toMatch(/if \(gate\.internal && ctx\.role !== 'super_admin'\) return false;/)
+    const topNav = stripComments(read('components/nav/TopNav.tsx'))
+    const menuUsage = topNav.indexOf('<NavMenu label="Brainbase"')
+    expect(menuUsage).toBeGreaterThan(-1)
+    const before = topNav.slice(Math.max(0, menuUsage - 200), menuUsage)
+    expect(before).toMatch(/nav\.brainbase\.length > 0\s*&&/)
+    // Behaviour: hidden for every non-super_admin role (even with every
+    // capability, any variant); visible to a REAL super_admin regardless of
+    // the viewed organisation's variant (impersonation).
+    for (const dashboardVariant of VARIANTS) {
+      for (const role of ['viewer', 'manager', 'admin', 'analyst', '']) {
+        expect(clientEventsLinks({ role, enabledCapabilities: ALL_CAPS, dashboardVariant })).toHaveLength(0)
+      }
+      expect(clientEventsLinks({ role: 'super_admin', enabledCapabilities: [], dashboardVariant })).toHaveLength(1)
+    }
   })
 
   it('AdminAside sidebar (rendered only under the super_admin-gated /admin/* layout) also links to Client Events', () => {
@@ -337,10 +379,17 @@ describe('Navigation entries are super_admin-gated, matching the existing admin 
   })
 
   it('the Client Events entry is not the same NavItem/route as the normal Events link — does not overload /events', () => {
-    const code = stripComments(read('components/nav/TopNav.tsx'))
-    const adminItemsStart = code.indexOf('const ADMIN_ITEMS')
-    const adminItemsBody = code.slice(adminItemsStart, code.indexOf('\n];', adminItemsStart))
-    expect(adminItemsBody).not.toMatch(/href:\s*'\/events'/)
+    // Nav consolidation update (feat/authenticated-nav-consolidation): was a
+    // slice of TopNav's ADMIN_ITEMS (which no longer exists, so the old slice
+    // would pass vacuously); now pins BRAINBASE_ITEMS and the resolved tree.
+    expect(brainbaseItemsBody).toContain("href: '/admin/client-events'")
+    expect(brainbaseItemsBody).not.toMatch(/href:\s*'\/events'/)
+    const [clientEvents] = clientEventsLinks({ role: 'super_admin', enabledCapabilities: ALL_CAPS, dashboardVariant: null })
+    const eventsLink = flattenNavLinks(resolveNav({ role: 'super_admin', enabledCapabilities: ALL_CAPS, dashboardVariant: null }))
+      .find(l => l.href === '/events')
+    expect(eventsLink).toBeDefined()
+    expect(clientEvents.id).not.toBe(eventsLink!.id)
+    expect(clientEvents.match).not.toContain('/events')
   })
 })
 

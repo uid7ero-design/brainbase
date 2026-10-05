@@ -6,8 +6,19 @@ import { StatusBadge } from '../_status';
 import { formatMoneyCents } from '@/lib/commercial/money';
 import { formatCommercialDate } from '@/lib/commercial/dates';
 import { buildQuotePdf, type QuotePdfSupplier } from '@/lib/commercial/quotePdf';
-
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+import {
+  Badge,
+  Field as AppField,
+  FormError,
+  PageHeader,
+  StateMessage,
+  TableContainer,
+  TableStateRow,
+  buttonProps,
+  fieldControlClassName,
+  tableStyles,
+  type SemanticState,
+} from '@/components/ui/app';
 
 type Quote = {
   id: string; organisation_id: string; customer_id: string; quote_number: string | null; status: string;
@@ -237,126 +248,137 @@ export default function QuoteDetailPage() {
     URL.revokeObjectURL(url);
   }
 
-  if (loading) return <div style={{ color: '#6b7280', fontSize: 14 }}>Loading…</div>;
-  if (!quote) return <div style={{ color: '#6b7280', fontSize: 14 }}>Quote not found.</div>;
+  if (loading) return <StateMessage kind="loading" title="Loading quote…" size="page" />;
+  if (!quote) {
+    return (
+      <StateMessage
+        kind="empty"
+        size="page"
+        title="Quote not found."
+        action={<Link href="/commercial/quotes">Back to quotes</Link>}
+      />
+    );
+  }
 
   return (
     <div style={{ maxWidth: 820 }}>
-      <Link href="/commercial/quotes" style={{ color: '#6b7280', fontSize: 13, textDecoration: 'none' }}>← Quotes</Link>
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '16px 0 8px', flexWrap: 'wrap', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>{quote.quote_number ?? 'Draft Quote'}</h1>
-          <StatusBadge status={quote.status} />
-        </div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          {!isDraft && <button onClick={downloadPdf} disabled={busy} style={btn('#1f2937')}>Download PDF</button>}
-          {!isDraft && quote.email_snapshot && (
-            <button onClick={sendEmail} disabled={busy} style={btn('#1f2937')}>
-              {deliveries.length === 0 ? 'Send Email' : 'Resend Email'}
-            </button>
-          )}
-          {isDraft && <button onClick={deleteDraft} disabled={busy} style={btn('rgba(239,68,68,0.15)', '#f87171')}>Delete Draft</button>}
-          {isDraft && <button onClick={() => runAction('issue')} disabled={busy} style={btn('#1a6aff')}>Issue Quote</button>}
-          {isSent && <button onClick={() => runAction('reject')} disabled={busy} style={btn('rgba(239,68,68,0.15)', '#f87171')}>Reject</button>}
-          {isSent && <button onClick={() => runAction('expire')} disabled={busy} style={btn('rgba(251,191,36,0.15)', '#fbbf24')}>Mark Expired</button>}
-          {isSent && <button onClick={() => runAction('accept')} disabled={busy} style={btn('rgba(74,222,128,0.15)', '#4ade80')}>Accept</button>}
-          {quote.status === 'ACCEPTED' && canCreateInvoice && (
-            <button onClick={createInvoiceFromThisQuote} disabled={busy} style={btn('#1a6aff')}>Create Invoice</button>
-          )}
-        </div>
-      </div>
-      {actionError && <p style={{ color: '#f87171', fontSize: 13, margin: '0 0 16px' }}>{actionError}</p>}
-      {sendResult && <p style={{ color: '#4ade80', fontSize: 13, margin: '0 0 16px' }}>{sendResult}</p>}
+      <PageHeader
+        eyebrow={<Link href="/commercial/quotes">← Quotes</Link>}
+        title={quote.quote_number ?? 'Draft Quote'}
+        meta={<StatusBadge status={quote.status} />}
+        actions={
+          <>
+            {!isDraft && <button type="button" onClick={downloadPdf} disabled={busy} {...buttonProps('secondary')}>Download PDF</button>}
+            {!isDraft && quote.email_snapshot && (
+              <button type="button" onClick={sendEmail} disabled={busy} {...buttonProps('secondary')}>
+                {deliveries.length === 0 ? 'Send Email' : 'Resend Email'}
+              </button>
+            )}
+            {isDraft && <button type="button" onClick={deleteDraft} disabled={busy} {...buttonProps('danger')}>Delete Draft</button>}
+            {isDraft && <button type="button" onClick={() => runAction('issue')} disabled={busy} {...buttonProps('primary')}>Issue Quote</button>}
+            {isSent && <button type="button" onClick={() => runAction('reject')} disabled={busy} {...buttonProps('danger')}>Reject</button>}
+            {isSent && <button type="button" onClick={() => runAction('expire')} disabled={busy} {...buttonProps('secondary')}>Mark Expired</button>}
+            {isSent && <button type="button" onClick={() => runAction('accept')} disabled={busy} {...buttonProps('primary')}>Accept</button>}
+            {quote.status === 'ACCEPTED' && canCreateInvoice && (
+              <button type="button" onClick={createInvoiceFromThisQuote} disabled={busy} {...buttonProps('primary')}>Create Invoice</button>
+            )}
+          </>
+        }
+      />
+      {actionError && <div style={{ marginBottom: 16 }}><FormError>{actionError}</FormError></div>}
+      {sendResult && <p role="status" style={{ color: 'var(--status-success)', fontSize: 13, margin: '0 0 16px' }}>{sendResult}</p>}
       {!isDraft && !quote.email_snapshot && (
-        <p style={{ color: '#fbbf24', fontSize: 13, margin: '0 0 16px' }}>No customer email on file — this quote cannot be emailed.</p>
+        <p style={{ color: 'var(--status-warning)', fontSize: 13, margin: '0 0 16px' }}>No customer email on file — this quote cannot be emailed.</p>
       )}
 
-      <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px', marginBottom: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div style={{ ...SECTION, marginBottom: 20, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
         <div>
           <div style={miniLbl}>Customer</div>
-          <div style={{ fontSize: 14 }}>
+          <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>
             {isDraft ? (
-              <Link href={`/commercial/customers/${quote.customer_id}`} style={{ color: '#f9fafb', textDecoration: 'none' }}>{customer?.name ?? '—'}</Link>
+              <Link href={`/commercial/customers/${quote.customer_id}`} style={{ color: 'var(--text-primary)' }}>{customer?.name ?? '—'}</Link>
             ) : (quote.customer_name_snapshot ?? customer?.name ?? '—')}
           </div>
-          {!isDraft && quote.billing_address_snapshot && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{quote.billing_address_snapshot}</div>}
+          {!isDraft && quote.billing_address_snapshot && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{quote.billing_address_snapshot}</div>}
         </div>
         <div>
           <div style={miniLbl}>Issue / Expiry</div>
-          <div style={{ fontSize: 14 }}>{formatCommercialDate(quote.issue_date)} — {formatCommercialDate(quote.expiry_date)}</div>
+          <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>{formatCommercialDate(quote.issue_date)} — {formatCommercialDate(quote.expiry_date)}</div>
         </div>
       </div>
 
-      {deliveries.length > 0 && (
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '16px 24px', marginBottom: 20 }}>
-          <div style={miniLbl}>Delivery History</div>
-          {deliveries.map(d => (
-            <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', fontSize: 13, borderTop: `1px solid ${BORDER}` }}>
-              <span style={{ color: '#9ca3af' }}>{d.channel} → {d.recipient}</span>
-              <span style={{ color: '#6b7280', fontSize: 12 }}>{new Date(d.attempted_at).toLocaleString('en-AU', { timeZone: 'Australia/Adelaide', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
-              <DeliveryStatusBadge status={d.status} />
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-              {['Description', 'Qty', 'Unit Price', 'Tax', 'Total', ''].map(h => <th key={h} style={th}>{h}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {lines.length === 0 && <tr><td colSpan={6} style={empty}>No line items yet.</td></tr>}
-            {lines.map((l, i) => (
-              <tr key={l.id} style={{ borderBottom: i < lines.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
-                <td style={{ padding: '12px 16px', fontSize: 13, color: '#f9fafb' }}>
-                  {l.description_snapshot}
-                  {l.sku_snapshot && <span style={{ color: '#4b5563', marginLeft: 6 }}>({l.sku_snapshot})</span>}
-                </td>
-                <td style={td}>{l.quantity}{l.unit_snapshot ? ` ${l.unit_snapshot}` : ''}</td>
-                <td style={td}>{formatMoneyCents(l.unit_price_cents, quote.currency)}</td>
-                <td style={td}>{l.tax_code_snapshot ? `${l.tax_code_snapshot} (${l.tax_rate_snapshot}%)` : '—'}</td>
-                <td style={td}>{formatMoneyCents(l.line_total_cents, quote.currency)}</td>
-                <td style={{ padding: '12px 16px' }}>
-                  {isDraft && <button onClick={() => removeLine(l.id)} disabled={busy} style={{ background: 'none', border: 'none', color: '#f87171', fontSize: 12, cursor: 'pointer', padding: 0 }}>Remove</button>}
-                </td>
+      <div style={{ marginBottom: 20 }}>
+        <TableContainer label="Quote line items" minWidth={620}>
+          <table className={tableStyles.table}>
+            <thead>
+              <tr>
+                <th scope="col">Description</th>
+                <th scope="col" className={tableStyles.num}>Qty</th>
+                <th scope="col" className={tableStyles.num}>Unit Price</th>
+                <th scope="col">Tax</th>
+                <th scope="col" className={tableStyles.num}>Total</th>
+                <th scope="col" className={tableStyles.actions}><span className="bb-visually-hidden">Actions</span></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {lines.length === 0 && <TableStateRow colSpan={6} kind="empty">No line items yet.</TableStateRow>}
+              {lines.map(l => (
+                <tr key={l.id}>
+                  <td style={{ color: 'var(--text-primary)' }}>
+                    {l.description_snapshot}
+                    {l.sku_snapshot && <span className={tableStyles.muted} style={{ marginLeft: 6 }}>({l.sku_snapshot})</span>}
+                  </td>
+                  <td className={tableStyles.num}>{l.quantity}{l.unit_snapshot ? ` ${l.unit_snapshot}` : ''}</td>
+                  <td className={tableStyles.num}>{formatMoneyCents(l.unit_price_cents, quote.currency)}</td>
+                  <td>{l.tax_code_snapshot ? `${l.tax_code_snapshot} (${l.tax_rate_snapshot}%)` : '—'}</td>
+                  <td className={tableStyles.num}>{formatMoneyCents(l.line_total_cents, quote.currency)}</td>
+                  <td className={tableStyles.actions}>
+                    {isDraft && <button type="button" onClick={() => removeLine(l.id)} disabled={busy} className={tableStyles.link} style={{ color: 'var(--status-danger)' }} aria-label={`Remove line ${l.description_snapshot}`}>Remove</button>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableContainer>
 
         {isDraft && (
-          <form onSubmit={addLine} style={{ padding: '16px', borderTop: `1px solid ${BORDER}`, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <form onSubmit={addLine} aria-label="Add line item" style={{ ...SECTION, padding: 16, marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <div style={{ flex: '2 1 180px' }}>
-              <div style={miniLbl}>Product / Service</div>
-              <select value={newProductId} onChange={e => applyProductDefaults(e.target.value)} style={sel}>
-                <option value="">— Freeform line —</option>
-                {products.filter(p => p.active).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+              <AppField label="Product / Service">
+                {control => (
+                  <select {...control} value={newProductId} onChange={e => applyProductDefaults(e.target.value)} className={fieldControlClassName}>
+                    <option value="">— Freeform line —</option>
+                    {products.filter(p => p.active).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                )}
+              </AppField>
             </div>
             <div style={{ flex: '2 1 180px' }}>
-              <div style={miniLbl}>Description</div>
-              <input value={newDescription} onChange={e => setNewDescription(e.target.value)} style={sel} placeholder="Line description" />
+              <AppField label="Description">
+                {control => <input {...control} value={newDescription} onChange={e => setNewDescription(e.target.value)} className={fieldControlClassName} placeholder="Line description" />}
+              </AppField>
             </div>
             <div style={{ width: 70 }}>
-              <div style={miniLbl}>Qty</div>
-              <input value={newQuantity} onChange={e => setNewQuantity(e.target.value)} style={sel} inputMode="numeric" />
+              <AppField label="Qty">
+                {control => <input {...control} value={newQuantity} onChange={e => setNewQuantity(e.target.value)} className={fieldControlClassName} inputMode="numeric" />}
+              </AppField>
             </div>
             <div style={{ width: 100 }}>
-              <div style={miniLbl}>Unit Price</div>
-              <input value={newPrice} onChange={e => setNewPrice(e.target.value)} style={sel} placeholder="0.00" inputMode="decimal" />
+              <AppField label="Unit Price">
+                {control => <input {...control} value={newPrice} onChange={e => setNewPrice(e.target.value)} className={fieldControlClassName} placeholder="0.00" inputMode="decimal" />}
+              </AppField>
             </div>
             <div style={{ flex: '1 1 140px' }}>
-              <div style={miniLbl}>Tax Code</div>
-              <select value={newTaxCodeId} onChange={e => setNewTaxCodeId(e.target.value)} style={sel}>
-                <option value="">— No tax —</option>
-                {taxCodes.map(t => <option key={t.id} value={t.id}>{t.code} ({t.rate}%)</option>)}
-              </select>
+              <AppField label="Tax Code">
+                {control => (
+                  <select {...control} value={newTaxCodeId} onChange={e => setNewTaxCodeId(e.target.value)} className={fieldControlClassName}>
+                    <option value="">— No tax —</option>
+                    {taxCodes.map(t => <option key={t.id} value={t.id}>{t.code} ({t.rate}%)</option>)}
+                  </select>
+                )}
+              </AppField>
             </div>
-            <button type="submit" disabled={busy} style={{ padding: '9px 16px', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            <button type="submit" disabled={busy} {...buttonProps('primary')}>
               Add Line
             </button>
           </form>
@@ -364,51 +386,55 @@ export default function QuoteDetailPage() {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 20 }}>
-        <div style={{ width: 260, background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '16px 20px' }}>
+        <div style={{ width: 260, maxWidth: '100%', ...SECTION, padding: '16px 20px' }}>
           <TotalRow label="Subtotal" value={formatMoneyCents(quote.subtotal_cents, quote.currency)} />
           <TotalRow label="Tax" value={formatMoneyCents(quote.tax_cents, quote.currency)} />
           <TotalRow label="Total" value={formatMoneyCents(quote.total_cents, quote.currency)} bold />
         </div>
       </div>
 
+      {deliveries.length > 0 && (
+        <section aria-labelledby="quote-delivery-history" style={{ ...SECTION, padding: '16px 24px', marginBottom: 20 }}>
+          <h2 id="quote-delivery-history" style={{ ...miniLbl, margin: '0 0 4px' }}>Delivery History</h2>
+          {deliveries.map(d => (
+            <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, padding: '6px 0', fontSize: 13, borderTop: '1px solid var(--border)' }}>
+              <span style={{ color: 'var(--text-secondary)' }}>{d.channel} → {d.recipient}</span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{new Date(d.attempted_at).toLocaleString('en-AU', { timeZone: 'Australia/Adelaide', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+              <DeliveryStatusBadge status={d.status} />
+            </div>
+          ))}
+        </section>
+      )}
+
       {(quote.notes || quote.terms) && (
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px' }}>
-          {quote.notes && <><div style={miniLbl}>Notes</div><p style={{ fontSize: 13, color: '#9ca3af', margin: '4px 0 16px', whiteSpace: 'pre-wrap' }}>{quote.notes}</p></>}
-          {quote.terms && <><div style={miniLbl}>Terms</div><p style={{ fontSize: 13, color: '#9ca3af', margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{quote.terms}</p></>}
+        <div style={SECTION}>
+          {quote.notes && <><div style={miniLbl}>Notes</div><p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '4px 0 16px', whiteSpace: 'pre-wrap' }}>{quote.notes}</p></>}
+          {quote.terms && <><div style={miniLbl}>Terms</div><p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{quote.terms}</p></>}
         </div>
       )}
     </div>
   );
 }
 
-const DELIVERY_STATUS_STYLE: Record<string, { color: string; bg: string }> = {
-  PENDING: { color: '#9ca3af', bg: 'rgba(156,163,175,0.12)' },
-  SENT: { color: '#4ade80', bg: 'rgba(74,222,128,0.12)' },
-  DELIVERED: { color: '#4ade80', bg: 'rgba(74,222,128,0.12)' },
-  FAILED: { color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
+// Delivery-attempt outcome → semantic tone. The raw status word stays the
+// visible label (colour is never the only signal).
+const DELIVERY_STATUS_STYLE: Record<string, SemanticState> = {
+  PENDING: 'inactive',
+  SENT: 'success',
+  DELIVERED: 'success',
+  FAILED: 'error',
 };
 function DeliveryStatusBadge({ status }: { status: string }) {
-  const s = DELIVERY_STATUS_STYLE[status] ?? DELIVERY_STATUS_STYLE.PENDING;
-  return (
-    <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: '0.04em', color: s.color, background: s.bg }}>
-      {status}
-    </span>
-  );
+  return <Badge state={DELIVERY_STATUS_STYLE[status] ?? DELIVERY_STATUS_STYLE.PENDING}>{status}</Badge>;
 }
 
 function TotalRow({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: bold ? 15 : 13, fontWeight: bold ? 700 : 400, color: bold ? '#f9fafb' : '#9ca3af' }}>
-      <span>{label}</span><span>{value}</span>
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: bold ? 15 : 13, fontWeight: bold ? 700 : 400, color: bold ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+      <span>{label}</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{value}</span>
     </div>
   );
 }
 
-const miniLbl: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 };
-const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '12px 16px', fontSize: 13, color: '#9ca3af' };
-const empty: React.CSSProperties = { padding: '28px 16px', textAlign: 'center', color: '#4b5563', fontSize: 14 };
-const sel: React.CSSProperties = { width: '100%', padding: '8px 10px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 13, boxSizing: 'border-box' };
-function btn(bg: string, color = '#fff'): React.CSSProperties {
-  return { padding: '8px 16px', background: bg, color, border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' };
-}
+const SECTION: React.CSSProperties = { background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px 24px' };
+const miniLbl: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 };
