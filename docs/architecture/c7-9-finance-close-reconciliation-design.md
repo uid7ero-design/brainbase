@@ -599,6 +599,9 @@ Until an explicit policy decision changes them, year close applies the determini
 
 ## 27. Required tests
 
+The executable evidence for each numbered requirement is mapped in
+`docs/architecture/c7-9-verification-matrix.md`.
+
 1. CLOSED period rejects new posted finance adjustment targeting it.
 2. OPEN period accepts governed adjustment.
 3. posted adjustment cannot be edited.
