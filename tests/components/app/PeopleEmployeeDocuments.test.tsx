@@ -354,6 +354,154 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     expect(document.body.textContent).not.toContain('sensitive verification detail');
   });
 
+  it('shows upload controls only when the document-management capability permits them', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [],
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByRole('button', { name: 'Upload document' })).toBeTruthy();
+  });
+
+  it('does not show upload controls to an authorised reader without management capability', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [],
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('No documents')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Upload document' })).toBeNull();
+  });
+
+  it('uploads a new document and consumes only safe create-response fields', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents') && init?.method === 'POST') {
+        return response({
+          document: {
+            id: 'doc-created',
+            person_id: PERSON.id,
+            document_type: 'policy',
+            title: 'Vehicle policy',
+            lifecycle_task_id: null,
+            deleted_at: null,
+            created_at: '2026-10-05T07:20:00.000Z',
+          },
+          version: {
+            id: 'version-created',
+            document_id: 'doc-created',
+            version_number: 1,
+            uploaded_by: 'sensitive-hr-user',
+            original_filename: 'private-name.pdf',
+            content_type: 'application/pdf',
+            byte_size: 1234,
+            expires_at: '2027-10-05',
+            is_current: true,
+            created_at: '2026-10-05T07:20:00.000Z',
+          },
+        }, 201);
+      }
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          document_version_id: 'version-created',
+          capabilities: {
+            can_acknowledge: false,
+            can_verify: true,
+          },
+          employee_acknowledgement: {
+            acknowledged: false,
+            acknowledged_at: null,
+          },
+          latest_verification: null,
+        });
+      }
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [],
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Upload document' }));
+    fireEvent.change(screen.getByLabelText('Document type'), { target: { value: 'policy' } });
+    fireEvent.change(screen.getByLabelText('Document title'), { target: { value: 'Vehicle policy' } });
+    fireEvent.change(screen.getByLabelText('Document expiry date'), { target: { value: '2027-10-05' } });
+    const file = new File(['pdf'], 'vehicle-policy.pdf', { type: 'application/pdf' });
+    fireEvent.change(screen.getByLabelText('Document file'), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }));
+
+    expect(await screen.findByText('Vehicle policy')).toBeTruthy();
+    expect(screen.getByText('policy · Version 1')).toBeTruthy();
+    expect(screen.getByText('Expires 2027-10-05')).toBeTruthy();
+    expect(await screen.findByText('Not acknowledged')).toBeTruthy();
+
+    const postCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input).endsWith('/documents') && init?.method === 'POST'
+    );
+    expect(postCall).toBeTruthy();
+    const formData = postCall?.[1]?.body as FormData;
+    expect(formData.get('document_type')).toBe('policy');
+    expect(formData.get('title')).toBe('Vehicle policy');
+    expect(formData.get('expires_at')).toBe('2027-10-05');
+    expect(formData.get('file')).toBe(file);
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-hr-user');
+    expect(text).not.toContain('private-name.pdf');
+    expect(text).not.toContain('application/pdf');
+    expect(text).not.toContain('1234');
+  });
+
+  it('shows only a generic upload failure and does not expose server details', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents') && init?.method === 'POST') {
+        return response({ error: 'sensitive storage provider detail' }, 502);
+      }
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [],
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Upload document' }));
+    fireEvent.change(screen.getByLabelText('Document type'), { target: { value: 'policy' } });
+    fireEvent.change(screen.getByLabelText('Document title'), { target: { value: 'Vehicle policy' } });
+    fireEvent.change(screen.getByLabelText('Document file'), {
+      target: { files: [new File(['pdf'], 'vehicle-policy.pdf', { type: 'application/pdf' })] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }));
+
+    expect(await screen.findByText('Could not upload document.')).toBeTruthy();
+    expect(screen.getByText('No documents')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive storage provider detail');
+  });
+
   it('shows explicit not-acknowledged and not-verified states', async () => {
     fetchMock.mockImplementation(input => {
       const url = String(input);
