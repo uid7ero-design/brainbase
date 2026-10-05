@@ -261,6 +261,168 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     expect(document.body.textContent).not.toContain('sensitive upload detail');
   });
 
+  it('shows add-version controls only when document management capability permits them', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    const addVersion = await screen.findByRole('button', { name: 'Add version' });
+    fireEvent.click(addVersion);
+
+    expect(screen.getByLabelText('New version expiry (optional)')).toBeTruthy();
+    expect(screen.getByLabelText('New version file')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Upload version' })).toBeTruthy();
+  });
+
+  it('adds a new immutable version and reloads assurance for the new current version', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [DOCUMENT],
+        });
+      }
+
+      if (
+        url.endsWith(`/documents/${DOCUMENT.id}/versions`)
+        && init?.method === 'POST'
+      ) {
+        return response({
+          version: {
+            id: 'version-3',
+            document_id: DOCUMENT.id,
+            version_number: 3,
+            uploaded_by: 'sensitive-uploader-id',
+            original_filename: 'private-renewal.pdf',
+            content_type: 'application/pdf',
+            byte_size: 4567,
+            expires_at: '2028-10-05',
+            is_current: true,
+            created_at: '2026-10-05T08:00:00.000Z',
+          },
+        }, 201);
+      }
+
+      if (url.endsWith('/version-3/assurance')) {
+        return assuranceResponse({
+          capabilities: {
+            can_acknowledge: false,
+            can_verify: true,
+          },
+          employee_acknowledgement: {
+            acknowledged: false,
+            acknowledged_at: null,
+          },
+          latest_verification: null,
+        });
+      }
+
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add version' }));
+    fireEvent.change(screen.getByLabelText('New version expiry (optional)'), {
+      target: { value: '2028-10-05' },
+    });
+    const file = new File(['renewed'], 'renewal.pdf', { type: 'application/pdf' });
+    fireEvent.change(screen.getByLabelText('New version file'), {
+      target: { files: [file] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload version' }));
+
+    expect(await screen.findByText('policy · Version 3')).toBeTruthy();
+    expect(screen.getByText('Expires 2028-10-05')).toBeTruthy();
+    expect(await screen.findByText('Not acknowledged')).toBeTruthy();
+    expect(screen.getByText('Not verified')).toBeTruthy();
+
+    const postCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input).endsWith(`/documents/${DOCUMENT.id}/versions`)
+      && init?.method === 'POST'
+    );
+    expect(postCall).toBeTruthy();
+    const body = postCall?.[1]?.body;
+    expect(body).toBeInstanceOf(FormData);
+    expect((body as FormData).get('expires_at')).toBe('2028-10-05');
+    expect((body as FormData).get('file')).toBe(file);
+
+    expect(fetchMock.mock.calls.some(([input]) =>
+      String(input).endsWith(`/documents/${DOCUMENT.id}/versions/version-3/assurance`)
+    )).toBe(true);
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-uploader-id');
+    expect(text).not.toContain('private-renewal.pdf');
+    expect(text).not.toContain('version-3');
+  });
+
+  it('hides add-version controls when document management capability is false', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Safety policy')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Add version' })).toBeNull();
+  });
+
+  it('shows only a generic add-version failure and keeps the version form open', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [DOCUMENT],
+        });
+      }
+      if (
+        url.endsWith(`/documents/${DOCUMENT.id}/versions`)
+        && init?.method === 'POST'
+      ) {
+        return response({ error: 'sensitive version upload detail' }, 500);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add version' }));
+    const file = new File(['renewed'], 'renewal.pdf', { type: 'application/pdf' });
+    fireEvent.change(screen.getByLabelText('New version file'), {
+      target: { files: [file] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload version' }));
+
+    expect(await screen.findByText('Could not upload document version.')).toBeTruthy();
+    expect(screen.getByLabelText('New version file')).toBeTruthy();
+    expect(screen.getByText('policy · Version 2')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive version upload detail');
+  });
+
   it('lets the linked employee acknowledge when the assurance capability permits it', async () => {
     fetchMock.mockImplementation((input, init) => {
       const url = String(input);
