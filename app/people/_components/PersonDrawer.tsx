@@ -62,6 +62,14 @@ type VerificationActionState = 'idle' | 'verifying' | 'rejecting' | 'error';
 type DocumentCreateState = 'idle' | 'submitting' | 'error';
 type DocumentVersionState = 'idle' | 'submitting' | 'error';
 type DocumentDeleteState = 'idle' | 'submitting' | 'error';
+type LifecycleTaskOptionsState = 'idle' | 'loading' | 'ready' | 'error';
+
+type LifecycleTaskOption = {
+  id: string;
+  title: string;
+  status: string;
+  lifecycle_type: string;
+};
 
 type DocumentsState = 'idle' | 'loading' | 'ready' | 'error' | 'hidden';
 
@@ -91,6 +99,9 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   const [documentVersionState, setDocumentVersionState] = useState<DocumentVersionState>('idle');
   const [deleteDocumentId, setDeleteDocumentId] = useState<string | null>(null);
   const [documentDeleteState, setDocumentDeleteState] = useState<DocumentDeleteState>('idle');
+  const [lifecycleTaskOptions, setLifecycleTaskOptions] = useState<LifecycleTaskOption[]>([]);
+  const [lifecycleTaskOptionsState, setLifecycleTaskOptionsState] = useState<LifecycleTaskOptionsState>('idle');
+  const [newDocumentLifecycleTaskId, setNewDocumentLifecycleTaskId] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -112,6 +123,9 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         setDocumentVersionState('idle');
         setDeleteDocumentId(null);
         setDocumentDeleteState('idle');
+        setLifecycleTaskOptions([]);
+        setLifecycleTaskOptionsState('idle');
+        setNewDocumentLifecycleTaskId('');
         return;
       }
 
@@ -132,6 +146,9 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setDocumentVersionState('idle');
       setDeleteDocumentId(null);
       setDocumentDeleteState('idle');
+      setLifecycleTaskOptions([]);
+      setLifecycleTaskOptionsState('idle');
+      setNewDocumentLifecycleTaskId('');
 
       void fetch(`/api/hr/people/${personId}`)
         .then(async response => {
@@ -254,6 +271,80 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       cancelled = true;
     };
   }, [personId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!personId || !canManageDocuments || !showCreateDocument) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void fetch(`/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(personId)}`)
+      .then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (cancelled) return;
+
+        if (!response.ok || !Array.isArray(data.workflows)) {
+          setLifecycleTaskOptions([]);
+          setLifecycleTaskOptionsState('error');
+          return;
+        }
+
+        const workflows = data.workflows
+          .filter((workflow: unknown): workflow is { id: string; lifecycle_type: string } => {
+            if (!workflow || typeof workflow !== 'object') return false;
+            const candidate = workflow as Record<string, unknown>;
+            return typeof candidate.id === 'string'
+              && typeof candidate.lifecycle_type === 'string';
+          })
+          .map((workflow: { id: string; lifecycle_type: string }) => ({
+            id: workflow.id,
+            lifecycle_type: workflow.lifecycle_type,
+          }));
+
+        const taskGroups = await Promise.all(workflows.map(async (
+          workflow: { id: string; lifecycle_type: string },
+        ) => {
+          const detailResponse = await fetch(`/api/hr/lifecycle/workflows/${workflow.id}`);
+          const detailData = await detailResponse.json().catch(() => ({}));
+
+          if (!detailResponse.ok || !Array.isArray(detailData.tasks)) {
+            throw new Error('Lifecycle workflow tasks unavailable.');
+          }
+
+          return detailData.tasks
+            .filter((task: unknown): task is { id: string; title: string; status: string } => {
+              if (!task || typeof task !== 'object') return false;
+              const candidate = task as Record<string, unknown>;
+              return typeof candidate.id === 'string'
+                && typeof candidate.title === 'string'
+                && typeof candidate.status === 'string';
+            })
+            .map((task: { id: string; title: string; status: string }) => ({
+              id: task.id,
+              title: task.title,
+              status: task.status,
+              lifecycle_type: workflow.lifecycle_type,
+            }));
+        }));
+
+        if (cancelled) return;
+        setLifecycleTaskOptions(taskGroups.flat());
+        setLifecycleTaskOptionsState('ready');
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLifecycleTaskOptions([]);
+          setLifecycleTaskOptionsState('error');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [personId, canManageDocuments, showCreateDocument]);
 
   const editButton = buttonProps('secondary', 'sm');
   const acknowledgeButton = buttonProps('secondary', 'sm');
@@ -445,6 +536,9 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
     formData.set('document_type', newDocumentType.trim());
     formData.set('title', newDocumentTitle.trim());
     if (newDocumentExpiry) formData.set('expires_at', newDocumentExpiry);
+    if (newDocumentLifecycleTaskId) {
+      formData.set('lifecycle_task_id', newDocumentLifecycleTaskId);
+    }
     formData.set('file', newDocumentFile);
 
     try {
@@ -490,6 +584,9 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setNewDocumentTitle('');
       setNewDocumentExpiry('');
       setNewDocumentFile(null);
+      setNewDocumentLifecycleTaskId('');
+      setLifecycleTaskOptions([]);
+      setLifecycleTaskOptionsState('idle');
       setShowCreateDocument(false);
       setDocumentCreateState('idle');
     } catch {
@@ -671,6 +768,9 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                   <button
                     type="button"
                     onClick={() => {
+                      setLifecycleTaskOptions([]);
+                      setLifecycleTaskOptionsState('loading');
+                      setNewDocumentLifecycleTaskId('');
                       setShowCreateDocument(true);
                       setDocumentCreateState('idle');
                     }}
@@ -706,6 +806,32 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                         onChange={event => setNewDocumentExpiry(event.target.value)}
                       />
                     </label>
+                    {lifecycleTaskOptionsState === 'loading' && (
+                      <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                        Loading lifecycle tasks…
+                      </div>
+                    )}
+                    {lifecycleTaskOptionsState === 'error' && (
+                      <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                        Lifecycle tasks unavailable. You can upload without linking a task.
+                      </div>
+                    )}
+                    {lifecycleTaskOptionsState === 'ready' && (
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Lifecycle task (optional)</span>
+                        <select
+                          value={newDocumentLifecycleTaskId}
+                          onChange={event => setNewDocumentLifecycleTaskId(event.target.value)}
+                        >
+                          <option value="">No lifecycle task</option>
+                          {lifecycleTaskOptions.map(option => (
+                            <option key={option.id} value={option.id}>
+                              {option.title} · {option.lifecycle_type} · {option.status}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
                       <span style={{ color: 'var(--text-secondary)' }}>File</span>
                       <input
@@ -727,6 +853,9 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                         onClick={() => {
                           setShowCreateDocument(false);
                           setDocumentCreateState('idle');
+                          setNewDocumentLifecycleTaskId('');
+                          setLifecycleTaskOptions([]);
+                          setLifecycleTaskOptionsState('idle');
                         }}
                         disabled={documentCreateState === 'submitting'}
                         {...cancelDocumentButton}
