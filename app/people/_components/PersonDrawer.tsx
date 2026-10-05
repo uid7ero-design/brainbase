@@ -268,6 +268,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   const deleteDocumentButton = buttonProps('ghost', 'sm');
   const confirmDeleteDocumentButton = buttonProps('danger', 'sm');
   const cancelDeleteDocumentButton = buttonProps('secondary', 'sm');
+  const downloadDocumentButton = buttonProps('secondary', 'sm');
 
   async function deleteDocument(document: EmployeeDocumentSummary) {
     if (!personId || !canManageDocuments) return;
@@ -775,6 +776,17 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                         {document.current_version?.expires_at && (
                           <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 3 }}>
                             Expires {document.current_version.expires_at}
+                          </div>
+                        )}
+
+                        {document.current_version && (
+                          <div style={{ marginTop: 8 }}>
+                            <a
+                              href={`/api/hr/people/${personId}/documents/${document.id}/versions/${document.current_version.id}`}
+                              {...downloadDocumentButton}
+                            >
+                              Download
+                            </a>
                           </div>
                         )}
 
