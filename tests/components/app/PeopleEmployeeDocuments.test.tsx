@@ -423,6 +423,117 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     expect(document.body.textContent).not.toContain('sensitive version upload detail');
   });
 
+  it('requires explicit confirmation before deleting a managed employee document', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+
+    expect(screen.getByText('Delete this document?')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Confirm delete' })).toBeTruthy();
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByText('Delete this document?')).toBeNull();
+    expect(screen.getByText('Safety policy')).toBeTruthy();
+  });
+
+  it('soft-deletes a managed employee document and removes it from the live list', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith(`/documents/${DOCUMENT.id}`) && init?.method === 'DELETE') {
+        return response({
+          deleted: true,
+          document_id: DOCUMENT.id,
+          deleted_at: '2026-10-05T08:30:00.000Z',
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Safety policy')).toBeNull();
+    });
+    expect(screen.getByText('No documents')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/hr/people/${PERSON.id}/documents/${DOCUMENT.id}`,
+      { method: 'DELETE' },
+    );
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain(DOCUMENT.id);
+    expect(text).not.toContain('2026-10-05T08:30:00.000Z');
+  });
+
+  it('hides delete controls when document management capability is false', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Safety policy')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+  });
+
+  it('shows only a generic delete failure and preserves the live document', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith(`/documents/${DOCUMENT.id}`) && init?.method === 'DELETE') {
+        return response({ error: 'sensitive delete detail' }, 500);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
+
+    expect(await screen.findByText('Could not delete document.')).toBeTruthy();
+    expect(screen.getByText('Safety policy')).toBeTruthy();
+    expect(screen.getByText('Delete this document?')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive delete detail');
+  });
+
   it('lets the linked employee acknowledge when the assurance capability permits it', async () => {
     fetchMock.mockImplementation((input, init) => {
       const url = String(input);
