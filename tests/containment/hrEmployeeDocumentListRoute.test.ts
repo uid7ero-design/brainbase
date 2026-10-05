@@ -38,7 +38,11 @@ function params() {
 beforeEach(() => {
   vi.clearAllMocks();
   contextMock.mockResolvedValue({ ok: true, session: SESSION });
-  listMock.mockResolvedValue({ outcome: 'ok', documents: [] });
+  listMock.mockResolvedValue({
+    outcome: 'ok',
+    canManageDocuments: false,
+    documents: [],
+  });
 });
 
 describe('HR-7E6B employee document list route', () => {
@@ -65,6 +69,7 @@ describe('HR-7E6B employee document list route', () => {
   it('returns only safe logical-document and current-version fields', async () => {
     listMock.mockResolvedValueOnce({
       outcome: 'ok',
+      canManageDocuments: true,
       documents: [{
         id: 'doc-1',
         documentType: 'policy',
@@ -85,6 +90,9 @@ describe('HR-7E6B employee document list route', () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body).toEqual({
+      capabilities: {
+        can_manage_documents: true,
+      },
       documents: [{
         id: 'doc-1',
         document_type: 'policy',
@@ -107,6 +115,24 @@ describe('HR-7E6B employee document list route', () => {
     expect(serialized).not.toContain('byte_size');
     expect(serialized).not.toContain('uploaded_by');
     expect(serialized).not.toContain('linked_user');
+  });
+
+  it('returns false management capability for an authorised non-admin reader', async () => {
+    listMock.mockResolvedValueOnce({
+      outcome: 'ok',
+      canManageDocuments: false,
+      documents: [],
+    });
+
+    const response = await GET(request(), { params: params() });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      capabilities: {
+        can_manage_documents: false,
+      },
+      documents: [],
+    });
   });
 
   it('returns a bounded generic 500 if list retrieval fails', async () => {

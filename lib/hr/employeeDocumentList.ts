@@ -2,7 +2,10 @@ import 'server-only';
 
 import sql from '@/lib/db';
 import type { OrgSession } from '@/lib/org';
-import { canViewEmployeeDocument } from './employeeDocumentAccess';
+import {
+  canManageEmployeeDocument,
+  canViewEmployeeDocument,
+} from './employeeDocumentAccess';
 
 export type EmployeeDocumentListItem = {
   id: string;
@@ -46,7 +49,11 @@ export async function listEmployeeDocumentsForPerson(
   session: OrgSession,
   personId: string,
 ): Promise<
-  | { outcome: 'ok'; documents: EmployeeDocumentListItem[] }
+  | {
+      outcome: 'ok';
+      canManageDocuments: boolean;
+      documents: EmployeeDocumentListItem[];
+    }
   | { outcome: 'not_found' }
 > {
   const isSuperAdmin = session.role === 'super_admin';
@@ -109,6 +116,14 @@ export async function listEmployeeDocumentsForPerson(
 
   return {
     outcome: 'ok',
+    canManageDocuments: canManageEmployeeDocument(
+      {
+        organisationId: session.organisationId,
+        userId: session.userId,
+        isHrAdministrator: person.is_hr_administrator,
+      },
+      { organisationId: person.organisation_id },
+    ),
     documents: rows.map(row => ({
       id: row.document_id,
       documentType: row.document_type,

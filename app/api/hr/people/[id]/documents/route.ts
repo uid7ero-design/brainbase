@@ -41,6 +41,9 @@ export async function GET(
     if (result.outcome === 'not_found') return employeeDocumentNotFoundResponse();
 
     return NextResponse.json({
+      capabilities: {
+        can_manage_documents: result.canManageDocuments,
+      },
       documents: result.documents.map(document => ({
         id: document.id,
         document_type: document.documentType,
