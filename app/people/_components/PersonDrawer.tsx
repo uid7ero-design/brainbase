@@ -38,6 +38,10 @@ type EmployeeDocumentSummary = {
 };
 
 type DocumentAssurance = {
+  capabilities: {
+    can_acknowledge: boolean;
+    can_verify: boolean;
+  };
   employee_acknowledgement: {
     acknowledged: boolean;
     acknowledged_at: string | null;
@@ -53,6 +57,8 @@ type AssuranceState =
   | { state: 'ready'; assurance: DocumentAssurance }
   | { state: 'error' };
 
+type AcknowledgementActionState = 'idle' | 'submitting' | 'error';
+
 type DocumentsState = 'idle' | 'loading' | 'ready' | 'error' | 'hidden';
 
 function dateOnly(value: string): string {
@@ -66,6 +72,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   const [documents, setDocuments] = useState<EmployeeDocumentSummary[]>([]);
   const [documentsState, setDocumentsState] = useState<DocumentsState>('idle');
   const [assuranceByDocument, setAssuranceByDocument] = useState<Record<string, AssuranceState>>({});
+  const [acknowledgementByDocument, setAcknowledgementByDocument] = useState<Record<string, AcknowledgementActionState>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +83,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         setDocuments([]);
         setDocumentsState('idle');
         setAssuranceByDocument({});
+        setAcknowledgementByDocument({});
         return;
       }
 
@@ -85,6 +93,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setDocuments([]);
       setDocumentsState('loading');
       setAssuranceByDocument({});
+      setAcknowledgementByDocument({});
 
       void fetch(`/api/hr/people/${personId}`)
         .then(async response => {
@@ -111,6 +120,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
             setDocuments([]);
             setDocumentsState('hidden');
             setAssuranceByDocument({});
+            setAcknowledgementByDocument({});
             return;
           }
 
@@ -121,6 +131,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
             setDocuments([]);
             setDocumentsState('error');
             setAssuranceByDocument({});
+            setAcknowledgementByDocument({});
             return;
           }
 
@@ -161,6 +172,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                   [document.id]: {
                     state: 'ready',
                     assurance: {
+                      capabilities: assuranceData.assurance.capabilities,
                       employee_acknowledgement: assuranceData.assurance.employee_acknowledgement,
                       latest_verification: assuranceData.assurance.latest_verification,
                     },
@@ -182,6 +194,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
             setDocuments([]);
             setDocumentsState('error');
             setAssuranceByDocument({});
+            setAcknowledgementByDocument({});
           }
         });
     });
@@ -192,6 +205,69 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   }, [personId]);
 
   const editButton = buttonProps('secondary', 'sm');
+  const acknowledgeButton = buttonProps('secondary', 'sm');
+
+  async function acknowledgeDocument(document: EmployeeDocumentSummary) {
+    if (!personId || !document.current_version) return;
+
+    const assuranceState = assuranceByDocument[document.id];
+    if (
+      assuranceState?.state !== 'ready'
+      || !assuranceState.assurance.capabilities.can_acknowledge
+      || assuranceState.assurance.employee_acknowledgement.acknowledged
+    ) {
+      return;
+    }
+
+    setAcknowledgementByDocument(current => ({
+      ...current,
+      [document.id]: 'submitting',
+    }));
+
+    try {
+      const response = await fetch(
+        `/api/hr/people/${personId}/documents/${document.id}/versions/${document.current_version.id}/acknowledgements`,
+        { method: 'POST' },
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.acknowledgement?.acknowledged_at) {
+        setAcknowledgementByDocument(current => ({
+          ...current,
+          [document.id]: 'error',
+        }));
+        return;
+      }
+
+      setAssuranceByDocument(current => {
+        const existing = current[document.id];
+        if (existing?.state !== 'ready') return current;
+
+        return {
+          ...current,
+          [document.id]: {
+            state: 'ready',
+            assurance: {
+              ...existing.assurance,
+              employee_acknowledgement: {
+                acknowledged: true,
+                acknowledged_at: data.acknowledgement.acknowledged_at,
+              },
+            },
+          },
+        };
+      });
+      setAcknowledgementByDocument(current => ({
+        ...current,
+        [document.id]: 'idle',
+      }));
+    } catch {
+      setAcknowledgementByDocument(current => ({
+        ...current,
+        [document.id]: 'error',
+      }));
+    }
+  }
 
   return (
     <SlidePanel open={personId !== null} onClose={onClose} title="Person">
@@ -245,6 +321,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {documents.map(document => {
                     const assurance = assuranceByDocument[document.id];
+                    const acknowledgementAction = acknowledgementByDocument[document.id] ?? 'idle';
 
                     return (
                       <div key={document.id} style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 10 }}>
@@ -274,18 +351,40 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                         )}
 
                         {document.current_version && assurance?.state === 'ready' && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 7, color: 'var(--text-secondary)', fontSize: 12 }}>
-                            <div>
-                              {assurance.assurance.employee_acknowledgement.acknowledged
-                                ? `Acknowledged ${dateOnly(assurance.assurance.employee_acknowledgement.acknowledged_at!)}`
-                                : 'Not acknowledged'}
+                          <>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 7, color: 'var(--text-secondary)', fontSize: 12 }}>
+                              <div>
+                                {assurance.assurance.employee_acknowledgement.acknowledged
+                                  ? `Acknowledged ${dateOnly(assurance.assurance.employee_acknowledgement.acknowledged_at!)}`
+                                  : 'Not acknowledged'}
+                              </div>
+                              <div>
+                                {assurance.assurance.latest_verification
+                                  ? `${assurance.assurance.latest_verification.decision === 'VERIFIED' ? 'Verified' : 'Rejected'} ${dateOnly(assurance.assurance.latest_verification.verified_at)}`
+                                  : 'Not verified'}
+                              </div>
                             </div>
-                            <div>
-                              {assurance.assurance.latest_verification
-                                ? `${assurance.assurance.latest_verification.decision === 'VERIFIED' ? 'Verified' : 'Rejected'} ${dateOnly(assurance.assurance.latest_verification.verified_at)}`
-                                : 'Not verified'}
-                            </div>
-                          </div>
+
+                            {assurance.assurance.capabilities.can_acknowledge
+                              && !assurance.assurance.employee_acknowledgement.acknowledged && (
+                              <div style={{ marginTop: 8 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => void acknowledgeDocument(document)}
+                                  disabled={acknowledgementAction === 'submitting'}
+                                  {...acknowledgeButton}
+                                >
+                                  {acknowledgementAction === 'submitting' ? 'Acknowledging…' : 'Acknowledge'}
+                                </button>
+                              </div>
+                            )}
+
+                            {acknowledgementAction === 'error' && (
+                              <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 7 }}>
+                                Could not acknowledge document.
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     );
