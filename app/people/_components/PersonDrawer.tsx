@@ -58,6 +58,7 @@ type AssuranceState =
   | { state: 'error' };
 
 type AcknowledgementActionState = 'idle' | 'submitting' | 'error';
+type VerificationActionState = 'idle' | 'verifying' | 'rejecting' | 'error';
 
 type DocumentsState = 'idle' | 'loading' | 'ready' | 'error' | 'hidden';
 
@@ -73,6 +74,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   const [documentsState, setDocumentsState] = useState<DocumentsState>('idle');
   const [assuranceByDocument, setAssuranceByDocument] = useState<Record<string, AssuranceState>>({});
   const [acknowledgementByDocument, setAcknowledgementByDocument] = useState<Record<string, AcknowledgementActionState>>({});
+  const [verificationByDocument, setVerificationByDocument] = useState<Record<string, VerificationActionState>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -84,6 +86,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         setDocumentsState('idle');
         setAssuranceByDocument({});
         setAcknowledgementByDocument({});
+        setVerificationByDocument({});
         return;
       }
 
@@ -94,6 +97,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setDocumentsState('loading');
       setAssuranceByDocument({});
       setAcknowledgementByDocument({});
+      setVerificationByDocument({});
 
       void fetch(`/api/hr/people/${personId}`)
         .then(async response => {
@@ -121,6 +125,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
             setDocumentsState('hidden');
             setAssuranceByDocument({});
             setAcknowledgementByDocument({});
+            setVerificationByDocument({});
             return;
           }
 
@@ -132,6 +137,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
             setDocumentsState('error');
             setAssuranceByDocument({});
             setAcknowledgementByDocument({});
+            setVerificationByDocument({});
             return;
           }
 
@@ -195,6 +201,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
             setDocumentsState('error');
             setAssuranceByDocument({});
             setAcknowledgementByDocument({});
+            setVerificationByDocument({});
           }
         });
     });
@@ -206,6 +213,80 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
 
   const editButton = buttonProps('secondary', 'sm');
   const acknowledgeButton = buttonProps('secondary', 'sm');
+  const verifyButton = buttonProps('secondary', 'sm');
+  const rejectButton = buttonProps('secondary', 'sm');
+
+  async function verifyDocument(
+    document: EmployeeDocumentSummary,
+    decision: 'VERIFIED' | 'REJECTED',
+  ) {
+    if (!personId || !document.current_version) return;
+
+    const assuranceState = assuranceByDocument[document.id];
+    if (
+      assuranceState?.state !== 'ready'
+      || !assuranceState.assurance.capabilities.can_verify
+    ) {
+      return;
+    }
+
+    setVerificationByDocument(current => ({
+      ...current,
+      [document.id]: decision === 'VERIFIED' ? 'verifying' : 'rejecting',
+    }));
+
+    try {
+      const response = await fetch(
+        `/api/hr/people/${personId}/documents/${document.id}/versions/${document.current_version.id}/verifications`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ decision }),
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (
+        !response.ok
+        || (data.verification?.decision !== 'VERIFIED' && data.verification?.decision !== 'REJECTED')
+        || !data.verification?.verified_at
+      ) {
+        setVerificationByDocument(current => ({
+          ...current,
+          [document.id]: 'error',
+        }));
+        return;
+      }
+
+      setAssuranceByDocument(current => {
+        const existing = current[document.id];
+        if (existing?.state !== 'ready') return current;
+
+        return {
+          ...current,
+          [document.id]: {
+            state: 'ready',
+            assurance: {
+              ...existing.assurance,
+              latest_verification: {
+                decision: data.verification.decision,
+                verified_at: data.verification.verified_at,
+              },
+            },
+          },
+        };
+      });
+      setVerificationByDocument(current => ({
+        ...current,
+        [document.id]: 'idle',
+      }));
+    } catch {
+      setVerificationByDocument(current => ({
+        ...current,
+        [document.id]: 'error',
+      }));
+    }
+  }
 
   async function acknowledgeDocument(document: EmployeeDocumentSummary) {
     if (!personId || !document.current_version) return;
@@ -322,6 +403,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                   {documents.map(document => {
                     const assurance = assuranceByDocument[document.id];
                     const acknowledgementAction = acknowledgementByDocument[document.id] ?? 'idle';
+                    const verificationAction = verificationByDocument[document.id] ?? 'idle';
 
                     return (
                       <div key={document.id} style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 10 }}>
@@ -382,6 +464,33 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                             {acknowledgementAction === 'error' && (
                               <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 7 }}>
                                 Could not acknowledge document.
+                              </div>
+                            )}
+
+                            {assurance.assurance.capabilities.can_verify && (
+                              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => void verifyDocument(document, 'VERIFIED')}
+                                  disabled={verificationAction === 'verifying' || verificationAction === 'rejecting'}
+                                  {...verifyButton}
+                                >
+                                  {verificationAction === 'verifying' ? 'Verifying…' : 'Verify'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void verifyDocument(document, 'REJECTED')}
+                                  disabled={verificationAction === 'verifying' || verificationAction === 'rejecting'}
+                                  {...rejectButton}
+                                >
+                                  {verificationAction === 'rejecting' ? 'Rejecting…' : 'Reject'}
+                                </button>
+                              </div>
+                            )}
+
+                            {verificationAction === 'error' && (
+                              <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 7 }}>
+                                Could not record verification.
                               </div>
                             )}
                           </>
