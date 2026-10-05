@@ -100,6 +100,20 @@ scheduler checks as Linux. No Data Hub runtime or SQL was changed.
 These results resolve the observed CI failures; the draft still requires review
 of the complete purchasing/budgeting/finance/AP diff and target-schema inventory.
 
+### Purchase-match migration review
+
+Review found that PostgreSQL's nullable CHECK semantics allowed a reversed
+purchase-match allocation with a null reason. The purchase-match migration now
+requires a non-null, non-blank reason and atomically replaces the earlier check
+for existing installations. Reapplication preserves valid facts; invalid legacy
+facts block constraint validation without removing the old check or rewriting
+history. Inventory such rows and agree on recovery before applying the upgrade.
+This concerns purchase matching, not supplier-payment settlement.
+
+The disposable PostgreSQL migration suite passed all nine tests covering fresh rejection, legacy
+upgrade/reapplication and atomic failure on invalid existing facts. Commercial
+containment passed again after the SQL fix (1,954 tests).
+
 ## Release handoff
 
 The original tested application candidate is commit

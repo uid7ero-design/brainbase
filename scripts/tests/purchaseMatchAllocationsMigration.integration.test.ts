@@ -189,4 +189,54 @@ describe('C7.5D1 — real Postgres allocation migration', () => {
       WHERE reversed_at IS NULL
     `)).rejects.toThrow();
   });
+
+  it('rejects missing or blank reversal reasons and upgrades the legacy check without changing facts', async () => {
+    const rejectMissingReasons = async () => {
+      for (const reason of ['NULL', "''", "'   '"]) {
+        await expect(prisma.$executeRawUnsafe(`
+          UPDATE commercial_purchase_receipt_bill_allocations
+          SET reversed_at=now(), reversed_by='user-2', reversal_reason=${reason}
+          WHERE reversed_at IS NULL
+        `)).rejects.toThrow();
+      }
+    };
+    await rejectMissingReasons();
+    const before = await prisma.$queryRawUnsafe('SELECT * FROM commercial_purchase_receipt_bill_allocations ORDER BY id');
+    await prisma.$executeRawUnsafe(`
+      ALTER TABLE commercial_purchase_receipt_bill_allocations
+      DROP CONSTRAINT commercial_match_allocation_reversal_check,
+      ADD CONSTRAINT commercial_match_allocation_reversal_check CHECK (
+        (reversed_at IS NULL AND reversed_by IS NULL AND reversal_reason IS NULL)
+        OR (reversed_at IS NOT NULL AND reversed_by IS NOT NULL AND btrim(reversal_reason) <> '')
+      )
+    `);
+    await executeSqlScript(migration);
+    await executeSqlScript(migration);
+    await rejectMissingReasons();
+    expect(await prisma.$queryRawUnsafe('SELECT * FROM commercial_purchase_receipt_bill_allocations ORDER BY id')).toEqual(before);
+  });
+
+  it('fails a legacy upgrade atomically when invalid reversal facts already exist', async () => {
+    await prisma.$executeRawUnsafe(`
+      ALTER TABLE commercial_purchase_receipt_bill_allocations
+      DROP CONSTRAINT commercial_match_allocation_reversal_check,
+      ADD CONSTRAINT commercial_match_allocation_reversal_check CHECK (
+        (reversed_at IS NULL AND reversed_by IS NULL AND reversal_reason IS NULL)
+        OR (reversed_at IS NOT NULL AND reversed_by IS NOT NULL AND btrim(reversal_reason) <> '')
+      )
+    `);
+    await prisma.$executeRawUnsafe(`
+      UPDATE commercial_purchase_receipt_bill_allocations
+      SET reversed_at=now(), reversed_by='user-2', reversal_reason=NULL
+      WHERE reversed_at IS NULL
+    `);
+    const before = await prisma.$queryRawUnsafe('SELECT * FROM commercial_purchase_receipt_bill_allocations ORDER BY id');
+    await expect(executeSqlScript(migration)).rejects.toThrow();
+    expect(await prisma.$queryRawUnsafe('SELECT * FROM commercial_purchase_receipt_bill_allocations ORDER BY id')).toEqual(before);
+    // Failed replacement retains the original constraint, not an unguarded table.
+    await expect(prisma.$executeRawUnsafe(`
+      UPDATE commercial_purchase_receipt_bill_allocations
+      SET reversal_reason='' WHERE reversal_reason IS NULL
+    `)).rejects.toThrow();
+  });
 });

@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS commercial_purchase_receipt_bill_allocations (
     CHECK (
       (reversed_at IS NULL AND reversed_by IS NULL AND reversal_reason IS NULL)
       OR
-      (reversed_at IS NOT NULL AND reversed_by IS NOT NULL AND btrim(reversal_reason) <> '')
+      (reversed_at IS NOT NULL AND reversed_by IS NOT NULL AND reversal_reason IS NOT NULL AND btrim(reversal_reason) <> '')
     ),
   CONSTRAINT commercial_match_allocation_receipt_line_fkey
     FOREIGN KEY (purchase_receipt_line_id, organisation_id, purchase_order_line_id)
@@ -44,6 +44,17 @@ CREATE TABLE IF NOT EXISTS commercial_purchase_receipt_bill_allocations (
     REFERENCES commercial_supplier_bill_lines
       (id, organisation_id, source_purchase_order_line_id)
 );
+
+-- Retrofit the same reversal shape for installations with the earlier check.
+-- Replace it in one atomic statement: invalid existing facts fail validation
+-- without leaving the table unguarded or silently rewriting audit evidence.
+ALTER TABLE commercial_purchase_receipt_bill_allocations
+  DROP CONSTRAINT IF EXISTS commercial_match_allocation_reversal_check,
+  ADD CONSTRAINT commercial_match_allocation_reversal_check CHECK (
+    (reversed_at IS NULL AND reversed_by IS NULL AND reversal_reason IS NULL)
+    OR
+    (reversed_at IS NOT NULL AND reversed_by IS NOT NULL AND reversal_reason IS NOT NULL AND btrim(reversal_reason) <> '')
+  );
 CREATE INDEX IF NOT EXISTS idx_commercial_match_allocations_org
   ON commercial_purchase_receipt_bill_allocations(organisation_id);
 
