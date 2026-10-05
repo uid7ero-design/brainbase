@@ -116,6 +116,14 @@ containment passed again after the SQL fix (1,954 tests).
 
 ## Release handoff
 
+The remote CI rerun after the Commercial fixes exposed an unrelated Docker
+fixture startup race: a socket readiness probe accepted PostgreSQL's temporary
+initialization server just before shutdown. All three Docker-backed containment
+fixtures now wait for TCP readiness; the affected Data Hub bootstrap also uses
+that TCP endpoint. Their targeted suites passed all 80 tests locally. No test
+assertions were removed and no application or Data Hub SQL changed for this fix.
+The latest remote CI result must be checked before marking the draft ready.
+
 The original tested application candidate is commit
 `e65ce37bba71646f5c0c1018d8e5c283de55d474` on
 `feat/c7-7-budget-account-design`. Later documentation-only commits do not change
