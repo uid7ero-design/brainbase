@@ -61,6 +61,7 @@ type AcknowledgementActionState = 'idle' | 'submitting' | 'error';
 type VerificationActionState = 'idle' | 'verifying' | 'rejecting' | 'error';
 type DocumentCreateState = 'idle' | 'submitting' | 'error';
 type DocumentVersionState = 'idle' | 'submitting' | 'error';
+type DocumentDeleteState = 'idle' | 'submitting' | 'error';
 
 type DocumentsState = 'idle' | 'loading' | 'ready' | 'error' | 'hidden';
 
@@ -88,6 +89,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   const [newVersionExpiry, setNewVersionExpiry] = useState('');
   const [newVersionFile, setNewVersionFile] = useState<File | null>(null);
   const [documentVersionState, setDocumentVersionState] = useState<DocumentVersionState>('idle');
+  const [deleteDocumentId, setDeleteDocumentId] = useState<string | null>(null);
+  const [documentDeleteState, setDocumentDeleteState] = useState<DocumentDeleteState>('idle');
 
   useEffect(() => {
     let cancelled = false;
@@ -107,6 +110,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         setNewVersionExpiry('');
         setNewVersionFile(null);
         setDocumentVersionState('idle');
+        setDeleteDocumentId(null);
+        setDocumentDeleteState('idle');
         return;
       }
 
@@ -125,6 +130,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setNewVersionExpiry('');
       setNewVersionFile(null);
       setDocumentVersionState('idle');
+      setDeleteDocumentId(null);
+      setDocumentDeleteState('idle');
 
       void fetch(`/api/hr/people/${personId}`)
         .then(async response => {
@@ -258,6 +265,61 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   const addVersionButton = buttonProps('secondary', 'sm');
   const saveVersionButton = buttonProps('primary', 'sm');
   const cancelVersionButton = buttonProps('secondary', 'sm');
+  const deleteDocumentButton = buttonProps('ghost', 'sm');
+  const confirmDeleteDocumentButton = buttonProps('danger', 'sm');
+  const cancelDeleteDocumentButton = buttonProps('secondary', 'sm');
+
+  async function deleteDocument(document: EmployeeDocumentSummary) {
+    if (!personId || !canManageDocuments) return;
+
+    setDocumentDeleteState('submitting');
+
+    try {
+      const response = await fetch(
+        `/api/hr/people/${personId}/documents/${document.id}`,
+        { method: 'DELETE' },
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (
+        !response.ok
+        || data.deleted !== true
+        || data.document_id !== document.id
+      ) {
+        setDocumentDeleteState('error');
+        return;
+      }
+
+      setDocuments(current => current.filter(item => item.id !== document.id));
+      setAssuranceByDocument(current => {
+        const next = { ...current };
+        delete next[document.id];
+        return next;
+      });
+      setAcknowledgementByDocument(current => {
+        const next = { ...current };
+        delete next[document.id];
+        return next;
+      });
+      setVerificationByDocument(current => {
+        const next = { ...current };
+        delete next[document.id];
+        return next;
+      });
+
+      if (versionDocumentId === document.id) {
+        setVersionDocumentId(null);
+        setNewVersionExpiry('');
+        setNewVersionFile(null);
+        setDocumentVersionState('idle');
+      }
+
+      setDeleteDocumentId(null);
+      setDocumentDeleteState('idle');
+    } catch {
+      setDocumentDeleteState('error');
+    }
+  }
 
   async function loadDocumentAssurance(
     documentId: string,
@@ -699,6 +761,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                     const acknowledgementAction = acknowledgementByDocument[document.id] ?? 'idle';
                     const verificationAction = verificationByDocument[document.id] ?? 'idle';
                     const addingVersion = versionDocumentId === document.id;
+                    const confirmingDelete = deleteDocumentId === document.id;
 
                     return (
                       <div key={document.id} style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 10 }}>
@@ -715,11 +778,13 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                           </div>
                         )}
 
-                        {canManageDocuments && !addingVersion && (
-                          <div style={{ marginTop: 8 }}>
+                        {canManageDocuments && !addingVersion && !confirmingDelete && (
+                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
                             <button
                               type="button"
                               onClick={() => {
+                                setDeleteDocumentId(null);
+                                setDocumentDeleteState('idle');
                                 setVersionDocumentId(document.id);
                                 setNewVersionExpiry('');
                                 setNewVersionFile(null);
@@ -729,6 +794,55 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                             >
                               Add version
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setVersionDocumentId(null);
+                                setDocumentVersionState('idle');
+                                setDeleteDocumentId(document.id);
+                                setDocumentDeleteState('idle');
+                              }}
+                              {...deleteDocumentButton}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        )}
+
+                        {canManageDocuments && confirmingDelete && (
+                          <div style={{ borderTop: '1px solid var(--border-subtle)', marginTop: 9, paddingTop: 9 }}>
+                            <div style={{ color: 'var(--text-primary)', fontSize: 12, fontWeight: 600 }}>
+                              Delete this document?
+                            </div>
+                            <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 3 }}>
+                              It will be removed from the live employee document list.
+                            </div>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                              <button
+                                type="button"
+                                onClick={() => void deleteDocument(document)}
+                                disabled={documentDeleteState === 'submitting'}
+                                {...confirmDeleteDocumentButton}
+                              >
+                                {documentDeleteState === 'submitting' ? 'Deleting…' : 'Confirm delete'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDeleteDocumentId(null);
+                                  setDocumentDeleteState('idle');
+                                }}
+                                disabled={documentDeleteState === 'submitting'}
+                                {...cancelDeleteDocumentButton}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                            {documentDeleteState === 'error' && (
+                              <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 7 }}>
+                                Could not delete document.
+                              </div>
+                            )}
                           </div>
                         )}
 
