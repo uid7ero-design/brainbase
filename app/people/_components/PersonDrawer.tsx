@@ -304,7 +304,9 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
             lifecycle_type: workflow.lifecycle_type,
           }));
 
-        const taskGroups = await Promise.all(workflows.map(async workflow => {
+        const taskGroups = await Promise.all(workflows.map(async (
+          workflow: { id: string; lifecycle_type: string },
+        ) => {
           const detailResponse = await fetch(`/api/hr/lifecycle/workflows/${workflow.id}`);
           const detailData = await detailResponse.json().catch(() => ({}));
 
