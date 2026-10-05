@@ -294,6 +294,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         return;
       }
 
+      const createdVersionId = data.version.id;
       const createdDocument: EmployeeDocumentSummary = {
         id: data.document.id,
         document_type: data.document.document_type,
@@ -321,7 +322,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setUploadAction('idle');
 
       void fetch(
-        `/api/hr/people/${personId}/documents/${createdDocument.id}/versions/${createdDocument.current_version.id}/assurance`,
+        `/api/hr/people/${personId}/documents/${createdDocument.id}/versions/${createdVersionId}/assurance`,
       )
         .then(async assuranceResponse => {
           const assuranceData = await assuranceResponse.json().catch(() => ({}));
