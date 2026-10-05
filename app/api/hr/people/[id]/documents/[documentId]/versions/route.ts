@@ -13,8 +13,50 @@ import {
   addEmployeeDocumentVersion,
   MAX_EMPLOYEE_DOCUMENT_BYTES,
 } from '@/lib/hr/employeeDocumentMutations';
+import { listEmployeeDocumentVersions } from '@/lib/hr/employeeDocumentVersionList';
 
 const VERSION_FIELDS = new Set(['expires_at', 'file']);
+
+function iso(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string; documentId: string }> },
+) {
+  const { id: personId, documentId } = await params;
+  const ctx = await requireEmployeeDocumentContext();
+  if (!ctx.ok) return ctx.response;
+  if (!isEmployeeDocumentResourceId(personId) || !isEmployeeDocumentResourceId(documentId)) {
+    return employeeDocumentNotFoundResponse();
+  }
+
+  try {
+    const result = await listEmployeeDocumentVersions(
+      ctx.session,
+      personId,
+      documentId,
+    );
+    if (result.outcome === 'not_found') return employeeDocumentNotFoundResponse();
+
+    return NextResponse.json({
+      versions: result.versions.map(version => ({
+        id: version.id,
+        version_number: version.versionNumber,
+        expires_at: version.expiresAt ? iso(version.expiresAt) : null,
+        is_current: version.isCurrent,
+        created_at: iso(version.createdAt),
+      })),
+    });
+  } catch (err) {
+    console.error('[hr/people/[id]/documents/[documentId]/versions GET] failed', err);
+    return NextResponse.json(
+      { error: 'Could not retrieve employee document versions.' },
+      { status: 500 },
+    );
+  }
+}
 
 export async function POST(
   req: NextRequest,
