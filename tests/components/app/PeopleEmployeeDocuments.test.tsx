@@ -448,7 +448,9 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     fireEvent.change(screen.getByLabelText('Document expiry date'), { target: { value: '2027-10-05' } });
     const file = new File(['pdf'], 'vehicle-policy.pdf', { type: 'application/pdf' });
     fireEvent.change(screen.getByLabelText('Document file'), { target: { files: [file] } });
-    fireEvent.click(screen.getByRole('button', { name: 'Upload' }));
+    const uploadForm = screen.getByRole('button', { name: 'Upload' }).closest('form');
+    expect(uploadForm).toBeTruthy();
+    fireEvent.submit(uploadForm!);
 
     expect(await screen.findByText('Vehicle policy')).toBeTruthy();
     expect(screen.getByText('policy · Version 1')).toBeTruthy();
@@ -495,7 +497,9 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     fireEvent.change(screen.getByLabelText('Document file'), {
       target: { files: [new File(['pdf'], 'vehicle-policy.pdf', { type: 'application/pdf' })] },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Upload' }));
+    const uploadForm = screen.getByRole('button', { name: 'Upload' }).closest('form');
+    expect(uploadForm).toBeTruthy();
+    fireEvent.submit(uploadForm!);
 
     expect(await screen.findByText('Could not upload document.')).toBeTruthy();
     expect(screen.getByText('No documents')).toBeTruthy();
