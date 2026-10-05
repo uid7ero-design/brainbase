@@ -5,6 +5,16 @@ import { DEFAULT_AP_FILTERS, calendarDay, type ApBillInput, type SupplierApFilte
 // Every aggregate and page shares one statement snapshot. LIMIT applies only
 // after filtering and aggregation, so paging cannot alter portfolio totals.
 export async function getSupplierApOverview(organisationId: string, agingDate: string, options: Partial<SupplierApFilters> = {}): Promise<PagedSupplierApOverview> {
+  return readSupplierApSnapshot(organisationId, agingDate, options, false);
+}
+
+// Downloads include every matching posted bill, including fully settled bills,
+// so their payable and paid columns reconcile to the overview totals.
+export async function getSupplierApExport(organisationId: string, agingDate: string, options: Partial<SupplierApFilters> = {}) {
+  return readSupplierApSnapshot(organisationId, agingDate, options, true);
+}
+
+async function readSupplierApSnapshot(organisationId: string, agingDate: string, options: Partial<SupplierApFilters>, exportAll: boolean): Promise<PagedSupplierApOverview> {
   calendarDay(agingDate);
   const filters = { ...DEFAULT_AP_FILTERS, ...options };
   const amounts = sql`jsonb_build_object(
@@ -52,12 +62,12 @@ export async function getSupplierApOverview(organisationId: string, agingDate: s
     ), currency_totals AS (
       SELECT currency, ${amounts} AS amounts FROM filtered GROUP BY currency
     ), bill_page AS (
-      SELECT * FROM filtered WHERE outstanding_cents>0
+      SELECT * FROM filtered WHERE (${exportAll}::boolean OR outstanding_cents>0)
       ORDER BY supplier_name COLLATE "C",supplier_id,currency,due_date NULLS LAST,bill_id
-      LIMIT ${filters.pageSize} OFFSET ${(filters.page-1)*filters.pageSize}
+      LIMIT ${exportAll ? null : filters.pageSize} OFFSET ${exportAll ? 0 : (filters.page-1)*filters.pageSize}
     ), supplier_page AS (
       SELECT * FROM supplier_totals ORDER BY supplier_name COLLATE "C",supplier_id,currency
-      LIMIT ${filters.pageSize} OFFSET ${(filters.supplierPage-1)*filters.pageSize}
+      LIMIT ${exportAll ? null : filters.pageSize} OFFSET ${exportAll ? 0 : (filters.supplierPage-1)*filters.pageSize}
     )
     SELECT
       COALESCE((SELECT jsonb_agg(to_jsonb(b) || jsonb_build_object('payable_cents',payable_cents::text,'paid_cents',paid_cents::text,'outstanding_cents',outstanding_cents::text)

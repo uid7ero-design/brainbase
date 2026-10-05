@@ -5,7 +5,7 @@ const url = process.env.DATABASE_URL;
 if (!url || !['127.0.0.1', 'localhost'].includes(new URL(url.replace(/^postgres(ql)?:\/\//, 'http://')).hostname)) throw new Error('Requires a fresh disposable localhost database');
 const sql = createNeonCompatibleSql(url);
 vi.doMock('@/lib/db', () => ({ default: sql }));
-const { getSupplierApOverview, getSupplierApBills } = await import('@/lib/commercial/supplierApOverview');
+const { getSupplierApOverview, getSupplierApBills, getSupplierApExport } = await import('@/lib/commercial/supplierApOverview');
 beforeAll(async () => {
   await sql.raw('CREATE TABLE commercial_suppliers(id text, organisation_id text, name text, active boolean)');
   await sql.raw('CREATE TABLE commercial_supplier_bills(id text, organisation_id text, supplier_id text, bill_number text, supplier_invoice_number text, due_date date, currency text, total_cents integer, status text)');
@@ -79,6 +79,17 @@ describe('AP overview real PostgreSQL', () => {
       const report = await getSupplierApOverview('a','2026-10-05',{search:'BOUND',bucket});
       expect(report.bills.map(row => row.bill_id).sort()).toEqual(expected.bills.filter(row => row.bucket === bucket).map(row => row.bill_id).sort());
     }
+  });
+  it('exports the complete snapshot across pages, including fully paid and zero bills', async () => {
+    const report = await getSupplierApExport('a', '2026-10-05', { page: 99, supplierPage: 99, pageSize: 1 });
+    const expected = buildSupplierApOverview(await getSupplierApBills('a'), '2026-10-05');
+    expect(report.bills).toHaveLength(expected.bills.length);
+    expect(report.bills.map(row => row.bill_id)).toContain('b2');
+    expect(report.bills.map(row => row.bill_id)).toContain('zero');
+    expect(report.suppliers).toHaveLength(3);
+    expect(report.currencies).toEqual([...expected.currencies].sort((a,b) => a.currency.localeCompare(b.currency)));
+    expect((await getSupplierApExport('a','2026-10-05',{search:'INV2'})).bills).toMatchObject([{ bill_id:'b2', paid_cents:'10000', outstanding_cents:'0' }]);
+    expect((await getSupplierApExport('other','2026-10-05')).bills.map(row => row.bill_id)).toEqual(['other']);
   });
   it('fails closed on a negative balance even when its bill is outside the selected page/filter', async () => {
     await sql.raw("INSERT INTO commercial_supplier_payment_allocations VALUES ('b1','p4','a','s','AUD',10000)");

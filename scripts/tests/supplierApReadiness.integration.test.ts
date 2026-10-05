@@ -36,6 +36,8 @@ const remittance = await import('@/app/api/commercial/suppliers/[id]/payments/ro
 const billPayments = await import('@/app/api/commercial/supplier-bills/[id]/payments/route');
 const reversal = await import('@/app/api/commercial/supplier-bills/[id]/payments/[paymentId]/reverse/route');
 const overview = await import('@/app/api/commercial/purchasing/ap-overview/route');
+const apExport = await import('@/app/api/commercial/purchasing/ap-overview/export/route');
+const remittancePdf = await import('@/app/api/commercial/supplier-payments/[id]/remittance/route');
 const { getSupplierApOverview } = await import('@/lib/commercial/supplierApOverview');
 
 let server: Server;
@@ -46,7 +48,7 @@ const submittedKeys: string[] = [];
 const serverErrors: string[] = [];
 
 beforeAll(async () => {
-  await sql.raw('CREATE TABLE organisations(id TEXT PRIMARY KEY); CREATE TABLE users(id TEXT PRIMARY KEY)');
+  await sql.raw('CREATE TABLE organisations(id TEXT PRIMARY KEY, name TEXT); CREATE TABLE users(id TEXT PRIMARY KEY)');
   await sql.raw(`CREATE TABLE commercial_suppliers(id UUID PRIMARY KEY, organisation_id TEXT REFERENCES organisations(id), name TEXT, active BOOLEAN, UNIQUE(id,organisation_id))`);
   await sql.raw(`CREATE TABLE commercial_supplier_bills(id UUID PRIMARY KEY, organisation_id TEXT REFERENCES organisations(id), supplier_id UUID, currency TEXT,
     status TEXT, total_cents INTEGER, subtotal_cents INTEGER, tax_cents INTEGER DEFAULT 0, bill_number TEXT, supplier_invoice_number TEXT, due_date DATE,
@@ -54,7 +56,7 @@ beforeAll(async () => {
   await sql.raw('CREATE INDEX idx_ap_readiness_bills_org_status ON commercial_supplier_bills(organisation_id,status)');
   const migration = readFileSync('scripts/create-commercial-supplier-payments.sql', 'utf8').replace(/--.*$/gm, '');
   await sql.raw(migration);
-  await sql.raw("INSERT INTO organisations VALUES ('org-a'),('load-org'); INSERT INTO users VALUES ('user-1')");
+  await sql.raw("INSERT INTO organisations VALUES ('org-a','Integration purchaser'),('load-org','Other purchaser'); INSERT INTO users VALUES ('user-1')");
   await sql.raw(`INSERT INTO commercial_suppliers VALUES ('${supplierId}','org-a','Integration supplier',true)`);
   await sql.raw(`INSERT INTO commercial_supplier_bills(id,organisation_id,supplier_id,currency,status,total_cents,subtotal_cents,bill_number,supplier_invoice_number,due_date)
     VALUES ('${bill1}','org-a','${supplierId}','AUD','POSTED',10000,10000,'SB1','INV1','2026-09-05'),
@@ -84,6 +86,8 @@ beforeAll(async () => {
       else if (url.pathname === `${billPath}/payments`) response = await (incoming.method === 'POST' ? billPayments.POST : billPayments.GET)(request, { params: Promise.resolve({ id: bill1 }) });
       else if (url.pathname.endsWith('/reverse')) response = await reversal.POST(request, { params: Promise.resolve({ id: bill1, paymentId: url.pathname.split('/').at(-2)! }) });
       else if (url.pathname === '/api/commercial/purchasing/ap-overview') response = await overview.GET(request);
+      else if (url.pathname === '/api/commercial/purchasing/ap-overview/export') response = await apExport.GET(request);
+      else if (/^\/api\/commercial\/supplier-payments\/[^/]+\/remittance$/.test(url.pathname)) response = await remittancePdf.GET(request, { params: Promise.resolve({ id: url.pathname.split('/').at(-2)! }) });
       else if (url.pathname === '/api/me') response = Response.json({ role });
       // Ancillary bill detail/attachment/tax responses are fixtures; all settlement
       // reads/writes and AP overview responses above execute their actual routes.
@@ -102,7 +106,7 @@ beforeAll(async () => {
           outgoing.writeHead(201, { 'Content-Type': 'application/json' }); outgoing.end('{"payment":'); return;
         }
       }
-      outgoing.writeHead(response.status, Object.fromEntries(response.headers)); outgoing.end(await response.text());
+      outgoing.writeHead(response.status, Object.fromEntries(response.headers)); outgoing.end(Buffer.from(await response.arrayBuffer()));
     } catch (err) { serverErrors.push(String(err)); outgoing.writeHead(500); outgoing.end('Integration server error'); }
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -149,6 +153,14 @@ describe('Supplier AP UI to real HTTP routes to disposable PostgreSQL', () => {
     expect(recordedAudit).toHaveBeenCalledTimes(1);
     expect(await sql.raw('SELECT count(*)::int AS n FROM commercial_supplier_payments')).toEqual([{ n: 1 }]);
     expect(await sql.raw('SELECT count(*)::int AS n FROM commercial_supplier_payment_allocations')).toEqual([{ n: 2 }]);
+    const downloadEvent = page.waitForEvent('download');
+    await page.getByRole('link', { name: 'Download remittance PDF' }).click();
+    const download = await downloadEvent;
+    mkdirSync('test-results/ap-downloads', { recursive: true });
+    await download.saveAs('test-results/ap-downloads/recorded.pdf');
+    const document = readFileSync('test-results/ap-downloads/recorded.pdf', 'latin1');
+    expect(document.startsWith('%PDF')).toBe(true); expect(document).toContain('RECORDED PAYMENT');
+    expect(document).toContain('Invoice INV1'); expect(document).toContain('Invoice INV2');
     await page.getByRole('link', { name: 'View SB1 payment history' }).click();
     await browserExpect(page.getByText('PARTIALLY PAID', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Reverse Payment', exact: true }).click();
@@ -156,6 +168,10 @@ describe('Supplier AP UI to real HTTP routes to disposable PostgreSQL', () => {
     await page.getByRole('button', { name: 'Confirm Reversal' }).click();
     await browserExpect(page.getByText('Reversed: Correct entire remittance', { exact: true })).toBeVisible();
     await browserExpect(page.getByText('UNPAID', { exact: true })).toBeVisible();
+    const reversedEvent = page.waitForEvent('download');
+    await page.getByRole('link', { name: 'Download remittance PDF' }).click();
+    await (await reversedEvent).saveAs('test-results/ap-downloads/reversed.pdf');
+    expect(readFileSync('test-results/ap-downloads/reversed.pdf', 'latin1')).toContain('REVERSED - NO ACTIVE SETTLEMENT');
     const report = await getSupplierApOverview('org-a', '2026-10-05');
     expect(report.currencies[0]).toMatchObject({ outstanding_cents: '15000', paid_cents: '0' });
     expect(errors).toEqual([]); expect(serverErrors).toEqual([]);
@@ -201,6 +217,34 @@ describe('Supplier AP UI to real HTTP routes to disposable PostgreSQL', () => {
     expect(serverErrors).toEqual([]);
   });
 
+  it('downloads filtered full-scope CSVs and enforces viewer, entitlement and tenant boundaries', async () => {
+    const posted = await fetch(`${origin}/api/commercial/suppliers/${supplierId}/payments`, { method: 'POST', headers: { 'Content-Type':'application/json', 'Idempotency-Key':crypto.randomUUID() },
+      body: JSON.stringify({ currency:'AUD', method:'CASH', allocations:[{supplier_bill_id:bill2,amount_cents:5000}] }) });
+    expect(posted.status).toBe(201);
+    const paymentId = (await posted.json()).payment.id;
+    const pdfUrl = `${origin}/api/commercial/supplier-payments/${paymentId}/remittance`;
+    const csvUrl = `${origin}/api/commercial/purchasing/ap-overview/export?aging_date=2026-10-05&page=999&page_size=1`;
+    role = 'viewer';
+    expect((await fetch(pdfUrl)).status).toBe(200);
+    const page = await newPage(); await page.goto(`${origin}/overview`);
+    await browserExpect(page.getByRole('link',{name:'Export bills CSV'})).toBeVisible();
+    const csvEvent = page.waitForEvent('download'); await page.getByRole('link',{name:'Export bills CSV'}).click();
+    const download = await csvEvent; const path = await download.path();
+    expect(path).not.toBeNull(); const csv = readFileSync(path!, 'utf8');
+    expect(csv).toContain('10000,0,10000'); expect(csv).toContain('5000,5000,0');
+    const response = await fetch(csvUrl); expect(response.status).toBe(200); expect(await response.text()).toContain('5000,5000,0');
+    const filtered = await fetch(`${csvUrl}&search=INV2`); const filteredCsv = await filtered.text();
+    expect(filteredCsv).toContain('INV2'); expect(filteredCsv).not.toContain('INV1');
+    expect(await (await fetch(`${csvUrl}&view=aging`)).text()).toContain('15000,5000,10000,10000');
+    await page.close();
+    entitled = false;
+    expect((await fetch(pdfUrl)).status).toBe(403); expect((await fetch(csvUrl)).status).toBe(403);
+    entitled = true; organisationId = 'load-org';
+    expect((await fetch(pdfUrl)).status).toBe(404); expect(await (await fetch(csvUrl)).text()).not.toContain('Integration supplier');
+    authenticated = false; expect((await fetch(pdfUrl)).status).toBe(401); expect((await fetch(csvUrl)).status).toBe(401);
+    expect(serverErrors).toEqual([]);
+  });
+
   it('measures paged overview/aging at 10,000 and 50,000 bills through the API and browser', async () => {
     await sql.raw(`INSERT INTO commercial_suppliers SELECT md5('supplier-'||n)::uuid,'load-org','Load supplier '||n,n%10<>0 FROM generate_series(1,1000) n`);
     async function seed(from: number, to: number) {
@@ -236,6 +280,15 @@ describe('Supplier AP UI to real HTTP routes to disposable PostgreSQL', () => {
         }
         const metric: Record<string, number> = { bills: size, suppliers: 1000, payments: size / 2, allocations: size / 2,
           first_ms: times[0], warm_max_ms: Math.max(...times.slice(1)), warm_median_ms: [...times.slice(1)].sort((a,b) => a-b)[2], json_bytes: bytes };
+        const exportStarted = performance.now();
+        const exported = await fetch(`${origin}/api/commercial/purchasing/ap-overview/export?aging_date=2026-10-05&page=999&page_size=1`);
+        expect(exported.status).toBe(200);
+        const csv = await exported.text(); const csvRows = csv.trim().split('\r\n').slice(1).map(line => line.split(','));
+        expect(csvRows).toHaveLength(size);
+        expect(csvRows.reduce((sum, row) => sum + BigInt(row[10]), BigInt(0))).toBe(BigInt(size * 10000));
+        expect(csvRows.reduce((sum, row) => sum + BigInt(row[11]), BigInt(0))).toBe(BigInt(size * 800));
+        expect(csvRows.reduce((sum, row) => sum + BigInt(row[12]), BigInt(0))).toBe(BigInt(size * 9200));
+        metric.csv_ms = Math.round(performance.now() - exportStarted); metric.csv_bytes = Buffer.byteLength(csv);
         {
           const page = await newPage(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
           const started = performance.now(); await page.goto(`${origin}/overview`);

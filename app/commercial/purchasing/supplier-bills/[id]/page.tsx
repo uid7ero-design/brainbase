@@ -432,7 +432,7 @@ export default function SupplierBillDetailPage() {
                         <td>{payment.reference ?? '—'}</td>
                         <td className={tableStyles.num}>{formatMoneyCents(payment.allocated_amount_cents, supplierBill.currency)}</td>
                         <td>{payment.status === 'RECORDED' ? <span style={{ color: 'var(--status-success)' }}>Recorded</span> : <span style={{ color: 'var(--status-danger)' }}>Reversed{payment.reversal_reason ? `: ${payment.reversal_reason}` : ''}</span>}</td>
-                        <td className={tableStyles.actions}>{payment.status === 'RECORDED' && isAdmin && reversingPaymentId !== payment.id && (<button type="button" onClick={() => { setReversingPaymentId(payment.id); setReversalReason(''); setActionError(''); }} disabled={busy} className={tableStyles.link} style={{ color: 'var(--status-danger)' }}>Reverse Payment</button>)}</td>
+                        <td className={tableStyles.actions}><a href={`/api/commercial/supplier-payments/${payment.id}/remittance`}>Download remittance PDF</a>{' '}{payment.status === 'RECORDED' && isAdmin && reversingPaymentId !== payment.id && (<button type="button" onClick={() => { setReversingPaymentId(payment.id); setReversalReason(''); setActionError(''); }} disabled={busy} className={tableStyles.link} style={{ color: 'var(--status-danger)' }}>Reverse Payment</button>)}</td>
                       </tr>
                       {reversingPaymentId === payment.id && (
                         <tr><td colSpan={6} style={{ background: 'var(--status-danger-muted)' }}>

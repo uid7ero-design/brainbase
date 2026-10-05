@@ -78,6 +78,7 @@ export default function SupplierRemittancePage() {
     <PageHeader title="Supplier Remittance" eyebrow={<Link href={`/commercial/purchasing/suppliers/${id}`}>← Supplier</Link>} description={supplier ? `${supplier.name}${supplier.active ? '' : ' (Inactive)'}` : 'Allocate one payment across posted bills.'} />
     <p>One supplier and currency per remittance. The payment must be fully allocated. Reversal from any allocated bill reverses the entire remittance. Cash settlement remains separate from Budget Actual.</p>
     {recorded && <StateMessage kind="empty" title={`${recorded.payment.status === 'REVERSED' ? 'Payment already reversed' : 'Payment recorded'}: ${formatMoneyCentsExact(String(recorded.payment.amount_cents), recorded.payment.currency)}`}>
+      <a href={`/api/commercial/supplier-payments/${recorded.payment.id}/remittance`}>Download remittance PDF</a>{' '}
       {recorded.allocations.map(allocation => <span key={allocation.supplier_bill_id}><Link href={`/commercial/purchasing/supplier-bills/${allocation.supplier_bill_id}`}>View {recorded.billLabels[allocation.supplier_bill_id] ?? 'bill'} payment history</Link>{' '}</span>)}
     </StateMessage>}
     {error && <StateMessage kind="error" title="Remittance unavailable">{error}</StateMessage>}

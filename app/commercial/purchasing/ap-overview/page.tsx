@@ -56,6 +56,8 @@ export default function SupplierApOverviewPage() {
     return () => controller.abort();
   }, [requestKey]);
   const filtered = report?.key === requestKey && appliedSearch === search.trim() ? report.data : null;
+  const exportParams = new URLSearchParams({ aging_date: agingDate, search: appliedSearch,
+    currency: currency === 'ALL' ? '' : currency, supplier_id: supplier === 'ALL' ? '' : supplier, bucket: bucket === 'ALL' ? '' : bucket });
   function pager(kind: 'bill' | 'supplier', current: number, count: number) {
     return <nav aria-label={`${kind} pages`} style={{ display: 'flex', gap: 12, alignItems: 'center', margin: '12px 0' }}>
       <button type="button" aria-label={`Previous ${kind} page`} disabled={loading || current <= 1} onClick={() => kind === 'bill' ? setPage(current - 1) : setSupplierPage(current - 1)} {...buttonProps('secondary')}>Previous</button>
@@ -76,6 +78,11 @@ export default function SupplierApOverviewPage() {
     {!error && (!filtered || loading) && <StateMessage kind="loading" title="Loading supplier AP overview…" />}
     {filtered && !loading && !error && <>
       <p>Current outstanding balances aged at {formatCommercialDate(filtered.aging_date)}. Totals include all matching bills across every page. This is not a historical balance report.</p>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+        <a href={`/api/commercial/purchasing/ap-overview/export?${exportParams}&view=bills`} {...buttonProps('secondary')}>Export bills CSV</a>
+        <a href={`/api/commercial/purchasing/ap-overview/export?${exportParams}&view=aging`} {...buttonProps('secondary')}>Export supplier aging CSV</a>
+      </div>
+      <p>Exports include all matching posted bills across every page, including fully paid bills. Amounts are integer cents, separated by currency.</p>
       <h2>Totals by currency</h2>
       <TableContainer label="AP currency totals" minWidth={650}><table className={tableStyles.table}>
         <thead><tr><th scope="col">Currency</th><th scope="col">Posted payable</th><th scope="col">Paid against posted bills</th><th scope="col">Outstanding</th><th scope="col">Overdue</th></tr></thead>

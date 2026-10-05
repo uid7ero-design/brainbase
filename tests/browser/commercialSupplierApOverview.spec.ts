@@ -94,6 +94,7 @@ test('changes aging classification and clears previous balances on a forbidden r
   await page.getByLabel('Aging date').fill('2026-10-07');
   await expect(page.getByRole('alert')).toContainText('You do not have access');
   await expect(page.getByRole('table')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Export bills CSV' })).toHaveCount(0);
   expect(dates).toContain('2026-10-06'); expect(errors).toEqual([]);
 });
 
@@ -104,6 +105,8 @@ test('pages bills and supplier aging independently while retaining totals and fi
   await expect(page.getByRole('button',{name:'Previous bill page',exact:true})).toBeDisabled();
   await page.getByRole('button',{name:'Next bill page',exact:true}).click();
   await expect(page.getByRole('link',{name:'SB51',exact:true})).toBeVisible();
+  const exportLink = page.getByRole('link', { name: 'Export bills CSV' });
+  expect(new URL(await exportLink.getAttribute('href') ?? '', 'http://brainbase.local').searchParams.has('page')).toBe(false);
   await expect(page.getByRole('link',{name:'SB1',exact:true})).toHaveCount(0);
   await expect(page.getByRole('link',{name:'Supplier 001',exact:true})).toBeVisible();
   expect(await totals.textContent()).toBe(before);
@@ -112,6 +115,7 @@ test('pages bills and supplier aging independently while retaining totals and fi
   await expect(page.getByRole('link',{name:'SB51',exact:true})).toBeVisible();
   await page.getByLabel('Search suppliers or bills').fill('INV121');
   await expect(page.getByRole('table')).toHaveCount(0);
+  await expect(exportLink).toHaveCount(0);
   await expect(page.getByRole('link',{name:'SB121',exact:true})).toBeVisible();
   await expect(page.getByRole('navigation',{name:'bill pages',exact:true})).toContainText('Page 1');
   await expect(page.getByRole('navigation',{name:'supplier pages',exact:true})).toContainText('Page 1');
