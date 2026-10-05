@@ -4,6 +4,10 @@ import { buildSupplierApOverview, calendarDay, type ApBillInput } from './suppli
 
 export async function getSupplierApOverview(organisationId: string, agingDate: string) {
   calendarDay(agingDate);
+  return buildSupplierApOverview(await getSupplierApBills(organisationId), agingDate);
+}
+
+export async function getSupplierApBills(organisationId: string, supplierId: string | null = null): Promise<ApBillInput[]> {
   const rows = await sql`
     WITH paid AS (
       SELECT a.supplier_bill_id, a.organisation_id, SUM(a.allocated_amount_cents)::text AS paid_cents
@@ -20,7 +24,8 @@ export async function getSupplierApOverview(organisationId: string, agingDate: s
     JOIN commercial_suppliers s ON s.id = b.supplier_id AND s.organisation_id = b.organisation_id
     LEFT JOIN paid ON paid.supplier_bill_id = b.id AND paid.organisation_id = b.organisation_id
     WHERE b.organisation_id = ${organisationId} AND b.status = 'POSTED'
+      AND (${supplierId}::text IS NULL OR b.supplier_id = ${supplierId})
     ORDER BY s.name, s.id, b.currency, b.due_date NULLS LAST, b.id
   `;
-  return buildSupplierApOverview(rows as ApBillInput[], agingDate);
+  return rows as ApBillInput[];
 }

@@ -69,6 +69,25 @@ afterAll(async () => {
 });
 
 describe('AP-2 real-Postgres supplier settlement concurrency', () => {
+  it('records a multi-bill remittance atomically and reverses all allocations together', async () => {
+    await resetFacts();
+    const secondBill = '00000000-0000-0000-0000-000000000202';
+    await testSql.raw(`INSERT INTO commercial_supplier_bills (id,organisation_id,supplier_id,currency,status,total_cents)
+      VALUES ('${secondBill}','${ORG}','${SUPPLIER}','AUD','POSTED',5000) ON CONFLICT (id) DO NOTHING`);
+    const payment = await recordSupplierPayment({ organisationId: ORG, userId: USER, supplierId: SUPPLIER,
+      amountCents: 7500, currency: 'AUD', method: 'BANK_TRANSFER',
+      allocations: [{ supplierBillId: BILL, amountCents: 2500 }, { supplierBillId: secondBill, amountCents: 5000 }] });
+    expect(payment.allocations).toHaveLength(2);
+    expect((await getSupplierBillPaymentSummary(ORG, BILL))?.outstanding_balance_cents).toBe(7500);
+    expect((await getSupplierBillPaymentSummary(ORG, secondBill))?.outstanding_balance_cents).toBe(0);
+    await reverseSupplierPayment({ organisationId: ORG, userId: USER, supplierPaymentId: payment.payment.id, reason: 'Replace remittance' });
+    expect((await getSupplierBillPaymentSummary(ORG, BILL))?.outstanding_balance_cents).toBe(10000);
+    expect((await getSupplierBillPaymentSummary(ORG, secondBill))?.outstanding_balance_cents).toBe(5000);
+    await expect(recordSupplierPayment({ organisationId: ORG, userId: USER, supplierId: SUPPLIER,
+      amountCents: 8500, currency: 'AUD', method: 'BANK_TRANSFER',
+      allocations: [{ supplierBillId: BILL, amountCents: 2500 }, { supplierBillId: secondBill, amountCents: 6000 }] })).rejects.toThrow('could not be recorded');
+    expect((await getSupplierBillPaymentSummary(ORG, BILL))?.outstanding_balance_cents).toBe(10000);
+  });
   it('two concurrent payments cannot both consume the same bill balance', async () => {
     await resetFacts();
     const attempt = () => recordSupplierPayment({

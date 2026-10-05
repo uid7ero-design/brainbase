@@ -50,7 +50,7 @@ describe('Supplier AP overview foundation', () => {
     await getSupplierApOverview('org-a', '2026-10-05');
     expect(sql).toHaveBeenCalledTimes(1);
     const [strings, ...values] = sql.mock.calls[0];
-    expect(values).toEqual(['org-a', 'org-a']);
+    expect(values).toEqual(['org-a', 'org-a', null, null]);
     const query = strings.join('?');
     expect(query).toContain("p.status = 'RECORDED'"); expect(query).toContain("b.status = 'POSTED'");
     expect(query).toContain('GROUP BY a.supplier_bill_id, a.organisation_id');

@@ -86,10 +86,10 @@ function validateAllocations(amountCents: number, allocations: SupplierPaymentAl
   let sum = 0;
   for (const allocation of allocations) {
     if (!allocation.supplierBillId) throw new Error('supplier_bill_id is required');
-    if (ids.has(allocation.supplierBillId)) {
+    if (ids.has(allocation.supplierBillId.toLowerCase())) {
       throw new Error('a supplier bill may appear only once in one supplier payment');
     }
-    ids.add(allocation.supplierBillId);
+    ids.add(allocation.supplierBillId.toLowerCase());
     if (!isValidCents(allocation.amountCents) || allocation.amountCents <= 0) {
       throw new Error('allocated_amount_cents must be a positive integer');
     }

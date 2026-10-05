@@ -430,6 +430,7 @@ export default function SupplierBillDetailPage() {
                       </tr>
                       {reversingPaymentId === payment.id && (
                         <tr><td colSpan={6} style={{ background: 'var(--status-danger-muted)' }}>
+                          <p>This reverses the entire supplier payment of {formatMoneyCents(payment.amount_cents, payment.currency)}, including allocations to any other bills. This bill was allocated {formatMoneyCents(payment.allocated_amount_cents, supplierBill.currency)}.</p>
                           <AppField label="Reversal Reason" required>{control => <textarea {...control} value={reversalReason} onChange={e => setReversalReason(e.target.value)} rows={2} className={fieldControlClassName} placeholder="Why is this supplier payment being reversed?" />}</AppField>
                           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
                             <button type="button" onClick={() => reversePayment(payment.id)} disabled={busy || !reversalReason.trim()} {...buttonProps('danger', 'sm')}>Confirm Reversal</button>

@@ -98,6 +98,16 @@ describe('AP-2 recordSupplierPayment validation', () => {
     })).rejects.toThrow(/only once/);
   });
 
+  it('rejects duplicate UUIDs with different casing before starting a transaction', async () => {
+    const { recordSupplierPayment } = await import('@/lib/commercial/supplierPayments');
+    const bill = 'aaaaaaaa-0000-0000-0000-000000000201';
+    await expect(recordSupplierPayment({ organisationId: ORG, userId: USER, supplierId: SUPPLIER,
+      amountCents: 1000, currency: 'AUD', method: 'CASH', allocations: [
+        { supplierBillId: bill, amountCents: 500 }, { supplierBillId: bill.toUpperCase(), amountCents: 500 },
+      ] })).rejects.toThrow(/only once/);
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
   it('rejects invalid method, currency, provider identity and paid_at before transaction work', async () => {
     const { recordSupplierPayment } = await import('@/lib/commercial/supplierPayments');
     const base = {
