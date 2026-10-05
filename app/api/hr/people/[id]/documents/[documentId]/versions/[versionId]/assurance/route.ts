@@ -1,4 +1,8 @@
 import { NextResponse } from 'next/server';
+import {
+  canAcknowledgeEmployeeDocument,
+  canVerifyEmployeeDocument,
+} from '@/lib/hr/employeeDocumentAccess';
 import { getEmployeeDocumentAssuranceStatus } from '@/lib/hr/employeeDocumentAssuranceStatus';
 import { requireEmployeeDocumentContext } from '@/lib/hr/employeeDocumentHttp';
 import { requireEmployeeDocumentVersion } from '@/lib/hr/employeeDocumentRoute';
@@ -46,6 +50,16 @@ export async function GET(
     return NextResponse.json({
       assurance: {
         document_version_id: resolved.version.id,
+        capabilities: {
+          can_acknowledge: canAcknowledgeEmployeeDocument(
+            resolved.auth.actor,
+            resolved.auth.target,
+          ),
+          can_verify: canVerifyEmployeeDocument(
+            resolved.auth.actor,
+            resolved.auth.target,
+          ),
+        },
         employee_acknowledgement: {
           acknowledged: status.acknowledged,
           acknowledged_at: status.acknowledgedAt ? iso(status.acknowledgedAt) : null,
