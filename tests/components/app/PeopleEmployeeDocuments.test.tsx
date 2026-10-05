@@ -206,6 +206,175 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     expect(document.body.textContent).not.toContain('sensitive lifecycle database detail');
   });
 
+  it('lazy-loads only safe lifecycle task fields for a visible workflow', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const taskId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          workflow: {
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+          },
+          tasks: [{
+            id: taskId,
+            sequence: 1,
+            title: 'Complete induction',
+            description: 'sensitive internal task description',
+            responsibility_type: 'EMPLOYEE',
+            assigned_user_id: 'sensitive-assignee-id',
+            due_at: '2026-10-08T00:00:00.000Z',
+            requires_approval: true,
+            approval_type: 'MANAGER',
+            employee_visible: true,
+            manager_visible: true,
+            internal_only: false,
+            status: 'IN_PROGRESS',
+          }],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    const viewTasks = await screen.findByRole('button', { name: 'View tasks' });
+    expect(fetchMock.mock.calls.some(([input]) =>
+      String(input) === `/api/hr/lifecycle/workflows/${workflowId}`
+    )).toBe(false);
+
+    fireEvent.click(viewTasks);
+
+    expect(await screen.findByText('Complete induction · IN_PROGRESS')).toBeTruthy();
+    expect(screen.getByText('Due 2026-10-08')).toBeTruthy();
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive internal task description');
+    expect(text).not.toContain('sensitive-assignee-id');
+    expect(text).not.toContain(taskId);
+    expect(text).not.toContain('internal_only');
+    expect(text).not.toContain('employee_visible');
+    expect(text).not.toContain('manager_visible');
+  });
+
+  it('reuses loaded lifecycle tasks when task detail is hidden and reopened', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'offboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-15',
+            started_at: '2026-10-05T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          tasks: [{
+            id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+            title: 'Return equipment',
+            status: 'NOT_STARTED',
+            due_at: null,
+          }],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
+    expect(await screen.findByText('Return equipment · NOT_STARTED')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide tasks' }));
+    expect(screen.queryByText('Return equipment · NOT_STARTED')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'View tasks' }));
+    expect(screen.getByText('Return equipment · NOT_STARTED')).toBeTruthy();
+
+    const detailCalls = fetchMock.mock.calls.filter(([input]) =>
+      String(input) === `/api/hr/lifecycle/workflows/${workflowId}`
+    );
+    expect(detailCalls).toHaveLength(1);
+  });
+
+  it('shows only a generic lifecycle task-detail failure and preserves the workflow', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({ error: 'sensitive lifecycle task database detail' }, 500);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
+
+    expect(await screen.findByText('Lifecycle tasks unavailable.')).toBeTruthy();
+    expect(screen.getByText('Onboarding · ACTIVE')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive lifecycle task database detail');
+  });
+
   it('shows create controls only when the server document-management capability permits them', async () => {
     fetchMock.mockImplementation(input => {
       const url = String(input);
