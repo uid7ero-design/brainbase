@@ -74,6 +74,41 @@ production credentials, real customer data or live infrastructure.
   browser suite remains separate evidence; the runtime pass exercises the actual
   built application and authentication.
 
+## Release handoff
+
+The tested application candidate is commit
+`e65ce37bba71646f5c0c1018d8e5c283de55d474` on
+`feat/c7-7-budget-account-design`. Later documentation-only commits do not change
+that application candidate. Build ID `5MrgdGBgLzyrj3mzbSLJe` identifies the local
+runtime verification; a future deployment must record its own build identity.
+
+The AP implementation starts with design commit `53ccc137`, after `ca5d5c86`,
+and includes schema/domain/API/UI, containment, reporting and runtime checks.
+This range also contains production-build compatibility commit `3efb16ea`,
+including changes outside AP. It is a local review range, not a confirmed diff
+against a hosted release. Before rollout, compare the selected candidate with
+the actual target's deployed commit and review the entire resulting diff.
+
+Migration identities at the tested commit (Git blob IDs, independent of Windows
+working-copy line endings):
+
+| Installation | Script | Git blob ID |
+| --- | --- | --- |
+| Fresh AP, with existing supplier/bill prerequisites | `scripts/create-commercial-supplier-payments.sql` | `60c7fdb8c0058abe8c9cf2155495abe07a7ac5d4` |
+| Existing AP tables | `scripts/add-commercial-supplier-payment-idempotency.sql` | `0749366b0b0a39f7813cc4b54c0fd7b7736967f8` |
+
+Verify these identities from the selected candidate with:
+
+```powershell
+git rev-parse e65ce37b:scripts/create-commercial-supplier-payments.sql
+git rev-parse e65ce37b:scripts/add-commercial-supplier-payment-idempotency.sql
+```
+
+The remaining release inputs are the explicitly authorized target environment,
+its deployed commit and schema inventory, a recorded backup/recovery point,
+and a compatible AP-aware rollback commit. Those inputs have not been inferred
+from local environment files or verified against hosted infrastructure.
+
 ## Rollout prerequisites
 
 1. Identify the exact target environment and approved AP-aware application
