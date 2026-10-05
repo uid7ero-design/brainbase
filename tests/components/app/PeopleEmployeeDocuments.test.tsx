@@ -206,11 +206,226 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     expect((body as FormData).get('document_type')).toBe('licence');
     expect((body as FormData).get('title')).toBe('Forklift licence');
     expect((body as FormData).get('expires_at')).toBe('2027-10-05');
+    expect((body as FormData).get('lifecycle_task_id')).toBeNull();
     expect((body as FormData).get('file')).toBe(file);
 
     const text = document.body.textContent ?? '';
     expect(text).not.toContain('sensitive-user-id');
     expect(text).not.toContain('private-name.pdf');
+  });
+
+  it('loads only safe lifecycle task fields for optional document linking', async () => {
+    const workflowId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    const taskId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            person_id: PERSON.id,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            started_by: 'sensitive-starter-id',
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          workflow: {
+            id: workflowId,
+            person_id: PERSON.id,
+            lifecycle_type: 'onboarding',
+          },
+          tasks: [{
+            id: taskId,
+            title: 'Provide forklift licence',
+            status: 'IN_PROGRESS',
+            description: 'sensitive internal task description',
+            assigned_user_id: 'sensitive-assignee-id',
+            internal_only: true,
+          }],
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add document' }));
+
+    const selector = await screen.findByLabelText('Lifecycle task (optional)');
+    expect(selector).toBeTruthy();
+    expect(screen.getByRole('option', {
+      name: 'Provide forklift licence · onboarding · IN_PROGRESS',
+    })).toBeTruthy();
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-starter-id');
+    expect(text).not.toContain('sensitive internal task description');
+    expect(text).not.toContain('sensitive-assignee-id');
+  });
+
+  it('includes a selected lifecycle task in the document multipart request', async () => {
+    const workflowId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    const taskId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents') && init?.method === 'POST') {
+        return response({
+          document: {
+            id: 'doc-linked',
+            person_id: PERSON.id,
+            document_type: 'licence',
+            title: 'Linked forklift licence',
+            lifecycle_task_id: taskId,
+            deleted_at: null,
+            created_at: '2026-10-05T09:00:00.000Z',
+          },
+          version: {
+            id: 'version-linked',
+            document_id: 'doc-linked',
+            version_number: 1,
+            uploaded_by: 'sensitive-uploader-id',
+            original_filename: 'private-linked.pdf',
+            content_type: 'application/pdf',
+            byte_size: 1234,
+            expires_at: null,
+            is_current: true,
+            created_at: '2026-10-05T09:00:00.000Z',
+          },
+        }, 201);
+      }
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          tasks: [{
+            id: taskId,
+            title: 'Provide forklift licence',
+            status: 'IN_PROGRESS',
+          }],
+        });
+      }
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          capabilities: { can_acknowledge: false, can_verify: true },
+          employee_acknowledgement: { acknowledged: false, acknowledged_at: null },
+          latest_verification: null,
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add document' }));
+    const selector = await screen.findByLabelText('Lifecycle task (optional)');
+    fireEvent.change(selector, { target: { value: taskId } });
+    fireEvent.change(screen.getByLabelText('Document type'), { target: { value: 'licence' } });
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Linked forklift licence' } });
+    const file = new File(['pdf'], 'linked.pdf', { type: 'application/pdf' });
+    fireEvent.change(screen.getByLabelText('File'), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload document' }));
+
+    expect(await screen.findByText('Linked forklift licence')).toBeTruthy();
+
+    const postCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input).endsWith('/documents') && init?.method === 'POST'
+    );
+    const body = postCall?.[1]?.body;
+    expect(body).toBeInstanceOf(FormData);
+    expect((body as FormData).get('lifecycle_task_id')).toBe(taskId);
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-uploader-id');
+    expect(text).not.toContain('private-linked.pdf');
+  });
+
+  it('keeps document upload available when lifecycle tasks cannot be loaded', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents') && init?.method === 'POST') {
+        return response({
+          document: {
+            id: 'doc-unlinked',
+            person_id: PERSON.id,
+            document_type: 'policy',
+            title: 'Unlinked policy',
+            lifecycle_task_id: null,
+            deleted_at: null,
+            created_at: '2026-10-05T09:15:00.000Z',
+          },
+          version: {
+            id: 'version-unlinked',
+            document_id: 'doc-unlinked',
+            version_number: 1,
+            uploaded_by: 'sensitive-uploader-id',
+            original_filename: 'private-unlinked.pdf',
+            content_type: 'application/pdf',
+            byte_size: 1234,
+            expires_at: null,
+            is_current: true,
+            created_at: '2026-10-05T09:15:00.000Z',
+          },
+        }, 201);
+      }
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [],
+        });
+      }
+      if (url.startsWith('/api/hr/lifecycle/workflows?person_id=')) {
+        return response({ error: 'sensitive lifecycle database detail' }, 500);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add document' }));
+
+    expect(await screen.findByText(
+      'Lifecycle tasks unavailable. You can upload without linking a task.',
+    )).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Document type'), { target: { value: 'policy' } });
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Unlinked policy' } });
+    const file = new File(['pdf'], 'unlinked.pdf', { type: 'application/pdf' });
+    fireEvent.change(screen.getByLabelText('File'), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload document' }));
+
+    expect(await screen.findByText('Unlinked policy')).toBeTruthy();
+
+    const postCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input).endsWith('/documents') && init?.method === 'POST'
+    );
+    const body = postCall?.[1]?.body;
+    expect(body).toBeInstanceOf(FormData);
+    expect((body as FormData).get('lifecycle_task_id')).toBeNull();
+    expect(document.body.textContent).not.toContain('sensitive lifecycle database detail');
   });
 
   it('hides create controls when document management capability is false', async () => {
