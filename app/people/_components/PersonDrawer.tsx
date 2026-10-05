@@ -420,7 +420,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setDocuments(current => [...current, createdDocument]);
       void loadDocumentAssurance(
         createdDocument.id,
-        createdDocument.current_version.id,
+        createdDocument.current_version!.id,
       );
 
       setNewDocumentType('');
