@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -813,7 +813,7 @@ export default function PurchaseOrderDetailPage() {
                 </div>
                 {po.supplier_contact_name_snapshot && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{po.supplier_contact_name_snapshot}</div>}
                 {(po.supplier_email_snapshot || po.supplier_phone_snapshot) && (
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{[po.supplier_email_snapshot, po.supplier_phone_snapshot].filter(Boolean).join(' Â· ')}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{[po.supplier_email_snapshot, po.supplier_phone_snapshot].filter(Boolean).join(' · ')}</div>
                 )}
               </>
             ) : (
@@ -823,7 +823,7 @@ export default function PurchaseOrderDetailPage() {
                 </div>
                 {linkedSupplier?.contact_name && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{linkedSupplier.contact_name}</div>}
                 {(linkedSupplier?.email || linkedSupplier?.phone) && (
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{[linkedSupplier?.email, linkedSupplier?.phone].filter(Boolean).join(' Â· ')}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{[linkedSupplier?.email, linkedSupplier?.phone].filter(Boolean).join(' · ')}</div>
                 )}
               </>
             )}
@@ -1026,14 +1026,14 @@ export default function PurchaseOrderDetailPage() {
                 <div style={miniLbl}>Posted Receipt Line</div>
                 <select value={matchReceiptLineId} onChange={e => { setMatchReceiptLineId(e.target.value); setMatchBillLineId(''); }} className={fieldControlClassName}>
                   <option value="">Choose receipt line…</option>
-                  {availableReceiptMatchLines.map(line => <option key={line.id} value={line.id}>{line.documentNumber} Â· {Number(line.remainingQuantity)} remaining</option>)}
+                  {availableReceiptMatchLines.map(line => <option key={line.id} value={line.id}>{line.documentNumber} · {Number(line.remainingQuantity)} remaining</option>)}
                 </select>
               </div>
               <div>
                 <div style={miniLbl}>Posted Bill Line</div>
                 <select value={matchBillLineId} disabled={!selectedReceiptMatchLine} onChange={e => setMatchBillLineId(e.target.value)} className={fieldControlClassName}>
                   <option value="">Choose bill line…</option>
-                  {availableBillMatchLines.map(line => <option key={line.id} value={line.id}>{line.documentNumber} Â· {Number(line.remainingQuantity)} remaining</option>)}
+                  {availableBillMatchLines.map(line => <option key={line.id} value={line.id}>{line.documentNumber} · {Number(line.remainingQuantity)} remaining</option>)}
                 </select>
               </div>
               <div>
@@ -1051,7 +1051,7 @@ export default function PurchaseOrderDetailPage() {
             return (
               <div key={a.id} style={{ borderTop: `1px solid ${BORDER}`, padding: '9px 0', fontSize: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                  <span style={{ color: '#d1d5db' }}>{receiptLine?.documentNumber ?? 'Receipt line'} ↔ {billLine?.documentNumber ?? 'Bill line'} Â· {Number(a.quantity_allocated)} matched</span>
+                  <span style={{ color: '#d1d5db' }}>{receiptLine?.documentNumber ?? 'Receipt line'} ↔ {billLine?.documentNumber ?? 'Bill line'} · {Number(a.quantity_allocated)} matched</span>
                   <span style={{ color: a.reversed_at ? '#6b7280' : '#34d399' }}>{a.reversed_at ? 'REVERSED' : 'ACTIVE'}</span>
                 </div>
                 {a.reversal_reason && <div style={{ color: '#6b7280', marginTop: 3 }}>Reversal: {a.reversal_reason}</div>}
@@ -1093,7 +1093,7 @@ export default function PurchaseOrderDetailPage() {
               <a href={`/commercial/purchasing/purchase-receipts/${r.id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>
                 {r.receipt_number ?? 'Draft'}
               </a>
-              <span style={{ color: 'var(--text-secondary)' }}>{r.status}{r.received_date ? ` Â· ${r.received_date}` : ''}</span>
+              <span style={{ color: 'var(--text-secondary)' }}>{r.status}{r.received_date ? ` · ${r.received_date}` : ''}</span>
             </div>
           ))}
         </div>
@@ -1120,7 +1120,7 @@ export default function PurchaseOrderDetailPage() {
               <a href={`/commercial/purchasing/supplier-bills/${b.id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>
                 {b.bill_number ?? 'Draft'} — {b.supplier_invoice_number}
               </a>
-              <span style={{ color: 'var(--text-secondary)' }}>{b.status}{b.status === 'POSTED' ? ` Â· ${formatMoneyCents(b.total_cents, po.currency)}` : ''}</span>
+              <span style={{ color: 'var(--text-secondary)' }}>{b.status}{b.status === 'POSTED' ? ` · ${formatMoneyCents(b.total_cents, po.currency)}` : ''}</span>
             </div>
           ))}
         </div>
@@ -1146,7 +1146,7 @@ export default function PurchaseOrderDetailPage() {
                 <div>
                   <a href={`/api/commercial/purchase-orders/${id}/attachments/${a.id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>{a.original_filename}</a>
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
-                    {ATTACHMENT_CATEGORY_LABELS[a.category]} Â· {formatBytes(a.size_bytes)} Â· {a.uploaded_by_name ?? 'Unknown'} Â· {formatCommercialDate(a.created_at)}
+                    {ATTACHMENT_CATEGORY_LABELS[a.category]} · {formatBytes(a.size_bytes)} · {a.uploaded_by_name ?? 'Unknown'} · {formatCommercialDate(a.created_at)}
                   </div>
                 </div>
                 {isDraft && canEdit && (
