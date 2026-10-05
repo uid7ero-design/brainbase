@@ -1,11 +1,12 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { SupplierBillStatusBadge } from '../../_billStatus';
 import { formatCommercialDate } from '@/lib/commercial/dates';
 import { formatMoneyCents } from '@/lib/commercial/money';
 import type { SupplierBillStatus } from '@/lib/commercial/supplierBillLifecycle';
+import { PAYMENT_METHODS, type PaymentMethod } from '@/lib/commercial/paymentMethods';
 import {
   Field as AppField,
   FormError,
@@ -37,6 +38,14 @@ const ATTACHMENT_CATEGORY_LABELS: Record<AttachmentCategory, string> = {
   SUPPLIER_QUOTE: 'Supplier Quote', SPECIFICATION: 'Specification', SCOPE_OF_WORK: 'Scope of Work', APPROVAL: 'Approval', OTHER: 'Other',
 };
 type Attachment = { id: string; category: AttachmentCategory; original_filename: string; size_bytes: number; uploaded_by_name: string | null; created_at: string };
+type SupplierPaymentHistoryItem = {
+  id: string; amount_cents: number; allocated_amount_cents: number; currency: string; method: PaymentMethod;
+  reference: string | null; paid_at: string; status: 'RECORDED' | 'REVERSED'; reversed_at: string | null; reversal_reason: string | null;
+};
+type SupplierBillPaymentSummary = {
+  supplier_bill_id: string; total_cents: number; amount_paid_cents: number; outstanding_balance_cents: number;
+  payment_state: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID'; active_payment_count: number; payments: SupplierPaymentHistoryItem[];
+};
 
 const CLIENT_ROLE_ORDER = ['viewer', 'manager', 'admin', 'super_admin'];
 function clientRoleGte(role: string | undefined, min: string): boolean {
@@ -79,6 +88,17 @@ export default function SupplierBillDetailPage() {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState('');
 
+  // AP-4 supplier settlement UI state. The API remains authoritative for
+  // tenant, supplier, currency, bill lifecycle, balance and role checks.
+  const [paymentSummary, setPaymentSummary] = useState<SupplierBillPaymentSummary | null>(null);
+  const [showRecordPayment, setShowRecordPayment] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('');
+  const [paymentReference, setPaymentReference] = useState('');
+  const [paymentPaidDate, setPaymentPaidDate] = useState('');
+  const [reversingPaymentId, setReversingPaymentId] = useState<string | null>(null);
+  const [reversalReason, setReversalReason] = useState('');
+
   const [confirmingPost, setConfirmingPost] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
@@ -116,13 +136,15 @@ export default function SupplierBillDetailPage() {
     setLoading(false);
     if (!ok) return;
 
-    const [attachmentsRes, taxCodesRes, meRes] = await Promise.all([
+    const [attachmentsRes, taxCodesRes, meRes, paymentsRes] = await Promise.all([
       fetch(`/api/commercial/supplier-bills/${id}/attachments`),
       fetch('/api/commercial/tax-codes'),
       fetch('/api/me'),
+      fetch(`/api/commercial/supplier-bills/${id}/payments`),
     ]);
     if (attachmentsRes.ok) setAttachments((await attachmentsRes.json()).attachments ?? []);
     if (taxCodesRes.ok) setTaxCodes((await taxCodesRes.json()).taxCodes ?? []);
+    if (paymentsRes.ok) setPaymentSummary((await paymentsRes.json()).supplier_bill_payment_summary ?? null);
     if (meRes.ok) {
       const me = await meRes.json();
       setCanEdit(clientRoleGte(me.role, 'manager'));
@@ -204,6 +226,42 @@ export default function SupplierBillDetailPage() {
     await refreshBillAndLines();
   }
 
+  async function recordPayment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!paymentMethod) { setActionError('A payment method is required.'); return; }
+    const amountCents = Math.round(parseFloat(paymentAmount || '0') * 100);
+    if (!Number.isInteger(amountCents) || amountCents <= 0) { setActionError('Enter a valid payment amount.'); return; }
+    setBusy(true); setActionError('');
+    const res = await fetch(`/api/commercial/supplier-bills/${id}/payments`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        amount_cents: amountCents,
+        method: paymentMethod,
+        reference: paymentReference || null,
+        paid_at: paymentPaidDate ? new Date(paymentPaidDate).toISOString() : null,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) { setActionError(data.error ?? 'Failed to record supplier payment.'); return; }
+    setPaymentSummary(data.supplier_bill_payment_summary ?? null);
+    setShowRecordPayment(false);
+    setPaymentAmount(''); setPaymentMethod(''); setPaymentReference(''); setPaymentPaidDate('');
+  }
+
+  async function reversePayment(paymentId: string) {
+    if (!reversalReason.trim()) { setActionError('A reversal reason is required.'); return; }
+    setBusy(true); setActionError('');
+    const res = await fetch(`/api/commercial/supplier-bills/${id}/payments/${paymentId}/reverse`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: reversalReason }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) { setActionError(data.error ?? 'Failed to reverse supplier payment.'); return; }
+    setPaymentSummary(data.supplier_bill_payment_summary ?? null);
+    setReversingPaymentId(null); setReversalReason('');
+  }
+
   async function deleteAction() {
     setBusy(true); setActionError('');
     const res = await fetch(`/api/commercial/supplier-bills/${id}`, { method: 'DELETE' });
@@ -275,8 +333,17 @@ export default function SupplierBillDetailPage() {
             {isDraft && canEdit && supplierBill.bill_number == null && (
               <button type="button" onClick={() => setConfirmingDelete(true)} disabled={busy} {...buttonProps('danger')}>Delete Draft</button>
             )}
+            {isPosted && isAdmin && (paymentSummary?.outstanding_balance_cents ?? 0) > 0 && (
+              <button type="button" onClick={() => setShowRecordPayment(true)} disabled={busy} {...buttonProps('primary')}>Record Payment</button>
+            )}
             {isPosted && isAdmin && (
-              <button type="button" onClick={() => setConfirmingCancel(true)} disabled={busy} {...buttonProps('danger')}>Cancel Bill</button>
+              <button
+                type="button"
+                onClick={() => setConfirmingCancel(true)}
+                disabled={busy || (paymentSummary?.active_payment_count ?? 0) > 0}
+                title={(paymentSummary?.active_payment_count ?? 0) > 0 ? 'Reverse all recorded supplier payments before cancelling this bill.' : undefined}
+                {...buttonProps('danger')}
+              >Cancel Bill</button>
             )}
           </>
         }
@@ -308,7 +375,7 @@ export default function SupplierBillDetailPage() {
 
       {confirmingCancel && (
         <div role="group" aria-label="Confirm cancel" style={{ ...dangerPanel, marginBottom: 20 }}>
-          <p style={{ margin: '0 0 8px', fontSize: 13, color: 'var(--text-primary)' }}>Cancelling this supplier bill marks it inactive and removes it from billed-to-date. This does not delete the record. No supplier payments exist yet, so there is nothing further to reverse.</p>
+          <p style={{ margin: '0 0 8px', fontSize: 13, color: 'var(--text-primary)' }}>Cancelling this supplier bill marks it inactive and removes it from billed-to-date. This does not delete the record. Any active supplier payments must be reversed first.</p>
           <AppField label="Reason" required>
             {control => (
               <textarea {...control} value={cancelReason} onChange={e => setCancelReason(e.target.value)} rows={2} placeholder="Why is this supplier bill being cancelled?" className={fieldControlClassName} />
@@ -327,6 +394,70 @@ export default function SupplierBillDetailPage() {
         <Row label="Due Date" value={supplierBill.due_date ? formatCommercialDate(supplierBill.due_date) : '—'} />
         {isCancelled && supplierBill.cancel_reason && <Row label="Cancellation Reason" value={supplierBill.cancel_reason} />}
       </dl>
+
+      {paymentSummary && !isDraft && (
+        <section aria-labelledby="supplier-payment-history" style={{ ...panel, marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
+            <div>
+              <h2 id="supplier-payment-history" style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', margin: 0 }}>Supplier Payments</h2>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '5px 0 0' }}>Cash settlement is tracked separately from the Budget Actual recognised when this supplier bill was posted.</p>
+            </div>
+            <span style={{ fontSize: 12, fontWeight: 700, color: paymentSummary.payment_state === 'PAID' ? 'var(--status-success)' : paymentSummary.payment_state === 'PARTIALLY_PAID' ? 'var(--status-warning)' : 'var(--text-secondary)' }}>
+              {paymentSummary.payment_state.replaceAll('_', ' ')}
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 16 }}>
+            <PaymentMetric label="Bill Total" value={formatMoneyCents(paymentSummary.total_cents, supplierBill.currency)} />
+            <PaymentMetric label="Paid" value={formatMoneyCents(paymentSummary.amount_paid_cents, supplierBill.currency)} />
+            <PaymentMetric label="Remaining" value={formatMoneyCents(paymentSummary.outstanding_balance_cents, supplierBill.currency)} />
+          </div>
+          {paymentSummary.payments.length === 0 ? (
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>No supplier payments recorded.</p>
+          ) : (
+            <TableContainer label="Supplier payment history" minWidth={760}>
+              <table className={tableStyles.table}>
+                <thead><tr><th scope="col">Paid Date</th><th scope="col">Method</th><th scope="col">Reference</th><th scope="col" className={tableStyles.num}>Allocated</th><th scope="col">Status</th><th scope="col" className={tableStyles.actions}><span className="bb-visually-hidden">Actions</span></th></tr></thead>
+                <tbody>
+                  {paymentSummary.payments.map(payment => (
+                    <Fragment key={payment.id}>
+                      <tr>
+                        <td>{formatCommercialDate(payment.paid_at)}</td>
+                        <td>{payment.method.replaceAll('_', ' ')}</td>
+                        <td>{payment.reference ?? '—'}</td>
+                        <td className={tableStyles.num}>{formatMoneyCents(payment.allocated_amount_cents, supplierBill.currency)}</td>
+                        <td>{payment.status === 'RECORDED' ? <span style={{ color: 'var(--status-success)' }}>Recorded</span> : <span style={{ color: 'var(--status-danger)' }}>Reversed{payment.reversal_reason ? `: ${payment.reversal_reason}` : ''}</span>}</td>
+                        <td className={tableStyles.actions}>{payment.status === 'RECORDED' && isAdmin && reversingPaymentId !== payment.id && (<button type="button" onClick={() => { setReversingPaymentId(payment.id); setReversalReason(''); setActionError(''); }} disabled={busy} className={tableStyles.link} style={{ color: 'var(--status-danger)' }}>Reverse Payment</button>)}</td>
+                      </tr>
+                      {reversingPaymentId === payment.id && (
+                        <tr><td colSpan={6} style={{ background: 'var(--status-danger-muted)' }}>
+                          <AppField label="Reversal Reason" required>{control => <textarea {...control} value={reversalReason} onChange={e => setReversalReason(e.target.value)} rows={2} className={fieldControlClassName} placeholder="Why is this supplier payment being reversed?" />}</AppField>
+                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                            <button type="button" onClick={() => reversePayment(payment.id)} disabled={busy || !reversalReason.trim()} {...buttonProps('danger', 'sm')}>Confirm Reversal</button>
+                            <button type="button" onClick={() => { setReversingPaymentId(null); setReversalReason(''); }} disabled={busy} {...buttonProps('secondary', 'sm')}>Cancel</button>
+                          </div>
+                        </td></tr>
+                      )}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </TableContainer>
+          )}
+        </section>
+      )}
+
+      {showRecordPayment && isPosted && isAdmin && paymentSummary && (
+        <section aria-labelledby="record-supplier-payment" style={{ ...panel, marginBottom: 20 }}>
+          <h2 id="record-supplier-payment" style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', margin: '0 0 14px' }}>Record Supplier Payment</h2>
+          <form onSubmit={recordPayment} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, alignItems: 'end' }}>
+            <AppField label="Amount" required>{control => <input {...control} value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} className={fieldControlClassName} placeholder={(paymentSummary.outstanding_balance_cents / 100).toFixed(2)} inputMode="decimal" />}</AppField>
+            <AppField label="Payment Method" required>{control => (<select {...control} value={paymentMethod} onChange={e => setPaymentMethod(e.target.value as PaymentMethod)} className={fieldControlClassName}><option value="">— Select —</option>{PAYMENT_METHODS.map(method => <option key={method} value={method}>{method.replaceAll('_', ' ')}</option>)}</select>)}</AppField>
+            <AppField label="Reference">{control => <input {...control} value={paymentReference} onChange={e => setPaymentReference(e.target.value)} className={fieldControlClassName} placeholder="Bank reference or remittance" />}</AppField>
+            <AppField label="Paid Date">{control => <input {...control} type="date" value={paymentPaidDate} onChange={e => setPaymentPaidDate(e.target.value)} className={fieldControlClassName} />}</AppField>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button type="submit" disabled={busy} {...buttonProps('primary')}>Record Payment</button><button type="button" onClick={() => { setShowRecordPayment(false); setPaymentAmount(''); setPaymentMethod(''); setPaymentReference(''); setPaymentPaidDate(''); }} disabled={busy} {...buttonProps('secondary')}>Cancel</button></div>
+          </form>
+        </section>
+      )}
 
       <div style={{ marginBottom: 20 }}>
         <TableContainer label="Bill lines" minWidth={860}>
@@ -470,6 +601,10 @@ export default function SupplierBillDetailPage() {
       </section>
     </div>
   );
+}
+
+function PaymentMetric({ label, value }: { label: string; value: string }) {
+  return <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '10px 12px' }}><div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>{label}</div><div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{value}</div></div>;
 }
 
 function Row({ label, value }: { label: string; value: string }) {
