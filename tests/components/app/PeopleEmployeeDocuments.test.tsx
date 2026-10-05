@@ -92,7 +92,7 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
   it('shows safe document metadata and current-version assurance status', async () => {
     fetchMock.mockImplementation(input => {
       const url = String(input);
-      if (url.endsWith('/documents')) return response({ documents: [DOCUMENT] });
+      if (url.endsWith('/documents')) return response({ capabilities: { can_manage_documents: false }, documents: [DOCUMENT] });
       if (url.endsWith('/assurance')) return assuranceResponse();
       return response({ person: PERSON });
     });
@@ -114,6 +114,151 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     expect(text).not.toContain('uploaded');
     expect(text).not.toContain('verified_by');
     expect(text).not.toContain('comment');
+  });
+
+  it('shows create controls only when the server document-management capability permits them', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByRole('button', { name: 'Add document' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Add document' }));
+    expect(screen.getByLabelText('Document type')).toBeTruthy();
+    expect(screen.getByLabelText('Title')).toBeTruthy();
+    expect(screen.getByLabelText('Expiry date (optional)')).toBeTruthy();
+    expect(screen.getByLabelText('File')).toBeTruthy();
+  });
+
+  it('creates a document with multipart form data and renders only safe returned fields', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents') && init?.method === 'POST') {
+        return response({
+          document: {
+            id: 'doc-2',
+            person_id: PERSON.id,
+            document_type: 'licence',
+            title: 'Forklift licence',
+            lifecycle_task_id: null,
+            deleted_at: null,
+            created_at: '2026-10-05T07:00:00.000Z',
+          },
+          version: {
+            id: 'version-1',
+            document_id: 'doc-2',
+            version_number: 1,
+            uploaded_by: 'sensitive-user-id',
+            original_filename: 'private-name.pdf',
+            content_type: 'application/pdf',
+            byte_size: 1234,
+            expires_at: '2027-10-05',
+            is_current: true,
+            created_at: '2026-10-05T07:00:00.000Z',
+          },
+        }, 201);
+      }
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [],
+        });
+      }
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          capabilities: { can_acknowledge: false, can_verify: true },
+          employee_acknowledgement: { acknowledged: false, acknowledged_at: null },
+          latest_verification: null,
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add document' }));
+    fireEvent.change(screen.getByLabelText('Document type'), { target: { value: 'licence' } });
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Forklift licence' } });
+    fireEvent.change(screen.getByLabelText('Expiry date (optional)'), { target: { value: '2027-10-05' } });
+    const file = new File(['pdf'], 'forklift.pdf', { type: 'application/pdf' });
+    fireEvent.change(screen.getByLabelText('File'), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload document' }));
+
+    expect(await screen.findByText('Forklift licence')).toBeTruthy();
+    expect(screen.getByText('licence · Version 1')).toBeTruthy();
+    expect(screen.getByText('Expires 2027-10-05')).toBeTruthy();
+
+    const postCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input).endsWith('/documents') && init?.method === 'POST'
+    );
+    expect(postCall).toBeTruthy();
+    const body = postCall?.[1]?.body;
+    expect(body).toBeInstanceOf(FormData);
+    expect((body as FormData).get('document_type')).toBe('licence');
+    expect((body as FormData).get('title')).toBe('Forklift licence');
+    expect((body as FormData).get('expires_at')).toBe('2027-10-05');
+    expect((body as FormData).get('file')).toBe(file);
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-user-id');
+    expect(text).not.toContain('private-name.pdf');
+  });
+
+  it('hides create controls when document management capability is false', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Documents')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Add document' })).toBeNull();
+  });
+
+  it('shows only a generic create failure and keeps the form available', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents') && init?.method === 'POST') {
+        return response({ error: 'sensitive upload detail' }, 500);
+      }
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [],
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add document' }));
+    fireEvent.change(screen.getByLabelText('Document type'), { target: { value: 'policy' } });
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Safety policy' } });
+    const file = new File(['pdf'], 'safety.pdf', { type: 'application/pdf' });
+    fireEvent.change(screen.getByLabelText('File'), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload document' }));
+
+    expect(await screen.findByText('Could not upload document.')).toBeTruthy();
+    expect(screen.getByLabelText('Document type')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive upload detail');
   });
 
   it('lets the linked employee acknowledge when the assurance capability permits it', async () => {
