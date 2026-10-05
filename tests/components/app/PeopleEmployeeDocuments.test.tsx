@@ -116,6 +116,96 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     expect(text).not.toContain('comment');
   });
 
+  it('shows only safe lifecycle workflow summary fields for the selected person', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            person_id: PERSON.id,
+            template_id: 'sensitive-template-id',
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_by: 'sensitive-starter-id',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+            internal_note: 'sensitive workflow detail',
+          }],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Lifecycle')).toBeTruthy();
+    expect(await screen.findByText('Onboarding · ACTIVE')).toBeTruthy();
+    expect(screen.getByText('Anchor 2026-10-01')).toBeTruthy();
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-template-id');
+    expect(text).not.toContain('sensitive-starter-id');
+    expect(text).not.toContain('sensitive workflow detail');
+    expect(text).not.toContain(workflowId);
+  });
+
+  it('shows an empty lifecycle state when the person has no visible workflows', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({ workflows: [] });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('No lifecycle workflows')).toBeTruthy();
+    expect(screen.getByText('Safety policy')).toBeTruthy();
+  });
+
+  it('shows only a generic lifecycle failure and keeps the person drawer usable', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({ error: 'sensitive lifecycle database detail' }, 500);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Could not load lifecycle.')).toBeTruthy();
+    expect(screen.getByText('Safety policy')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive lifecycle database detail');
+  });
+
   it('shows create controls only when the server document-management capability permits them', async () => {
     fetchMock.mockImplementation(input => {
       const url = String(input);
