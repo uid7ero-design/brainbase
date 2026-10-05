@@ -3,7 +3,7 @@ import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
 import { encrypt } from '@/lib/social/crypto'
 import { verifyOAuthState } from '@/lib/oauthState'
-import { STATE_COOKIE } from '../connect/route'
+import { STATE_COOKIE } from '@/lib/social/instagramOAuth'
 
 const APP_ID = process.env.META_APP_ID!
 const APP_SECRET = process.env.META_APP_SECRET!

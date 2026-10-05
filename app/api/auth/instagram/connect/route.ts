@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireRole } from '@/lib/org'
 import { createOAuthState } from '@/lib/oauthState'
 
-export const STATE_COOKIE = 'instagram_oauth_state'
+import { STATE_COOKIE } from '@/lib/social/instagramOAuth'
 
 export async function GET() {
   // Connecting a shared Instagram/Facebook account is a token-changing action —

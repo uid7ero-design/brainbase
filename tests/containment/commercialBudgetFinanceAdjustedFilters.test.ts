@@ -4,7 +4,7 @@ import {
   filterFinanceAdjustedRows,
   type ConsumptionRow,
   type FinanceRow,
-} from '@/app/commercial/budgeting/commitments/page';
+} from '@/app/commercial/budgeting/commitments/BudgetCommitmentsPage';
 
 function financeRow(overrides: Partial<FinanceRow> = {}): FinanceRow {
   return {

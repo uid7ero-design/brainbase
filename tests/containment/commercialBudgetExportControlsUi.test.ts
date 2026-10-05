@@ -3,10 +3,10 @@ import path from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { BudgetExportControls, FinanceSourceSelector } from '@/app/commercial/budgeting/commitments/page';
+import { BudgetExportControls, FinanceSourceSelector } from '@/app/commercial/budgeting/commitments/BudgetCommitmentsPage';
 
 const pageSource = fs.readFileSync(
-  path.resolve(process.cwd(), 'app/commercial/budgeting/commitments/page.tsx'),
+  path.resolve(process.cwd(), 'app/commercial/budgeting/commitments/BudgetCommitmentsPage.tsx'),
   'utf8',
 );
 

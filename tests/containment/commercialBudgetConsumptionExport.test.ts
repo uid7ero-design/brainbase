@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { buildBudgetConsumptionCsvExports } from '@/lib/commercial/budgetConsumptionExport';
+import { buildBudgetConsumptionCsvExports, type BudgetConsumptionExportInput } from '@/lib/commercial/budgetConsumptionExport';
 
-function reportFixture() {
+function reportFixture(): BudgetConsumptionExportInput {
   return {
     rows: [{
       budgetAccountCode: 'OPEX',

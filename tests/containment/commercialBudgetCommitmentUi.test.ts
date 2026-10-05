@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const page = fs.readFileSync(path.resolve(process.cwd(), 'app/commercial/budgeting/commitments/page.tsx'), 'utf8');
+const page = fs.readFileSync(path.resolve(process.cwd(), 'app/commercial/budgeting/commitments/BudgetCommitmentsPage.tsx'), 'utf8');
 const overview = fs.readFileSync(path.resolve(process.cwd(), 'app/commercial/page.tsx'), 'utf8');
 
 describe('C7.8D — Budget vs Actual vs Committed UI contract', () => {

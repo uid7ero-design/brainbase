@@ -8,10 +8,10 @@ import {
   FinanceReconciliationQueue,
   type FinanceReconciliationQueueEntry,
   type FinanceRow,
-} from '@/app/commercial/budgeting/commitments/page';
+} from '@/app/commercial/budgeting/commitments/BudgetCommitmentsPage';
 
 const pageSource = fs.readFileSync(
-  path.resolve(process.cwd(), 'app/commercial/budgeting/commitments/page.tsx'),
+  path.resolve(process.cwd(), 'app/commercial/budgeting/commitments/BudgetCommitmentsPage.tsx'),
   'utf8',
 );
 

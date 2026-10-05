@@ -22,7 +22,7 @@ describe('C7.8D — combined Budget consumption API', () => {
   it.each([401, 403, 503])('returns authorization denial %s unchanged and never reads', async status => {
     authorizeMock.mockResolvedValue({ ok: false, response: new Response(null, { status }) });
 
-    const response = await GET();
+    const response = await GET(new Request('http://localhost/api/commercial/budgeting/consumption'));
 
     expect(response.status).toBe(status);
     expect(authorizeMock).toHaveBeenCalledWith('budgeting', 'viewer');
@@ -84,7 +84,7 @@ describe('C7.8D — combined Budget consumption API', () => {
       unresolvedExceptionCount: 1,
     });
 
-    const response = await GET();
+    const response = await GET(new Request('http://localhost/api/commercial/budgeting/consumption'));
     const body = await response.json();
 
     expect(response.status).toBe(200);

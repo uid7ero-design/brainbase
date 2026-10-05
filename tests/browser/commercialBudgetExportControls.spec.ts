@@ -1,5 +1,5 @@
 import { test, expect, type Download, type Page } from '@playwright/test';
-import { buildBudgetConsumptionCsvExports } from '../../lib/commercial/budgetConsumptionExport';
+import { buildBudgetConsumptionCsvExports, type BudgetConsumptionExportInput } from '../../lib/commercial/budgetConsumptionExport';
 import {
   BUDGET_EXPORT_CONTROLS,
   budgetFinanceExportHref,
@@ -125,7 +125,7 @@ async function readDownloadText(download: Download) {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-function exportFixture() {
+function exportFixture(): BudgetConsumptionExportInput {
   return {
     rows: [{
       budgetAccountCode: 'OPEX',
