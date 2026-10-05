@@ -71,6 +71,7 @@ describe('HR-7E6B employee document list read model', () => {
       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     )).resolves.toEqual({
       outcome: 'ok',
+      canManageDocuments: false,
       documents: [{
         id: 'doc-1',
         documentType: 'policy',
@@ -109,7 +110,11 @@ describe('HR-7E6B employee document list read model', () => {
     await expect(listEmployeeDocumentsForPerson(
       SESSION as never,
       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-    )).resolves.toEqual({ outcome: 'ok', documents: [] });
+    )).resolves.toEqual({
+      outcome: 'ok',
+      canManageDocuments: true,
+      documents: [],
+    });
 
     expect(sqlMock).toHaveBeenCalledTimes(2);
   });
