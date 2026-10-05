@@ -217,6 +217,143 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     expect(screen.queryByRole('button', { name: 'Acknowledge' })).toBeNull();
   });
 
+  it('lets an HR administrator verify when the assurance capability permits it', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ documents: [DOCUMENT] });
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          capabilities: {
+            can_acknowledge: false,
+            can_verify: true,
+          },
+          latest_verification: null,
+        });
+      }
+      if (url.endsWith('/verifications') && init?.method === 'POST') {
+        return response({
+          verification: {
+            id: 'verification-1',
+            document_version_id: 'version-2',
+            verified_by: 'hr-user',
+            decision: 'VERIFIED',
+            comment: 'server-only detail',
+            verified_at: '2026-10-05T05:06:07.000Z',
+          },
+        }, 201);
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Verify' }));
+
+    expect(await screen.findByText('Verified 2026-10-05')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/hr/people/${PERSON.id}/documents/${DOCUMENT.id}/versions/${DOCUMENT.current_version.id}/verifications`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision: 'VERIFIED' }),
+      },
+    );
+    expect(document.body.textContent).not.toContain('hr-user');
+    expect(document.body.textContent).not.toContain('server-only detail');
+  });
+
+  it('lets an HR administrator reject and updates the latest verification status', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ documents: [DOCUMENT] });
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          capabilities: {
+            can_acknowledge: false,
+            can_verify: true,
+          },
+          latest_verification: null,
+        });
+      }
+      if (url.endsWith('/verifications') && init?.method === 'POST') {
+        return response({
+          verification: {
+            id: 'verification-2',
+            document_version_id: 'version-2',
+            verified_by: 'hr-user',
+            decision: 'REJECTED',
+            comment: null,
+            verified_at: '2026-10-05T06:07:08.000Z',
+          },
+        }, 201);
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Reject' }));
+
+    expect(await screen.findByText('Rejected 2026-10-05')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/hr/people/${PERSON.id}/documents/${DOCUMENT.id}/versions/${DOCUMENT.current_version.id}/verifications`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ decision: 'REJECTED' }),
+      }),
+    );
+  });
+
+  it('does not show verification controls when the server capability denies them', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ documents: [DOCUMENT] });
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          capabilities: {
+            can_acknowledge: true,
+            can_verify: false,
+          },
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Verified 2026-10-03')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Verify' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
+  });
+
+  it('shows only a generic verification failure and preserves current status', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ documents: [DOCUMENT] });
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          capabilities: {
+            can_acknowledge: false,
+            can_verify: true,
+          },
+          latest_verification: null,
+        });
+      }
+      if (url.endsWith('/verifications') && init?.method === 'POST') {
+        return response({ error: 'sensitive verification detail' }, 500);
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Verify' }));
+
+    expect(await screen.findByText('Could not record verification.')).toBeTruthy();
+    expect(screen.getByText('Not verified')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive verification detail');
+  });
+
   it('shows explicit not-acknowledged and not-verified states', async () => {
     fetchMock.mockImplementation(input => {
       const url = String(input);
