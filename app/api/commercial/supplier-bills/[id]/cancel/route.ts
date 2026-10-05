@@ -4,12 +4,12 @@ import { cancelSupplierBill } from '@/lib/commercial/supplierBills';
 
 type Ctx = { params: Promise<{ id: string }> };
 
-// Phase C7.4 — admin+ (approve floor), required non-empty reason
-// validated at the route level before the domain is ever called —
+// Phase C7.4 Ã¢â‚¬â€ admin+ (approve floor), required non-empty reason
+// validated at the route level before the domain is ever called Ã¢â‚¬â€
 // mirrors app/api/commercial/purchase-receipts/[id]/cancel/route.ts
 // exactly. cancelSupplierBill() only accepts a POSTED bill and never
-// deletes or renumbers anything. No supplier payments exist yet in this
-// phase, so there is no payment-reversal blocking to check here.
+// deletes or renumbers anything. AP settlement now adds a server-side
+// guard: active supplier payments must be reversed before cancellation.
 export async function POST(req: NextRequest, { params }: Ctx) {
   const auth = await authorizeCommercialRequest('purchasing', COMMERCIAL_MIN_ROLE.approve);
   if (!auth.ok) return auth.response;

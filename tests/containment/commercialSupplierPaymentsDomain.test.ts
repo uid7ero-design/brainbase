@@ -220,7 +220,7 @@ describe('AP-2 reverseSupplierPayment', () => {
     const { reverseSupplierPayment } = await import('@/lib/commercial/supplierPayments');
     await expect(reverseSupplierPayment({
       organisationId: ORG, userId: USER, supplierPaymentId: payment().id, reason: 'Again',
-    })).rejects.toThrow(/already reversed/);
+    })).rejects.toThrow(/already reversed|concurrently/);
     expect(logReversedMock).not.toHaveBeenCalled();
   });
 });

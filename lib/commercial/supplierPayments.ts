@@ -370,7 +370,7 @@ export async function reverseSupplierPayment(params: {
   `) as CommercialSupplierPayment[];
 
   const reversed = rows[0];
-  if (!reversed) throw new Error('supplier payment not found, already reversed, or changed concurrently');
+  if (!reversed) throw new Error('supplier payment already reversed, or changed concurrently');
 
   const allocations = await listSupplierPaymentAllocations(params.organisationId, reversed.id);
   await logSupplierPaymentReversed({
