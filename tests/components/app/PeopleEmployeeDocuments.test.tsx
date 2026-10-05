@@ -423,6 +423,48 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     expect(document.body.textContent).not.toContain('sensitive version upload detail');
   });
 
+  it('offers the current version download to an authorised viewer without management access', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    const link = await screen.findByRole('link', { name: 'Download' });
+    expect(link.getAttribute('href')).toBe(
+      `/api/hr/people/${PERSON.id}/documents/${DOCUMENT.id}/versions/${DOCUMENT.current_version.id}`,
+    );
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add version' })).toBeNull();
+  });
+
+  it('does not show a download action when a document has no current version', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [{ ...DOCUMENT, current_version: null }],
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Safety policy')).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Download' })).toBeNull();
+    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/assurance'))).toBe(false);
+  });
+
   it('requires explicit confirmation before deleting a managed employee document', async () => {
     fetchMock.mockImplementation(input => {
       const url = String(input);
