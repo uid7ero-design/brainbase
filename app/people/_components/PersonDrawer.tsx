@@ -71,6 +71,19 @@ type LifecycleTaskOption = {
   lifecycle_type: string;
 };
 
+type EmployeeDocumentVersionSummary = {
+  id: string;
+  version_number: number;
+  expires_at: string | null;
+  is_current: boolean;
+  created_at: string;
+};
+
+type VersionHistoryState =
+  | { state: 'loading' }
+  | { state: 'ready'; versions: EmployeeDocumentVersionSummary[] }
+  | { state: 'error' };
+
 type DocumentsState = 'idle' | 'loading' | 'ready' | 'error' | 'hidden';
 
 function dateOnly(value: string): string {
@@ -99,6 +112,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   const [documentVersionState, setDocumentVersionState] = useState<DocumentVersionState>('idle');
   const [deleteDocumentId, setDeleteDocumentId] = useState<string | null>(null);
   const [documentDeleteState, setDocumentDeleteState] = useState<DocumentDeleteState>('idle');
+  const [versionHistoryDocumentId, setVersionHistoryDocumentId] = useState<string | null>(null);
+  const [versionHistoryByDocument, setVersionHistoryByDocument] = useState<Record<string, VersionHistoryState>>({});
   const [lifecycleTaskOptions, setLifecycleTaskOptions] = useState<LifecycleTaskOption[]>([]);
   const [lifecycleTaskOptionsState, setLifecycleTaskOptionsState] = useState<LifecycleTaskOptionsState>('idle');
   const [newDocumentLifecycleTaskId, setNewDocumentLifecycleTaskId] = useState('');
@@ -123,6 +138,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         setDocumentVersionState('idle');
         setDeleteDocumentId(null);
         setDocumentDeleteState('idle');
+        setVersionHistoryDocumentId(null);
+        setVersionHistoryByDocument({});
         setLifecycleTaskOptions([]);
         setLifecycleTaskOptionsState('idle');
         setNewDocumentLifecycleTaskId('');
@@ -146,6 +163,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setDocumentVersionState('idle');
       setDeleteDocumentId(null);
       setDocumentDeleteState('idle');
+      setVersionHistoryDocumentId(null);
+      setVersionHistoryByDocument({});
       setLifecycleTaskOptions([]);
       setLifecycleTaskOptionsState('idle');
       setNewDocumentLifecycleTaskId('');
@@ -360,6 +379,70 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   const confirmDeleteDocumentButton = buttonProps('danger', 'sm');
   const cancelDeleteDocumentButton = buttonProps('secondary', 'sm');
   const downloadDocumentButton = buttonProps('secondary', 'sm');
+  const versionHistoryButton = buttonProps('secondary', 'sm');
+  const versionDownloadButton = buttonProps('secondary', 'sm');
+
+  async function toggleVersionHistory(document: EmployeeDocumentSummary) {
+    if (!personId) return;
+
+    if (versionHistoryDocumentId === document.id) {
+      setVersionHistoryDocumentId(null);
+      return;
+    }
+
+    setVersionHistoryDocumentId(document.id);
+
+    const existing = versionHistoryByDocument[document.id];
+    if (existing?.state === 'ready' || existing?.state === 'loading') return;
+
+    setVersionHistoryByDocument(current => ({
+      ...current,
+      [document.id]: { state: 'loading' },
+    }));
+
+    try {
+      const response = await fetch(
+        `/api/hr/people/${personId}/documents/${document.id}/versions`,
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !Array.isArray(data.versions)) {
+        setVersionHistoryByDocument(current => ({
+          ...current,
+          [document.id]: { state: 'error' },
+        }));
+        return;
+      }
+
+      const versions = data.versions
+        .filter((version: unknown): version is EmployeeDocumentVersionSummary => {
+          if (!version || typeof version !== 'object') return false;
+          const candidate = version as Partial<EmployeeDocumentVersionSummary>;
+          return typeof candidate.id === 'string'
+            && typeof candidate.version_number === 'number'
+            && (candidate.expires_at === null || typeof candidate.expires_at === 'string')
+            && typeof candidate.is_current === 'boolean'
+            && typeof candidate.created_at === 'string';
+        })
+        .map((version: EmployeeDocumentVersionSummary) => ({
+          id: version.id,
+          version_number: version.version_number,
+          expires_at: version.expires_at,
+          is_current: version.is_current,
+          created_at: version.created_at,
+        }));
+
+      setVersionHistoryByDocument(current => ({
+        ...current,
+        [document.id]: { state: 'ready', versions },
+      }));
+    } catch {
+      setVersionHistoryByDocument(current => ({
+        ...current,
+        [document.id]: { state: 'error' },
+      }));
+    }
+  }
 
   async function deleteDocument(document: EmployeeDocumentSummary) {
     if (!personId || !canManageDocuments) return;
@@ -398,6 +481,14 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         delete next[document.id];
         return next;
       });
+      setVersionHistoryByDocument(current => {
+        const next = { ...current };
+        delete next[document.id];
+        return next;
+      });
+      if (versionHistoryDocumentId === document.id) {
+        setVersionHistoryDocumentId(null);
+      }
 
       if (versionDocumentId === document.id) {
         setVersionDocumentId(null);
@@ -506,6 +597,14 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         ...current,
         [document.id]: 'idle',
       }));
+      setVersionHistoryByDocument(current => {
+        const next = { ...current };
+        delete next[document.id];
+        return next;
+      });
+      if (versionHistoryDocumentId === document.id) {
+        setVersionHistoryDocumentId(null);
+      }
 
       setVersionDocumentId(null);
       setNewVersionExpiry('');
@@ -892,6 +991,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                     const verificationAction = verificationByDocument[document.id] ?? 'idle';
                     const addingVersion = versionDocumentId === document.id;
                     const confirmingDelete = deleteDocumentId === document.id;
+                    const showingVersionHistory = versionHistoryDocumentId === document.id;
+                    const versionHistory = versionHistoryByDocument[document.id];
 
                     return (
                       <div key={document.id} style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 10 }}>
@@ -909,13 +1010,68 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                         )}
 
                         {document.current_version && (
-                          <div style={{ marginTop: 8 }}>
+                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
                             <a
                               href={`/api/hr/people/${personId}/documents/${document.id}/versions/${document.current_version.id}`}
                               {...downloadDocumentButton}
                             >
                               Download
                             </a>
+                            <button
+                              type="button"
+                              onClick={() => void toggleVersionHistory(document)}
+                              {...versionHistoryButton}
+                            >
+                              {showingVersionHistory ? 'Hide version history' : 'Version history'}
+                            </button>
+                          </div>
+                        )}
+
+                        {showingVersionHistory && versionHistory?.state === 'loading' && (
+                          <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 8 }}>
+                            Loading version history…
+                          </div>
+                        )}
+
+                        {showingVersionHistory && versionHistory?.state === 'error' && (
+                          <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 8 }}>
+                            Version history unavailable.
+                          </div>
+                        )}
+
+                        {showingVersionHistory && versionHistory?.state === 'ready' && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 9, paddingTop: 9, borderTop: '1px solid var(--border-subtle)' }}>
+                            {versionHistory.versions.length === 0 && (
+                              <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                                No versions available.
+                              </div>
+                            )}
+                            {versionHistory.versions.map(version => (
+                              <div
+                                key={version.id}
+                                style={{ border: '1px solid var(--border-subtle)', borderRadius: 7, padding: 8 }}
+                              >
+                                <div style={{ color: 'var(--text-primary)', fontSize: 12, fontWeight: 600 }}>
+                                  Version {version.version_number}{version.is_current ? ' · Current' : ''}
+                                </div>
+                                <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
+                                  Added {dateOnly(version.created_at)}
+                                </div>
+                                {version.expires_at && (
+                                  <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
+                                    Expires {dateOnly(version.expires_at)}
+                                  </div>
+                                )}
+                                <div style={{ marginTop: 7 }}>
+                                  <a
+                                    href={`/api/hr/people/${personId}/documents/${document.id}/versions/${version.id}`}
+                                    {...versionDownloadButton}
+                                  >
+                                    Download version {version.version_number}
+                                  </a>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         )}
 

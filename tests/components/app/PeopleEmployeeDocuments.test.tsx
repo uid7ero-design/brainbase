@@ -677,7 +677,142 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
 
     expect(await screen.findByText('Safety policy')).toBeTruthy();
     expect(screen.queryByRole('link', { name: 'Download' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Version history' })).toBeNull();
     expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/assurance'))).toBe(false);
+  });
+
+  it('lazy-loads safe version history and exposes audited download links for each version', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith(`/documents/${DOCUMENT.id}/versions`) && !init?.method) {
+        return response({
+          versions: [
+            {
+              id: 'version-3',
+              version_number: 3,
+              expires_at: '2028-10-05',
+              is_current: true,
+              created_at: '2026-10-05T08:00:00.000Z',
+              uploaded_by: 'sensitive-uploader',
+              original_filename: 'private-current.pdf',
+              comment: 'sensitive comment',
+            },
+            {
+              id: 'version-2',
+              version_number: 2,
+              expires_at: null,
+              is_current: false,
+              created_at: '2026-10-02T00:00:00.000Z',
+              uploaded_by: 'older-uploader',
+              original_filename: 'private-old.pdf',
+            },
+          ],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    const historyButton = await screen.findByRole('button', { name: 'Version history' });
+    expect(fetchMock.mock.calls.some(([input]) =>
+      String(input).endsWith(`/documents/${DOCUMENT.id}/versions`)
+    )).toBe(false);
+
+    fireEvent.click(historyButton);
+
+    expect(await screen.findByText('Version 3 · Current')).toBeTruthy();
+    expect(screen.getByText('Version 2')).toBeTruthy();
+    expect(screen.getByText('Expires 2028-10-05')).toBeTruthy();
+
+    const currentLink = screen.getByRole('link', { name: 'Download version 3' });
+    const oldLink = screen.getByRole('link', { name: 'Download version 2' });
+    expect(currentLink.getAttribute('href')).toBe(
+      `/api/hr/people/${PERSON.id}/documents/${DOCUMENT.id}/versions/version-3`,
+    );
+    expect(oldLink.getAttribute('href')).toBe(
+      `/api/hr/people/${PERSON.id}/documents/${DOCUMENT.id}/versions/version-2`,
+    );
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-uploader');
+    expect(text).not.toContain('private-current.pdf');
+    expect(text).not.toContain('sensitive comment');
+    expect(text).not.toContain('older-uploader');
+    expect(text).not.toContain('private-old.pdf');
+  });
+
+  it('reuses loaded version history when the section is hidden and reopened', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith(`/documents/${DOCUMENT.id}/versions`)) {
+        return response({
+          versions: [{
+            id: 'version-2',
+            version_number: 2,
+            expires_at: '2027-10-01',
+            is_current: true,
+            created_at: '2026-10-02T00:00:00.000Z',
+          }],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Version history' }));
+    expect(await screen.findByText('Version 2 · Current')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide version history' }));
+    expect(screen.queryByText('Version 2 · Current')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Version history' }));
+    expect(screen.getByText('Version 2 · Current')).toBeTruthy();
+
+    const versionCalls = fetchMock.mock.calls.filter(([input]) =>
+      String(input).endsWith(`/documents/${DOCUMENT.id}/versions`)
+    );
+    expect(versionCalls).toHaveLength(1);
+  });
+
+  it('shows only a generic version-history failure and preserves the document card', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith(`/documents/${DOCUMENT.id}/versions`)) {
+        return response({ error: 'sensitive version-history detail' }, 500);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Version history' }));
+
+    expect(await screen.findByText('Version history unavailable.')).toBeTruthy();
+    expect(screen.getByText('Safety policy')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive version-history detail');
   });
 
   it('requires explicit confirmation before deleting a managed employee document', async () => {
