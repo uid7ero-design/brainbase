@@ -15,6 +15,36 @@ export type SupplierApOverview = {
   aging_date: string; balance_basis: 'CURRENT_POSTED_BILLS'; bills: ApBill[];
   suppliers: ApSupplier[]; currencies: Array<ApAmounts & { currency: string }>;
 };
+export type SupplierApFilters = {
+  search: string; currency: string | null; supplierId: string | null; bucket: ApAgingBucket | null;
+  page: number; supplierPage: number; pageSize: number;
+};
+export const DEFAULT_AP_FILTERS: SupplierApFilters = {
+  search: '', currency: null, supplierId: null, bucket: null, page: 1, supplierPage: 1, pageSize: 50,
+};
+export type PagedSupplierApOverview = SupplierApOverview & {
+  filters: SupplierApFilters;
+  pagination: { page: number; supplier_page: number; page_size: number; outstanding_bill_count: number; supplier_count: number };
+  options: { currencies: string[]; suppliers: Array<{ supplier_id: string; supplier_name: string }> };
+};
+export function parseSupplierApFilters(params: URLSearchParams): SupplierApFilters {
+  function integer(name: string, fallback: number, max: number) {
+    const value = params.get(name);
+    if (value === null) return fallback;
+    if (!/^[1-9]\d*$/.test(value) || Number(value) > max) throw new Error(`Invalid ${name}`);
+    return Number(value);
+  }
+  const search = (params.get('search') ?? '').trim();
+  const currency = params.get('currency') || null;
+  const supplierId = params.get('supplier_id') || null;
+  const bucket = params.get('bucket') || null;
+  if (search.length > 200) throw new Error('Search must be at most 200 characters');
+  if (currency && !/^[A-Z]{3}$/.test(currency)) throw new Error('Invalid currency');
+  if (supplierId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(supplierId)) throw new Error('Invalid supplier_id');
+  if (bucket && !(AP_AGING_BUCKETS as readonly string[]).includes(bucket)) throw new Error('Invalid bucket');
+  return { search, currency, supplierId, bucket: bucket as ApAgingBucket | null,
+    page: integer('page', 1, 1000000), supplierPage: integer('supplier_page', 1, 1000000), pageSize: integer('page_size', 50, 100) };
+}
 
 export function calendarDay(value: string): number {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error('Invalid calendar date');

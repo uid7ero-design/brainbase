@@ -70,9 +70,9 @@ beforeAll(async () => {
       if (!url.pathname.startsWith('/api/')) {
         const bundle = url.pathname.includes('supplier-bills') ? billBundle : url.pathname.startsWith('/overview') ? overviewBundle : remittanceBundle;
         if (url.pathname.endsWith('.js')) {
-          outgoing.setHeader('Content-Type', 'application/javascript'); outgoing.end(bundle); return;
+          outgoing.setHeader('Content-Type', 'application/javascript; charset=utf-8'); outgoing.end(bundle); return;
         }
-        outgoing.setHeader('Content-Type', 'text/html');
+        outgoing.setHeader('Content-Type', 'text/html; charset=utf-8');
         outgoing.end(`<div id="root"></div><script src="${url.pathname}.js"></script>`); return;
       }
       let body = ''; for await (const chunk of incoming) body += chunk.toString();
@@ -201,7 +201,7 @@ describe('Supplier AP UI to real HTTP routes to disposable PostgreSQL', () => {
     expect(serverErrors).toEqual([]);
   });
 
-  it('measures overview/aging at 10,000 bills in the browser and 50,000 bills at the API', async () => {
+  it('measures paged overview/aging at 10,000 and 50,000 bills through the API and browser', async () => {
     await sql.raw(`INSERT INTO commercial_suppliers SELECT md5('supplier-'||n)::uuid,'load-org','Load supplier '||n,n%10<>0 FROM generate_series(1,1000) n`);
     async function seed(from: number, to: number) {
       await sql.raw(`INSERT INTO commercial_supplier_bills(id,organisation_id,supplier_id,currency,status,total_cents,subtotal_cents,bill_number,supplier_invoice_number,due_date)
@@ -228,19 +228,28 @@ describe('Supplier AP UI to real HTTP routes to disposable PostgreSQL', () => {
           expect(response.status).toBe(200);
           const text = await response.text(); times.push(Math.round(performance.now() - started)); bytes = Buffer.byteLength(text);
           const report = JSON.parse(text).report;
-          expect(report.bills).toHaveLength(size);
+          expect(report.bills).toHaveLength(50); expect(report.suppliers).toHaveLength(50);
+          expect(report.pagination.outstanding_bill_count).toBe(size);
+          expect(bytes).toBeLessThan(250000);
           expect(report.currencies.reduce((sum: bigint, row: { paid_cents: string }) => sum + BigInt(row.paid_cents), BigInt(0))).toBe(BigInt(size * 800));
           expect(report.currencies.reduce((sum: bigint, row: { outstanding_cents: string }) => sum + BigInt(row.outstanding_cents), BigInt(0))).toBe(BigInt(size * 9200));
         }
         const metric: Record<string, number> = { bills: size, suppliers: 1000, payments: size / 2, allocations: size / 2,
           first_ms: times[0], warm_max_ms: Math.max(...times.slice(1)), warm_median_ms: [...times.slice(1)].sort((a,b) => a-b)[2], json_bytes: bytes };
-        if (size === 10000) {
+        {
           const page = await newPage(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
           const started = performance.now(); await page.goto(`${origin}/overview`);
-          await browserExpect(page.getByRole('link', { name: /^LOAD-/ })).toHaveCount(size, { timeout: 60000 });
+          await browserExpect(page.getByRole('link', { name: /^LOAD-/ })).toHaveCount(50, { timeout: 60000 });
           metric.browser_render_ms = Math.round(performance.now() - started);
+          const firstLinks = await page.getByRole('link', { name: /^LOAD-/ }).allTextContents();
+          const totals = await page.getByRole('table').first().textContent();
+          await page.getByRole('button', { name: 'Next bill page', exact: true }).click();
+          await browserExpect(page.getByRole('navigation', { name: 'bill pages', exact: true })).toContainText('Page 2');
+          expect(await page.getByRole('link', { name: /^LOAD-/ }).allTextContents()).not.toEqual(firstLinks);
+          expect(await page.getByRole('table').first().textContent()).toBe(totals);
           const searchStarted = performance.now(); await page.getByLabel('Search suppliers or bills').fill('LOAD-10000');
           await browserExpect(page.getByRole('link', { name: /^LOAD-/ })).toHaveCount(1, { timeout: 15000 });
+          await browserExpect(page.getByRole('navigation', { name: 'bill pages', exact: true })).toContainText('Page 1');
           metric.browser_filter_ms = Math.round(performance.now() - searchStarted);
           expect(errors).toEqual([]); await page.close();
         }

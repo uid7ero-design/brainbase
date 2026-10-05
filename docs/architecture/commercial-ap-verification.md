@@ -10,6 +10,7 @@ Verified locally on 5 October 2026. No hosted database, push, or deployment was 
 - AP-5: the disposable budgeting harness applies the AP migration twice and runs all budgeting, Actual, finance close, adjustment, External GL, and reconciliation integration suites. The combined-report test compares report rows and finance rows before recording a settlement allocation and after both recording and reversal.
 - Browser: the real supplier-bill client component is bundled for Chromium with navigation and HTTP seams. Tests exercise partial payment, required reversal reason, preserved reversal history, cancellation protection, and viewer-only access. These tests do not replace the separate server authorization or real PostgreSQL tests.
 - AP readiness: four additional browser/HTTP/disposable-Postgres tests join the actual payment UI, route authorization composition, settlement domain, and database. They cover lost-response retries, page reload, whole-remittance reversal, access denial, tenant isolation, and 10,000/50,000-bill load measurement. See [readiness evidence and limits](commercial-ap-readiness.md).
+- AP pagination: six overview PostgreSQL tests and four overview browser flows verify full-scope totals, independent pages, server filtering, fully paid bills, SQL aging boundaries, and response races. The readiness load test now verifies 50-row bill/aging limits and response size below 250 KB at both 10,000 and 50,000 bills. See [pagination contract and evidence](commercial-supplier-ap-pagination.md).
 
 ## Commands
 

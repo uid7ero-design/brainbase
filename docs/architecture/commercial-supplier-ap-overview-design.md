@@ -62,7 +62,7 @@ The response contains:
 
 Summary invariants: payable equals paid plus outstanding; bucket totals equal outstanding; supplier/currency totals sum to portfolio totals in the same currency. Keep stable ordering by supplier name/ID, currency, due date, and bill ID.
 
-The initial report returns summaries and bill rows together, following the existing Commercial report pattern. Measure representative large-tenant output before rollout; if pagination is needed, retain full-scope totals and implement server-side filtering rather than deriving totals from a page of bills. No per-bill query loop.
+The report returns full-scope currency totals with separately paginated supplier/currency aging and outstanding bill rows. Filtering and aggregation run in PostgreSQL before page limits; totals are never derived from a page. See the [implemented pagination contract and load evidence](commercial-supplier-ap-pagination.md). No per-bill query loop.
 
 ## HTTP and UI
 
@@ -91,4 +91,4 @@ Multi-bill remittance UI, bank feeds, payment approval, historical AP reconstruc
 
 Focused coverage is in `commercialSupplierApOverview.test.ts`, `commercialSupplierApOverviewApi.test.ts`, and `commercialSupplierApOverview.spec.ts`. The browser tests bundle the actual page with controlled HTTP responses; server authorization and database behavior are tested separately. The standalone disposable-database runner is `powershell -NoProfile -File scripts/tests/verify-supplier-ap-overview.ps1`.
 
-The first query integration fixture tests query behavior with minimal prerequisite tables. Existing AP schema/migration tests remain the source of structural constraint verification. The [AP readiness load test](commercial-ap-readiness.md) now measures 10,000 bills through the actual browser and 50,000 through the actual HTTP handler, using the AP payment migration and indexed prerequisite tables. The initial response still returns all POSTED bill rows without pagination. The measured response growth makes server-side filtering/pagination, with full-scope totals, the next large-tenant rollout prerequisite.
+The query integration fixture tests query behavior with minimal prerequisite tables. Existing AP schema/migration tests remain the source of structural constraint verification. The [pagination load test](commercial-supplier-ap-pagination.md) now measures 10,000 and 50,000 bills through the actual browser and HTTP handler, using the AP payment migration and indexed prerequisites. Both bill and supplier/currency pages are bounded, with full filtered totals. Compact supplier filter options remain proportional to the number of distinct suppliers.

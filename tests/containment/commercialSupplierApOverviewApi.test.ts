@@ -19,7 +19,7 @@ describe('AP overview HTTP', () => {
   it('uses the session tenant and returns a no-store read', async () => {
     read.mockResolvedValue({ currencies: [] });
     const res = await GET(new Request('http://localhost/?aging_date=2026-10-05&organisationId=other'));
-    expect(read).toHaveBeenCalledWith('org-a', '2026-10-05'); expect(await res.json()).toEqual({ report: { currencies: [] } });
+    expect(read).toHaveBeenCalledWith('org-a', '2026-10-05', { search: '', currency: null, supplierId: null, bucket: null, page: 1, supplierPage: 1, pageSize: 50 }); expect(await res.json()).toEqual({ report: { currencies: [] } });
     expect(res.headers.get('Cache-Control')).toBe('no-store');
   });
   it('maps invariant/database failures without exposing internal details', async () => {
@@ -27,5 +27,15 @@ describe('AP overview HTTP', () => {
     const res = await GET(new Request('http://localhost/?aging_date=2026-10-05'));
     expect(res.status).toBe(500); expect(JSON.stringify(await res.json())).not.toContain('private');
     expect(res.headers.get('Cache-Control')).toBe('no-store');
+  });
+  it.each(['page=0','page=-1','page=1.5','page=1e3','page=1000001','supplier_page=0','page_size=101','page_size=0','currency=aud','supplier_id=other','bucket=OTHER', `search=${'a'.repeat(201)}`])('rejects invalid filters %s before a read', async query => {
+    const res = await GET(new Request(`http://localhost/?aging_date=2026-10-05&${query}`));
+    expect(res.status).toBe(400); expect(read).not.toHaveBeenCalled(); expect(res.headers.get('Cache-Control')).toBe('no-store');
+  });
+  it('passes validated paging and filters without trusting a client tenant', async () => {
+    const id = '00000000-0000-0000-0000-000000000101';
+    read.mockResolvedValue({});
+    await GET(new Request(`http://localhost/?aging_date=2026-10-05&search=INV&currency=AUD&supplier_id=${id}&bucket=DAYS_1_30&page=2&supplier_page=3&page_size=20&organisationId=hostile`));
+    expect(read).toHaveBeenCalledWith('org-a','2026-10-05',{ search:'INV', currency:'AUD', supplierId:id, bucket:'DAYS_1_30', page:2, supplierPage:3, pageSize:20 });
   });
 });

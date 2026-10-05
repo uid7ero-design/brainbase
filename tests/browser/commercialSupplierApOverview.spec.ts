@@ -33,7 +33,7 @@ test.beforeAll(async () => {
   bundle = output.filter(item => item.type === 'chunk').map(item => item.code).join('\n');
 });
 
-async function mount(page: Page) {
+async function mount(page: Page, large = false) {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   const dates: string[] = [];
@@ -44,11 +44,24 @@ async function mount(page: Page) {
     dates.push(date);
     if (date === '2026-10-07') return route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'Forbidden' }) });
     if (!date) return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'Choose a date' }) });
-    const rows = [
+    const rows = large ? Array.from({length:121}, (_, index) => ({ supplier_id:`00000000-0000-0000-0000-${String(index+1).padStart(12,'0')}`,
+      supplier_name:`Supplier ${String(index+1).padStart(3,'0')}`, supplier_active:true, bill_id:`b${index+1}`, bill_number:`SB${index+1}`,
+      supplier_invoice_number:`INV${index+1}`, due_date:'2026-09-05', currency:'AUD', payable_cents:'10000', paid_cents:'0' })) : [
       { supplier_id: 's1', supplier_name: 'Inactive supplier', supplier_active: false, bill_id: 'b1', bill_number: 'SB1', supplier_invoice_number: 'INV1', due_date: '2026-09-05', currency: 'AUD', payable_cents: '10000', paid_cents: '2500' },
       { supplier_id: 's2', supplier_name: 'USD supplier', supplier_active: true, bill_id: 'b2', bill_number: 'SB2', supplier_invoice_number: 'INV2', due_date: null, currency: 'USD', payable_cents: '20000', paid_cents: '0' },
     ];
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ report: buildSupplierApOverview(rows, date) }) });
+    const all = buildSupplierApOverview(rows, date);
+    const filtered = buildSupplierApOverview(all.bills.filter(row =>
+      (!url.searchParams.get('currency') || row.currency === url.searchParams.get('currency')) &&
+      (!url.searchParams.get('supplier_id') || row.supplier_id === url.searchParams.get('supplier_id')) &&
+      (!url.searchParams.get('bucket') || row.bucket === url.searchParams.get('bucket')) &&
+      `${row.supplier_name} ${row.bill_number} ${row.supplier_invoice_number}`.toLowerCase().includes((url.searchParams.get('search') ?? '').toLowerCase())), date);
+    const billPage = Number(url.searchParams.get('page') || 1), supplierPage = Number(url.searchParams.get('supplier_page') || 1);
+    if (large && billPage === 2 && !url.searchParams.get('search')) await new Promise(resolve => setTimeout(resolve,250));
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ report: { ...filtered,
+      bills: filtered.bills.slice((billPage-1)*50,billPage*50), suppliers: filtered.suppliers.slice((supplierPage-1)*50,supplierPage*50),
+      pagination: { page: billPage, supplier_page: supplierPage, page_size: 50, outstanding_bill_count: filtered.bills.length, supplier_count: filtered.suppliers.length },
+      options: { currencies: all.currencies.map(row => row.currency), suppliers: all.suppliers.map(row => ({ supplier_id: row.supplier_id, supplier_name: row.supplier_name })) } } }) });
   });
   await page.goto('http://brainbase.local/');
   await page.addScriptTag({ content: bundle });
@@ -82,4 +95,37 @@ test('changes aging classification and clears previous balances on a forbidden r
   await expect(page.getByRole('alert')).toContainText('You do not have access');
   await expect(page.getByRole('table')).toHaveCount(0);
   expect(dates).toContain('2026-10-06'); expect(errors).toEqual([]);
+});
+
+test('pages bills and supplier aging independently while retaining totals and filter options', async ({page}) => {
+  await mount(page, true);
+  const totals = page.getByRole('table').first();
+  const before = await totals.textContent();
+  await expect(page.getByRole('button',{name:'Previous bill page',exact:true})).toBeDisabled();
+  await page.getByRole('button',{name:'Next bill page',exact:true}).click();
+  await expect(page.getByRole('link',{name:'SB51',exact:true})).toBeVisible();
+  await expect(page.getByRole('link',{name:'SB1',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('link',{name:'Supplier 001',exact:true})).toBeVisible();
+  expect(await totals.textContent()).toBe(before);
+  await page.getByRole('button',{name:'Next supplier page',exact:true}).click();
+  await expect(page.getByRole('link',{name:'Supplier 051',exact:true})).toBeVisible();
+  await expect(page.getByRole('link',{name:'SB51',exact:true})).toBeVisible();
+  await page.getByLabel('Search suppliers or bills').fill('INV121');
+  await expect(page.getByRole('table')).toHaveCount(0);
+  await expect(page.getByRole('link',{name:'SB121',exact:true})).toBeVisible();
+  await expect(page.getByRole('navigation',{name:'bill pages',exact:true})).toContainText('Page 1');
+  await expect(page.getByRole('navigation',{name:'supplier pages',exact:true})).toContainText('Page 1');
+  await expect(page.getByRole('button',{name:'Next bill page',exact:true})).toBeDisabled();
+  await expect(page.getByLabel('Supplier',{exact:true}).getByRole('option')).toHaveCount(122);
+  await expect(totals).toContainText('$100.00');
+});
+
+test('a filter change during a delayed page read cannot restore the previous balances', async ({page}) => {
+  await mount(page,true);
+  await page.getByRole('button',{name:'Next bill page',exact:true}).click();
+  await page.getByLabel('Search suppliers or bills').fill('INV121');
+  await expect(page.getByRole('link',{name:'SB121',exact:true})).toBeVisible();
+  await expect(page.getByRole('link',{name:'SB51',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('navigation',{name:'bill pages',exact:true})).toContainText('Page 1');
+  await expect(page.getByRole('table').first()).toContainText('$100.00');
 });

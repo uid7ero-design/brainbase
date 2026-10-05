@@ -46,8 +46,8 @@ describe('Supplier AP overview foundation', () => {
   });
   it('queries once with tenant-scoped active allocation preaggregation and POSTED bills', async () => {
     sql.mockResolvedValueOnce([bill()]);
-    const { getSupplierApOverview } = await import('@/lib/commercial/supplierApOverview');
-    await getSupplierApOverview('org-a', '2026-10-05');
+    const { getSupplierApBills } = await import('@/lib/commercial/supplierApOverview');
+    await getSupplierApBills('org-a');
     expect(sql).toHaveBeenCalledTimes(1);
     const [strings, ...values] = sql.mock.calls[0];
     expect(values).toEqual(['org-a', 'org-a', null, null]);
