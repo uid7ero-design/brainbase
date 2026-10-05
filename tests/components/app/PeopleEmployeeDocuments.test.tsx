@@ -375,6 +375,251 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     expect(document.body.textContent).not.toContain('sensitive lifecycle task database detail');
   });
 
+  it('starts an executable lifecycle task and advances the local task state', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const taskId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          tasks: [{
+            id: taskId,
+            title: 'Complete induction',
+            status: 'NOT_STARTED',
+            due_at: null,
+            capabilities: { can_execute: true, can_approve: false },
+            assigned_user_id: 'sensitive-assignee-id',
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/tasks/${taskId}` && init?.method === 'PATCH') {
+        return response({
+          task: {
+            id: taskId,
+            status: 'IN_PROGRESS',
+            completed_by: 'sensitive-completer-id',
+          },
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
+    const start = await screen.findByRole('button', { name: 'Start task' });
+    fireEvent.click(start);
+
+    expect(await screen.findByText('Complete induction · IN_PROGRESS')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Complete task' })).toBeTruthy();
+
+    const patchCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input) === `/api/hr/lifecycle/tasks/${taskId}`
+      && init?.method === 'PATCH'
+    );
+    expect(patchCall).toBeTruthy();
+    expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual({ action: 'start' });
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-assignee-id');
+    expect(text).not.toContain('sensitive-completer-id');
+  });
+
+  it('completes an executable lifecycle task and updates a completed workflow summary', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const taskId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          tasks: [{
+            id: taskId,
+            title: 'Complete induction',
+            status: 'IN_PROGRESS',
+            due_at: '2026-10-06T00:00:00.000Z',
+            capabilities: { can_execute: true, can_approve: false },
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/tasks/${taskId}` && init?.method === 'PATCH') {
+        return response({
+          task: {
+            id: taskId,
+            status: 'COMPLETED',
+            completed_by: 'sensitive-completer-id',
+            completed_at: '2026-10-06T01:00:00.000Z',
+          },
+          workflow: {
+            id: workflowId,
+            status: 'COMPLETED',
+            completed_at: '2026-10-06T01:00:00.000Z',
+          },
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Complete task' }));
+
+    expect(await screen.findByText('Complete induction · COMPLETED')).toBeTruthy();
+    expect(screen.getByText('Onboarding · COMPLETED')).toBeTruthy();
+    expect(screen.getByText('Completed 2026-10-06')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Complete task' })).toBeNull();
+
+    const patchCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input) === `/api/hr/lifecycle/tasks/${taskId}`
+      && init?.method === 'PATCH'
+    );
+    expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual({ action: 'complete' });
+    expect(document.body.textContent).not.toContain('sensitive-completer-id');
+  });
+
+  it('does not show lifecycle execution controls when the server capability is false', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          tasks: [{
+            id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+            title: 'Complete induction',
+            status: 'NOT_STARTED',
+            due_at: null,
+            capabilities: { can_execute: false, can_approve: false },
+          }],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
+    expect(await screen.findByText('Complete induction · NOT_STARTED')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Start task' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Complete task' })).toBeNull();
+  });
+
+  it('shows only a generic lifecycle task mutation failure and preserves task state', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const taskId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          tasks: [{
+            id: taskId,
+            title: 'Complete induction',
+            status: 'NOT_STARTED',
+            due_at: null,
+            capabilities: { can_execute: true, can_approve: false },
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/tasks/${taskId}` && init?.method === 'PATCH') {
+        return response({ error: 'sensitive lifecycle mutation detail' }, 500);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Start task' }));
+
+    expect(await screen.findByText('Could not update lifecycle task.')).toBeTruthy();
+    expect(screen.getByText('Complete induction · NOT_STARTED')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Start task' })).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive lifecycle mutation detail');
+  });
+
   it('shows create controls only when the server document-management capability permits them', async () => {
     fetchMock.mockImplementation(input => {
       const url = String(input);
