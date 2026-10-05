@@ -85,7 +85,7 @@ Tests must prove multiple allocations do not multiply payable totals; a due-toda
 
 ## Deferred work
 
-Multi-bill remittance UI, bank feeds, payment approval, historical AP reconstruction, exports, FX, supplier bank details, and hosted migration/deployment remain separate slices. The existing settlement domain already supports multi-bill allocations; this read model must represent them correctly without adding another payment workflow.
+Multi-bill remittance UI, historical recorded AP and PDF/CSV downloads were implemented in later slices. See the [current release-readiness index](commercial-ap-release-readiness.md). Bank feeds, payment approval, FX and supplier bank details remain optional expansions; hosted migration/deployment require separate authorization.
 
 ## Local verification
 

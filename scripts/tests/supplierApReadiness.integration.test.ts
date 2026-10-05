@@ -51,7 +51,7 @@ beforeAll(async () => {
   await sql.raw('CREATE TABLE organisations(id TEXT PRIMARY KEY, name TEXT); CREATE TABLE users(id TEXT PRIMARY KEY)');
   await sql.raw(`CREATE TABLE commercial_suppliers(id UUID PRIMARY KEY, organisation_id TEXT REFERENCES organisations(id), name TEXT, active BOOLEAN, UNIQUE(id,organisation_id))`);
   await sql.raw(`CREATE TABLE commercial_supplier_bills(id UUID PRIMARY KEY, organisation_id TEXT REFERENCES organisations(id), supplier_id UUID, currency TEXT,
-    status TEXT, total_cents INTEGER, subtotal_cents INTEGER, tax_cents INTEGER DEFAULT 0, bill_number TEXT, supplier_invoice_number TEXT, due_date DATE,
+    status TEXT, total_cents INTEGER, subtotal_cents INTEGER, tax_cents INTEGER DEFAULT 0, bill_number TEXT, supplier_invoice_number TEXT, bill_date DATE, due_date DATE,
     created_at TIMESTAMPTZ DEFAULT now(), posted_at TIMESTAMPTZ DEFAULT '2026-09-01T00:00:00Z', cancelled_at TIMESTAMPTZ,
     UNIQUE(id,organisation_id), FOREIGN KEY(supplier_id,organisation_id) REFERENCES commercial_suppliers(id,organisation_id))`);
   await sql.raw('CREATE INDEX idx_ap_readiness_bills_org_status ON commercial_supplier_bills(organisation_id,status)');

@@ -124,12 +124,12 @@ function computeLineTotals(unitPriceCents: number, quantity: string | number, ta
 export async function listSupplierBills(organisationId: string, opts: { status?: SupplierBillStatus } = {}): Promise<CommercialSupplierBill[]> {
   if (opts.status) {
     return (await sql`
-      SELECT * FROM commercial_supplier_bills WHERE organisation_id = ${organisationId} AND status = ${opts.status}
+      SELECT *, bill_date::text AS bill_date, due_date::text AS due_date FROM commercial_supplier_bills WHERE organisation_id = ${organisationId} AND status = ${opts.status}
       ORDER BY created_at DESC
     `) as CommercialSupplierBill[];
   }
   return (await sql`
-    SELECT * FROM commercial_supplier_bills WHERE organisation_id = ${organisationId} ORDER BY created_at DESC
+    SELECT *, bill_date::text AS bill_date, due_date::text AS due_date FROM commercial_supplier_bills WHERE organisation_id = ${organisationId} ORDER BY created_at DESC
   `) as CommercialSupplierBill[];
 }
 
@@ -138,7 +138,7 @@ export async function listSupplierBills(organisationId: string, opts: { status?:
 // function's identical tenant-isolation discipline.
 export async function getSupplierBill(organisationId: string, supplierBillId: string): Promise<CommercialSupplierBill | null> {
   const rows = (await sql`
-    SELECT * FROM commercial_supplier_bills WHERE id = ${supplierBillId} AND organisation_id = ${organisationId}
+    SELECT *, bill_date::text AS bill_date, due_date::text AS due_date FROM commercial_supplier_bills WHERE id = ${supplierBillId} AND organisation_id = ${organisationId}
   `) as CommercialSupplierBill[];
   return rows[0] ?? null;
 }
@@ -164,7 +164,7 @@ export async function getSupplierBillWithLines(
 // GET /api/commercial/purchase-orders/[id]/bills.
 export async function listSupplierBillsForPurchaseOrder(organisationId: string, purchaseOrderId: string): Promise<CommercialSupplierBill[]> {
   return (await sql`
-    SELECT * FROM commercial_supplier_bills
+    SELECT *, bill_date::text AS bill_date, due_date::text AS due_date FROM commercial_supplier_bills
     WHERE organisation_id = ${organisationId} AND source_purchase_order_id = ${purchaseOrderId}
     ORDER BY created_at DESC
   `) as CommercialSupplierBill[];

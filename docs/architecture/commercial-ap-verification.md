@@ -2,6 +2,10 @@
 
 Verified locally on 5 October 2026. No hosted database, push, or deployment was used.
 
+The [release-readiness index and rollout/rollback guide](commercial-ap-release-readiness.md)
+consolidates completed slices and adds actual `next start` login/middleware/UI
+verification. Counts below record earlier implementation slices.
+
 ## Coverage
 
 - AP-1: ten real PostgreSQL migration tests, including tenant relationships, positive amounts, provider identity, multi-allocation structure, and legacy request-key migration/reapplication.
