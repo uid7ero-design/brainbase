@@ -753,10 +753,11 @@ export async function postSupplierBill(params: {
 // admin+ (approve floor, matching cancelSupplierBill()'s own floor as
 // stated in the C7.4 capability matrix) — only a POSTED bill may be
 // cancelled; a non-empty, trimmed cancel_reason is mandatory. Never
-// hard-deletes, never renumbers. No supplier payments exist yet in this
-// phase, so there is no payment-reversal blocking to implement — see the
-// C7.4 brief's own explicit note. Cancelling a bill automatically
-// removes it from billed-to-date, for free, by construction:
+// hard-deletes, never renumbers. AP settlement adds one further
+// invariant: a POSTED bill with an active RECORDED supplier payment
+// allocation cannot be cancelled until that payment is reversed.
+// Cancelling an unpaid bill automatically removes it from billed-to-date,
+// for free, by construction:
 // getBilledAmountsForPurchaseOrder() only ever sums status = 'POSTED'
 // lines, so a CANCELLED bill's amounts simply stop counting the moment
 // this UPDATE commits — no separate reversal bookkeeping exists or is
@@ -783,6 +784,7 @@ export async function cancelSupplierBill(params: {
         WHERE id = ${params.supplierBillId}
           AND organisation_id = ${params.organisationId}
           AND status = 'POSTED'
+        FOR UPDATE
       ),
       affected_line_ids AS MATERIALIZED (
         SELECT DISTINCT source_purchase_order_line_id AS line_id
@@ -821,6 +823,16 @@ export async function cancelSupplierBill(params: {
           WHERE sbl.supplier_bill_id = sb.id
             AND sbl.organisation_id = sb.organisation_id
         )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM commercial_supplier_payment_allocations spa
+          JOIN commercial_supplier_payments sp
+            ON sp.id = spa.supplier_payment_id
+           AND sp.organisation_id = spa.organisation_id
+           AND sp.status = 'RECORDED'
+          WHERE spa.supplier_bill_id = sb.id
+            AND spa.organisation_id = sb.organisation_id
+        )
       RETURNING sb.*
     `,
   ], { isolationLevel: 'ReadCommitted' });
@@ -840,6 +852,21 @@ export async function cancelSupplierBill(params: {
     if (Number(activeRows[0]?.count ?? 0) > 0) {
       throw new Error('supplier bill has active purchase match allocations; reverse them before cancelling the bill');
     }
+
+    const paymentRows = (await sql`
+      SELECT COUNT(*)::text AS count
+      FROM commercial_supplier_payment_allocations spa
+      JOIN commercial_supplier_payments sp
+        ON sp.id = spa.supplier_payment_id
+       AND sp.organisation_id = spa.organisation_id
+       AND sp.status = 'RECORDED'
+      WHERE spa.supplier_bill_id = ${params.supplierBillId}
+        AND spa.organisation_id = ${params.organisationId}
+    `) as { count: string }[];
+    if (Number(paymentRows[0]?.count ?? 0) > 0) {
+      throw new Error('supplier bill has active supplier payments; reverse them before cancelling the bill');
+    }
+
     throw new Error('supplier bill status changed concurrently; cancel aborted');
   }
 

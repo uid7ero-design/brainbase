@@ -458,6 +458,53 @@ export async function logPaymentReversed(params: {
   });
 }
 
+// ── Supplier / AP payments ──────────────────────────────────────────────
+
+export async function logSupplierPaymentRecorded(params: {
+  organisationId: string; userId: string; supplierPaymentId: string; supplierId: string;
+  amountCents: number; currency: string; method: string; paidAt: string;
+  billAllocations: Array<{ supplier_bill_id: string; allocated_amount_cents: number }>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId,
+    userId: params.userId,
+    action: 'commercial_supplier_payment.recorded',
+    resourceType: 'commercial_supplier_payment',
+    resourceId: params.supplierPaymentId,
+    beforeState: null,
+    afterState: {
+      supplier_id: params.supplierId,
+      amount_cents: params.amountCents,
+      currency: params.currency,
+      method: params.method,
+      paid_at: params.paidAt,
+      bill_allocations: params.billAllocations,
+    },
+  });
+}
+
+export async function logSupplierPaymentReversed(params: {
+  organisationId: string; userId: string; supplierPaymentId: string;
+  amountCents: number; reversalReason: string; reversedAt: string;
+  supplierBillIds: string[];
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId,
+    userId: params.userId,
+    action: 'commercial_supplier_payment.reversed',
+    resourceType: 'commercial_supplier_payment',
+    resourceId: params.supplierPaymentId,
+    beforeState: { status: 'RECORDED' },
+    afterState: {
+      status: 'REVERSED',
+      amount_cents: params.amountCents,
+      reversal_reason: params.reversalReason,
+      reversed_at: params.reversedAt,
+      supplier_bill_ids: params.supplierBillIds,
+    },
+  });
+}
+
 // ── Suppliers (Phase C6.2) ──────────────────────────────────────────────
 //
 // Mirrors logCustomerCreated()/logCustomerUpdated() exactly — never logs
