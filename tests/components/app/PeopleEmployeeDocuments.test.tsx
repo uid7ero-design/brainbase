@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { renderBrainbase } from '../../a11y/render';
 
 const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>();
@@ -51,6 +51,10 @@ function assuranceResponse(overrides: Record<string, unknown> = {}) {
   return response({
     assurance: {
       document_version_id: 'version-2',
+      capabilities: {
+        can_acknowledge: false,
+        can_verify: false,
+      },
       employee_acknowledgement: {
         acknowledged: true,
         acknowledged_at: '2026-10-03T01:02:03.000Z',
@@ -84,7 +88,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('HR-7E6C/6D PersonDrawer employee documents', () => {
+describe('HR-7E6C/6D/7E7B PersonDrawer employee documents', () => {
   it('shows safe document metadata and current-version assurance status', async () => {
     fetchMock.mockImplementation(input => {
       const url = String(input);
@@ -110,6 +114,176 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     expect(text).not.toContain('uploaded');
     expect(text).not.toContain('verified_by');
     expect(text).not.toContain('comment');
+  });
+
+  it('offers acknowledgement only when the server capability allows it and the version is unacknowledged', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ documents: [DOCUMENT] });
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          capabilities: {
+            can_acknowledge: true,
+            can_verify: false,
+          },
+          employee_acknowledgement: {
+            acknowledged: false,
+            acknowledged_at: null,
+          },
+          latest_verification: null,
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByRole('button', { name: 'Acknowledge' })).toBeTruthy();
+  });
+
+  it('does not show acknowledgement for a viewer without server capability', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ documents: [DOCUMENT] });
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          capabilities: {
+            can_acknowledge: false,
+            can_verify: true,
+          },
+          employee_acknowledgement: {
+            acknowledged: false,
+            acknowledged_at: null,
+          },
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Not acknowledged')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Acknowledge' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Confirm acknowledgement/ })).toBeNull();
+  });
+
+  it('requires explicit confirmation before posting acknowledgement and then updates the local status', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ documents: [DOCUMENT] });
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          capabilities: {
+            can_acknowledge: true,
+            can_verify: false,
+          },
+          employee_acknowledgement: {
+            acknowledged: false,
+            acknowledged_at: null,
+          },
+          latest_verification: null,
+        });
+      }
+      if (url.endsWith('/acknowledgements') && init?.method === 'POST') {
+        return response({
+          acknowledgement: {
+            id: 'ack-1',
+            document_version_id: 'version-2',
+            acknowledged_by: 'user-a',
+            acknowledged_at: '2026-10-05T03:04:05.000Z',
+          },
+        }, 201);
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Acknowledge' }));
+    expect(fetchMock.mock.calls.some(([input, init]) =>
+      String(input).endsWith('/acknowledgements') && init?.method === 'POST',
+    )).toBe(false);
+
+    const confirmation = document.querySelector(
+      '[aria-label="Confirm acknowledgement for Safety policy"]',
+    ) as HTMLElement | null;
+    expect(confirmation).toBeTruthy();
+    expect(within(confirmation!).getByText(/records that you acknowledge this document version/i)).toBeTruthy();
+
+    fireEvent.click(within(confirmation!).getByRole('button', { name: 'Confirm acknowledgement' }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) =>
+      String(input).endsWith('/api/hr/people/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/documents/doc-1/versions/version-2/acknowledgements')
+      && init?.method === 'POST',
+    )).toBe(true));
+
+    expect(await screen.findByText('Acknowledged 2026-10-05')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Acknowledge' })).toBeNull();
+  });
+
+  it('cancel leaves acknowledgement unchanged and sends no POST', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ documents: [DOCUMENT] });
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          capabilities: {
+            can_acknowledge: true,
+            can_verify: false,
+          },
+          employee_acknowledgement: {
+            acknowledged: false,
+            acknowledged_at: null,
+          },
+          latest_verification: null,
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Acknowledge' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.getByText('Not acknowledged')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Acknowledge' })).toBeTruthy();
+    expect(fetchMock.mock.calls.some(([input, init]) =>
+      String(input).endsWith('/acknowledgements') && init?.method === 'POST',
+    )).toBe(false);
+  });
+
+  it('shows a generic acknowledgement failure without leaking the server detail', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ documents: [DOCUMENT] });
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          capabilities: {
+            can_acknowledge: true,
+            can_verify: false,
+          },
+          employee_acknowledgement: {
+            acknowledged: false,
+            acknowledged_at: null,
+          },
+          latest_verification: null,
+        });
+      }
+      if (url.endsWith('/acknowledgements') && init?.method === 'POST') {
+        return response({ error: 'sensitive mutation detail' }, 500);
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Acknowledge' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm acknowledgement' }));
+
+    expect(await screen.findByText('Could not record acknowledgement.')).toBeTruthy();
+    expect(screen.queryByText('sensitive mutation detail')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
   });
 
   it('shows explicit not-acknowledged and not-verified states', async () => {
