@@ -50,7 +50,7 @@ vi.doMock('@/lib/db', () => ({ default: sqlMock }));
 
 const { getBudgetActualCommittedReport } = await import('@/lib/commercial/budgetActualCommitted');
 const { buildBudgetConsumptionCsvExports } = await import('@/lib/commercial/budgetConsumptionExport');
-const { FinanceAdjustedTable } = await import('@/app/commercial/budgeting/commitments/page');
+const { FinanceAdjustedTable } = await import('@/app/commercial/budgeting/commitments/BudgetCommitmentsPage');
 
 const ORG = 'org-c78c';
 const OTHER = 'org-c78c-other';
@@ -96,6 +96,8 @@ beforeEach(async () => {
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_finance_adjustment_events WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_finance_adjustment_lines WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_finance_adjustments WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
+  await prisma.$executeRawUnsafe(`DELETE FROM commercial_supplier_payment_allocations WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
+  await prisma.$executeRawUnsafe(`DELETE FROM commercial_supplier_payments WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_supplier_bill_lines WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_supplier_bills WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_purchase_order_lines WHERE organisation_id IN ($1,$2)`, ORG, OTHER);
@@ -198,6 +200,50 @@ function onlyRow(report: Awaited<ReturnType<typeof getBudgetActualCommittedRepor
 }
 
 describe('C7.8C — real PostgreSQL snapshot-safe combined consumption', () => {
+
+  it('AP settlement remains outside Budget Actual and the combined finance evidence', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE commercial_supplier_bills
+       SET status='POSTED', posted_at='2026-09-15T12:00:00Z'
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      BILL, ORG,
+    );
+
+    const before = await getBudgetActualCommittedReport(ORG);
+    const beforeRows = JSON.parse(JSON.stringify(before.rows));
+    const beforeFinanceRows = JSON.parse(JSON.stringify(before.financeRows));
+
+    const paymentId = '78888888-2000-0000-0000-000000000021';
+    const allocationId = '78888888-2000-0000-0000-000000000022';
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_supplier_payments
+        (id,organisation_id,supplier_id,amount_cents,currency,method,reference,paid_at,status,recorded_by)
+       VALUES ($1::uuid,$2,$3::uuid,1000,'AUD','BANK_TRANSFER','AP-ISO','2026-09-25T00:00:00Z','RECORDED',$4)`,
+      paymentId, ORG, SUP, USER,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_supplier_payment_allocations
+        (id,organisation_id,supplier_payment_id,supplier_bill_id,supplier_id,currency,allocated_amount_cents)
+       VALUES ($1::uuid,$2,$3::uuid,$4::uuid,$5::uuid,'AUD',1000)`,
+      allocationId, ORG, paymentId, BILL, SUP,
+    );
+
+    const afterRecorded = await getBudgetActualCommittedReport(ORG);
+    expect(afterRecorded.rows).toEqual(beforeRows);
+    expect(afterRecorded.financeRows).toEqual(beforeFinanceRows);
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE commercial_supplier_payments
+       SET status='REVERSED', reversed_by=$1, reversed_at='2026-09-26T00:00:00Z', reversal_reason='Isolation proof'
+       WHERE id=$2::uuid AND organisation_id=$3`,
+      USER, paymentId, ORG,
+    );
+
+    const afterReversed = await getBudgetActualCommittedReport(ORG);
+    expect(afterReversed.rows).toEqual(beforeRows);
+    expect(afterReversed.financeRows).toEqual(beforeFinanceRows);
+  });
+
   it('POST race returns a valid before-state snapshot, then a fresh report returns the after-state', async () => {
     afterFirstSnapshotStatement = async () => {
       await writer.$executeRawUnsafe(

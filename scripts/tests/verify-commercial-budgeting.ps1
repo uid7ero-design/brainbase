@@ -6,6 +6,7 @@ $financeCloseMigration = Join-Path $repo 'scripts\create-commercial-finance-clos
 $financeAdjustmentMigration = Join-Path $repo 'scripts\create-commercial-finance-adjustments.sql'
 $externalGlMigration = Join-Path $repo 'scripts\create-commercial-external-gl.sql'
 $financeReconciliationMigration = Join-Path $repo 'scripts\create-commercial-finance-reconciliation.sql'
+$supplierPaymentsMigration = Join-Path $repo 'scripts\create-commercial-supplier-payments.sql'
 $container = "brainbase-c77b-budgeting-$PID"
 $port = 55439
 $pass = 0
@@ -180,6 +181,16 @@ INSERT INTO users(id,organisation_id) VALUES ('user-a','org-a'),('user-b','org-b
   Mark 'C7.9E1/E2/E3/E4 finance-reconciliation idempotent second apply' {
     Get-Content $financeReconciliationMigration -Raw | docker exec -i $container psql -v ON_ERROR_STOP=1 -U postgres -d testdb
     if ($LASTEXITCODE -ne 0) { throw "finance-reconciliation second migration exit $LASTEXITCODE" }
+  }
+
+  Mark 'AP settlement fresh migration apply' {
+    Get-Content $supplierPaymentsMigration -Raw | docker exec -i $container psql -v ON_ERROR_STOP=1 -U postgres -d testdb
+    if ($LASTEXITCODE -ne 0) { throw "AP settlement fresh migration exit $LASTEXITCODE" }
+  }
+
+  Mark 'AP settlement idempotent second apply' {
+    Get-Content $supplierPaymentsMigration -Raw | docker exec -i $container psql -v ON_ERROR_STOP=1 -U postgres -d testdb
+    if ($LASTEXITCODE -ne 0) { throw "AP settlement second migration exit $LASTEXITCODE" }
   }
 
   Mark 'fixtures' {
