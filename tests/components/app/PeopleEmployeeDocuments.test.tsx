@@ -620,6 +620,276 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     expect(document.body.textContent).not.toContain('sensitive lifecycle mutation detail');
   });
 
+  it('approves an authorised lifecycle task without rendering approval identity metadata', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const taskId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          tasks: [{
+            id: taskId,
+            title: 'Manager sign-off',
+            status: 'AWAITING_APPROVAL',
+            due_at: null,
+            capabilities: { can_execute: false, can_approve: true },
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/tasks/${taskId}/approvals` && init?.method === 'POST') {
+        return response({
+          approval: {
+            id: 'sensitive-approval-id',
+            task_id: taskId,
+            workflow_id: workflowId,
+            person_id: PERSON.id,
+            approver_user_id: 'sensitive-approver-id',
+            decision: 'APPROVED',
+            comment: 'sensitive approval comment',
+            decided_at: '2026-10-06T01:00:00.000Z',
+          },
+          task: {
+            id: taskId,
+            status: 'COMPLETED',
+            completed_at: '2026-10-06T01:00:00.000Z',
+          },
+          workflow: {
+            id: workflowId,
+            status: 'COMPLETED',
+            completed_at: '2026-10-06T01:00:00.000Z',
+          },
+        }, 201);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+
+    expect(await screen.findByText('Manager sign-off · COMPLETED')).toBeTruthy();
+    expect(screen.getByText('Onboarding · COMPLETED')).toBeTruthy();
+    expect(screen.getByText('Completed 2026-10-06')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
+
+    const postCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input) === `/api/hr/lifecycle/tasks/${taskId}/approvals`
+      && init?.method === 'POST'
+    );
+    expect(JSON.parse(String(postCall?.[1]?.body))).toEqual({ decision: 'APPROVED' });
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-approval-id');
+    expect(text).not.toContain('sensitive-approver-id');
+    expect(text).not.toContain('sensitive approval comment');
+  });
+
+  it('rejects an authorised lifecycle task and returns it to the server-provided state', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const taskId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          tasks: [{
+            id: taskId,
+            title: 'Manager sign-off',
+            status: 'AWAITING_APPROVAL',
+            due_at: null,
+            capabilities: { can_execute: false, can_approve: true },
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/tasks/${taskId}/approvals` && init?.method === 'POST') {
+        return response({
+          approval: {
+            id: 'sensitive-approval-id',
+            approver_user_id: 'sensitive-approver-id',
+            decision: 'REJECTED',
+            comment: 'sensitive rejection comment',
+          },
+          task: {
+            id: taskId,
+            status: 'IN_PROGRESS',
+            completed_at: null,
+          },
+          workflow: {
+            id: workflowId,
+            status: 'ACTIVE',
+            completed_at: null,
+          },
+        }, 201);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Reject' }));
+
+    expect(await screen.findByText('Manager sign-off · IN_PROGRESS')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
+
+    const postCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input) === `/api/hr/lifecycle/tasks/${taskId}/approvals`
+      && init?.method === 'POST'
+    );
+    expect(JSON.parse(String(postCall?.[1]?.body))).toEqual({ decision: 'REJECTED' });
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-approval-id');
+    expect(text).not.toContain('sensitive-approver-id');
+    expect(text).not.toContain('sensitive rejection comment');
+  });
+
+  it('does not show lifecycle approval controls when can_approve is false', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          tasks: [{
+            id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+            title: 'Manager sign-off',
+            status: 'AWAITING_APPROVAL',
+            due_at: null,
+            capabilities: { can_execute: true, can_approve: false },
+          }],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
+    expect(await screen.findByText('Manager sign-off · AWAITING_APPROVAL')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
+  });
+
+  it('shows only a generic lifecycle approval failure and preserves awaiting-approval state', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const taskId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          tasks: [{
+            id: taskId,
+            title: 'Manager sign-off',
+            status: 'AWAITING_APPROVAL',
+            due_at: null,
+            capabilities: { can_execute: false, can_approve: true },
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/tasks/${taskId}/approvals` && init?.method === 'POST') {
+        return response({ error: 'sensitive approval failure detail' }, 500);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+
+    expect(await screen.findByText('Could not record lifecycle task approval.')).toBeTruthy();
+    expect(screen.getByText('Manager sign-off · AWAITING_APPROVAL')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Reject' })).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive approval failure detail');
+  });
+
   it('shows create controls only when the server document-management capability permits them', async () => {
     fetchMock.mockImplementation(input => {
       const url = String(input);
