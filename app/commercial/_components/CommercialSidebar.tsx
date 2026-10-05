@@ -67,6 +67,7 @@ export default function CommercialSidebar({
       // 'purchasing' capability — the C7.4 brief explicitly said not to
       // repurpose the unused 'expenses' capability yet).
       { href: '/commercial/purchasing/supplier-bills', label: 'Supplier Bills' },
+      { href: '/commercial/purchasing/ap-overview', label: 'AP Overview' },
       { href: '/commercial/purchasing/suppliers', label: 'Suppliers' },
     ] : []),
     ...(budgetingEnabled

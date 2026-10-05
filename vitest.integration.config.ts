@@ -202,6 +202,7 @@ export default defineConfig({
       'scripts/tests/financeReconciliation.integration.test.ts',
       'scripts/tests/supplierPaymentsMigration.integration.test.ts',
       'scripts/tests/supplierPaymentsConcurrency.integration.test.ts',
+      'scripts/tests/supplierApOverview.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,

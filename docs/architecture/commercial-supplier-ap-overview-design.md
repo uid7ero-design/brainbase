@@ -1,6 +1,6 @@
 # Supplier AP overview and aging
 
-Status: implementation design following AP-1 through AP-5.
+Status: first read-model, HTTP, and UI implementation following AP-1 through AP-5.
 
 ## Purpose and existing contracts
 
@@ -86,3 +86,9 @@ Tests must prove multiple allocations do not multiply payable totals; a due-toda
 ## Deferred work
 
 Multi-bill remittance UI, bank feeds, payment approval, historical AP reconstruction, exports, FX, supplier bank details, and hosted migration/deployment remain separate slices. The existing settlement domain already supports multi-bill allocations; this read model must represent them correctly without adding another payment workflow.
+
+## Local verification
+
+Focused coverage is in `commercialSupplierApOverview.test.ts`, `commercialSupplierApOverviewApi.test.ts`, and `commercialSupplierApOverview.spec.ts`. The browser tests bundle the actual page with controlled HTTP responses; server authorization and database behavior are tested separately. The standalone disposable-database runner is `powershell -NoProfile -File scripts/tests/verify-supplier-ap-overview.ps1`.
+
+The first query integration fixture tests query behavior with minimal prerequisite tables. Existing AP schema/migration tests remain the source of structural constraint verification. Large-tenant load testing remains a rollout prerequisite; the initial response returns all POSTED bill rows without pagination.
