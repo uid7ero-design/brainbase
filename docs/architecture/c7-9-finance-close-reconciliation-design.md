@@ -411,9 +411,9 @@ Recommended states:
 - UNMAPPED_COST_CENTRE;
 - MISSING_EXTERNAL_ENTRY;
 - EXTERNAL_ONLY_ENTRY;
-- CURRENCY_MISMATCH;
-- PERIOD_MISMATCH;
 - STALE_AFTER_REOPEN.
+
+In the implemented C7.9E engine, currency and financial period are hard reconciliation boundaries rather than persisted item outcomes. A reconciliation snapshot is prepared for one explicit currency and one explicit governed financial period; unlike currencies are never combined, and external entries whose transaction_date falls outside that period are excluded before aggregation. Accordingly, CURRENCY_MISMATCH and PERIOD_MISMATCH are boundary/precondition conditions, not stored reconciliation-item outcomes.
 
 Tolerance is **zero cents by default**.
 

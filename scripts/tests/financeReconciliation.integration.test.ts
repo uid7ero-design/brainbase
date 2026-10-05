@@ -554,6 +554,24 @@ describe('C7.9E1 — prepared finance reconciliation snapshots', () => {
     expect(result.externalGlTotalCents).toBe('1000');
   });
 
+  it('never combines external entries from a different financial period', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    await addEntry(f, 1000, '600', '2026-09-20', 'AUD');
+    await addEntry(f, 9999, '600', '2026-10-02', 'AUD');
+
+    const result = await prepare(f, f.period, 'AUD');
+
+    expect(result.externalGlTotalCents).toBe('1000');
+    expect(result.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        externalGlAccountCode: '600',
+        externalGlCents: '1000',
+      }),
+    ]));
+    expect(result.items.some(item => item.externalGlCents === '9999')).toBe(false);
+  });
+
   it('persists parent totals that exactly equal its item evidence', async () => {
     const f = await seedFixture();
     await addMapping(f);
