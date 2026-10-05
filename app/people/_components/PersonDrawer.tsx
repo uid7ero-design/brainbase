@@ -65,6 +65,7 @@ type DocumentDeleteState = 'idle' | 'submitting' | 'error';
 type LifecycleTaskOptionsState = 'idle' | 'loading' | 'ready' | 'error';
 type LifecycleWorkflowsState = 'idle' | 'loading' | 'ready' | 'error';
 type LifecycleTaskActionState = 'idle' | 'submitting' | 'error';
+type LifecycleTaskApprovalState = 'idle' | 'approving' | 'rejecting' | 'error';
 
 type LifecycleTaskOption = {
   id: string;
@@ -150,6 +151,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   const [lifecycleTaskWorkflowId, setLifecycleTaskWorkflowId] = useState<string | null>(null);
   const [lifecycleTasksByWorkflow, setLifecycleTasksByWorkflow] = useState<Record<string, LifecycleTaskDetailsState>>({});
   const [lifecycleTaskActionById, setLifecycleTaskActionById] = useState<Record<string, LifecycleTaskActionState>>({});
+  const [lifecycleTaskApprovalById, setLifecycleTaskApprovalById] = useState<Record<string, LifecycleTaskApprovalState>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -181,6 +183,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         setLifecycleTaskWorkflowId(null);
         setLifecycleTasksByWorkflow({});
         setLifecycleTaskActionById({});
+        setLifecycleTaskApprovalById({});
         return;
       }
 
@@ -211,6 +214,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setLifecycleTaskWorkflowId(null);
       setLifecycleTasksByWorkflow({});
       setLifecycleTaskActionById({});
+      setLifecycleTaskApprovalById({});
 
       void fetch(`/api/hr/people/${personId}`)
         .then(async response => {
@@ -622,8 +626,98 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
     }
   }
 
+  async function runLifecycleTaskApproval(
+    workflow: PersonLifecycleWorkflowSummary,
+    task: PersonLifecycleTaskSummary,
+    decision: 'APPROVED' | 'REJECTED',
+  ) {
+    if (!task.capabilities.can_approve || task.status !== 'AWAITING_APPROVAL') return;
+
+    setLifecycleTaskApprovalById(current => ({
+      ...current,
+      [task.id]: decision === 'APPROVED' ? 'approving' : 'rejecting',
+    }));
+
+    try {
+      const response = await fetch(`/api/hr/lifecycle/tasks/${task.id}/approvals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      const allowedStatuses = new Set([
+        'NOT_STARTED',
+        'IN_PROGRESS',
+        'AWAITING_APPROVAL',
+        'COMPLETED',
+        'WAIVED',
+        'CANCELLED',
+      ]);
+
+      if (
+        !response.ok
+        || data.task?.id !== task.id
+        || typeof data.task?.status !== 'string'
+        || !allowedStatuses.has(data.task.status)
+      ) {
+        setLifecycleTaskApprovalById(current => ({
+          ...current,
+          [task.id]: 'error',
+        }));
+        return;
+      }
+
+      setLifecycleTasksByWorkflow(current => {
+        const detail = current[workflow.id];
+        if (detail?.state !== 'ready') return current;
+
+        return {
+          ...current,
+          [workflow.id]: {
+            state: 'ready',
+            tasks: detail.tasks.map(item => (
+              item.id === task.id
+                ? { ...item, status: data.task.status as PersonLifecycleTaskSummary['status'] }
+                : item
+            )),
+          },
+        };
+      });
+
+      if (
+        data.workflow?.id === workflow.id
+        && (data.workflow.status === 'ACTIVE'
+          || data.workflow.status === 'COMPLETED'
+          || data.workflow.status === 'CANCELLED')
+      ) {
+        setLifecycleWorkflows(current => current.map(item => (
+          item.id === workflow.id
+            ? {
+                ...item,
+                status: data.workflow.status,
+                completed_at: data.workflow.completed_at ?? item.completed_at,
+              }
+            : item
+        )));
+      }
+
+      setLifecycleTaskApprovalById(current => ({
+        ...current,
+        [task.id]: 'idle',
+      }));
+    } catch {
+      setLifecycleTaskApprovalById(current => ({
+        ...current,
+        [task.id]: 'error',
+      }));
+    }
+  }
+
   const lifecycleStartButton = buttonProps('secondary', 'sm');
   const lifecycleCompleteButton = buttonProps('primary', 'sm');
+  const lifecycleApproveButton = buttonProps('primary', 'sm');
+  const lifecycleRejectButton = buttonProps('secondary', 'sm');
 
   const editButton = buttonProps('secondary', 'sm');
   const acknowledgeButton = buttonProps('secondary', 'sm');
@@ -1193,6 +1287,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                             )}
                             {taskDetails.tasks.map(task => {
                               const actionState = lifecycleTaskActionById[task.id] ?? 'idle';
+                              const approvalState = lifecycleTaskApprovalById[task.id] ?? 'idle';
 
                               return (
                                 <div key={task.id} style={{ padding: '5px 0' }}>
@@ -1231,9 +1326,36 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                     </div>
                                   )}
 
+                                  {task.capabilities.can_approve && task.status === 'AWAITING_APPROVAL' && (
+                                    <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 6 }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => void runLifecycleTaskApproval(workflow, task, 'APPROVED')}
+                                        disabled={approvalState === 'approving' || approvalState === 'rejecting'}
+                                        {...lifecycleApproveButton}
+                                      >
+                                        {approvalState === 'approving' ? 'Approving…' : 'Approve'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void runLifecycleTaskApproval(workflow, task, 'REJECTED')}
+                                        disabled={approvalState === 'approving' || approvalState === 'rejecting'}
+                                        {...lifecycleRejectButton}
+                                      >
+                                        {approvalState === 'rejecting' ? 'Rejecting…' : 'Reject'}
+                                      </button>
+                                    </div>
+                                  )}
+
                                   {actionState === 'error' && (
                                     <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 5 }}>
                                       Could not update lifecycle task.
+                                    </div>
+                                  )}
+
+                                  {approvalState === 'error' && (
+                                    <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 5 }}>
+                                      Could not record lifecycle task approval.
                                     </div>
                                   )}
                                 </div>
