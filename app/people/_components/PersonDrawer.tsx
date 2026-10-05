@@ -59,6 +59,7 @@ type AssuranceState =
 
 type AcknowledgementActionState = 'idle' | 'submitting' | 'error';
 type VerificationActionState = 'idle' | 'verifying' | 'rejecting' | 'error';
+type UploadActionState = 'idle' | 'submitting' | 'error';
 
 type DocumentsState = 'idle' | 'loading' | 'ready' | 'error' | 'hidden';
 
@@ -75,6 +76,13 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   const [assuranceByDocument, setAssuranceByDocument] = useState<Record<string, AssuranceState>>({});
   const [acknowledgementByDocument, setAcknowledgementByDocument] = useState<Record<string, AcknowledgementActionState>>({});
   const [verificationByDocument, setVerificationByDocument] = useState<Record<string, VerificationActionState>>({});
+  const [canManageDocuments, setCanManageDocuments] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadDocumentType, setUploadDocumentType] = useState('');
+  const [uploadTitle, setUploadTitle] = useState('');
+  const [uploadExpiresAt, setUploadExpiresAt] = useState('');
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadAction, setUploadAction] = useState<UploadActionState>('idle');
 
   useEffect(() => {
     let cancelled = false;
@@ -87,6 +95,13 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         setAssuranceByDocument({});
         setAcknowledgementByDocument({});
         setVerificationByDocument({});
+        setCanManageDocuments(false);
+        setUploadOpen(false);
+        setUploadDocumentType('');
+        setUploadTitle('');
+        setUploadExpiresAt('');
+        setUploadFile(null);
+        setUploadAction('idle');
         return;
       }
 
@@ -98,6 +113,13 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setAssuranceByDocument({});
       setAcknowledgementByDocument({});
       setVerificationByDocument({});
+      setCanManageDocuments(false);
+      setUploadOpen(false);
+      setUploadDocumentType('');
+      setUploadTitle('');
+      setUploadExpiresAt('');
+      setUploadFile(null);
+      setUploadAction('idle');
 
       void fetch(`/api/hr/people/${personId}`)
         .then(async response => {
@@ -126,6 +148,9 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
             setAssuranceByDocument({});
             setAcknowledgementByDocument({});
             setVerificationByDocument({});
+            setCanManageDocuments(false);
+            setUploadOpen(false);
+            setUploadAction('idle');
             return;
           }
 
@@ -138,6 +163,9 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
             setAssuranceByDocument({});
             setAcknowledgementByDocument({});
             setVerificationByDocument({});
+            setCanManageDocuments(false);
+            setUploadOpen(false);
+            setUploadAction('idle');
             return;
           }
 
@@ -147,6 +175,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
 
           setDocuments(loadedDocuments);
           setDocumentsState('ready');
+          setCanManageDocuments(data.capabilities?.can_manage_documents === true);
 
           const assuranceEntries: Record<string, AssuranceState> = {};
           for (const document of loadedDocuments) {
@@ -202,6 +231,9 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
             setAssuranceByDocument({});
             setAcknowledgementByDocument({});
             setVerificationByDocument({});
+            setCanManageDocuments(false);
+            setUploadOpen(false);
+            setUploadAction('idle');
           }
         });
     });
@@ -215,6 +247,114 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   const acknowledgeButton = buttonProps('secondary', 'sm');
   const verifyButton = buttonProps('secondary', 'sm');
   const rejectButton = buttonProps('secondary', 'sm');
+  const uploadDocumentButton = buttonProps('secondary', 'sm');
+  const uploadSubmitButton = buttonProps('primary', 'sm');
+
+  async function uploadDocument() {
+    if (
+      !personId
+      || !canManageDocuments
+      || !uploadDocumentType.trim()
+      || !uploadTitle.trim()
+      || !uploadFile
+    ) {
+      setUploadAction('error');
+      return;
+    }
+
+    setUploadAction('submitting');
+
+    const formData = new FormData();
+    formData.set('document_type', uploadDocumentType.trim());
+    formData.set('title', uploadTitle.trim());
+    if (uploadExpiresAt) formData.set('expires_at', uploadExpiresAt);
+    formData.set('file', uploadFile);
+
+    try {
+      const response = await fetch(
+        `/api/hr/people/${personId}/documents`,
+        {
+          method: 'POST',
+          body: formData,
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (
+        !response.ok
+        || !data.document?.id
+        || !data.document?.document_type
+        || !data.document?.title
+        || !data.document?.created_at
+        || !data.version?.id
+        || typeof data.version?.version_number !== 'number'
+        || !data.version?.created_at
+      ) {
+        setUploadAction('error');
+        return;
+      }
+
+      const createdDocument: EmployeeDocumentSummary = {
+        id: data.document.id,
+        document_type: data.document.document_type,
+        title: data.document.title,
+        lifecycle_task_id: data.document.lifecycle_task_id ?? null,
+        created_at: data.document.created_at,
+        current_version: {
+          id: data.version.id,
+          version_number: data.version.version_number,
+          expires_at: data.version.expires_at ?? null,
+          created_at: data.version.created_at,
+        },
+      };
+
+      setDocuments(current => [createdDocument, ...current]);
+      setAssuranceByDocument(current => ({
+        ...current,
+        [createdDocument.id]: { state: 'loading' },
+      }));
+      setUploadOpen(false);
+      setUploadDocumentType('');
+      setUploadTitle('');
+      setUploadExpiresAt('');
+      setUploadFile(null);
+      setUploadAction('idle');
+
+      void fetch(
+        `/api/hr/people/${personId}/documents/${createdDocument.id}/versions/${createdDocument.current_version.id}/assurance`,
+      )
+        .then(async assuranceResponse => {
+          const assuranceData = await assuranceResponse.json().catch(() => ({}));
+          if (!assuranceResponse.ok || !assuranceData.assurance) {
+            setAssuranceByDocument(current => ({
+              ...current,
+              [createdDocument.id]: { state: 'error' },
+            }));
+            return;
+          }
+
+          setAssuranceByDocument(current => ({
+            ...current,
+            [createdDocument.id]: {
+              state: 'ready',
+              assurance: {
+                capabilities: assuranceData.assurance.capabilities,
+                employee_acknowledgement: assuranceData.assurance.employee_acknowledgement,
+                latest_verification: assuranceData.assurance.latest_verification,
+              },
+            },
+          }));
+        })
+        .catch(() => {
+          setAssuranceByDocument(current => ({
+            ...current,
+            [createdDocument.id]: { state: 'error' },
+          }));
+        });
+    } catch {
+      setUploadAction('error');
+    }
+  }
 
   async function verifyDocument(
     document: EmployeeDocumentSummary,
@@ -382,9 +522,84 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
 
           {documentsState !== 'hidden' && documentsState !== 'idle' && (
             <section aria-labelledby="person-documents-heading" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 14, marginTop: 2 }}>
-              <div id="person-documents-heading" style={{ color: 'var(--text-primary)', fontSize: 14, fontWeight: 700, marginBottom: 10 }}>
-                Documents
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+                <div id="person-documents-heading" style={{ color: 'var(--text-primary)', fontSize: 14, fontWeight: 700 }}>
+                  Documents
+                </div>
+                {canManageDocuments && documentsState === 'ready' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUploadOpen(current => !current);
+                      setUploadAction('idle');
+                    }}
+                    {...uploadDocumentButton}
+                  >
+                    {uploadOpen ? 'Cancel upload' : 'Upload document'}
+                  </button>
+                )}
               </div>
+
+              {canManageDocuments && documentsState === 'ready' && uploadOpen && (
+                <form
+                  onSubmit={event => {
+                    event.preventDefault();
+                    void uploadDocument();
+                  }}
+                  style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 10, marginBottom: 10, display: 'grid', gap: 8 }}
+                >
+                  <label style={{ display: 'grid', gap: 4, color: 'var(--text-secondary)', fontSize: 12 }}>
+                    Document type
+                    <input
+                      aria-label="Document type"
+                      value={uploadDocumentType}
+                      onChange={event => setUploadDocumentType(event.target.value)}
+                      required
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, color: 'var(--text-secondary)', fontSize: 12 }}>
+                    Title
+                    <input
+                      aria-label="Document title"
+                      value={uploadTitle}
+                      onChange={event => setUploadTitle(event.target.value)}
+                      required
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, color: 'var(--text-secondary)', fontSize: 12 }}>
+                    Expiry date (optional)
+                    <input
+                      aria-label="Document expiry date"
+                      type="date"
+                      value={uploadExpiresAt}
+                      onChange={event => setUploadExpiresAt(event.target.value)}
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, color: 'var(--text-secondary)', fontSize: 12 }}>
+                    File
+                    <input
+                      aria-label="Document file"
+                      type="file"
+                      required
+                      onChange={event => setUploadFile(event.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                  <div>
+                    <button
+                      type="submit"
+                      disabled={uploadAction === 'submitting'}
+                      {...uploadSubmitButton}
+                    >
+                      {uploadAction === 'submitting' ? 'Uploading…' : 'Upload'}
+                    </button>
+                  </div>
+                  {uploadAction === 'error' && (
+                    <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                      Could not upload document.
+                    </div>
+                  )}
+                </form>
+              )}
 
               {documentsState === 'loading' && (
                 <StateMessage kind="loading" title="Loading documents…" />
