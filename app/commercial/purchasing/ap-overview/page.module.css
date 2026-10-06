@@ -1,0 +1,41 @@
+.reportNote {
+  margin: 0 0 12px;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.exportActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.exportNote {
+  margin: 10px 0 0;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.sectionTitle {
+  margin: 24px 0 10px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 12px 0 0;
+}
+
+.pageCount {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}

@@ -5,6 +5,7 @@ import { formatMoneyCentsExact } from '@/lib/commercial/money';
 import { formatCommercialDate } from '@/lib/commercial/dates';
 import { AP_AGING_BUCKETS, type PagedSupplierApOverview, type SupplierApBalanceBasis } from '@/lib/commercial/supplierApOverviewModel';
 import { PageHeader, StateMessage, Field, TableContainer, TableStateRow, buttonProps, fieldControlClassName, tableStyles } from '@/components/ui/app';
+import styles from './page.module.css';
 
 const bucketLabels = { CURRENT: 'Not yet overdue', DAYS_1_30: '1–30 days overdue', DAYS_31_60: '31–60 days overdue',
   DAYS_61_90: '61–90 days overdue', DAYS_91_PLUS: '91+ days overdue', NO_DUE_DATE: 'No due date' };
@@ -60,9 +61,9 @@ export default function SupplierApOverviewPage() {
   const exportParams = new URLSearchParams({ aging_date: agingDate, balance_basis: basis, search: appliedSearch,
     currency: currency === 'ALL' ? '' : currency, supplier_id: supplier === 'ALL' ? '' : supplier, bucket: bucket === 'ALL' ? '' : bucket });
   function pager(kind: 'bill' | 'supplier', current: number, count: number) {
-    return <nav aria-label={`${kind} pages`} style={{ display: 'flex', gap: 12, alignItems: 'center', margin: '12px 0' }}>
+    return <nav aria-label={`${kind} pages`} className={styles.pagination}>
       <button type="button" aria-label={`Previous ${kind} page`} disabled={loading || current <= 1} onClick={() => kind === 'bill' ? setPage(current - 1) : setSupplierPage(current - 1)} {...buttonProps('secondary')}>Previous</button>
-      <span>Page {current} · {count} matching {kind === 'bill' ? 'outstanding bills' : 'supplier/currency rows'}</span>
+      <span className={styles.pageCount}>Page {current} · {count} matching {kind === 'bill' ? 'outstanding bills' : 'supplier/currency rows'}</span>
       <button type="button" aria-label={`Next ${kind} page`} disabled={loading || current * (filtered?.pagination.page_size ?? 50) >= count} onClick={() => kind === 'bill' ? setPage(current + 1) : setSupplierPage(current + 1)} {...buttonProps('secondary')}>Next</button>
     </nav>;
   }
@@ -81,26 +82,26 @@ export default function SupplierApOverviewPage() {
     {error && <StateMessage kind="error" title="AP overview unavailable">{error}</StateMessage>}
     {!error && (!filtered || loading) && <StateMessage kind="loading" title="Loading supplier AP overview…" />}
     {filtered && !loading && !error && <>
-      <p>{filtered.balance_basis === 'HISTORICAL_RECORDED_BALANCE'
+      <p className={styles.reportNote}>{filtered.balance_basis === 'HISTORICAL_RECORDED_BALANCE'
         ? `Recorded balances at the end of ${formatCommercialDate(filtered.aging_date)} (UTC), aged on that date. Later entries, cancellations and reversals do not change earlier balances. Supplier names and active status reflect current records.`
         : `Current outstanding balances aged at ${formatCommercialDate(filtered.aging_date)}. This is not a historical balance report.`} Totals include all matching bills across every page.</p>
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+      <div className={styles.exportActions}>
         <a href={`/api/commercial/purchasing/ap-overview/export?${exportParams}&view=bills`} {...buttonProps('secondary')}>Export bills CSV</a>
         <a href={`/api/commercial/purchasing/ap-overview/export?${exportParams}&view=aging`} {...buttonProps('secondary')}>Export supplier aging CSV</a>
       </div>
-      <p>Exports include all matching bills in the selected balance basis across every page, including fully paid bills. Amounts are integer cents, separated by currency.</p>
-      <h2>Totals by currency</h2>
+      <p className={styles.exportNote}>Exports include all matching bills in the selected balance basis across every page, including fully paid bills. Amounts are integer cents, separated by currency.</p>
+      <h2 className={styles.sectionTitle}>Totals by currency</h2>
       <TableContainer label="AP currency totals" minWidth={650}><table className={tableStyles.table}>
         <thead><tr><th scope="col">Currency</th><th scope="col">Posted payable</th><th scope="col">Paid against included bills</th><th scope="col">Outstanding</th><th scope="col">Overdue</th></tr></thead>
         <tbody>{filtered.currencies.map(row => <tr key={row.currency}><td>{row.currency}</td>{[row.payable_cents, row.paid_cents, row.outstanding_cents, row.overdue_cents].map((amount, index) => <td key={index}>{formatMoneyCentsExact(amount, row.currency)}</td>)}</tr>)}{!filtered.currencies.length && <TableStateRow colSpan={5} kind="empty">No posted bills match these filters.</TableStateRow>}</tbody>
       </table></TableContainer>
-      <h2>Supplier aging</h2>
+      <h2 className={styles.sectionTitle}>Supplier aging</h2>
       <TableContainer label="Supplier AP aging" minWidth={1100}><table className={tableStyles.table}>
         <thead><tr><th scope="col">Supplier</th><th scope="col">Currency</th><th scope="col">Outstanding</th>{AP_AGING_BUCKETS.map(key => <th scope="col" key={key}>{bucketLabels[key]}</th>)}</tr></thead>
         <tbody>{filtered.suppliers.map(row => <tr key={`${row.supplier_id}:${row.currency}`}><td><Link href={`/commercial/purchasing/suppliers/${row.supplier_id}`}>{row.supplier_name}</Link>{!row.supplier_active && ' (Inactive)'}</td><td>{row.currency}</td><td>{formatMoneyCentsExact(row.outstanding_cents, row.currency)}</td>{AP_AGING_BUCKETS.map(key => <td key={key}>{formatMoneyCentsExact(row.buckets[key], row.currency)}</td>)}</tr>)}{!filtered.suppliers.length && <TableStateRow colSpan={9} kind="empty">No supplier balances on this page.</TableStateRow>}</tbody>
       </table></TableContainer>
       {pager('supplier', supplierPage, filtered.pagination.supplier_count)}
-      <h2>Outstanding bills</h2>
+      <h2 className={styles.sectionTitle}>Outstanding bills</h2>
       <TableContainer label="Outstanding supplier bills" minWidth={850}><table className={tableStyles.table}>
         <thead><tr><th scope="col">Bill</th><th scope="col">Supplier</th><th scope="col">Due date</th><th scope="col">Currency</th><th scope="col">Outstanding</th><th scope="col">Aging</th></tr></thead>
         <tbody>{filtered.bills.map(row => <tr key={row.bill_id}><td><Link href={`/commercial/purchasing/supplier-bills/${row.bill_id}`}>{row.bill_number ?? row.supplier_invoice_number}</Link></td><td>{row.supplier_name}</td><td>{row.due_date ? formatCommercialDate(row.due_date) : 'No due date'}</td><td>{row.currency}</td><td>{formatMoneyCentsExact(row.outstanding_cents, row.currency)}</td><td>{bucketLabels[row.bucket]}</td></tr>)}{!filtered.bills.length && <TableStateRow colSpan={6} kind="empty">No outstanding bills on this page.</TableStateRow>}</tbody>
