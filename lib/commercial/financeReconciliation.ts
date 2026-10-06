@@ -590,7 +590,7 @@ export async function prepareFinanceReconciliation(params: {
   const notes = params.notes?.trim() || null;
 
   const [periodRows, sourceRows, adjustmentRows, mappingRows, externalRows] = await sql.transaction(txn => [    txn`
-      SELECT id, starts_on, ends_on, transaction_timestamp() AS snapshot_at
+      SELECT id, starts_on::text AS starts_on, ends_on::text AS ends_on, transaction_timestamp() AS snapshot_at
       FROM commercial_financial_periods
       WHERE id = ${financialPeriodId}
         AND organisation_id = ${organisationId}
@@ -656,7 +656,8 @@ export async function prepareFinanceReconciliation(params: {
       GROUP BY fal.budget_account_id, fal.cost_centre_id
     `,
     txn`
-      SELECT id, budget_account_id, external_gl_account_code, effective_from, effective_to
+      SELECT id, budget_account_id, external_gl_account_code,
+             effective_from::text AS effective_from, effective_to::text AS effective_to
       FROM commercial_external_gl_account_mappings
       WHERE organisation_id = ${organisationId}
         AND source_system_id = ${sourceSystemId}

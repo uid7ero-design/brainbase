@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { buttonProps, fieldControlClassName, tableStyles } from '@/components/ui/app';
+import { buttonProps, fieldControlClassName, TableContainer, tableStyles } from '@/components/ui/app';
 import { formatMoneyCentsExact } from '@/lib/commercial/money';
 import {
   financePeriodCloseHref,
@@ -461,7 +461,7 @@ function YearControlPanel({
         <div style={emptyBox}>Choose a financial year to operate year-close controls.</div>
       ) : (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(140px, 1fr))', gap: 10, marginBottom: 16 }}>
+          <div style={metricGrid}>
             <Metric label="Year" value={year.name} />
             <Metric label="Status" value={year.status} />
             <Metric label="Start" value={year.starts_on.slice(0, 10)} />
@@ -497,39 +497,41 @@ function YearControlPanel({
             {year.closes.length === 0 ? (
               <div style={emptyBox}>No close history for this financial year.</div>
             ) : (
-              <table className={tableStyles.table}>
-                <thead>
-                  <tr>
-                    {['Sequence', 'Status', 'Closed', 'Reason', 'Control totals', 'Invalidation'].map(label => (
-                      <th key={label} scope="col">{label}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {year.closes.map(close => (
-                    <tr key={close.id} data-year-close-id={close.id}>
-                      <td>{close.close_sequence}</td>
-                      <td>{close.status}</td>
-                      <td>{new Date(close.closed_at).toLocaleString()}</td>
-                      <td>{close.close_reason ?? '—'}</td>
-                      <td>
-                        <div>{String(close.control_totals.financialPeriodCount ?? '—')} periods</div>
-                        <div style={sub}>
-                          {String(close.control_totals.currentPeriodCloseCount ?? '—')} current period closes
-                        </div>
-                      </td>
-                      <td>
-                        {close.invalidated_at ? (
-                          <>
-                            {new Date(close.invalidated_at).toLocaleString()}
-                            <div style={sub}>{close.invalidation_reason}</div>
-                          </>
-                        ) : '—'}
-                      </td>
+              <TableContainer label="Year-close history">
+                <table className={tableStyles.table}>
+                  <thead>
+                    <tr>
+                      {['Sequence', 'Status', 'Closed', 'Reason', 'Control totals', 'Invalidation'].map(label => (
+                        <th key={label} scope="col">{label}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {year.closes.map(close => (
+                      <tr key={close.id} data-year-close-id={close.id}>
+                        <td>{close.close_sequence}</td>
+                        <td>{close.status}</td>
+                        <td>{new Date(close.closed_at).toLocaleString()}</td>
+                        <td>{close.close_reason ?? '—'}</td>
+                        <td>
+                          <div>{String(close.control_totals.financialPeriodCount ?? '—')} periods</div>
+                          <div style={sub}>
+                            {String(close.control_totals.currentPeriodCloseCount ?? '—')} current period closes
+                          </div>
+                        </td>
+                        <td>
+                          {close.invalidated_at ? (
+                            <>
+                              {new Date(close.invalidated_at).toLocaleString()}
+                              <div style={sub}>{close.invalidation_reason}</div>
+                            </>
+                          ) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableContainer>
             )}
           </div>
         </>
@@ -566,7 +568,7 @@ function PeriodControlPanel({
         <p style={description}>Choose a financial period to operate close controls.</p>
       ) : (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(140px, 1fr))', gap: 10, marginBottom: 16 }}>
+          <div style={metricGrid}>
             <Metric label="Period" value={period.name} />
             <Metric label="Status" value={period.status} />
             <Metric label="Start" value={period.starts_on.slice(0, 10)} />
@@ -598,21 +600,23 @@ function PeriodControlPanel({
             {period.closes.length === 0 ? (
               <div style={emptyBox}>No close history for this period.</div>
             ) : (
-              <table className={tableStyles.table}>
-                <thead><tr>{['Sequence','Status','Closed','Reconciliation','Reason','Invalidation'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
-                <tbody>
-                  {period.closes.map(close => (
-                    <tr key={close.id} data-close-id={close.id}>
-                      <td>{close.close_sequence}</td>
-                      <td>{close.status}{activeClose?.id === close.id ? <div style={sub}>Current close</div> : null}</td>
-                      <td>{new Date(close.closed_at).toLocaleString()}</td>
-                      <td>{close.reconciliation_status}</td>
-                      <td>{close.close_reason ?? '—'}</td>
-                      <td>{close.invalidated_at ? <>{new Date(close.invalidated_at).toLocaleString()}<div style={sub}>{close.invalidation_reason}</div></> : '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <TableContainer label="Period-close history">
+                <table className={tableStyles.table}>
+                  <thead><tr>{['Sequence','Status','Closed','Reconciliation','Reason','Invalidation'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
+                  <tbody>
+                    {period.closes.map(close => (
+                      <tr key={close.id} data-close-id={close.id}>
+                        <td>{close.close_sequence}</td>
+                        <td>{close.status}{activeClose?.id === close.id ? <div style={sub}>Current close</div> : null}</td>
+                        <td>{new Date(close.closed_at).toLocaleString()}</td>
+                        <td>{close.reconciliation_status}</td>
+                        <td>{close.close_reason ?? '—'}</td>
+                        <td>{close.invalidated_at ? <>{new Date(close.invalidated_at).toLocaleString()}<div style={sub}>{close.invalidation_reason}</div></> : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableContainer>
             )}
           </div>
         </>
@@ -643,7 +647,7 @@ function ReconciliationControlTable({
       {reconciliations.length === 0 ? (
         <div style={emptyBox}>No reconciliation snapshots match the current scope.</div>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
+        <TableContainer label="Reconciliation control state" minWidth={1250}>
           <table className={tableStyles.table} style={{ minWidth: 1250 }}>
             <thead><tr>{[
               'Source','Currency','Status','Source Actual','Finance Adjustments','Effective Actual',
@@ -689,7 +693,7 @@ function ReconciliationControlTable({
               })}
             </tbody>
           </table>
-        </div>
+        </TableContainer>
       )}
     </section>
   );
@@ -707,6 +711,7 @@ const panel: React.CSSProperties = { background: CARD, border: `1px solid ${BORD
 const heading: React.CSSProperties = { margin: 0, fontSize: 16 };
 const description: React.CSSProperties = { margin: '6px 0 16px', fontSize: 12, color: MUTED, lineHeight: 1.5 };
 const formGrid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10, alignItems: 'end' };
+const metricGrid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 16 };
 const sub: React.CSSProperties = { color: MUTED, marginTop: 3, fontSize: 11 };
 const emptyBox: React.CSSProperties = { color: MUTED, border: `1px dashed ${BORDER}`, borderRadius: 8, padding: 16, textAlign: 'center' };
 const errorBox: React.CSSProperties = { marginBottom: 14, border: '1px solid var(--status-danger-border)', background: 'var(--status-danger-muted)', color: 'var(--status-danger)', borderRadius: 8, padding: 10, fontSize: 12 };

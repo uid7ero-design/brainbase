@@ -19,6 +19,7 @@ readFileSync('.next/BUILD_ID','utf8');
 const container = `brainbase-ap-runtime-${process.pid}`;
 const database = `ap_runtime_${process.pid}`;
 const artifacts = resolve(process.env.FINANCE_RUNTIME_ARTIFACTS || 'test-results/finance-controls-runtime'); mkdirSync(artifacts,{recursive:true});
+const serverTimezone = process.env.FINANCE_RUNTIME_TIMEZONE || 'Australia/Adelaide';
 const freePort = () => new Promise((done,reject) => {
   const server=createServer(); server.once('error',reject); server.listen(0,'127.0.0.1',()=>{const port=server.address().port;server.close(()=>done(port));});
 });
@@ -59,7 +60,7 @@ try {
   const password=randomBytes(16).toString('hex'); const hash=await bcrypt.hash(password,6);
   for(const [id,org,role] of [['runtime-admin','runtime-a','ADMIN'],['runtime-viewer','runtime-a','VIEWER'],['runtime-other','runtime-b','ADMIN']]) await pool.query('INSERT INTO users(id,organisation_id,role,status,name,username,password_hash,preferences) VALUES($1,$2,$3,\'ACTIVE\',$1,$1,$4,\'{}\')',[id,org,role,hash]);
   const secret=randomBytes(32).toString('hex');
-  next=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p',String(httpPort)],{windowsHide:true,env:{...process.env,DATABASE_URL:databaseUrl.replace('127.0.0.1','localhost'),SESSION_SECRET:secret,NODE_OPTIONS:`--require "${resolve('scripts/tests/helpers/localNeonFetch.cjs').replaceAll('\\','/')}"`,NEXT_TELEMETRY_DISABLED:'1'},stdio:['ignore','pipe','pipe']});
+  next=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p',String(httpPort)],{windowsHide:true,env:{...process.env,TZ:serverTimezone,DATABASE_URL:databaseUrl.replace('127.0.0.1','localhost'),SESSION_SECRET:secret,NODE_OPTIONS:`--require "${resolve('scripts/tests/helpers/localNeonFetch.cjs').replaceAll('\\','/')}"`,NEXT_TELEMETRY_DISABLED:'1'},stdio:['ignore','pipe','pipe']});
   const capture = data => { nextLog+=data;writeFileSync(resolve(artifacts,'next-server.log'),nextLog); };
   next.stdout.on('data',capture);next.stderr.on('data',capture);
   const origin=`http://127.0.0.1:${httpPort}`;
@@ -110,6 +111,9 @@ try {
   await page.getByRole('combobox').nth(0).selectOption('00000000-0000-4000-8000-000000000401');
   await page.getByRole('combobox').nth(1).selectOption('00000000-0000-4000-8000-000000000402');
   await page.getByRole('combobox').nth(2).selectOption('review-ledger');
+  const calendar=await page.evaluate(async()=> (await(await fetch('/api/commercial/budgeting/financial-periods')).json()).years[0]);
+  if(calendar.starts_on!=='2026-07-01'||calendar.ends_on!=='2027-06-30'||calendar.periods[0].starts_on!=='2026-09-01'||calendar.periods[0].ends_on!=='2026-09-30')throw new Error('Calendar boundaries shifted during API serialization');
+  for(const date of ['2026-07-01','2027-06-30','2026-09-01','2026-09-30'])await expect(page.getByText(date,{exact:true})).toBeVisible();
   await page.getByLabel('Reconciliation currency').fill('AUD'); console.log('Finance scope selected'); await page.getByRole('button',{name:'Prepare reconciliation',exact:true}).click();
   await expect(page.getByRole('status')).toContainText('prepared');
   await expect(page.locator('[data-reconciliation-id]')).toContainText('PREPARED');
@@ -121,6 +125,7 @@ try {
   await expect(page.getByRole('button',{name:'Sign off',exact:true})).toBeEnabled();
   await page.getByRole('button',{name:'Sign off',exact:true}).click();
   await expect(page.locator('[data-reconciliation-id]')).toContainText('SIGNED_OFF');
+  await page.evaluate(()=>{window.scrollTo(0,0);document.querySelectorAll('[role="region"]').forEach(element=>{element.scrollLeft=0;});});
   await page.screenshot({path:resolve(artifacts,'finance-signed-off-desktop.png'),fullPage:true});
   recon=(await pool.query('SELECT * FROM commercial_finance_reconciliations')).rows[0];
   if(!recon.close_id||recon.status!=='SIGNED_OFF')throw new Error('Sign-off not persisted');
@@ -137,8 +142,22 @@ try {
   const reopened=(await pool.query('SELECT status FROM commercial_finance_reconciliations')).rows[0];
   const events=(await pool.query('SELECT event_type,details FROM commercial_finance_reconciliation_events ORDER BY event_at')).rows;
   if(reopened.status!=='STALE'||events.length!==4||events.at(-1).details.reason!=='Isolated period review')throw new Error('Durable reconciliation events did not preserve lifecycle and reopen reason');
+  await page.evaluate(()=>{window.scrollTo(0,0);});
   await page.screenshot({path:resolve(artifacts,'finance-reopened-desktop.png'),fullPage:true});
   await page.setViewportSize({width:390,height:844});
+  for(const date of ['2026-07-01','2027-06-30','2026-09-01','2026-09-30']){
+    const bounds=await page.getByText(date,{exact:true}).boundingBox();
+    if(!bounds||bounds.x<0||bounds.x+bounds.width>390)throw new Error('Mobile calendar metric clipped');
+  }
+  for(const name of ['Year-close history','Period-close history','Reconciliation control state']){
+    const region=page.getByRole('region',{name,exact:true});
+    await region.scrollIntoViewIfNeeded();
+    const scroll=await region.evaluate(element=>{element.scrollLeft=element.scrollWidth;return {left:element.scrollLeft,width:element.clientWidth,total:element.scrollWidth};});
+    if(scroll.total<=scroll.width||scroll.left<=0)throw new Error('Mobile table cannot scroll: '+name);
+    await expect(region.locator('tbody tr').first().locator('td').last()).toBeInViewport();
+    await region.evaluate(element=>{element.scrollLeft=0;});
+  }
+  await page.evaluate(()=>{window.scrollTo(0,0);});
   await page.screenshot({path:resolve(artifacts,'finance-mobile.png'),fullPage:true});
   const overflow=await page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth}));
   const viewer=await login('runtime-viewer');
@@ -148,7 +167,7 @@ try {
   const tenant=await other.page.evaluate(async()=>await(await fetch('/api/commercial/budgeting/financial-periods')).json());
   if(tenant.years.length)throw new Error('Foreign year exposed');
   if(errors.length||failedApi.length)throw new Error(JSON.stringify({errors,failedApi}));
-  const evidence={verified_at:new Date().toISOString(),checks:['real login and production runtime','exact $100 source and ledger match','prepare and review','sign-off blocked before close','period close and durable sign-off','year close and reopen','period reopen invalidates close and reconciliation','viewer denial','tenant isolation'],overflow,build_id:readFileSync('.next/BUILD_ID','utf8').trim()};
+  const evidence={verified_at:new Date().toISOString(),serverTimezone,checks:['real login and production runtime','calendar dates preserved through API and screen','mobile metrics remain inside viewport','mobile history and reconciliation tables scroll to last column','exact $100 source and ledger match','prepare and review','sign-off blocked before close','period close and durable sign-off','year close and reopen','period reopen invalidates close and reconciliation','viewer denial','tenant isolation'],overflow,build_id:readFileSync('.next/BUILD_ID','utf8').trim()};
   writeFileSync(resolve(artifacts,'evidence.json'),JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));
 } finally {
   await browser?.close();

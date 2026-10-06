@@ -67,15 +67,19 @@ export interface CommercialFinancialPeriod {
   updated_at: string;
 }
 
+// DATE boundaries are calendar values. Return wire text so the database client
+// cannot turn local midnight into a timestamp on the previous UTC day.
 export async function listFinancialYears(organisationId: string): Promise<CommercialFinancialYear[]> {
   return (await sql`
-    SELECT * FROM commercial_financial_years WHERE organisation_id = ${organisationId} ORDER BY starts_on DESC
+    SELECT *, starts_on::text AS starts_on, ends_on::text AS ends_on
+    FROM commercial_financial_years WHERE organisation_id = ${organisationId} ORDER BY commercial_financial_years.starts_on DESC
   `) as CommercialFinancialYear[];
 }
 
 export async function getFinancialYear(organisationId: string, financialYearId: string): Promise<CommercialFinancialYear | null> {
   const rows = (await sql`
-    SELECT * FROM commercial_financial_years WHERE id = ${financialYearId} AND organisation_id = ${organisationId}
+    SELECT *, starts_on::text AS starts_on, ends_on::text AS ends_on
+    FROM commercial_financial_years WHERE id = ${financialYearId} AND organisation_id = ${organisationId}
   `) as CommercialFinancialYear[];
   return rows[0] ?? null;
 }
@@ -90,7 +94,7 @@ export async function createFinancialYear(params: {
   const rows = (await sql`
     INSERT INTO commercial_financial_years (organisation_id, name, starts_on, ends_on)
     VALUES (${params.organisationId}, ${params.name}, ${params.startsOn}, ${params.endsOn})
-    RETURNING *
+    RETURNING *, starts_on::text AS starts_on, ends_on::text AS ends_on
   `) as CommercialFinancialYear[];
   return rows[0];
 }
@@ -106,16 +110,16 @@ export async function createFinancialPeriod(params: {
   const rows = (await sql`
     INSERT INTO commercial_financial_periods (organisation_id, financial_year_id, name, starts_on, ends_on)
     VALUES (${params.organisationId}, ${params.financialYearId}, ${params.name}, ${params.startsOn}, ${params.endsOn})
-    RETURNING *
+    RETURNING *, starts_on::text AS starts_on, ends_on::text AS ends_on
   `) as CommercialFinancialPeriod[];
   return rows[0];
 }
 
 export async function listFinancialPeriods(organisationId: string, financialYearId: string): Promise<CommercialFinancialPeriod[]> {
   return (await sql`
-    SELECT * FROM commercial_financial_periods
+    SELECT *, starts_on::text AS starts_on, ends_on::text AS ends_on FROM commercial_financial_periods
     WHERE organisation_id = ${organisationId} AND financial_year_id = ${financialYearId}
-    ORDER BY starts_on ASC
+    ORDER BY commercial_financial_periods.starts_on ASC
   `) as CommercialFinancialPeriod[];
 }
 
