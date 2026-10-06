@@ -230,6 +230,192 @@ describe('HR-7G2B lifecycle template status actions', () => {
   });
 });
 
+describe('HR-7G3B lifecycle template version creation', () => {
+  const VERSION_ID = '33333333-3333-4333-8333-333333333333';
+
+  function detailResponse() {
+    return response({
+      template: {
+        ...template('ACTIVE', {
+          can_create_version: true,
+          can_activate: false,
+          can_retire: true,
+        }, {
+          description: 'Current family description',
+        }),
+        tasks: [{
+          id: '44444444-4444-4444-8444-444444444444',
+          sequence: 1,
+          title: 'Complete induction',
+          description: 'Read the induction guide',
+          responsibility_type: 'EMPLOYEE',
+          due_offset_days: 2,
+          requires_approval: true,
+          approval_type: 'MANAGER',
+          employee_visible: true,
+          manager_visible: true,
+          internal_only: false,
+        }],
+      },
+    });
+  }
+
+  it('hides create-new-version when the server capability is false', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url === '/api/hr/lifecycle/templates') {
+        return response({
+          capabilities: { can_create_template: true },
+          templates: [template('ACTIVE', {
+            can_create_version: false,
+            can_activate: false,
+            can_retire: true,
+          })],
+        });
+      }
+      if (url === '/api/hr/lifecycle/templates/' + TEMPLATE_ID) {
+        return detailResponse();
+      }
+      return response({});
+    });
+
+    renderBrainbase(<LifecycleTemplatesPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View Standard onboarding' }));
+    expect(await screen.findByText('1. Complete induction')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Create new version' })).toBeNull();
+  });
+
+  it('prefills and creates a new draft version without sending family identity fields', async () => {
+    let listReads = 0;
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url === '/api/hr/lifecycle/templates') {
+        listReads += 1;
+        return response({
+          capabilities: { can_create_template: true },
+          templates: [listReads === 1
+            ? template('ACTIVE', {
+              can_create_version: true,
+              can_activate: false,
+              can_retire: true,
+            })
+            : template('DRAFT', {
+              can_create_version: true,
+              can_activate: false,
+              can_retire: true,
+            }, {
+              id: VERSION_ID,
+              version_number: 2,
+              name: 'Standard onboarding v2',
+            })],
+        });
+      }
+      if (url === '/api/hr/lifecycle/templates/' + TEMPLATE_ID) {
+        return detailResponse();
+      }
+      if (
+        url === '/api/hr/lifecycle/templates/' + TEMPLATE_ID + '/versions'
+        && init?.method === 'POST'
+      ) {
+        return response({
+          template: {
+            id: VERSION_ID,
+            template_key: 'standard-onboarding',
+            lifecycle_type: 'onboarding',
+            version_number: 2,
+            status: 'DRAFT',
+            created_by: 'sensitive-version-creator',
+          },
+        }, 201);
+      }
+      return response({});
+    });
+
+    renderBrainbase(<LifecycleTemplatesPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View Standard onboarding' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Create new version' }));
+
+    expect(await screen.findByText('Family: standard-onboarding · onboarding · source v1')).toBeTruthy();
+    expect((screen.getByLabelText(/^Name/i) as HTMLInputElement).value).toBe('Standard onboarding');
+    expect((screen.getByLabelText('Description') as HTMLTextAreaElement).value).toBe('Current family description');
+    expect((screen.getByLabelText(/Task title/i) as HTMLInputElement).value).toBe('Complete induction');
+    expect((screen.getByLabelText('Task description') as HTMLTextAreaElement).value).toBe('Read the induction guide');
+    expect((screen.getByLabelText('Due offset days') as HTMLInputElement).value).toBe('2');
+
+    fireEvent.change(screen.getByLabelText(/^Name/i), {
+      target: { value: 'Standard onboarding v2' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create version' }));
+
+    const versionCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input) === '/api/hr/lifecycle/templates/' + TEMPLATE_ID + '/versions'
+      && init?.method === 'POST'
+    );
+    expect(versionCall).toBeTruthy();
+
+    const body = JSON.parse(String(versionCall?.[1]?.body));
+    expect(body).toEqual({
+      name: 'Standard onboarding v2',
+      description: 'Current family description',
+      tasks: [{
+        sequence: 1,
+        title: 'Complete induction',
+        description: 'Read the induction guide',
+        responsibility_type: 'EMPLOYEE',
+        due_offset_days: 2,
+        requires_approval: true,
+        approval_type: 'MANAGER',
+        employee_visible: true,
+        manager_visible: true,
+        internal_only: false,
+      }],
+    });
+    expect(body).not.toHaveProperty('template_key');
+    expect(body).not.toHaveProperty('lifecycle_type');
+    expect(listReads).toBe(2);
+    expect(document.body.textContent).not.toContain('sensitive-version-creator');
+  });
+
+  it('shows only a generic version-create failure and keeps the builder available', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url === '/api/hr/lifecycle/templates') {
+        return response({
+          capabilities: { can_create_template: true },
+          templates: [template('ACTIVE', {
+            can_create_version: true,
+            can_activate: false,
+            can_retire: true,
+          })],
+        });
+      }
+      if (url === '/api/hr/lifecycle/templates/' + TEMPLATE_ID) {
+        return detailResponse();
+      }
+      if (
+        url === '/api/hr/lifecycle/templates/' + TEMPLATE_ID + '/versions'
+        && init?.method === 'POST'
+      ) {
+        return response({ error: 'sensitive version database detail' }, 500);
+      }
+      return response({});
+    });
+
+    renderBrainbase(<LifecycleTemplatesPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View Standard onboarding' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Create new version' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create version' }));
+
+    expect(await screen.findByText('Could not create lifecycle template version.')).toBeTruthy();
+    expect(screen.getByLabelText(/^Name/i)).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive version database detail');
+  });
+});
+
 describe('HR-7G3A lifecycle template creation', () => {
   it('hides template creation when the server collection capability is false', async () => {
     fetchMock.mockImplementation(input => {
