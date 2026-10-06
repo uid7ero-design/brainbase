@@ -9,6 +9,11 @@ export async function POST(req: Request) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return NextResponse.json({ error: 'A JSON object is required.' }, { status: 400 });
   }
+  const amountMinorUnits = body.amountMinorUnits;
+  if (typeof amountMinorUnits !== 'string'
+    && !(typeof amountMinorUnits === 'number' && Number.isSafeInteger(amountMinorUnits))) {
+    return NextResponse.json({ error: 'amountMinorUnits must be an integer decimal string or a safe integer number.' }, { status: 400 });
+  }
   try {
     const result = await importExternalGlEntry({
       organisationId: auth.session.organisationId,
@@ -22,7 +27,7 @@ export async function POST(req: Request) {
       accountingPeriodKey: typeof body.accountingPeriodKey === 'string' ? body.accountingPeriodKey : null,
       description: typeof body.description === 'string' ? body.description : null,
       currency: String(body.currency ?? ''),
-      amountMinorUnits: String(body.amountMinorUnits ?? ''),
+      amountMinorUnits,
       sourcePayloadHash: String(body.sourcePayloadHash ?? ''),
       sourceLineageId: String(body.sourceLineageId ?? ''),
     });

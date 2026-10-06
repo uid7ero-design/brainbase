@@ -351,6 +351,36 @@ describe('C7.9D/C7.9F — external GL APIs', () => {
     expect(notFound.status).toBe(404);
     expect(await notFound.json()).toEqual({ error: 'Not found.' });
     importEntryMock.mockRejectedValueOnce(new MockExternalGlError('EXTERNAL_IDENTITY_CONFLICT','conflict'));
-    expect((await entriesRoute.POST(new Request('http://localhost',{method:'POST',body:'{}'}))).status).toBe(409);
+    expect((await entriesRoute.POST(new Request('http://localhost',{method:'POST',body:JSON.stringify({ sourceSystemId:'xero', externalEntryId:'entry-1', externalAccountCode:'600', transactionDate:'2026-09-01', currency:'AUD', amountMinorUnits:'0', sourcePayloadHash:'hash', sourceLineageId:'batch-1' })}))).status).toBe(409);
+  });
+});
+
+describe('external GL exact monetary input', () => {
+  const valid = { sourceSystemId: 'xero', externalEntryId: 'entry-1', externalAccountCode: '600',
+    transactionDate: '2026-09-01', currency: 'AUD', sourcePayloadHash: 'hash', sourceLineageId: 'batch-1' };
+  it.each([null, true, false, [], {}, 1.5, Number.MAX_SAFE_INTEGER + 1])('rejects unsafe numeric or non-monetary JSON %j before import', async amountMinorUnits => {
+    authorizeMock.mockResolvedValue({ ok: true, session: ADMIN });
+    const response = await entriesRoute.POST(new Request('http://localhost', {
+      method: 'POST', body: JSON.stringify({ ...valid, amountMinorUnits }),
+    }));
+    expect(response.status).toBe(400);
+    expect(importEntryMock).not.toHaveBeenCalled();
+  });
+  it('rejects an unsafe integer literal after JSON parsing instead of importing its rounded value', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: ADMIN });
+    const response = await entriesRoute.POST(new Request('http://localhost', {
+      method: 'POST', body: '{"amountMinorUnits":9007199254740993}',
+    }));
+    expect(response.status).toBe(400);
+    expect(importEntryMock).not.toHaveBeenCalled();
+  });
+  it.each([0, -100, '9007199254740993', '-9223372036854775808'])('preserves exact supported amount %s', async amountMinorUnits => {
+    authorizeMock.mockResolvedValue({ ok: true, session: ADMIN });
+    importEntryMock.mockResolvedValue({ outcome: 'IMPORTED', entry: { id: 'entry-1' }, staleReconciliationCount: 0 });
+    const response = await entriesRoute.POST(new Request('http://localhost', {
+      method: 'POST', body: JSON.stringify({ ...valid, amountMinorUnits }),
+    }));
+    expect(response.status).toBe(201);
+    expect(importEntryMock).toHaveBeenCalledWith(expect.objectContaining({ amountMinorUnits }));
   });
 });

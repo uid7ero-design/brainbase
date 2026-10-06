@@ -157,6 +157,20 @@ function cleanCurrency(value: string) {
   }
   return currency;
 }
+
+function cleanMinorUnits(value: string | number | bigint): string {
+  try {
+    if (!['string', 'number', 'bigint'].includes(typeof value)) throw new Error();
+    if (typeof value === 'number' && !Number.isSafeInteger(value)) throw new Error();
+    const text = value.toString().trim();
+    if (!/^[+-]?\d+$/.test(text)) throw new Error();
+    const amount = BigInt(text);
+    if (amount < BigInt('-9223372036854775808') || amount > BigInt('9223372036854775807')) throw new Error();
+    return amount.toString();
+  } catch {
+    throw new ExternalGlError('INVALID_INPUT', 'amountMinorUnits must be an exact integer within the signed BIGINT range. Use a decimal string for large amounts.');
+  }
+}
 export async function createExternalGlAccountMapping(params: {
   organisationId: string; userId: string; sourceSystemId: string;
   externalAccountCode: string; externalAccountName?: string | null;
@@ -575,7 +589,7 @@ export async function importExternalGlEntry(params: {
   const externalCostCentreCode = params.externalCostCentreCode?.trim() || null;
   const accountingPeriodKey = params.accountingPeriodKey?.trim() || null;
   const description = params.description?.trim() || null;
-  const amountMinorUnits = params.amountMinorUnits.toString();
+  const amountMinorUnits = cleanMinorUnits(params.amountMinorUnits);
 
   type ImportDecisionRow = ExternalGlEntry & {
     import_outcome: 'IMPORTED' | 'IDEMPOTENT' | 'CONFLICT';

@@ -147,6 +147,23 @@ passed. The production build passed TypeScript and 323 static pages; all 12
 built-server AP checks passed against build `XK5Np000I7Nfsj9dGo4iE`.
 No migration or historical fact is changed by this validation fix.
 
+### External GL exact-money review
+
+External GL import no longer stringifies arbitrary JSON amounts before checking
+them. Unsafe numeric integers and non-monetary input types return 400; large
+amounts must use decimal strings. Domain validation accepts signed integer
+amounts within PostgreSQL BIGINT limits and rejects malformed or overflowing
+values before SQL. Zero, negatives, exact large strings and internal bigint
+inputs remain supported. Existing source identity/conflict semantics are retained.
+
+Commercial containment passed 2,137 tests across 134 files, including 34 new
+API/domain regressions. A conflict-status test now supplies an amount so it reaches
+the domain after the new validation, preserving its 409 assertion. The disposable
+finance harness passed 30 checks and 111 integration tests across nine suites.
+Focused lint and whitespace checks passed. The production build passed TypeScript
+and 323 static pages; all 12 built-server AP checks passed against build
+`bVoW3yUiRlu6byxmSkwTr`. No schema or imported history changed.
+
 ## Release handoff
 
 The remote CI rerun after the Commercial fixes exposed an unrelated Docker
