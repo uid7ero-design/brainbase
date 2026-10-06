@@ -4,10 +4,14 @@ import { useEffect, useState } from 'react';
 import SlidePanel from '../_components/SlidePanel';
 import {
   Badge,
+  Field,
+  FormActions,
+  FormError,
   PageHeader,
   TableContainer,
   TableStateRow,
   buttonProps,
+  fieldControlClassName,
   tableStyles,
 } from '@/components/ui/app';
 
@@ -44,6 +48,20 @@ type LifecycleTemplateDetailState =
 
 type LifecycleTemplateStatusAction = 'activate' | 'retire';
 type LifecycleTemplateStatusActionState = 'idle' | 'submitting' | 'error';
+type LifecycleTemplateCreateState = 'idle' | 'submitting' | 'error';
+
+type LifecycleTemplateDraftTask = {
+  key: number;
+  title: string;
+  description: string;
+  responsibility_type: 'EMPLOYEE' | 'MANAGER' | 'HR_ADMIN';
+  due_offset_days: string;
+  requires_approval: boolean;
+  approval_type: 'MANAGER' | 'HR_ADMIN';
+  employee_visible: boolean;
+  manager_visible: boolean;
+  internal_only: boolean;
+};
 
 const STATUS_STATE = {
   DRAFT: 'info',
@@ -55,12 +73,20 @@ function dateOnly(value: string): string {
   return value.slice(0, 10);
 }
 
-function parseLifecycleTemplateList(data: unknown): LifecycleTemplateSummary[] | null {
+function parseLifecycleTemplateList(data: unknown): {
+  canCreateTemplate: boolean;
+  templates: LifecycleTemplateSummary[];
+} | null {
   if (!data || typeof data !== 'object') return null;
   const payload = data as Record<string, unknown>;
   if (!Array.isArray(payload.templates)) return null;
 
-  return payload.templates
+  const capabilities = (
+    payload.capabilities
+    && typeof payload.capabilities === 'object'
+  ) ? payload.capabilities as Record<string, unknown> : {};
+
+  const templates = payload.templates
     .filter((template: unknown): template is Record<string, unknown> => {
       if (!template || typeof template !== 'object') return false;
       const candidate = template as Record<string, unknown>;
@@ -97,6 +123,26 @@ function parseLifecycleTemplateList(data: unknown): LifecycleTemplateSummary[] |
         },
       };
     });
+
+  return {
+    canCreateTemplate: capabilities.can_create_template === true,
+    templates,
+  };
+}
+
+function draftTask(key: number): LifecycleTemplateDraftTask {
+  return {
+    key,
+    title: '',
+    description: '',
+    responsibility_type: 'EMPLOYEE',
+    due_offset_days: '',
+    requires_approval: false,
+    approval_type: 'MANAGER',
+    employee_visible: true,
+    manager_visible: false,
+    internal_only: false,
+  };
 }
 
 export default function LifecycleTemplatesPage() {
@@ -110,6 +156,15 @@ export default function LifecycleTemplatesPage() {
     action: LifecycleTemplateStatusAction;
   } | null>(null);
   const [statusActionState, setStatusActionState] = useState<LifecycleTemplateStatusActionState>('idle');
+  const [canCreateTemplate, setCanCreateTemplate] = useState(false);
+  const [showCreateTemplate, setShowCreateTemplate] = useState(false);
+  const [newTemplateKey, setNewTemplateKey] = useState('');
+  const [newTemplateType, setNewTemplateType] = useState<'onboarding' | 'offboarding'>('onboarding');
+  const [newTemplateName, setNewTemplateName] = useState('');
+  const [newTemplateDescription, setNewTemplateDescription] = useState('');
+  const [newTemplateTasks, setNewTemplateTasks] = useState<LifecycleTemplateDraftTask[]>([draftTask(1)]);
+  const [nextTemplateTaskKey, setNextTemplateTaskKey] = useState(2);
+  const [templateCreateState, setTemplateCreateState] = useState<LifecycleTemplateCreateState>('idle');
 
   useEffect(() => {
     let cancelled = false;
@@ -126,14 +181,16 @@ export default function LifecycleTemplatesPage() {
             return;
           }
 
-          const safeTemplates = parseLifecycleTemplateList(data);
-          if (!safeTemplates) {
+          const parsed = parseLifecycleTemplateList(data);
+          if (!parsed) {
             setTemplates([]);
+            setCanCreateTemplate(false);
             setError('Could not load lifecycle templates.');
             return;
           }
 
-          setTemplates(safeTemplates);
+          setTemplates(parsed.templates);
+          setCanCreateTemplate(parsed.canCreateTemplate);
           setError('');
         })
         .catch(() => {
@@ -158,10 +215,11 @@ export default function LifecycleTemplatesPage() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) return false;
 
-      const safeTemplates = parseLifecycleTemplateList(data);
-      if (!safeTemplates) return false;
+      const parsed = parseLifecycleTemplateList(data);
+      if (!parsed) return false;
 
-      setTemplates(safeTemplates);
+      setTemplates(parsed.templates);
+      setCanCreateTemplate(parsed.canCreateTemplate);
       setError('');
       return true;
     } catch {
