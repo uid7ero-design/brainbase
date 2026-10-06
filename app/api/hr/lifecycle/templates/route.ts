@@ -42,6 +42,9 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json({
+    capabilities: {
+      can_create_template: true,
+    },
     templates: templates.map(lifecycleTemplateToJson),
   });
 }
