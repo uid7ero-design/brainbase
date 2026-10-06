@@ -11,7 +11,7 @@ import path from "node:path";
 // proves the static shape and the absence of forbidden patterns.
 
 const ROOT = path.resolve(__dirname, "../..");
-const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8");
+const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8").replace(/\r\n/g, "\n");
 const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/--.*$/gm, "");
 
 const MIGRATION = read("scripts/create-datahub-normalized-staging.sql");

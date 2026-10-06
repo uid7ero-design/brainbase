@@ -1,4 +1,4 @@
-// Authenticated navigation model — the single source of truth for WHAT the
+﻿// Authenticated navigation model â€” the single source of truth for WHAT the
 // signed-in chrome offers and WHO sees it. Pure data + pure functions: no
 // React, no DOM, no server-only imports, so the same model drives TopNav
 // (desktop menus and the mobile menu) and the dashboard "Your tools" card.
@@ -11,7 +11,7 @@
 // route will reject.
 //
 // Adding a module is one descriptor in WORK_ITEMS and needs no rendering
-// change — Assurance (below) was added exactly that way.
+// change â€” Assurance (below) was added exactly that way.
 
 export type DashboardVariant = 'ld-tennis' | 'brainbase-hq' | null;
 
@@ -26,8 +26,8 @@ export type NavContext = {
 };
 
 /** Mirrors lib/session.ts ROLE_ORDER (that module is server-only, so it
- *  cannot be imported into client chrome). Any role outside this list —
- *  including 'analyst' — fails every minimum-role check (fail closed), the
+ *  cannot be imported into client chrome). Any role outside this list â€”
+ *  including 'analyst' â€” fails every minimum-role check (fail closed), the
  *  same semantics as lib/session.ts roleGte. Pinned by a test against the
  *  server copy so the two cannot drift. */
 export const NAV_ROLE_ORDER = ['viewer', 'manager', 'admin', 'super_admin'] as const;
@@ -67,7 +67,7 @@ export type NavLink = {
    *  segment-aware ('/data' never matches '/data-hub') and the single
    *  longest match wins across the whole tree (see activeNavId). */
   match: readonly string[];
-  /** Match the section exactly (no descendants) — Home owns '/dashboard'
+  /** Match the section exactly (no descendants) â€” Home owns '/dashboard'
    *  itself, not every '/dashboard/*' route. */
   exact?: boolean;
   description?: string;
@@ -88,7 +88,7 @@ export type NavGroup = {
 
 export type NavEntry = NavLink | NavGroup;
 
-// ─── Descriptors ────────────────────────────────────────────────────────────
+// â”€â”€â”€ Descriptors â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export const HOME_LINK: NavLink = {
   kind: 'link', id: 'home', label: 'Home', href: '/dashboard', match: ['/dashboard'], exact: true,
@@ -112,8 +112,8 @@ export const WORK_ITEMS: readonly NavEntry[] = [
   {
     kind: 'link', id: 'commercial', label: 'Commercial', href: '/commercial', match: ['/commercial'],
     icon: 'quotes', card: true, description: 'Quotes, invoices and purchasing',
-    // app/commercial/layout.tsx admits ANY of the three.
-    gate: { anyCapability: ['quotes', 'invoicing', 'purchasing'] },
+    // app/commercial/layout.tsx admits ANY of the four.
+    gate: { anyCapability: ['quotes', 'invoicing', 'purchasing', 'budgeting'] },
   },
   {
     kind: 'link', id: 'organiser', label: 'Organiser', href: '/organiser', match: ['/organiser'],
@@ -212,7 +212,7 @@ export const ACCOUNT_PROFILE_LINK: NavLink = {
   kind: 'link', id: 'profile', label: 'My profile', href: '/account/profile', match: ['/account/profile'],
 };
 
-// ─── Visibility ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Visibility â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export function isGateOpen(gate: NavGate | undefined, ctx: NavContext): boolean {
   if (!gate) return true;
@@ -275,7 +275,7 @@ export function workModuleCards(ctx: NavContext): NavLink[] {
   );
 }
 
-// ─── Active state ───────────────────────────────────────────────────────────
+// â”€â”€â”€ Active state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /** Length of the section of `link` that `pathname` falls in, or -1. Segment
  *  aware: '/data' matches '/data' and '/data/x' but never '/data-hub'. */
@@ -329,3 +329,4 @@ export function containsActive(entries: readonly NavEntry[], activeId: string | 
     e.kind === 'group' ? e.children.some(c => c.id === activeId) : e.id === activeId,
   );
 }
+

@@ -61,7 +61,8 @@ describe.runIf(HAS_DOCKER)("real disposable-Postgres proof — ABANDONED status 
     );
     let ready = false;
     for (let i = 0; i < 30; i++) {
-      const r = spawnSync("docker", ["exec", CONTAINER, "pg_isready", "-U", "postgres"]);
+      // Ignore the image's socket-only temporary initialization server.
+      const r = spawnSync("docker", ["exec", CONTAINER, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"]);
       if (r.status === 0) {
         ready = true;
         break;

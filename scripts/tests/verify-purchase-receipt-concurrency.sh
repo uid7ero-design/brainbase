@@ -324,7 +324,18 @@ CREATE TABLE IF NOT EXISTS commercial_purchase_receipt_lines (
     REFERENCES commercial_purchase_order_lines (id, organisation_id)
 );
 CREATE INDEX IF NOT EXISTS idx_commercial_purchase_receipt_lines_org_po_line ON commercial_purchase_receipt_lines(organisation_id, source_purchase_order_line_id);
+
+-- C7.5D2 dependency seam for cancellation tests. This harness isolates the
+-- Receipt lifecycle and does not create Supplier Bill tables, so only the
+-- allocation columns read by cancelPurchaseReceipt() are required here.
+CREATE TABLE IF NOT EXISTS commercial_purchase_receipt_bill_allocations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organisation_id TEXT NOT NULL,
+  purchase_receipt_line_id UUID NOT NULL,
+  reversed_at TIMESTAMPTZ
+);
 '
+
 
 echo ""
 echo "=== 1. SCHEMA APPLIES FRESH ==="

@@ -64,13 +64,31 @@ type PurchaseReceiptSummary = { id: string; receipt_number: string | null; statu
 // GET /api/commercial/purchase-orders/[id]/bills).
 type SupplierBillSummary = { id: string; bill_number: string | null; status: string; supplier_invoice_number: string; due_date: string | null; total_cents: number; created_at: string };
 type ReconciliationLine = {
-  purchaseOrderLineId: string; description: string; orderedQuantity: number; receivedQuantity: number; billedQuantity: number;
+  purchaseOrderLineId: string; description: string; orderedQuantity: number; receivedQuantity: number; billedQuantity: number; matchedQuantity: number;
   orderedValueCents: number; billedValueCents: number; reconciliationState: string;
 };
 type Reconciliation = {
-  lineCount: number; fullyReceivedLineCount: number; fullyBilledQuantityLineCount: number; fullyBilledLineCount: number; reconciledLineCount: number;
+  lineCount: number; fullyReceivedLineCount: number; fullyBilledQuantityLineCount: number; fullyMatchedLineCount: number; fullyBilledLineCount: number; reconciledLineCount: number;
   orderedValueCents: number; billedValueCents: number; status: string; lines: ReconciliationLine[];
 };
+type CommitmentLine = {
+  purchaseOrderLineId: string; description: string; effectiveCostCentreId: string | null; state: string;
+  orderedTotalCents: number; billedTotalCents: number; outstandingTotalCents: number;
+};
+type Commitment = {
+  purchaseOrderId: string; purchaseOrderStatus: string; currency: string; commitmentEffectiveAt: string | null;
+  periodResolution: string; lineCount: number; orderedTotalCents: number; billedTotalCents: number; outstandingTotalCents: number;
+  lines: CommitmentLine[];
+};
+type MatchCandidateLine = {
+  id: string; purchaseOrderLineId: string; documentId: string; documentNumber: string;
+  quantity: string; allocatedQuantity: string; remainingQuantity: string;
+};
+type MatchAllocation = {
+  id: string; purchase_order_line_id: string; purchase_receipt_line_id: string; supplier_bill_line_id: string;
+  quantity_allocated: string; created_at: string; reversed_at: string | null; reversal_reason: string | null;
+};
+type MatchWorkspace = { receiptLines: MatchCandidateLine[]; billLines: MatchCandidateLine[]; allocations: MatchAllocation[] };
 
 // Client-side role check only — UX gating, not enforcement. The real
 // floor is authorizeCommercialRequest('purchasing', COMMERCIAL_MIN_ROLE.createEdit)
@@ -153,6 +171,18 @@ export default function PurchaseOrderDetailPage() {
   // Phase C7.5B — one server-derived reconciliation read model. This is
   // never persisted on the PO/lines and never calculated in the browser.
   const [reconciliation, setReconciliation] = useState<Reconciliation | null>(null);
+  // Phase C7.6C — PO-local, migration-free commitment read model. The
+  // browser only renders server-derived values; it never recalculates them.
+  const [commitment, setCommitment] = useState<Commitment | null>(null);
+  // Phase C7.5D3 — explicit receipt-line <-> supplier-bill-line matching.
+  const [matchWorkspace, setMatchWorkspace] = useState<MatchWorkspace | null>(null);
+  const [matchReceiptLineId, setMatchReceiptLineId] = useState('');
+  const [matchBillLineId, setMatchBillLineId] = useState('');
+  const [matchQuantity, setMatchQuantity] = useState('');
+  const [matchBusy, setMatchBusy] = useState(false);
+  const [matchError, setMatchError] = useState('');
+  const [reversingMatchId, setReversingMatchId] = useState<string | null>(null);
+  const [matchReversalReason, setMatchReversalReason] = useState('');
 
   // C6.9 remediation — Supporting Documents state.
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -229,6 +259,18 @@ export default function PurchaseOrderDetailPage() {
     if (reconciliationRes.ok) {
       const reconciliationData = await reconciliationRes.json();
       setReconciliation(reconciliationData.reconciliation ?? null);
+    }
+
+    const commitmentRes = await fetch(`/api/commercial/purchase-orders/${id}/commitment`);
+    if (commitmentRes.ok) {
+      const commitmentData = await commitmentRes.json();
+      setCommitment(commitmentData.commitment ?? null);
+    }
+
+    const matchesRes = await fetch(`/api/commercial/purchase-orders/${id}/matches`);
+    if (matchesRes.ok) {
+      const matchesData = await matchesRes.json();
+      setMatchWorkspace(matchesData.workspace ?? null);
     }
 
     const [suppliersRes, productsRes, taxCodesRes, meRes] = await Promise.all([
@@ -488,6 +530,36 @@ export default function PurchaseOrderDetailPage() {
   // own 60-second cooldown (secondsSinceLastAttempt(), matching the
   // quote/invoice routes exactly) is still the real guard against a
   // genuine repeat click after the first request completes.
+  async function createMatchAction(e: React.FormEvent) {
+    e.preventDefault();
+    if (!matchReceiptLineId || !matchBillLineId || !matchQuantity.trim()) {
+      setMatchError('Choose a receipt line, supplier bill line, and quantity.'); return;
+    }
+    setMatchBusy(true); setMatchError('');
+    const res = await fetch(`/api/commercial/purchase-orders/${id}/matches`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ purchaseReceiptLineId: matchReceiptLineId, supplierBillLineId: matchBillLineId, quantity: matchQuantity }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setMatchBusy(false);
+    if (!res.ok) { setMatchError(data.error ?? 'Failed to create match.'); return; }
+    setMatchReceiptLineId(''); setMatchBillLineId(''); setMatchQuantity('');
+    await load();
+  }
+
+  async function reverseMatchAction(allocationId: string) {
+    if (!matchReversalReason.trim()) { setMatchError('A reversal reason is required.'); return; }
+    setMatchBusy(true); setMatchError('');
+    const res = await fetch(`/api/commercial/purchase-orders/${id}/matches/${allocationId}/reverse`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: matchReversalReason }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setMatchBusy(false);
+    if (!res.ok) { setMatchError(data.error ?? 'Failed to reverse match.'); return; }
+    setReversingMatchId(null); setMatchReversalReason('');
+    await load();
+  }
+
   async function sendEmailAction() {
     setBusy(true); setActionError(''); setEmailResult('');
     const res = await fetch(`/api/commercial/purchase-orders/${id}/email`, {
@@ -510,6 +582,13 @@ export default function PurchaseOrderDetailPage() {
       <StateMessage kind="empty" size="page" title="Purchase order not found." action={<Link href="/commercial/purchasing/purchase-orders">Back to purchase orders</Link>} />
     );
   }
+
+  const activeMatchAllocations = matchWorkspace?.allocations.filter(a => !a.reversed_at) ?? [];
+  const availableReceiptMatchLines = matchWorkspace?.receiptLines.filter(line => Number(line.remainingQuantity) > 0) ?? [];
+  const selectedReceiptMatchLine = availableReceiptMatchLines.find(line => line.id === matchReceiptLineId) ?? null;
+  const availableBillMatchLines = (matchWorkspace?.billLines ?? []).filter(line =>
+    Number(line.remainingQuantity) > 0 && (!selectedReceiptMatchLine || line.purchaseOrderLineId === selectedReceiptMatchLine.purchaseOrderLineId),
+  );
 
   return (
     <div style={{ maxWidth: 820 }}>
@@ -865,6 +944,38 @@ export default function PurchaseOrderDetailPage() {
         </div>
       </div>
 
+      {/* Phase C7.6C — governed PO-local commitment surface. Values come
+          exclusively from the server-derived C7.6A read model. Receipts and
+          explicit match allocations never participate in these monetary
+          commitment values. */}
+      {commitment && (
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', marginBottom: 20, padding: '16px 24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <div style={miniLbl}>Commitment</div>
+            <div style={{ fontSize: 12, color: commitment.purchaseOrderStatus === 'ISSUED' ? 'var(--status-success)' : 'var(--text-muted)' }}>
+              {commitment.purchaseOrderStatus === 'ISSUED' ? 'ACTIVE PURCHASE COMMITMENT' : 'NOT COMMITTED'}
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 14 }}>
+            <div><div style={miniLbl}>Ordered</div><div style={{ fontSize: 14 }}>{formatMoneyCents(commitment.orderedTotalCents, commitment.currency)}</div></div>
+            <div><div style={miniLbl}>Billed</div><div style={{ fontSize: 14 }}>{formatMoneyCents(commitment.billedTotalCents, commitment.currency)}</div></div>
+            <div><div style={miniLbl}>Outstanding</div><div style={{ fontSize: 14, fontWeight: 700 }}>{formatMoneyCents(commitment.outstandingTotalCents, commitment.currency)}</div></div>
+            <div><div style={miniLbl}>Effective</div><div style={{ fontSize: 14 }}>{commitment.commitmentEffectiveAt ? formatCommercialDate(commitment.commitmentEffectiveAt.slice(0, 10)) : '—'}</div></div>
+            <div><div style={miniLbl}>Financial Period</div><div style={{ fontSize: 14, color: 'var(--text-muted)' }}>{commitment.periodResolution.replaceAll('_', ' ')}</div></div>
+          </div>
+          {commitment.lines.map(line => (
+            <div key={line.purchaseOrderLineId} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1.5fr) repeat(3, minmax(110px, .8fr)) minmax(160px, 1fr) minmax(125px, .8fr)', gap: 10, alignItems: 'center', padding: '8px 0', borderTop: `1px solid ${BORDER}`, fontSize: 12 }}>
+              <span style={{ color: 'var(--text-primary)' }}>{line.description}</span>
+              <span style={{ color: 'var(--text-muted)' }}>{formatMoneyCents(line.orderedTotalCents, commitment.currency)} ordered</span>
+              <span style={{ color: 'var(--text-muted)' }}>{formatMoneyCents(line.billedTotalCents, commitment.currency)} billed</span>
+              <span style={{ color: 'var(--text-primary)' }}>{formatMoneyCents(line.outstandingTotalCents, commitment.currency)} outstanding</span>
+              <span style={{ color: 'var(--text-muted)' }}>Cost centre: {line.effectiveCostCentreId ?? 'Unassigned'}</span>
+              <span style={{ color: line.state === 'INVALID_OVERBILLED' ? 'var(--status-danger)' : line.state === 'CONSUMED' ? 'var(--status-success)' : 'var(--text-muted)', textAlign: 'right' }}>{line.state.replaceAll('_', ' ')}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Phase C7.5B/C7.5C — one derived reconciliation view over the PO plus
           POSTED receipt/bill facts. This is intentionally a read model:
           no reconciliation status or progress counters are stored on the
@@ -880,18 +991,83 @@ export default function PurchaseOrderDetailPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 14 }}>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{reconciliation.fullyReceivedLineCount} / {reconciliation.lineCount} lines fully received</div>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{reconciliation.fullyBilledQuantityLineCount} / {reconciliation.lineCount} lines fully billed by quantity</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{reconciliation.fullyMatchedLineCount} / {reconciliation.lineCount} lines explicitly matched</div>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{reconciliation.fullyBilledLineCount} / {reconciliation.lineCount} lines fully billed by value</div>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{reconciliation.reconciledLineCount} / {reconciliation.lineCount} lines reconciled</div>
           </div>
           {reconciliation.lines.map(line => (
-            <div key={line.purchaseOrderLineId} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, alignItems: 'center', padding: '8px 0', borderTop: `1px solid ${BORDER}`, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+            <div key={line.purchaseOrderLineId} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: 10, alignItems: 'center', padding: '8px 0', borderTop: `1px solid ${BORDER}`, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
               <span style={{ color: 'var(--text-primary)' }}>{line.description}</span>
               <span style={{ color: 'var(--text-secondary)' }}>{line.receivedQuantity} / {line.orderedQuantity} received</span>
               <span style={{ color: 'var(--text-secondary)' }}>{line.billedQuantity} / {line.orderedQuantity} billed qty</span>
+              <span style={{ color: 'var(--text-secondary)' }}>{line.matchedQuantity} / {line.orderedQuantity} matched</span>
               <span style={{ color: 'var(--text-secondary)' }}>{formatMoneyCents(line.billedValueCents, po.currency)} / {formatMoneyCents(line.orderedValueCents, po.currency)} billed value</span>
               <span style={{ color: line.reconciliationState === 'RECONCILED' ? 'var(--status-success)' : 'var(--text-secondary)', textAlign: 'right' }}>{line.reconciliationState.replaceAll('_', ' ')}</span>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Phase C7.5D3 — explicit receipt-line <-> supplier-bill-line allocations.
+          Common PO-line lineage is only a candidate relationship; a quantity is
+          "matched" only after this governed allocation write succeeds. */}
+      {(isIssued || isCancelled) && matchWorkspace && (
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', marginBottom: 20, padding: '16px 24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+            <div style={miniLbl}>Receipt ↔ Bill Matches</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{activeMatchAllocations.length} active</div>
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>Only explicit allocations count as matched. Sharing the same PO line does not create a match.</p>
+          {matchError && <p style={{ color: 'var(--status-danger)', fontSize: 12, margin: '0 0 10px' }}>{matchError}</p>}
+
+          {isIssued && canEdit && (
+            <form onSubmit={createMatchAction} style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 1.2fr) minmax(150px, 1.2fr) minmax(100px, .7fr) auto', gap: 8, alignItems: 'end', marginBottom: 14 }}>
+              <div>
+                <div style={miniLbl}>Posted Receipt Line</div>
+                <select value={matchReceiptLineId} onChange={e => { setMatchReceiptLineId(e.target.value); setMatchBillLineId(''); }} className={fieldControlClassName}>
+                  <option value="">Choose receipt line…</option>
+                  {availableReceiptMatchLines.map(line => <option key={line.id} value={line.id}>{line.documentNumber} · {Number(line.remainingQuantity)} remaining</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={miniLbl}>Posted Bill Line</div>
+                <select value={matchBillLineId} disabled={!selectedReceiptMatchLine} onChange={e => setMatchBillLineId(e.target.value)} className={fieldControlClassName}>
+                  <option value="">Choose bill line…</option>
+                  {availableBillMatchLines.map(line => <option key={line.id} value={line.id}>{line.documentNumber} · {Number(line.remainingQuantity)} remaining</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={miniLbl}>Quantity</div>
+                <input value={matchQuantity} onChange={e => setMatchQuantity(e.target.value)} inputMode="decimal" placeholder="0.0000" className={fieldControlClassName} />
+              </div>
+              <button type="submit" disabled={matchBusy || !matchReceiptLineId || !matchBillLineId || !matchQuantity.trim()} {...buttonProps('primary')}>Match</button>
+            </form>
+          )}
+
+          {matchWorkspace.allocations.length === 0 && <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>No explicit matches yet.</p>}
+          {matchWorkspace.allocations.map(a => {
+            const receiptLine = matchWorkspace.receiptLines.find(line => line.id === a.purchase_receipt_line_id);
+            const billLine = matchWorkspace.billLines.find(line => line.id === a.supplier_bill_line_id);
+            return (
+              <div key={a.id} style={{ borderTop: `1px solid ${BORDER}`, padding: '9px 0', fontSize: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>{receiptLine?.documentNumber ?? 'Receipt line'} ↔ {billLine?.documentNumber ?? 'Bill line'} · {Number(a.quantity_allocated)} matched</span>
+                  <span style={{ color: a.reversed_at ? 'var(--text-muted)' : 'var(--status-success)' }}>{a.reversed_at ? 'REVERSED' : 'ACTIVE'}</span>
+                </div>
+                {a.reversal_reason && <div style={{ color: 'var(--text-muted)', marginTop: 3 }}>Reversal: {a.reversal_reason}</div>}
+                {!a.reversed_at && isIssued && canEdit && reversingMatchId !== a.id && (
+                  <button type="button" onClick={() => { setReversingMatchId(a.id); setMatchReversalReason(''); setMatchError(''); }} disabled={matchBusy} style={{ background: 'none', border: 'none', color: 'var(--status-warning)', fontSize: 12, padding: '5px 0 0', cursor: 'pointer' }}>Reverse match</button>
+                )}
+                {!a.reversed_at && reversingMatchId === a.id && (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 7 }}>
+                    <input value={matchReversalReason} onChange={e => setMatchReversalReason(e.target.value)} placeholder="Reason for reversal" className={fieldControlClassName} style={{ flex: 1 }} />
+                    <button type="button" onClick={() => reverseMatchAction(a.id)} disabled={matchBusy} {...buttonProps('danger')}>Confirm reversal</button>
+                    <button type="button" onClick={() => { setReversingMatchId(null); setMatchReversalReason(''); }} disabled={matchBusy} {...buttonProps('secondary')}>Cancel</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -1056,3 +1232,6 @@ function TotalRow({ label, value, bold }: { label: string; value: string; bold?:
 }
 
 const miniLbl: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 };
+
+
+

@@ -124,12 +124,12 @@ function computeLineTotals(unitPriceCents: number, quantity: string | number, ta
 export async function listSupplierBills(organisationId: string, opts: { status?: SupplierBillStatus } = {}): Promise<CommercialSupplierBill[]> {
   if (opts.status) {
     return (await sql`
-      SELECT * FROM commercial_supplier_bills WHERE organisation_id = ${organisationId} AND status = ${opts.status}
+      SELECT *, bill_date::text AS bill_date, due_date::text AS due_date FROM commercial_supplier_bills WHERE organisation_id = ${organisationId} AND status = ${opts.status}
       ORDER BY created_at DESC
     `) as CommercialSupplierBill[];
   }
   return (await sql`
-    SELECT * FROM commercial_supplier_bills WHERE organisation_id = ${organisationId} ORDER BY created_at DESC
+    SELECT *, bill_date::text AS bill_date, due_date::text AS due_date FROM commercial_supplier_bills WHERE organisation_id = ${organisationId} ORDER BY created_at DESC
   `) as CommercialSupplierBill[];
 }
 
@@ -138,7 +138,7 @@ export async function listSupplierBills(organisationId: string, opts: { status?:
 // function's identical tenant-isolation discipline.
 export async function getSupplierBill(organisationId: string, supplierBillId: string): Promise<CommercialSupplierBill | null> {
   const rows = (await sql`
-    SELECT * FROM commercial_supplier_bills WHERE id = ${supplierBillId} AND organisation_id = ${organisationId}
+    SELECT *, bill_date::text AS bill_date, due_date::text AS due_date FROM commercial_supplier_bills WHERE id = ${supplierBillId} AND organisation_id = ${organisationId}
   `) as CommercialSupplierBill[];
   return rows[0] ?? null;
 }
@@ -164,7 +164,7 @@ export async function getSupplierBillWithLines(
 // GET /api/commercial/purchase-orders/[id]/bills.
 export async function listSupplierBillsForPurchaseOrder(organisationId: string, purchaseOrderId: string): Promise<CommercialSupplierBill[]> {
   return (await sql`
-    SELECT * FROM commercial_supplier_bills
+    SELECT *, bill_date::text AS bill_date, due_date::text AS due_date FROM commercial_supplier_bills
     WHERE organisation_id = ${organisationId} AND source_purchase_order_id = ${purchaseOrderId}
     ORDER BY created_at DESC
   `) as CommercialSupplierBill[];
@@ -753,10 +753,11 @@ export async function postSupplierBill(params: {
 // admin+ (approve floor, matching cancelSupplierBill()'s own floor as
 // stated in the C7.4 capability matrix) — only a POSTED bill may be
 // cancelled; a non-empty, trimmed cancel_reason is mandatory. Never
-// hard-deletes, never renumbers. No supplier payments exist yet in this
-// phase, so there is no payment-reversal blocking to implement — see the
-// C7.4 brief's own explicit note. Cancelling a bill automatically
-// removes it from billed-to-date, for free, by construction:
+// hard-deletes, never renumbers. AP settlement adds one further
+// invariant: a POSTED bill with an active RECORDED supplier payment
+// allocation cannot be cancelled until that payment is reversed.
+// Cancelling an unpaid bill automatically removes it from billed-to-date,
+// for free, by construction:
 // getBilledAmountsForPurchaseOrder() only ever sums status = 'POSTED'
 // lines, so a CANCELLED bill's amounts simply stop counting the moment
 // this UPDATE commits — no separate reversal bookkeeping exists or is
@@ -771,14 +772,103 @@ export async function cancelSupplierBill(params: {
   if (!supplierBill) throw new Error('supplier bill not found for this organisation');
   assertSupplierBillTransition(supplierBill.status, 'CANCELLED');
 
-  const rows = (await sql`
-    UPDATE commercial_supplier_bills SET
-      status = 'CANCELLED', cancelled_by = ${params.userId}, cancelled_at = now(), cancel_reason = ${trimmedReason}, updated_at = now()
-    WHERE id = ${params.supplierBillId} AND organisation_id = ${params.organisationId} AND status = 'POSTED'
-    RETURNING *
-  `) as CommercialSupplierBill[];
-  const cancelled = rows[0];
-  if (!cancelled) throw new Error('supplier bill status changed concurrently; cancel aborted');
+  // C7.5D2: lock every affected PO line before deciding cancellation.
+  // Allocation creation locks the same shared PO-line row first. The
+  // second statement therefore observes a fresh snapshot after any wait
+  // and cannot cancel a bill once an active allocation has committed.
+  const [, cancelRows] = await sql.transaction(txn => [
+    txn`
+      WITH bill_guard AS MATERIALIZED (
+        SELECT id
+        FROM commercial_supplier_bills
+        WHERE id = ${params.supplierBillId}
+          AND organisation_id = ${params.organisationId}
+          AND status = 'POSTED'
+        FOR UPDATE
+      ),
+      affected_line_ids AS MATERIALIZED (
+        SELECT DISTINCT source_purchase_order_line_id AS line_id
+        FROM commercial_supplier_bill_lines
+        WHERE supplier_bill_id = ${params.supplierBillId}
+          AND organisation_id = ${params.organisationId}
+          AND EXISTS (SELECT 1 FROM bill_guard)
+      ),
+      locked_lines AS MATERIALIZED (
+        SELECT pol.id
+        FROM commercial_purchase_order_lines pol
+        WHERE pol.organisation_id = ${params.organisationId}
+          AND pol.id IN (SELECT line_id FROM affected_line_ids)
+        ORDER BY pol.id
+        FOR UPDATE
+      )
+      SELECT COUNT(*) AS locked_line_count FROM locked_lines
+    `,
+    txn`
+      UPDATE commercial_supplier_bills sb SET
+        status = 'CANCELLED',
+        cancelled_by = ${params.userId},
+        cancelled_at = now(),
+        cancel_reason = ${trimmedReason},
+        updated_at = now()
+      WHERE sb.id = ${params.supplierBillId}
+        AND sb.organisation_id = ${params.organisationId}
+        AND sb.status = 'POSTED'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM commercial_supplier_bill_lines sbl
+          JOIN commercial_purchase_receipt_bill_allocations a
+            ON a.supplier_bill_line_id = sbl.id
+           AND a.organisation_id = sbl.organisation_id
+           AND a.reversed_at IS NULL
+          WHERE sbl.supplier_bill_id = sb.id
+            AND sbl.organisation_id = sb.organisation_id
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM commercial_supplier_payment_allocations spa
+          JOIN commercial_supplier_payments sp
+            ON sp.id = spa.supplier_payment_id
+           AND sp.organisation_id = spa.organisation_id
+           AND sp.status = 'RECORDED'
+          WHERE spa.supplier_bill_id = sb.id
+            AND spa.organisation_id = sb.organisation_id
+        )
+      RETURNING sb.*
+    `,
+  ], { isolationLevel: 'ReadCommitted' });
+
+  const cancelled = (cancelRows as CommercialSupplierBill[])[0];
+  if (!cancelled) {
+    const activeRows = (await sql`
+      SELECT COUNT(*)::text AS count
+      FROM commercial_supplier_bill_lines sbl
+      JOIN commercial_purchase_receipt_bill_allocations a
+        ON a.supplier_bill_line_id = sbl.id
+       AND a.organisation_id = sbl.organisation_id
+       AND a.reversed_at IS NULL
+      WHERE sbl.supplier_bill_id = ${params.supplierBillId}
+        AND sbl.organisation_id = ${params.organisationId}
+    `) as { count: string }[];
+    if (Number(activeRows[0]?.count ?? 0) > 0) {
+      throw new Error('supplier bill has active purchase match allocations; reverse them before cancelling the bill');
+    }
+
+    const paymentRows = (await sql`
+      SELECT COUNT(*)::text AS count
+      FROM commercial_supplier_payment_allocations spa
+      JOIN commercial_supplier_payments sp
+        ON sp.id = spa.supplier_payment_id
+       AND sp.organisation_id = spa.organisation_id
+       AND sp.status = 'RECORDED'
+      WHERE spa.supplier_bill_id = ${params.supplierBillId}
+        AND spa.organisation_id = ${params.organisationId}
+    `) as { count: string }[];
+    if (Number(paymentRows[0]?.count ?? 0) > 0) {
+      throw new Error('supplier bill has active supplier payments; reverse them before cancelling the bill');
+    }
+
+    throw new Error('supplier bill status changed concurrently; cancel aborted');
+  }
 
   await logSupplierBillCancelled({
     organisationId: params.organisationId, userId: params.userId, supplierBillId: params.supplierBillId, cancelReason: trimmedReason,

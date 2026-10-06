@@ -113,8 +113,10 @@ describe('Phase C7.4 — posting and cancelling are gated on isAdmin, not just c
     expect(PAGE_SRC).toMatch(/isDraft && isAdmin && lines\.length > 0 &&[\s\S]{0,200}Post Bill/)
   })
 
-  it('the Cancel Bill button requires isPosted && isAdmin', () => {
-    expect(PAGE_SRC).toMatch(/isPosted && isAdmin &&[\s\S]{0,200}Cancel Bill/)
+  it('the Cancel Bill button requires isPosted && isAdmin and blocks active supplier payments', () => {
+    expect(PAGE_SRC).toMatch(/isPosted && isAdmin &&[\s\S]{0,600}Cancel Bill/)
+    expect(PAGE_SRC).toContain(`disabled={busy || (paymentSummary?.active_payment_count ?? 0) > 0}`)
+    expect(PAGE_SRC).toContain('Reverse all recorded supplier payments before cancelling this bill.')
   })
 })
 

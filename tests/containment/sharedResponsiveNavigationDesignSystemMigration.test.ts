@@ -125,7 +125,7 @@ describe('B.4 shared responsive navigation design-system migration', () => {
     for (const [href, gate] of [
       ['/events', "gate: { anyCapability: ['events'] }"],
       ['/crm', "gate: { anyCapability: ['crm'] }"],
-      ['/commercial', "gate: { anyCapability: ['quotes', 'invoicing', 'purchasing'] }"],
+      ['/commercial', "gate: { anyCapability: ['quotes', 'invoicing', 'purchasing', 'budgeting'] }"],
       ['/organiser', "gate: { anyCapability: ['organiser'], minRole: 'manager' }"],
       ['/people', "gate: { anyCapability: ['people'], capabilityBypassRoles: ['super_admin'] }"],
     ]) {
@@ -142,7 +142,7 @@ describe('B.4 shared responsive navigation design-system migration', () => {
     expect(hrefs('manager', [])).toEqual(['/data-hub/import'])
     expect(hrefs('manager', ['events'])).toEqual(['/events', '/data-hub/import'])
     expect(hrefs('manager', ['crm'])).toEqual(['/crm', '/data-hub/import'])
-    for (const cap of ['quotes', 'invoicing', 'purchasing']) {
+    for (const cap of ['quotes', 'invoicing', 'purchasing', 'budgeting']) {
       expect(hrefs('manager', [cap])).toEqual(['/commercial', '/data-hub/import'])
     }
     expect(hrefs('manager', ['organiser'])).toEqual(['/organiser', '/data-hub/import'])

@@ -458,6 +458,53 @@ export async function logPaymentReversed(params: {
   });
 }
 
+// ── Supplier / AP payments ──────────────────────────────────────────────
+
+export async function logSupplierPaymentRecorded(params: {
+  organisationId: string; userId: string; supplierPaymentId: string; supplierId: string;
+  amountCents: number; currency: string; method: string; paidAt: string;
+  billAllocations: Array<{ supplier_bill_id: string; allocated_amount_cents: number }>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId,
+    userId: params.userId,
+    action: 'commercial_supplier_payment.recorded',
+    resourceType: 'commercial_supplier_payment',
+    resourceId: params.supplierPaymentId,
+    beforeState: null,
+    afterState: {
+      supplier_id: params.supplierId,
+      amount_cents: params.amountCents,
+      currency: params.currency,
+      method: params.method,
+      paid_at: params.paidAt,
+      bill_allocations: params.billAllocations,
+    },
+  });
+}
+
+export async function logSupplierPaymentReversed(params: {
+  organisationId: string; userId: string; supplierPaymentId: string;
+  amountCents: number; reversalReason: string; reversedAt: string;
+  supplierBillIds: string[];
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId,
+    userId: params.userId,
+    action: 'commercial_supplier_payment.reversed',
+    resourceType: 'commercial_supplier_payment',
+    resourceId: params.supplierPaymentId,
+    beforeState: { status: 'RECORDED' },
+    afterState: {
+      status: 'REVERSED',
+      amount_cents: params.amountCents,
+      reversal_reason: params.reversalReason,
+      reversed_at: params.reversedAt,
+      supplier_bill_ids: params.supplierBillIds,
+    },
+  });
+}
+
 // ── Suppliers (Phase C6.2) ──────────────────────────────────────────────
 //
 // Mirrors logCustomerCreated()/logCustomerUpdated() exactly — never logs
@@ -773,5 +820,143 @@ export async function logSupplierBillCancelled(params: {
     organisationId: params.organisationId, userId: params.userId, action: 'commercial_supplier_bill.cancelled',
     resourceType: 'commercial_supplier_bill', resourceId: params.supplierBillId,
     beforeState: { status: 'POSTED' }, afterState: { status: 'CANCELLED', cancel_reason: params.cancelReason },
+  });
+}
+
+// ── Purchase Receipt ↔ Supplier Bill allocations (Phase C7.5D1) ───────
+
+export async function logPurchaseMatchAllocationCreated(params: {
+  organisationId: string; userId: string; allocationId: string;
+  after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_purchase_match.created',
+    resourceType: 'commercial_purchase_match', resourceId: params.allocationId,
+    beforeState: null, afterState: params.after,
+  });
+}
+
+export async function logPurchaseMatchAllocationReversed(params: {
+  organisationId: string; userId: string; allocationId: string;
+  before: Record<string, unknown>; reason: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_purchase_match.reversed',
+    resourceType: 'commercial_purchase_match', resourceId: params.allocationId,
+    beforeState: params.before, afterState: { reversed: true, reversal_reason: params.reason },
+  });
+}
+
+
+// Phase C7.7C — governed Budgeting draft-edit audit events.
+export async function logBudgetAccountCreated(params: {
+  organisationId: string; userId: string; budgetAccountId: string; after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_budget_account.created',
+    resourceType: 'commercial_budget_account', resourceId: params.budgetAccountId, beforeState: null, afterState: params.after,
+  });
+}
+
+export async function logBudgetAccountUpdated(params: {
+  organisationId: string; userId: string; budgetAccountId: string;
+  before: Record<string, unknown>; after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_budget_account.updated',
+    resourceType: 'commercial_budget_account', resourceId: params.budgetAccountId, beforeState: params.before, afterState: params.after,
+  });
+}
+
+export async function logBudgetAccountDeactivated(params: {
+  organisationId: string; userId: string; budgetAccountId: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_budget_account.deactivated',
+    resourceType: 'commercial_budget_account', resourceId: params.budgetAccountId,
+    beforeState: { active: true }, afterState: { active: false },
+  });
+}
+
+export async function logBudgetCreated(params: {
+  organisationId: string; userId: string; budgetId: string; after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_budget.created',
+    resourceType: 'commercial_budget', resourceId: params.budgetId, beforeState: null, afterState: params.after,
+  });
+}
+
+export async function logBudgetVersionCreated(params: {
+  organisationId: string; userId: string; budgetVersionId: string; budgetId: string; versionNumber: number;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_budget_version.created',
+    resourceType: 'commercial_budget_version', resourceId: params.budgetVersionId, beforeState: null,
+    afterState: { budget_id: params.budgetId, version_number: params.versionNumber, status: 'DRAFT' },
+  });
+}
+
+export async function logBudgetLineChanged(params: {
+  organisationId: string; userId: string; budgetLineId: string; budgetVersionId: string; after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_budget_line.changed',
+    resourceType: 'commercial_budget_line', resourceId: params.budgetLineId, beforeState: null,
+    afterState: { budget_version_id: params.budgetVersionId, ...params.after },
+  });
+}
+
+export async function logBudgetPeriodAllocationChanged(params: {
+  organisationId: string; userId: string; budgetPeriodAllocationId: string; budgetVersionId: string; after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_budget_period_allocation.changed',
+    resourceType: 'commercial_budget_period_allocation', resourceId: params.budgetPeriodAllocationId, beforeState: null,
+    afterState: { budget_version_id: params.budgetVersionId, ...params.after },
+  });
+}
+
+export async function logBudgetCommitmentMappingChanged(params: {
+  organisationId: string; userId: string; budgetCommitmentMappingId: string; budgetVersionId: string; after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_budget_commitment_mapping.changed',
+    resourceType: 'commercial_budget_commitment_mapping', resourceId: params.budgetCommitmentMappingId, beforeState: null,
+    afterState: { budget_version_id: params.budgetVersionId, ...params.after },
+  });
+}
+
+
+export async function logBudgetVersionActivated(params: {
+  organisationId: string; userId: string; budgetVersionId: string; budgetId: string;
+  previousActiveVersionId: string | null; versionNumber: number;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId,
+    userId: params.userId,
+    action: 'commercial_budget_version.activated',
+    resourceType: 'commercial_budget_version',
+    resourceId: params.budgetVersionId,
+    beforeState: { status: 'DRAFT', previous_active_version_id: params.previousActiveVersionId },
+    afterState: {
+      status: 'ACTIVE',
+      budget_id: params.budgetId,
+      version_number: params.versionNumber,
+    },
+  });
+}
+
+export async function logBudgetVersionSuperseded(params: {
+  organisationId: string; userId: string; budgetVersionId: string; replacementVersionId: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId,
+    userId: params.userId,
+    action: 'commercial_budget_version.superseded',
+    resourceType: 'commercial_budget_version',
+    resourceId: params.budgetVersionId,
+    beforeState: { status: 'ACTIVE' },
+    afterState: { status: 'SUPERSEDED', replacement_version_id: params.replacementVersionId },
   });
 }

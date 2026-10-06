@@ -81,6 +81,7 @@ export default function SupplierDetailPage() {
         ) : undefined}
       />
 
+      {hasPurchasing && <p><Link href={`/commercial/purchasing/suppliers/${supplier.id}/remittance`} {...buttonProps('secondary')}>Supplier Remittance</Link></p>}
       <dl style={{ margin: 0, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px 24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 18 }}>
         <Row label="Status" value={supplier.active ? 'Active' : 'Inactive'} />
         <Row label="Legal Name" value={supplier.legal_name} />

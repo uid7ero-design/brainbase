@@ -24,6 +24,7 @@ const base = (overrides: Partial<RawReconciliationRow> = {}): RawReconciliationR
   ordered_value_cents: 11000,
   received_quantity: '0',
   billed_quantity: '0',
+  matched_quantity: '0',
   billed_value_cents: '0',
   ...overrides,
 });
@@ -75,8 +76,8 @@ describe('Phase C7.5B — derived purchasing reconciliation states', () => {
     expect(result?.status).toBe('PARTIAL');
   });
 
-  it('requires exact receipt quantity AND exact billed value for RECONCILED', () => {
-    const result = derivePurchaseOrderReconciliation([base({ received_quantity: '10.0000', billed_quantity: '10.0000', billed_value_cents: '11000' })]);
+  it('requires exact receipt, billed, matched quantity AND exact billed value for RECONCILED', () => {
+    const result = derivePurchaseOrderReconciliation([base({ received_quantity: '10.0000', billed_quantity: '10.0000', matched_quantity: '10.0000', billed_value_cents: '11000' })]);
     expect(result?.status).toBe('RECONCILED');
     expect(result?.reconciledLineCount).toBe(1);
     expect(result?.fullyReceivedLineCount).toBe(1);
@@ -85,7 +86,7 @@ describe('Phase C7.5B — derived purchasing reconciliation states', () => {
   });
 
   it('treats a zero-value line as financially complete at exactly zero cents', () => {
-    const result = derivePurchaseOrderReconciliation([base({ ordered_value_cents: 0, received_quantity: '10.0000', billed_quantity: '10.0000', billed_value_cents: '0' })]);
+    const result = derivePurchaseOrderReconciliation([base({ ordered_value_cents: 0, received_quantity: '10.0000', billed_quantity: '10.0000', matched_quantity: '10.0000', billed_value_cents: '0' })]);
     expect(result?.status).toBe('RECONCILED');
     expect(result?.fullyBilledLineCount).toBe(1);
     expect(result?.lines[0].billingState).toBe('FULLY_BILLED');
@@ -105,13 +106,14 @@ describe('Phase C7.5B — derived purchasing reconciliation states', () => {
 
   it('rolls multiple PO lines up independently at header level', () => {
     const result = derivePurchaseOrderReconciliation([
-      base({ line_id: 'line-1', position: 1, received_quantity: '10', billed_quantity: '10', billed_value_cents: '11000' }),
+      base({ line_id: 'line-1', position: 1, received_quantity: '10', billed_quantity: '10', matched_quantity: '10', billed_value_cents: '11000' }),
       base({ line_id: 'line-2', position: 2, ordered_quantity: 4, ordered_value_cents: 4400, received_quantity: '2', billed_value_cents: '0' }),
     ]);
     expect(result).toMatchObject({
       lineCount: 2,
       fullyReceivedLineCount: 1,
       fullyBilledLineCount: 1,
+      fullyMatchedLineCount: 1,
       reconciledLineCount: 1,
       orderedValueCents: 15400,
       billedValueCents: 11000,
@@ -157,7 +159,33 @@ describe('Phase C7.5C — quantity-aware purchasing reconciliation', () => {
   });
 });
 
-describe('Phase C7.5B/C7.5C — reconciliation SQL boundary', () => {
+describe('Phase C7.5D3 — explicit matched quantity reconciliation', () => {
+  it('does not reconcile fully received and fully billed facts until an explicit active allocation exists', () => {
+    const result = derivePurchaseOrderReconciliation([base({
+      received_quantity: '10.0000', billed_quantity: '10.0000', billed_value_cents: '11000', matched_quantity: '0',
+    })]);
+    expect(result?.status).toBe('PARTIAL');
+    expect(result?.lines[0]).toMatchObject({ matchedQuantity: 0, remainingToMatchQuantity: 10, matchedQuantityState: 'NOT_MATCHED' });
+  });
+
+  it('surfaces partial explicit matching without inferring the remainder from common PO-line lineage', () => {
+    const result = derivePurchaseOrderReconciliation([base({
+      received_quantity: '10.0000', billed_quantity: '10.0000', billed_value_cents: '11000', matched_quantity: '6.5000',
+    })]);
+    expect(result?.lines[0]).toMatchObject({ matchedQuantity: 6.5, remainingToMatchQuantity: 3.5, matchedQuantityState: 'PARTIALLY_MATCHED' });
+    expect(result?.lines[0].exceptions).toContainEqual({ code: 'PARTIALLY_MATCHED', severity: 'INFO' });
+  });
+
+  it('surfaces impossible matched quantity above ordered quantity as EXCEPTION', () => {
+    const result = derivePurchaseOrderReconciliation([base({
+      received_quantity: '10.0000', billed_quantity: '10.0000', billed_value_cents: '11000', matched_quantity: '10.0001',
+    })]);
+    expect(result?.status).toBe('EXCEPTION');
+    expect(result?.lines[0].exceptions).toContainEqual({ code: 'MATCH_QUANTITY_MISMATCH', severity: 'ERROR' });
+  });
+});
+
+describe('Phase C7.5B/C7.5C/C7.5D3 — reconciliation SQL boundary', () => {
   it('uses one read statement, scopes every contributing fact to the organisation/PO, and counts POSTED receipt/bill facts only', async () => {
     sqlMock.mockResolvedValueOnce([base()]);
     const result = await getPurchaseOrderReconciliation('org-a', 'po-1');
@@ -170,6 +198,8 @@ describe('Phase C7.5B/C7.5C — reconciliation SQL boundary', () => {
     expect(query).toMatch(/csb\.status = 'POSTED'/);
     expect(query).toMatch(/SUM\(csbl\.quantity\)/);
     expect(query).toMatch(/SUM\(csbl\.line_total_cents\)/);
+    expect(query).toMatch(/SUM\(a\.quantity_allocated\)/);
+    expect(query).toMatch(/a\.reversed_at IS NULL/);
     expect(query).toMatch(/crl\.organisation_id =/);
     expect(query).toMatch(/csbl\.organisation_id =/);
     expect(query).toMatch(/cpo\.organisation_id =/);

@@ -39,7 +39,19 @@ const BASE_NAV_ITEMS = [
 // 'purchasing'. Hiding these links is UX only — every route backing them
 // still enforces authorizeCommercialRequest('purchasing', ...)
 // server-side regardless of what this sidebar renders.
-export default function CommercialSidebar({ quotesEnabled = false, invoicingEnabled = false, purchasingEnabled = false }: { quotesEnabled?: boolean; invoicingEnabled?: boolean; purchasingEnabled?: boolean }) {
+export default function CommercialSidebar({
+  quotesEnabled = false,
+  invoicingEnabled = false,
+  purchasingEnabled = false,
+  budgetingEnabled = false,
+  budgetingAdminEnabled = false,
+}: {
+  quotesEnabled?: boolean;
+  invoicingEnabled?: boolean;
+  purchasingEnabled?: boolean;
+  budgetingEnabled?: boolean;
+  budgetingAdminEnabled?: boolean;
+}) {
   const pathname = usePathname() ?? '';
   const navItems = [
     ...BASE_NAV_ITEMS.slice(0, 3),
@@ -55,8 +67,18 @@ export default function CommercialSidebar({ quotesEnabled = false, invoicingEnab
       // 'purchasing' capability — the C7.4 brief explicitly said not to
       // repurpose the unused 'expenses' capability yet).
       { href: '/commercial/purchasing/supplier-bills', label: 'Supplier Bills' },
+      { href: '/commercial/purchasing/ap-overview', label: 'AP Overview' },
       { href: '/commercial/purchasing/suppliers', label: 'Suppliers' },
     ] : []),
+    ...(budgetingEnabled
+      ? [{ href: '/commercial/budgeting/commitments', label: 'Budget vs Actual' }]
+      : []),
+    ...(budgetingAdminEnabled
+      ? [
+          { href: '/commercial/budgeting/finance-controls', label: 'Finance Controls' },
+          { href: '/commercial/budgeting/external-gl', label: 'External GL Mappings' },
+        ]
+      : []),
     ...BASE_NAV_ITEMS.slice(3),
   ];
 

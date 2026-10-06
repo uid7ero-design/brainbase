@@ -61,16 +61,42 @@ const prisma = new PrismaClient({ datasourceUrl: DATABASE_URL });
 // schema uses, with zero change to the real SQL text the domain layer
 // itself emits.
 const UUID_SHAPE_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-async function neonCompatibleSql(strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> {
+type QueryDescriptor = { text: string; values: unknown[] };
+type TxnTag = (strings: TemplateStringsArray, ...values: unknown[]) => QueryDescriptor;
+type TxnBuilder = (txn: TxnTag) => QueryDescriptor[];
+
+function compileNeonCompatibleQuery(strings: TemplateStringsArray, values: unknown[]): QueryDescriptor {
   let text = strings[0];
   for (let i = 0; i < values.length; i++) {
     const cast = typeof values[i] === 'string' && UUID_SHAPE_RE.test(values[i] as string) ? '::uuid' : '';
     text += `$${i + 1}${cast}` + strings[i + 1];
   }
-  return prisma.$queryRawUnsafe(text, ...values);
+  return { text, values };
 }
 
-vi.doMock('@/lib/db', () => ({ default: neonCompatibleSql }));
+async function neonCompatibleSql(strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> {
+  const query = compileNeonCompatibleQuery(strings, values);
+  return prisma.$queryRawUnsafe(query.text, ...query.values);
+}
+
+type TransactionOptions = { isolationLevel?: 'ReadCommitted' };
+const sqlWithTransaction = neonCompatibleSql as typeof neonCompatibleSql & {
+  transaction: (builder: TxnBuilder, options?: TransactionOptions) => Promise<unknown[][]>;
+};
+sqlWithTransaction.transaction = async (builder, options) => {
+  expect(options?.isolationLevel).toBe('ReadCommitted');
+  return prisma.$transaction(async tx => {
+    const txn: TxnTag = (strings, ...values) => compileNeonCompatibleQuery(strings, values);
+    const queries = builder(txn);
+    const results: unknown[][] = [];
+    for (const query of queries) {
+      results.push(await tx.$queryRawUnsafe<unknown[]>(query.text, ...query.values));
+    }
+    return results;
+  }, { isolationLevel: 'ReadCommitted' });
+};
+
+vi.doMock('@/lib/db', () => ({ default: sqlWithTransaction }));
 
 let createPurchaseOrder: typeof import('@/lib/commercial/purchaseOrders').createPurchaseOrder;
 let addPurchaseOrderLine: typeof import('@/lib/commercial/purchaseOrders').addPurchaseOrderLine;
