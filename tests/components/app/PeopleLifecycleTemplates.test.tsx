@@ -375,6 +375,8 @@ describe('HR-7G3B lifecycle template version creation', () => {
     });
     expect(body).not.toHaveProperty('template_key');
     expect(body).not.toHaveProperty('lifecycle_type');
+
+    expect(await screen.findByRole('button', { name: 'View Standard onboarding v2' })).toBeTruthy();
     expect(listReads).toBe(2);
     expect(document.body.textContent).not.toContain('sensitive-version-creator');
   });
