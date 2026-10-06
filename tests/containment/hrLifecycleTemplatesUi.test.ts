@@ -80,6 +80,17 @@ describe('HR-7G1 lifecycle templates read-only admin UI', () => {
     expect(src).toContain('No tasks in this template.');
   });
 
+  it('renders authored descriptions and visibility without identity metadata', () => {
+    expect(src).toContain('detail.description');
+    expect(src).toContain('task.description');
+    expect(src).toContain('task.employee_visible');
+    expect(src).toContain('task.manager_visible');
+    expect(src).toContain('task.internal_only');
+    expect(src).toContain('Visibility:');
+    expect(src).not.toMatch(/created_by/);
+    expect(src).not.toMatch(/assigned_user_id/);
+  });
+
   it('projects task detail down to operational fields only', () => {
     expect(src).toContain('task.sequence');
     expect(src).toContain('task.title');

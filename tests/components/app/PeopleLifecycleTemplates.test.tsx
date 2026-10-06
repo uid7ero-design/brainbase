@@ -230,6 +230,80 @@ describe('HR-7G2B lifecycle template status actions', () => {
   });
 });
 
+describe('HR-7G4 lifecycle template detail completeness', () => {
+  it('shows authored descriptions and visibility without identity metadata', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url === '/api/hr/lifecycle/templates') {
+        return response({
+          capabilities: { can_create_template: true },
+          templates: [template('ACTIVE', {
+            can_create_version: true,
+            can_activate: false,
+            can_retire: true,
+          })],
+        });
+      }
+      if (url === '/api/hr/lifecycle/templates/' + TEMPLATE_ID) {
+        return response({
+          template: {
+            ...template('ACTIVE', {
+              can_create_version: true,
+              can_activate: false,
+              can_retire: true,
+            }, {
+              description: 'Standard onboarding workflow for new employees',
+            }),
+            tasks: [
+              {
+                id: '44444444-4444-4444-8444-444444444444',
+                sequence: 1,
+                title: 'Complete induction',
+                description: 'Read and acknowledge the induction guide',
+                responsibility_type: 'EMPLOYEE',
+                due_offset_days: 2,
+                requires_approval: true,
+                approval_type: 'MANAGER',
+                employee_visible: true,
+                manager_visible: true,
+                internal_only: false,
+              },
+              {
+                id: '55555555-5555-4555-8555-555555555555',
+                sequence: 2,
+                title: 'HR setup',
+                description: null,
+                responsibility_type: 'HR_ADMIN',
+                due_offset_days: null,
+                requires_approval: false,
+                approval_type: 'NONE',
+                employee_visible: false,
+                manager_visible: false,
+                internal_only: true,
+              },
+            ],
+          },
+        });
+      }
+      return response({});
+    });
+
+    renderBrainbase(<LifecycleTemplatesPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View Standard onboarding' }));
+
+    expect(await screen.findByText('Standard onboarding workflow for new employees')).toBeTruthy();
+    expect(screen.getByText('Read and acknowledge the induction guide')).toBeTruthy();
+    expect(screen.getByText('Visibility: Employee, Manager')).toBeTruthy();
+    expect(screen.getByText('Visibility: Internal only')).toBeTruthy();
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-creator-id');
+    expect(text).not.toContain('44444444-4444-4444-8444-444444444444');
+    expect(text).not.toContain('55555555-5555-4555-8555-555555555555');
+  });
+});
+
 describe('HR-7G3B lifecycle template version creation', () => {
   const VERSION_ID = '33333333-3333-4333-8333-333333333333';
 
