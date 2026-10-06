@@ -890,6 +890,258 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     expect(document.body.textContent).not.toContain('sensitive approval failure detail');
   });
 
+  it('shows workflow start controls only from server capability and loads safe active templates', async () => {
+    const templateId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          capabilities: { can_start_workflow: true },
+          workflows: [],
+        });
+      }
+      if (url === '/api/hr/lifecycle/templates?status=ACTIVE') {
+        return response({
+          templates: [{
+            id: templateId,
+            template_key: 'sensitive-template-key',
+            version_number: 3,
+            lifecycle_type: 'onboarding',
+            name: 'Standard onboarding',
+            description: 'sensitive template description',
+            status: 'ACTIVE',
+            created_by: 'sensitive-creator-id',
+          }],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    const startWorkflow = await screen.findByRole('button', { name: 'Start workflow' });
+    fireEvent.click(startWorkflow);
+
+    expect(await screen.findByRole('option', {
+      name: 'Standard onboarding · onboarding · v3',
+    })).toBeTruthy();
+    expect(screen.getByLabelText('Anchor date')).toBeTruthy();
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-template-key');
+    expect(text).not.toContain('sensitive template description');
+    expect(text).not.toContain('sensitive-creator-id');
+    expect(text).not.toContain(templateId);
+  });
+
+  it('starts a workflow and refreshes server-derived workflow capabilities', async () => {
+    const templateId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    let workflowReads = 0;
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        workflowReads += 1;
+        if (workflowReads === 1) {
+          return response({
+            capabilities: { can_start_workflow: true },
+            workflows: [],
+          });
+        }
+        return response({
+          capabilities: { can_start_workflow: true },
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-20',
+            started_at: '2026-10-06T09:00:00.000Z',
+            completed_at: null,
+            cancelled_at: null,
+            capabilities: { can_cancel: true },
+          }],
+        });
+      }
+      if (url === '/api/hr/lifecycle/templates?status=ACTIVE') {
+        return response({
+          templates: [{
+            id: templateId,
+            version_number: 1,
+            lifecycle_type: 'onboarding',
+            name: 'Standard onboarding',
+            status: 'ACTIVE',
+          }],
+        });
+      }
+      if (url === '/api/hr/lifecycle/workflows' && init?.method === 'POST') {
+        return response({
+          workflow: {
+            id: workflowId,
+            person_id: PERSON.id,
+            template_id: templateId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-20',
+            started_by: 'sensitive-starter-id',
+            started_at: '2026-10-06T09:00:00.000Z',
+          },
+          tasks: [{
+            id: 'sensitive-task-id',
+            assigned_user_id: 'sensitive-assignee-id',
+          }],
+        }, 201);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start workflow' }));
+    const templateSelect = await screen.findByLabelText('Template');
+    fireEvent.change(templateSelect, { target: { value: templateId } });
+    fireEvent.change(screen.getByLabelText('Anchor date'), {
+      target: { value: '2026-10-20' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+
+    expect(await screen.findByText('Onboarding · ACTIVE')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Cancel workflow' })).toBeTruthy();
+
+    const postCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input) === '/api/hr/lifecycle/workflows' && init?.method === 'POST'
+    );
+    expect(JSON.parse(String(postCall?.[1]?.body))).toEqual({
+      person_id: PERSON.id,
+      template_id: templateId,
+      anchor_date: '2026-10-20',
+    });
+    expect(workflowReads).toBe(2);
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-starter-id');
+    expect(text).not.toContain('sensitive-task-id');
+    expect(text).not.toContain('sensitive-assignee-id');
+  });
+
+  it('requires explicit confirmation before cancelling a workflow and refreshes server state', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    let workflowReads = 0;
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        workflowReads += 1;
+        return response({
+          capabilities: { can_start_workflow: true },
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'offboarding',
+            status: workflowReads === 1 ? 'ACTIVE' : 'CANCELLED',
+            anchor_date: '2026-10-25',
+            started_at: '2026-10-06T09:00:00.000Z',
+            completed_at: null,
+            cancelled_at: workflowReads === 1 ? null : '2026-10-06T10:00:00.000Z',
+            capabilities: { can_cancel: workflowReads === 1 },
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}/cancel` && init?.method === 'POST') {
+        return response({
+          workflow: {
+            id: workflowId,
+            status: 'CANCELLED',
+            cancelled_at: '2026-10-06T10:00:00.000Z',
+            started_by: 'sensitive-starter-id',
+          },
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel workflow' }));
+
+    expect(screen.getByText('Cancel this workflow?')).toBeTruthy();
+    expect(fetchMock.mock.calls.some(([input, init]) =>
+      String(input).endsWith('/cancel') && init?.method === 'POST'
+    )).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm cancel' }));
+
+    expect(await screen.findByText('Offboarding · CANCELLED')).toBeTruthy();
+    expect(screen.getByText('Cancelled 2026-10-06')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Cancel workflow' })).toBeNull();
+    expect(workflowReads).toBe(2);
+    expect(document.body.textContent).not.toContain('sensitive-starter-id');
+  });
+
+  it('shows only a generic workflow-cancel failure and preserves the active workflow', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          capabilities: { can_start_workflow: true },
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-20',
+            started_at: '2026-10-06T09:00:00.000Z',
+            completed_at: null,
+            cancelled_at: null,
+            capabilities: { can_cancel: true },
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}/cancel` && init?.method === 'POST') {
+        return response({ error: 'sensitive cancellation database detail' }, 500);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel workflow' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm cancel' }));
+
+    expect(await screen.findByText('Could not cancel lifecycle workflow.')).toBeTruthy();
+    expect(screen.getByText('Onboarding · ACTIVE')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive cancellation database detail');
+  });
+
   it('shows create controls only when the server document-management capability permits them', async () => {
     fetchMock.mockImplementation(input => {
       const url = String(input);
