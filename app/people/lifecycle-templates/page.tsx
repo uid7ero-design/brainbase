@@ -227,6 +227,100 @@ export default function LifecycleTemplatesPage() {
     }
   }
 
+  function resetCreateTemplateForm() {
+    setNewTemplateKey('');
+    setNewTemplateType('onboarding');
+    setNewTemplateName('');
+    setNewTemplateDescription('');
+    setNewTemplateTasks([draftTask(1)]);
+    setNextTemplateTaskKey(2);
+    setTemplateCreateState('idle');
+  }
+
+  function updateTemplateTask(
+    key: number,
+    patch: Partial<Omit<LifecycleTemplateDraftTask, 'key'>>,
+  ) {
+    setNewTemplateTasks(current => current.map(task => (
+      task.key === key ? { ...task, ...patch } : task
+    )));
+  }
+
+  function addTemplateTask() {
+    setNewTemplateTasks(current => [...current, draftTask(nextTemplateTaskKey)]);
+    setNextTemplateTaskKey(current => current + 1);
+  }
+
+  function removeTemplateTask(key: number) {
+    setNewTemplateTasks(current => (
+      current.length > 1 ? current.filter(task => task.key !== key) : current
+    ));
+  }
+
+  async function createTemplate() {
+    if (!canCreateTemplate) return;
+
+    const templateKey = newTemplateKey.trim();
+    const name = newTemplateName.trim();
+    const tasksValid = newTemplateTasks.every(task => {
+      if (!task.title.trim()) return false;
+      if (!task.due_offset_days.trim()) return true;
+      const value = Number(task.due_offset_days);
+      return Number.isInteger(value);
+    });
+
+    if (!templateKey || !name || !tasksValid) {
+      setTemplateCreateState('error');
+      return;
+    }
+
+    const tasks = newTemplateTasks.map((task, index) => ({
+      sequence: index + 1,
+      title: task.title.trim(),
+      description: task.description.trim() || null,
+      responsibility_type: task.responsibility_type,
+      due_offset_days: task.due_offset_days.trim()
+        ? Number(task.due_offset_days)
+        : null,
+      requires_approval: task.requires_approval,
+      approval_type: task.requires_approval ? task.approval_type : 'NONE',
+      employee_visible: task.internal_only ? false : task.employee_visible,
+      manager_visible: task.internal_only ? false : task.manager_visible,
+      internal_only: task.internal_only,
+    }));
+
+    setTemplateCreateState('submitting');
+
+    try {
+      const response = await fetch('/api/hr/lifecycle/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          template_key: templateKey,
+          lifecycle_type: newTemplateType,
+          name,
+          description: newTemplateDescription.trim() || null,
+          tasks,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || typeof data.template?.id !== 'string') {
+        setTemplateCreateState('error');
+        return;
+      }
+
+      setShowCreateTemplate(false);
+      resetCreateTemplateForm();
+
+      if (!await refreshTemplates()) {
+        setError('Template was created, but the list could not be refreshed.');
+      }
+    } catch {
+      setTemplateCreateState('error');
+    }
+  }
+
   async function runTemplateStatusAction(
     template: LifecycleTemplateSummary,
     action: LifecycleTemplateStatusAction,
