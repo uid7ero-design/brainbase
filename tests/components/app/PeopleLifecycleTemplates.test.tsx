@@ -103,7 +103,7 @@ describe('HR-7G6 lifecycle template filters', () => {
 
     expect(await screen.findByText('Unfiltered onboarding')).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText('Lifecycle type filter'), {
+    fireEvent.change(screen.getByLabelText('Template type filter'), {
       target: { value: 'offboarding' },
     });
     expect(await screen.findByText('Filtered offboarding draft')).toBeTruthy();
