@@ -542,9 +542,6 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       };
     }
 
-    setLifecycleTemplates([]);
-    setLifecycleTemplatesState('loading');
-
     void fetch('/api/hr/lifecycle/templates?status=ACTIVE')
       .then(async response => {
         const data = await response.json().catch(() => ({}));
@@ -1473,6 +1470,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                   <button
                     type="button"
                     onClick={() => {
+                      setLifecycleTemplates([]);
+                      setLifecycleTemplatesState('loading');
                       setShowStartLifecycleWorkflow(true);
                       setLifecycleStartState('idle');
                       setNewLifecycleTemplateId('');
