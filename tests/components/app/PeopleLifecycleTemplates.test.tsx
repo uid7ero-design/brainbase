@@ -46,6 +46,90 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('HR-7G6 lifecycle template filters', () => {
+  it('uses server-backed type and status filters and can clear them', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+
+      if (url === '/api/hr/lifecycle/templates') {
+        return response({
+          capabilities: { can_create_template: true },
+          templates: [template('ACTIVE', {
+            can_create_version: true,
+            can_activate: false,
+            can_retire: true,
+          }, {
+            name: 'Unfiltered onboarding',
+          })],
+        });
+      }
+
+      if (url === '/api/hr/lifecycle/templates?lifecycle_type=offboarding') {
+        return response({
+          capabilities: { can_create_template: true },
+          templates: [template('DRAFT', {
+            can_create_version: true,
+            can_activate: true,
+            can_retire: true,
+          }, {
+            id: '55555555-5555-4555-8555-555555555555',
+            template_key: 'standard-offboarding',
+            lifecycle_type: 'offboarding',
+            name: 'Filtered offboarding draft',
+          })],
+        });
+      }
+
+      if (url === '/api/hr/lifecycle/templates?lifecycle_type=offboarding&status=ACTIVE') {
+        return response({
+          capabilities: { can_create_template: true },
+          templates: [template('ACTIVE', {
+            can_create_version: true,
+            can_activate: false,
+            can_retire: true,
+          }, {
+            id: '66666666-6666-4666-8666-666666666666',
+            template_key: 'standard-offboarding',
+            lifecycle_type: 'offboarding',
+            name: 'Filtered active offboarding',
+          })],
+        });
+      }
+
+      return response({});
+    });
+
+    renderBrainbase(<LifecycleTemplatesPage />);
+
+    expect(await screen.findByText('Unfiltered onboarding')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Lifecycle type filter'), {
+      target: { value: 'offboarding' },
+    });
+    expect(await screen.findByText('Filtered offboarding draft')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Lifecycle status filter'), {
+      target: { value: 'ACTIVE' },
+    });
+    expect(await screen.findByText('Filtered active offboarding')).toBeTruthy();
+
+    expect(fetchMock.mock.calls.some(([input]) =>
+      String(input) === '/api/hr/lifecycle/templates?lifecycle_type=offboarding'
+    )).toBe(true);
+    expect(fetchMock.mock.calls.some(([input]) =>
+      String(input) === '/api/hr/lifecycle/templates?lifecycle_type=offboarding&status=ACTIVE'
+    )).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(await screen.findByText('Unfiltered onboarding')).toBeTruthy();
+
+    const baseCalls = fetchMock.mock.calls.filter(([input]) =>
+      String(input) === '/api/hr/lifecycle/templates'
+    );
+    expect(baseCalls.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
 describe('HR-7G5 lifecycle template family lineage', () => {
   it('groups ordered template versions under one family heading per template key', async () => {
     fetchMock.mockImplementation(input => {
