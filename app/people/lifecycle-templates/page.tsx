@@ -669,7 +669,7 @@ export default function LifecycleTemplatesPage() {
                       type="button"
                       className={tableStyles.link}
                       onClick={() => void openTemplate(template)}
-                      aria-label={`View ${template.name} version ${template.version_number}`}
+                      aria-label={`View ${template.name}`}
                     >
                       View →
                     </button>
