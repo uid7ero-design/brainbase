@@ -18,7 +18,10 @@ describe('HR-7G1 lifecycle templates read-only admin UI', () => {
   });
 
   it('loads template summaries only from the canonical lifecycle templates endpoint', () => {
-    expect(src).toContain("fetch('/api/hr/lifecycle/templates')");
+    expect(src).toContain("'/api/hr/lifecycle/templates'");
+    expect(src).toContain('lifecycleTemplateListUrl(templateTypeFilter, templateStatusFilter)');
+    expect(src).toContain('void fetch(listUrl)');
+    expect(src).not.toContain('/api/hr/lifecycle/templates/search');
   });
 
   it('loads task detail only from the canonical template detail endpoint', () => {
