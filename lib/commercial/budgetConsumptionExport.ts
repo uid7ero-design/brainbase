@@ -1,5 +1,11 @@
 import { buildCsv } from '@/lib/events/csvExport';
 
+// Match AP exports: spreadsheet text remains safe with leading whitespace or
+// control characters before a formula prefix. Monetary cells retain their format.
+function textCell(value: string | null): string | null {
+  return value && /^[\s\u0000-\u001f]*[=+\-@]/.test(value) ? `'${value}` : value;
+}
+
 type LegacyConsumptionRow = {
   budgetAccountCode: string;
   budgetAccountName: string;
@@ -55,12 +61,12 @@ const FINANCE_HEADER = [
 
 export function buildBudgetConsumptionCsvExports(report: BudgetConsumptionExportInput) {
   const legacyRowsCsv = buildCsv(LEGACY_HEADER, report.rows.map(row => [
-    row.budgetAccountCode,
-    row.budgetAccountName,
-    row.costCentreCode,
-    row.costCentreName,
-    row.financialYearName,
-    row.financialPeriodName,
+    textCell(row.budgetAccountCode),
+    textCell(row.budgetAccountName),
+    textCell(row.costCentreCode),
+    textCell(row.costCentreName),
+    textCell(row.financialYearName),
+    textCell(row.financialPeriodName),
     row.currency,
     row.budgetCents,
     row.actualCents,
@@ -71,10 +77,10 @@ export function buildBudgetConsumptionCsvExports(report: BudgetConsumptionExport
   ]));
 
   const financeRowsCsv = buildCsv(FINANCE_HEADER, report.financeRows.map(row => [
-    row.budgetAccountCode,
-    row.budgetAccountName,
-    row.financialYearName,
-    row.financialPeriodName,
+    textCell(row.budgetAccountCode),
+    textCell(row.budgetAccountName),
+    textCell(row.financialYearName),
+    textCell(row.financialPeriodName),
     row.currency,
     row.budgetCents,
     row.sourceActualCents,
@@ -85,7 +91,7 @@ export function buildBudgetConsumptionCsvExports(report: BudgetConsumptionExport
     row.externalGlActualCents,
     row.reconciliationVarianceCents,
     row.reconciliationStatus,
-    row.sourceSystemId,
+    textCell(row.sourceSystemId),
   ]));
 
   return { legacyRowsCsv, financeRowsCsv };

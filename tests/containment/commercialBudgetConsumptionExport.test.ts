@@ -1,3 +1,4 @@
+import { parse } from 'csv-parse/sync';
 import { describe, expect, it } from 'vitest';
 import { buildBudgetConsumptionCsvExports, type BudgetConsumptionExportInput } from '@/lib/commercial/budgetConsumptionExport';
 
@@ -87,5 +88,37 @@ describe('C7.9F — Budget consumption CSV exports', () => {
     );
     expect(financeRowsCsv).toContain("'-50,STALE,xero");
     expect(financeRowsCsv).not.toContain('SIGNED_OFF');
+  });
+});
+
+describe('Budget consumption spreadsheet text boundary', () => {
+  const fields = [
+    ...(['budgetAccountCode', 'budgetAccountName', 'costCentreCode', 'costCentreName', 'financialYearName', 'financialPeriodName'] as const)
+      .map(field => ({ table: 'rows' as const, field })),
+    ...(['budgetAccountCode', 'budgetAccountName', 'financialYearName', 'financialPeriodName', 'sourceSystemId'] as const)
+      .map(field => ({ table: 'financeRows' as const, field })),
+  ];
+  const cases = fields.flatMap(item => ['=', '+', '-', '@'].map(prefix => ({ ...item, value: `\t\r ${prefix}SUM(1,2)` })));
+  it.each(cases)('neutralizes a prefixed formula in $table.$field: $value', ({ table, field, value }) => {
+    const report = reportFixture();
+    (report[table][0] as unknown as Record<string, unknown>)[field] = value;
+    const original = structuredClone(report);
+    const exported = buildBudgetConsumptionCsvExports(report);
+    const csv = table === 'rows' ? exported.legacyRowsCsv : exported.financeRowsCsv;
+    const rows = parse(csv, { bom: true }) as string[][];
+    expect(rows[1]).toContain(`'${value}`);
+    expect(report).toEqual(original);
+  });
+  it('preserves safe Unicode text, exact money, empty fields and the existing negative-money format', () => {
+    const report = reportFixture();
+    report.financeRows[0].budgetAccountName = '  Coût, "café"\n第二行';
+    report.financeRows[0].budgetCents = '9007199254740993';
+    report.financeRows[0].financeAdjustmentCents = '-12';
+    const { financeRowsCsv } = buildBudgetConsumptionCsvExports(report);
+    const rows = parse(financeRowsCsv, { bom: true }) as string[][];
+    expect(rows[1][1]).toBe(report.financeRows[0].budgetAccountName);
+    expect(rows[1][5]).toBe('9007199254740993');
+    expect(rows[1][7]).toBe("'-12");
+    expect(rows[1].slice(11)).toEqual(['', '', '', '']);
   });
 });

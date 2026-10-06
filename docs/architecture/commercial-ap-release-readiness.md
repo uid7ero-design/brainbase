@@ -164,6 +164,21 @@ Focused lint and whitespace checks passed. The production build passed TypeScrip
 and 323 static pages; all 12 built-server AP checks passed against build
 `bVoW3yUiRlu6byxmSkwTr`. No schema or imported history changed.
 
+### Budget/Finance CSV text review
+
+Legacy and finance-adjusted Budget CSV labels now use the same text-cell policy
+as AP CSVs: whitespace/control characters before a formula prefix are protected.
+Numeric export cells and the established negative-money text format are unchanged.
+Parsed-CSV tests cover all eleven label/source fields and four formula prefixes,
+plus safe Unicode/multiline text, exact large money, empty cells and immutability.
+
+Commercial containment passed 2,182 tests across 134 files, including 45 new CSV
+checks. Focused lint and whitespace checks passed. All 24 controlled Finance
+Controls/export browser checks passed with browser output isolated from release
+artifacts. These are controlled fixtures, not hosted-environment verification.
+The production build passed TypeScript and 323 static pages.
+All 12 built-server AP checks passed against build `hRcJsifWXxyIYvG3G4llm`.
+
 ## Release handoff
 
 The remote CI rerun after the Commercial fixes exposed an unrelated Docker
