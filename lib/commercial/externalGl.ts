@@ -69,6 +69,8 @@ export interface ExternalGlEntry {
   imported_at: string;
 }
 
+// Keep mapping DATE boundaries as calendar strings in list and mutation
+// responses; timestamp parsing would shift them on servers ahead of UTC.
 export async function listExternalGlAccountMappings(params: {
   organisationId: string;
   sourceSystemId?: string | null;
@@ -77,7 +79,7 @@ export async function listExternalGlAccountMappings(params: {
   const sourceSystemId = params.sourceSystemId?.trim() || null;
   const status = params.status ?? null;
   return await sql`
-    SELECT m.*,
+    SELECT m.*, m.effective_from::text AS effective_from, m.effective_to::text AS effective_to,
            a.code AS budget_account_code,
            a.name AS budget_account_name
     FROM commercial_external_gl_account_mappings m
@@ -100,7 +102,7 @@ export async function listExternalGlCostCentreMappings(params: {
   const sourceSystemId = params.sourceSystemId?.trim() || null;
   const status = params.status ?? null;
   return await sql`
-    SELECT m.*,
+    SELECT m.*, m.effective_from::text AS effective_from, m.effective_to::text AS effective_to,
            c.code AS cost_centre_code,
            c.name AS cost_centre_name
     FROM commercial_external_gl_cost_centre_mappings m
@@ -256,15 +258,16 @@ export async function createExternalGlAccountMapping(params: {
           jsonb_build_object(
             'cause','EXTERNAL_GL_ACCOUNT_MAPPING_CREATED',
             'mappingId',(SELECT id FROM inserted LIMIT 1),
-            'sourceSystemId',${sourceSystemId},
-            'externalAccountCode',${externalAccountCode},
+            'sourceSystemId',${sourceSystemId}::text,
+            'externalAccountCode',${externalAccountCode}::text,
             'effectiveFrom',${effectiveFrom}::text,
             'effectiveTo',${effectiveTo}::text
           )
         FROM staled
         RETURNING reconciliation_id
       )
-      SELECT inserted.* FROM inserted
+      SELECT inserted.*, inserted.effective_from::text AS effective_from,
+             inserted.effective_to::text AS effective_to FROM inserted
     `,
   ], { isolationLevel: 'ReadCommitted' });
 
@@ -352,7 +355,8 @@ export async function retireExternalGlAccountMapping(params: {
       JOIN current ON current.id=retired.id
       RETURNING reconciliation_id
     )
-    SELECT retired.* FROM retired
+    SELECT retired.*, retired.effective_from::text AS effective_from,
+           retired.effective_to::text AS effective_to FROM retired
   ` as ExternalGlAccountMapping[];
   if (rows[0]) return rows[0];
 
@@ -451,15 +455,16 @@ export async function createExternalGlCostCentreMapping(params: {
           jsonb_build_object(
             'cause','EXTERNAL_GL_COST_CENTRE_MAPPING_CREATED',
             'mappingId',(SELECT id FROM inserted LIMIT 1),
-            'sourceSystemId',${sourceSystemId},
-            'externalCostCentreCode',${externalCostCentreCode},
+            'sourceSystemId',${sourceSystemId}::text,
+            'externalCostCentreCode',${externalCostCentreCode}::text,
             'effectiveFrom',${effectiveFrom}::text,
             'effectiveTo',${effectiveTo}::text
           )
         FROM staled
         RETURNING reconciliation_id
       )
-      SELECT inserted.* FROM inserted
+      SELECT inserted.*, inserted.effective_from::text AS effective_from,
+             inserted.effective_to::text AS effective_to FROM inserted
     `,
   ], { isolationLevel: 'ReadCommitted' });
 
@@ -551,7 +556,8 @@ export async function retireExternalGlCostCentreMapping(params: {
       JOIN current ON current.id=retired.id
       RETURNING reconciliation_id
     )
-    SELECT retired.* FROM retired
+    SELECT retired.*, retired.effective_from::text AS effective_from,
+           retired.effective_to::text AS effective_to FROM retired
   ` as ExternalGlCostCentreMapping[];
   if (rows[0]) return rows[0];
 

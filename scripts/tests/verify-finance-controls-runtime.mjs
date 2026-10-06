@@ -106,6 +106,57 @@ try {
     INSERT INTO commercial_external_gl_cost_centre_mappings(organisation_id,source_system_id,external_cost_centre_code,cost_centre_id,effective_from,status,created_by) VALUES ('runtime-a','review-ledger','OPS-EXT','00000000-0000-4000-8000-000000000403','2026-07-01','ACTIVE','runtime-admin');
     INSERT INTO commercial_external_gl_entries(organisation_id,source_system_id,external_entry_id,external_account_code,external_cost_centre_code,transaction_date,currency,amount_minor_units,source_payload_hash,source_lineage_id,imported_by) VALUES ('runtime-a','review-ledger','entry-1','600','OPS-EXT','2026-09-20','AUD',10000,'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','review-batch','runtime-admin');`);
   const {page}=await login('runtime-admin');
+  await page.goto(origin+'/commercial/budgeting/external-gl');
+  await expect(page.getByRole('heading',{name:'External GL mappings',exact:true})).toBeVisible();
+  const accountSection=page.locator('section').filter({has:page.getByRole('heading',{name:'GL account mappings',exact:true})});
+  const centreSection=page.locator('section').filter({has:page.getByRole('heading',{name:'Cost-centre mappings',exact:true})});
+  await expect(accountSection.getByRole('table')).toContainText('2026-07-01 → ongoing');
+  await expect(centreSection.getByRole('table')).toContainText('2026-07-01 → ongoing');
+  const createdMappings=[];
+  for(const [section,kind,code,dimension] of [[accountSection,'mappings','601','00000000-0000-4000-8000-000000000404'],[centreSection,'cost-centre-mappings','OPS-SECOND','00000000-0000-4000-8000-000000000403']]){
+    const form=section.locator('form');
+    await form.getByLabel('Source system',{exact:true}).fill('flow-ledger');
+    await form.getByLabel(kind==='mappings'?'External GL code':'External cost-centre code',{exact:true}).fill(code);
+    await form.getByRole('combobox').selectOption(dimension);
+    await form.getByLabel('Effective from',{exact:true}).fill('2026-09-01');
+    await form.getByLabel('Effective to',{exact:true}).fill('2026-09-30');
+    const responseEvent=page.waitForResponse(response=>new URL(response.url()).pathname.endsWith('/external-gl/'+kind)&&response.request().method()==='POST');
+    await form.getByRole('button',{name:'Create mapping',exact:true}).click();
+    const response=await responseEvent;
+    const payload=await response.json();
+    if(response.status()!==201||payload.mapping.effective_from!=='2026-09-01'||payload.mapping.effective_to!=='2026-09-30')throw new Error('Mapping create response lost calendar dates: '+JSON.stringify(payload));
+    createdMappings.push({id:payload.mapping.id,kind,code});
+    await expect(section.getByRole('table')).toContainText('2026-09-01 → 2026-09-30');
+    // An overlapping mapping must be rejected without inserting another fact.
+    await form.getByLabel('Source system',{exact:true}).fill('flow-ledger');
+    await form.getByLabel(kind==='mappings'?'External GL code':'External cost-centre code',{exact:true}).fill(code);
+    await form.getByRole('combobox').selectOption(dimension);
+    await form.getByLabel('Effective from',{exact:true}).fill('2026-09-15');
+    await form.getByLabel('Effective to',{exact:true}).fill('2026-09-30');
+    const conflictEvent=page.waitForResponse(response=>new URL(response.url()).pathname.endsWith('/external-gl/'+kind)&&response.request().method()==='POST');
+    await form.getByRole('button',{name:'Create mapping',exact:true}).click();
+    if((await conflictEvent).status()!==409)throw new Error('Overlapping mapping accepted');
+    await expect(page.getByRole('alert').first()).toBeVisible();
+  }
+  await page.getByRole('combobox',{name:'Source',exact:true}).selectOption('flow-ledger');
+  await page.getByRole('combobox',{name:'Status',exact:true}).selectOption('ALL');
+  for(const [section,mapping] of [[accountSection,createdMappings[0]],[centreSection,createdMappings[1]]]){
+    const row=section.locator('tbody tr').filter({hasText:mapping.code});
+    await expect(section.getByRole('table')).not.toContainText('review-ledger');
+    await row.getByLabel('Effective-to date',{exact:true}).fill('2026-09-20');
+    const retireEvent=page.waitForResponse(response=>new URL(response.url()).pathname.endsWith('/'+mapping.id+'/retire')&&response.request().method()==='POST');
+    await row.getByRole('button',{name:'Retire',exact:true}).click();
+    const response=await retireEvent;const payload=await response.json();
+    if(response.status()!==200||payload.mapping.status!=='RETIRED'||payload.mapping.effective_from!=='2026-09-01'||payload.mapping.effective_to!=='2026-09-20')throw new Error('Mapping retirement response lost dates or status');
+    await expect(row).toContainText('2026-09-01 → 2026-09-20');
+    await expect(row).toContainText('RETIRED');
+  }
+  const storedMappings=(await pool.query("SELECT effective_from::text,effective_to::text,status FROM commercial_external_gl_account_mappings WHERE source_system_id='flow-ledger' UNION ALL SELECT effective_from::text,effective_to::text,status FROM commercial_external_gl_cost_centre_mappings WHERE source_system_id='flow-ledger'")).rows;
+  if(storedMappings.length!==2||storedMappings.some(row=>row.effective_from!=='2026-09-01'||row.effective_to!=='2026-09-20'||row.status!=='RETIRED'))throw new Error('Mapping UI changes did not persist exactly');
+  await page.screenshot({path:resolve(artifacts,'external-gl-desktop.png'),fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  await page.screenshot({path:resolve(artifacts,'external-gl-mobile.png'),fullPage:true});
+  await page.setViewportSize({width:1440,height:1000});
   await page.goto(origin+'/commercial/budgeting/finance-controls');
   await expect(page.getByRole('heading',{name:'Finance controls',exact:true})).toBeVisible();
   await page.getByRole('combobox').nth(0).selectOption('00000000-0000-4000-8000-000000000401');
@@ -163,11 +214,19 @@ try {
   const viewer=await login('runtime-viewer');
   const denial=await viewer.page.evaluate(async()=> (await fetch('/api/commercial/budgeting/financial-periods')).status);
   if(denial!==403)throw new Error('Viewer finance controls accepted');
+  const mappingDenial=await viewer.page.evaluate(async()=> (await fetch('/api/commercial/budgeting/external-gl/mappings',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status);
+  if(mappingDenial!==403)throw new Error('Viewer mapping mutation accepted');
   const other=await login('runtime-other');
   const tenant=await other.page.evaluate(async()=>await(await fetch('/api/commercial/budgeting/financial-periods')).json());
   if(tenant.years.length)throw new Error('Foreign year exposed');
+  const foreignMappings=await other.page.evaluate(async()=> (await(await fetch('/api/commercial/budgeting/external-gl/mappings')).json()).mappings);
+  if(foreignMappings.length)throw new Error('Foreign mapping exposed');
+  const foreignRetire=await other.page.evaluate(async id=> (await fetch('/api/commercial/budgeting/external-gl/mappings/'+id+'/retire',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({effectiveTo:'2026-09-20'})})).status,createdMappings[0].id);
+  if(foreignRetire!==404)throw new Error('Foreign mapping retirement accepted');
   if(errors.length||failedApi.length)throw new Error(JSON.stringify({errors,failedApi}));
+  const externalGlChecks=['mapping list calendar dates','account and cost-centre creation through real forms','exact create response dates','overlap rejection without duplicate facts','source filter','account and cost-centre retirement through real forms','exact retire response and persisted dates','viewer mutation denial','foreign mapping read and retirement denial'];
   const evidence={verified_at:new Date().toISOString(),serverTimezone,checks:['real login and production runtime','calendar dates preserved through API and screen','mobile metrics remain inside viewport','mobile history and reconciliation tables scroll to last column','exact $100 source and ledger match','prepare and review','sign-off blocked before close','period close and durable sign-off','year close and reopen','period reopen invalidates close and reconciliation','viewer denial','tenant isolation'],overflow,build_id:readFileSync('.next/BUILD_ID','utf8').trim()};
+  evidence.externalGlChecks=externalGlChecks;
   writeFileSync(resolve(artifacts,'evidence.json'),JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));
 } finally {
   await browser?.close();
