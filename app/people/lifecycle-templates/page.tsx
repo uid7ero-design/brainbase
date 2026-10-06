@@ -910,6 +910,230 @@ export default function LifecycleTemplatesPage() {
       </SlidePanel>
 
       <SlidePanel
+        open={versionSourceTemplate !== null}
+        onClose={resetVersionForm}
+        title="Create lifecycle template version"
+      >
+        {versionSourceTemplate && (
+          <form
+            onSubmit={event => {
+              event.preventDefault();
+              void createTemplateVersion();
+            }}
+            style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+          >
+            <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+              Family: {versionSourceTemplate.template_key} · {versionSourceTemplate.lifecycle_type} · source v{versionSourceTemplate.version_number}
+            </div>
+
+            <Field label="Name" required>
+              {control => (
+                <input
+                  {...control}
+                  required
+                  value={versionName}
+                  onChange={event => setVersionName(event.target.value)}
+                  className={fieldControlClassName}
+                />
+              )}
+            </Field>
+
+            <Field label="Description">
+              {control => (
+                <textarea
+                  {...control}
+                  rows={3}
+                  value={versionDescription}
+                  onChange={event => setVersionDescription(event.target.value)}
+                  className={fieldControlClassName}
+                />
+              )}
+            </Field>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ color: 'var(--text-primary)', fontSize: 13, fontWeight: 700 }}>
+                Tasks
+              </div>
+
+              {versionTasks.map((task, index) => (
+                <div
+                  key={task.key}
+                  style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 10 }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <div style={{ color: 'var(--text-primary)', fontSize: 13, fontWeight: 600 }}>
+                      Task {index + 1}
+                    </div>
+                    {versionTasks.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeVersionTask(task.key)}
+                        {...buttonProps('ghost', 'sm')}
+                      >
+                        Remove task
+                      </button>
+                    )}
+                  </div>
+
+                  <Field label="Task title" required>
+                    {control => (
+                      <input
+                        {...control}
+                        required
+                        value={task.title}
+                        onChange={event => updateVersionTask(task.key, { title: event.target.value })}
+                        className={fieldControlClassName}
+                      />
+                    )}
+                  </Field>
+
+                  <Field label="Task description">
+                    {control => (
+                      <textarea
+                        {...control}
+                        rows={2}
+                        value={task.description}
+                        onChange={event => updateVersionTask(task.key, { description: event.target.value })}
+                        className={fieldControlClassName}
+                      />
+                    )}
+                  </Field>
+
+                  <Field label="Responsibility" required>
+                    {control => (
+                      <select
+                        {...control}
+                        required
+                        value={task.responsibility_type}
+                        onChange={event => updateVersionTask(task.key, {
+                          responsibility_type: event.target.value as 'EMPLOYEE' | 'MANAGER' | 'HR_ADMIN',
+                        })}
+                        className={fieldControlClassName}
+                      >
+                        <option value="EMPLOYEE">Employee</option>
+                        <option value="MANAGER">Manager</option>
+                        <option value="HR_ADMIN">HR administrator</option>
+                      </select>
+                    )}
+                  </Field>
+
+                  <Field label="Due offset days" helper="Whole days relative to the workflow anchor date. Negative values are allowed.">
+                    {control => (
+                      <input
+                        {...control}
+                        type="number"
+                        step="1"
+                        value={task.due_offset_days}
+                        onChange={event => updateVersionTask(task.key, { due_offset_days: event.target.value })}
+                        className={fieldControlClassName}
+                      />
+                    )}
+                  </Field>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                    <input
+                      type="checkbox"
+                      checked={task.requires_approval}
+                      onChange={event => updateVersionTask(task.key, {
+                        requires_approval: event.target.checked,
+                      })}
+                    />
+                    Requires approval
+                  </label>
+
+                  {task.requires_approval && (
+                    <Field label="Approval type" required>
+                      {control => (
+                        <select
+                          {...control}
+                          required
+                          value={task.approval_type}
+                          onChange={event => updateVersionTask(task.key, {
+                            approval_type: event.target.value as 'MANAGER' | 'HR_ADMIN',
+                          })}
+                          className={fieldControlClassName}
+                        >
+                          <option value="MANAGER">Manager</option>
+                          <option value="HR_ADMIN">HR administrator</option>
+                        </select>
+                      )}
+                    </Field>
+                  )}
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Visibility</div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                      <input
+                        type="checkbox"
+                        checked={task.employee_visible}
+                        disabled={task.internal_only}
+                        onChange={event => updateVersionTask(task.key, { employee_visible: event.target.checked })}
+                      />
+                      Employee visible
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                      <input
+                        type="checkbox"
+                        checked={task.manager_visible}
+                        disabled={task.internal_only}
+                        onChange={event => updateVersionTask(task.key, { manager_visible: event.target.checked })}
+                      />
+                      Manager visible
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                      <input
+                        type="checkbox"
+                        checked={task.internal_only}
+                        onChange={event => updateVersionTask(task.key, {
+                          internal_only: event.target.checked,
+                          ...(event.target.checked
+                            ? { employee_visible: false, manager_visible: false }
+                            : {}),
+                        })}
+                      />
+                      Internal only
+                    </label>
+                  </div>
+                </div>
+              ))}
+
+              <div>
+                <button
+                  type="button"
+                  onClick={addVersionTask}
+                  {...buttonProps('secondary', 'sm')}
+                >
+                  + Add task
+                </button>
+              </div>
+            </div>
+
+            {templateVersionState === 'error' && (
+              <FormError>Could not create lifecycle template version.</FormError>
+            )}
+
+            <FormActions>
+              <button
+                type="button"
+                onClick={resetVersionForm}
+                disabled={templateVersionState === 'submitting'}
+                {...buttonProps('secondary')}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={templateVersionState === 'submitting'}
+                {...buttonProps('primary')}
+              >
+                {templateVersionState === 'submitting' ? 'Creating…' : 'Create version'}
+              </button>
+            </FormActions>
+          </form>
+        )}
+      </SlidePanel>
+
+      <SlidePanel
         open={selectedTemplate !== null}
         onClose={() => {
           setOpenTemplateId(null);
@@ -933,6 +1157,18 @@ export default function LifecycleTemplatesPage() {
                 </div>
               )}
             </div>
+
+            {selectedTemplate.capabilities.can_create_version && detail?.state === 'ready' && (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => beginTemplateVersion(selectedTemplate, detail)}
+                  {...buttonProps('secondary', 'sm')}
+                >
+                  Create new version
+                </button>
+              </div>
+            )}
 
             {(selectedTemplate.capabilities.can_activate || selectedTemplate.capabilities.can_retire) && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
