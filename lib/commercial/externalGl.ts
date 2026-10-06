@@ -602,7 +602,19 @@ export async function importExternalGlEntry(params: {
     stale_reconciliation_count: number;
   };
 
-  const rows = await sql`
+  // Acquire the identity lock in its own statement. Under READ COMMITTED the
+  // following statement sees a competing import committed while we waited.
+  // A lock inside the INSERT statement would retain its earlier snapshot.
+  const [, rows] = await sql.transaction(txn => [
+    txn`
+      WITH lock_guard AS MATERIALIZED (
+        SELECT pg_advisory_xact_lock(hashtextextended(
+          ${'external-gl-entry|' + JSON.stringify([params.organisationId, sourceSystemId, externalEntryId])}, 0
+        ))
+      )
+      SELECT 1::int AS locked FROM lock_guard
+    `,
+    txn`
     WITH inserted AS (
       INSERT INTO commercial_external_gl_entries(
         organisation_id,source_system_id,external_entry_id,external_journal_id,
@@ -719,9 +731,10 @@ export async function importExternalGlEntry(params: {
     SELECT decision.*, decision.transaction_date::text AS transaction_date,
            (SELECT COUNT(*)::int FROM staled) AS stale_reconciliation_count
     FROM decision
-  ` as ImportDecisionRow[];
+    `,
+  ], { isolationLevel: 'ReadCommitted' });
 
-  const row = rows[0];
+  const row = (rows as ImportDecisionRow[])[0];
   if (!row) {
     throw new ExternalGlError('EXTERNAL_IDENTITY_CONFLICT', 'External identity conflict.');
   }

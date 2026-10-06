@@ -121,6 +121,31 @@ try {
   }
   const exactStored=(await pool.query("SELECT amount_minor_units::text,transaction_date::text FROM commercial_external_gl_entries WHERE source_system_id='import-review'")).rows;
   if(exactStored.length!==1||exactStored[0].amount_minor_units!=='9007199254740993'||exactStored[0].transaction_date!=='2026-09-10')throw new Error('Import retry/conflict changed immutable ledger facts');
+  // Hold both requests inside the database before insertion. This forces the
+  // overlapping-import race without depending on network timing.
+  await pool.query(`CREATE FUNCTION runtime_import_gate() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(81054177); RETURN NEW; END $$;
+    CREATE TRIGGER runtime_import_gate BEFORE INSERT ON commercial_external_gl_entries FOR EACH ROW WHEN (NEW.source_system_id='concurrency-review') EXECUTE FUNCTION runtime_import_gate();`);
+  const gate=await pool.connect();
+  await gate.query('SELECT pg_advisory_lock(81054177)');
+  const concurrentInput={...importPayload,sourceSystemId:'concurrency-review',externalEntryId:'parallel-1'};
+  const concurrentRequests=Promise.all([importEntry(concurrentInput),importEntry(concurrentInput)]);
+  let overlapping=false;
+  try {
+    for(let attempt=0;attempt<200;attempt++){
+      const waiting=(await pool.query("SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname=$1 AND wait_event='advisory'",[database])).rows[0].n;
+      if(waiting>=2){overlapping=true;break;}
+      await pause(25);
+    }
+  } finally { await gate.query('SELECT pg_advisory_unlock(81054177)');gate.release(); }
+  const concurrentResults=await concurrentRequests;
+  await pool.query('DROP TRIGGER runtime_import_gate ON commercial_external_gl_entries; DROP FUNCTION runtime_import_gate()');
+  if(!overlapping)throw new Error('Concurrent import verification did not overlap requests');
+  if(concurrentResults.map(result=>result.status).sort().join(',')!=='200,201'||concurrentResults[0].payload.entry.id!==concurrentResults[1].payload.entry.id)throw new Error('Identical concurrent imports did not replay one fact: '+JSON.stringify(concurrentResults));
+  const genuineConflict=await Promise.all([importEntry({...concurrentInput,externalEntryId:'parallel-conflict',amountMinorUnits:'100'}),importEntry({...concurrentInput,externalEntryId:'parallel-conflict',amountMinorUnits:'101'})]);
+  if(genuineConflict.map(result=>result.status).sort().join(',')!=='201,409')throw new Error('Concurrent changed facts did not preserve conflict protection');
+  const winningFact=genuineConflict.find(result=>result.status===201).payload.entry;
+  const concurrentStored=(await pool.query("SELECT id,amount_minor_units::text FROM commercial_external_gl_entries WHERE source_system_id='concurrency-review' AND external_entry_id='parallel-conflict'")).rows;
+  if(concurrentStored.length!==1||concurrentStored[0].id!==winningFact.id||concurrentStored[0].amount_minor_units!==winningFact.amount_minor_units)throw new Error('Concurrent conflict overwrote its winning fact');
   await page.goto(origin+'/commercial/budgeting/external-gl');
   await expect(page.getByRole('heading',{name:'External GL mappings',exact:true})).toBeVisible();
   const accountSection=page.locator('section').filter({has:page.getByRole('heading',{name:'GL account mappings',exact:true})});
@@ -288,6 +313,7 @@ try {
   const evidence={verified_at:new Date().toISOString(),serverTimezone,checks:['real login and production runtime','calendar dates preserved through API and screen','mobile metrics remain inside viewport','mobile history and reconciliation tables scroll to last column','exact $100 source and ledger match','prepare and review','sign-off blocked before close','period close and durable sign-off','year close and reopen','period reopen invalidates close and reconciliation','viewer denial','tenant isolation'],overflow,build_id:readFileSync('.next/BUILD_ID','utf8').trim()};
   evidence.externalGlChecks=externalGlChecks;
   evidence.importChecks=['real authenticated import API','exact BIGINT amount beyond JavaScript safe integers','date-only import response','exact duplicate idempotency','conflict preserves immutable facts','unsafe numeric, fractional and out-of-range amounts rejected','duplicate preserves signed-off reconciliation','conflict marks current reconciliation and close evidence stale','durable conflict event preserved','new ledger fact invalidates affected sign-off','new import stale event preserves source identity','viewer import denial','import identity and invalidation stay inside organisation'];
+  evidence.importConcurrencyChecks=['database-gated overlapping identical requests return IMPORTED and IDEMPOTENT for one identity','concurrent changed facts return one import and one conflict','conflicting request does not overwrite the winning immutable fact'];
   writeFileSync(resolve(artifacts,'evidence.json'),JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));
 } finally {
   await browser?.close();
