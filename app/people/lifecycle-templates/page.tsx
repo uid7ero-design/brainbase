@@ -181,7 +181,7 @@ export default function LifecycleTemplatesPage() {
     }
   }
 
-  const openTemplate = openTemplateId
+  const selectedTemplate = openTemplateId
     ? templates.find(template => template.id === openTemplateId) ?? null
     : null;
   const detail = openTemplateId ? detailByTemplate[openTemplateId] : undefined;
@@ -235,22 +235,22 @@ export default function LifecycleTemplatesPage() {
       </TableContainer>
 
       <SlidePanel
-        open={openTemplate !== null}
+        open={selectedTemplate !== null}
         onClose={() => setOpenTemplateId(null)}
-        title={openTemplate?.name ?? 'Lifecycle template'}
+        title={selectedTemplate?.name ?? 'Lifecycle template'}
       >
-        {openTemplate && (
+        {selectedTemplate && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
               <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-                {openTemplate.lifecycle_type} · v{openTemplate.version_number} · {openTemplate.status}
+                {selectedTemplate.lifecycle_type} · v{selectedTemplate.version_number} · {selectedTemplate.status}
               </div>
               <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 4 }}>
-                Key: {openTemplate.template_key}
+                Key: {selectedTemplate.template_key}
               </div>
-              {openTemplate.retired_at && (
+              {selectedTemplate.retired_at && (
                 <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 4 }}>
-                  Retired {dateOnly(openTemplate.retired_at)}
+                  Retired {dateOnly(selectedTemplate.retired_at)}
                 </div>
               )}
             </div>
