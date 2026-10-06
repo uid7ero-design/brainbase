@@ -649,7 +649,7 @@ export default function LifecycleTemplatesPage() {
         }}
       >
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
-          <span style={{ color: 'var(--text-secondary)' }}>Lifecycle type</span>
+          <span style={{ color: 'var(--text-secondary)' }}>Type</span>
           <select
             aria-label="Template type filter"
             value={templateTypeFilter}
