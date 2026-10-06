@@ -46,8 +46,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('HR-7G6 lifecycle template filters', () => {
-  it('uses server-backed type and status filters and can clear them', async () => {
+describe('HR-7G6/7 lifecycle template filters', () => {
+  it('uses server-backed type, status and family-key filters and can clear them', async () => {
     fetchMock.mockImplementation(input => {
       const url = String(input);
 
@@ -96,6 +96,22 @@ describe('HR-7G6 lifecycle template filters', () => {
         });
       }
 
+      if (url === '/api/hr/lifecycle/templates?lifecycle_type=offboarding&status=ACTIVE&template_key=standard-offboarding') {
+        return response({
+          capabilities: { can_create_template: true },
+          templates: [template('ACTIVE', {
+            can_create_version: true,
+            can_activate: false,
+            can_retire: true,
+          }, {
+            id: '77777777-7777-4777-8777-777777777777',
+            template_key: 'standard-offboarding',
+            lifecycle_type: 'offboarding',
+            name: 'Filtered family offboarding',
+          })],
+        });
+      }
+
       return response({});
     });
 
@@ -118,6 +134,16 @@ describe('HR-7G6 lifecycle template filters', () => {
     )).toBe(true);
     expect(fetchMock.mock.calls.some(([input]) =>
       String(input) === '/api/hr/lifecycle/templates?lifecycle_type=offboarding&status=ACTIVE'
+    )).toBe(true);
+
+    fireEvent.change(screen.getByLabelText('Template family key filter'), {
+      target: { value: '  standard-offboarding  ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply family' }));
+    expect(await screen.findByText('Filtered family offboarding')).toBeTruthy();
+
+    expect(fetchMock.mock.calls.some(([input]) =>
+      String(input) === '/api/hr/lifecycle/templates?lifecycle_type=offboarding&status=ACTIVE&template_key=standard-offboarding'
     )).toBe(true);
 
     fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
