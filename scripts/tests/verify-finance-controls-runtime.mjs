@@ -1,0 +1,158 @@
+import { spawn } from 'node:child_process';
+import { createServer } from 'node:net';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { Pool } from 'pg';
+import bcrypt from 'bcryptjs';
+import { SignJWT } from 'jose';
+import { chromium, expect } from '@playwright/test';
+
+// Run after next build --webpack. No application modules or route handlers are
+// mocked. Ancillary prerequisite tables are minimal fixtures; finance tables use
+// their production migrations. All resources are disposable and loopback-only.
+// This exercises Neon parameter parsing without Prisma's inferred parameter
+// types, catching untyped JSON event parameters in prepare and period reopen.
+// Requires Docker and Chromium. Run: node scripts/tests/verify-finance-controls-runtime.mjs
+// Set FINANCE_RUNTIME_ARTIFACTS to override the test-results output directory.
+readFileSync('.next/BUILD_ID','utf8');
+const container = `brainbase-ap-runtime-${process.pid}`;
+const database = `ap_runtime_${process.pid}`;
+const artifacts = resolve(process.env.FINANCE_RUNTIME_ARTIFACTS || 'test-results/finance-controls-runtime'); mkdirSync(artifacts,{recursive:true});
+const freePort = () => new Promise((done,reject) => {
+  const server=createServer(); server.once('error',reject); server.listen(0,'127.0.0.1',()=>{const port=server.address().port;server.close(()=>done(port));});
+});
+async function command(binary,args) {
+  return new Promise((done,reject)=>{const child=spawn(binary,args,{stdio:['ignore','pipe','pipe'],windowsHide:true});let output='';child.stdout.on('data',d=>output+=d);child.stderr.on('data',d=>output+=d);child.on('error',reject);child.on('exit',code=>code===0?done(output):reject(new Error(`${binary} failed (${code}): ${output}`)));});
+}
+const pause = ms => new Promise(done=>setTimeout(done,ms));
+let pool, next, browser; let nextLog=''; let containerCreated=false;
+const supplier='00000000-0000-4000-8000-000000000101';
+const bill1='00000000-0000-4000-8000-000000000201', bill2='00000000-0000-4000-8000-000000000202';
+const po='00000000-0000-4000-8000-000000000301';
+try {
+  const postgresPort=await freePort(), httpPort=await freePort();
+  await command('docker',['run','--name',container,'-e','POSTGRES_PASSWORD=test','-p',`127.0.0.1:${postgresPort}:5432`,'-d','postgres:16-alpine']);containerCreated=true;
+  for(let attempt=0;attempt<30;attempt++){try{await command('docker',['exec',container,'pg_isready','-U','postgres']);break;}catch{await pause(500);}}
+  await command('docker',['exec',container,'createdb','-U','postgres',database]);
+  const databaseUrl=`postgresql://postgres:test@127.0.0.1:${postgresPort}/${database}`;
+  pool=new Pool({connectionString:databaseUrl});
+  await pool.query(`CREATE TABLE organisations(id text PRIMARY KEY,name text,slug text,industry text,logo_url text);
+    CREATE TABLE users(id text PRIMARY KEY,organisation_id text REFERENCES organisations(id),role text,status text,name text,username text,password_hash text,
+      email text,first_name text,last_name text,display_name text,avatar_url text,bio text,job_title text,department text,phone text,timezone text,preferences jsonb,last_seen_at timestamptz);
+    CREATE TABLE modules(key text PRIMARY KEY,name text,active boolean);
+    CREATE TABLE organisation_modules(organisation_id text REFERENCES organisations(id),module_key text REFERENCES modules(key),enabled boolean,config jsonb);
+    CREATE TABLE crm_companies(id uuid PRIMARY KEY);
+    CREATE TABLE crm_contacts(id uuid PRIMARY KEY);
+    CREATE TABLE audit_logs(id text,organisation_id text,user_id text,action text,resource_type text,resource_id text,before_state jsonb,after_state jsonb,created_at timestamptz DEFAULT now());`);
+  for(const file of ['create-commercial-core.sql','create-commercial-quotes.sql','create-commercial-purchasing.sql','create-commercial-document-deliveries.sql','widen-commercial-document-deliveries-for-purchase-orders.sql','create-commercial-purchase-receipts.sql','create-commercial-supplier-bills.sql','create-commercial-purchase-match-allocations.sql','create-commercial-finance-close.sql','create-commercial-budgeting.sql','create-commercial-finance-adjustments.sql','create-commercial-external-gl.sql','create-commercial-finance-reconciliation.sql','create-commercial-supplier-payments.sql','create-commercial-document-attachments.sql','widen-commercial-document-attachments-for-supplier-bills.sql','widen-commercial-document-attachments-for-purchase-receipts.sql']) await pool.query(readFileSync(`scripts/${file}`,'utf8'));
+  // Rehearse the additive existing-install upgrade twice without touching facts.
+  const upgrade=readFileSync('scripts/add-commercial-supplier-payment-idempotency.sql','utf8');await pool.query(upgrade);await pool.query(upgrade);
+  await pool.query(`INSERT INTO organisations VALUES ('runtime-a','Runtime purchaser','ap-runtime',NULL,NULL),('runtime-b','Other purchaser','ap-other',NULL,NULL);
+    INSERT INTO modules VALUES ('purchasing','Purchasing',true);
+    INSERT INTO organisation_modules VALUES ('runtime-a','purchasing',true,'{}'),('runtime-b','purchasing',true,'{}');
+    INSERT INTO commercial_suppliers(id,organisation_id,name,active) VALUES ('${supplier}','runtime-a','Runtime supplier',true);
+    INSERT INTO commercial_purchase_orders(id,organisation_id,supplier_id,purchase_order_number,status,currency) VALUES ('${po}','runtime-a','${supplier}','PO-RUNTIME','ISSUED','AUD');
+    INSERT INTO commercial_supplier_bills(id,organisation_id,source_purchase_order_id,supplier_id,supplier_invoice_number,bill_number,status,currency,subtotal_cents,total_cents,posted_at,due_date,supplier_name_snapshot,bill_date)
+      VALUES ('${bill1}','runtime-a','${po}','${supplier}','INV1','SB1','POSTED','AUD',10000,10000,'2026-09-01','2026-09-05','Runtime supplier','2026-09-01'),
+             ('${bill2}','runtime-a','${po}','${supplier}','INV2','SB2','POSTED','AUD',5000,5000,'2026-09-01',NULL,'Runtime supplier','2026-09-01');`);
+  const password=randomBytes(16).toString('hex'); const hash=await bcrypt.hash(password,6);
+  for(const [id,org,role] of [['runtime-admin','runtime-a','ADMIN'],['runtime-viewer','runtime-a','VIEWER'],['runtime-other','runtime-b','ADMIN']]) await pool.query('INSERT INTO users(id,organisation_id,role,status,name,username,password_hash,preferences) VALUES($1,$2,$3,\'ACTIVE\',$1,$1,$4,\'{}\')',[id,org,role,hash]);
+  const secret=randomBytes(32).toString('hex');
+  next=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p',String(httpPort)],{windowsHide:true,env:{...process.env,DATABASE_URL:databaseUrl.replace('127.0.0.1','localhost'),SESSION_SECRET:secret,NODE_OPTIONS:`--require "${resolve('scripts/tests/helpers/localNeonFetch.cjs').replaceAll('\\','/')}"`,NEXT_TELEMETRY_DISABLED:'1'},stdio:['ignore','pipe','pipe']});
+  const capture = data => { nextLog+=data;writeFileSync(resolve(artifacts,'next-server.log'),nextLog); };
+  next.stdout.on('data',capture);next.stderr.on('data',capture);
+  const origin=`http://127.0.0.1:${httpPort}`;
+  for(let attempt=0;attempt<60;attempt++){if(next.exitCode!==null) throw new Error(`Next startup failed: ${nextLog}`);try{await fetch(`${origin}/login`);break;}catch{await pause(500);}}
+  const unauthorized=await fetch(`${origin}/api/commercial/purchasing/ap-overview?aging_date=2026-10-03`,{redirect:'manual'});
+  if(unauthorized.status!==401) throw new Error('API must deny unauthenticated requests');
+  const protectedPage=await fetch(`${origin}/commercial/purchasing/ap-overview`,{redirect:'manual'});
+  if(protectedPage.status!==307 || !protectedPage.headers.get('location')?.includes('/login')) throw new Error('Middleware must redirect unauthenticated pages');
+  const expired=await new SignJWT({userId:'runtime-admin',organisationId:'runtime-a',role:'admin',expiresAt:'2000-01-01'}).setProtectedHeader({alg:'HS256'}).setExpirationTime(1).sign(new TextEncoder().encode(secret));
+  for(const token of ['invalid-session',expired]) {
+    if((await fetch(`${origin}/api/commercial/purchasing/ap-overview?aging_date=2026-10-03`,{headers:{cookie:`session=${token}`},redirect:'manual'})).status!==401) throw new Error('Invalid or expired session accepted by API');
+    if((await fetch(`${origin}/commercial/purchasing/ap-overview`,{headers:{cookie:`session=${token}`},redirect:'manual'})).status!==307) throw new Error('Invalid or expired session accepted by middleware');
+  }
+  browser=await chromium.launch(); const errors=[]; const failedApi=[];
+  async function login(username) {
+    const context=await browser.newContext({viewport:{width:1440,height:1000}});
+    await context.route('**/*',route=>new URL(route.request().url()).hostname==='127.0.0.1'?route.continue():route.abort());
+    const page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));
+    page.on('response',response=>{if(response.url().includes('/api/commercial/') && response.status()>=500) failedApi.push({url:new URL(response.url()).pathname,status:response.status()});});
+    await page.goto(`${origin}/login`);await page.getByLabel('Username',{exact:true}).fill(username);await page.getByLabel('Password',{exact:true}).fill(password);
+    const submitted=page.waitForResponse(response=>new URL(response.url()).pathname==='/login' && response.request().method()==='POST');
+    await page.getByRole('button',{name:'Sign in',exact:true}).click();await submitted;
+    const session=(await context.cookies()).find(cookie=>cookie.name==='session');
+    if(!session?.httpOnly || !session.secure || session.sameSite!=='Lax') throw new Error('Actual login did not issue the expected secure session cookie');
+    await page.goto(`${origin}/commercial/purchasing/ap-overview`);return {context,page};
+  }
+
+  await pool.query(`INSERT INTO modules VALUES ('budgeting','Budgeting',true);
+    INSERT INTO organisation_modules VALUES ('runtime-a','budgeting',true,'{}'),('runtime-b','budgeting',true,'{}');
+    INSERT INTO commercial_financial_years(id,organisation_id,name,starts_on,ends_on,status) VALUES ('00000000-0000-4000-8000-000000000401','runtime-a','FY27','2026-07-01','2027-06-30','OPEN');
+    INSERT INTO commercial_financial_periods(id,financial_year_id,organisation_id,name,starts_on,ends_on,status) VALUES ('00000000-0000-4000-8000-000000000402','00000000-0000-4000-8000-000000000401','runtime-a','September','2026-09-01','2026-09-30','OPEN');
+    INSERT INTO commercial_cost_centres(id,organisation_id,code,name,active) VALUES ('00000000-0000-4000-8000-000000000403','runtime-a','OPS','Operations',true);
+    INSERT INTO commercial_budget_accounts(id,organisation_id,code,name,active,created_by) VALUES ('00000000-0000-4000-8000-000000000404','runtime-a','OPEX','Operating',true,'runtime-admin');
+    INSERT INTO commercial_budgets(id,organisation_id,financial_year_id,name,currency,tax_basis,periodisation_mode,created_by) VALUES ('00000000-0000-4000-8000-000000000405','runtime-a','00000000-0000-4000-8000-000000000401','Review budget','AUD','INCLUSIVE','ANNUAL_ONLY','runtime-admin');
+    INSERT INTO commercial_budget_versions(id,organisation_id,budget_id,version_number,status,created_by,activated_by,activated_at) VALUES ('00000000-0000-4000-8000-000000000406','runtime-a','00000000-0000-4000-8000-000000000405',1,'ACTIVE','runtime-admin','runtime-admin',now());
+    INSERT INTO commercial_budget_lines(organisation_id,budget_version_id,budget_account_id,cost_centre_id,annual_budget_cents) VALUES ('runtime-a','00000000-0000-4000-8000-000000000406','00000000-0000-4000-8000-000000000404','00000000-0000-4000-8000-000000000403',1000000);
+    INSERT INTO commercial_budget_commitment_mappings(organisation_id,budget_version_id,cost_centre_id,budget_account_id,created_by) VALUES ('runtime-a','00000000-0000-4000-8000-000000000406','00000000-0000-4000-8000-000000000403','00000000-0000-4000-8000-000000000404','runtime-admin');
+    UPDATE commercial_budgets SET active_version_id='00000000-0000-4000-8000-000000000406';
+    UPDATE commercial_purchase_orders SET cost_centre_id='00000000-0000-4000-8000-000000000403',issued_at='2026-09-01';
+    INSERT INTO commercial_purchase_order_lines(id,organisation_id,purchase_order_id,position,description_snapshot,cost_centre_id,line_subtotal_cents,line_total_cents) VALUES ('00000000-0000-4000-8000-000000000407','runtime-a','00000000-0000-4000-8000-000000000301',1,'Review supplies','00000000-0000-4000-8000-000000000403',10000,10000);
+    INSERT INTO commercial_supplier_bill_lines(organisation_id,supplier_bill_id,source_purchase_order_line_id,position,description_snapshot,line_subtotal_cents,line_total_cents) VALUES ('runtime-a','00000000-0000-4000-8000-000000000201','00000000-0000-4000-8000-000000000407',1,'Review supplies',10000,10000);
+    INSERT INTO commercial_external_gl_account_mappings(organisation_id,source_system_id,external_gl_account_code,external_gl_account_name,budget_account_id,effective_from,status,created_by) VALUES ('runtime-a','review-ledger','600','Operating','00000000-0000-4000-8000-000000000404','2026-07-01','ACTIVE','runtime-admin');
+    INSERT INTO commercial_external_gl_cost_centre_mappings(organisation_id,source_system_id,external_cost_centre_code,cost_centre_id,effective_from,status,created_by) VALUES ('runtime-a','review-ledger','OPS-EXT','00000000-0000-4000-8000-000000000403','2026-07-01','ACTIVE','runtime-admin');
+    INSERT INTO commercial_external_gl_entries(organisation_id,source_system_id,external_entry_id,external_account_code,external_cost_centre_code,transaction_date,currency,amount_minor_units,source_payload_hash,source_lineage_id,imported_by) VALUES ('runtime-a','review-ledger','entry-1','600','OPS-EXT','2026-09-20','AUD',10000,'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','review-batch','runtime-admin');`);
+  const {page}=await login('runtime-admin');
+  await page.goto(origin+'/commercial/budgeting/finance-controls');
+  await expect(page.getByRole('heading',{name:'Finance controls',exact:true})).toBeVisible();
+  await page.getByRole('combobox').nth(0).selectOption('00000000-0000-4000-8000-000000000401');
+  await page.getByRole('combobox').nth(1).selectOption('00000000-0000-4000-8000-000000000402');
+  await page.getByRole('combobox').nth(2).selectOption('review-ledger');
+  await page.getByLabel('Reconciliation currency').fill('AUD'); console.log('Finance scope selected'); await page.getByRole('button',{name:'Prepare reconciliation',exact:true}).click();
+  await expect(page.getByRole('status')).toContainText('prepared');
+  await expect(page.locator('[data-reconciliation-id]')).toContainText('PREPARED');
+  let recon=(await pool.query('SELECT * FROM commercial_finance_reconciliations')).rows[0];
+  if(recon.source_actual_cents!=='10000'||recon.external_gl_total_cents!=='10000'||recon.variance_cents!=='0'||recon.unresolved_item_count!==0)throw new Error('Totals do not reconcile: '+JSON.stringify(recon));
+  await page.getByRole('button',{name:'Review',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Sign off',exact:true})).toBeDisabled();
+  await page.getByRole('button',{name:'Close period',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Sign off',exact:true})).toBeEnabled();
+  await page.getByRole('button',{name:'Sign off',exact:true}).click();
+  await expect(page.locator('[data-reconciliation-id]')).toContainText('SIGNED_OFF');
+  await page.screenshot({path:resolve(artifacts,'finance-signed-off-desktop.png'),fullPage:true});
+  recon=(await pool.query('SELECT * FROM commercial_finance_reconciliations')).rows[0];
+  if(!recon.close_id||recon.status!=='SIGNED_OFF')throw new Error('Sign-off not persisted');
+  await page.getByRole('button',{name:'Close financial year',exact:true}).click();
+  await expect(page.getByRole('status')).toContainText('Financial year closed.');
+  await page.getByLabel('Year reopen reason (required)',{exact:true}).fill('Isolated finance review');
+  await page.getByRole('button',{name:'Reopen financial year',exact:true}).click();
+  await expect(page.getByRole('status')).toContainText('Financial year reopened.');
+  await page.getByLabel('Reopen reason (required)',{exact:true}).fill('Isolated period review');
+  await page.getByRole('button',{name:'Reopen period',exact:true}).click();
+  await expect(page.locator('[data-reconciliation-id]')).toContainText('STALE');
+  await expect(page.locator('[data-close-id]')).toContainText('INVALIDATED');
+  await expect(page.locator('[data-year-close-id]')).toContainText('INVALIDATED');
+  const reopened=(await pool.query('SELECT status FROM commercial_finance_reconciliations')).rows[0];
+  const events=(await pool.query('SELECT event_type,details FROM commercial_finance_reconciliation_events ORDER BY event_at')).rows;
+  if(reopened.status!=='STALE'||events.length!==4||events.at(-1).details.reason!=='Isolated period review')throw new Error('Durable reconciliation events did not preserve lifecycle and reopen reason');
+  await page.screenshot({path:resolve(artifacts,'finance-reopened-desktop.png'),fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  await page.screenshot({path:resolve(artifacts,'finance-mobile.png'),fullPage:true});
+  const overflow=await page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth}));
+  const viewer=await login('runtime-viewer');
+  const denial=await viewer.page.evaluate(async()=> (await fetch('/api/commercial/budgeting/financial-periods')).status);
+  if(denial!==403)throw new Error('Viewer finance controls accepted');
+  const other=await login('runtime-other');
+  const tenant=await other.page.evaluate(async()=>await(await fetch('/api/commercial/budgeting/financial-periods')).json());
+  if(tenant.years.length)throw new Error('Foreign year exposed');
+  if(errors.length||failedApi.length)throw new Error(JSON.stringify({errors,failedApi}));
+  const evidence={verified_at:new Date().toISOString(),checks:['real login and production runtime','exact $100 source and ledger match','prepare and review','sign-off blocked before close','period close and durable sign-off','year close and reopen','period reopen invalidates close and reconciliation','viewer denial','tenant isolation'],overflow,build_id:readFileSync('.next/BUILD_ID','utf8').trim()};
+  writeFileSync(resolve(artifacts,'evidence.json'),JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));
+} finally {
+  await browser?.close();
+  if(next?.pid){if(process.platform==='win32') await command('taskkill',['/PID',String(next.pid),'/T','/F']).catch(()=>{});else next.kill('SIGTERM');}
+  writeFileSync(resolve(artifacts,'next-server.log'),nextLog);
+  await pool?.end();if(containerCreated) await command('docker',['rm','-f',container]);
+}

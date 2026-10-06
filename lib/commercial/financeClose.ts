@@ -314,7 +314,7 @@ export async function reopenFinancialPeriod(params: {
                jsonb_build_object(
                  'closeId', stale.close_id,
                  'financialPeriodId', stale.financial_period_id,
-                 'reason', ${reason},
+                 'reason', ${reason}::text,
                  'cause', 'PERIOD_REOPENED'
                )
         FROM stale_reconciliations stale

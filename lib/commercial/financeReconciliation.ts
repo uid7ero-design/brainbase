@@ -1161,11 +1161,11 @@ export async function prepareFinanceReconciliation(params: {
       ) VALUES (
         ${organisationId}, ${reconciliationId}, 'PREPARED', ${userId},
         jsonb_build_object(
-          'financialPeriodId', ${financialPeriodId},
-          'sourceSystemId', ${sourceSystemId},
-          'currency', ${currency},
-          'varianceCents', ${varianceCents.toString()},
-          'unresolvedItemCount', ${unresolvedItemCount}
+          'financialPeriodId', ${financialPeriodId}::uuid,
+          'sourceSystemId', ${sourceSystemId}::text,
+          'currency', ${currency}::text,
+          'varianceCents', ${varianceCents.toString()}::text,
+          'unresolvedItemCount', ${unresolvedItemCount}::integer
         )
       )
     `,
