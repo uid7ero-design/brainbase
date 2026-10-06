@@ -25,20 +25,33 @@ describe('HR-7G1 lifecycle templates read-only admin UI', () => {
     expect(src).toContain('/api/hr/lifecycle/templates/${template.id}');
   });
 
-  it('limits write calls to capability-gated activate/retire endpoints in this slice', () => {
+  it('limits write calls to template create plus capability-gated activate/retire endpoints in this slice', () => {
+    expect(src).toContain("fetch('/api/hr/lifecycle/templates', {");
     expect(src).toContain('/api/hr/lifecycle/templates/\${template.id}/\${action}');
     expect(src).toMatch(/method:\s*'POST'/);
     expect(src).not.toMatch(/\/versions/);
     expect(src).not.toMatch(/method:\s*['\"](PATCH|PUT|DELETE)['\"]/);
   });
 
-  it('uses only server-returned template action capabilities for status controls', () => {
+  it('uses only server-returned action capabilities for create and status controls', () => {
+    expect(src).toContain('can_create_template');
     expect(src).toContain('can_activate');
     expect(src).toContain('can_retire');
     expect(src).toContain('template.capabilities.can_activate');
     expect(src).toContain('template.capabilities.can_retire');
     expect(src).toContain('Activate this template version?');
     expect(src).toContain('Retire this template version?');
+  });
+
+  it('builds template task payloads from explicit operational fields only', () => {
+    expect(src).toContain('template_key: templateKey');
+    expect(src).toContain('lifecycle_type: newTemplateType');
+    expect(src).toContain('sequence: index + 1');
+    expect(src).toContain('responsibility_type: task.responsibility_type');
+    expect(src).toContain('due_offset_days: task.due_offset_days.trim()');
+    expect(src).toContain('employee_visible: task.internal_only ? false : task.employee_visible');
+    expect(src).toContain('manager_visible: task.internal_only ? false : task.manager_visible');
+    expect(src).toContain('internal_only: task.internal_only');
   });
 
   it('does not infer HR authority from roles in the browser', () => {
@@ -48,12 +61,9 @@ describe('HR-7G1 lifecycle templates read-only admin UI', () => {
     expect(src).not.toMatch(/isHrAdministrator/);
   });
 
-  it('does not render sensitive creator or template-task visibility metadata', () => {
+  it('does not render server-owned creator or assignment identity metadata', () => {
     expect(src).not.toMatch(/created_by/);
     expect(src).not.toMatch(/assigned_user_id/);
-    expect(src).not.toMatch(/employee_visible/);
-    expect(src).not.toMatch(/manager_visible/);
-    expect(src).not.toMatch(/internal_only/);
   });
 
   it('renders distinct list loading, error, and empty states', () => {
