@@ -285,7 +285,7 @@ describe('HR-7G3A lifecycle template creation', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '+ Create Template' }));
 
-    fireEvent.change(screen.getByLabelText('Template key'), {
+    fireEvent.change(await screen.findByLabelText('Template key'), {
       target: { value: 'exit-process' },
     });
     fireEvent.change(screen.getByLabelText('Lifecycle type'), {
@@ -385,7 +385,7 @@ describe('HR-7G3A lifecycle template creation', () => {
     renderBrainbase(<LifecycleTemplatesPage />);
 
     fireEvent.click(await screen.findByRole('button', { name: '+ Create Template' }));
-    fireEvent.change(screen.getByLabelText('Template key'), {
+    fireEvent.change(await screen.findByLabelText('Template key'), {
       target: { value: 'standard-onboarding' },
     });
     fireEvent.change(screen.getByLabelText('Name'), {
