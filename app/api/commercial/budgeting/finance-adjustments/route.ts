@@ -24,6 +24,9 @@ export async function POST(req: Request) {
   if (!auth.ok) return auth.response;
 
   const body = await req.json().catch(() => ({})) as Body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'A JSON object is required.' }, { status: 400 });
+  }
   if (
     !body.adjustmentType
     || !body.effectiveFinancialPeriodId

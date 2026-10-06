@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { authorizeCommercialRequest, COMMERCIAL_MIN_ROLE } from '@/lib/commercial/authorize';
 import {
   getSupplierBillPaymentSummary,
@@ -14,6 +14,9 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const { id: supplierBillId, paymentId } = await params;
 
   const body = await req.json().catch(() => ({}));
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'A JSON object is required.' }, { status: 400 });
+  }
   const { reason } = body;
   if (typeof reason !== 'string' || !reason.trim()) {
     return NextResponse.json({ error: 'A reversal reason is required.' }, { status: 400 });

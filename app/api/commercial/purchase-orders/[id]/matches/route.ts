@@ -21,6 +21,9 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   if (!auth.ok) return auth.response;
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'A JSON object is required.' }, { status: 400 });
+  }
   const { purchaseReceiptLineId, supplierBillLineId, quantity } = body;
 
   if (typeof purchaseReceiptLineId !== 'string' || typeof supplierBillLineId !== 'string') {

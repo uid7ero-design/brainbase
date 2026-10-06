@@ -14,6 +14,9 @@ export async function POST(
 
   const { id } = await context.params;
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'A JSON object is required.' }, { status: 400 });
+  }
   try {
     const mapping = await retireExternalGlCostCentreMapping({
       organisationId: auth.session.organisationId,

@@ -9,6 +9,9 @@ export async function POST(req: Request, { params }: Ctx) {
   if (!auth.ok) return auth.response;
   const { id } = await params;
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'A JSON object is required.' }, { status: 400 });
+  }
   try {
     const mapping = await retireExternalGlAccountMapping({
       organisationId: auth.session.organisationId,

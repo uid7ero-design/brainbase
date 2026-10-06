@@ -13,6 +13,9 @@ export async function POST(req: Request, { params }: Ctx) {
 
   const { id } = await params;
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'A JSON object is required.' }, { status: 400 });
+  }
 
   try {
     const reconciliation = await signOffFinanceReconciliation({

@@ -115,6 +115,21 @@ The disposable PostgreSQL migration suite passed all nine tests covering fresh r
 upgrade/reapplication and atomic failure on invalid existing facts. Commercial
 containment passed again after the SQL fix (1,954 tests).
 
+### Mutation request-body review
+
+A subsequent API review found that JSON `null` bodies could throw while reading
+properties in new Commercial mutation routes. Seventeen affected routes now
+require an object body before field access. Null, arrays and scalar JSON return
+400 before domain access; authorization denials retain their original response.
+Existing object-body validation and role/tenant boundaries remain in place.
+
+The new handler regression suite exercises five non-object payloads plus an
+authorization denial for each affected route (102 checks). Commercial containment
+passed 2,056 tests across 132 files. Focused ESLint and whitespace checks passed.
+A fresh production webpack build passed TypeScript and 323 static pages; all 12
+built-server AP checks passed against build `Gd1IPw-tmoaAcbXIpwllc`. No database
+migration changed for this fix.
+
 ## Release handoff
 
 The remote CI rerun after the Commercial fixes exposed an unrelated Docker
