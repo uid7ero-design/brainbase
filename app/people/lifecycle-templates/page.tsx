@@ -7,7 +7,6 @@ import {
   PageHeader,
   TableContainer,
   TableStateRow,
-  buttonProps,
   tableStyles,
 } from '@/components/ui/app';
 
