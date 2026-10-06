@@ -88,10 +88,12 @@ function dateOnly(value: string): string {
 function lifecycleTemplateListUrl(
   lifecycleType: LifecycleTemplateTypeFilter,
   status: LifecycleTemplateStatusFilter,
+  templateKey: string,
 ): string {
   const search = new URLSearchParams();
   if (lifecycleType) search.set('lifecycle_type', lifecycleType);
   if (status) search.set('status', status);
+  if (templateKey.trim()) search.set('template_key', templateKey.trim());
   const query = search.toString();
   return query ? `/api/hr/lifecycle/templates?${query}` : '/api/hr/lifecycle/templates';
 }
@@ -174,6 +176,8 @@ export default function LifecycleTemplatesPage() {
   const [error, setError] = useState('');
   const [templateTypeFilter, setTemplateTypeFilter] = useState<LifecycleTemplateTypeFilter>('');
   const [templateStatusFilter, setTemplateStatusFilter] = useState<LifecycleTemplateStatusFilter>('');
+  const [templateKeyInput, setTemplateKeyInput] = useState('');
+  const [templateKeyFilter, setTemplateKeyFilter] = useState('');
   const [openTemplateId, setOpenTemplateId] = useState<string | null>(null);
   const [detailByTemplate, setDetailByTemplate] = useState<Record<string, LifecycleTemplateDetailState>>({});
   const [confirmStatusAction, setConfirmStatusAction] = useState<{
@@ -199,7 +203,11 @@ export default function LifecycleTemplatesPage() {
 
   useEffect(() => {
     let cancelled = false;
-    const listUrl = lifecycleTemplateListUrl(templateTypeFilter, templateStatusFilter);
+    const listUrl = lifecycleTemplateListUrl(
+      templateTypeFilter,
+      templateStatusFilter,
+      templateKeyFilter,
+    );
 
     queueMicrotask(() => {
       if (cancelled) return;
@@ -243,12 +251,16 @@ export default function LifecycleTemplatesPage() {
     return () => {
       cancelled = true;
     };
-  }, [templateTypeFilter, templateStatusFilter]);
+  }, [templateTypeFilter, templateStatusFilter, templateKeyFilter]);
 
   async function refreshTemplates() {
     try {
       const response = await fetch(
-        lifecycleTemplateListUrl(templateTypeFilter, templateStatusFilter),
+        lifecycleTemplateListUrl(
+          templateTypeFilter,
+          templateStatusFilter,
+          templateKeyFilter,
+        ),
       );
       const data = await response.json().catch(() => ({}));
       if (!response.ok) return false;
@@ -664,6 +676,28 @@ export default function LifecycleTemplatesPage() {
           </select>
         </label>
 
+        <form
+          onSubmit={event => {
+            event.preventDefault();
+            setTemplateKeyFilter(templateKeyInput.trim());
+          }}
+          style={{ display: 'flex', alignItems: 'flex-end', gap: 6, flexWrap: 'wrap' }}
+        >
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+            <span style={{ color: 'var(--text-secondary)' }}>Family key</span>
+            <input
+              aria-label="Template family key filter"
+              value={templateKeyInput}
+              onChange={event => setTemplateKeyInput(event.target.value)}
+              className={fieldControlClassName}
+              placeholder="standard-onboarding"
+            />
+          </label>
+          <button type="submit" {...buttonProps('secondary', 'sm')}>
+            Apply family
+          </button>
+        </form>
+
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
           <span style={{ color: 'var(--text-secondary)' }}>Status</span>
           <select
@@ -681,12 +715,14 @@ export default function LifecycleTemplatesPage() {
           </select>
         </label>
 
-        {(templateTypeFilter || templateStatusFilter) && (
+        {(templateTypeFilter || templateStatusFilter || templateKeyFilter) && (
           <button
             type="button"
             onClick={() => {
               setTemplateTypeFilter('');
               setTemplateStatusFilter('');
+              setTemplateKeyInput('');
+              setTemplateKeyFilter('');
             }}
             {...buttonProps('secondary', 'sm')}
           >
