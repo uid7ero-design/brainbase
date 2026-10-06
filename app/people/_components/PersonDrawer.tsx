@@ -66,6 +66,8 @@ type LifecycleTaskOptionsState = 'idle' | 'loading' | 'ready' | 'error';
 type LifecycleWorkflowsState = 'idle' | 'loading' | 'ready' | 'error';
 type LifecycleTaskActionState = 'idle' | 'submitting' | 'error';
 type LifecycleTaskApprovalState = 'idle' | 'approving' | 'rejecting' | 'error';
+type LifecycleWorkflowMutationState = 'idle' | 'submitting' | 'error';
+type LifecycleTemplatesState = 'idle' | 'loading' | 'ready' | 'error';
 
 type LifecycleTaskOption = {
   id: string;
@@ -82,6 +84,16 @@ type PersonLifecycleWorkflowSummary = {
   started_at: string;
   completed_at: string | null;
   cancelled_at: string | null;
+  capabilities: {
+    can_cancel: boolean;
+  };
+};
+
+type LifecycleTemplateOption = {
+  id: string;
+  name: string;
+  lifecycle_type: string;
+  version_number: number;
 };
 
 type PersonLifecycleTaskSummary = {
@@ -119,6 +131,57 @@ function dateOnly(value: string): string {
   return value.slice(0, 10);
 }
 
+function parseLifecycleWorkflowList(data: unknown): {
+  canStartWorkflow: boolean;
+  workflows: PersonLifecycleWorkflowSummary[];
+} | null {
+  if (!data || typeof data !== 'object') return null;
+  const payload = data as Record<string, unknown>;
+  if (!Array.isArray(payload.workflows)) return null;
+
+  const rootCapabilities = (
+    payload.capabilities
+    && typeof payload.capabilities === 'object'
+  ) ? payload.capabilities as Record<string, unknown> : {};
+
+  const workflows = payload.workflows
+    .filter((workflow: unknown): workflow is Record<string, unknown> => {
+      if (!workflow || typeof workflow !== 'object') return false;
+      const candidate = workflow as Record<string, unknown>;
+      return typeof candidate.id === 'string'
+        && typeof candidate.lifecycle_type === 'string'
+        && typeof candidate.status === 'string'
+        && typeof candidate.anchor_date === 'string'
+        && typeof candidate.started_at === 'string'
+        && (candidate.completed_at === null || typeof candidate.completed_at === 'string')
+        && (candidate.cancelled_at === null || typeof candidate.cancelled_at === 'string');
+    })
+    .map((workflow: Record<string, unknown>): PersonLifecycleWorkflowSummary => {
+      const capabilities = (
+        workflow.capabilities
+        && typeof workflow.capabilities === 'object'
+      ) ? workflow.capabilities as Record<string, unknown> : {};
+
+      return {
+        id: workflow.id as string,
+        lifecycle_type: workflow.lifecycle_type as string,
+        status: workflow.status as string,
+        anchor_date: workflow.anchor_date as string,
+        started_at: workflow.started_at as string,
+        completed_at: workflow.completed_at as string | null,
+        cancelled_at: workflow.cancelled_at as string | null,
+        capabilities: {
+          can_cancel: capabilities.can_cancel === true,
+        },
+      };
+    });
+
+  return {
+    canStartWorkflow: rootCapabilities.can_start_workflow === true,
+    workflows,
+  };
+}
+
 export default function PersonDrawer({ personId, canManage, onClose, onEdit }: { personId: string | null; canManage: boolean; onClose: () => void; onEdit: (person: PersonDetail) => void }) {
   const [person, setPerson] = useState<PersonDetail | null>(null);
   const [loading, setLoading] = useState(false);
@@ -152,6 +215,15 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   const [lifecycleTasksByWorkflow, setLifecycleTasksByWorkflow] = useState<Record<string, LifecycleTaskDetailsState>>({});
   const [lifecycleTaskActionById, setLifecycleTaskActionById] = useState<Record<string, LifecycleTaskActionState>>({});
   const [lifecycleTaskApprovalById, setLifecycleTaskApprovalById] = useState<Record<string, LifecycleTaskApprovalState>>({});
+  const [canStartLifecycleWorkflow, setCanStartLifecycleWorkflow] = useState(false);
+  const [showStartLifecycleWorkflow, setShowStartLifecycleWorkflow] = useState(false);
+  const [lifecycleTemplates, setLifecycleTemplates] = useState<LifecycleTemplateOption[]>([]);
+  const [lifecycleTemplatesState, setLifecycleTemplatesState] = useState<LifecycleTemplatesState>('idle');
+  const [newLifecycleTemplateId, setNewLifecycleTemplateId] = useState('');
+  const [newLifecycleAnchorDate, setNewLifecycleAnchorDate] = useState('');
+  const [lifecycleStartState, setLifecycleStartState] = useState<LifecycleWorkflowMutationState>('idle');
+  const [cancelLifecycleWorkflowId, setCancelLifecycleWorkflowId] = useState<string | null>(null);
+  const [lifecycleCancelState, setLifecycleCancelState] = useState<LifecycleWorkflowMutationState>('idle');
 
   useEffect(() => {
     let cancelled = false;
@@ -184,6 +256,15 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         setLifecycleTasksByWorkflow({});
         setLifecycleTaskActionById({});
         setLifecycleTaskApprovalById({});
+        setCanStartLifecycleWorkflow(false);
+        setShowStartLifecycleWorkflow(false);
+        setLifecycleTemplates([]);
+        setLifecycleTemplatesState('idle');
+        setNewLifecycleTemplateId('');
+        setNewLifecycleAnchorDate('');
+        setLifecycleStartState('idle');
+        setCancelLifecycleWorkflowId(null);
+        setLifecycleCancelState('idle');
         return;
       }
 
@@ -215,6 +296,15 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setLifecycleTasksByWorkflow({});
       setLifecycleTaskActionById({});
       setLifecycleTaskApprovalById({});
+      setCanStartLifecycleWorkflow(false);
+      setShowStartLifecycleWorkflow(false);
+      setLifecycleTemplates([]);
+      setLifecycleTemplatesState('idle');
+      setNewLifecycleTemplateId('');
+      setNewLifecycleAnchorDate('');
+      setLifecycleStartState('idle');
+      setCancelLifecycleWorkflowId(null);
+      setLifecycleCancelState('idle');
 
       void fetch(`/api/hr/people/${personId}`)
         .then(async response => {
@@ -238,35 +328,23 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
           const data = await response.json().catch(() => ({}));
           if (cancelled) return;
 
-          if (!response.ok || !Array.isArray(data.workflows)) {
+          if (!response.ok) {
             setLifecycleWorkflows([]);
+            setCanStartLifecycleWorkflow(false);
             setLifecycleWorkflowsState('error');
             return;
           }
 
-          const workflows = data.workflows
-            .filter((workflow: unknown): workflow is PersonLifecycleWorkflowSummary => {
-              if (!workflow || typeof workflow !== 'object') return false;
-              const candidate = workflow as Partial<PersonLifecycleWorkflowSummary>;
-              return typeof candidate.id === 'string'
-                && typeof candidate.lifecycle_type === 'string'
-                && typeof candidate.status === 'string'
-                && typeof candidate.anchor_date === 'string'
-                && typeof candidate.started_at === 'string'
-                && (candidate.completed_at === null || typeof candidate.completed_at === 'string')
-                && (candidate.cancelled_at === null || typeof candidate.cancelled_at === 'string');
-            })
-            .map((workflow: PersonLifecycleWorkflowSummary) => ({
-              id: workflow.id,
-              lifecycle_type: workflow.lifecycle_type,
-              status: workflow.status,
-              anchor_date: workflow.anchor_date,
-              started_at: workflow.started_at,
-              completed_at: workflow.completed_at,
-              cancelled_at: workflow.cancelled_at,
-            }));
+          const parsed = parseLifecycleWorkflowList(data);
+          if (!parsed) {
+            setLifecycleWorkflows([]);
+            setCanStartLifecycleWorkflow(false);
+            setLifecycleWorkflowsState('error');
+            return;
+          }
 
-          setLifecycleWorkflows(workflows);
+          setLifecycleWorkflows(parsed.workflows);
+          setCanStartLifecycleWorkflow(parsed.canStartWorkflow);
           setLifecycleWorkflowsState('ready');
         })
         .catch(() => {
@@ -455,7 +533,176 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
     };
   }, [personId, canManageDocuments, showCreateDocument]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!showStartLifecycleWorkflow || !canStartLifecycleWorkflow) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void fetch('/api/hr/lifecycle/templates?status=ACTIVE')
+      .then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (cancelled) return;
+
+        if (!response.ok || !Array.isArray(data.templates)) {
+          setLifecycleTemplates([]);
+          setLifecycleTemplatesState('error');
+          return;
+        }
+
+        const templates = data.templates
+          .filter((template: unknown): template is Record<string, unknown> => {
+            if (!template || typeof template !== 'object') return false;
+            const candidate = template as Record<string, unknown>;
+            return typeof candidate.id === 'string'
+              && typeof candidate.name === 'string'
+              && typeof candidate.lifecycle_type === 'string'
+              && typeof candidate.version_number === 'number'
+              && candidate.status === 'ACTIVE';
+          })
+          .map((template: Record<string, unknown>): LifecycleTemplateOption => ({
+            id: template.id as string,
+            name: template.name as string,
+            lifecycle_type: template.lifecycle_type as string,
+            version_number: template.version_number as number,
+          }));
+
+        setLifecycleTemplates(templates);
+        setLifecycleTemplatesState('ready');
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLifecycleTemplates([]);
+          setLifecycleTemplatesState('error');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showStartLifecycleWorkflow, canStartLifecycleWorkflow]);
+
+  async function refreshLifecycleWorkflows() {
+    if (!personId) return false;
+
+    try {
+      const response = await fetch(
+        `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(personId)}`,
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) return false;
+
+      const parsed = parseLifecycleWorkflowList(data);
+      if (!parsed) return false;
+
+      setLifecycleWorkflows(parsed.workflows);
+      setCanStartLifecycleWorkflow(parsed.canStartWorkflow);
+      setLifecycleWorkflowsState('ready');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function startLifecycleWorkflow() {
+    if (
+      !personId
+      || !canStartLifecycleWorkflow
+      || !newLifecycleTemplateId
+      || !newLifecycleAnchorDate
+    ) {
+      setLifecycleStartState('error');
+      return;
+    }
+
+    setLifecycleStartState('submitting');
+
+    try {
+      const response = await fetch('/api/hr/lifecycle/workflows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          person_id: personId,
+          template_id: newLifecycleTemplateId,
+          anchor_date: newLifecycleAnchorDate,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || typeof data.workflow?.id !== 'string') {
+        setLifecycleStartState('error');
+        return;
+      }
+
+      if (!await refreshLifecycleWorkflows()) {
+        setLifecycleStartState('error');
+        return;
+      }
+
+      setLifecycleTaskWorkflowId(null);
+      setLifecycleTasksByWorkflow({});
+      setLifecycleTaskActionById({});
+      setLifecycleTaskApprovalById({});
+      setShowStartLifecycleWorkflow(false);
+      setLifecycleTemplates([]);
+      setLifecycleTemplatesState('idle');
+      setNewLifecycleTemplateId('');
+      setNewLifecycleAnchorDate('');
+      setLifecycleStartState('idle');
+    } catch {
+      setLifecycleStartState('error');
+    }
+  }
+
+  async function cancelLifecycleWorkflow(workflow: PersonLifecycleWorkflowSummary) {
+    if (!workflow.capabilities.can_cancel || workflow.status !== 'ACTIVE') return;
+
+    setLifecycleCancelState('submitting');
+
+    try {
+      const response = await fetch(
+        `/api/hr/lifecycle/workflows/${workflow.id}/cancel`,
+        { method: 'POST' },
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (
+        !response.ok
+        || data.workflow?.id !== workflow.id
+        || data.workflow?.status !== 'CANCELLED'
+      ) {
+        setLifecycleCancelState('error');
+        return;
+      }
+
+      if (!await refreshLifecycleWorkflows()) {
+        setLifecycleCancelState('error');
+        return;
+      }
+
+      setLifecycleTaskWorkflowId(current => (
+        current === workflow.id ? null : current
+      ));
+      setLifecycleTasksByWorkflow(current => {
+        const next = { ...current };
+        delete next[workflow.id];
+        return next;
+      });
+      setCancelLifecycleWorkflowId(null);
+      setLifecycleCancelState('idle');
+    } catch {
+      setLifecycleCancelState('error');
+    }
+  }
+
   const lifecycleTaskButton = buttonProps('secondary', 'sm');
+  const lifecycleStartWorkflowButton = buttonProps('primary', 'sm');
+  const lifecycleCancelWorkflowButton = buttonProps('ghost', 'sm');
+  const lifecycleConfirmCancelWorkflowButton = buttonProps('danger', 'sm');
+  const lifecycleCancelConfirmButton = buttonProps('secondary', 'sm');
 
   async function toggleLifecycleTasks(workflow: PersonLifecycleWorkflowSummary) {
     if (!personId) return;
@@ -1213,9 +1460,107 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
 
           {lifecycleWorkflowsState !== 'idle' && (
             <section aria-labelledby="person-lifecycle-heading" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 14, marginTop: 2 }}>
-              <div id="person-lifecycle-heading" style={{ color: 'var(--text-primary)', fontSize: 14, fontWeight: 700, marginBottom: 10 }}>
-                Lifecycle
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+                <div id="person-lifecycle-heading" style={{ color: 'var(--text-primary)', fontSize: 14, fontWeight: 700 }}>
+                  Lifecycle
+                </div>
+                {lifecycleWorkflowsState === 'ready'
+                  && canStartLifecycleWorkflow
+                  && !showStartLifecycleWorkflow && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLifecycleTemplates([]);
+                      setLifecycleTemplatesState('loading');
+                      setShowStartLifecycleWorkflow(true);
+                      setLifecycleStartState('idle');
+                      setNewLifecycleTemplateId('');
+                      setNewLifecycleAnchorDate('');
+                    }}
+                    {...lifecycleStartWorkflowButton}
+                  >
+                    Start workflow
+                  </button>
+                )}
               </div>
+
+              {lifecycleWorkflowsState === 'ready'
+                && canStartLifecycleWorkflow
+                && showStartLifecycleWorkflow && (
+                <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {lifecycleTemplatesState === 'loading' && (
+                      <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                        Loading active templates…
+                      </div>
+                    )}
+                    {lifecycleTemplatesState === 'error' && (
+                      <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                        Active lifecycle templates unavailable.
+                      </div>
+                    )}
+                    {lifecycleTemplatesState === 'ready' && lifecycleTemplates.length === 0 && (
+                      <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                        No active lifecycle templates
+                      </div>
+                    )}
+                    {lifecycleTemplatesState === 'ready' && lifecycleTemplates.length > 0 && (
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Template</span>
+                        <select
+                          value={newLifecycleTemplateId}
+                          onChange={event => setNewLifecycleTemplateId(event.target.value)}
+                        >
+                          <option value="">Select template</option>
+                          {lifecycleTemplates.map(template => (
+                            <option key={template.id} value={template.id}>
+                              {template.name} · {template.lifecycle_type} · v{template.version_number}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Anchor date</span>
+                      <input
+                        type="date"
+                        value={newLifecycleAnchorDate}
+                        onChange={event => setNewLifecycleAnchorDate(event.target.value)}
+                      />
+                    </label>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => void startLifecycleWorkflow()}
+                        disabled={lifecycleStartState === 'submitting'}
+                        {...lifecycleStartWorkflowButton}
+                      >
+                        {lifecycleStartState === 'submitting' ? 'Starting…' : 'Start'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowStartLifecycleWorkflow(false);
+                          setLifecycleTemplates([]);
+                          setLifecycleTemplatesState('idle');
+                          setNewLifecycleTemplateId('');
+                          setNewLifecycleAnchorDate('');
+                          setLifecycleStartState('idle');
+                        }}
+                        disabled={lifecycleStartState === 'submitting'}
+                        {...lifecycleCancelConfirmButton}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    {lifecycleStartState === 'error' && (
+                      <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                        Could not start lifecycle workflow.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {lifecycleWorkflowsState === 'loading' && (
                 <StateMessage kind="loading" title="Loading lifecycle…" />
@@ -1256,7 +1601,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                           </div>
                         )}
 
-                        <div style={{ marginTop: 8 }}>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
                           <button
                             type="button"
                             onClick={() => void toggleLifecycleTasks(workflow)}
@@ -1264,7 +1609,55 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                           >
                             {showingTasks ? 'Hide tasks' : 'View tasks'}
                           </button>
+                          {workflow.capabilities.can_cancel
+                            && cancelLifecycleWorkflowId !== workflow.id && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCancelLifecycleWorkflowId(workflow.id);
+                                setLifecycleCancelState('idle');
+                              }}
+                              {...lifecycleCancelWorkflowButton}
+                            >
+                              Cancel workflow
+                            </button>
+                          )}
                         </div>
+
+                        {workflow.capabilities.can_cancel
+                          && cancelLifecycleWorkflowId === workflow.id && (
+                          <div style={{ marginTop: 8 }}>
+                            <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 6 }}>
+                              Cancel this workflow?
+                            </div>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                              <button
+                                type="button"
+                                onClick={() => void cancelLifecycleWorkflow(workflow)}
+                                disabled={lifecycleCancelState === 'submitting'}
+                                {...lifecycleConfirmCancelWorkflowButton}
+                              >
+                                {lifecycleCancelState === 'submitting' ? 'Cancelling…' : 'Confirm cancel'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setCancelLifecycleWorkflowId(null);
+                                  setLifecycleCancelState('idle');
+                                }}
+                                disabled={lifecycleCancelState === 'submitting'}
+                                {...lifecycleCancelConfirmButton}
+                              >
+                                Keep workflow
+                              </button>
+                            </div>
+                            {lifecycleCancelState === 'error' && (
+                              <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 6 }}>
+                                Could not cancel lifecycle workflow.
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {showingTasks && taskDetails?.state === 'loading' && (
                           <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 8 }}>
