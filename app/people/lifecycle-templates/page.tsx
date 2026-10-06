@@ -416,22 +416,30 @@ export default function LifecycleTemplatesPage() {
               || candidate.responsibility_type === 'MANAGER'
               || candidate.responsibility_type === 'HR_ADMIN'
             )
+            && (candidate.description === null || typeof candidate.description === 'string')
             && (candidate.due_offset_days === null || typeof candidate.due_offset_days === 'number')
             && typeof candidate.requires_approval === 'boolean'
             && (
               candidate.approval_type === 'NONE'
               || candidate.approval_type === 'MANAGER'
               || candidate.approval_type === 'HR_ADMIN'
-            );
+            )
+            && typeof candidate.employee_visible === 'boolean'
+            && typeof candidate.manager_visible === 'boolean'
+            && typeof candidate.internal_only === 'boolean';
         })
         .map((task: Record<string, unknown>): LifecycleTemplateTask => ({
           id: task.id as string,
           sequence: task.sequence as number,
           title: task.title as string,
+          description: task.description as string | null,
           responsibility_type: task.responsibility_type as 'EMPLOYEE' | 'MANAGER' | 'HR_ADMIN',
           due_offset_days: task.due_offset_days as number | null,
           requires_approval: task.requires_approval as boolean,
           approval_type: task.approval_type as 'NONE' | 'MANAGER' | 'HR_ADMIN',
+          employee_visible: task.employee_visible as boolean,
+          manager_visible: task.manager_visible as boolean,
+          internal_only: task.internal_only as boolean,
         }));
 
       setDetailByTemplate(current => ({
@@ -439,6 +447,9 @@ export default function LifecycleTemplatesPage() {
         [template.id]: {
           state: 'ready',
           template,
+          description: typeof data.template.description === 'string'
+            ? data.template.description
+            : null,
           tasks,
         },
       }));
