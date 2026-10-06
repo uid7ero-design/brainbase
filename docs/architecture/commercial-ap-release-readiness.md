@@ -130,6 +130,23 @@ A fresh production webpack build passed TypeScript and 323 static pages; all 12
 built-server AP checks passed against build `Gd1IPw-tmoaAcbXIpwllc`. No database
 migration changed for this fix.
 
+### Finance-adjustment field review
+
+Finance adjustment creation now validates required text, supported adjustment
+types, optional text and nested line shapes before domain access. Reversal also
+requires a string period identity. This prevents wrongly typed fields or null
+lines from causing property/trim exceptions. The domain minor-unit parser rejects
+booleans, null, arrays, objects and blank strings instead of accepting JavaScript
+BigInt coercions as monetary values. Numeric/string zero, negative integers and
+large exact integer strings/bigints remain supported.
+
+Commercial containment passed 2,103 tests across 133 files, including 47 new
+field/type regressions. The disposable finance harness passed all 30 checks and
+111 integration tests across nine suites. Focused ESLint and whitespace checks
+passed. The production build passed TypeScript and 323 static pages; all 12
+built-server AP checks passed against build `XK5Np000I7Nfsj9dGo4iE`.
+No migration or historical fact is changed by this validation fix.
+
 ## Release handoff
 
 The remote CI rerun after the Commercial fixes exposed an unrelated Docker

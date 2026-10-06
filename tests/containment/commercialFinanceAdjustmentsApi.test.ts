@@ -134,3 +134,45 @@ describe('C7.9B — finance adjustment APIs', () => {
     expect(reverseMock).not.toHaveBeenCalled();
   });
 });
+
+const validDraft = {
+  adjustmentType: 'MANUAL_FINANCE_ADJUSTMENT', effectiveFinancialPeriodId: 'period-1',
+  currency: 'AUD', description: 'Correction', reasonCode: 'MANUAL',
+  lines: [{ budgetAccountId: 'account-1', costCentreId: 'cc-1', amountExclusiveCents: '100', taxCents: '0', amountInclusiveCents: '100' }],
+};
+describe('finance adjustment field boundaries', () => {
+  const invalidFields = [
+    ...['adjustmentType', 'effectiveFinancialPeriodId', 'currency', 'description', 'reasonCode',
+      'referenceFinancialPeriodId', 'sourceType', 'sourceId'].map(field => ({ ...validDraft, [field]: 42 })),
+    { ...validDraft, adjustmentType: 'UNKNOWN' },
+    ...[null, [], true, 'line'].map(line => ({ ...validDraft, lines: [line] })),
+    ...['budgetAccountId', 'costCentreId', 'sourceSupplierBillLineId', 'narrative'].map(field => ({
+      ...validDraft, lines: [{ ...validDraft.lines[0], [field]: 42 }],
+    })),
+    ...['amountExclusiveCents', 'taxCents', 'amountInclusiveCents'].flatMap(field =>
+      [null, true, [], {}].map(value => ({ ...validDraft, lines: [{ ...validDraft.lines[0], [field]: value }] }))),
+  ];
+  it.each(invalidFields)('rejects malformed fields before creating a draft %#', async body => {
+    authorizeMock.mockResolvedValue({ ok: true, session: MANAGER });
+    const response = await createRoute.POST(new Request('http://localhost', { method: 'POST', body: JSON.stringify(body) }));
+    expect(response.status).toBe(400);
+    expect(createMock).not.toHaveBeenCalled();
+  });
+  it('rejects a non-string reversal period before domain access', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: ADMIN });
+    const response = await reverseRoute.POST(new Request('http://localhost', {
+      method: 'POST', body: JSON.stringify({ reversalFinancialPeriodId: 42, reason: 'Correction' }),
+    }), ctx);
+    expect(response.status).toBe(400);
+    expect(reverseMock).not.toHaveBeenCalled();
+  });
+  it('preserves optional null text and integer zero fields in a valid draft', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: MANAGER });
+    createMock.mockResolvedValue({ id: 'adjustment-1' });
+    const body = { ...validDraft, referenceFinancialPeriodId: null, sourceType: null, sourceId: null,
+      lines: [{ ...validDraft.lines[0], taxCents: 0, narrative: null }] };
+    const response = await createRoute.POST(new Request('http://localhost', { method: 'POST', body: JSON.stringify(body) }));
+    expect(response.status).toBe(201);
+    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ lines: body.lines }));
+  });
+});

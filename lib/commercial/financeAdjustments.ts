@@ -62,6 +62,8 @@ export class FinanceAdjustmentError extends Error {
 
 function minorUnits(value: string | number | bigint, field: string): bigint {
   try {
+    if (!['string', 'number', 'bigint'].includes(typeof value)) throw new Error();
+    if (typeof value === 'string' && !value.trim()) throw new Error();
     if (typeof value === 'number' && !Number.isSafeInteger(value)) throw new Error();
     const parsed = BigInt(value);
     return parsed;

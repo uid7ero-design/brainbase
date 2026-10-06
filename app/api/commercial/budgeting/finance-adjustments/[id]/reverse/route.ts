@@ -14,7 +14,8 @@ export async function POST(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: 'A JSON object is required.' }, { status: 400 });
   }
 
-  if (!body.reversalFinancialPeriodId || typeof body.reason !== 'string') {
+  if (typeof body.reversalFinancialPeriodId !== 'string' || !body.reversalFinancialPeriodId.trim()
+    || typeof body.reason !== 'string') {
     return NextResponse.json({ error: 'Reversal period and reason are required.' }, { status: 400 });
   }
 
