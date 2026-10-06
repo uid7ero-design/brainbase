@@ -285,13 +285,13 @@ describe('HR-7G3A lifecycle template creation', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '+ Create Template' }));
 
-    fireEvent.change(await screen.findByLabelText('Template key'), {
+    fireEvent.change(await screen.findByLabelText(/Template key/i), {
       target: { value: 'exit-process' },
     });
-    fireEvent.change(screen.getByLabelText('Lifecycle type'), {
+    fireEvent.change(screen.getByLabelText(/Lifecycle type/i), {
       target: { value: 'offboarding' },
     });
-    fireEvent.change(screen.getByLabelText('Name'), {
+    fireEvent.change(screen.getByLabelText(/^Name/i), {
       target: { value: 'Exit process' },
     });
     fireEvent.change(screen.getByLabelText('Description'), {
@@ -314,7 +314,7 @@ describe('HR-7G3A lifecycle template creation', () => {
     fireEvent.change(responsibilities[0], { target: { value: 'MANAGER' } });
     fireEvent.change(dueOffsets[0], { target: { value: '-2' } });
     fireEvent.click(approvals[0]);
-    fireEvent.change(screen.getByLabelText('Approval type'), {
+    fireEvent.change(screen.getByLabelText(/Approval type/i), {
       target: { value: 'HR_ADMIN' },
     });
     fireEvent.click(employeeVisibility[0]);
@@ -385,19 +385,19 @@ describe('HR-7G3A lifecycle template creation', () => {
     renderBrainbase(<LifecycleTemplatesPage />);
 
     fireEvent.click(await screen.findByRole('button', { name: '+ Create Template' }));
-    fireEvent.change(await screen.findByLabelText('Template key'), {
+    fireEvent.change(await screen.findByLabelText(/Template key/i), {
       target: { value: 'standard-onboarding' },
     });
-    fireEvent.change(screen.getByLabelText('Name'), {
+    fireEvent.change(screen.getByLabelText(/^Name/i), {
       target: { value: 'Standard onboarding' },
     });
-    fireEvent.change(screen.getByLabelText('Task title'), {
+    fireEvent.change(screen.getByLabelText(/Task title/i), {
       target: { value: 'Complete profile' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Create template' }));
 
     expect(await screen.findByText('Could not create lifecycle template.')).toBeTruthy();
-    expect(screen.getByLabelText('Template key')).toBeTruthy();
+    expect(screen.getByLabelText(/Template key/i)).toBeTruthy();
     expect(document.body.textContent).not.toContain('sensitive template family conflict detail');
   });
 });
