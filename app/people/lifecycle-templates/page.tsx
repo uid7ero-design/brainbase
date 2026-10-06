@@ -35,20 +35,30 @@ type LifecycleTemplateTask = {
   id: string;
   sequence: number;
   title: string;
+  description: string | null;
   responsibility_type: 'EMPLOYEE' | 'MANAGER' | 'HR_ADMIN';
   due_offset_days: number | null;
   requires_approval: boolean;
   approval_type: 'NONE' | 'MANAGER' | 'HR_ADMIN';
+  employee_visible: boolean;
+  manager_visible: boolean;
+  internal_only: boolean;
 };
 
 type LifecycleTemplateDetailState =
   | { state: 'loading' }
-  | { state: 'ready'; template: LifecycleTemplateSummary; tasks: LifecycleTemplateTask[] }
+  | {
+      state: 'ready';
+      template: LifecycleTemplateSummary;
+      description: string | null;
+      tasks: LifecycleTemplateTask[];
+    }
   | { state: 'error' };
 
 type LifecycleTemplateStatusAction = 'activate' | 'retire';
 type LifecycleTemplateStatusActionState = 'idle' | 'submitting' | 'error';
 type LifecycleTemplateCreateState = 'idle' | 'submitting' | 'error';
+type LifecycleTemplateVersionState = 'idle' | 'submitting' | 'error';
 
 type LifecycleTemplateDraftTask = {
   key: number;
@@ -165,6 +175,12 @@ export default function LifecycleTemplatesPage() {
   const [newTemplateTasks, setNewTemplateTasks] = useState<LifecycleTemplateDraftTask[]>([draftTask(1)]);
   const [nextTemplateTaskKey, setNextTemplateTaskKey] = useState(2);
   const [templateCreateState, setTemplateCreateState] = useState<LifecycleTemplateCreateState>('idle');
+  const [versionSourceTemplateId, setVersionSourceTemplateId] = useState<string | null>(null);
+  const [versionName, setVersionName] = useState('');
+  const [versionDescription, setVersionDescription] = useState('');
+  const [versionTasks, setVersionTasks] = useState<LifecycleTemplateDraftTask[]>([]);
+  const [nextVersionTaskKey, setNextVersionTaskKey] = useState(1);
+  const [templateVersionState, setTemplateVersionState] = useState<LifecycleTemplateVersionState>('idle');
 
   useEffect(() => {
     let cancelled = false;
@@ -257,6 +273,62 @@ export default function LifecycleTemplatesPage() {
     ));
   }
 
+  function resetVersionForm() {
+    setVersionSourceTemplateId(null);
+    setVersionName('');
+    setVersionDescription('');
+    setVersionTasks([]);
+    setNextVersionTaskKey(1);
+    setTemplateVersionState('idle');
+  }
+
+  function updateVersionTask(
+    key: number,
+    patch: Partial<Omit<LifecycleTemplateDraftTask, 'key'>>,
+  ) {
+    setVersionTasks(current => current.map(task => (
+      task.key === key ? { ...task, ...patch } : task
+    )));
+  }
+
+  function addVersionTask() {
+    setVersionTasks(current => [...current, draftTask(nextVersionTaskKey)]);
+    setNextVersionTaskKey(current => current + 1);
+  }
+
+  function removeVersionTask(key: number) {
+    setVersionTasks(current => (
+      current.length > 1 ? current.filter(task => task.key !== key) : current
+    ));
+  }
+
+  function beginTemplateVersion(
+    template: LifecycleTemplateSummary,
+    detailState: Extract<LifecycleTemplateDetailState, { state: 'ready' }>,
+  ) {
+    if (!template.capabilities.can_create_version) return;
+
+    setVersionSourceTemplateId(template.id);
+    setVersionName(template.name);
+    setVersionDescription(detailState.description ?? '');
+    setVersionTasks(detailState.tasks.map((task, index) => ({
+      key: index + 1,
+      title: task.title,
+      description: task.description ?? '',
+      responsibility_type: task.responsibility_type,
+      due_offset_days: task.due_offset_days === null ? '' : String(task.due_offset_days),
+      requires_approval: task.requires_approval,
+      approval_type: task.approval_type === 'HR_ADMIN' ? 'HR_ADMIN' : 'MANAGER',
+      employee_visible: task.employee_visible,
+      manager_visible: task.manager_visible,
+      internal_only: task.internal_only,
+    })));
+    setNextVersionTaskKey(detailState.tasks.length + 1);
+    setTemplateVersionState('idle');
+    setOpenTemplateId(null);
+    setConfirmStatusAction(null);
+  }
+
   async function createTemplate() {
     if (!canCreateTemplate) return;
 
@@ -318,6 +390,76 @@ export default function LifecycleTemplatesPage() {
       }
     } catch {
       setTemplateCreateState('error');
+    }
+  }
+
+  async function createTemplateVersion() {
+    const source = versionSourceTemplateId
+      ? templates.find(template => template.id === versionSourceTemplateId) ?? null
+      : null;
+    if (!source || !source.capabilities.can_create_version) return;
+
+    const name = versionName.trim();
+    const tasksValid = versionTasks.length > 0 && versionTasks.every(task => {
+      if (!task.title.trim()) return false;
+      if (!task.due_offset_days.trim()) return true;
+      return Number.isInteger(Number(task.due_offset_days));
+    });
+
+    if (!name || !tasksValid) {
+      setTemplateVersionState('error');
+      return;
+    }
+
+    const tasks = versionTasks.map((task, index) => ({
+      sequence: index + 1,
+      title: task.title.trim(),
+      description: task.description.trim() || null,
+      responsibility_type: task.responsibility_type,
+      due_offset_days: task.due_offset_days.trim()
+        ? Number(task.due_offset_days)
+        : null,
+      requires_approval: task.requires_approval,
+      approval_type: task.requires_approval ? task.approval_type : 'NONE',
+      employee_visible: task.internal_only ? false : task.employee_visible,
+      manager_visible: task.internal_only ? false : task.manager_visible,
+      internal_only: task.internal_only,
+    }));
+
+    setTemplateVersionState('submitting');
+
+    try {
+      const response = await fetch(
+        `/api/hr/lifecycle/templates/${source.id}/versions`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            description: versionDescription.trim() || null,
+            tasks,
+          }),
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (
+        !response.ok
+        || typeof data.template?.id !== 'string'
+        || data.template?.template_key !== source.template_key
+        || data.template?.lifecycle_type !== source.lifecycle_type
+      ) {
+        setTemplateVersionState('error');
+        return;
+      }
+
+      resetVersionForm();
+
+      if (!await refreshTemplates()) {
+        setError('Template version was created, but the list could not be refreshed.');
+      }
+    } catch {
+      setTemplateVersionState('error');
     }
   }
 
@@ -400,22 +542,30 @@ export default function LifecycleTemplatesPage() {
               || candidate.responsibility_type === 'MANAGER'
               || candidate.responsibility_type === 'HR_ADMIN'
             )
+            && (candidate.description === null || typeof candidate.description === 'string')
             && (candidate.due_offset_days === null || typeof candidate.due_offset_days === 'number')
             && typeof candidate.requires_approval === 'boolean'
             && (
               candidate.approval_type === 'NONE'
               || candidate.approval_type === 'MANAGER'
               || candidate.approval_type === 'HR_ADMIN'
-            );
+            )
+            && typeof candidate.employee_visible === 'boolean'
+            && typeof candidate.manager_visible === 'boolean'
+            && typeof candidate.internal_only === 'boolean';
         })
         .map((task: Record<string, unknown>): LifecycleTemplateTask => ({
           id: task.id as string,
           sequence: task.sequence as number,
           title: task.title as string,
+          description: task.description as string | null,
           responsibility_type: task.responsibility_type as 'EMPLOYEE' | 'MANAGER' | 'HR_ADMIN',
           due_offset_days: task.due_offset_days as number | null,
           requires_approval: task.requires_approval as boolean,
           approval_type: task.approval_type as 'NONE' | 'MANAGER' | 'HR_ADMIN',
+          employee_visible: task.employee_visible as boolean,
+          manager_visible: task.manager_visible as boolean,
+          internal_only: task.internal_only as boolean,
         }));
 
       setDetailByTemplate(current => ({
@@ -423,6 +573,9 @@ export default function LifecycleTemplatesPage() {
         [template.id]: {
           state: 'ready',
           template,
+          description: typeof data.template.description === 'string'
+            ? data.template.description
+            : null,
           tasks,
         },
       }));
@@ -438,6 +591,9 @@ export default function LifecycleTemplatesPage() {
     ? templates.find(template => template.id === openTemplateId) ?? null
     : null;
   const detail = openTemplateId ? detailByTemplate[openTemplateId] : undefined;
+  const versionSourceTemplate = versionSourceTemplateId
+    ? templates.find(template => template.id === versionSourceTemplateId) ?? null
+    : null;
 
   return (
     <div style={{ maxWidth: 1000 }}>
@@ -754,6 +910,230 @@ export default function LifecycleTemplatesPage() {
       </SlidePanel>
 
       <SlidePanel
+        open={versionSourceTemplate !== null}
+        onClose={resetVersionForm}
+        title="Create lifecycle template version"
+      >
+        {versionSourceTemplate && (
+          <form
+            onSubmit={event => {
+              event.preventDefault();
+              void createTemplateVersion();
+            }}
+            style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+          >
+            <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+              Family: {versionSourceTemplate.template_key} · {versionSourceTemplate.lifecycle_type} · source v{versionSourceTemplate.version_number}
+            </div>
+
+            <Field label="Name" required>
+              {control => (
+                <input
+                  {...control}
+                  required
+                  value={versionName}
+                  onChange={event => setVersionName(event.target.value)}
+                  className={fieldControlClassName}
+                />
+              )}
+            </Field>
+
+            <Field label="Description">
+              {control => (
+                <textarea
+                  {...control}
+                  rows={3}
+                  value={versionDescription}
+                  onChange={event => setVersionDescription(event.target.value)}
+                  className={fieldControlClassName}
+                />
+              )}
+            </Field>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ color: 'var(--text-primary)', fontSize: 13, fontWeight: 700 }}>
+                Tasks
+              </div>
+
+              {versionTasks.map((task, index) => (
+                <div
+                  key={task.key}
+                  style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 10 }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <div style={{ color: 'var(--text-primary)', fontSize: 13, fontWeight: 600 }}>
+                      Task {index + 1}
+                    </div>
+                    {versionTasks.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeVersionTask(task.key)}
+                        {...buttonProps('ghost', 'sm')}
+                      >
+                        Remove task
+                      </button>
+                    )}
+                  </div>
+
+                  <Field label="Task title" required>
+                    {control => (
+                      <input
+                        {...control}
+                        required
+                        value={task.title}
+                        onChange={event => updateVersionTask(task.key, { title: event.target.value })}
+                        className={fieldControlClassName}
+                      />
+                    )}
+                  </Field>
+
+                  <Field label="Task description">
+                    {control => (
+                      <textarea
+                        {...control}
+                        rows={2}
+                        value={task.description}
+                        onChange={event => updateVersionTask(task.key, { description: event.target.value })}
+                        className={fieldControlClassName}
+                      />
+                    )}
+                  </Field>
+
+                  <Field label="Responsibility" required>
+                    {control => (
+                      <select
+                        {...control}
+                        required
+                        value={task.responsibility_type}
+                        onChange={event => updateVersionTask(task.key, {
+                          responsibility_type: event.target.value as 'EMPLOYEE' | 'MANAGER' | 'HR_ADMIN',
+                        })}
+                        className={fieldControlClassName}
+                      >
+                        <option value="EMPLOYEE">Employee</option>
+                        <option value="MANAGER">Manager</option>
+                        <option value="HR_ADMIN">HR administrator</option>
+                      </select>
+                    )}
+                  </Field>
+
+                  <Field label="Due offset days" helper="Whole days relative to the workflow anchor date. Negative values are allowed.">
+                    {control => (
+                      <input
+                        {...control}
+                        type="number"
+                        step="1"
+                        value={task.due_offset_days}
+                        onChange={event => updateVersionTask(task.key, { due_offset_days: event.target.value })}
+                        className={fieldControlClassName}
+                      />
+                    )}
+                  </Field>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                    <input
+                      type="checkbox"
+                      checked={task.requires_approval}
+                      onChange={event => updateVersionTask(task.key, {
+                        requires_approval: event.target.checked,
+                      })}
+                    />
+                    Requires approval
+                  </label>
+
+                  {task.requires_approval && (
+                    <Field label="Approval type" required>
+                      {control => (
+                        <select
+                          {...control}
+                          required
+                          value={task.approval_type}
+                          onChange={event => updateVersionTask(task.key, {
+                            approval_type: event.target.value as 'MANAGER' | 'HR_ADMIN',
+                          })}
+                          className={fieldControlClassName}
+                        >
+                          <option value="MANAGER">Manager</option>
+                          <option value="HR_ADMIN">HR administrator</option>
+                        </select>
+                      )}
+                    </Field>
+                  )}
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Visibility</div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                      <input
+                        type="checkbox"
+                        checked={task.employee_visible}
+                        disabled={task.internal_only}
+                        onChange={event => updateVersionTask(task.key, { employee_visible: event.target.checked })}
+                      />
+                      Employee visible
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                      <input
+                        type="checkbox"
+                        checked={task.manager_visible}
+                        disabled={task.internal_only}
+                        onChange={event => updateVersionTask(task.key, { manager_visible: event.target.checked })}
+                      />
+                      Manager visible
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                      <input
+                        type="checkbox"
+                        checked={task.internal_only}
+                        onChange={event => updateVersionTask(task.key, {
+                          internal_only: event.target.checked,
+                          ...(event.target.checked
+                            ? { employee_visible: false, manager_visible: false }
+                            : {}),
+                        })}
+                      />
+                      Internal only
+                    </label>
+                  </div>
+                </div>
+              ))}
+
+              <div>
+                <button
+                  type="button"
+                  onClick={addVersionTask}
+                  {...buttonProps('secondary', 'sm')}
+                >
+                  + Add task
+                </button>
+              </div>
+            </div>
+
+            {templateVersionState === 'error' && (
+              <FormError>Could not create lifecycle template version.</FormError>
+            )}
+
+            <FormActions>
+              <button
+                type="button"
+                onClick={resetVersionForm}
+                disabled={templateVersionState === 'submitting'}
+                {...buttonProps('secondary')}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={templateVersionState === 'submitting'}
+                {...buttonProps('primary')}
+              >
+                {templateVersionState === 'submitting' ? 'Creating…' : 'Create version'}
+              </button>
+            </FormActions>
+          </form>
+        )}
+      </SlidePanel>
+
+      <SlidePanel
         open={selectedTemplate !== null}
         onClose={() => {
           setOpenTemplateId(null);
@@ -777,6 +1157,18 @@ export default function LifecycleTemplatesPage() {
                 </div>
               )}
             </div>
+
+            {selectedTemplate.capabilities.can_create_version && detail?.state === 'ready' && (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => beginTemplateVersion(selectedTemplate, detail)}
+                  {...buttonProps('secondary', 'sm')}
+                >
+                  Create new version
+                </button>
+              </div>
+            )}
 
             {(selectedTemplate.capabilities.can_activate || selectedTemplate.capabilities.can_retire) && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
