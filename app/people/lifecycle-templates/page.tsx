@@ -273,6 +273,62 @@ export default function LifecycleTemplatesPage() {
     ));
   }
 
+  function resetVersionForm() {
+    setVersionSourceTemplateId(null);
+    setVersionName('');
+    setVersionDescription('');
+    setVersionTasks([]);
+    setNextVersionTaskKey(1);
+    setTemplateVersionState('idle');
+  }
+
+  function updateVersionTask(
+    key: number,
+    patch: Partial<Omit<LifecycleTemplateDraftTask, 'key'>>,
+  ) {
+    setVersionTasks(current => current.map(task => (
+      task.key === key ? { ...task, ...patch } : task
+    )));
+  }
+
+  function addVersionTask() {
+    setVersionTasks(current => [...current, draftTask(nextVersionTaskKey)]);
+    setNextVersionTaskKey(current => current + 1);
+  }
+
+  function removeVersionTask(key: number) {
+    setVersionTasks(current => (
+      current.length > 1 ? current.filter(task => task.key !== key) : current
+    ));
+  }
+
+  function beginTemplateVersion(
+    template: LifecycleTemplateSummary,
+    detailState: Extract<LifecycleTemplateDetailState, { state: 'ready' }>,
+  ) {
+    if (!template.capabilities.can_create_version) return;
+
+    setVersionSourceTemplateId(template.id);
+    setVersionName(template.name);
+    setVersionDescription(detailState.description ?? '');
+    setVersionTasks(detailState.tasks.map((task, index) => ({
+      key: index + 1,
+      title: task.title,
+      description: task.description ?? '',
+      responsibility_type: task.responsibility_type,
+      due_offset_days: task.due_offset_days === null ? '' : String(task.due_offset_days),
+      requires_approval: task.requires_approval,
+      approval_type: task.approval_type === 'HR_ADMIN' ? 'HR_ADMIN' : 'MANAGER',
+      employee_visible: task.employee_visible,
+      manager_visible: task.manager_visible,
+      internal_only: task.internal_only,
+    })));
+    setNextVersionTaskKey(detailState.tasks.length + 1);
+    setTemplateVersionState('idle');
+    setOpenTemplateId(null);
+    setConfirmStatusAction(null);
+  }
+
   async function createTemplate() {
     if (!canCreateTemplate) return;
 
@@ -334,6 +390,76 @@ export default function LifecycleTemplatesPage() {
       }
     } catch {
       setTemplateCreateState('error');
+    }
+  }
+
+  async function createTemplateVersion() {
+    const source = versionSourceTemplateId
+      ? templates.find(template => template.id === versionSourceTemplateId) ?? null
+      : null;
+    if (!source || !source.capabilities.can_create_version) return;
+
+    const name = versionName.trim();
+    const tasksValid = versionTasks.length > 0 && versionTasks.every(task => {
+      if (!task.title.trim()) return false;
+      if (!task.due_offset_days.trim()) return true;
+      return Number.isInteger(Number(task.due_offset_days));
+    });
+
+    if (!name || !tasksValid) {
+      setTemplateVersionState('error');
+      return;
+    }
+
+    const tasks = versionTasks.map((task, index) => ({
+      sequence: index + 1,
+      title: task.title.trim(),
+      description: task.description.trim() || null,
+      responsibility_type: task.responsibility_type,
+      due_offset_days: task.due_offset_days.trim()
+        ? Number(task.due_offset_days)
+        : null,
+      requires_approval: task.requires_approval,
+      approval_type: task.requires_approval ? task.approval_type : 'NONE',
+      employee_visible: task.internal_only ? false : task.employee_visible,
+      manager_visible: task.internal_only ? false : task.manager_visible,
+      internal_only: task.internal_only,
+    }));
+
+    setTemplateVersionState('submitting');
+
+    try {
+      const response = await fetch(
+        `/api/hr/lifecycle/templates/${source.id}/versions`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            description: versionDescription.trim() || null,
+            tasks,
+          }),
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (
+        !response.ok
+        || typeof data.template?.id !== 'string'
+        || data.template?.template_key !== source.template_key
+        || data.template?.lifecycle_type !== source.lifecycle_type
+      ) {
+        setTemplateVersionState('error');
+        return;
+      }
+
+      resetVersionForm();
+
+      if (!await refreshTemplates()) {
+        setError('Template version was created, but the list could not be refreshed.');
+      }
+    } catch {
+      setTemplateVersionState('error');
     }
   }
 
@@ -465,6 +591,9 @@ export default function LifecycleTemplatesPage() {
     ? templates.find(template => template.id === openTemplateId) ?? null
     : null;
   const detail = openTemplateId ? detailByTemplate[openTemplateId] : undefined;
+  const versionSourceTemplate = versionSourceTemplateId
+    ? templates.find(template => template.id === versionSourceTemplateId) ?? null
+    : null;
 
   return (
     <div style={{ maxWidth: 1000 }}>
