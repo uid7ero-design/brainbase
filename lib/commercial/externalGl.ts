@@ -707,16 +707,16 @@ export async function importExternalGlEntry(params: {
             WHEN EXISTS (SELECT 1 FROM inserted) THEN 'EXTERNAL_GL_NEW_ENTRY'
             ELSE 'EXTERNAL_GL_CHANGED_IDENTITY'
           END,
-          'externalEntryId',${externalEntryId},
-          'sourceSystemId',${sourceSystemId},
-          'incomingTransactionDate',${params.transactionDate},
-          'incomingCurrency',${currency},
-          'sourceLineageId',${sourceLineageId}
+          'externalEntryId',${externalEntryId}::text,
+          'sourceSystemId',${sourceSystemId}::text,
+          'incomingTransactionDate',${params.transactionDate}::text,
+          'incomingCurrency',${currency}::text,
+          'sourceLineageId',${sourceLineageId}::text
         )
       FROM staled
       RETURNING reconciliation_id
     )
-    SELECT decision.*,
+    SELECT decision.*, decision.transaction_date::text AS transaction_date,
            (SELECT COUNT(*)::int FROM staled) AS stale_reconciliation_count
     FROM decision
   ` as ImportDecisionRow[];

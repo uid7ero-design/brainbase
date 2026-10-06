@@ -106,6 +106,21 @@ try {
     INSERT INTO commercial_external_gl_cost_centre_mappings(organisation_id,source_system_id,external_cost_centre_code,cost_centre_id,effective_from,status,created_by) VALUES ('runtime-a','review-ledger','OPS-EXT','00000000-0000-4000-8000-000000000403','2026-07-01','ACTIVE','runtime-admin');
     INSERT INTO commercial_external_gl_entries(organisation_id,source_system_id,external_entry_id,external_account_code,external_cost_centre_code,transaction_date,currency,amount_minor_units,source_payload_hash,source_lineage_id,imported_by) VALUES ('runtime-a','review-ledger','entry-1','600','OPS-EXT','2026-09-20','AUD',10000,'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','review-batch','runtime-admin');`);
   const {page}=await login('runtime-admin');
+  const importPayload={sourceSystemId:'import-review',externalEntryId:'exact-large-entry',externalAccountCode:'600',transactionDate:'2026-09-10',currency:'AUD',amountMinorUnits:'9007199254740993',sourcePayloadHash:'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',sourceLineageId:'import-review-batch'};
+  const importEntry=body=>page.evaluate(async body=>{const response=await fetch('/api/commercial/budgeting/external-gl/entries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return {status:response.status,payload:await response.json().catch(()=>null)};},body);
+  const imported=await importEntry(importPayload);
+  if(imported.status!==201||imported.payload?.outcome!=='IMPORTED')throw new Error('Ledger import failed: '+JSON.stringify(imported));
+  if(imported.payload.entry.transaction_date!=='2026-09-10'||imported.payload.entry.amount_minor_units!=='9007199254740993')throw new Error('Ledger import lost calendar date or exact amount');
+  const duplicate=await importEntry(importPayload);
+  if(duplicate.status!==200||duplicate.payload?.outcome!=='IDEMPOTENT'||duplicate.payload.entry.id!==imported.payload.entry.id||duplicate.payload.staleReconciliationCount!==0)throw new Error('Exact duplicate import was not idempotent');
+  const conflicting=await importEntry({...importPayload,amountMinorUnits:'9007199254740994'});
+  if(conflicting.status!==409||conflicting.payload?.code!=='EXTERNAL_IDENTITY_CONFLICT')throw new Error('Changed immutable ledger identity was accepted');
+  for(const amountMinorUnits of [9007199254740992,'1.5','9223372036854775808']){
+    const invalid=await importEntry({...importPayload,externalEntryId:'invalid-amount',amountMinorUnits});
+    if(invalid.status!==400)throw new Error('Unsafe or invalid ledger amount accepted');
+  }
+  const exactStored=(await pool.query("SELECT amount_minor_units::text,transaction_date::text FROM commercial_external_gl_entries WHERE source_system_id='import-review'")).rows;
+  if(exactStored.length!==1||exactStored[0].amount_minor_units!=='9007199254740993'||exactStored[0].transaction_date!=='2026-09-10')throw new Error('Import retry/conflict changed immutable ledger facts');
   await page.goto(origin+'/commercial/budgeting/external-gl');
   await expect(page.getByRole('heading',{name:'External GL mappings',exact:true})).toBeVisible();
   const accountSection=page.locator('section').filter({has:page.getByRole('heading',{name:'GL account mappings',exact:true})});
@@ -176,6 +191,10 @@ try {
   await expect(page.getByRole('button',{name:'Sign off',exact:true})).toBeEnabled();
   await page.getByRole('button',{name:'Sign off',exact:true}).click();
   await expect(page.locator('[data-reconciliation-id]')).toContainText('SIGNED_OFF');
+  const signedImport={sourceSystemId:'review-ledger',externalEntryId:'entry-1',externalAccountCode:'600',externalCostCentreCode:'OPS-EXT',transactionDate:'2026-09-20',currency:'AUD',amountMinorUnits:'10000',sourcePayloadHash:'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',sourceLineageId:'review-batch'};
+  const signedDuplicate=await importEntry(signedImport);
+  if(signedDuplicate.status!==200||signedDuplicate.payload?.outcome!=='IDEMPOTENT'||signedDuplicate.payload.staleReconciliationCount!==0)throw new Error('Duplicate import disturbed signed-off evidence');
+  if((await pool.query('SELECT status FROM commercial_finance_reconciliations')).rows[0].status!=='SIGNED_OFF')throw new Error('Duplicate import invalidated reconciliation');
   await page.evaluate(()=>{window.scrollTo(0,0);document.querySelectorAll('[role="region"]').forEach(element=>{element.scrollLeft=0;});});
   await page.screenshot({path:resolve(artifacts,'finance-signed-off-desktop.png'),fullPage:true});
   recon=(await pool.query('SELECT * FROM commercial_finance_reconciliations')).rows[0];
@@ -211,11 +230,50 @@ try {
   await page.evaluate(()=>{window.scrollTo(0,0);});
   await page.screenshot({path:resolve(artifacts,'finance-mobile.png'),fullPage:true});
   const overflow=await page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth}));
+  // A conflicting immutable identity must preserve the source row while
+  // invalidating the current sign-off and retaining its durable history.
+  await page.setViewportSize({width:1440,height:1000});
+  await page.getByRole('button',{name:'Close period',exact:true}).click();
+  await expect(page.getByRole('status')).toContainText('Financial period closed.');
+  await page.getByRole('button',{name:'Prepare reconciliation',exact:true}).click();
+  await expect(page.locator('[data-reconciliation-id]')).toContainText('PREPARED');
+  await page.getByRole('button',{name:'Review',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Sign off',exact:true})).toBeEnabled();
+  await page.getByRole('button',{name:'Sign off',exact:true}).click();
+  await expect(page.locator('[data-reconciliation-id]')).toContainText('SIGNED_OFF');
+  const signedConflict=await importEntry({...signedImport,amountMinorUnits:'10001'});
+  if(signedConflict.status!==409||signedConflict.payload?.code!=='EXTERNAL_IDENTITY_CONFLICT')throw new Error('Signed-off ledger identity conflict was accepted');
+  await page.getByRole('button',{name:'Refresh',exact:true}).click();
+  await expect(page.locator('[data-reconciliation-id]')).toContainText('STALE');
+  const immutable=(await pool.query("SELECT amount_minor_units::text FROM commercial_external_gl_entries WHERE source_system_id='review-ledger' AND external_entry_id='entry-1'")).rows;
+  const activeCloseState=(await pool.query("SELECT reconciliation_status FROM commercial_financial_period_closes WHERE status='CLOSED'")).rows[0];
+  const staleEvidence=(await pool.query("SELECT details FROM commercial_finance_reconciliation_events WHERE event_type='STALE' ORDER BY event_at DESC LIMIT 1")).rows[0].details;
+  if(immutable.length!==1||immutable[0].amount_minor_units!=='10000'||activeCloseState.reconciliation_status!=='STALE'||staleEvidence.cause!=='EXTERNAL_GL_CHANGED_IDENTITY'||staleEvidence.incomingTransactionDate!=='2026-09-20')throw new Error('Conflict did not preserve source facts and stale evidence');
+  await page.screenshot({path:resolve(artifacts,'finance-import-conflict.png'),fullPage:true});
+  await page.getByLabel('Reopen reason (required)',{exact:true}).fill('Verify new ledger facts');
+  await page.getByRole('button',{name:'Reopen period',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Close period',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Close period',exact:true}).click();
+  await expect(page.getByRole('status')).toContainText('Financial period closed.');
+  await page.getByRole('button',{name:'Prepare reconciliation',exact:true}).click();
+  await expect(page.locator('[data-reconciliation-id]')).toContainText('PREPARED');
+  await page.getByRole('button',{name:'Review',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Sign off',exact:true})).toBeEnabled();
+  await page.getByRole('button',{name:'Sign off',exact:true}).click();
+  await expect(page.locator('[data-reconciliation-id]')).toContainText('SIGNED_OFF');
+  const newFact=await importEntry({...signedImport,externalEntryId:'entry-2',amountMinorUnits:'100',sourcePayloadHash:'cccccccccccccccccccccccccccccccc',sourceLineageId:'new-ledger-batch'});
+  if(newFact.status!==201||newFact.payload?.staleReconciliationCount!==1)throw new Error('New ledger fact did not invalidate exactly the affected sign-off');
+  await page.getByRole('button',{name:'Refresh',exact:true}).click();
+  await expect(page.locator('[data-reconciliation-id]')).toContainText('STALE');
+  const newFactEvent=(await pool.query("SELECT details FROM commercial_finance_reconciliation_events WHERE event_type='STALE' ORDER BY event_at DESC LIMIT 1")).rows[0].details;
+  if(newFactEvent.cause!=='EXTERNAL_GL_NEW_ENTRY'||newFactEvent.externalEntryId!=='entry-2')throw new Error('New import stale event lost its source identity');
   const viewer=await login('runtime-viewer');
   const denial=await viewer.page.evaluate(async()=> (await fetch('/api/commercial/budgeting/financial-periods')).status);
   if(denial!==403)throw new Error('Viewer finance controls accepted');
   const mappingDenial=await viewer.page.evaluate(async()=> (await fetch('/api/commercial/budgeting/external-gl/mappings',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status);
   if(mappingDenial!==403)throw new Error('Viewer mapping mutation accepted');
+  const importDenial=await viewer.page.evaluate(async body=>(await fetch('/api/commercial/budgeting/external-gl/entries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).status,importPayload);
+  if(importDenial!==403)throw new Error('Viewer ledger import accepted');
   const other=await login('runtime-other');
   const tenant=await other.page.evaluate(async()=>await(await fetch('/api/commercial/budgeting/financial-periods')).json());
   if(tenant.years.length)throw new Error('Foreign year exposed');
@@ -223,10 +281,13 @@ try {
   if(foreignMappings.length)throw new Error('Foreign mapping exposed');
   const foreignRetire=await other.page.evaluate(async id=> (await fetch('/api/commercial/budgeting/external-gl/mappings/'+id+'/retire',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({effectiveTo:'2026-09-20'})})).status,createdMappings[0].id);
   if(foreignRetire!==404)throw new Error('Foreign mapping retirement accepted');
+  const separateTenantImport=await other.page.evaluate(async body=>{const response=await fetch('/api/commercial/budgeting/external-gl/entries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return {status:response.status,payload:await response.json()};},signedImport);
+  if(separateTenantImport.status!==201||separateTenantImport.payload.entry.organisation_id!=='runtime-b'||separateTenantImport.payload.staleReconciliationCount!==0)throw new Error('Ledger import identity or invalidation crossed organisation boundaries');
   if(errors.length||failedApi.length)throw new Error(JSON.stringify({errors,failedApi}));
   const externalGlChecks=['mapping list calendar dates','account and cost-centre creation through real forms','exact create response dates','overlap rejection without duplicate facts','source filter','account and cost-centre retirement through real forms','exact retire response and persisted dates','viewer mutation denial','foreign mapping read and retirement denial'];
   const evidence={verified_at:new Date().toISOString(),serverTimezone,checks:['real login and production runtime','calendar dates preserved through API and screen','mobile metrics remain inside viewport','mobile history and reconciliation tables scroll to last column','exact $100 source and ledger match','prepare and review','sign-off blocked before close','period close and durable sign-off','year close and reopen','period reopen invalidates close and reconciliation','viewer denial','tenant isolation'],overflow,build_id:readFileSync('.next/BUILD_ID','utf8').trim()};
   evidence.externalGlChecks=externalGlChecks;
+  evidence.importChecks=['real authenticated import API','exact BIGINT amount beyond JavaScript safe integers','date-only import response','exact duplicate idempotency','conflict preserves immutable facts','unsafe numeric, fractional and out-of-range amounts rejected','duplicate preserves signed-off reconciliation','conflict marks current reconciliation and close evidence stale','durable conflict event preserved','new ledger fact invalidates affected sign-off','new import stale event preserves source identity','viewer import denial','import identity and invalidation stay inside organisation'];
   writeFileSync(resolve(artifacts,'evidence.json'),JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));
 } finally {
   await browser?.close();
