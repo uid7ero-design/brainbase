@@ -651,7 +651,7 @@ export default function LifecycleTemplatesPage() {
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
           <span style={{ color: 'var(--text-secondary)' }}>Lifecycle type</span>
           <select
-            aria-label="Lifecycle type filter"
+            aria-label="Template type filter"
             value={templateTypeFilter}
             onChange={event => setTemplateTypeFilter(
               event.target.value as LifecycleTemplateTypeFilter,
