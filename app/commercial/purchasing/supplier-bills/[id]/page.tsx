@@ -208,10 +208,24 @@ export default function SupplierBillDetailPage() {
     setBusy(true); setActionError('');
     const res = await fetch(`/api/commercial/supplier-bills/${id}/post`, { method: 'POST' });
     const data = await res.json().catch(() => ({}));
-    setBusy(false);
     setConfirmingPost(false);
-    if (!res.ok) setActionError(data.error ?? 'Failed to post supplier bill.');
-    await refreshBillAndLines();
+    if (!res.ok) {
+      setBusy(false);
+      setActionError(data.error ?? 'Failed to post supplier bill.');
+      await refreshBillAndLines();
+      return;
+    }
+    // Posting makes the draft payable. Discard its earlier settlement
+    // summary and reload the posted balance before allowing a payment.
+    setPaymentSummary(null);
+    try {
+      const [, paymentsRes] = await Promise.all([
+        refreshBillAndLines(),
+        fetch(`/api/commercial/supplier-bills/${id}/payments`),
+      ]);
+      if (paymentsRes.ok) setPaymentSummary((await paymentsRes.json()).supplier_bill_payment_summary ?? null);
+      else setActionError('Bill posted, but the payment balance could not be refreshed. Reload the page to record payment.');
+    } finally { setBusy(false); }
   }
 
   async function cancelAction() {
