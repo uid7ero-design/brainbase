@@ -25,9 +25,20 @@ describe('HR-7G1 lifecycle templates read-only admin UI', () => {
     expect(src).toContain('/api/hr/lifecycle/templates/${template.id}');
   });
 
-  it('is strictly read-only and does not call lifecycle template mutation endpoints', () => {
-    expect(src).not.toMatch(/method:\s*['\"](POST|PATCH|PUT|DELETE)['\"]/);
-    expect(src).not.toMatch(/\/activate|\/retire|\/versions/);
+  it('limits write calls to capability-gated activate/retire endpoints in this slice', () => {
+    expect(src).toContain('/api/hr/lifecycle/templates/\${template.id}/\${action}');
+    expect(src).toMatch(/method:\s*'POST'/);
+    expect(src).not.toMatch(/\/versions/);
+    expect(src).not.toMatch(/method:\s*['\"](PATCH|PUT|DELETE)['\"]/);
+  });
+
+  it('uses only server-returned template action capabilities for status controls', () => {
+    expect(src).toContain('can_activate');
+    expect(src).toContain('can_retire');
+    expect(src).toContain('template.capabilities.can_activate');
+    expect(src).toContain('template.capabilities.can_retire');
+    expect(src).toContain('Activate this template version?');
+    expect(src).toContain('Retire this template version?');
   });
 
   it('does not infer HR authority from roles in the browser', () => {

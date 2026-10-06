@@ -7,6 +7,7 @@ import {
   PageHeader,
   TableContainer,
   TableStateRow,
+  buttonProps,
   tableStyles,
 } from '@/components/ui/app';
 
@@ -19,6 +20,11 @@ type LifecycleTemplateSummary = {
   status: 'DRAFT' | 'ACTIVE' | 'RETIRED';
   activated_at: string | null;
   retired_at: string | null;
+  capabilities: {
+    can_create_version: boolean;
+    can_activate: boolean;
+    can_retire: boolean;
+  };
 };
 
 type LifecycleTemplateTask = {
@@ -36,6 +42,9 @@ type LifecycleTemplateDetailState =
   | { state: 'ready'; template: LifecycleTemplateSummary; tasks: LifecycleTemplateTask[] }
   | { state: 'error' };
 
+type LifecycleTemplateStatusAction = 'activate' | 'retire';
+type LifecycleTemplateStatusActionState = 'idle' | 'submitting' | 'error';
+
 const STATUS_STATE = {
   DRAFT: 'info',
   ACTIVE: 'success',
@@ -46,12 +55,61 @@ function dateOnly(value: string): string {
   return value.slice(0, 10);
 }
 
+function parseLifecycleTemplateList(data: unknown): LifecycleTemplateSummary[] | null {
+  if (!data || typeof data !== 'object') return null;
+  const payload = data as Record<string, unknown>;
+  if (!Array.isArray(payload.templates)) return null;
+
+  return payload.templates
+    .filter((template: unknown): template is Record<string, unknown> => {
+      if (!template || typeof template !== 'object') return false;
+      const candidate = template as Record<string, unknown>;
+      const capabilities = (
+        candidate.capabilities
+        && typeof candidate.capabilities === 'object'
+      ) ? candidate.capabilities as Record<string, unknown> : null;
+
+      return typeof candidate.id === 'string'
+        && typeof candidate.template_key === 'string'
+        && typeof candidate.version_number === 'number'
+        && (candidate.lifecycle_type === 'onboarding' || candidate.lifecycle_type === 'offboarding')
+        && typeof candidate.name === 'string'
+        && (candidate.status === 'DRAFT' || candidate.status === 'ACTIVE' || candidate.status === 'RETIRED')
+        && (candidate.activated_at === null || typeof candidate.activated_at === 'string')
+        && (candidate.retired_at === null || typeof candidate.retired_at === 'string')
+        && capabilities !== null;
+    })
+    .map((template: Record<string, unknown>): LifecycleTemplateSummary => {
+      const capabilities = template.capabilities as Record<string, unknown>;
+      return {
+        id: template.id as string,
+        template_key: template.template_key as string,
+        version_number: template.version_number as number,
+        lifecycle_type: template.lifecycle_type as 'onboarding' | 'offboarding',
+        name: template.name as string,
+        status: template.status as 'DRAFT' | 'ACTIVE' | 'RETIRED',
+        activated_at: template.activated_at as string | null,
+        retired_at: template.retired_at as string | null,
+        capabilities: {
+          can_create_version: capabilities.can_create_version === true,
+          can_activate: capabilities.can_activate === true,
+          can_retire: capabilities.can_retire === true,
+        },
+      };
+    });
+}
+
 export default function LifecycleTemplatesPage() {
   const [templates, setTemplates] = useState<LifecycleTemplateSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [openTemplateId, setOpenTemplateId] = useState<string | null>(null);
   const [detailByTemplate, setDetailByTemplate] = useState<Record<string, LifecycleTemplateDetailState>>({});
+  const [confirmStatusAction, setConfirmStatusAction] = useState<{
+    templateId: string;
+    action: LifecycleTemplateStatusAction;
+  } | null>(null);
+  const [statusActionState, setStatusActionState] = useState<LifecycleTemplateStatusActionState>('idle');
 
   useEffect(() => {
     let cancelled = false;
@@ -62,35 +120,18 @@ export default function LifecycleTemplatesPage() {
           const data = await response.json().catch(() => ({}));
           if (cancelled) return;
 
-          if (!response.ok || !Array.isArray(data.templates)) {
+          if (!response.ok) {
             setTemplates([]);
             setError('Could not load lifecycle templates.');
             return;
           }
 
-          const safeTemplates = data.templates
-            .filter((template: unknown): template is Record<string, unknown> => {
-              if (!template || typeof template !== 'object') return false;
-              const candidate = template as Record<string, unknown>;
-              return typeof candidate.id === 'string'
-                && typeof candidate.template_key === 'string'
-                && typeof candidate.version_number === 'number'
-                && (candidate.lifecycle_type === 'onboarding' || candidate.lifecycle_type === 'offboarding')
-                && typeof candidate.name === 'string'
-                && (candidate.status === 'DRAFT' || candidate.status === 'ACTIVE' || candidate.status === 'RETIRED')
-                && (candidate.activated_at === null || typeof candidate.activated_at === 'string')
-                && (candidate.retired_at === null || typeof candidate.retired_at === 'string');
-            })
-            .map((template: Record<string, unknown>): LifecycleTemplateSummary => ({
-              id: template.id as string,
-              template_key: template.template_key as string,
-              version_number: template.version_number as number,
-              lifecycle_type: template.lifecycle_type as 'onboarding' | 'offboarding',
-              name: template.name as string,
-              status: template.status as 'DRAFT' | 'ACTIVE' | 'RETIRED',
-              activated_at: template.activated_at as string | null,
-              retired_at: template.retired_at as string | null,
-            }));
+          const safeTemplates = parseLifecycleTemplateList(data);
+          if (!safeTemplates) {
+            setTemplates([]);
+            setError('Could not load lifecycle templates.');
+            return;
+          }
 
           setTemplates(safeTemplates);
           setError('');
@@ -110,6 +151,67 @@ export default function LifecycleTemplatesPage() {
       cancelled = true;
     };
   }, []);
+
+  async function refreshTemplates() {
+    try {
+      const response = await fetch('/api/hr/lifecycle/templates');
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) return false;
+
+      const safeTemplates = parseLifecycleTemplateList(data);
+      if (!safeTemplates) return false;
+
+      setTemplates(safeTemplates);
+      setError('');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function runTemplateStatusAction(
+    template: LifecycleTemplateSummary,
+    action: LifecycleTemplateStatusAction,
+  ) {
+    const permitted = action === 'activate'
+      ? template.capabilities.can_activate
+      : template.capabilities.can_retire;
+    if (!permitted) return;
+
+    setStatusActionState('submitting');
+
+    try {
+      const response = await fetch(
+        `/api/hr/lifecycle/templates/${template.id}/${action}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+
+      const expectedStatus = action === 'activate' ? 'ACTIVE' : 'RETIRED';
+      if (
+        !response.ok
+        || data.template?.id !== template.id
+        || data.template?.status !== expectedStatus
+      ) {
+        setStatusActionState('error');
+        return;
+      }
+
+      if (!await refreshTemplates()) {
+        setStatusActionState('error');
+        return;
+      }
+
+      setConfirmStatusAction(null);
+      setStatusActionState('idle');
+    } catch {
+      setStatusActionState('error');
+    }
+  }
 
   async function openTemplate(template: LifecycleTemplateSummary) {
     setOpenTemplateId(template.id);
@@ -235,7 +337,11 @@ export default function LifecycleTemplatesPage() {
 
       <SlidePanel
         open={selectedTemplate !== null}
-        onClose={() => setOpenTemplateId(null)}
+        onClose={() => {
+          setOpenTemplateId(null);
+          setConfirmStatusAction(null);
+          setStatusActionState('idle');
+        }}
         title={selectedTemplate?.name ?? 'Lifecycle template'}
       >
         {selectedTemplate && (
@@ -253,6 +359,83 @@ export default function LifecycleTemplatesPage() {
                 </div>
               )}
             </div>
+
+            {(selectedTemplate.capabilities.can_activate || selectedTemplate.capabilities.can_retire) && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {confirmStatusAction?.templateId !== selectedTemplate.id && (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {selectedTemplate.capabilities.can_activate && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConfirmStatusAction({ templateId: selectedTemplate.id, action: 'activate' });
+                          setStatusActionState('idle');
+                        }}
+                        {...buttonProps('primary', 'sm')}
+                      >
+                        Activate
+                      </button>
+                    )}
+                    {selectedTemplate.capabilities.can_retire && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConfirmStatusAction({ templateId: selectedTemplate.id, action: 'retire' });
+                          setStatusActionState('idle');
+                        }}
+                        {...buttonProps('ghost', 'sm')}
+                      >
+                        Retire
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {confirmStatusAction?.templateId === selectedTemplate.id && (
+                  <div>
+                    <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 6 }}>
+                      {confirmStatusAction.action === 'activate'
+                        ? 'Activate this template version?'
+                        : 'Retire this template version?'}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => void runTemplateStatusAction(
+                          selectedTemplate,
+                          confirmStatusAction.action,
+                        )}
+                        disabled={statusActionState === 'submitting'}
+                        {...buttonProps(
+                          confirmStatusAction.action === 'retire' ? 'danger' : 'primary',
+                          'sm',
+                        )}
+                      >
+                        {statusActionState === 'submitting'
+                          ? (confirmStatusAction.action === 'activate' ? 'Activating…' : 'Retiring…')
+                          : (confirmStatusAction.action === 'activate' ? 'Confirm activate' : 'Confirm retire')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConfirmStatusAction(null);
+                          setStatusActionState('idle');
+                        }}
+                        disabled={statusActionState === 'submitting'}
+                        {...buttonProps('secondary', 'sm')}
+                      >
+                        Keep template
+                      </button>
+                    </div>
+                    {statusActionState === 'error' && (
+                      <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 6 }}>
+                        Could not update lifecycle template.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {detail?.state === 'loading' && (
               <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Loading template tasks…</div>
