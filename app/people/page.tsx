@@ -101,6 +101,7 @@ export default function PeoplePage() {
                     GET /api/hr/administrators call (canManageHrAccess),
                     not this flag. */}
                 <Link href="/people/administrators" {...secondaryAction}>Manage Administrators</Link>
+                <Link href="/people/lifecycle-templates" {...secondaryAction}>Lifecycle Templates</Link>
                 <button onClick={() => setShowAdd(true)} type="button" {...primaryAction}>+ Add Person</button>
               </>
             )}
