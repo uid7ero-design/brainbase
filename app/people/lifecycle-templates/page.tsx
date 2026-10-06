@@ -35,20 +35,30 @@ type LifecycleTemplateTask = {
   id: string;
   sequence: number;
   title: string;
+  description: string | null;
   responsibility_type: 'EMPLOYEE' | 'MANAGER' | 'HR_ADMIN';
   due_offset_days: number | null;
   requires_approval: boolean;
   approval_type: 'NONE' | 'MANAGER' | 'HR_ADMIN';
+  employee_visible: boolean;
+  manager_visible: boolean;
+  internal_only: boolean;
 };
 
 type LifecycleTemplateDetailState =
   | { state: 'loading' }
-  | { state: 'ready'; template: LifecycleTemplateSummary; tasks: LifecycleTemplateTask[] }
+  | {
+      state: 'ready';
+      template: LifecycleTemplateSummary;
+      description: string | null;
+      tasks: LifecycleTemplateTask[];
+    }
   | { state: 'error' };
 
 type LifecycleTemplateStatusAction = 'activate' | 'retire';
 type LifecycleTemplateStatusActionState = 'idle' | 'submitting' | 'error';
 type LifecycleTemplateCreateState = 'idle' | 'submitting' | 'error';
+type LifecycleTemplateVersionState = 'idle' | 'submitting' | 'error';
 
 type LifecycleTemplateDraftTask = {
   key: number;
@@ -165,6 +175,12 @@ export default function LifecycleTemplatesPage() {
   const [newTemplateTasks, setNewTemplateTasks] = useState<LifecycleTemplateDraftTask[]>([draftTask(1)]);
   const [nextTemplateTaskKey, setNextTemplateTaskKey] = useState(2);
   const [templateCreateState, setTemplateCreateState] = useState<LifecycleTemplateCreateState>('idle');
+  const [versionSourceTemplateId, setVersionSourceTemplateId] = useState<string | null>(null);
+  const [versionName, setVersionName] = useState('');
+  const [versionDescription, setVersionDescription] = useState('');
+  const [versionTasks, setVersionTasks] = useState<LifecycleTemplateDraftTask[]>([]);
+  const [nextVersionTaskKey, setNextVersionTaskKey] = useState(1);
+  const [templateVersionState, setTemplateVersionState] = useState<LifecycleTemplateVersionState>('idle');
 
   useEffect(() => {
     let cancelled = false;
