@@ -148,7 +148,14 @@ describe('HR-7C lifecycle workflow routes', () => {
       status: 'ACTIVE',
       personId: PERSON_ID,
     });
-    expect((await res.json()).workflows).toHaveLength(1);
+    const body = await res.json();
+    expect(body.capabilities).toEqual({
+      can_start_workflow: false,
+    });
+    expect(body.workflows).toHaveLength(1);
+    expect(body.workflows[0].capabilities).toEqual({
+      can_cancel: false,
+    });
   });
 
   it('returns an empty list for an authorized viewer with no visible workflows', async () => {
@@ -156,7 +163,51 @@ describe('HR-7C lifecycle workflow routes', () => {
       new Request('http://localhost/api/hr/lifecycle/workflows') as unknown as NextRequest,
     );
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ workflows: [] });
+    expect(await res.json()).toEqual({
+      capabilities: {
+        can_start_workflow: false,
+      },
+      workflows: [],
+    });
+  });
+
+  it('exposes HR-admin workflow start/cancel capabilities from server context', async () => {
+    requireContextMock.mockResolvedValue({
+      ok: true,
+      context: {
+        session: { ...session, userId: 'hr-user', role: 'admin' as const },
+        isHrAdministrator: true,
+      },
+    });
+    listMock.mockResolvedValue([
+      workflow('ACTIVE'),
+      {
+        ...workflow('COMPLETED'),
+        id: '66666666-6666-4666-8666-666666666666',
+      },
+      {
+        ...workflow('CANCELLED'),
+        id: '77777777-7777-4777-8777-777777777777',
+      },
+    ]);
+
+    const res = await collection.GET(
+      new Request('http://localhost/api/hr/lifecycle/workflows') as unknown as NextRequest,
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.capabilities).toEqual({
+      can_start_workflow: true,
+    });
+    expect(body.workflows.map((item: { status: string; capabilities: { can_cancel: boolean } }) => ({
+      status: item.status,
+      can_cancel: item.capabilities.can_cancel,
+    }))).toEqual([
+      { status: 'ACTIVE', can_cancel: true },
+      { status: 'COMPLETED', can_cancel: false },
+      { status: 'CANCELLED', can_cancel: false },
+    ]);
   });
 
   it('rejects invalid list filters before querying', async () => {
