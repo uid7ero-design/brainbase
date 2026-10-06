@@ -56,6 +56,8 @@ type LifecycleTemplateDetailState =
   | { state: 'error' };
 
 type LifecycleTemplateStatusAction = 'activate' | 'retire';
+type LifecycleTemplateTypeFilter = '' | 'onboarding' | 'offboarding';
+type LifecycleTemplateStatusFilter = '' | 'DRAFT' | 'ACTIVE' | 'RETIRED';
 type LifecycleTemplateStatusActionState = 'idle' | 'submitting' | 'error';
 type LifecycleTemplateCreateState = 'idle' | 'submitting' | 'error';
 type LifecycleTemplateVersionState = 'idle' | 'submitting' | 'error';
@@ -81,6 +83,17 @@ const STATUS_STATE = {
 
 function dateOnly(value: string): string {
   return value.slice(0, 10);
+}
+
+function lifecycleTemplateListUrl(
+  lifecycleType: LifecycleTemplateTypeFilter,
+  status: LifecycleTemplateStatusFilter,
+): string {
+  const search = new URLSearchParams();
+  if (lifecycleType) search.set('lifecycle_type', lifecycleType);
+  if (status) search.set('status', status);
+  const query = search.toString();
+  return query ? `/api/hr/lifecycle/templates?${query}` : '/api/hr/lifecycle/templates';
 }
 
 function parseLifecycleTemplateList(data: unknown): {
@@ -159,6 +172,8 @@ export default function LifecycleTemplatesPage() {
   const [templates, setTemplates] = useState<LifecycleTemplateSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [templateTypeFilter, setTemplateTypeFilter] = useState<LifecycleTemplateTypeFilter>('');
+  const [templateStatusFilter, setTemplateStatusFilter] = useState<LifecycleTemplateStatusFilter>('');
   const [openTemplateId, setOpenTemplateId] = useState<string | null>(null);
   const [detailByTemplate, setDetailByTemplate] = useState<Record<string, LifecycleTemplateDetailState>>({});
   const [confirmStatusAction, setConfirmStatusAction] = useState<{
@@ -184,9 +199,14 @@ export default function LifecycleTemplatesPage() {
 
   useEffect(() => {
     let cancelled = false;
+    const listUrl = lifecycleTemplateListUrl(templateTypeFilter, templateStatusFilter);
 
     queueMicrotask(() => {
-      void fetch('/api/hr/lifecycle/templates')
+      if (cancelled) return;
+      setLoading(true);
+      setError('');
+
+      void fetch(listUrl)
         .then(async response => {
           const data = await response.json().catch(() => ({}));
           if (cancelled) return;
@@ -223,11 +243,13 @@ export default function LifecycleTemplatesPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [templateTypeFilter, templateStatusFilter]);
 
   async function refreshTemplates() {
     try {
-      const response = await fetch('/api/hr/lifecycle/templates');
+      const response = await fetch(
+        lifecycleTemplateListUrl(templateTypeFilter, templateStatusFilter),
+      );
       const data = await response.json().catch(() => ({}));
       if (!response.ok) return false;
 
@@ -615,6 +637,63 @@ export default function LifecycleTemplatesPage() {
           </button>
         ) : undefined}
       />
+
+      <div
+        aria-label="Lifecycle template filters"
+        style={{
+          display: 'flex',
+          alignItems: 'flex-end',
+          gap: 12,
+          flexWrap: 'wrap',
+          marginBottom: 14,
+        }}
+      >
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+          <span style={{ color: 'var(--text-secondary)' }}>Lifecycle type</span>
+          <select
+            aria-label="Lifecycle type filter"
+            value={templateTypeFilter}
+            onChange={event => setTemplateTypeFilter(
+              event.target.value as LifecycleTemplateTypeFilter,
+            )}
+            className={fieldControlClassName}
+          >
+            <option value="">All types</option>
+            <option value="onboarding">Onboarding</option>
+            <option value="offboarding">Offboarding</option>
+          </select>
+        </label>
+
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+          <span style={{ color: 'var(--text-secondary)' }}>Status</span>
+          <select
+            aria-label="Lifecycle status filter"
+            value={templateStatusFilter}
+            onChange={event => setTemplateStatusFilter(
+              event.target.value as LifecycleTemplateStatusFilter,
+            )}
+            className={fieldControlClassName}
+          >
+            <option value="">All statuses</option>
+            <option value="DRAFT">Draft</option>
+            <option value="ACTIVE">Active</option>
+            <option value="RETIRED">Retired</option>
+          </select>
+        </label>
+
+        {(templateTypeFilter || templateStatusFilter) && (
+          <button
+            type="button"
+            onClick={() => {
+              setTemplateTypeFilter('');
+              setTemplateStatusFilter('');
+            }}
+            {...buttonProps('secondary', 'sm')}
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
 
       <TableContainer label="Lifecycle templates" minWidth={760}>
         <table className={tableStyles.table}>
