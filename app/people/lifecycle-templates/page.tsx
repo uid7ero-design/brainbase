@@ -444,6 +444,20 @@ export default function LifecycleTemplatesPage() {
       <PageHeader
         title="Lifecycle Templates"
         description="Review the onboarding and offboarding templates available to your organisation."
+        actions={canCreateTemplate ? (
+          <button
+            type="button"
+            onClick={() => {
+              setOpenTemplateId(null);
+              setConfirmStatusAction(null);
+              resetCreateTemplateForm();
+              setShowCreateTemplate(true);
+            }}
+            {...buttonProps('primary')}
+          >
+            + Create Template
+          </button>
+        ) : undefined}
       />
 
       <TableContainer label="Lifecycle templates" minWidth={760}>
@@ -486,6 +500,258 @@ export default function LifecycleTemplatesPage() {
           </tbody>
         </table>
       </TableContainer>
+
+      <SlidePanel
+        open={showCreateTemplate}
+        onClose={() => {
+          setShowCreateTemplate(false);
+          resetCreateTemplateForm();
+        }}
+        title="Create lifecycle template"
+      >
+        <form
+          onSubmit={event => {
+            event.preventDefault();
+            void createTemplate();
+          }}
+          style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+        >
+          <Field label="Template key" required helper="Stable identifier for this template family.">
+            {control => (
+              <input
+                {...control}
+                required
+                value={newTemplateKey}
+                onChange={event => setNewTemplateKey(event.target.value)}
+                className={fieldControlClassName}
+                placeholder="standard-onboarding"
+              />
+            )}
+          </Field>
+
+          <Field label="Lifecycle type" required>
+            {control => (
+              <select
+                {...control}
+                required
+                value={newTemplateType}
+                onChange={event => setNewTemplateType(event.target.value as 'onboarding' | 'offboarding')}
+                className={fieldControlClassName}
+              >
+                <option value="onboarding">Onboarding</option>
+                <option value="offboarding">Offboarding</option>
+              </select>
+            )}
+          </Field>
+
+          <Field label="Name" required>
+            {control => (
+              <input
+                {...control}
+                required
+                value={newTemplateName}
+                onChange={event => setNewTemplateName(event.target.value)}
+                className={fieldControlClassName}
+              />
+            )}
+          </Field>
+
+          <Field label="Description">
+            {control => (
+              <textarea
+                {...control}
+                rows={3}
+                value={newTemplateDescription}
+                onChange={event => setNewTemplateDescription(event.target.value)}
+                className={fieldControlClassName}
+              />
+            )}
+          </Field>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ color: 'var(--text-primary)', fontSize: 13, fontWeight: 700 }}>
+              Tasks
+            </div>
+
+            {newTemplateTasks.map((task, index) => (
+              <div
+                key={task.key}
+                style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 10 }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <div style={{ color: 'var(--text-primary)', fontSize: 13, fontWeight: 600 }}>
+                    Task {index + 1}
+                  </div>
+                  {newTemplateTasks.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeTemplateTask(task.key)}
+                      {...buttonProps('ghost', 'sm')}
+                    >
+                      Remove task
+                    </button>
+                  )}
+                </div>
+
+                <Field label="Task title" required>
+                  {control => (
+                    <input
+                      {...control}
+                      required
+                      value={task.title}
+                      onChange={event => updateTemplateTask(task.key, { title: event.target.value })}
+                      className={fieldControlClassName}
+                    />
+                  )}
+                </Field>
+
+                <Field label="Task description">
+                  {control => (
+                    <textarea
+                      {...control}
+                      rows={2}
+                      value={task.description}
+                      onChange={event => updateTemplateTask(task.key, { description: event.target.value })}
+                      className={fieldControlClassName}
+                    />
+                  )}
+                </Field>
+
+                <Field label="Responsibility" required>
+                  {control => (
+                    <select
+                      {...control}
+                      required
+                      value={task.responsibility_type}
+                      onChange={event => updateTemplateTask(task.key, {
+                        responsibility_type: event.target.value as 'EMPLOYEE' | 'MANAGER' | 'HR_ADMIN',
+                      })}
+                      className={fieldControlClassName}
+                    >
+                      <option value="EMPLOYEE">Employee</option>
+                      <option value="MANAGER">Manager</option>
+                      <option value="HR_ADMIN">HR administrator</option>
+                    </select>
+                  )}
+                </Field>
+
+                <Field label="Due offset days" helper="Whole days relative to the workflow anchor date. Negative values are allowed.">
+                  {control => (
+                    <input
+                      {...control}
+                      type="number"
+                      step="1"
+                      value={task.due_offset_days}
+                      onChange={event => updateTemplateTask(task.key, { due_offset_days: event.target.value })}
+                      className={fieldControlClassName}
+                    />
+                  )}
+                </Field>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                  <input
+                    type="checkbox"
+                    checked={task.requires_approval}
+                    onChange={event => updateTemplateTask(task.key, {
+                      requires_approval: event.target.checked,
+                    })}
+                  />
+                  Requires approval
+                </label>
+
+                {task.requires_approval && (
+                  <Field label="Approval type" required>
+                    {control => (
+                      <select
+                        {...control}
+                        required
+                        value={task.approval_type}
+                        onChange={event => updateTemplateTask(task.key, {
+                          approval_type: event.target.value as 'MANAGER' | 'HR_ADMIN',
+                        })}
+                        className={fieldControlClassName}
+                      >
+                        <option value="MANAGER">Manager</option>
+                        <option value="HR_ADMIN">HR administrator</option>
+                      </select>
+                    )}
+                  </Field>
+                )}
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Visibility</div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                    <input
+                      type="checkbox"
+                      checked={task.employee_visible}
+                      disabled={task.internal_only}
+                      onChange={event => updateTemplateTask(task.key, { employee_visible: event.target.checked })}
+                    />
+                    Employee visible
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                    <input
+                      type="checkbox"
+                      checked={task.manager_visible}
+                      disabled={task.internal_only}
+                      onChange={event => updateTemplateTask(task.key, { manager_visible: event.target.checked })}
+                    />
+                    Manager visible
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                    <input
+                      type="checkbox"
+                      checked={task.internal_only}
+                      onChange={event => updateTemplateTask(task.key, {
+                        internal_only: event.target.checked,
+                        ...(event.target.checked
+                          ? { employee_visible: false, manager_visible: false }
+                          : {}),
+                      })}
+                    />
+                    Internal only
+                  </label>
+                </div>
+              </div>
+            ))}
+
+            <div>
+              <button
+                type="button"
+                onClick={addTemplateTask}
+                {...buttonProps('secondary', 'sm')}
+              >
+                + Add task
+              </button>
+            </div>
+          </div>
+
+          {templateCreateState === 'error' && (
+            <FormError>Could not create lifecycle template.</FormError>
+          )}
+
+          <FormActions>
+            <button
+              type="button"
+              onClick={() => {
+                setShowCreateTemplate(false);
+                resetCreateTemplateForm();
+              }}
+              disabled={templateCreateState === 'submitting'}
+              {...buttonProps('secondary')}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={templateCreateState === 'submitting'}
+              {...buttonProps('primary')}
+            >
+              {templateCreateState === 'submitting' ? 'Creating…' : 'Create template'}
+            </button>
+          </FormActions>
+        </form>
+      </SlidePanel>
 
       <SlidePanel
         open={selectedTemplate !== null}
