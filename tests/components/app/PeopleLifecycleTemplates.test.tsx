@@ -229,3 +229,176 @@ describe('HR-7G2B lifecycle template status actions', () => {
     expect(document.body.textContent).not.toContain('sensitive activation database detail');
   });
 });
+
+describe('HR-7G3A lifecycle template creation', () => {
+  it('hides template creation when the server collection capability is false', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url === '/api/hr/lifecycle/templates') {
+        return response({
+          capabilities: { can_create_template: false },
+          templates: [],
+        });
+      }
+      return response({});
+    });
+
+    renderBrainbase(<LifecycleTemplatesPage />);
+
+    expect(await screen.findByText('No lifecycle templates yet.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '+ Create Template' })).toBeNull();
+  });
+
+  it('creates a template with ordered task definitions and refreshes the list', async () => {
+    let listReads = 0;
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url === '/api/hr/lifecycle/templates' && init?.method === 'POST') {
+        return response({
+          template: {
+            id: TEMPLATE_ID,
+            status: 'DRAFT',
+            created_by: 'sensitive-template-creator',
+          },
+        }, 201);
+      }
+      if (url === '/api/hr/lifecycle/templates') {
+        listReads += 1;
+        return response({
+          capabilities: { can_create_template: true },
+          templates: listReads === 1 ? [] : [template('DRAFT', {
+            can_create_version: true,
+            can_activate: true,
+            can_retire: true,
+          }, {
+            lifecycle_type: 'offboarding',
+            name: 'Exit process',
+            template_key: 'exit-process',
+          })],
+        });
+      }
+      return response({});
+    });
+
+    renderBrainbase(<LifecycleTemplatesPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '+ Create Template' }));
+
+    fireEvent.change(screen.getByLabelText('Template key'), {
+      target: { value: 'exit-process' },
+    });
+    fireEvent.change(screen.getByLabelText('Lifecycle type'), {
+      target: { value: 'offboarding' },
+    });
+    fireEvent.change(screen.getByLabelText('Name'), {
+      target: { value: 'Exit process' },
+    });
+    fireEvent.change(screen.getByLabelText('Description'), {
+      target: { value: 'Standard employee exit process' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '+ Add task' }));
+
+    const titles = screen.getAllByLabelText('Task title');
+    const descriptions = screen.getAllByLabelText('Task description');
+    const responsibilities = screen.getAllByLabelText('Responsibility');
+    const dueOffsets = screen.getAllByLabelText('Due offset days');
+    const approvals = screen.getAllByLabelText('Requires approval');
+    const employeeVisibility = screen.getAllByLabelText('Employee visible');
+    const managerVisibility = screen.getAllByLabelText('Manager visible');
+    const internalOnly = screen.getAllByLabelText('Internal only');
+
+    fireEvent.change(titles[0], { target: { value: 'Manager handover' } });
+    fireEvent.change(descriptions[0], { target: { value: 'Confirm handover' } });
+    fireEvent.change(responsibilities[0], { target: { value: 'MANAGER' } });
+    fireEvent.change(dueOffsets[0], { target: { value: '-2' } });
+    fireEvent.click(approvals[0]);
+    fireEvent.change(screen.getByLabelText('Approval type'), {
+      target: { value: 'HR_ADMIN' },
+    });
+    fireEvent.click(employeeVisibility[0]);
+    fireEvent.click(managerVisibility[0]);
+
+    fireEvent.change(titles[1], { target: { value: 'Close access' } });
+    fireEvent.click(internalOnly[1]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create template' }));
+
+    expect(await screen.findByText('Exit process')).toBeTruthy();
+
+    const createCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input) === '/api/hr/lifecycle/templates' && init?.method === 'POST'
+    );
+    expect(createCall).toBeTruthy();
+    expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
+      template_key: 'exit-process',
+      lifecycle_type: 'offboarding',
+      name: 'Exit process',
+      description: 'Standard employee exit process',
+      tasks: [
+        {
+          sequence: 1,
+          title: 'Manager handover',
+          description: 'Confirm handover',
+          responsibility_type: 'MANAGER',
+          due_offset_days: -2,
+          requires_approval: true,
+          approval_type: 'HR_ADMIN',
+          employee_visible: false,
+          manager_visible: true,
+          internal_only: false,
+        },
+        {
+          sequence: 2,
+          title: 'Close access',
+          description: null,
+          responsibility_type: 'EMPLOYEE',
+          due_offset_days: null,
+          requires_approval: false,
+          approval_type: 'NONE',
+          employee_visible: false,
+          manager_visible: false,
+          internal_only: true,
+        },
+      ],
+    });
+    expect(listReads).toBe(2);
+    expect(document.body.textContent).not.toContain('sensitive-template-creator');
+  });
+
+  it('shows only a generic create failure and leaves the builder available', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url === '/api/hr/lifecycle/templates' && init?.method === 'POST') {
+        return response({ error: 'sensitive template family conflict detail' }, 409);
+      }
+      if (url === '/api/hr/lifecycle/templates') {
+        return response({
+          capabilities: { can_create_template: true },
+          templates: [],
+        });
+      }
+      return response({});
+    });
+
+    renderBrainbase(<LifecycleTemplatesPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '+ Create Template' }));
+    fireEvent.change(screen.getByLabelText('Template key'), {
+      target: { value: 'standard-onboarding' },
+    });
+    fireEvent.change(screen.getByLabelText('Name'), {
+      target: { value: 'Standard onboarding' },
+    });
+    fireEvent.change(screen.getByLabelText('Task title'), {
+      target: { value: 'Complete profile' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create template' }));
+
+    expect(await screen.findByText('Could not create lifecycle template.')).toBeTruthy();
+    expect(screen.getByLabelText('Template key')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive template family conflict detail');
+  });
+});
+
