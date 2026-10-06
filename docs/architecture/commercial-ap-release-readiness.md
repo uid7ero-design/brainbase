@@ -8,8 +8,8 @@ and scheduled payment workflows, FX and unapplied cash are optional expansions.
 
 This document is the current release index. Older design documents and their
 test counts describe the slice at the time it was implemented. The branch is now
-pushed for review in draft PR #342. Git integration triggered an automatic
-Vercel preview; no hosted migration or production deployment has been performed
+pushed in PR #342, which is ready for human review. Git integration triggered
+an automatic Vercel preview; no hosted migration or production deployment has been performed
 by this work. Production rollout requires a separate explicit user request.
 
 ## Local gates
@@ -97,8 +97,9 @@ scheduler checks as Linux. No Data Hub runtime or SQL was changed.
 - Fresh production webpack build passed; all 12 local production AP runtime
   checks passed against build `3xPHaPSwliVUtaZecxH1K`.
 
-These results resolve the observed CI failures; the draft still requires review
-of the complete purchasing/budgeting/finance/AP diff and target-schema inventory.
+These results resolve the observed CI failures. Human review of the complete
+purchasing/budgeting/finance/AP diff and target-schema inventory remain release
+prerequisites.
 
 ### Purchase-match migration review
 
@@ -122,7 +123,18 @@ initialization server just before shutdown. All three Docker-backed containment
 fixtures now wait for TCP readiness; the affected Data Hub bootstrap also uses
 that TCP endpoint. Their targeted suites passed all 80 tests locally. No test
 assertions were removed and no application or Data Hub SQL changed for this fix.
-The latest remote CI result must be checked before marking the draft ready.
+GitHub CI passed on head `b4d5e8df595fcb17e76f5410372197a920be638c`:
+14,753 tests across 683 files, with 64 tests/five files skipped and three existing
+CI exclusions. The original job was cancelled before execution because a hosted
+runner could not acquire it; retry job `112005077158` in run `37366900504` passed.
+Repository-wide ESLint remains non-blocking (160 errors/94 warnings); the exact
+CI lint report has no findings in this PR's changed files.
+
+The disposable budgeting/finance harness subsequently passed 30 checks and 111
+integration tests across nine suites. Targeted review covered settlement,
+close/reopen, adjustment lineage and reconciliation controls. No additional
+defect was identified in that pass; this is bounded evidence for human reviewers,
+rather than an independent review of every line or hosted-environment proof.
 
 The original tested application candidate is commit
 `e65ce37bba71646f5c0c1018d8e5c283de55d474` on

@@ -44,7 +44,7 @@ containment suite, disposable-Postgres finance harness, browser suite and produc
 | 32 | No hard delete of posted adjustment/close/reconciliation facts. | Adjustment/close database-trigger integration coverage; `aa8e01d7 fix(commercial): prevent hard delete of finance controls`; close hard-delete test. |
 | 33 | Control mutations are transactionally durable. | Rollback proofs for adjustment events, reconciliation prepare/review/sign-off, GL stale transitions, mapping stale transitions and year close/reopen; commits `2bec0027`, `68bee1ae`, `dcc7c7e7`, `c7941424`, `dcbffda1`, `daf7080e`. |
 | 34 | Generic audit-log failure cannot erase close/control evidence. | `scripts/tests/financeCloseConcurrency.integration.test.ts` — close/reopen remain durable when generic audit logging fails; `96b8ea95 test(commercial): prove finance control audit durability`. |
-| 35 | Disposable Postgres proves tenant/FK/concurrency invariants. | `scripts/tests/verify-commercial-budgeting.ps1` plus the C7.7–C7.9 integration suites; current finance harness result is PASS=28 / FAIL=0. |
+| 35 | Disposable Postgres proves tenant/FK/concurrency invariants. | `scripts/tests/verify-commercial-budgeting.ps1` plus the C7.7–C7.9 integration suites; latest finance harness result on `b4d5e8df` is PASS=30 / FAIL=0, including 111 integration tests across nine suites. |
 
 ## Additional boundary proofs
 
