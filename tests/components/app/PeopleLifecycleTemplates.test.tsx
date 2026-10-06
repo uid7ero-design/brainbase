@@ -46,6 +46,71 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('HR-7G5 lifecycle template family lineage', () => {
+  it('groups ordered template versions under one family heading per template key', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url === '/api/hr/lifecycle/templates') {
+        return response({
+          capabilities: { can_create_template: true },
+          templates: [
+            template('DRAFT', {
+              can_create_version: true,
+              can_activate: true,
+              can_retire: true,
+            }, {
+              id: '33333333-3333-4333-8333-333333333333',
+              version_number: 2,
+              name: 'Standard onboarding v2',
+            }),
+            template('RETIRED', {
+              can_create_version: true,
+              can_activate: false,
+              can_retire: false,
+            }, {
+              id: '22222222-2222-4222-8222-222222222222',
+              version_number: 1,
+              name: 'Standard onboarding v1',
+            }),
+            template('ACTIVE', {
+              can_create_version: true,
+              can_activate: false,
+              can_retire: true,
+            }, {
+              id: '44444444-4444-4444-8444-444444444444',
+              template_key: 'standard-offboarding',
+              lifecycle_type: 'offboarding',
+              version_number: 1,
+              name: 'Standard offboarding',
+            }),
+          ],
+        });
+      }
+      return response({});
+    });
+
+    renderBrainbase(<LifecycleTemplatesPage />);
+
+    expect(await screen.findByText('Standard onboarding v2')).toBeTruthy();
+    expect(screen.getByText('Standard onboarding v1')).toBeTruthy();
+    expect(screen.getByText('Standard offboarding')).toBeTruthy();
+
+    expect(screen.getAllByText('Family: standard-onboarding')).toHaveLength(1);
+    expect(screen.getAllByText('Family: standard-offboarding')).toHaveLength(1);
+
+    const text = document.body.textContent ?? '';
+    expect(text.indexOf('Family: standard-onboarding')).toBeLessThan(
+      text.indexOf('Standard onboarding v2'),
+    );
+    expect(text.indexOf('Standard onboarding v2')).toBeLessThan(
+      text.indexOf('Standard onboarding v1'),
+    );
+    expect(text.indexOf('Family: standard-offboarding')).toBeLessThan(
+      text.indexOf('Standard offboarding'),
+    );
+  });
+});
+
 describe('HR-7G2B lifecycle template status actions', () => {
   it('hides activate and retire when the server capabilities do not permit them', async () => {
     fetchMock.mockImplementation(input => {

@@ -634,25 +634,49 @@ export default function LifecycleTemplatesPage() {
             {!loading && !error && templates.length === 0 && (
               <TableStateRow colSpan={6} kind="empty">No lifecycle templates yet.</TableStateRow>
             )}
-            {!loading && !error && templates.map(template => (
-              <tr key={template.id}>
-                <td className={tableStyles.primary}>{template.name}</td>
-                <td style={{ textTransform: 'capitalize' }}>{template.lifecycle_type}</td>
-                <td>v{template.version_number}</td>
-                <td><Badge state={STATUS_STATE[template.status]}>{template.status}</Badge></td>
-                <td>{template.activated_at ? dateOnly(template.activated_at) : <span className={tableStyles.muted}>—</span>}</td>
-                <td className={tableStyles.actions}>
-                  <button
-                    type="button"
-                    className={tableStyles.link}
-                    onClick={() => void openTemplate(template)}
-                    aria-label={`View ${template.name}`}
-                  >
-                    View →
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {!loading && !error && templates.flatMap((template, index) => {
+              const previousTemplate = index > 0 ? templates[index - 1] : null;
+              const startsFamily = previousTemplate?.template_key !== template.template_key;
+
+              return [
+                ...(startsFamily ? [
+                  <tr key={`family-${template.template_key}`}>
+                    <th
+                      scope="rowgroup"
+                      colSpan={6}
+                      style={{
+                        textAlign: 'left',
+                        paddingTop: index === 0 ? 8 : 18,
+                        paddingBottom: 6,
+                        color: 'var(--text-secondary)',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        letterSpacing: '0.02em',
+                      }}
+                    >
+                      Family: {template.template_key}
+                    </th>
+                  </tr>,
+                ] : []),
+                <tr key={template.id}>
+                  <td className={tableStyles.primary}>{template.name}</td>
+                  <td style={{ textTransform: 'capitalize' }}>{template.lifecycle_type}</td>
+                  <td>v{template.version_number}</td>
+                  <td><Badge state={STATUS_STATE[template.status]}>{template.status}</Badge></td>
+                  <td>{template.activated_at ? dateOnly(template.activated_at) : <span className={tableStyles.muted}>—</span>}</td>
+                  <td className={tableStyles.actions}>
+                    <button
+                      type="button"
+                      className={tableStyles.link}
+                      onClick={() => void openTemplate(template)}
+                      aria-label={`View ${template.name}`}
+                    >
+                      View →
+                    </button>
+                  </td>
+                </tr>,
+              ];
+            })}
           </tbody>
         </table>
       </TableContainer>
