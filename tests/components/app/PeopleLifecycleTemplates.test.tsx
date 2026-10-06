@@ -300,9 +300,9 @@ describe('HR-7G3A lifecycle template creation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '+ Add task' }));
 
-    const titles = screen.getAllByLabelText('Task title');
+    const titles = screen.getAllByLabelText(/Task title/i);
     const descriptions = screen.getAllByLabelText('Task description');
-    const responsibilities = screen.getAllByLabelText('Responsibility');
+    const responsibilities = screen.getAllByLabelText(/Responsibility/i);
     const dueOffsets = screen.getAllByLabelText('Due offset days');
     const approvals = screen.getAllByLabelText('Requires approval');
     const employeeVisibility = screen.getAllByLabelText('Employee visible');
