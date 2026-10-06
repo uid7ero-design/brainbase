@@ -1151,6 +1151,11 @@ export default function LifecycleTemplatesPage() {
               <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 4 }}>
                 Key: {selectedTemplate.template_key}
               </div>
+              {detail?.state === 'ready' && detail.description && (
+                <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 6 }}>
+                  {detail.description}
+                </div>
+              )}
               {selectedTemplate.retired_at && (
                 <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 4 }}>
                   Retired {dateOnly(selectedTemplate.retired_at)}
@@ -1271,6 +1276,11 @@ export default function LifecycleTemplatesPage() {
                     <div style={{ color: 'var(--text-primary)', fontSize: 13, fontWeight: 600 }}>
                       {task.sequence}. {task.title}
                     </div>
+                    {task.description && (
+                      <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 3 }}>
+                        {task.description}
+                      </div>
+                    )}
                     <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 3 }}>
                       Responsibility: {task.responsibility_type}
                     </div>
@@ -1279,6 +1289,14 @@ export default function LifecycleTemplatesPage() {
                     </div>
                     <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 3 }}>
                       Approval: {task.requires_approval ? task.approval_type : 'None'}
+                    </div>
+                    <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 3 }}>
+                      Visibility: {task.internal_only
+                        ? 'Internal only'
+                        : [
+                            task.employee_visible ? 'Employee' : null,
+                            task.manager_visible ? 'Manager' : null,
+                          ].filter(Boolean).join(', ') || 'HR administrators only'}
                     </div>
                   </div>
                 ))}
