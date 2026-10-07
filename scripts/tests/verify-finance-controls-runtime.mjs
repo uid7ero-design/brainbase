@@ -365,6 +365,9 @@ try {
     if(protectedResult!==409)throw new Error('Active Budget dimension deactivated');
   }
   const setupPost=(path,body)=>other.page.evaluate(async ({path,body})=>{const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return {status:response.status,data:await response.json()};},{path,body});
+  for(const malformed of [{taxBasis:['INCLUSIVE'],periodisationMode:'PERIODISED'},{taxBasis:'INCLUSIVE',periodisationMode:['PERIODISED']}]){
+    if((await setupPost('/api/commercial/budgeting/budgets',{name:'Malformed',financialYearId:setupYearId,currency:'AUD',...malformed})).status!==400)throw new Error('Non-string Budget enum was not rejected');
+  }
   // Complete an operational Budget through the new setup forms.
   const budgetDimensions=[];
   for(const [kind,title,code] of [['accounts','Budget accounts','BUDGET-ACC'],['cost-centres','Cost centres','BUDGET-CC']]){
@@ -403,6 +406,23 @@ try {
   await budgetSection.getByRole('button',{name:'Activate Budget version',exact:true}).click();
   await expect(budgetSection.getByRole('alert')).toContainText('period allocations');
   await allocate('10000');
+  // Recover each retained dimension without replacing the draft's identity or lines.
+  for(const [index,kind,title,code] of [[0,'accounts','Budget accounts','BUDGET-ACC'],[1,'cost-centres','Cost centres','BUDGET-CC']]){
+    const section=other.page.getByRole('region',{name:title,exact:true});
+    await section.getByRole('button',{name:'Deactivate '+code,exact:true}).click();
+    await expect(section.getByRole('button',{name:'Reactivate '+code,exact:true})).toBeVisible();
+    await budgetSection.getByRole('button',{name:'Activate Budget version',exact:true}).click();
+    await expect(budgetSection.getByRole('alert')).toContainText('active same-tenant');
+    const path='/api/commercial/budgeting/setup/'+kind+'/'+budgetDimensions[index]+'/reactivate';
+    if((await fetch(origin+path,{method:'POST'})).status!==401)throw new Error('Unauthenticated reactivation accepted');
+    if((await viewer.page.evaluate(async path=>(await fetch(path,{method:'POST'})).status,path))!==403)throw new Error('Viewer reactivation accepted');
+    if((await page.evaluate(async path=>(await fetch(path,{method:'POST'})).status,path))!==404)throw new Error('Foreign reactivation accepted');
+    await section.getByRole('button',{name:'Reactivate '+code,exact:true}).click();
+    await expect(section.getByRole('button',{name:'Deactivate '+code,exact:true})).toBeVisible();
+    if((await setupPost(path,{})).status!==200)throw new Error('Repeated reactivation failed');
+    const audit=(await pool.query("SELECT count(*)::int AS n FROM audit_logs WHERE organisation_id='runtime-b' AND resource_id=$1 AND action=$2 AND user_id='runtime-other'",[budgetDimensions[index],(kind==='accounts'?'commercial_budget_account':'commercial_cost_centre')+'.reactivated'])).rows[0];
+    if(audit.n!==1)throw new Error('Reactivation actor or retry audit is incorrect');
+  }
   await budgetSection.getByRole('button',{name:'Activate Budget version',exact:true}).click();
   await expect(budgetSection.getByRole('status')).toContainText('Budget version activated.');
   await expect(budgetSection.getByRole('button',{name:'Save line',exact:true})).toHaveCount(0);
@@ -467,6 +487,7 @@ try {
   if((await setupPost('/api/commercial/budgeting/financial-years',{name:'Denied',startsOn:'2029-07-01',endsOn:'2030-06-30'})).status!==403)throw new Error('Unentitled calendar creation accepted');
   if((await setupPost('/api/commercial/budgeting/setup/accounts',{code:'DENIED',name:'Denied'})).status!==403)throw new Error('Unentitled dimension creation accepted');
   if((await setupPost('/api/commercial/budgeting/budgets',{})).status!==403)throw new Error('Unentitled Budget creation accepted');
+  if((await setupPost('/api/commercial/budgeting/setup/accounts/'+budgetDimensions[0]+'/reactivate',{})).status!==403)throw new Error('Unentitled reactivation accepted');
   await other.page.goto(origin+'/commercial/budgeting/commitments');
   await expect(other.page.getByText('Budgeting access is required to view Budget consumption.',{exact:true})).toBeVisible();
   await expect(other.page.getByRole('navigation',{name:'Finance workflow',exact:true})).toHaveCount(0);
@@ -480,6 +501,7 @@ try {
   evidence.dimensionSetupChecks=['account and cost-centre creation through forms','tenant duplicate-code rejection','deactivation retains inactive records after reload','active Budget references prevent deactivation','viewer, unentitled and foreign mutations denied'];
   evidence.budgetSetupChecks=['fresh Budget and DRAFT version created through form','draft line and commitment mapping through forms','period allocation mismatch blocks activation','correct allocation permits activation','ACTIVE version read-only and API rejects edits','active version pointer persisted','duplicate header rejected','unauthenticated, viewer, unentitled and foreign-tenant mutations denied'];
   evidence.financeWorkflowChecks=['empty finance controls directs administrator to setup','setup links to mappings, reporting and finance controls','empty mapping and reporting screens provide setup guidance','workflow links navigate between actual screens','new dimensions are available in mapping choices and completed guidance clears','new calendar is available in finance controls','activated Budget persists when returning through workflow links','viewer and unentitled users do not see administrator workflow links'];
+  evidence.draftRecoveryChecks=['both draft dimensions can be deactivated','inactive references still block activation','both dimensions restored through UI without replacing draft references','restored draft activates with original version pointer','reactivation retains session actor and audits transition once on retry','unauthenticated, viewer, unentitled and foreign reactivation denied','non-string Budget enums return 400'];
   writeFileSync(resolve(artifacts,'evidence.json'),JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));
 } finally {
   await browser?.close();

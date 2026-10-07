@@ -38,21 +38,21 @@ export default function DimensionSetup({ kind, title, onChange }: { kind: 'accou
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'Unable to create record.'); }
     finally { setBusy(false); }
   }
-  async function deactivate(record: RecordRow) {
+  async function changeActive(record: RecordRow) {
     if (busy) return; setBusy(true); setError(''); setMessage('');
     try {
-      const response = await fetch(endpoint + '/' + record.id + '/deactivate', { method: 'POST' });
+      const response = await fetch(endpoint + '/' + record.id + (record.active ? '/deactivate' : '/reactivate'), { method: 'POST' });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? 'Unable to deactivate record.');
+      if (!response.ok) throw new Error(data.error ?? 'Unable to change record status.');
       setRecords(current => current.map(row => row.id === record.id ? data.record : row));
-      setMessage(record.code + ' deactivated. Historical references remain available.');
+      setMessage(record.code + (record.active ? ' deactivated.' : ' reactivated.') + ' Historical references remain available.');
       onChange?.();
-    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Unable to deactivate record.'); }
+    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Unable to change record status.'); }
     finally { setBusy(false); }
   }
   return <section aria-labelledby={'dimension-' + kind} style={{ marginTop: 20, padding: 20, border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-surface)' }}>
     <h2 id={'dimension-' + kind} style={{ marginTop: 0, fontSize: 16 }}>{title}</h2>
-    <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Codes are unique within your organisation. Deactivation retains the record and its history; records used by an active Budget cannot be deactivated.</p>
+    <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Codes are unique within your organisation. Deactivation retains the record and its history; records used by an active Budget cannot be deactivated. Reactivate an inactive record to restore its use in drafts.</p>
     {error && <p role="alert" style={{ color: 'var(--status-danger)' }}>{error}</p>}
     <p role="status">{loading ? 'Loading…' : message}</p>
     <form onSubmit={event => void create(event)}>
@@ -66,7 +66,7 @@ export default function DimensionSetup({ kind, title, onChange }: { kind: 'accou
     <TableContainer label={title + ' list'} minWidth={620}>
       <table className={tableStyles.table}>
         <thead><tr>{['Code', 'Name', 'Description', 'Status', 'Action'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
-        <tbody>{records.length ? records.map(record => <tr key={record.id}><td>{record.code}</td><td>{record.name}</td><td>{record.description ?? '—'}</td><td>{record.active ? 'Active' : 'Inactive'}</td><td>{record.active && <button {...buttonProps('secondary')} disabled={busy || loading} onClick={() => void deactivate(record)} aria-label={'Deactivate ' + record.code}>Deactivate</button>}</td></tr>) : <tr><td colSpan={5}>{loading ? 'Loading…' : 'No records yet. Create the first record above.'}</td></tr>}</tbody>
+        <tbody>{records.length ? records.map(record => <tr key={record.id}><td>{record.code}</td><td>{record.name}</td><td>{record.description ?? '—'}</td><td>{record.active ? 'Active' : 'Inactive'}</td><td><button {...buttonProps('secondary')} disabled={busy || loading} onClick={() => void changeActive(record)} aria-label={(record.active ? 'Deactivate ' : 'Reactivate ') + record.code}>{record.active ? 'Deactivate' : 'Reactivate'}</button></td></tr>) : <tr><td colSpan={5}>{loading ? 'Loading…' : 'No records yet. Create the first record above.'}</td></tr>}</tbody>
       </table>
     </TableContainer>
   </section>;

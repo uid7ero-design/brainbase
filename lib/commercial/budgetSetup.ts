@@ -38,7 +38,7 @@ export async function createSetupBudget(organisationId: string, userId: string, 
   const name = typeof input.name === 'string' ? input.name.trim() : '';
   if (!name || name.length > 100) throw new BudgetSetupError('INVALID_INPUT', 'Enter a Budget name of up to 100 characters.');
   const currency = typeof input.currency === 'string' ? input.currency.trim().toUpperCase() : '';
-  if (!/^[A-Z]{3}$/.test(currency) || !['INCLUSIVE','EXCLUSIVE'].includes(String(input.taxBasis)) || !['ANNUAL_ONLY','PERIODISED'].includes(String(input.periodisationMode))) throw new BudgetSetupError('INVALID_INPUT', 'Choose a currency, tax basis and periodisation mode.');
+  if (!/^[A-Z]{3}$/.test(currency) || typeof input.taxBasis !== 'string' || !['INCLUSIVE','EXCLUSIVE'].includes(input.taxBasis) || typeof input.periodisationMode !== 'string' || !['ANNUAL_ONLY','PERIODISED'].includes(input.periodisationMode)) throw new BudgetSetupError('INVALID_INPUT', 'Choose a currency, tax basis and periodisation mode.');
   const financialYearId = setupId(input.financialYearId);
   const year = await getFinancialYear(organisationId, financialYearId);
   if (!year) throw new BudgetSetupError('NOT_FOUND', 'Financial year not found.');

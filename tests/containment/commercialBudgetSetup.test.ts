@@ -15,6 +15,10 @@ const request=(body:unknown)=>new Request('http://localhost',{method:'POST',body
 const header={name:' Budget ',financialYearId:id,currency:'aud',taxBasis:'INCLUSIVE',periodisationMode:'PERIODISED',organisationId:'foreign'};
 beforeEach(()=>{vi.clearAllMocks();mocks.auth.mockResolvedValue({ok:true,session:{organisationId:'org-a',userId:'user-a'}});mocks.year.mockResolvedValue({id,status:'OPEN'});mocks.budget.mockResolvedValue({id,financial_year_id:id,periodisation_mode:'PERIODISED'});mocks.version.mockResolvedValue({id,budget_id:id,status:'DRAFT'});mocks.account.mockResolvedValue({id,active:true});mocks.centre.mockResolvedValue({id,active:true});mocks.periods.mockResolvedValue([{id}]);});
 describe('Budget setup boundary',()=>{
+  it.each([{taxBasis:['INCLUSIVE']},{taxBasis:{}},{taxBasis:null},{periodisationMode:['PERIODISED']},{periodisationMode:{}},{periodisationMode:false}])('rejects non-string Budget enums %j',async value=>{
+    expect((await createRoute.POST(request({...header,...value}))).status).toBe(400);
+    expect(mocks.year).not.toHaveBeenCalled(); expect(mocks.create).not.toHaveBeenCalled();
+  });
   it.each([null,true,[],{},1,1.5,'1.5','1e3','-1','9223372036854775808'])('rejects invalid minor units %j',value=>expect(()=>setupAmount(value)).toThrow());
   it('keeps values above JavaScript safe integer precision exact',()=>expect(setupAmount('9007199254740993')).toBe(9007199254740993n));
   it.each([401,403,503])('preserves authorization denial %s',async status=>{mocks.auth.mockResolvedValue({ok:false,response:new Response(null,{status})});expect((await createRoute.POST(request(header))).status).toBe(status);expect((await changeRoute.POST(request({}),context)).status).toBe(status);expect(mocks.create).not.toHaveBeenCalled();expect(mocks.budget).not.toHaveBeenCalled();});
