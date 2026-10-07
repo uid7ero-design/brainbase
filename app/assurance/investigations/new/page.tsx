@@ -45,7 +45,7 @@ export default async function NewInvestigationPage({ searchParams }: { searchPar
             { kind: 'select', name: 'leadUserId', label: 'Lead investigator', options: users.map(u => ({ value: u.id, label: u.name })), emptyLabel: 'Unassigned' },
             { kind: 'select', name: 'riskLevelId', label: 'Risk level', options: risks.map(r => ({ value: r.id, label: r.name })) },
             { kind: 'date', name: 'targetCompletionAt', label: 'Target completion' },
-            { kind: 'checkbox', name: 'restricted', label: 'Restricted investigation', help: 'Only you, the lead and organisation admins will see it and the findings raised from it.' },
+            { kind: 'checkbox', name: 'restricted', label: 'Restricted investigation', help: 'Only you, the lead and organisation admins will see it and the findings raised from it. Required when any linked incident is restricted.' },
           ]}
         />
       </Card>
