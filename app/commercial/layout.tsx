@@ -4,6 +4,7 @@ import { checkCapability } from '@/lib/capabilities/requireCapability';
 import { APP_HEADER_OFFSET_VH_CALC } from '@/lib/layout/headerOffset';
 import { roleGte } from '@/lib/session';
 import CommercialSidebar from './_components/CommercialSidebar';
+import { FinanceSetupAccessProvider } from './_components/FinanceWorkflow';
 
 // Phase C3 — standalone Commercial product shell, modeled directly on
 // app/crm/layout.tsx's identical shape (page-level UX gate; the API
@@ -80,7 +81,9 @@ export default async function CommercialLayout({ children }: { children: React.R
         budgetingEnabled={budgetingCapability.allowed}
         budgetingAdminEnabled={budgetingCapability.allowed && roleGte(session.role, 'admin')}
       />
-      <main style={{ flex: 1, overflow: 'auto', padding: '36px 40px' }}>{children}</main>
+      <main style={{ flex: 1, overflow: 'auto', padding: '36px 40px' }}>
+        <FinanceSetupAccessProvider allowed={budgetingCapability.allowed && roleGte(session.role, 'admin')}>{children}</FinanceSetupAccessProvider>
+      </main>
     </div>
   );
 }

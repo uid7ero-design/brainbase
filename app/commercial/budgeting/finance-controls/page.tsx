@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { FinanceWorkflow } from '../../_components/FinanceWorkflow';
 import { buttonProps, fieldControlClassName, TableContainer, tableStyles } from '@/components/ui/app';
 import { formatMoneyCentsExact } from '@/lib/commercial/money';
 import {
@@ -337,6 +338,8 @@ export default function FinanceControlsPage() {
 
       {error ? <div role="alert" style={errorBox}>{error}</div> : null}
       {notice ? <div role="status" style={noticeBox}>{notice}</div> : null}
+
+      {!loading && !error && <FinanceWorkflow current="controls" setupHint={years.length === 0 ? 'Create your financial year and periods in Finance setup before using finance controls.' : selectedYear && selectedYear.periods.length === 0 ? 'This financial year has no periods. Add its periods in Finance setup before preparing a reconciliation.' : undefined} />}
 
       <section style={{ ...panel, marginBottom: 18 }}>
         <h2 style={heading}>Control scope</h2>
