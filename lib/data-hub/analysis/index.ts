@@ -3,3 +3,4 @@ export * from "./buildAnalysisReadiness";
 export * from "./capabilities";
 export * from "./requestValidation";
 export * from "./plan";
+export * from "./profileCounts";
