@@ -1,4 +1,4 @@
-import { DATASET_PROFILER_VERSION, type DatasetProfile } from "../profiling/contracts";
+import { DATASET_PROFILER_VERSION, type DatasetReviewEvidence } from "../profiling/contracts";
 import { inferDatasetSemantics } from "../semanticInference/inferDatasetSemantics";
 import { resolveDatasetSemantics, type SemanticClarificationChoice,
   type ResolveDatasetSemanticsResult } from "../semanticInference/resolution";
@@ -24,7 +24,7 @@ export type BuildAnalysisReviewSnapshotsResult =
 // decisions; matching contexts alone cannot establish either responsibility.
 export function buildAnalysisReviewSnapshots(
   expected: AnalysisDatasetContext,
-  profile: ScopedAnalysisSnapshot<DatasetProfile>,
+  profile: ScopedAnalysisSnapshot<DatasetReviewEvidence>,
   semanticChoices: ScopedAnalysisSnapshot<readonly SemanticClarificationChoice[]>,
   qualityDecisions: ScopedAnalysisSnapshot<readonly DataQualityReviewDecisionInput[]>,
 ): BuildAnalysisReviewSnapshotsResult {
