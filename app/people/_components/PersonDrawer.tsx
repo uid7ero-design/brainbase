@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import SlidePanel from './SlidePanel';
+import PersonAiAssistant from './PersonAiAssistant';
 import { StateMessage, buttonProps } from '@/components/ui/app';
 
 export type PersonDetail = {
@@ -1457,6 +1458,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
           {'work_email' in person && <Row label="Work Email" value={person.work_email ?? '—'} />}
           {'work_phone' in person && <Row label="Work Phone" value={person.work_phone ?? '—'} />}
           {canManage && <Row label="Linked BrainBase Account" value={person.linked_user_id ? 'Linked' : 'Not linked'} />}
+
+          {!loading && person.id === personId && <PersonAiAssistant key={person.id} personId={person.id} />}
 
           {lifecycleWorkflowsState !== 'idle' && (
             <section aria-labelledby="person-lifecycle-heading" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 14, marginTop: 2 }}>
