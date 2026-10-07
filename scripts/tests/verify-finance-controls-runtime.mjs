@@ -328,7 +328,7 @@ try {
   await yearForm.getByLabel('Year start date',{exact:false}).fill('31/02/2027');
   await yearForm.getByLabel('Year end date',{exact:false}).fill('30/06/2028');
   await yearForm.getByRole('button',{name:'Create year',exact:true}).click();
-  await expect(other.page.getByRole('alert')).toContainText('valid date in DD/MM/YYYY');
+  await expect(other.page.getByText('Enter a valid date in DD/MM/YYYY format.',{exact:true})).toBeVisible();
   await yearForm.getByLabel('Year start date',{exact:false}).fill('01/07/2027');
   await yearForm.getByLabel('Year end date',{exact:false}).fill('30/06/2028');
   await yearForm.getByRole('button',{name:'Create year',exact:true}).click();
