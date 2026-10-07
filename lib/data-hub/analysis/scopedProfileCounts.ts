@@ -1,6 +1,5 @@
-import type { DatasetProfile } from "../profiling/contracts";
 import type { AnalysisReadiness } from "./contracts";
-import { evaluateProfileCount, type EvaluateProfileCountResult, type ProfileCountResult } from "./profileCounts";
+import { evaluateProfileCount, type EvaluateProfileCountResult, type ProfileCountResult, type ProfileCountEvidence } from "./profileCounts";
 
 // Mirrors the pinned identity fields in the persisted profile-run lineage.
 // These values must be supplied by a trusted loader; equality is not proof
@@ -56,7 +55,7 @@ export function evaluateScopedProfileCount(
   expected: AnalysisDatasetContext,
   readiness: ScopedAnalysisSnapshot<AnalysisReadiness>,
   input: unknown,
-  profile: ScopedAnalysisSnapshot<DatasetProfile>,
+  profile: ScopedAnalysisSnapshot<ProfileCountEvidence>,
 ): EvaluateScopedProfileCountResult {
   const checked = validateAnalysisDatasetContexts(expected, [readiness.context, profile.context]);
   if (!checked.ok) return checked;
