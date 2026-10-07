@@ -325,16 +325,20 @@ try {
   await expect(other.page.getByText('No financial years yet. Create your first year above.')).toBeVisible();
   const yearForm=other.page.locator('form').first();
   await yearForm.getByLabel('Year name',{exact:false}).fill('Pilot FY');
-  await yearForm.getByLabel('Year start date',{exact:false}).fill('2027-07-01');
-  await yearForm.getByLabel('Year end date',{exact:false}).fill('2028-06-30');
+  await yearForm.getByLabel('Year start date',{exact:false}).fill('31/02/2027');
+  await yearForm.getByLabel('Year end date',{exact:false}).fill('30/06/2028');
+  await yearForm.getByRole('button',{name:'Create year',exact:true}).click();
+  await expect(other.page.getByText('Enter a valid date in DD/MM/YYYY format.',{exact:true})).toBeVisible();
+  await yearForm.getByLabel('Year start date',{exact:false}).fill('01/07/2027');
+  await yearForm.getByLabel('Year end date',{exact:false}).fill('30/06/2028');
   await yearForm.getByRole('button',{name:'Create year',exact:true}).click();
   await expect(other.page.getByRole('status').first()).toContainText('Financial year created.');
   const periodForm=other.page.locator('form').nth(1);
   await periodForm.getByLabel('Period name',{exact:false}).fill('July');
-  await periodForm.getByLabel('Period start date',{exact:false}).fill('2027-07-01');
-  await periodForm.getByLabel('Period end date',{exact:false}).fill('2027-07-31');
+  await periodForm.getByLabel('Period start date',{exact:false}).fill('01/07/2027');
+  await periodForm.getByLabel('Period end date',{exact:false}).fill('31/07/2027');
   await periodForm.getByRole('button',{name:'Create period',exact:true}).click();
-  await expect(other.page.getByRole('region',{name:'Financial period calendar',exact:true})).toContainText('2027-07-31');
+  await expect(other.page.getByRole('region',{name:'Financial period calendar',exact:true})).toContainText('31/07/2027');
   const configured=(await pool.query("SELECT y.id,y.starts_on::text,y.ends_on::text,p.starts_on::text AS period_start,p.ends_on::text AS period_end FROM commercial_financial_years y JOIN commercial_financial_periods p ON p.financial_year_id=y.id WHERE y.organisation_id='runtime-b'")).rows;
   if(configured.length!==1||configured[0].starts_on!=='2027-07-01'||configured[0].ends_on!=='2028-06-30'||configured[0].period_start!=='2027-07-01'||configured[0].period_end!=='2027-07-31')throw new Error('Calendar setup did not persist exact dates');
   const calendarAudit=(await pool.query("SELECT action,user_id,after_state FROM audit_logs WHERE organisation_id='runtime-b' AND action IN ('commercial_financial_year.created','commercial_financial_period.created')")).rows;
@@ -390,9 +394,14 @@ try {
   const lineForm=budgetSection.getByRole('form',{name:'Budget line',exact:true});
   await lineForm.getByLabel('Line account',{exact:false}).selectOption(budgetDimensions[0]);
   await lineForm.getByLabel('Line cost centre',{exact:false}).selectOption(budgetDimensions[1]);
-  await lineForm.getByLabel('Annual amount (minor units)',{exact:false}).fill('10000');
+  await lineForm.getByLabel('Annual amount (AUD)',{exact:false}).fill('1.001');
   await lineForm.getByRole('button',{name:'Save line',exact:true}).click();
-  await expect(budgetSection.getByRole('table')).toContainText('10000');
+  await expect(budgetSection.getByRole('alert')).toContainText('at most two decimal places');
+  await lineForm.getByLabel('Annual amount (AUD)',{exact:false}).fill('100.00');
+  await lineForm.getByRole('button',{name:'Save line',exact:true}).click();
+  await expect(budgetSection.getByRole('table')).toContainText('AUD 100.00');
+  const persistedAmount=(await pool.query("SELECT annual_budget_cents::text AS cents FROM commercial_budget_lines WHERE organisation_id='runtime-b'")).rows;
+  if(persistedAmount.length!==1||persistedAmount[0].cents!=='10000')throw new Error('Dollar input did not persist exact cents');
   const mappingForm=budgetSection.getByRole('form',{name:'Commitment mapping',exact:true});
   await mappingForm.getByLabel('Mapping account',{exact:false}).selectOption(budgetDimensions[0]);
   await mappingForm.getByLabel('Mapping cost centre',{exact:false}).selectOption(budgetDimensions[1]);
@@ -401,11 +410,12 @@ try {
   const budgetState=(await pool.query("SELECT b.id,v.id AS version_id,l.id AS line_id FROM commercial_budgets b JOIN commercial_budget_versions v ON v.budget_id=b.id JOIN commercial_budget_lines l ON l.budget_version_id=v.id WHERE b.organisation_id='runtime-b'")).rows[0];
   const setupPeriod=(await pool.query("SELECT id FROM commercial_financial_periods WHERE financial_year_id=$1 AND name='July'",[setupYearId])).rows[0].id;
   const allocationForm=budgetSection.getByRole('form',{name:'Period allocation',exact:true});
-  async function allocate(amount){await allocationForm.getByLabel('Allocation line',{exact:false}).selectOption(budgetState.line_id);await allocationForm.getByLabel('Allocation period',{exact:false}).selectOption(setupPeriod);await allocationForm.getByLabel('Period amount (minor units)',{exact:false}).fill(amount);await allocationForm.getByRole('button',{name:'Save allocation',exact:true}).click();await expect(budgetSection.getByText(new RegExp('Period allocations:.*'+amount))).toBeVisible();}
-  await allocate('9000');
+  async function allocate(amount){await allocationForm.getByLabel('Allocation line',{exact:false}).selectOption(budgetState.line_id);await allocationForm.getByLabel('Allocation period',{exact:false}).selectOption(setupPeriod);await allocationForm.getByLabel('Period amount (AUD)',{exact:false}).fill(amount);await allocationForm.getByRole('button',{name:'Save allocation',exact:true}).click();await expect(budgetSection.getByText(/^Period allocations:/)).toContainText('AUD '+amount);}
+  await allocate('90.00');
   await budgetSection.getByRole('button',{name:'Activate Budget version',exact:true}).click();
   await expect(budgetSection.getByRole('alert')).toContainText('period allocations');
-  await allocate('10000');
+  await allocate('100.00');
+  await other.page.screenshot({path:resolve(artifacts,'finance-setup-draft-desktop.png'),fullPage:true});
   // Recover each retained dimension without replacing the draft's identity or lines.
   for(const [index,kind,title,code] of [[0,'accounts','Budget accounts','BUDGET-ACC'],[1,'cost-centres','Cost centres','BUDGET-CC']]){
     const section=other.page.getByRole('region',{name:title,exact:true});
@@ -478,7 +488,7 @@ try {
     await expect(section.getByRole('table')).toContainText(dimension.code);
     await expect(section.getByRole('table')).toContainText('Inactive');
   }
-  await expect(other.page.getByRole('region',{name:'Financial period calendar',exact:true})).toContainText('2027-08-31');
+  await expect(other.page.getByRole('region',{name:'Financial period calendar',exact:true})).toContainText('31/08/2027');
   await other.page.setViewportSize({width:390,height:844});
   const calendarOverflow=await other.page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth}));
   if(calendarOverflow.scrollWidth>calendarOverflow.width)throw new Error('Calendar setup overflows mobile viewport');
