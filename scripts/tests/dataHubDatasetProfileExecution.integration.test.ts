@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { PrismaClient } from "@prisma/client";
+import type { AnalysisDatasetContext } from "@/lib/data-hub/analysis";
+import type { SemanticDatasetSchemaDraft } from "@/lib/data-hub/semanticInference/schemaSynthesis";
+import type { DataQualityReviewResolution } from "@/lib/data-hub/dataQuality/reviewResolution";
 
 // Data Hub 6.2D4D1B2 -- real disposable-Postgres proof for the dataset
 // profile execution service (profileUploadDataset, and its own
@@ -68,6 +71,9 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
+  // The analysis service uses the real application Prisma client as well.
+  const { prisma: analysisPrisma } = await import("@/lib/prisma");
+  await analysisPrisma.$disconnect();
   await prisma.$disconnect();
 });
 
@@ -88,7 +94,7 @@ interface SeedRow {
   id: string;
   sourceRowNumber: number;
   col1: string; // IDENTIFIER
-  col2: string; // DECIMAL canonical string
+  col2: string | null; // DECIMAL canonical string or explicit missing value
   col3: string; // DATE canonical string
   col4: string; // STRING
 }
@@ -158,7 +164,7 @@ async function seedWorld(suffix: string, org: string, rows: SeedRow[], opts: { c
       `INSERT INTO data_hub_raw_cells (id, organisation_id, raw_row_id, source_schema_worksheet_id, source_schema_column_id, column_ordinal, source_header, raw_value, raw_value_type, sensitivity_class, original_unit)
        VALUES
        ('${row.id}-c1','${org}','${row.id}','${wsId}','${col1}',0,'Id','${JSON.stringify(row.col1)}','STRING','CONFIDENTIAL', NULL),
-       ('${row.id}-c2','${org}','${row.id}','${wsId}','${col2}',1,'Amount','${JSON.stringify(row.col2)}','STRING','CONFIDENTIAL', NULL),
+       ('${row.id}-c2','${org}','${row.id}','${wsId}','${col2}',1,'Amount','${JSON.stringify(row.col2)}','${row.col2 === null ? "NULL" : "STRING"}','CONFIDENTIAL', NULL),
        ('${row.id}-c3','${org}','${row.id}','${wsId}','${col3}',2,'Date','${JSON.stringify(row.col3)}','STRING','INTERNAL', NULL),
        ('${row.id}-c4','${org}','${row.id}','${wsId}','${col4}',3,'Notes','${JSON.stringify(row.col4)}','STRING','PERSONALLY_IDENTIFIABLE', NULL)`
     );
@@ -190,7 +196,7 @@ async function seedWorld(suffix: string, org: string, rows: SeedRow[], opts: { c
     ];
     for (const def of cellDefs) {
       const rule = planResult.plan.rulesByColumnId.get(def.colId)!;
-      const result = transformRow({ rawRowId: row.id, sourceRowNumber: row.sourceRowNumber }, [{ sourceSchemaColumnId: def.colId, cell: { rawValueType: "STRING", rawValue: def.rawValue as string } }], { rulesByColumnId: new Map([[def.colId, rule]]) });
+      const result = transformRow({ rawRowId: row.id, sourceRowNumber: row.sourceRowNumber }, [{ sourceSchemaColumnId: def.colId, cell: { rawValueType: def.rawValue === null ? "NULL" : "STRING", rawValue: def.rawValue as string | null } }], { rulesByColumnId: new Map([[def.colId, rule]]) });
       if (result.findings.some((f) => f.severity === "BLOCKING_ERROR")) {
         throw new Error(`test fixture: unexpected blocking finding for ${def.colId}`);
       }
@@ -716,5 +722,75 @@ describe("K. privacy", () => {
     const serialized = JSON.stringify({ run, columns, upload }, (_key, value) => (typeof value === "bigint" ? value.toString() : value));
     expect(serialized).not.toContain(SECRET_IDENTIFIER);
     expect(serialized).not.toContain(SECRET_STRING);
+  });
+});
+
+// D4D5N: reuse the migrated real-Postgres fixture and real profiler above.
+// No Prisma/loader/evaluator mock. Semantic and reviewed-quality snapshots
+// are trusted test inputs; this does not prove their persistence or auth.
+async function countWorld(empty = false) {
+  const suffix = nextSuffix("counts");
+  const ids = await seedWorld(suffix, ORG_A, empty ? [] : [
+    { id: `${suffix}-r1`, sourceRowNumber: 2, col1: "ID-1", col2: "10", col3: "2024-01-01", col4: "note" },
+    { id: `${suffix}-r2`, sourceRowNumber: 3, col1: "ID-2", col2: null, col3: "2024-01-02", col4: "" },
+  ]);
+  const profiled = await profileUploadDataset({ organisationId: ORG_A, uploadId: ids.uploadId, actorId: ids.userId });
+  if (!profiled.ok) throw new Error("count fixture profiling failed");
+  const context: AnalysisDatasetContext = { organisationId: ORG_A, uploadId: ids.uploadId,
+    importBatchId: ids.batchId, normalizationRunId: ids.normRunId, datasetProfileRunId: profiled.profileRunId,
+    sourceSchemaVersionId: ids.svId, sourceSchemaWorksheetId: ids.wsId, worksheetMappingProfileVersionId: ids.pvId };
+  const schema: SemanticDatasetSchemaDraft = { schemaVersion: "v1", resolutionVersion: "v1", inferenceVersion: "v1",
+    profilerVersion: "v1", recordKeyCandidateState: "NONE", fields: [
+      { sourceSchemaColumnId: ids.col1, semanticRole: "IDENTIFIER", fieldClass: "IDENTIFIER" },
+      { sourceSchemaColumnId: ids.col2, semanticRole: "MEASURE", fieldClass: "MEASURE" },
+      { sourceSchemaColumnId: ids.col3, semanticRole: "TEMPORAL", fieldClass: "TEMPORAL" },
+      { sourceSchemaColumnId: ids.col4, semanticRole: "TEXT", fieldClass: "TEXT_ATTRIBUTE" },
+    ].map((field) => ({ ...field, recordKeyCandidate: false, confidence: "HIGH", evidence: [],
+      resolutionSource: "AUTO_HIGH_CONFIDENCE" })) as SemanticDatasetSchemaDraft["fields"] };
+  const quality: DataQualityReviewResolution = { resolutionVersion: "v1", reviewVersion: "v1", qualityVersion: "v1",
+    profilerVersion: "v1", schemaVersion: "v1", state: "READY", itemCount: 0, acknowledgedNoticeCount: 0,
+    continuedReviewCount: 0, heldReviewCount: 0, items: [] };
+  const { analyzeUploadProfileCount } = await import("@/lib/data-hub/analysisExecution/analyzeUploadProfileCount");
+  return { ids, context, schema: { context: { ...context }, snapshot: schema },
+    quality: { context: { ...context }, snapshot: quality }, analyze: analyzeUploadProfileCount,
+    scope: { organisationId: ORG_A, uploadId: ids.uploadId } };
+}
+
+describe("D4D5N real persisted upload count service", () => {
+  const rows = { requestVersion: "v1", kind: "ROW_COUNT" };
+  it("returns row and present counts from the real profiler's persisted evidence", async () => {
+    const f = await countWorld();
+    const before = await prisma.upload.findUniqueOrThrow({ where: { id: f.ids.uploadId } });
+    expect(await f.analyze(f.scope, f.schema, f.quality, rows))
+      .toMatchObject({ ok: true, result: { count: 2, context: f.context } });
+    expect(await f.analyze(f.scope, f.schema, f.quality, { requestVersion: "v1", kind: "AGGREGATE",
+      sourceSchemaColumnId: f.ids.col2, operator: "COUNT_PRESENT" }))
+      .toMatchObject({ ok: true, result: { count: 1, context: f.context } });
+    expect(await prisma.upload.findUniqueOrThrow({ where: { id: f.ids.uploadId } })).toEqual(before);
+    expect(await prisma.dataHubDatasetProfileRun.count({ where: { upload_id: f.ids.uploadId } })).toBe(1);
+  });
+  it("returns zero counts for an empty persisted dataset", async () => {
+    const f = await countWorld(true);
+    expect(await f.analyze(f.scope, f.schema, f.quality, rows)).toMatchObject({ ok: true, result: { count: 0 } });
+    expect(await f.analyze(f.scope, f.schema, f.quality, { requestVersion: "v1", kind: "AGGREGATE",
+      sourceSchemaColumnId: f.ids.col2, operator: "COUNT_PRESENT" })).toMatchObject({ ok: true, result: { count: 0 } });
+  });
+  it("does not expose another organization's upload", async () => {
+    const f = await countWorld();
+    expect(await f.analyze({ ...f.scope, organisationId: ORG_B }, f.schema, f.quality, rows))
+      .toEqual({ ok: false, code: "UPLOAD_NOT_FOUND" });
+  });
+  it("rejects stale reviewed context despite valid persisted counts", async () => {
+    const f = await countWorld(); f.quality.context.datasetProfileRunId = "old-profile";
+    expect(await f.analyze(f.scope, f.schema, f.quality, rows)).toEqual({ ok: false, code: "DATASET_CONTEXT_MISMATCH" });
+  });
+  it("honors a quality hold with real database reads", async () => {
+    const f = await countWorld(); f.quality.snapshot.state = "HOLD_FOR_REMEDIATION";
+    expect(await f.analyze(f.scope, f.schema, f.quality, rows)).toEqual({ ok: false, code: "QUALITY_HOLD" });
+  });
+  it("rejects caller profile injection with real persisted evidence", async () => {
+    const f = await countWorld();
+    expect(await f.analyze(f.scope, f.schema, f.quality, { ...rows, profile: { rowCount: 999 } }))
+      .toEqual({ ok: false, code: "INVALID_REQUEST" });
   });
 });
