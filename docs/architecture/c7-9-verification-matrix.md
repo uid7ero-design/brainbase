@@ -146,6 +146,22 @@ the unchanged Budget/database implementation; it was not rerun for these links.
 The pilot review packet is in `commercial-finance-pilot.md`. No push, deployment
 or customer configuration change was performed.
 
+### Draft recovery remediation, 7 October 2026
+
+Code candidate `2c119581` resolves the release-review draft recovery blocker with
+administrator reactivation of retained accounts and cost centres. The real runtime
+deactivates each dimension referenced by a draft, observes inactive-reference
+activation rejection, restores it through its UI action and activates the original
+version. It checks one audit transition on retry and authenticated tenant/role/
+capability boundaries. Malformed tax-basis and periodisation arrays return 400.
+
+The candidate passed 2,266 Commercial tests (63 focused setup/recovery tests),
+PASS=30 / FAIL=0 disposable database verification, focused lint, production build
+and the complete runtime regression in Australia/Adelaide. Mobile setup fit was
+also checked. The remediation review in `commercial-finance-pilot.md` records GO
+for a scoped pilot setup release, with no push, deployment or customer acceptance
+claimed. Documentation-only review updates do not change the tested code.
+
 ## Deliberately deferred policy decisions
 
 These are not missing implementations and must not be inferred silently:

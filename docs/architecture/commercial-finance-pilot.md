@@ -6,6 +6,10 @@ or create finance records.
 
 ## Current readiness
 
+Local finance setup candidate `2c119581` has passed the remediation review below
+and is ready for a reviewed pilot release. Publishing and customer configuration
+remain separate authorized steps. The earlier HOLD is retained as review history.
+
 Finance controls, External GL mapping, reconciliation and finance-adjusted
 reporting are implemented. The released fixes preserve calendar dates, restore
 Neon event queries and serialize overlapping ledger imports by tenant/source/
@@ -52,7 +56,8 @@ The local setup page now includes Budget account and cost-centre creation and
 deactivation. Administrator routes reuse the existing tenant-scoped domain
 functions and audit helpers, validate code/name/description input, and map
 duplicate tenant codes to HTTP 409. Inactive records remain listed and their
-codes remain reserved. No hard-delete or reactivation route is added.
+codes remain reserved. No hard-delete route is added. The initial stage omitted
+reactivation; the release-review remediation below adds it for draft recovery.
 Deactivation checks cover active Budget lines and commitment mappings for both
 dimension types. Existing historical mappings and finance evidence are retained.
 
@@ -195,7 +200,7 @@ by navigation or guidance alone.
 | Activation validation and ACTIVE edit protection | Verified locally |
 | Shared workflow links and prerequisite guidance | Implemented locally; browser verification recorded in the verification matrix |
 | Monetary reconciliation, close/reopen and sign-off | Existing disposable-runtime regression retained; synthetic source/ledger fixtures |
-| Release review | Held by the draft recovery finding below |
+| Release review | GO for the scoped pilot setup release after verified remediation |
 | Push and deployment | Not performed; require separate authorization after remediation |
 | Pilot organisation, capability and financial configuration | Customer decisions pending |
 | Customer pilot acceptance | Pending after release and agreed configuration |
@@ -206,9 +211,9 @@ first organisation's synthetic fixture; do not describe it as a customer pilot
 or a complete fresh-organisation source-posting walkthrough. Use the acceptance
 steps above for that final pilot once its configuration is agreed.
 
-### Release review decision, 7 October 2026
+### Initial release review decision, 7 October 2026
 
-**HOLD: do not release candidate `d51b2df4` yet.** Review scope is
+**Historical HOLD for candidate `d51b2df4`, superseded by the remediation review below.** Review scope is
 `0fc2f2977891651546acee6d2460a6d7073e57e5..d51b2df4a9724560e78d67d05239a64ac1b1f230`,
 the six finance setup commits. The Data Hub changes already present in the base
 are excluded. The checkout was clean at review start. This review is a local
@@ -256,6 +261,50 @@ remain intact. The passing happy-path evidence does not cover draft recovery.
 Next action: implement and verify draft recovery and strict enum validation, then
 repeat the release review on the resulting commit. No push, deployment, entitlement
 enablement or customer finance mutation is authorized by this review decision.
+
+### Remediation review decision, 7 October 2026
+
+**GO for the scoped pilot setup release on code candidate
+`2c119581f86f7ecf89013c25f17ac5b047f2b426`.** Both initial findings are resolved.
+The review includes the original finance-only diff from base `0fc2f297` plus
+the recovery fix. This is a local implementation readiness decision; no PR,
+remote CI result, deployment or customer acceptance is claimed.
+
+Administrator Reactivate actions now restore retained accounts and cost centres
+using a tenant-scoped, inactive-only UPDATE. Identity, codes, draft references
+and historical records remain unchanged. Repeated requests return the retained
+record without writing another reactivation audit. Audit recording follows the
+existing best-effort configuration audit convention; it does not change the
+durable finance evidence policy. Activation still rejects inactive references,
+and ACTIVE Budget edits and dimension deactivation remain governed as before.
+
+Budget tax basis and periodisation now require actual string enum values.
+Array/object/null/boolean malformed input returns 400 before creation. The real
+API regression also exercises both formerly accepted one-element enum arrays.
+
+Verified against the same production build:
+
+- 2,266 Commercial containment tests, including 63 focused setup/recovery tests;
+- PASS=30 / FAIL=0 disposable PostgreSQL verification;
+- focused lint and production build;
+- actual login and Next production-runtime walkthrough in Australia/Adelaide;
+- both dimension types deactivated while referenced by a draft, activation
+  rejected, restored through UI, then the original draft activated successfully;
+- retained session actor, one transition audit on retry, unauthenticated/viewer/
+  unentitled/foreign-tenant denial, workflow readback and mobile viewport fit.
+
+The evidence files are `draft-recovery-containment.log`,
+`draft-recovery-integration.log`, `draft-recovery-lint.log`,
+`draft-recovery-build.log`, `draft-recovery-runtime.log` and
+`draft-recovery-adelaide/evidence.json` in the local finance-review artifact folder.
+The build retains the pre-existing middleware deprecation and missing dashboard
+copy warnings; neither prevented a successful build.
+
+Remaining scope limits are intentional: this UI configures initial Budget drafts;
+later version creation, header editing and line deletion are not exposed. External
+ledger import remains an administrator JSON API. The customer still needs an agreed
+calendar, currency/tax basis, dimension codes, entitlement and pilot organisation.
+No schema migration, capability enablement, push or deployment was performed.
 
 Capability enablement is a separate customer decision, not a side effect of
 setup or testing. Keep zero-cent reconciliation tolerance and the current
