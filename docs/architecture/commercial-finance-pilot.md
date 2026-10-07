@@ -195,7 +195,8 @@ by navigation or guidance alone.
 | Activation validation and ACTIVE edit protection | Verified locally |
 | Shared workflow links and prerequisite guidance | Implemented locally; browser verification recorded in the verification matrix |
 | Monetary reconciliation, close/reopen and sign-off | Existing disposable-runtime regression retained; synthetic source/ledger fixtures |
-| Release review, push and deployment | Pending separate authorization |
+| Release review | Held by the draft recovery finding below |
+| Push and deployment | Not performed; require separate authorization after remediation |
 | Pilot organisation, capability and financial configuration | Customer decisions pending |
 | Customer pilot acceptance | Pending after release and agreed configuration |
 
@@ -204,6 +205,57 @@ in mapping and controls. The matched monetary reconciliation uses the existing
 first organisation's synthetic fixture; do not describe it as a customer pilot
 or a complete fresh-organisation source-posting walkthrough. Use the acceptance
 steps above for that final pilot once its configuration is agreed.
+
+### Release review decision, 7 October 2026
+
+**HOLD: do not release candidate `d51b2df4` yet.** Review scope is
+`0fc2f2977891651546acee6d2460a6d7073e57e5..d51b2df4a9724560e78d67d05239a64ac1b1f230`,
+the six finance setup commits. The Data Hub changes already present in the base
+are excluded. The checkout was clean at review start. This review is a local
+code/evidence review, not an independent second-agent review or live customer test.
+
+**Confirmed release blocker (P2): a draft can be stranded by dimension deactivation.**
+Create a draft with an account/cost-centre line, then deactivate that dimension.
+Deactivation excludes only ACTIVE versions in `lib/commercial/budgetAccounts.ts:119-132`
+and `lib/commercial/costCentres.ts:92-100`, so DRAFT references do not stop it.
+Activation rejects the retained inactive reference in `lib/commercial/budgetActivation.ts:36`.
+The existing real-database concurrency regression explicitly proves successful
+deactivation followed by `INACTIVE_REFERENCE` for both dimension types
+(`scripts/tests/budgetActivationConcurrency.integration.test.ts:155-188`).
+The new UI exposes only Deactivate (`DimensionSetup.tsx:69`); the setup API supports
+only line upsert, allocation and mapping (`lib/commercial/budgetSetup.ts:54-68`).
+Adding a replacement line does not remove the inactive original. Codes remain
+reserved, and a second Budget for the same tenant/year/currency is forbidden by
+`scripts/create-commercial-budgeting.sql:70`. There is no app-based recovery path.
+This is a usability/recovery blocker, not evidence of posted finance data loss.
+
+Remediation should provide an administrator recovery path, such as audited
+reactivation of the retained dimension or governed removal/replacement of DRAFT
+references. Preserve ACTIVE/historical evidence and existing activation rules.
+Acceptance must reproduce deactivation of a referenced draft dimension, recover
+through the app, and activate successfully; exercise both dimension types and
+access boundaries. Do not resolve this by bypassing inactive-reference validation.
+
+**Non-blocking input validation issue (P2): enum values are coerced before checking.**
+`lib/commercial/budgetSetup.ts:41` accepts JSON arrays such as
+`taxBasis: ["INCLUSIVE"]` or `periodisationMode: ["PERIODISED"]` because String(array)
+matches the enum. The original array then reaches the strict domain check in
+`lib/commercial/budgets.ts:18-19`, which throws an unmapped Error rather than a 400
+response. This path is established by code inspection, not a new runtime reproduction.
+It fails before creation and does not admit malformed records. Require actual
+string enum values and add malformed JSON-type coverage before release.
+
+Positive evidence remains: 2,252 Commercial tests, focused lint and production build
+passed on the candidate, and the real production-runtime walkthrough passed in
+Australia/Adelaide. PASS=30 / FAIL=0 database verification was run for the preceding
+Budget implementation; the final workflow-link commit changes no database logic.
+Existing authentication/capability/admin gates, session tenant scoping, exact
+minor-unit strings, activation/deactivation locking and ACTIVE edit protection
+remain intact. The passing happy-path evidence does not cover draft recovery.
+
+Next action: implement and verify draft recovery and strict enum validation, then
+repeat the release review on the resulting commit. No push, deployment, entitlement
+enablement or customer finance mutation is authorized by this review decision.
 
 Capability enablement is a separate customer decision, not a side effect of
 setup or testing. Keep zero-cent reconciliation tolerance and the current
