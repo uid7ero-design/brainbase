@@ -473,11 +473,20 @@ There is no "new finding" button on the Findings register.
 
 ### Source provenance
 
-The finding's **Source** shows where it came from, with a link back. For
-inspection items and audit criteria, the exact item or criterion is
-recorded. The Findings register can filter by source: **From incidents**,
-**From investigations**, **From inspections**, **From audits** or
-**No source**.
+The finding's **Source** section shows where it came from, with a link back.
+For inspection items and audit criteria, the exact **checklist item** or
+**criterion** is recorded with the link and shown beside it. A finding raised
+from a contractor requirement shows the **contractor** and the
+**requirement**. Source links are permanent: they cannot be changed or moved
+to another record, and closing or reopening the finding never changes the
+source record.
+
+Findings raised before this was recorded show **Whole inspection** or
+**Whole audit** instead of an item.
+
+The Findings register can filter by source: **From incidents**,
+**From investigations**, **From inspections**, **From audits**, **From
+contractor requirements** or **No source**.
 
 "No source" findings cannot be created from the Assurance screens, but they
 can exist — for example from data loaded through other supported paths — so
@@ -506,21 +515,81 @@ investigation, or from a cancelled inspection or audit.
 | Action required | **Move to action in progress**, **Move to under review**, **Cancel finding** |
 | Action in progress | **Move to awaiting verification**, **Move to action required** |
 | Awaiting verification | **Close finding**, **Move to action in progress** |
-| Closed / Cancelled | No further steps |
+| Closed | **Reopen finding** (see Reopening below) |
+| Cancelled | No further steps |
 
 Finding statuses are **manual**. Adding, verifying or closing an action does
-not move the finding.
+not move the finding, and nothing ever closes a finding automatically — not
+even when its last action closes.
+
+### Progress and register views
+
+Next to its status, an open finding shows its **progress**, worked out from
+its linked actions:
+
+| Progress | Meaning |
+|---|---|
+| **No corrective action yet** | No action is linked, or every linked action was cancelled |
+| **Actions underway** | At least one linked action is still open |
+| **Ready for closure decision** | Every linked action is closed or cancelled, and at least one was closed |
+
+Progress is never saved and never changes the status. The Findings register
+has views for **All**, **Open**, **Needs action**, **Actions underway**,
+**Overdue** (past the finding's resolve-by date), **Ready for closure** and
+**Closed** (closed or cancelled).
+
+A finding with no actions can still be closed directly — for example an
+observation that needs no corrective work. It is simply never shown as
+"ready".
 
 ### Linked actions
 
-**Add corrective action** in the **Corrective actions** section creates an
-action linked to the finding (see Actions). The table shows each action's
-status, evidence and verification.
+**Create action** in the **Corrective actions** section creates an action
+already linked to the finding (see Actions). The table shows each action's
+status and, separately, whether its **work** is complete, whether it is
+**verified**, and whether it is **closed**, plus how much of its evidence is
+accepted.
+
+### Closure readiness
+
+An open finding has a **Closure readiness** box: **What still prevents this
+finding from being closed?** It lists only things that will actually stop
+closure:
+
+- the finding's status cannot move straight to Closed (it names the status
+  to move to first);
+- linked actions that are still open, by reference;
+- "one or more linked actions you cannot see are still open", if an action
+  is hidden from you because it is restricted.
+
+A missed deadline is shown as a note, not a blocker.
 
 ### Closure
 
-**Close finding** is refused while any linked action is still open (not
-closed or cancelled). Closing a finding does not change its source records.
+**Close finding** needs a **Closure reason** and is refused while any linked
+action is still open (not closed or cancelled). **Cancel finding** needs a
+**Cancellation reason**; a cancelled finding cannot be reopened. Closing a
+finding does not close its actions or change its source records.
+
+A closed or cancelled finding shows a **Closure record**: who closed it, when
+and why. Findings closed before reasons were captured show **No reason
+recorded**; no reason is made up for them.
+
+### Reopening
+
+If a closed issue comes back, select **Reopen finding** and give a **Reopen
+reason**. The finding returns to **Under review**.
+
+- The previous closure — who closed it, when and why — is kept in **Reopen
+  history**, which cannot be edited.
+- Reopening does **not** reopen any action, the source record, evidence
+  decisions or verifications, and does **not** change risk.
+- Reopening does **not** reset or extend the deadline. If the resolve-by
+  date has passed, the finding shows as overdue; request an extension in its
+  **Deadline** section.
+- Closed actions are never reopened. Record the follow-up work as a **new**
+  action on the finding. Both the earlier and the new actions stay listed.
+- To close the finding again, give a new closure reason.
 
 ---
 
@@ -528,7 +597,7 @@ closed or cancelled). Closing a finding does not change its source records.
 
 ### Assigned work
 
-Actions are created from a finding with **Add corrective action**. The
+Actions are created from a finding with **Create action**. The
 **Corrective actions** register has no "new" button. Fields:
 
 - **Action type**: Immediate control, Corrective, Preventative, Remedial,
@@ -562,6 +631,18 @@ missing:
 
 **Cancel action** needs a **Reason**. If a verification sends the work back,
 use **Mark work complete again** once it has been redone.
+
+The action's **Corrective work status** box keeps the three facts apart:
+
+- **Work complete** — Not complete, Work complete, or Rework required (a
+  later verification did not accept the work).
+- **Action verified** — Not required, Not yet verified, Action verified, Not
+  accepted, or More evidence required.
+- **Action closed** — Not closed, Action closed, or Cancelled.
+
+Completing a linked Organiser task, accepting evidence or recording a
+verification never closes the action. Closed actions are never reopened: if
+more work is needed later, create a new action on the finding.
 
 ### Due dates
 

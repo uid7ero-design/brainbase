@@ -154,6 +154,10 @@ import path from 'path';
 // explicit-file-argument isolation. Like the D.4.6K/C7.3/6.2D4B2A suites,
 // this one needs no auth seam — profileUploadDataset takes already-
 // trusted organisationId/uploadId/actorId directly.
+//
+// Assurance Findings & Corrective Actions addition: scripts/tests/assuranceFindings
+// .integration.test.ts (see scripts/tests/verify-assurance-findings.sh),
+// same explicit-file-argument isolation.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -184,6 +188,7 @@ export default defineConfig({
       'scripts/tests/assuranceTemplates.integration.test.ts',
       'scripts/tests/assuranceContractor.integration.test.ts',
       'scripts/tests/assuranceEvidence.integration.test.ts',
+      'scripts/tests/assuranceFindings.integration.test.ts',
       'scripts/tests/dataHubNormalizationExecutor.integration.test.ts',
       'scripts/tests/dataHubNormalizeWorksheetRoute.integration.test.ts',
       'scripts/tests/dataHubDatasetProfileExecution.integration.test.ts',

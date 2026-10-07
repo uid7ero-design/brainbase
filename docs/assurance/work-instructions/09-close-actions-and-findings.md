@@ -40,20 +40,23 @@ finding or action, which shows what is done and what is blocked.
    Cancelled.
 6. Optionally move the finding to **Awaiting verification** first. It can
    be closed from **Under review** or **Awaiting verification**.
-7. Select **Close finding**.
+7. Check the **Closure readiness** box says nothing prevents closure.
+8. Select **Close finding**, enter the **Closure reason** — why the issue is
+   resolved — and submit.
 
 **Close the incident** (if the finding came from one)
 
-8. Open the incident. Check that its findings are closed or cancelled and its
+9. Open the incident. Check that its findings are closed or cancelled and its
    investigations are completed or cancelled.
-9. Move it to **Awaiting verification**, if it is not already there, or
+10. Move it to **Awaiting verification**, if it is not already there, or
    close it directly from **Under review**.
-10. Select **Close incident**, enter the **Closure summary**, and submit.
+11. Select **Close incident**, enter the **Closure summary**, and submit.
 
 **Cancel instead of closing** (work no longer needed)
 
 - Actions: **Cancel action**, with a **Reason**.
-- Findings: **Cancel finding**.
+- Findings: **Cancel finding**, with a **Cancellation reason**. A cancelled
+  finding cannot be reopened.
 - Incidents: **Cancel incident**, from Reported, Under review or
   Investigation required.
 
@@ -62,14 +65,19 @@ finding or action, which shows what is done and what is blocked.
 - Each record shows **Closed**, with who closed it and when, in **History**.
 - Evidence on a closed action or finding is frozen.
 - Closing an action does **not** close its finding. Closing a finding does
-  **not** change its source records.
+  **not** close its actions or change its source records.
+- The finding shows a **Closure record** with the reason. Findings closed
+  before reasons were captured show **No reason recorded**.
+- If the issue comes back, reopen the finding
+  (see [work instruction 16](16-reopen-a-finding.md)). Closed actions are
+  never reopened.
 
 ## Important rules
 
 | Record | Closure is refused while… |
 |---|---|
 | Action | work not marked complete; required evidence missing; required verification not accepted |
-| Finding | any linked action is still open |
+| Finding | any linked action is still open; a closure reason is required |
 | Incident | any linked finding is open, or any linked investigation is active; a closure summary is required |
 
 - Investigations are finished with **Complete with conclusion**, not closed.
@@ -85,6 +93,7 @@ finding or action, which shows what is done and what is blocked.
 | "This finding cannot be closed yet: one or more linked actions are still open." | Close or cancel the actions first. Some may be hidden from you if restricted; ask an admin. |
 | "This incident cannot be closed yet: linked findings or investigations are still open." | Close the findings and complete the investigations first. |
 | **Close finding** not shown | The finding is not in Under review or Awaiting verification. Move it there first. |
+| "Closure reason is required." | Enter why the finding is resolved. |
 
 ## Related records / next steps
 

@@ -32,7 +32,8 @@ for f in scripts/create-shared-foundations-a01b.sql scripts/create-assurance-cor
          scripts/create-assurance-inspections-a01d3.sql scripts/create-assurance-audits-a01e1.sql \
          scripts/create-assurance-template-lifecycle-a01f.sql \
          scripts/create-assurance-contractor-assurance-a01g.sql \
-         scripts/create-assurance-evidence-verification-a01h.sql; do
+         scripts/create-assurance-evidence-verification-a01h.sql \
+         scripts/create-assurance-findings-reopen-a01i.sql; do
   [ -f "$f" ] || { echo "ERROR: $f not found." >&2; exit 2; }
 done
 
@@ -146,13 +147,14 @@ CREATE TABLE audit_logs (
 );
 SQL
 
-echo "Applying real Assurance migrations (A0.1B, A0.1C, A0.1D-1..3, A0.1E-1, A0.1F, A0.1G, A0.1H) ..."
+echo "Applying real Assurance migrations (A0.1B, A0.1C, A0.1D-1..3, A0.1E-1, A0.1F, A0.1G, A0.1H, A0.1I) ..."
 for f in scripts/create-shared-foundations-a01b.sql scripts/create-assurance-core-a01c.sql \
          scripts/create-assurance-incidents-a01d1.sql scripts/create-assurance-investigations-a01d2.sql \
          scripts/create-assurance-inspections-a01d3.sql scripts/create-assurance-audits-a01e1.sql \
          scripts/create-assurance-template-lifecycle-a01f.sql \
          scripts/create-assurance-contractor-assurance-a01g.sql \
-         scripts/create-assurance-evidence-verification-a01h.sql; do
+         scripts/create-assurance-evidence-verification-a01h.sql \
+         scripts/create-assurance-findings-reopen-a01i.sql; do
   psql_exec < "$f" >/dev/null || { echo "ERROR: $f failed to apply." >&2; exit 2; }
   echo "  applied $f"
 done

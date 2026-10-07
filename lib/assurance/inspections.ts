@@ -151,17 +151,12 @@ export async function getInspectionDetail(viewer: AssuranceViewer, id: string): 
       WHERE r.organisation_id = ${org} AND r.inspection_id = ${id}::uuid
       ORDER BY r.item_key ASC
     `,
-    // source_item_key: which checklist item a finding was raised from.
-    // A0.1D-3 has no item-level link column, so the service records the
-    // item key in the finding's creation audit entry; this is display
-    // metadata only (the authoritative link is assurance_inspection_findings).
+    // source_item_key: which checklist item a finding was raised from —
+    // the structured, immutable item_key on the link row (A0.1I). Links made
+    // before A0.1I have none.
     sql`
       SELECT f.id, f.finding_reference, f.title, f.finding_type, f.status, f.identified_at,
-             (SELECT l.after_state->>'inspection_item_key' FROM audit_logs l
-               WHERE l.organisation_id = f.organisation_id AND l.resource_type = 'assurance_finding'
-                 AND l.resource_id = f.id::text AND l.action = 'assurance_finding.created'
-                 AND lower(l.after_state->>'inspection_id') = lower(${id})
-               ORDER BY l.created_at ASC LIMIT 1) AS source_item_key
+             lx.item_key AS source_item_key
       FROM assurance_inspection_findings lx
       JOIN assurance_findings f ON f.organisation_id = lx.organisation_id AND f.id = lx.finding_id
       WHERE lx.organisation_id = ${org} AND lx.inspection_id = ${id}::uuid
