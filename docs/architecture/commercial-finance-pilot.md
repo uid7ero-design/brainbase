@@ -301,7 +301,9 @@ The build retains the pre-existing middleware deprecation and missing dashboard
 copy warnings; neither prevented a successful build.
 
 Remaining scope limits are intentional: this UI configures initial Budget drafts;
-later version creation, header editing and line deletion are not exposed. External
+later version creation and line deletion are not exposed. Currency, financial
+year and periodisation remain fixed. Name and tax basis corrections for
+unpublished Budgets are described below. External
 ledger import remains an administrator JSON API. The customer still needs an agreed
 calendar, currency/tax basis, dimension codes, entitlement and pilot organisation.
 No schema migration, capability enablement, push or deployment was performed.
@@ -330,6 +332,31 @@ viewport. Evidence is in `allocation-review-focused.log`,
 `allocation-review-containment.log`, `allocation-review-build.log` and
 `allocation-review-runtime.log` under the local finance-review artifact folder.
 No schema or customer finance data changes are required by this feature.
+
+## Unpublished Budget settings corrections
+
+Administrators can expand **Edit draft settings** to correct a Budget name or
+tax basis before any version is activated, while its financial year is OPEN.
+The settings belong to the Budget and apply to all its drafts. Tax-basis changes
+do not recalculate money; annual lines, allocations, currency, calendar and
+periodisation remain intact. A later draft cannot change settings inherited from
+an ACTIVE or SUPERSEDED version. Existing session/capability/administrator checks
+and tenant-scoped references remain authoritative.
+
+The mutation locks the Budget and year, then versions in the same order as
+activation, and rechecks eligibility in a fresh Read Committed statement. This
+prevents a request that initially saw DRAFT from writing after publication or
+year close. The existing configuration-audit convention records the session
+actor and before/after name and tax basis after a successful mutation.
+
+Verification: 40 setup boundary tests, all 2,310 Commercial containment tests,
+targeted lint and production build passed. The disposable Adelaide runtime
+verified populated forms, retained amounts/allocations, audit values, mobile
+layout, ACTIVE and later-draft rejection, and database-gated activation/year-close
+races. Evidence is `draft-settings-focused.log`, `draft-settings-containment.log`,
+`draft-settings-build.log`, `draft-settings-runtime.log` and
+`draft-settings-adelaide/evidence.json` in the local finance-review artifact folder.
+No schema migration or automatic customer settings change is required.
 
 ## Repeatable runtime evidence
 
