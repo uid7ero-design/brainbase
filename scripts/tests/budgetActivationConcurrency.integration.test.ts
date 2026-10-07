@@ -13,6 +13,7 @@ const prisma = new PrismaClient({ datasourceUrl: DATABASE_URL });
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type QueryDescriptor = { strings: readonly string[]; values: unknown[] };
+let afterQuery: ((text: string) => Promise<void>) | undefined;
 function compile(q: QueryDescriptor) {
   let text = q.strings[0];
   for (let i = 0; i < q.values.length; i++) {
@@ -36,6 +37,7 @@ const sqlMock = Object.assign(
       for (const descriptor of descriptors) {
         const q = compile(descriptor);
         results.push(await tx.$queryRawUnsafe(q.text, ...q.values));
+        await afterQuery?.(q.text);
       }
       return results;
     }, { isolationLevel: options?.isolationLevel as 'ReadCommitted' | undefined }),
@@ -46,9 +48,13 @@ vi.doMock('@/lib/db', () => ({ default: sqlMock }));
 vi.doMock('@/lib/commercial/auditLog', () => ({
   logBudgetVersionActivated: vi.fn(),
   logBudgetVersionSuperseded: vi.fn(),
+  logBudgetAccountDeactivated: vi.fn(),
+  logCostCentreDeactivated: vi.fn(),
 }));
 
 const { activateBudgetVersion, BudgetActivationError } = await import('@/lib/commercial/budgetActivation');
+const { deactivateBudgetAccount } = await import('@/lib/commercial/budgetAccounts');
+const { deactivateCostCentre } = await import('@/lib/commercial/costCentres');
 
 const ORG = 'org-c77d';
 const USER = 'user-c77d';
@@ -99,6 +105,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  afterQuery = undefined;
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_budget_period_allocations WHERE organisation_id=$1`, ORG);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_budget_commitment_mappings WHERE organisation_id=$1`, ORG);
   await prisma.$executeRawUnsafe(`DELETE FROM commercial_budget_lines WHERE organisation_id=$1`, ORG);
@@ -145,6 +152,49 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 describe('C7.7D — real PostgreSQL activation concurrency', () => {
+  it.each(['account', 'centre'])('coordinates %s deactivation with activation in both lock orders', async kind => {
+    const table = kind === 'account' ? 'commercial_budget_accounts' : 'commercial_cost_centres';
+    const dimensionId = kind === 'account' ? ACCOUNT : CC;
+    const deactivate = () => kind === 'account'
+      ? deactivateBudgetAccount({ organisationId: ORG, userId: USER, budgetAccountId: dimensionId })
+      : deactivateCostCentre({ organisationId: ORG, userId: USER, costCentreId: dimensionId });
+    const activate = () => activateBudgetVersion({ organisationId: ORG, userId: USER, budgetId: BUDGET, budgetVersionId: V1 });
+    async function race(deactivationFirst: boolean) {
+      let release!: () => void, locked!: () => void;
+      const held = new Promise<void>(resolve => { release = resolve; });
+      const acquired = new Promise<void>(resolve => { locked = resolve; });
+      afterQuery = async text => {
+        const expected = deactivationFirst ? `SELECT id FROM ${table}` : `SELECT ${kind}.id FROM ${table}`;
+        if (text.includes(expected)) { afterQuery = undefined; locked(); await held; }
+      };
+      const first = deactivationFirst ? deactivate() : activate();
+      await acquired;
+      const second = deactivationFirst ? activate() : deactivate();
+      // Attach rejection handling before releasing the database barrier.
+      const outcomes = Promise.allSettled([first, second]);
+      let waiting = false;
+      try {
+        for (let i = 0; i < 100; i++) {
+          const rows = await prisma.$queryRawUnsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%' || $1 || '%'`, table);
+          if (rows[0].n > 0) { waiting = true; break; }
+          await new Promise(resolve => setTimeout(resolve, 10));
+        }
+      } finally { release(); }
+      const results = await outcomes;
+      expect(waiting).toBe(true);
+      if (deactivationFirst) {
+        if (results[0].status === 'rejected') throw results[0].reason;
+        expect(results[0]).toMatchObject({ status: 'fulfilled', value: true });
+        expect(results[1]).toMatchObject({ status: 'rejected', reason: { code: 'INACTIVE_REFERENCE' } });
+      } else {
+        expect(results[0]).toMatchObject({ status: 'fulfilled', value: { status: 'ACTIVE' } });
+        expect(results[1]).toMatchObject({ status: 'fulfilled', value: false });
+      }
+    }
+    await race(true);
+    await prisma.$executeRawUnsafe(`UPDATE ${table} SET active=true WHERE id=$1::uuid`, dimensionId);
+    await race(false);
+  });
   it('activates a valid PERIODISED version and updates the Budget pointer', async () => {
     const activated = await activateBudgetVersion({
       organisationId: ORG, userId: USER, budgetId: BUDGET, budgetVersionId: V1,

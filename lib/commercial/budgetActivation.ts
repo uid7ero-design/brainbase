@@ -44,7 +44,7 @@ export async function activateBudgetVersion(params: {
   budgetId: string;
   budgetVersionId: string;
 }): Promise<CommercialBudgetVersion> {
-  const [lockRows, validationRows, supersededRows, activatedRows, pointerRows] = await sql.transaction(txn => [
+  const [lockRows, , , validationRows, supersededRows, activatedRows, pointerRows] = await sql.transaction(txn => [
     txn`
       WITH budget_guard AS MATERIALIZED (
         SELECT cb.id
@@ -68,6 +68,23 @@ export async function activateBudgetVersion(params: {
       SELECT EXISTS (SELECT 1 FROM budget_guard) AS budget_locked,
              COUNT(*)::int AS locked_version_count
       FROM locked_versions
+    `,
+    // The version lock fixes its references before dimension locks are taken.
+    // Deactivation takes the same row lock then checks ACTIVE references in a
+    // separate statement, so either operation sees the other's committed state.
+    txn`
+      SELECT account.id FROM commercial_budget_accounts account
+      WHERE account.organisation_id=${params.organisationId} AND (
+        EXISTS(SELECT 1 FROM commercial_budget_lines line WHERE line.budget_version_id=${params.budgetVersionId} AND line.organisation_id=account.organisation_id AND line.budget_account_id=account.id)
+        OR EXISTS(SELECT 1 FROM commercial_budget_commitment_mappings mapping WHERE mapping.budget_version_id=${params.budgetVersionId} AND mapping.organisation_id=account.organisation_id AND mapping.budget_account_id=account.id)
+      ) ORDER BY account.id FOR UPDATE OF account
+    `,
+    txn`
+      SELECT centre.id FROM commercial_cost_centres centre
+      WHERE centre.organisation_id=${params.organisationId} AND (
+        EXISTS(SELECT 1 FROM commercial_budget_lines line WHERE line.budget_version_id=${params.budgetVersionId} AND line.organisation_id=centre.organisation_id AND line.cost_centre_id=centre.id)
+        OR EXISTS(SELECT 1 FROM commercial_budget_commitment_mappings mapping WHERE mapping.budget_version_id=${params.budgetVersionId} AND mapping.organisation_id=centre.organisation_id AND mapping.cost_centre_id=centre.id)
+      ) ORDER BY centre.id FOR UPDATE OF centre
     `,
     txn`
       SELECT
