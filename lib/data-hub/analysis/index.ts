@@ -2,3 +2,6 @@ export * from "./contracts";
 export * from "./buildAnalysisReadiness";
 export * from "./capabilities";
 export * from "./requestValidation";
+export * from "./plan";
+export * from "./profileCounts";
+export * from "./scopedProfileCounts";

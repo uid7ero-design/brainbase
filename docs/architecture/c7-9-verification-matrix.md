@@ -71,6 +71,97 @@ In addition to domain/integration tests:
 - The Finance Controls console, External GL mapping administration, finance-adjusted reporting,
   reconciliation queue and exact-money rendering have focused containment coverage.
 
+### Production-runtime regression added in PR #375
+
+`scripts/tests/verify-finance-controls-runtime.mjs` runs against an actual Next production
+build with real login, a disposable PostgreSQL database and the loopback-only Neon transport
+adapter. It supplements the domain and browser suites with:
+
+- real mapping forms, create/retire responses and exact calendar-date readback;
+- reconciliation preparation and period-reopen event parameter typing;
+- exact BIGINT import values beyond JavaScript's safe-integer range;
+- database-gated overlapping identical imports returning one IMPORTED and one IDEMPOTENT,
+  plus changed-identity concurrency preserving the winning fact;
+- duplicate imports retaining sign-off, genuine conflicts/new facts staling affected evidence;
+- close/reopen/sign-off history, mobile table scrolling, viewer denial and tenant isolation.
+
+The release validation on head `6b99a47a` passed 2,182 Commercial containment tests,
+PASS=30 / FAIL=0 database verification, production build and this runtime regression in
+Australia/Adelaide. Earlier date and import runtime runs also passed in UTC. PR #375 merged
+as `6ca8a81b`; production was READY and the live alias matched that merge. These are dated
+release observations, not a claim that future builds or customer configuration are verified.
+
+Customer setup and pilot acceptance are tracked in
+[`commercial-finance-pilot.md`](commercial-finance-pilot.md). The PR #375 runtime fixture
+created its prerequisites directly and did not prove an administrator setup UI existed.
+
+### Calendar setup stage, 7 October 2026
+
+The runtime regression now also starts the second organisation with no calendar, creates
+a year and period through the administrator UI, verifies calendar-date persistence and
+creation audit actor, rejects malformed dates/duplicate names/overlaps/outside-year ranges,
+and exercises concurrent year and period creation plus year-close/period-create concurrency.
+It checks closed-year, unauthenticated, viewer, unentitled and foreign-tenant rejection and
+mobile layout. This stage passed the runtime regression in Australia/Adelaide, 2,203
+Commercial tests, PASS=30 / FAIL=0 database verification, lint and production build locally.
+Account, cost-centre and draft Budget setup are verified in the later local stages below.
+
+### Dimension and initial Budget setup stages, 7 October 2026
+
+Account and cost-centre forms create tenant-owned records, reject duplicate codes,
+retain inactive records and prevent deactivation of ACTIVE Budget references.
+Database barriers prove activation-first and deactivation-first serialization for
+both dimension types using shared row locks.
+
+The production-runtime walkthrough now completes an initial periodised Budget
+through forms: header/DRAFT version, line, commitment mapping and allocation.
+A mismatched allocation blocks activation; correcting it permits activation and
+persists the active pointer. ACTIVE versions remove edit forms and reject API
+edits. Duplicate headers and unauthenticated/viewer/unentitled/foreign-tenant
+mutations are rejected. The complete setup screen fits the 390px viewport.
+
+The Budget stage passed 2,252 Commercial containment tests, PASS=30 / FAIL=0
+disposable database verification, focused lint, production build and runtime
+regression in Australia/Adelaide. All setup stages remain local and unreleased.
+
+### Connected finance workflow, 7 October 2026
+
+The shared workflow links use budgeting administrator access supplied by the
+server Commercial shell, with a false context default. Existing API authorization
+is unchanged. Empty finance controls point to calendar setup; mappings point to
+active dimension setup; unfiltered empty reporting points to Budget setup while
+explaining the separate need for operational activity or ledger imports.
+
+The real-runtime walkthrough follows those links from the empty second tenant,
+completes setup, selects its new accounts/cost centres in mapping controls,
+selects its new year/period in finance controls and returns to its ACTIVE Budget.
+It verifies completed dimension guidance clears, viewers retain reporting without
+administrator workflow links, unentitled reporting denies access and the complete
+setup screen remains inside the mobile viewport.
+
+This UI-only stage passed 2,252 Commercial containment tests, focused lint,
+production build and the extended production-runtime regression in
+Australia/Adelaide. The prior PASS=30 / FAIL=0 database verification belongs to
+the unchanged Budget/database implementation; it was not rerun for these links.
+The pilot review packet is in `commercial-finance-pilot.md`. No push, deployment
+or customer configuration change was performed.
+
+### Draft recovery remediation, 7 October 2026
+
+Code candidate `2c119581` resolves the release-review draft recovery blocker with
+administrator reactivation of retained accounts and cost centres. The real runtime
+deactivates each dimension referenced by a draft, observes inactive-reference
+activation rejection, restores it through its UI action and activates the original
+version. It checks one audit transition on retry and authenticated tenant/role/
+capability boundaries. Malformed tax-basis and periodisation arrays return 400.
+
+The candidate passed 2,266 Commercial tests (63 focused setup/recovery tests),
+PASS=30 / FAIL=0 disposable database verification, focused lint, production build
+and the complete runtime regression in Australia/Adelaide. Mobile setup fit was
+also checked. The remediation review in `commercial-finance-pilot.md` records GO
+for a scoped pilot setup release, with no push, deployment or customer acceptance
+claimed. Documentation-only review updates do not change the tested code.
+
 ## Deliberately deferred policy decisions
 
 These are not missing implementations and must not be inferred silently:
