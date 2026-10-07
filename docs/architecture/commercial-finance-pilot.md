@@ -56,16 +56,16 @@ codes remain reserved. No hard-delete or reactivation route is added.
 Deactivation checks cover active Budget lines and commitment mappings for both
 dimension types. Existing historical mappings and finance evidence are retained.
 
-This draft passed 2,231 Commercial tests, focused lint and production build.
-Database integration and the extended real-runtime UI walkthrough are pending:
-Docker Desktop was stopped, its startup did not complete, and the session could
-not start the Windows Docker service. Earlier calendar-stage database results
-must not be presented as validation of this new stage.
+This stage passed 2,231 Commercial tests, focused lint, production build,
+PASS=30 / FAIL=0 database verification and the extended real-runtime UI
+walkthrough after Docker became available. Activation locks its referenced
+accounts and cost centres after locking its version. Deactivation takes the
+same dimension row lock before checking active references in a fresh statement.
+Database barriers prove both activation-first and deactivation-first orders
+for both dimension types. The integration fixture now includes the existing
+production cost-centre updated_at column required by deactivation.
 
-Before release, run the extended runtime regression and database suite. Also
-verify activation/deactivation concurrency before enabling these actions for
-customer use; the new active-reference predicates do not alone prove that race
-safe. Draft Budget creation/activation UI remains subsequent work. No customer
+Draft Budget creation/activation UI remains subsequent work. No customer
 configuration, capability or production record was changed by this draft.
 
 ## Decisions for the walkthrough

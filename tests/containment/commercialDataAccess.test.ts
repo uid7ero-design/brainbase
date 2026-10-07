@@ -45,7 +45,9 @@ describe('Phase C2 — every commercial data-access query is organisation-scoped
 
 const sqlMock = vi.fn()
 vi.mock('@/lib/db', () => ({
-  default: (...args: unknown[]) => (sqlMock as unknown as (...a: unknown[]) => unknown)(...args),
+  default: Object.assign((...args: unknown[]) => (sqlMock as unknown as (...a: unknown[]) => unknown)(...args), {
+    transaction: async (builder: (txn: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>) => Promise<unknown>[]) => Promise.all(builder((strings, ...values) => sqlMock(strings, ...values))),
+  }),
 }))
 vi.mock('@/lib/commercial/auditLog', () => ({
   logCustomerCreated: vi.fn(), logCustomerUpdated: vi.fn(), logCustomerDeactivated: vi.fn(), logCustomerReactivated: vi.fn(),

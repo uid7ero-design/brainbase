@@ -108,7 +108,9 @@ export async function deactivateBudgetAccount(params: {
   userId: string;
   budgetAccountId: string;
 }): Promise<boolean> {
-  const rows = await sql`
+  const [, rows] = await sql.transaction(txn => [
+    txn`SELECT id FROM commercial_budget_accounts WHERE id=${params.budgetAccountId} AND organisation_id=${params.organisationId} FOR UPDATE`,
+    txn`
     UPDATE commercial_budget_accounts
     SET active = false, updated_at = now()
     WHERE id = ${params.budgetAccountId}
@@ -130,8 +132,9 @@ export async function deactivateBudgetAccount(params: {
         WHERE m.budget_account_id=commercial_budget_accounts.id AND m.organisation_id=commercial_budget_accounts.organisation_id AND bv.status='ACTIVE'
       )
     RETURNING id
-  ` as { id: string }[];
-  if (rows.length === 0) return false;
+    `,
+  ], { isolationLevel: 'ReadCommitted' });
+  if ((rows as { id: string }[]).length === 0) return false;
 
   await logBudgetAccountDeactivated({
     organisationId: params.organisationId,

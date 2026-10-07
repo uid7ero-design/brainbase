@@ -59,10 +59,14 @@ describe('C7.7C — Budget account domain', () => {
   });
 
   it('refuses deactivation when the guarded update affects no row', async () => {
-    sqlMock.mockResolvedValueOnce([]);
+    transactionMock.mockImplementationOnce(async builder => {
+      const queries = builder((strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }));
+      expect(queries[0].strings.join('')).toContain('FOR UPDATE');
+      expect(queries[1].strings.join('')).toContain("bv.status = 'ACTIVE'");
+      return [[], []];
+    });
     await expect(accounts.deactivateBudgetAccount({ organisationId: 'org-a', userId: 'u1', budgetAccountId: 'acc-1' })).resolves.toBe(false);
     expect(audit.logBudgetAccountDeactivated).not.toHaveBeenCalled();
-    expect((sqlMock.mock.calls[0][0] as string[]).join('')).toContain("bv.status = 'ACTIVE'");
   });
 });
 

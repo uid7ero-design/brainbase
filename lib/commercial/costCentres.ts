@@ -84,7 +84,9 @@ export async function updateCostCentre(params: {
 }
 
 export async function deactivateCostCentre(params: { organisationId: string; userId: string; costCentreId: string }): Promise<boolean> {
-  const rows = (await sql`
+  const [, rows] = await sql.transaction(txn => [
+    txn`SELECT id FROM commercial_cost_centres WHERE id=${params.costCentreId} AND organisation_id=${params.organisationId} FOR UPDATE`,
+    txn`
     UPDATE commercial_cost_centres SET active = false, updated_at = now()
     WHERE id = ${params.costCentreId} AND organisation_id = ${params.organisationId} AND active = true
       AND NOT EXISTS (
@@ -98,8 +100,9 @@ export async function deactivateCostCentre(params: { organisationId: string; use
         WHERE m.cost_centre_id=commercial_cost_centres.id AND m.organisation_id=commercial_cost_centres.organisation_id AND bv.status='ACTIVE'
       )
     RETURNING id
-  `) as { id: string }[];
-  if (rows.length === 0) return false;
+    `,
+  ], { isolationLevel: 'ReadCommitted' });
+  if ((rows as { id: string }[]).length === 0) return false;
 
   await logCostCentreDeactivated({ organisationId: params.organisationId, userId: params.userId, costCentreId: params.costCentreId });
   return true;

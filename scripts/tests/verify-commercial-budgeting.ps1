@@ -74,7 +74,8 @@ CREATE TABLE commercial_cost_centres (
   organisation_id TEXT NOT NULL REFERENCES organisations(id),
   code TEXT NOT NULL,
   name TEXT NOT NULL,
-  active BOOLEAN NOT NULL DEFAULT true
+  active BOOLEAN NOT NULL DEFAULT true,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE commercial_suppliers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
