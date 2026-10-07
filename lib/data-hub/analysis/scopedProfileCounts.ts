@@ -37,6 +37,19 @@ function validContext(context: AnalysisDatasetContext): boolean {
     CONTEXT_KEYS.every((key) => typeof context[key] === "string" && context[key].trim().length > 0);
 }
 
+export function validateAnalysisDatasetContexts(
+  expected: AnalysisDatasetContext,
+  contexts: readonly AnalysisDatasetContext[],
+): { ok: true } | { ok: false; code: "DATASET_CONTEXT_INVALID" | "DATASET_CONTEXT_MISMATCH" } {
+  if (![expected, ...contexts].every(validContext)) {
+    return { ok: false, code: "DATASET_CONTEXT_INVALID" };
+  }
+  if (contexts.some((context) => CONTEXT_KEYS.some((key) => expected[key] !== context[key]))) {
+    return { ok: false, code: "DATASET_CONTEXT_MISMATCH" };
+  }
+  return { ok: true };
+}
+
 // Checks compatibility with the expected context supplied by the caller.
 // This pure wrapper does not resolve database pointers or access rights.
 export function evaluateScopedProfileCount(
@@ -45,14 +58,8 @@ export function evaluateScopedProfileCount(
   input: unknown,
   profile: ScopedAnalysisSnapshot<DatasetProfile>,
 ): EvaluateScopedProfileCountResult {
-  if (![expected, readiness.context, profile.context].every(validContext)) {
-    return { ok: false, code: "DATASET_CONTEXT_INVALID" };
-  }
-  if (CONTEXT_KEYS.some((key) =>
-    expected[key] !== readiness.context[key] || expected[key] !== profile.context[key]
-  )) {
-    return { ok: false, code: "DATASET_CONTEXT_MISMATCH" };
-  }
+  const checked = validateAnalysisDatasetContexts(expected, [readiness.context, profile.context]);
+  if (!checked.ok) return checked;
   const evaluated = evaluateProfileCount(readiness.snapshot, input, profile.snapshot);
   if (!evaluated.ok) return evaluated;
   const context = Object.fromEntries(CONTEXT_KEYS.map((key) => [key, expected[key]])) as unknown as AnalysisDatasetContext;
