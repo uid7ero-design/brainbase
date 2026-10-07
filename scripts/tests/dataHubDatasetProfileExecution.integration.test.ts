@@ -3,6 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import type { AnalysisDatasetContext } from "@/lib/data-hub/analysis";
 import type { SemanticDatasetSchemaDraft } from "@/lib/data-hub/semanticInference/schemaSynthesis";
 import type { DataQualityReviewResolution } from "@/lib/data-hub/dataQuality/reviewResolution";
+import { SEMANTIC_ROLES } from "@/lib/data-hub/semanticInference/contracts";
 
 // Data Hub 6.2D4D1B2 -- real disposable-Postgres proof for the dataset
 // profile execution service (profileUploadDataset, and its own
@@ -812,4 +813,126 @@ describe("D4D5N real persisted upload count service", () => {
       .toEqual([f.ids.col1, f.ids.col2, f.ids.col3, f.ids.col4]);
     expect(JSON.stringify(loaded.profile)).not.toMatch(/numericStats|stringStats|temporalStats|ID-1|2024-01-01/);
   });
+});
+
+// D4D5Q storage foundation: the harness applies the review migration twice.
+// These tests use real SQL constraints/triggers, not an application save API.
+// Storage eligibility alone does not assert semantic review completeness.
+describe("D4D5Q durable analysis review foundation", () => {
+  async function insertReview(f: Awaited<ReturnType<typeof countWorld>>, overrides: {
+    org?: string; upload?: string; actor?: string; revision?: number; version?: string;
+    choices?: unknown; decisions?: unknown;
+  } = {}) {
+    const id = nextSuffix("review");
+    await prisma.$executeRawUnsafe(`INSERT INTO data_hub_analysis_reviews
+      (id, organisation_id, upload_id, profile_run_id, revision, review_version, reviewed_by_id,
+       reviewed_at, semantic_choices, quality_decisions)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,'2000-01-01'::timestamptz,$8::jsonb,$9::jsonb)`,
+      id, overrides.org ?? ORG_A, overrides.upload ?? f.ids.uploadId, f.context.datasetProfileRunId,
+      overrides.revision ?? 1, overrides.version ?? "v1", overrides.actor ?? f.ids.userId,
+      JSON.stringify(overrides.choices ?? [{ sourceSchemaColumnId: f.ids.col1, role: "IDENTIFIER" },
+        { sourceSchemaColumnId: f.ids.col2, role: "MEASURE" }]),
+      JSON.stringify(overrides.decisions ?? [{ code: "COLUMN_PARTIALLY_NULL", scope: "COLUMN",
+        sourceSchemaColumnId: f.ids.col2, decision: "ACKNOWLEDGE" }, { code: "COLUMN_CONSTANT", scope: "COLUMN",
+        sourceSchemaColumnId: f.ids.col2, decision: "ACKNOWLEDGE" }]));
+    return id;
+  }
+  it("stores explicit decisions in sequential immutable revisions with server timestamps", async () => {
+    const f = await countWorld(), id = await insertReview(f);
+    await insertReview(f, { revision: 2 });
+    const records = await prisma.$queryRawUnsafe<Array<{ id: string; revision: number; reviewed_at: Date; semantic_choices: unknown }>>(
+      "SELECT id, revision, reviewed_at, semantic_choices FROM data_hub_analysis_reviews WHERE profile_run_id=$1 ORDER BY revision",
+      f.context.datasetProfileRunId);
+    expect(records.map((r) => r.revision)).toEqual([1, 2]);
+    expect(records[0].id).toBe(id);
+    expect(records[0].reviewed_at.getTime()).toBeGreaterThan(Date.now() - 60_000);
+    expect(records[0].semantic_choices).toEqual([{ sourceSchemaColumnId: f.ids.col1, role: "IDENTIFIER" },
+      { sourceSchemaColumnId: f.ids.col2, role: "MEASURE" }]);
+    await expect(prisma.$executeRawUnsafe("UPDATE data_hub_analysis_reviews SET review_version='v2' WHERE id=$1", id))
+      .rejects.toThrow(/ANALYSIS_REVIEW_IMMUTABLE/);
+    await expect(prisma.$executeRawUnsafe("DELETE FROM data_hub_analysis_reviews WHERE id=$1", id))
+      .rejects.toThrow(/ANALYSIS_REVIEW_IMMUTABLE/);
+    await expect(prisma.$executeRawUnsafe("TRUNCATE data_hub_analysis_reviews"))
+      .rejects.toThrow(/ANALYSIS_REVIEW_IMMUTABLE/);
+  });
+  it.each(["missing", "wrongOrg", "viewer", "analyst", "inactive", "invited"])("rejects an unauthorized reviewer: %s", async (kind) => {
+    const f = await countWorld(), actor = nextSuffix("actor");
+    if (kind !== "missing") await prisma.user.create({ data: { id: actor, username: actor, name: "Review fixture",
+      organisation_id: kind === "wrongOrg" ? ORG_B : ORG_A,
+      role: kind === "viewer" ? "VIEWER" : kind === "analyst" ? "ANALYST" : "MANAGER",
+      status: kind === "inactive" ? "INACTIVE" : kind === "invited" ? "INVITED" : "ACTIVE" } });
+    await expect(insertReview(f, { actor })).rejects.toThrow(/ANALYSIS_REVIEW_ACTOR_INVALID/);
+  });
+  it("retains historical reviewer identity after the account is removed", async () => {
+    const f = await countWorld(), actor = nextSuffix("retainedActor");
+    await prisma.user.create({ data: { id: actor, username: actor, name: "Review fixture", organisation_id: ORG_A,
+      role: "MANAGER", status: "ACTIVE" } });
+    const id = await insertReview(f, { actor });
+    await prisma.user.delete({ where: { id: actor } });
+    const records = await prisma.$queryRawUnsafe<Array<{ reviewed_by_id: string }>>(
+      "SELECT reviewed_by_id FROM data_hub_analysis_reviews WHERE id=$1", id);
+    expect(records[0].reviewed_by_id).toBe(actor);
+    await expect(insertReview(f, { actor, revision: 2 })).rejects.toThrow(/ANALYSIS_REVIEW_ACTOR_INVALID/);
+  });
+  it.each(["ADMIN", "SUPER_ADMIN"] as const)("accepts an active same-organization %s reviewer", async (role) => {
+    const f = await countWorld(), actor = nextSuffix("privilegedActor");
+    await prisma.user.create({ data: { id: actor, username: actor, name: "Review fixture", organisation_id: ORG_A,
+      role, status: "ACTIVE" } });
+    await expect(insertReview(f, { actor })).resolves.toBeTypeOf("string");
+  });
+  it("rejects a running unpinned profile", async () => {
+    const suffix = nextSuffix("unprofiled"), ids = await seedWorld(suffix, ORG_A, []);
+    const context = await resolveAuthoritativeNormalizationContext({ organisationId: ORG_A, uploadId: ids.uploadId });
+    if (!context.ok) throw new Error(context.code);
+    const started = await createDatasetProfileRunAttempt({ organisationId: ORG_A, actorId: ids.userId,
+      normalization: context.normalization, profilerVersion: DATASET_PROFILER_VERSION });
+    if (!started.ok || !started.created) throw new Error("expected a new profile attempt");
+    await expect(prisma.$executeRawUnsafe(`INSERT INTO data_hub_analysis_reviews
+      (id, organisation_id, upload_id, profile_run_id, revision, review_version, reviewed_by_id, semantic_choices, quality_decisions)
+      VALUES ($1,$2,$3,$4,1,'v1',$5,'[]'::jsonb,'[]'::jsonb)`, nextSuffix("incompleteReview"), ORG_A,
+      ids.uploadId, started.run.id, ids.userId)).rejects.toThrow(/ANALYSIS_REVIEW_PROFILE_INVALID/);
+  });
+  it("keeps SQL semantic role vocabulary aligned with the pure contract", async () => {
+    for (const role of SEMANTIC_ROLES) {
+      const result = await prisma.$queryRawUnsafe<Array<{ valid: boolean }>>(
+        "SELECT datahub_valid_review_semantic_choices($1::jsonb) AS valid",
+        JSON.stringify([{ sourceSchemaColumnId: "synthetic-column", role }]));
+      expect(result[0].valid).toBe(true);
+    }
+  });
+  it.each(["org", "upload"])("rejects a mismatched profile %s pin", async (pin) => {
+    const f = await countWorld();
+    await expect(insertReview(f, pin === "org" ? { org: ORG_B } : { upload: "unrelated-upload" }))
+      .rejects.toThrow(/ANALYSIS_REVIEW_PROFILE_INVALID/);
+  });
+  it.each([0, 2])("rejects invalid initial revision %s", async (revision) => {
+    const f = await countWorld(); await expect(insertReview(f, { revision })).rejects.toThrow(/ANALYSIS_REVIEW_REVISION_INVALID/);
+  });
+  it("serializes concurrent initial revisions without duplicate or overwritten history", async () => {
+    const f = await countWorld(); const attempts = await Promise.allSettled([insertReview(f), insertReview(f)]);
+    expect(attempts.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(attempts.filter((result) => result.status === "rejected")).toHaveLength(1);
+    const records = await prisma.$queryRawUnsafe<Array<{ revision: number }>>(
+      "SELECT revision FROM data_hub_analysis_reviews WHERE profile_run_id=$1", f.context.datasetProfileRunId);
+    expect(records).toEqual([{ revision: 1 }]);
+  });
+  it("rejects unsupported review versions", async () => {
+    const f = await countWorld(); await expect(insertReview(f, { version: "v2" })).rejects.toThrow(/version_check/);
+  });
+  it.each(["object", "extra", "role", "duplicate", "unknownColumn"])("rejects invalid semantic choices: %s", async (kind) => {
+    const f = await countWorld(); const choice = { sourceSchemaColumnId: f.ids.col2, role: "MEASURE" };
+    const choices = kind === "object" ? {} : kind === "extra" ? [{ ...choice, ready: true }] : kind === "role"
+      ? [{ ...choice, role: "SQL" }] : kind === "duplicate" ? [choice, choice] : [{ ...choice, sourceSchemaColumnId: "other" }];
+    await expect(insertReview(f, { choices })).rejects.toThrow(/ANALYSIS_REVIEW_(PAYLOAD|COLUMN)_INVALID/);
+  });
+  it.each(["object", "extra", "code", "noticeDecision", "duplicate", "scope", "missingColumn"])(
+    "rejects invalid quality decisions: %s", async (kind) => {
+      const f = await countWorld(); const item = { code: "COLUMN_CONSTANT", scope: "COLUMN",
+        sourceSchemaColumnId: f.ids.col2, decision: "ACKNOWLEDGE" };
+      const decisions = kind === "object" ? {} : kind === "extra" ? [{ ...item, state: "READY" }] : kind === "code"
+        ? [{ ...item, code: "INVENTED" }] : kind === "noticeDecision" ? [{ ...item, decision: "CONTINUE" }]
+        : kind === "duplicate" ? [item, item] : kind === "scope" ? [{ ...item, scope: "DATASET" }]
+        : [{ code: item.code, scope: "COLUMN", decision: "ACKNOWLEDGE" }];
+      await expect(insertReview(f, { decisions })).rejects.toThrow(/ANALYSIS_REVIEW_PAYLOAD_INVALID/);
+    });
 });

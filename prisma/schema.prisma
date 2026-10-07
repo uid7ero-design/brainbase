@@ -80,6 +80,7 @@ model Organisation {
   data_hub_normalization_runs DataHubNormalizationRun[]
   data_hub_dataset_profile_runs DataHubDatasetProfileRun[]
   data_hub_dataset_profile_columns DataHubDatasetProfileColumn[]
+  data_hub_analysis_reviews DataHubAnalysisReview[]
   data_hub_normalized_rows    DataHubNormalizedRow[]
   data_hub_normalized_cells   DataHubNormalizedCell[]
   data_hub_normalization_findings DataHubNormalizationFinding[]
@@ -1553,6 +1554,7 @@ model DataHubDatasetProfileRun {
   columns DataHubDatasetProfileColumn[]
   // D4D1B2 — back-relation for Upload.dataset_profile_run's own FK.
   profiled_uploads Upload[] @relation("UploadDatasetProfileRun")
+  analysis_reviews DataHubAnalysisReview[]
 
   @@unique([id, organisation_id], map: "data_hub_dataset_profile_runs_id_org_key")
   @@unique([id, source_schema_worksheet_id, organisation_id], map: "data_hub_dataset_profile_runs_id_worksheet_org_key")
@@ -1628,6 +1630,30 @@ model DataHubDatasetProfileColumn {
   @@index([organisation_id, profile_run_id])
   @@index([source_schema_column_id])
   @@map("data_hub_dataset_profile_columns")
+}
+
+// D4D5Q append-only explicit decisions. SQL owns payload/lifecycle checks.
+// reviewed_by_id is an actor-id snapshot checked on insert, deliberately not
+// a live User FK: removing an account must preserve historical attribution.
+// review_version v1 binds the v1 semantic and quality decision algorithms.
+model DataHubAnalysisReview {
+  id                String   @id @default(cuid())
+  organisation_id   String
+  upload_id         String
+  profile_run_id    String
+  revision          Int
+  review_version    String
+  reviewed_by_id    String
+  reviewed_at       DateTime @default(now()) @db.Timestamptz(6)
+  semantic_choices  Json
+  quality_decisions Json
+
+  organisation Organisation @relation(fields: [organisation_id], references: [id])
+  profile_run DataHubDatasetProfileRun @relation(fields: [profile_run_id, upload_id, organisation_id], references: [id, upload_id, organisation_id], map: "data_hub_analysis_reviews_profile_fkey")
+
+  @@unique([profile_run_id, revision], map: "data_hub_analysis_reviews_profile_revision_key")
+  @@index([organisation_id, upload_id, profile_run_id, revision], map: "data_hub_analysis_reviews_scope_idx")
+  @@map("data_hub_analysis_reviews")
 }
 
 model DashboardConfig {
