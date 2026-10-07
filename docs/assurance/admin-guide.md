@@ -384,6 +384,50 @@ Evidence (**Assurance → Evidence**) is the register of proof; Verification
   after), verification requested, verification withdrawn, accepted, rejected,
   superseded and replacement recorded.
 
+## Incidents and investigations
+
+See [work instruction 01](work-instructions/01-report-an-incident.md) and
+[02](work-instructions/02-start-an-investigation.md).
+
+- **Model.** An incident is the event; an investigation is the structured
+  process to understand it; findings are the issues; actions are the
+  corrective work. Actions always address findings — there is no action
+  directly on an incident or investigation.
+- **Cases.** Incidents and investigations each have their own restricted
+  flag and people. The underlying Case record is not used by the Assurance
+  screens today and is not shown to users.
+- **Permissions.** Managers and admins report incidents, start
+  investigations, change status, assign owners and lead investigators, and
+  raise findings. Closing or cancelling an incident, and completing or
+  cancelling an investigation, use the manager-level **close** permission.
+  Viewers read only. Every check is made on the server.
+- **Restriction.** A restricted incident is visible to its owner, reporter,
+  creator and admins; a restricted investigation to its lead, creator and
+  admins. An investigation of a restricted incident must be restricted:
+  starting one from a restricted incident always creates a restricted
+  investigation, and linking a restricted incident to an unrestricted
+  investigation is refused. Assigning a lead to a restricted investigation
+  lets that person see it.
+- **Starting an investigation** from an incident links it as the primary
+  incident, inside a lock on the incident. A second start is refused while
+  an active investigation already has that primary incident. The incident's
+  status is not changed.
+- **Closure.** An incident closes only from Under review or Awaiting
+  verification, with a closure summary, and only when every linked finding
+  is closed or cancelled and every linked investigation is completed or
+  cancelled (counting records the user cannot see). An investigation
+  completes only from Awaiting review, with a conclusion; open findings do
+  not block it. Neither ever closes the other, or any finding or action.
+- **Reopen.** Closed or cancelled incidents and completed or cancelled
+  investigations cannot be reopened.
+- **Deadlines.** Incidents and investigations have no deadlines in the
+  Deadlines workflow. An investigation's **target completion** date is a
+  planning date only.
+- **Audit history.** Incident created, status changed, closed, owner
+  changed and investigation started; investigation created, status changed,
+  completed, lead changed and incident linked. Each is one entry written in
+  the same transaction as the change.
+
 ## Findings and corrective actions
 
 Findings are the issues; actions are the corrective work. See
@@ -467,6 +511,7 @@ Rules:
 |---|---|
 | Evidence | **No file upload.** Evidence records describe the proof and where the original is held. Checklist-item or criterion context can be set when adding evidence on the inspection or audit, not when linking existing evidence from the evidence page. Evidence has no expiry date of its own (contractor evidence keeps its dates in Contractor assurance). |
 | People | People on incidents and investigations are displayed, but cannot be added or edited from Assurance screens. |
+| Incidents & investigations | Risk level, location, asset, external organisation and description cannot be edited after an incident is reported (owner and lead can be changed). No reopen. No deadlines in the Deadlines workflow (investigation target dates are for planning only). |
 | Due dates | A due date can only be set when a finding or action is created; it cannot be added later. Extensions and escalations are manual (no automatic escalation, no organisation-wide deadline rules). Who cancelled an escalation is recorded in the audit history, not on the escalation itself. |
 | Findings | Findings are raised from a source record, and can be linked to further incidents, investigations, inspections and audits. There is no standalone "new finding" button. Linking an existing finding to an inspection or audit does not record a checklist item or criterion. Who cancelled a finding, and when, is recorded in its audit history rather than on the finding. |
 | Reference data | Locations, assets and external organisations are managed under **Settings → Reference data** and are never deleted. Archived or retired records cannot be reactivated there, and there is no map or address look-up. |
