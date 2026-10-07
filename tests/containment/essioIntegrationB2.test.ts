@@ -224,12 +224,17 @@ describe('static guarantees', () => {
       .filter((f) => /@\/lib\/essioIntegration\//.test(fs.readFileSync(f, 'utf8')))
       .map((f) => path.relative(ROOT, f).split(path.sep).join('/'))
       .sort();
-    expect(users).toEqual(['app/api/integrations/essio/v1/targets/route.ts', 'app/api/integrations/essio/v1/work/route.ts']);
+    expect(users).toEqual([
+      'app/api/integrations/essio/v1/targets/route.ts',
+      'app/api/integrations/essio/v1/work/[idempotencyKey]/route.ts',
+      'app/api/integrations/essio/v1/work/route.ts',
+    ]);
   });
 
-  it('no status-read, timeline-append or webhook route exists yet', () => {
-    expect(fs.existsSync(path.join(ROOT, 'app/api/integrations/essio/v1/work/[id]'))).toBe(false);
+  it('no timeline-append or webhook route exists; the only work sub-route is the B3 status read', () => {
     expect(fs.readdirSync(path.join(ROOT, 'app/api/integrations/essio/v1')).sort()).toEqual(['targets', 'work']);
+    expect(fs.readdirSync(path.join(ROOT, 'app/api/integrations/essio/v1/work')).sort()).toEqual(['[idempotencyKey]', 'route.ts']);
+    expect(fs.readdirSync(path.join(ROOT, 'app/api/integrations/essio/v1/work/[idempotencyKey]'))).toEqual(['route.ts']);
   });
 
   it('nothing in the B2 code logs', () => {

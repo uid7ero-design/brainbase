@@ -1,9 +1,9 @@
 # Essio integration (Brainbase side)
 
-Status: **B2 — API surface.** Essio can create Organiser work and discover
-targets with a per-organisation integration credential that a super_admin
-manages. Status read is B3; timeline append is later. Nothing here is applied
-to Production by this branch.
+Status: **B3 — API surface complete for Essio M3B.** Essio can create
+Organiser work, discover targets and read the status of the work it created,
+with a per-organisation integration credential that a super_admin manages.
+Timeline append is later. Nothing here is applied to Production by this branch.
 
 Essio is HLNA Labs' visibility-evidence product. It hands accepted
 recommendations to Brainbase as work. Essio's own contract is
@@ -221,6 +221,67 @@ handoffs only (a retry with a different target is refused with `409`).
 Only the credential organisation's boards and groups, ids and names, ordered by
 Organiser position, then name, then id. No items, users, colours or other data.
 
+### Status read — `GET /work/<idempotency key>` (scope `work:read`)
+
+Reads the state of work **Essio created**, addressed by the same Essio
+idempotency key (the Essio handoff id) used to create it.
+
+Why the key and not the Brainbase item id: Essio holds the key before delivery
+and stores it anyway; it never changes; it is the unique identity of the
+external link; and it survives deletion of the Organiser item (the link's item
+id becomes `NULL` when the item is hard-deleted, so an item-id lookup could not
+report a deleted item). One identifier, no alternatives.
+
+The lookup is always constrained to the credential's organisation,
+`source_system = 'essio'` and the key; the item is joined through the link.
+Brainbase edits (moving board/group, renaming, priority, assignee, due date,
+status) never break it: the link is authoritative for "the item Essio created".
+
+Linked (`200`):
+
+```json
+{
+  "version": 1,
+  "state": "linked",
+  "idempotency_key": "6f1c2a4e-…",
+  "work_item": {
+    "id": "<item uuid>",
+    "status": { "raw": "Working on it", "category": "in_progress" },
+    "updated_at": "2026-10-05T01:02:03.000Z",
+    "url": "https://<brainbase>/organiser?board=<current board uuid>"
+  }
+}
+```
+
+Deleted (`200` — the surviving link proves the work existed; nothing is recreated):
+
+```json
+{
+  "version": 1,
+  "state": "item_deleted",
+  "idempotency_key": "6f1c2a4e-…",
+  "work_item": { "id": null, "deleted_at": "2026-10-06T09:00:00.000Z" }
+}
+```
+
+- **Status categories** (raw Organiser text is always returned unchanged; the
+  Organiser status model is not changed): `Not Started` → `not_started`,
+  `Working on it` → `in_progress`, `Stuck` → `blocked`, `Done` → `done`
+  (case and surrounding whitespace ignored); anything else, including custom
+  text, → `other`.
+- **`updated_at`** is the Organiser item's application-maintained
+  `updated_at` (set by Brainbase routes; no database trigger). It is a
+  change hint, not a strict monotonic row version.
+- **`url`** is the board-level Organiser URL of the item's *current* board.
+- **Minimal response:** never notes, title, owner, assignee, priority, due
+  date, comments, users, group, snapshot, fingerprints, credential or
+  organisation data.
+- **404 `work_not_found`** for an unknown key, a malformed key, another
+  organisation's key, or any Organiser item not created through this Essio
+  integration — all identical, so existence of other items is never revealed.
+- Read only: a status read writes nothing (apart from the credential's
+  throttled `last_used_at`).
+
 ### Errors
 
 Envelope: `{ "error": { "code": "…", "message": "…" } }` (+ `details` paths for
@@ -234,6 +295,7 @@ names, stack traces, credential ids or secrets.
 | 403 | `insufficient_scope` | credential lacks the scope |
 | 403 | `integration_disabled` | `essio_integration` not enabled for the organisation |
 | 404 | `target_not_found`, `target_group_not_found` | board/group not in the credential's organisation/board |
+| 404 | `work_not_found` | status read: no Essio work for this key in the credential's organisation |
 | 409 | `idempotency_conflict` | same key, different request (handoff, board or group) |
 | 409 | `idempotency_key_unavailable` | identity exists without an item (not produced by this API) |
 | 410 | `work_item_deleted` | the item created for this key was deleted |
@@ -277,19 +339,20 @@ data and fails clearly on duplicates or a conflicting name.
 
 Order: `create-organiser-items-org-id-key-a01a.sql` →
 `create-essio-integration-b1.sql` → `seed-essio-integration-capability.sql`
-(idempotent; PostgreSQL 15+). B2 adds no schema.
+(idempotent; PostgreSQL 15+). B2 and B3 add no schema.
 
 - `scripts/tests/verify-essio-integration-b1.sh` — migration scenarios +
   credential/link/actor suite.
 - `scripts/tests/verify-essio-integration-b2.sh` — the API routes against the
   real schema (create, replay, conflict, concurrency, deletion, isolation,
   validation, injected failures, discovery, admin lifecycle).
-- Both use `scripts/tests/essio-integration-base-schema.sql` and a disposable
+- `scripts/tests/verify-essio-integration-b3.sh` — status read (linked,
+  deleted, moved/edited items, status categories, isolation, auth).
+- All use `scripts/tests/essio-integration-base-schema.sql` and a disposable
   Docker Postgres 17.
 
 ## Follow-ups
 
-- **B3:** status read by ids (`work:read`), scoped to Essio-linked items.
 - Super-admin UI for credentials (the API exists).
 - Shared rate limiter for machine routes.
 - Timeline append (`work:append`), item-level deep links: later.
