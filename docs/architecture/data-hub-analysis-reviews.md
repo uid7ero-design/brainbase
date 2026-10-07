@@ -46,3 +46,15 @@ concurrent revisions or pointer changes from producing an invalid commit.
 Conflicts return REVIEW_SAVE_FAILED; no automatic retry is performed. A client
 retry is a new append operation, not an idempotent replay. HTTP/session wiring
 and conflict UX remain follow-up work. Production migration status is unchanged.
+
+D4D5U exposes GET/POST `/api/data-hub/worksheets/[id]/analysis-review`
+using the existing Data Hub manager role boundary. Organization and reviewer
+come from the database-backed session; the path selects the upload inside that
+organization. GET returns recomputed snapshots and their review revision;
+POST accepts the closed decision body and returns the appended revision with
+201. Responses are private/no-store. Missing records return 404, stale profile
+conditions 409, invalid review resolutions 422 and persistence/read failures
+503. Error responses project only the closed code, without detailed evidence
+or exception text. No automatic POST retry is safe to assume. The review SQL
+migration must be installed before using these endpoints; it is not applied
+by deployment of this route. Browser review workflow remains follow-up work.
