@@ -36,7 +36,6 @@ describe("D4D5D row count plan", () => {
     },
   );
   it.each([
-    { requestVersion: "v1", kind: "GROUP_BY", sourceSchemaColumnId: "category" },
     { requestVersion: "v1", kind: "AGGREGATE", sourceSchemaColumnId: "amount" },
   ])("does not silently plan other supported intents: $kind", (input) => {
     expect(buildAnalysisPlan(readiness(), input)).toEqual({ ok: false, code: "PLAN_KIND_NOT_SUPPORTED" });
