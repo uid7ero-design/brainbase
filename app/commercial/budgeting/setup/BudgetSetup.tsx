@@ -1,6 +1,7 @@
 'use client';
 import { useEffect,useState,type FormEvent } from 'react';
 import { Field,TableContainer,buttonProps,fieldControlClassName,tableStyles } from '@/components/ui/app';
+import styles from './page.module.css';
 type Dimension={id:string;code:string;active:boolean};
 type Year={id:string;name:string;status:string;periods:{id:string;name:string}[]};
 type Version={budget_id:string;version_id:string;name:string;financial_year_id:string;currency:string;tax_basis:string;periodisation_mode:string;version_number:number;status:string;lines:{id:string;budget_account_id:string;cost_centre_id:string;annual_budget_cents:string}[];allocations:{budget_line_id:string;financial_period_id:string;amount_cents:string}[];mappings:{cost_centre_id:string;budget_account_id:string}[]};
@@ -55,8 +56,8 @@ export default function BudgetSetup({revision}:{revision:number}){
       <button {...buttonProps('primary')} type="submit">Create draft Budget</button>
     </fieldset></form>
     <Field label="Budget version">{control=><select {...control} className={fieldControlClassName} value={versionId} onChange={event=>setVersionId(event.target.value)} disabled={loading||busy}><option value="">Choose Budget</option>{data.versions.map(row=><option key={row.version_id} value={row.version_id}>{row.name} · {row.currency} · v{row.version_number} · {row.status}</option>)}</select>}</Field>
-    {version?<div key={version.version_id}>
-      <p>{version.currency} · {version.tax_basis} · {version.periodisation_mode} · {version.status}</p>
+    {version?<div key={version.version_id} className={styles.budgetDetails}>
+      <p className={styles.versionSummary}>{version.currency} · {version.tax_basis} · {version.periodisation_mode} · {version.status}</p>
       {version.status==='DRAFT'?<>
         <form aria-label="Budget line" onSubmit={event=>void submit(event,'line')}><fieldset disabled={busy} style={formStyle}>
           <SelectField label="Line account" name="budgetAccountId" options={accountOptions}/><SelectField label="Line cost centre" name="costCentreId" options={centreOptions}/>
@@ -69,7 +70,7 @@ export default function BudgetSetup({revision}:{revision:number}){
           <SelectField label="Allocation line" name="budgetLineId" options={version.lines.map(line=>({id:line.id,label:accountCode(line.budget_account_id)+' / '+centreCode(line.cost_centre_id)}))}/><SelectField label="Allocation period" name="financialPeriodId" options={periods.map(period=>({id:period.id,label:period.name}))}/>
           <Field label="Period amount (minor units)" required>{control=><input {...control} name="amountCents" required inputMode="numeric" pattern="[0-9]+" className={fieldControlClassName}/>}</Field><button {...buttonProps('secondary')} type="submit">Save allocation</button>
         </fieldset></form>}
-        <form aria-label="Activate Budget" onSubmit={event=>void submit(event,'activate')}><button {...buttonProps('primary')} disabled={busy||version.lines.length===0||version.mappings.length===0} type="submit">Activate Budget version</button></form>
+        <form className={styles.activationAction} aria-label="Activate Budget" onSubmit={event=>void submit(event,'activate')}><button {...buttonProps('primary')} disabled={busy||version.lines.length===0||version.mappings.length===0} type="submit">Activate Budget version</button></form>
       </>:<p>This version is read-only. Its existing lines, mappings and allocations remain available below.</p>}
       <TableContainer label="Budget setup lines" minWidth={600}><table className={tableStyles.table}><thead><tr>{['Account','Cost centre','Annual minor units'].map(label=><th key={label} scope="col">{label}</th>)}</tr></thead><tbody>{version.lines.length?version.lines.map(line=><tr key={line.id}><td>{accountCode(line.budget_account_id)}</td><td>{centreCode(line.cost_centre_id)}</td><td>{line.annual_budget_cents}</td></tr>):<tr><td colSpan={3}>No Budget lines yet.</td></tr>}</tbody></table></TableContainer>
       <p style={{fontSize:13}}>Commitment mappings: {version.mappings.length?version.mappings.map(mapping=>centreCode(mapping.cost_centre_id)+' → '+accountCode(mapping.budget_account_id)).join('; '):'None yet.'}</p>
