@@ -1,24 +1,35 @@
 # Essio integration (Brainbase side)
 
-Status: **B1 — foundation only.** Machine credentials, the `essio_integration`
-capability, the Organiser external-link identity and the system actor exist as
-schema + internal services. **No route exposes them yet** (create-work,
-discovery and status read are B2/B3). Nothing here is applied to Production by
-the B1 branch.
+Status: **B2 — API surface.** Essio can create Organiser work and discover
+targets with a per-organisation integration credential that a super_admin
+manages. Status read is B3; timeline append is later. Nothing here is applied
+to Production by this branch.
 
 Essio is HLNA Labs' visibility-evidence product. It hands accepted
 recommendations to Brainbase as work. Essio's own contract is
 `docs/BRAINBASE-INTEGRATION.md` in the Essio repository; this document covers
 only how Brainbase implements its side.
 
+## Ownership boundaries
+
+| Brainbase owns (never set from Essio) | Essio owns (shown as source context) |
+|---|---|
+| work status, priority, assignee/owner, due date, comments, board/group placement after creation, the item's title and notes once created | the recommendation, its evidence, its priority band/score/confidence, its lifecycle |
+
+The Essio priority band, score and confidence appear in the item's notes,
+explicitly labelled as **Essio's evidence-based assessment, not a Brainbase
+priority**. They never populate the Organiser priority field.
+
 ## Target mapping
 
 An Essio site maps to a **Brainbase organisation + one Organiser board +
-optional group**. Brainbase has no "workspace" or "project" container for
-Organiser work. Essio stores the board id (never the name — board names are not
-unique). Boards can be hard-deleted, so B2 must report a missing board cleanly.
+optional group**. The organisation is always the credential's; Essio stores the
+board id (and group id) — never names, which are not unique. Discovery (below)
+lists the valid targets.
 
-## Machine credentials (`integration_credentials`)
+## Credentials
+
+### Model (`integration_credentials`, B1)
 
 | Column | Notes |
 |---|---|
@@ -32,148 +43,256 @@ unique). Boards can be hard-deleted, so B2 must report a missing board cleanly.
 | `revoked_at`, `revoked_by` | terminal; a revoked credential cannot be re-enabled |
 | `created_by`, `created_at`, `updated_at`, `last_used_at` | `last_used_at` is refreshed at most every 5 minutes, best effort |
 
-Rows are never deleted (trigger). Identity, organisation and secret columns are
-immutable (trigger). `work:append` is **reserved** for timeline append
-(B4/M3E): named in code, rejected by the service and excluded by the DB CHECK.
+Rows are never deleted and identity/organisation/secret columns are immutable
+(trigger). `work:append` is reserved for timeline append and not grantable.
+Lifecycle changes write an `audit_logs` row (`resource_type =
+'integration_credential'`, `user_id` = the super_admin) in the same statement,
+with no secret material.
 
-Lifecycle changes (created / disabled / enabled / revoked) write an
-`audit_logs` row in the same statement, with `resource_type =
-'integration_credential'` and no secret material.
-
-### Token format
+### Token format and verification
 
 ```
 bbint_<credential id: 32 lowercase hex>_<secret: 43 base64url chars>
 ```
 
-The secret is 32 bytes from the CSPRNG. Stored digest:
-`sha256_hex('bbint:v1:' || <credential id> || ':' || <secret>)`. A fast hash is
-appropriate for a 256-bit random secret; binding the id means a digest copied
-onto another row never verifies. The plaintext token is returned exactly once,
-by `createIntegrationCredential`, and never logged, audited or included in an
-error. `CRON_SECRET` is not used.
+The secret is 32 CSPRNG bytes; the stored digest is
+`sha256_hex('bbint:v1:' || <credential id> || ':' || <secret>)`. Verification:
+parse the public id → load exactly that row → constant-time secret check →
+reject revoked, then disabled → organisation from the credential only →
+required scope → `essio_integration` capability enabled for that organisation
+→ typed principal. `CRON_SECRET` is not used.
 
-### Verification (`authenticateIntegrationCredential`)
+### Super-admin management
 
-1. parse the public credential id (strict shape; otherwise `MALFORMED`)
-2. load exactly that row (no scanning)
-3. verify the secret in constant time (`lib/secureCompare`); an unknown id does
-   the same hashing work
-4. reject revoked, then disabled credentials
-5. take the organisation **only** from the credential row — the function has
-   no organisation parameter, and the returned principal is frozen
-6. require the requested scope
-7. require the `essio_integration` capability for that organisation
-8. return `IntegrationPrincipal { kind: 'integration', credentialId,
-   organisationId, integrationKey, scopes, label }`
+All routes require `requireRole('super_admin')` (role and status re-read from
+the database on every call; the JWT role claim alone is never trusted). Every
+response is `Cache-Control: no-store`.
 
-Failure reasons are for server-side use. Routes must map them with
-`toPublicIntegrationAuthError`: every credential problem is the same `401
-invalid_credentials`; missing scope and disabled capability are `403`;
-infrastructure is `503`.
+| Method & path | Body | Result |
+|---|---|---|
+| `GET /api/admin/integration-credentials?organisation_id=<org>` | — | `{ credentials: [...] }` — metadata only |
+| `POST /api/admin/integration-credentials` | `{ organisation_id, label, scopes }` | `201 { credential, token, token_warning }` |
+| `PATCH /api/admin/integration-credentials/<id>` | `{ organisation_id, action: "disable" \| "enable" \| "revoke" }` | `{ credential }` or `{ outcome, credential }` |
+
+- `integration_key` is always `essio`; scopes must be grantable
+  (`work:append` → `400 scope_reserved`, unknown → `400 scope_unknown`).
+- The plaintext token appears **only** in the POST response, with
+  `token_warning`: it is shown once and cannot be recovered. Lost tokens are
+  revoked and replaced, never re-issued.
+- List and lifecycle responses never contain a token or `secret_hash`.
+- A credential can only be managed through its own organisation (`404`
+  otherwise). Revoking twice returns `already_revoked`; enabling a revoked
+  credential returns `409 revoked`.
+- There is no admin UI yet (follow-up); the routes are the management path.
 
 ## Capability gate
 
-`essio_integration` is a normal `modules` row (`scripts/seed-essio-integration-capability.sql`),
-off for every organisation until a super_admin enables it in /admin/orgs.
-Access requires **both** a valid credential **and** the capability enabled for
-the credential's organisation. It does not change Organiser permissions for
-people.
+`essio_integration` is a normal `modules` row
+(`scripts/seed-essio-integration-capability.sql`), off for every organisation
+until a super_admin enables it. Every Essio request needs **both** a valid
+credential **and** the capability enabled for the credential's organisation.
+It does not change any person's Organiser permissions.
 
-## External link identity (`organiser_item_external_links`)
+## API (machine)
 
-A typed link from one external request to the Organiser item it created (not a
-polymorphic `entity_type/entity_id` relation).
+Base path `/api/integrations/essio/v1`. Headers:
 
-- `UNIQUE (organisation_id, source_system, idempotency_key)` — the request
-  identity. `source_system` is `'essio'` (CHECK); the Essio idempotency key is
-  the Essio handoff id.
-- `(organisation_id, organiser_item_id) → organiser_items(organisation_id, id)`
-  and `(organisation_id, credential_id) → integration_credentials(organisation_id, id)`:
-  same-organisation references enforced by the database.
-- `external_recommendation_id`, `source_url` (Essio deep link, http(s) only),
-  `handoff_snapshot` (the exact Essio payload, ≤ 256 KiB), `created_at`,
-  `item_deleted_at`.
-- Two fingerprints, never overloaded:
-  - `handoff_fingerprint` — identity/provenance of the frozen Essio payload
-    (sha256 hex, equal to the fingerprint Essio records);
-  - `request_fingerprint` — identity of the complete Brainbase creation
-    instruction (target + handoff). Replay vs conflict is decided on this one,
-    so an idempotency key can never redirect the same handoff to another
-    board or group.
-- `target_board_id` / `target_group_id` — the original creation target (no FK).
-  Brainbase users may move the item later; its current placement is never
-  treated as the original target.
-- An item belongs to at most one link (partial unique index).
-- Rows are never deleted; identity columns — including both fingerprints and
-  the target — are immutable (trigger).
+```
+Authorization: Bearer bbint_…            (required)
+Essio-Contract-Version: 1                (optional; any other value → 400)
+Idempotency-Key: <handoff id>            (create-work only; must equal handoff.idempotency_key)
+Content-Type: application/json
+```
 
-### Deletion
+Responses are JSON and `no-store`.
 
-Organiser items are hard-deleted. The item FK is `ON DELETE SET NULL
-(organiser_item_id)`: the link and its `organisation_id` stay, and the trigger
-stamps `item_deleted_at`. A deleted link can never be re-pointed or given a
-replacement item, so a retry after deletion is recognised as the same request
-(`itemState: 'item_deleted'`) instead of creating new work. While the item
-exists, the composite FK keeps the link in the same organisation (and blocks
-moving a linked item to another organisation).
+### Create work — `POST /work` (scope `work:create`)
 
-### Idempotency (`claimOrganiserItemExternalLink`)
+Request (body ≤ 64 KiB, checked before parsing):
 
-Insert-first (`ON CONFLICT … DO NOTHING`), scoped to the principal's
-organisation and integration:
+```json
+{
+  "target": { "board_id": "<uuid>", "group_id": "<uuid or null>" },
+  "handoff": { "schema": "essio.recommendation-handoff", "version": 1, "idempotency_key": "<uuid>", "...": "the frozen Essio v1 document" }
+}
+```
 
-| Result | Meaning | B2 response |
+- `handoff` is Essio's frozen v1 document, validated strictly: every key is
+  known and required; unknown keys anywhere (AI wording, provider/model data,
+  raw crawl or Search Console rows, …) are rejected; `wording_source` must be
+  `deterministic`. Caps: title 300; summary/reason/suggested action 4,000;
+  expected check 2,000; names 200; keys 300; ids 128; URLs 2,048 (http/https);
+  target query 500; evidence ≤ 50 items with ≤ 8 numeric metrics each.
+- `target.organisation_id` may be present but is never authority: if it is not
+  the credential's organisation the target is reported as not found.
+- The board must belong to the credential's organisation; the group (optional)
+  must belong to that board and organisation.
+
+Mapping to the Organiser item:
+
+| Organiser | From |
+|---|---|
+| `name` | `content.title` |
+| `notes` | summary, "Why:" reason, "Suggested action:", "How to check:", the labelled Essio assessment, target URL/query, evidence date, site, "Open in Essio:" deep link |
+| `board_id`, `group_id` | `target` |
+| `status` | Organiser default (`Not Started`) |
+| `priority`, `owner`, `assignee_user_id`, `due_date` | **not set** (Brainbase-owned) |
+
+The item, its `organiser_item_external_links` row and its `item.created`
+activity are written by **one SQL statement** (one transaction). The activity
+actor is the Essio system actor: `actor_user_id = NULL`, `actor_name =
+"Essio"`, `metadata_json = { source: "essio", credential_id, idempotency_key,
+external_recommendation_id, handoff_fingerprint, request_fingerprint }`. No
+Essio user exists.
+
+### Two fingerprints
+
+| | Essio handoff fingerprint | Brainbase create-request fingerprint |
 |---|---|---|
-| `created` | first time this key is seen | create the item and attach it |
-| `replayed` | same key, same request fingerprint | return the existing item (or "deleted") |
-| `fingerprint_conflict` | same key, different request (payload and/or target) | refuse (409), no side effects |
+| Column | `handoff_fingerprint` | `request_fingerprint` |
+| Over | the frozen Essio v1 `handoff` document | `{ "target": { "board_id", "group_id" }, "handoff" }` |
+| Algorithm | `sha256(stableStringify(handoff))` — identical to the fingerprint Essio records | `sha256(stableStringify({ target, handoff }))`, ids lower-cased, absent `group_id` ≡ `null` |
+| Meaning | identity/provenance: Brainbase received exactly this Essio snapshot | identity of the complete Brainbase creation instruction |
+| Used for | provenance only | the replay/conflict decision |
 
-Concurrent claims of one key produce exactly one row. B2 attaches the item in
-one statement guarded by `organiser_item_id IS NULL AND item_deleted_at IS
-NULL` (pattern proven in the B1 harness), so a crash between claim and create
-leaves an `unattached` identity that a retry can complete, and never two items.
+`stableStringify` sorts object keys, so neither depends on JSON key order. The
+request fingerprint contains only the request's own intent: no credential, no
+organisation (never request authority) and no Brainbase-owned operational field.
+The link also keeps `handoff_snapshot` (the exact Essio payload) and the
+original `target_board_id` / `target_group_id`: Brainbase users may move the
+item later, so its current placement is never treated as the original target.
 
-## System actor
+Success (`201` created, `200` replay):
 
-`lib/organiser/systemActor.ts` formalises ADR-0003 §5 for integration writes:
-`actor_user_id = NULL`, `actor_name = 'Essio'`, `metadata.source = 'essio'`
-(+ `credential_id`), and for `audit_logs` `user_id = NULL` with
-`after_state.source = 'essio'`. No Essio user account exists or is created; an
-integration write is never attributed to a person.
+```json
+{
+  "version": 1,
+  "created": true,
+  "state": "linked",
+  "idempotency_key": "6f1c2a4e-…",
+  "work_item": { "id": "<uuid>", "url": "https://<brainbase>/organiser?board=<board uuid>", "status": "Not Started" },
+  "accepted_at": "2026-10-03T07:50:00.000Z"
+}
+```
+
+`work_item.id` is opaque. `url` is board-level (Brainbase has no item-level
+link yet). `accepted_at` is when the request identity was first accepted
+(unchanged on replays).
+
+### Idempotency
+
+Keyed on `(organisation, 'essio', idempotency_key)`; decided on the
+create-request fingerprint (target + handoff):
+
+| Situation | Response |
+|---|---|
+| first request | `201`, `created: true` — item, link and activity created atomically |
+| same key, same target, same handoff (any key order) | `200`, `created: false`, same item — nothing written |
+| same key, different handoff | `409 idempotency_conflict` — nothing changed |
+| same key, same handoff, **different board** | `409 idempotency_conflict` — nothing changed |
+| same key, same handoff, **different group** (or group added/removed) | `409 idempotency_conflict` — nothing changed |
+| same key, identical request, item since deleted (or its board deleted) | `410 work_item_deleted`, `state: "item_deleted"`, `deleted_at` — **no replacement item** |
+| same key, changed request, item since deleted | `409 idempotency_conflict` |
+| concurrent duplicates | exactly one item, link and activity; the others replay |
+
+**An idempotency key can never be reused to redirect the same handoff to
+another board or group.** A replay is answered from the stored identity even if
+the item was later moved or deleted. Another organisation's key is a different
+identity (it never replays across organisations).
+
+**For Essio M3B:** the Brainbase target (board and group) used for a queued
+delivery is part of that delivery's immutable intent, exactly like the frozen
+handoff. It must be fixed when the delivery is queued and must not silently
+change between retries; changing the site's mapping afterwards applies to new
+handoffs only (a retry with a different target is refused with `409`).
+
+### Discovery — `GET /targets` (scope `targets:read`)
+
+```json
+{
+  "version": 1,
+  "organisation": { "id": "<org>", "name": "HLNA Labs" },
+  "boards": [
+    { "id": "<uuid>", "name": "Website", "groups": [ { "id": "<uuid>", "name": "Now" } ] }
+  ]
+}
+```
+
+Only the credential organisation's boards and groups, ids and names, ordered by
+Organiser position, then name, then id. No items, users, colours or other data.
+
+### Errors
+
+Envelope: `{ "error": { "code": "…", "message": "…" } }` (+ `details` paths for
+`invalid_payload`, `idempotency_key`/`state` where relevant). Never SQL, table
+names, stack traces, credential ids or secrets.
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `invalid_json`, `invalid_payload`, `idempotency_key_mismatch`, `unsupported_contract_version` | malformed request |
+| 401 | `invalid_credentials` (+ `WWW-Authenticate: Bearer`) | missing, malformed, unknown, wrong, disabled or revoked credential — indistinguishable |
+| 403 | `insufficient_scope` | credential lacks the scope |
+| 403 | `integration_disabled` | `essio_integration` not enabled for the organisation |
+| 404 | `target_not_found`, `target_group_not_found` | board/group not in the credential's organisation/board |
+| 409 | `idempotency_conflict` | same key, different request (handoff, board or group) |
+| 409 | `idempotency_key_unavailable` | identity exists without an item (not produced by this API) |
+| 410 | `work_item_deleted` | the item created for this key was deleted |
+| 413 | `payload_too_large` | body over 64 KiB |
+| 503 | `unavailable` | database unavailable (nothing was written) |
+
+### Rate limiting
+
+Not applied. Brainbase's only limiter (`lib/rateLimit.ts`) is an in-memory map
+per serverless instance, which is not a meaningful bound for machine traffic,
+so it is deliberately not reused. Exposure is limited to authenticated,
+capability-gated, per-organisation credentials that a super_admin issues.
+A shared (database/edge) limiter is a production-hardening follow-up.
+
+## External link identity (`organiser_item_external_links`, B1)
+
+- `UNIQUE (organisation_id, source_system, idempotency_key)`; `source_system`
+  is `'essio'`.
+- `(organisation_id, organiser_item_id) → organiser_items(organisation_id, id)`
+  and `(organisation_id, credential_id) → integration_credentials(organisation_id, id)`.
+- Stores `external_recommendation_id`, `source_url` (deep link),
+  `handoff_fingerprint`, `request_fingerprint`, `handoff_snapshot` (exact
+  payload), `target_board_id`, `target_group_id` (original creation target,
+  no FK), `created_at`, `item_deleted_at`. An item belongs to at most one link.
+  Rows are never deleted; identity (including both fingerprints and the
+  target) is immutable.
+- Organiser items are hard-deleted: the FK is `ON DELETE SET NULL
+  (organiser_item_id)`, the trigger stamps `item_deleted_at`, and a deleted
+  link can never be re-pointed or given a replacement item.
 
 ## A0.1A repository/Production drift
 
 Production has `organiser_items_organisation_id_id_key UNIQUE (organisation_id,
-id)` (verified read-only, Essio B0) and `assurance_action_tasks` already uses
-it, but no repository step created it. `scripts/create-organiser-items-org-id-key-a01a.sql`
-is that step: a no-op when any equivalent uniqueness exists (Production keeps
-its constraint untouched), otherwise it adds the constraint under the
-Production name; it never modifies data and fails clearly on duplicate data or
-a conflicting name.
+id)` (verified read-only, Essio B0), used by `assurance_action_tasks`; no
+repository step created it. `scripts/create-organiser-items-org-id-key-a01a.sql`
+is that step: a no-op when any equivalent uniqueness exists (Production),
+otherwise it adds the constraint under the Production name; it never modifies
+data and fails clearly on duplicates or a conflicting name.
 
 ## Migrations and verification
 
 Order: `create-organiser-items-org-id-key-a01a.sql` →
-`create-essio-integration-b1.sql` → `seed-essio-integration-capability.sql`.
-All are idempotent and require PostgreSQL 15+ (Production is 17).
+`create-essio-integration-b1.sql` → `seed-essio-integration-capability.sql`
+(idempotent; PostgreSQL 15+). B2 adds no schema.
 
-`scripts/tests/verify-essio-integration-b1.sh` (disposable Docker Postgres 17)
-proves: repo-style and Production-like schemas, equivalent-index, name-clash,
-duplicate-data and missing-A0.1A cases, idempotent reruns, then the service and
-database suite `scripts/tests/essioIntegrationB1.integration.test.ts`.
+- `scripts/tests/verify-essio-integration-b1.sh` — migration scenarios +
+  credential/link/actor suite.
+- `scripts/tests/verify-essio-integration-b2.sh` — the API routes against the
+  real schema (create, replay, conflict, concurrency, deletion, isolation,
+  validation, injected failures, discovery, admin lifecycle).
+- Both use `scripts/tests/essio-integration-base-schema.sql` and a disposable
+  Docker Postgres 17.
 
-## Dependencies for B2
+## Follow-ups
 
-- An admin surface (super_admin) to create, list, disable and revoke
-  credentials using the B1 service (shows the token once).
-- Routes: create work (`work:create`), board/group discovery (`targets:read`),
-  status read (`work:read`, B3) — each calling
-  `authenticateIntegrationCredential` and `toPublicIntegrationAuthError`,
-  validating input length/shape, and returning sanitised errors.
-- Create work: claim the link, then create the item, its `item.created`
-  activity (system actor) and the attachment in one statement; map Essio
-  content to `name`/`notes`; leave priority, assignee and due date to
-  Brainbase users.
-- Apply the three migrations to Production (A0.1A is a no-op there), then
-  enable `essio_integration` only for the organisation that will use it.
+- **B3:** status read by ids (`work:read`), scoped to Essio-linked items.
+- Super-admin UI for credentials (the API exists).
+- Shared rate limiter for machine routes.
+- Timeline append (`work:append`), item-level deep links: later.
+- Production rollout: apply the three migrations (A0.1A is a no-op there),
+  enable `essio_integration` only for the organisation that will use it, then
+  issue a credential through the admin route.

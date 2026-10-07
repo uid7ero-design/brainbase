@@ -3,8 +3,9 @@ import sql from '@/lib/db';
 import type { IntegrationPrincipal } from '@/lib/integrationCredentials/service';
 
 // Essio integration B1 — idempotency/identity foundation for external work.
-// Design: docs/integrations/essio.md. B1 creates no Organiser work; this
-// module is the service-level claim/lookup that the B2 create-work path builds on.
+// Design: docs/integrations/essio.md. B2's create-work route claims identity
+// and creates the item in one statement (lib/essioIntegration/createWork.ts);
+// this module is the reusable service-level claim/lookup over the same table.
 //
 // Every link records two fingerprints, never overloaded:
 //   * handoffFingerprint — identity/provenance of the frozen external payload;

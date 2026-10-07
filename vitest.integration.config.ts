@@ -165,6 +165,12 @@ import path from 'path';
 // against the real A0.1A + B1 migrations — see
 // scripts/tests/verify-essio-integration-b1.sh), same explicit-file-argument
 // isolation. Needs only the lib/db sql-client seam.
+//
+// Essio integration B2 addition: scripts/tests/essioIntegrationB2.integration
+// .test.ts (create-work, target discovery and super_admin credential
+// management routes against the real A0.1A + B1 schema — see
+// scripts/tests/verify-essio-integration-b2.sh), same explicit-file-argument
+// isolation. Needs the lib/db seam and a lib/org requireRole stand-in.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -218,6 +224,7 @@ export default defineConfig({
       'scripts/tests/supplierApHistory.integration.test.ts',
       'scripts/tests/supplierApReadiness.integration.test.ts',
       'scripts/tests/essioIntegrationB1.integration.test.ts',
+      'scripts/tests/essioIntegrationB2.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,

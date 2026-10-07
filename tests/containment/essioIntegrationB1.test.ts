@@ -172,7 +172,7 @@ describe('static guarantees', () => {
     expect(migration).toContain('REFERENCES integration_credentials (organisation_id, id)');
   });
 
-  it('no B2/B3 route was added', () => {
+  it('only the reviewed B2 routes use the B1 modules (no other route, no B3 route)', () => {
     const api = path.join(ROOT, 'app/api');
     const walk = (dir: string): string[] =>
       fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
@@ -182,6 +182,10 @@ describe('static guarantees', () => {
       const text = fs.readFileSync(f, 'utf8');
       return /integrationCredentials|externalLinks|systemActor/.test(text);
     });
-    expect(offenders).toEqual([]);
+    const rel = offenders.map((f) => path.relative(ROOT, f).split(path.sep).join('/')).sort();
+    expect(rel).toEqual([
+      'app/api/admin/integration-credentials/[credentialId]/route.ts',
+      'app/api/admin/integration-credentials/route.ts',
+    ]);
   });
 });
