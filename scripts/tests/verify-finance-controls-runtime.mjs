@@ -409,6 +409,18 @@ try {
   await expect(budgetSection.getByText('Commitment mappings: BUDGET-CC → BUDGET-ACC',{exact:true})).toBeVisible();
   const budgetState=(await pool.query("SELECT b.id,v.id AS version_id,l.id AS line_id FROM commercial_budgets b JOIN commercial_budget_versions v ON v.budget_id=b.id JOIN commercial_budget_lines l ON l.budget_version_id=v.id WHERE b.organisation_id='runtime-b'")).rows[0];
   const setupPeriod=(await pool.query("SELECT id FROM commercial_financial_periods WHERE financial_year_id=$1 AND name='July'",[setupYearId])).rows[0].id;
+  await budgetSection.getByText('Edit draft settings',{exact:true}).click();
+  const settingsForm=budgetSection.getByRole('form',{name:'Draft Budget settings',exact:true});
+  await expect(settingsForm.getByLabel('Draft Budget name',{exact:false})).toHaveValue('Pilot Budget');
+  await settingsForm.getByLabel('Draft Budget name',{exact:false}).fill('Pilot Budget revised');
+  await settingsForm.getByLabel('Draft tax basis',{exact:false}).selectOption('EXCLUSIVE');
+  await settingsForm.getByRole('button',{name:'Save draft settings',exact:true}).click();
+  await expect(budgetSection.getByRole('status')).toContainText('Budget settings saved.');
+  const savedSettings=(await pool.query("SELECT b.name,b.tax_basis,l.annual_budget_cents::text AS cents FROM commercial_budgets b JOIN commercial_budget_lines l ON l.budget_version_id=$2 WHERE b.id=$1",[budgetState.id,budgetState.version_id])).rows[0];
+  if(savedSettings.name!=='Pilot Budget revised'||savedSettings.tax_basis!=='EXCLUSIVE'||savedSettings.cents!=='10000')throw new Error('Draft settings did not preserve saved amounts');
+  const settingsAudit=(await pool.query("SELECT before_state,after_state,user_id FROM audit_logs WHERE organisation_id='runtime-b' AND resource_id=$1 AND action='commercial_budget.settings_changed'",[budgetState.id])).rows;
+  if(settingsAudit.length!==1||settingsAudit[0].user_id!=='runtime-other'||settingsAudit[0].before_state.tax_basis!=='INCLUSIVE'||settingsAudit[0].after_state.tax_basis!=='EXCLUSIVE')throw new Error('Draft settings audit is incorrect');
+  await budgetSection.getByText('Edit draft settings',{exact:true}).click();
   const allocationForm=budgetSection.getByRole('form',{name:'Period allocation',exact:true});
   async function allocate(amount){await allocationForm.getByLabel('Allocation line',{exact:false}).selectOption(budgetState.line_id);await allocationForm.getByLabel('Allocation period',{exact:false}).selectOption(setupPeriod);await allocationForm.getByLabel('Period amount (AUD)',{exact:false}).fill(amount);await allocationForm.getByRole('button',{name:'Save allocation',exact:true}).click();await expect(budgetSection.getByRole('table',{name:'Period allocations',exact:true})).toContainText('AUD '+amount);}
   await allocate('90.00');
@@ -421,6 +433,21 @@ try {
   await allocate('100.00');
   await expect(budgetSection.getByText('Balanced',{exact:true})).toBeVisible();
   await expect(budgetSection.getByText('All lines are fully allocated. Check tax basis and commitment mappings before activation.',{exact:true})).toBeVisible();
+  await budgetSection.getByText('Edit draft settings',{exact:true}).click();
+  await expect(settingsForm.getByLabel('Draft Budget name',{exact:false})).toHaveValue('Pilot Budget revised');
+  await expect(settingsForm.getByLabel('Draft tax basis',{exact:false})).toHaveValue('EXCLUSIVE');
+  await settingsForm.getByLabel('Draft tax basis',{exact:false}).selectOption('INCLUSIVE');
+  await settingsForm.getByRole('button',{name:'Save draft settings',exact:true}).click();
+  await expect(budgetSection.getByRole('status')).toContainText('Budget settings saved.');
+  const retainedAllocation=(await pool.query('SELECT amount_cents::text AS cents FROM commercial_budget_period_allocations WHERE budget_line_id=$1',[budgetState.line_id])).rows;
+  if(retainedAllocation.length!==1||retainedAllocation[0].cents!=='10000')throw new Error('Settings edit changed existing allocations');
+  await other.page.setViewportSize({width:390,height:844});
+  const settingsOverflow=await other.page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth}));
+  if(settingsOverflow.scrollWidth>settingsOverflow.width)throw new Error('Draft settings editor overflows mobile viewport');
+  await expect(settingsForm.getByRole('button',{name:'Save draft settings',exact:true})).toBeVisible();
+  await other.page.screenshot({path:resolve(artifacts,'draft-settings-mobile.png'),fullPage:true});
+  await other.page.setViewportSize({width:1440,height:1000});
+  await budgetSection.getByText('Edit draft settings',{exact:true}).click();
   await other.page.screenshot({path:resolve(artifacts,'finance-setup-draft-desktop.png'),fullPage:true});
   // Recover each retained dimension without replacing the draft's identity or lines.
   for(const [index,kind,title,code] of [[0,'accounts','Budget accounts','BUDGET-ACC'],[1,'cost-centres','Cost centres','BUDGET-CC']]){
@@ -446,6 +473,60 @@ try {
   if((await setupPost(budgetSetupPath,{action:'line',budgetAccountId:budgetDimensions[0],costCentreId:budgetDimensions[1],annualBudgetCents:'1'})).status!==409)throw new Error('Activated Budget remained editable');
   const activatedBudget=(await pool.query("SELECT b.active_version_id,v.status FROM commercial_budgets b JOIN commercial_budget_versions v ON v.id=b.active_version_id WHERE b.id=$1",[budgetState.id])).rows[0];
   if(activatedBudget.active_version_id!==budgetState.version_id||activatedBudget.status!=='ACTIVE')throw new Error('Budget activation did not persist');
+  await expect(budgetSection.getByText('Edit draft settings',{exact:true})).toHaveCount(0);
+  if((await setupPost(budgetSetupPath,{action:'settings',name:'Forbidden',taxBasis:'INCLUSIVE'})).status!==409)throw new Error('ACTIVE Budget settings were editable');
+  // Even a new DRAFT cannot rewrite a Budget with an earlier published version.
+  const laterDraft=(await pool.query("INSERT INTO commercial_budget_versions(organisation_id,budget_id,version_number,status) VALUES('runtime-b',$1,2,'DRAFT') RETURNING id",[budgetState.id])).rows[0].id;
+  const laterPath='/api/commercial/budgeting/budgets/'+budgetState.id+'/versions/'+laterDraft+'/setup';
+  if((await setupPost(laterPath,{action:'settings',name:'Forbidden',taxBasis:'INCLUSIVE'})).status!==409)throw new Error('A later draft rewrote published Budget settings');
+  await pool.query('DELETE FROM commercial_budget_versions WHERE id=$1',[laterDraft]);
+  const raceBudget=await setupPost('/api/commercial/budgeting/budgets',{name:'Race Budget',financialYearId:setupYearId,currency:'NZD',taxBasis:'INCLUSIVE',periodisationMode:'ANNUAL_ONLY'});
+  if(raceBudget.status!==201)throw new Error('Settings race fixture creation failed');
+  const raceBudgetId=raceBudget.data.budget.id,raceVersionId=raceBudget.data.version.id;
+  const racePath='/api/commercial/budgeting/budgets/'+raceBudgetId+'/versions/'+raceVersionId;
+  for(const body of [{action:'line',budgetAccountId:budgetDimensions[0],costCentreId:budgetDimensions[1],annualBudgetCents:'10000'},{action:'mapping',budgetAccountId:budgetDimensions[0],costCentreId:budgetDimensions[1]}]){
+    if((await setupPost(racePath+'/setup',body)).status!==200)throw new Error('Settings race fixture line/mapping failed');
+  }
+  async function waitForBudgetLockWaiters(count){
+    for(let attempt=0;attempt<100;attempt++){
+      const waiting=(await pool.query("SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname=$1 AND wait_event_type='Lock' AND query LIKE '%commercial_budgets%'",[database])).rows[0].n;
+      if(waiting>=count)return;
+      await pause(50);
+    }
+    throw new Error('Budget settings requests did not reach the database lock gate');
+  }
+  // Hold the year until a settings request has passed its initial DRAFT check.
+  const yearGate=await pool.connect();let closedSettings;
+  try{
+    await yearGate.query('BEGIN');
+    await yearGate.query('SELECT id FROM commercial_financial_years WHERE id=$1 FOR UPDATE',[setupYearId]);
+    closedSettings=setupPost(racePath+'/setup',{action:'settings',name:'Must not save',taxBasis:'EXCLUSIVE'});
+    await waitForBudgetLockWaiters(1);
+    await yearGate.query("UPDATE commercial_financial_years SET status='CLOSED' WHERE id=$1",[setupYearId]);
+    await yearGate.query('COMMIT');
+    if((await closedSettings).status!==409)throw new Error('Settings changed after a concurrent year close');
+  }finally{
+    await yearGate.query('ROLLBACK');yearGate.release();
+    await closedSettings?.catch(()=>{});
+    await pool.query("UPDATE commercial_financial_years SET status='OPEN' WHERE id=$1",[setupYearId]);
+  }
+  // Queue activation first, then settings, with both held at the Budget lock.
+  const activationGate=await pool.connect();let queuedActivation,queuedSettings;
+  try{
+    await activationGate.query('BEGIN');
+    await activationGate.query('SELECT id FROM commercial_budgets WHERE id=$1 FOR UPDATE',[raceBudgetId]);
+    queuedActivation=setupPost(racePath+'/activate',{});
+    await waitForBudgetLockWaiters(1);
+    queuedSettings=setupPost(racePath+'/setup',{action:'settings',name:'Must not save',taxBasis:'EXCLUSIVE'});
+    await waitForBudgetLockWaiters(2);
+    await activationGate.query('COMMIT');
+    if((await queuedActivation).status!==200||(await queuedSettings).status!==409)throw new Error('Activation/settings race did not preserve published settings');
+  }finally{
+    await activationGate.query('ROLLBACK');activationGate.release();
+    await Promise.allSettled([queuedActivation,queuedSettings].filter(Boolean));
+  }
+  const raceSaved=(await pool.query('SELECT name,tax_basis FROM commercial_budgets WHERE id=$1',[raceBudgetId])).rows[0];
+  if(raceSaved.name!=='Race Budget'||raceSaved.tax_basis!=='INCLUSIVE')throw new Error('Rejected concurrent settings changed Budget facts');
   if((await setupPost('/api/commercial/budgeting/budgets',{name:'Duplicate',financialYearId:setupYearId,currency:'AUD',taxBasis:'INCLUSIVE',periodisationMode:'PERIODISED'})).status!==409)throw new Error('Duplicate Budget header accepted');
   if((await page.evaluate(async path=>(await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,budgetSetupPath))!==404)throw new Error('Budget editing crossed tenants');
   for(const path of ['/api/commercial/budgeting/budgets',budgetSetupPath]){
@@ -463,7 +544,7 @@ try {
   await other.page.getByRole('combobox',{name:'Financial period',exact:true}).selectOption(setupPeriod);
   await expect(other.page.getByRole('combobox',{name:'Financial period',exact:true})).toHaveValue(setupPeriod);
   await other.page.getByRole('navigation',{name:'Finance workflow',exact:true}).getByRole('link',{name:'Finance setup',exact:true}).click();
-  await expect(other.page.getByRole('combobox',{name:'Budget version',exact:true})).toContainText('Pilot Budget · AUD · v1 · ACTIVE');
+  await expect(other.page.getByRole('combobox',{name:'Budget version',exact:true})).toContainText('Pilot Budget revised · AUD · v1 · ACTIVE');
   const periodPath='/api/commercial/budgeting/financial-years/'+setupYearId+'/periods';
   for(const [body,expected] of [[{name:'Overlap',startsOn:'2027-07-31',endsOn:'2027-08-15'},409],[{name:'Outside',startsOn:'2027-06-01',endsOn:'2027-06-30'},409],[{name:'Invalid',startsOn:'2028-02-30',endsOn:'2028-03-31'},400],[{name:'July',startsOn:'2027-08-01',endsOn:'2027-08-31'},409]]){
     if((await setupPost(periodPath,body)).status!==expected)throw new Error('Calendar validation failed: '+JSON.stringify(body));
@@ -526,6 +607,7 @@ try {
   evidence.dimensionSetupChecks=['account and cost-centre creation through forms','tenant duplicate-code rejection','deactivation retains inactive records after reload','active Budget references prevent deactivation','viewer, unentitled and foreign mutations denied'];
   evidence.budgetSetupChecks=['fresh Budget and DRAFT version created through form','draft line and commitment mapping through forms','period allocation mismatch blocks activation','correct allocation permits activation','ACTIVE version read-only and API rejects edits','active version pointer persisted','duplicate header rejected','unauthenticated, viewer, unentitled and foreign-tenant mutations denied'];
   evidence.budgetReviewChecks=['exact shortage and excess shown per line','corrected allocation marked balanced with remaining review guidance','saved allocation shown in named table','both review tables contained and scrollable on mobile'];
+  evidence.budgetSettingsChecks=['draft name and tax basis changed through populated form','saved amounts and allocations preserved','editor reloads saved values and fits mobile viewport','session actor and before/after settings audited','ACTIVE version hides editor and rejects mutation','later draft cannot rewrite published Budget settings','database-gated year close rejects waiting settings','database-gated activation rejects waiting settings without rewriting published facts'];
   evidence.financeWorkflowChecks=['empty finance controls directs administrator to setup','setup links to mappings, reporting and finance controls','empty mapping and reporting screens provide setup guidance','workflow links navigate between actual screens','new dimensions are available in mapping choices and completed guidance clears','new calendar is available in finance controls','activated Budget persists when returning through workflow links','viewer and unentitled users do not see administrator workflow links'];
   evidence.draftRecoveryChecks=['both draft dimensions can be deactivated','inactive references still block activation','both dimensions restored through UI without replacing draft references','restored draft activates with original version pointer','reactivation retains session actor and audits transition once on retry','unauthenticated, viewer, unentitled and foreign reactivation denied','non-string Budget enums return 400'];
   writeFileSync(resolve(artifacts,'evidence.json'),JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));

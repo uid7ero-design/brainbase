@@ -910,6 +910,16 @@ export async function logBudgetCreated(params: {
   });
 }
 
+export async function logBudgetSettingsChanged(params: {
+  organisationId: string; userId: string; budgetId: string;
+  before: Record<string, unknown>; after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_budget.settings_changed',
+    resourceType: 'commercial_budget', resourceId: params.budgetId, beforeState: params.before, afterState: params.after,
+  });
+}
+
 export async function logBudgetVersionCreated(params: {
   organisationId: string; userId: string; budgetVersionId: string; budgetId: string; versionNumber: number;
 }): Promise<void> {

@@ -54,6 +54,18 @@
   margin: 24px 0 16px;
 }
 
+.settingsDisclosure {
+  margin: 20px 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.settingsDisclosure summary {
+  cursor: pointer;
+  font-weight: 500;
+}
+
 .budgetReview h3 {
   margin: 0 0 16px;
   font-size: 0.875rem;

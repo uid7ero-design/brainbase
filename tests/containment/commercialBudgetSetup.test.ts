@@ -1,8 +1,8 @@
 import { beforeEach,describe,expect,it,vi } from 'vitest';
-const mocks=vi.hoisted(()=>({auth:vi.fn(),create:vi.fn(),budget:vi.fn(),version:vi.fn(),line:vi.fn(),allocation:vi.fn(),mapping:vi.fn(),year:vi.fn(),periods:vi.fn(),account:vi.fn(),centre:vi.fn()}));
+const mocks=vi.hoisted(()=>({auth:vi.fn(),create:vi.fn(),budget:vi.fn(),version:vi.fn(),line:vi.fn(),allocation:vi.fn(),mapping:vi.fn(),settings:vi.fn(),year:vi.fn(),periods:vi.fn(),account:vi.fn(),centre:vi.fn()}));
 vi.mock('@/lib/db',()=>({default:vi.fn()}));
 vi.mock('@/lib/commercial/authorize',()=>({authorizeCommercialRequest:mocks.auth,COMMERCIAL_MIN_ROLE:{administer:'admin'}}));
-vi.mock('@/lib/commercial/budgets',()=>({createBudget:mocks.create,getBudget:mocks.budget,getBudgetVersion:mocks.version,upsertBudgetLine:mocks.line,setBudgetPeriodAllocation:mocks.allocation,setBudgetCommitmentMapping:mocks.mapping}));
+vi.mock('@/lib/commercial/budgets',()=>({createBudget:mocks.create,getBudget:mocks.budget,getBudgetVersion:mocks.version,upsertBudgetLine:mocks.line,setBudgetPeriodAllocation:mocks.allocation,setBudgetCommitmentMapping:mocks.mapping,updateDraftBudgetSettings:mocks.settings}));
 vi.mock('@/lib/commercial/financialPeriods',()=>({getFinancialYear:mocks.year,listFinancialPeriods:mocks.periods}));
 vi.mock('@/lib/commercial/budgetAccounts',()=>({getBudgetAccount:mocks.account}));
 vi.mock('@/lib/commercial/costCentres',()=>({getCostCentre:mocks.centre}));
@@ -15,6 +15,24 @@ const request=(body:unknown)=>new Request('http://localhost',{method:'POST',body
 const header={name:' Budget ',financialYearId:id,currency:'aud',taxBasis:'INCLUSIVE',periodisationMode:'PERIODISED',organisationId:'foreign'};
 beforeEach(()=>{vi.clearAllMocks();mocks.auth.mockResolvedValue({ok:true,session:{organisationId:'org-a',userId:'user-a'}});mocks.year.mockResolvedValue({id,status:'OPEN'});mocks.budget.mockResolvedValue({id,financial_year_id:id,periodisation_mode:'PERIODISED'});mocks.version.mockResolvedValue({id,budget_id:id,status:'DRAFT'});mocks.account.mockResolvedValue({id,active:true});mocks.centre.mockResolvedValue({id,active:true});mocks.periods.mockResolvedValue([{id}]);});
 describe('Budget setup boundary',()=>{
+  it('updates draft settings with the session actor and normalized name',async()=>{
+    mocks.settings.mockResolvedValue({id});
+    expect((await changeRoute.POST(request({action:'settings',name:' Revised ',taxBasis:'EXCLUSIVE',organisationId:'foreign',userId:'foreign'}),context)).status).toBe(200);
+    expect(mocks.settings).toHaveBeenCalledWith({organisationId:'org-a',userId:'user-a',budgetId:id,budgetVersionId:id,name:'Revised',taxBasis:'EXCLUSIVE'});
+  });
+  it.each([{name:''},{name:123},{name:'x'.repeat(101)},{taxBasis:['INCLUSIVE']},{taxBasis:'UNKNOWN'},{taxBasis:null},{currency:'USD'},{periodisationMode:'ANNUAL_ONLY'},{financialYearId:id}])('rejects malformed or immutable settings %j',async value=>{
+    expect((await changeRoute.POST(request({action:'settings',name:'Revised',taxBasis:'INCLUSIVE',...value}),context)).status).toBe(400);
+    expect(mocks.settings).not.toHaveBeenCalled();
+  });
+  it('returns a conflict if publication or year close wins the mutation lock',async()=>{
+    mocks.settings.mockRejectedValue(new Error('Budget settings can only be changed before activation and while the financial year is OPEN.'));
+    expect((await changeRoute.POST(request({action:'settings',name:'Revised',taxBasis:'INCLUSIVE'}),context)).status).toBe(409);
+  });
+  it.each(['ACTIVE','SUPERSEDED'])('rejects settings changes to %s versions',async status=>{
+    mocks.version.mockResolvedValue({id,budget_id:id,status});
+    expect((await changeRoute.POST(request({action:'settings',name:'Revised',taxBasis:'INCLUSIVE'}),context)).status).toBe(409);
+    expect(mocks.settings).not.toHaveBeenCalled();
+  });
   it.each([{taxBasis:['INCLUSIVE']},{taxBasis:{}},{taxBasis:null},{periodisationMode:['PERIODISED']},{periodisationMode:{}},{periodisationMode:false}])('rejects non-string Budget enums %j',async value=>{
     expect((await createRoute.POST(request({...header,...value}))).status).toBe(400);
     expect(mocks.year).not.toHaveBeenCalled(); expect(mocks.create).not.toHaveBeenCalled();

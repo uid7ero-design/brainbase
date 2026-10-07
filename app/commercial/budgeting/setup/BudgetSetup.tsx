@@ -6,7 +6,7 @@ import { budgetAmountToCents } from '@/lib/commercial/financeSetupDisplay';
 import BudgetReview from './BudgetReview';
 type Dimension={id:string;code:string;active:boolean};
 type Year={id:string;name:string;status:string;periods:{id:string;name:string}[]};
-type Version={budget_id:string;version_id:string;name:string;financial_year_id:string;currency:string;tax_basis:string;periodisation_mode:string;version_number:number;status:string;lines:{id:string;budget_account_id:string;cost_centre_id:string;annual_budget_cents:string}[];allocations:{budget_line_id:string;financial_period_id:string;amount_cents:string}[];mappings:{cost_centre_id:string;budget_account_id:string}[]};
+type Version={budget_id:string;version_id:string;name:string;financial_year_id:string;currency:string;tax_basis:string;periodisation_mode:string;version_number:number;status:string;can_edit_settings:boolean;lines:{id:string;budget_account_id:string;cost_centre_id:string;annual_budget_cents:string}[];allocations:{budget_line_id:string;financial_period_id:string;amount_cents:string}[];mappings:{cost_centre_id:string;budget_account_id:string}[]};
 async function readSetup(){
   const responses=await Promise.all(['/api/commercial/budgeting/budgets','/api/commercial/budgeting/financial-periods','/api/commercial/budgeting/setup/accounts','/api/commercial/budgeting/setup/cost-centres'].map(url=>fetch(url)));
   if(responses.some(response=>!response.ok))throw new Error('Unable to load Budget setup.');
@@ -26,7 +26,7 @@ export default function BudgetSetup({revision}:{revision:number}){
       catch(failure){if(current)setError(failure instanceof Error?failure.message:'Unable to load Budget setup.');}finally{if(current)setLoading(false);}}
     void load();return()=>{current=false;};
   },[revision]);
-  async function submit(event:FormEvent<HTMLFormElement>,action:'create'|'line'|'allocation'|'mapping'|'activate'){
+  async function submit(event:FormEvent<HTMLFormElement>,action:'create'|'line'|'allocation'|'mapping'|'activate'|'settings'){
     event.preventDefault();if(loading||busy)return;
     const form=event.currentTarget,body:Record<string,unknown>={...Object.fromEntries(new FormData(form)),action};
     const target=version;
@@ -38,7 +38,7 @@ export default function BudgetSetup({revision}:{revision:number}){
       const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
       const result=await response.json();if(!response.ok)throw new Error(result.error??'Unable to save Budget setup.');
       const next=await readSetup();setData(next);if(action==='create')setVersionId(result.version.id);
-      form.reset();setMessage(action==='activate'?'Budget version activated. Draft editing is now locked.':'Budget setup saved.');
+      form.reset();setMessage(action==='activate'?'Budget version activated. Draft editing is now locked.':action==='settings'?'Budget settings saved. Existing amounts and allocations are unchanged.':'Budget setup saved.');
     }catch(failure){setError(failure instanceof Error?failure.message:'Unable to save Budget setup.');}finally{setBusy(false);}
   }
   const accountOptions=data.accounts.filter(row=>row.active).map(row=>({id:row.id,label:row.code}));
@@ -61,6 +61,15 @@ export default function BudgetSetup({revision}:{revision:number}){
     <Field label="Budget version">{control=><select {...control} className={fieldControlClassName} value={versionId} onChange={event=>setVersionId(event.target.value)} disabled={loading||busy}><option value="">Choose Budget</option>{data.versions.map(row=><option key={row.version_id} value={row.version_id}>{row.name} · {row.currency} · v{row.version_number} · {row.status}</option>)}</select>}</Field>
     {version?<div key={version.version_id} className={styles.budgetDetails}>
       <p className={styles.versionSummary}>{version.currency} · {version.tax_basis} · {version.periodisation_mode} · {version.status}</p>
+      {version.can_edit_settings?<details className={styles.settingsDisclosure}>
+        <summary>Edit draft settings</summary>
+        <p>Name and tax basis apply to every draft of this Budget. Changing tax basis does not recalculate amounts. Currency, financial year and periodisation stay fixed.</p>
+        <form key={`${version.version_id}:${version.name}:${version.tax_basis}`} aria-label="Draft Budget settings" onSubmit={event=>void submit(event,'settings')}><fieldset disabled={busy} className={styles.formGrid}>
+          <Field label="Draft Budget name" required>{control=><input {...control} name="name" required maxLength={100} defaultValue={version.name} className={fieldControlClassName}/>}</Field>
+          <Field label="Draft tax basis" required>{control=><select {...control} name="taxBasis" required defaultValue={version.tax_basis} className={fieldControlClassName}><option value="INCLUSIVE">Tax inclusive</option><option value="EXCLUSIVE">Tax exclusive</option></select>}</Field>
+          <button {...buttonProps('secondary')} type="submit">Save draft settings</button>
+        </fieldset></form>
+      </details>:<p>Budget settings are locked after activation or when the financial year is closed.</p>}
       {version.status==='DRAFT'?<>
         <form aria-label="Budget line" onSubmit={event=>void submit(event,'line')}><fieldset disabled={busy} className={styles.formGrid}>
           <SelectField label="Line account" name="budgetAccountId" options={accountOptions}/><SelectField label="Line cost centre" name="costCentreId" options={centreOptions}/>
