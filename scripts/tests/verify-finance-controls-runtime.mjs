@@ -325,6 +325,10 @@ try {
   await expect(other.page.getByText('No financial years yet. Create your first year above.')).toBeVisible();
   const yearForm=other.page.locator('form').first();
   await yearForm.getByLabel('Year name',{exact:false}).fill('Pilot FY');
+  await yearForm.getByLabel('Year start date',{exact:false}).fill('31/02/2027');
+  await yearForm.getByLabel('Year end date',{exact:false}).fill('30/06/2028');
+  await yearForm.getByRole('button',{name:'Create year',exact:true}).click();
+  await expect(other.page.getByRole('alert')).toContainText('valid date in DD/MM/YYYY');
   await yearForm.getByLabel('Year start date',{exact:false}).fill('01/07/2027');
   await yearForm.getByLabel('Year end date',{exact:false}).fill('30/06/2028');
   await yearForm.getByRole('button',{name:'Create year',exact:true}).click();
@@ -390,6 +394,9 @@ try {
   const lineForm=budgetSection.getByRole('form',{name:'Budget line',exact:true});
   await lineForm.getByLabel('Line account',{exact:false}).selectOption(budgetDimensions[0]);
   await lineForm.getByLabel('Line cost centre',{exact:false}).selectOption(budgetDimensions[1]);
+  await lineForm.getByLabel('Annual amount (AUD)',{exact:false}).fill('1.001');
+  await lineForm.getByRole('button',{name:'Save line',exact:true}).click();
+  await expect(budgetSection.getByRole('alert')).toContainText('at most two decimal places');
   await lineForm.getByLabel('Annual amount (AUD)',{exact:false}).fill('100.00');
   await lineForm.getByRole('button',{name:'Save line',exact:true}).click();
   await expect(budgetSection.getByRole('table')).toContainText('AUD 100.00');
@@ -408,6 +415,7 @@ try {
   await budgetSection.getByRole('button',{name:'Activate Budget version',exact:true}).click();
   await expect(budgetSection.getByRole('alert')).toContainText('period allocations');
   await allocate('100.00');
+  await other.page.screenshot({path:resolve(artifacts,'finance-setup-draft-desktop.png'),fullPage:true});
   // Recover each retained dimension without replacing the draft's identity or lines.
   for(const [index,kind,title,code] of [[0,'accounts','Budget accounts','BUDGET-ACC'],[1,'cost-centres','Cost centres','BUDGET-CC']]){
     const section=other.page.getByRole('region',{name:title,exact:true});
@@ -480,7 +488,7 @@ try {
     await expect(section.getByRole('table')).toContainText(dimension.code);
     await expect(section.getByRole('table')).toContainText('Inactive');
   }
-  await expect(other.page.getByRole('region',{name:'Financial period calendar',exact:true})).toContainText('2027-08-31');
+  await expect(other.page.getByRole('region',{name:'Financial period calendar',exact:true})).toContainText('31/08/2027');
   await other.page.setViewportSize({width:390,height:844});
   const calendarOverflow=await other.page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth}));
   if(calendarOverflow.scrollWidth>calendarOverflow.width)throw new Error('Calendar setup overflows mobile viewport');
