@@ -42,6 +42,7 @@ existing lifecycle authorization/query containment tests provide the separate
 permission proof. A live production-data smoke test is not included.
 
 This slice adds no schema, record mutation, background job, reminder delivery or
-model call. Main automatically deploys to production. The prior release
-authorization covered HR-8 PRs #404/#405; release of this new HR-9 slice requires
-its own authorization before merge.
+model call. Main automatically deploys to production. On 2026-10-08 the user
+authorized merging PR #409 and its automatic production deployment once the
+security checks pass. This authorization does not include production database,
+schema or environment changes, or live HR model calls.
