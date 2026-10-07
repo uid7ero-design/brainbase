@@ -71,6 +71,30 @@ In addition to domain/integration tests:
 - The Finance Controls console, External GL mapping administration, finance-adjusted reporting,
   reconciliation queue and exact-money rendering have focused containment coverage.
 
+### Production-runtime regression added in PR #375
+
+`scripts/tests/verify-finance-controls-runtime.mjs` runs against an actual Next production
+build with real login, a disposable PostgreSQL database and the loopback-only Neon transport
+adapter. It supplements the domain and browser suites with:
+
+- real mapping forms, create/retire responses and exact calendar-date readback;
+- reconciliation preparation and period-reopen event parameter typing;
+- exact BIGINT import values beyond JavaScript's safe-integer range;
+- database-gated overlapping identical imports returning one IMPORTED and one IDEMPOTENT,
+  plus changed-identity concurrency preserving the winning fact;
+- duplicate imports retaining sign-off, genuine conflicts/new facts staling affected evidence;
+- close/reopen/sign-off history, mobile table scrolling, viewer denial and tenant isolation.
+
+The release validation on head `6b99a47a` passed 2,182 Commercial containment tests,
+PASS=30 / FAIL=0 database verification, production build and this runtime regression in
+Australia/Adelaide. Earlier date and import runtime runs also passed in UTC. PR #375 merged
+as `6ca8a81b`; production was READY and the live alias matched that merge. These are dated
+release observations, not a claim that future builds or customer configuration are verified.
+
+Customer setup and pilot acceptance are tracked in
+[`commercial-finance-pilot.md`](commercial-finance-pilot.md). The current runtime fixture
+creates its prerequisites directly and does not prove an administrator setup UI exists.
+
 ## Deliberately deferred policy decisions
 
 These are not missing implementations and must not be inferred silently:
