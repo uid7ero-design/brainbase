@@ -1,7 +1,7 @@
 import 'server-only';
 import sql from '@/lib/db';
 import { viewerCan, type AssuranceViewer } from './policy';
-import { incidentVisibleSql, investigationVisibleSql, findingVisibleSql, evidenceVisibleSql } from './access';
+import { incidentVisibleSql, investigationVisibleSql, findingVisibleSql, actionVisibleSql, evidenceVisibleSql } from './access';
 import { auditInsert, listAssuranceHistory, type AssuranceHistoryEntry } from './audit';
 import { auditFromCte, type AssuranceTimestamp } from './sqlHelpers';
 import { assertSameOrgUsers } from './users';
@@ -17,11 +17,14 @@ import {
   requiredUuid, searchPattern,
 } from './input';
 import { AssuranceConflictError, AssuranceForbiddenError, AssuranceNotFoundError, AssuranceValidationError } from './errors';
+import { INVESTIGATION_TRANSITIONS, parseInvestigationView } from './incidentRules';
 
 export type InvestigationListFilters = {
   q?: string;
   status?: string;
   state?: 'active' | 'completed' | 'all';
+  /** Register view (lib/assurance/incidentRules.ts). `state` is the legacy name. */
+  view?: string;
   leadUserId?: string;
   restricted?: 'yes' | 'no';
 };
@@ -39,13 +42,16 @@ export type InvestigationListRow = {
   linked_incidents: { id: string; reference: string }[];
   hidden_incident_count: number;
   finding_count: number;
+  open_finding_count: number;
+  open_action_count: number;
+  evidence_count: number;
 };
 
 export async function listInvestigations(viewer: AssuranceViewer, filters: InvestigationListFilters = {}): Promise<InvestigationListRow[]> {
   const org = viewer.organisationId;
   const pattern = searchPattern(filters.q);
   const status = INVESTIGATION_STATUSES.includes(filters.status as InvestigationStatus) ? filters.status! : null;
-  const state = filters.state === 'active' || filters.state === 'completed' ? filters.state : 'all';
+  const view = parseInvestigationView(filters.view ?? (filters.state === 'completed' ? 'finished' : filters.state));
   const leadUserId = typeof filters.leadUserId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(filters.leadUserId) ? filters.leadUserId : null;
   const restricted = filters.restricted === 'yes' ? true : filters.restricted === 'no' ? false : null;
 
@@ -66,14 +72,36 @@ export async function listInvestigations(viewer: AssuranceViewer, filters: Inves
            (SELECT count(*) FROM assurance_investigation_findings xf
              JOIN assurance_findings f ON f.organisation_id = xf.organisation_id AND f.id = xf.finding_id
              WHERE xf.organisation_id = inv.organisation_id AND xf.investigation_id = inv.id
-               AND ${findingVisibleSql(viewer)})::int AS finding_count
+               AND ${findingVisibleSql(viewer)})::int AS finding_count,
+           (SELECT count(*) FROM assurance_investigation_findings xf
+             JOIN assurance_findings f ON f.organisation_id = xf.organisation_id AND f.id = xf.finding_id
+             WHERE xf.organisation_id = inv.organisation_id AND xf.investigation_id = inv.id
+               AND f.status NOT IN ('CLOSED', 'CANCELLED') AND ${findingVisibleSql(viewer)})::int AS open_finding_count,
+           (SELECT count(DISTINCT a.id) FROM assurance_investigation_findings xf
+             JOIN assurance_findings f ON f.organisation_id = xf.organisation_id AND f.id = xf.finding_id
+             JOIN assurance_action_findings af ON af.organisation_id = f.organisation_id AND af.finding_id = f.id
+             JOIN assurance_actions a ON a.organisation_id = af.organisation_id AND a.id = af.action_id
+             WHERE xf.organisation_id = inv.organisation_id AND xf.investigation_id = inv.id
+               AND a.status NOT IN ('CLOSED', 'CANCELLED')
+               AND ${findingVisibleSql(viewer)} AND ${actionVisibleSql(viewer)})::int AS open_action_count,
+           (SELECT count(*) FROM assurance_evidence_investigations l
+             JOIN assurance_evidence e ON e.organisation_id = l.organisation_id AND e.id = l.evidence_id
+             WHERE l.organisation_id = inv.organisation_id AND l.investigation_id = inv.id AND l.removed_at IS NULL
+               AND ${evidenceVisibleSql(viewer)})::int AS evidence_count
     FROM assurance_investigations inv
     LEFT JOIN users lu ON lu.id = inv.lead_user_id AND lu.organisation_id = inv.organisation_id
     WHERE inv.organisation_id = ${org}
       AND ${investigationVisibleSql(viewer)}
       AND (${status}::text IS NULL OR inv.status = ${status})
-      AND (${state}::text <> 'active' OR inv.status NOT IN ('COMPLETED', 'CANCELLED'))
-      AND (${state}::text <> 'completed' OR inv.status IN ('COMPLETED', 'CANCELLED'))
+      AND (${view}::text IN ('all', 'finished') OR inv.status NOT IN ('COMPLETED', 'CANCELLED'))
+      AND (${view}::text <> 'finished' OR inv.status IN ('COMPLETED', 'CANCELLED'))
+      AND (${view}::text <> 'planning' OR inv.status IN ('OPEN', 'PLANNING'))
+      AND (${view}::text <> 'in_progress' OR inv.status = 'IN_PROGRESS')
+      AND (${view}::text <> 'awaiting_information' OR inv.status = 'AWAITING_INFORMATION')
+      AND (${view}::text <> 'awaiting_review' OR inv.status = 'AWAITING_REVIEW')
+      AND (${view}::text <> 'findings_recorded' OR EXISTS (
+            SELECT 1 FROM assurance_investigation_findings xf
+            WHERE xf.organisation_id = inv.organisation_id AND xf.investigation_id = inv.id))
       AND (${leadUserId}::text IS NULL OR inv.lead_user_id = ${leadUserId})
       AND (${restricted}::boolean IS NULL OR inv.restricted = ${restricted}::boolean)
       AND (${pattern}::text IS NULL OR inv.investigation_reference ILIKE ${pattern} OR inv.title ILIKE ${pattern})
@@ -98,6 +126,8 @@ export type InvestigationDetail = {
   people: { id: string; role: string; notes: string | null; display_name: string; job_title: string | null }[];
   findings: { id: string; finding_reference: string; title: string; finding_type: string; status: string; identified_at: AssuranceTimestamp }[];
   hiddenFindingCount: number;
+  /** Corrective Actions addressing this investigation's (visible) Findings. Investigations never own Actions directly. */
+  actions: { id: string; action_reference: string; title: string; status: string; owner_name: string | null; finding_references: string[] }[];
   evidence: EvidenceLinkRow[];
   history: AssuranceHistoryEntry[];
 };
@@ -120,7 +150,7 @@ export async function getInvestigationDetail(viewer: AssuranceViewer, id: string
   const investigation = rows[0];
   if (!investigation) return null;
 
-  const [incidents, people, findings, hidden, evidence, history] = await Promise.all([
+  const [incidents, people, findings, hidden, evidence, history, actions] = await Promise.all([
     sql`
       SELECT ii.id AS link_id, ii.relationship, ii.created_at AS linked_at,
              ${incidentVisibleSql(viewer)} AS visible,
@@ -178,10 +208,24 @@ export async function getInvestigationDetail(viewer: AssuranceViewer, id: string
       ORDER BY l.removed_at NULLS FIRST, l.created_at DESC
     `,
     listAssuranceHistory(org, 'assurance_investigation', id),
+    sql`
+      SELECT a.id, a.action_reference, a.title, a.status, ou.name AS owner_name,
+             array_agg(DISTINCT f.finding_reference ORDER BY f.finding_reference) AS finding_references
+      FROM assurance_investigation_findings lx
+      JOIN assurance_findings f ON f.organisation_id = lx.organisation_id AND f.id = lx.finding_id
+      JOIN assurance_action_findings af ON af.organisation_id = f.organisation_id AND af.finding_id = f.id
+      JOIN assurance_actions a ON a.organisation_id = af.organisation_id AND a.id = af.action_id
+      LEFT JOIN users ou ON ou.id = a.owner_user_id AND ou.organisation_id = a.organisation_id
+      WHERE lx.organisation_id = ${org} AND lx.investigation_id = ${id}::uuid
+        AND ${findingVisibleSql(viewer)} AND ${actionVisibleSql(viewer)}
+      GROUP BY a.id, a.action_reference, a.title, a.status, ou.name, a.created_at
+      ORDER BY a.created_at ASC
+    `,
   ]);
 
   return {
     investigation,
+    actions: actions as InvestigationDetail['actions'],
     incidents: incidents as InvestigationDetail['incidents'],
     people: people as InvestigationDetail['people'],
     findings: findings as InvestigationDetail['findings'],
@@ -260,6 +304,9 @@ export async function createInvestigation(viewer: AssuranceViewer, raw: Record<s
     assertContextRefsInOrg(viewer.organisationId, { riskLevelId: input.riskLevelId }),
     assertIncidentsVisible(viewer, input.incidents.map(l => l.incidentId)),
   ]);
+  if (!input.restricted && await anyRestricted(viewer, input.incidents.map(l => l.incidentId))) {
+    throw new AssuranceValidationError(RESTRICTED_INHERITANCE_MESSAGE);
+  }
 
   const id = crypto.randomUUID();
   return withFreshReference('investigation', async reference => {
@@ -301,6 +348,10 @@ export async function linkIncidentToInvestigation(viewer: AssuranceViewer, inves
   const incidentId = requiredUuid(raw.incidentId, 'Incident');
   const relationship = requiredEnum(INVESTIGATION_INCIDENT_RELATIONSHIPS, raw.relationship ?? 'RELATED', 'Relationship');
   await assertIncidentsVisible(viewer, [incidentId]);
+  if (await anyRestricted(viewer, [incidentId])) {
+    const r = (await sql`SELECT restricted FROM assurance_investigations WHERE organisation_id = ${viewer.organisationId} AND id = ${investigationId}::uuid`) as { restricted: boolean }[];
+    if (!r[0]?.restricted) throw new AssuranceConflictError(RESTRICTED_INHERITANCE_MESSAGE);
+  }
   try {
     // Lock the investigation first so concurrent links serialise; the insert
     // then refuses a second PRIMARY and a finished investigation atomically.
@@ -311,7 +362,9 @@ export async function linkIncidentToInvestigation(viewer: AssuranceViewer, inves
           INSERT INTO assurance_investigation_incidents (organisation_id, investigation_id, incident_id, relationship, created_by)
           SELECT ${viewer.organisationId}, ${investigationId}::uuid, ${incidentId}::uuid, ${relationship}, ${viewer.userId}
           WHERE EXISTS (SELECT 1 FROM assurance_investigations v WHERE v.organisation_id = ${viewer.organisationId}
-                          AND v.id = ${investigationId}::uuid AND v.status NOT IN ('COMPLETED', 'CANCELLED'))
+                          AND v.id = ${investigationId}::uuid AND v.status NOT IN ('COMPLETED', 'CANCELLED')
+                          AND (v.restricted OR NOT EXISTS (SELECT 1 FROM assurance_incidents r WHERE r.organisation_id = ${viewer.organisationId}
+                                                            AND r.id = ${incidentId}::uuid AND r.restricted)))
             AND (${relationship}::text <> 'PRIMARY' OR NOT EXISTS (
                   SELECT 1 FROM assurance_investigation_incidents x
                   WHERE x.organisation_id = ${viewer.organisationId} AND x.investigation_id = ${investigationId}::uuid AND x.relationship = 'PRIMARY'))
@@ -337,15 +390,7 @@ export async function linkIncidentToInvestigation(viewer: AssuranceViewer, inves
   }
 }
 
-export const INVESTIGATION_TRANSITIONS: Record<InvestigationStatus, readonly InvestigationStatus[]> = {
-  OPEN: ['PLANNING', 'IN_PROGRESS', 'CANCELLED'],
-  PLANNING: ['IN_PROGRESS', 'CANCELLED'],
-  IN_PROGRESS: ['AWAITING_INFORMATION', 'AWAITING_REVIEW', 'CANCELLED'],
-  AWAITING_INFORMATION: ['IN_PROGRESS', 'CANCELLED'],
-  AWAITING_REVIEW: ['IN_PROGRESS', 'COMPLETED'],
-  COMPLETED: [],
-  CANCELLED: [],
-};
+export { INVESTIGATION_TRANSITIONS };
 
 /**
  * Investigation lifecycle. Completing an investigation records its
@@ -361,7 +406,10 @@ export async function transitionInvestigation(viewer: AssuranceViewer, id: strin
   }
   const conclusion = completing ? requiredText(raw.conclusion, 'Conclusion', 8000) : null;
 
-  const rows = (await sql`
+  // Lock first, then guard on the status that was read (deterministic conflict on a race).
+  const results = await sql.transaction([
+    sql`SELECT id FROM assurance_investigations WHERE organisation_id = ${viewer.organisationId} AND id = ${id}::uuid FOR UPDATE`,
+    sql`
     WITH upd AS (
       UPDATE assurance_investigations
       SET status = ${to},
@@ -378,7 +426,160 @@ export async function transitionInvestigation(viewer: AssuranceViewer, id: strin
       })}
     )
     SELECT id, status FROM upd
-  `) as { id: string; status: InvestigationStatus }[];
+  `,
+  ]);
+  const rows = results[1] as { id: string; status: InvestigationStatus }[];
   if (!rows[0]) throw new AssuranceConflictError('This investigation was changed by someone else. Refresh and try again.');
+  return rows[0];
+}
+
+// ── Restriction inheritance ───────────────────────────────────────────────
+//
+// An Investigation of a restricted Incident must itself be restricted:
+// otherwise its title, scope, evidence and the Findings raised from it would
+// be visible to the whole organisation while the Incident is not.
+
+const RESTRICTED_INHERITANCE_MESSAGE = 'A restricted incident can only be investigated by a restricted investigation. Mark the investigation as restricted.';
+
+async function anyRestricted(viewer: AssuranceViewer, incidentIds: string[]): Promise<boolean> {
+  if (incidentIds.length === 0) return false;
+  const rows = (await sql`
+    SELECT 1 FROM assurance_incidents
+    WHERE organisation_id = ${viewer.organisationId} AND id = ANY(${incidentIds}::uuid[]) AND restricted
+    LIMIT 1
+  `) as unknown[];
+  return rows.length > 0;
+}
+
+/**
+ * "Start investigation" from an Incident. The Incident becomes the PRIMARY
+ * incident; organisation and actor are server-derived; restriction is
+ * inherited (a restricted Incident always yields a restricted Investigation).
+ * Nothing is copied from the Incident narrative, and the Incident's own
+ * status is NOT changed (moving it to Under investigation stays an explicit
+ * step). The Incident is locked so two simultaneous starts serialise: while
+ * an active Investigation already has this Incident as its primary incident,
+ * a second start is refused (link the existing one instead).
+ */
+export async function startInvestigationFromIncident(viewer: AssuranceViewer, incidentId: string, raw: Record<string, unknown>): Promise<{ id: string; investigation_reference: string }> {
+  if (!viewerCan(viewer, 'record')) throw new AssuranceForbiddenError();
+  if (!isUuid(incidentId)) throw new AssuranceNotFoundError('Incident');
+  incidentId = incidentId.toLowerCase();
+  const input = {
+    title: requiredText(raw.title, 'Title', 200),
+    scope: requiredText(raw.scope, 'Scope', 8000),
+    leadUserId: optionalUserId(raw.leadUserId, 'Lead investigator'),
+    targetCompletionAt: optionalDateTime(raw.targetCompletionAt, 'Target completion'),
+    riskLevelId: optionalUuid(raw.riskLevelId, 'Risk level'),
+    restricted: optionalBoolean(raw.restricted, false),
+  };
+  const inc = (await sql`
+    SELECT inc.id, inc.status, inc.restricted FROM assurance_incidents inc
+    WHERE inc.organisation_id = ${viewer.organisationId} AND inc.id = ${incidentId}::uuid AND ${incidentVisibleSql(viewer)}
+  `) as { id: string; status: string; restricted: boolean }[];
+  if (!inc[0]) throw new AssuranceNotFoundError('Incident');
+  if (inc[0].status === 'CLOSED' || inc[0].status === 'CANCELLED') {
+    throw new AssuranceConflictError('An investigation cannot be started from a closed or cancelled incident.');
+  }
+  const restricted = inc[0].restricted || input.restricted;
+  await Promise.all([
+    assertSameOrgUsers(viewer.organisationId, [{ field: 'Lead investigator', userId: input.leadUserId }]),
+    assertContextRefsInOrg(viewer.organisationId, { riskLevelId: input.riskLevelId }),
+  ]);
+
+  const id = crypto.randomUUID();
+  const org = viewer.organisationId;
+  const canStart = sql`(
+    EXISTS (SELECT 1 FROM assurance_incidents x WHERE x.organisation_id = ${org} AND x.id = ${incidentId}::uuid
+              AND x.status NOT IN ('CLOSED', 'CANCELLED'))
+    AND NOT EXISTS (
+      SELECT 1 FROM assurance_investigation_incidents ii
+      JOIN assurance_investigations w ON w.organisation_id = ii.organisation_id AND w.id = ii.investigation_id
+      WHERE ii.organisation_id = ${org} AND ii.incident_id = ${incidentId}::uuid AND ii.relationship = 'PRIMARY'
+        AND w.status NOT IN ('COMPLETED', 'CANCELLED'))
+  )`;
+  return withFreshReference('investigation', async reference => {
+    const results = await sql.transaction([
+      sql`SELECT id FROM assurance_incidents WHERE organisation_id = ${org} AND id = ${incidentId}::uuid FOR UPDATE`,
+      sql`
+        INSERT INTO assurance_investigations (
+          id, organisation_id, investigation_reference, title, scope, status, risk_level_id, lead_user_id,
+          target_completion_at, restricted, created_by
+        )
+        SELECT ${id}::uuid, ${org}, ${reference}, ${input.title}, ${input.scope}, 'OPEN',
+               ${input.riskLevelId}::uuid, ${input.leadUserId}, ${input.targetCompletionAt}::timestamptz,
+               ${restricted}, ${viewer.userId}
+        WHERE ${canStart}
+        RETURNING id
+      `,
+      sql`
+        INSERT INTO assurance_investigation_incidents (organisation_id, investigation_id, incident_id, relationship, created_by)
+        SELECT ${org}, ${id}::uuid, ${incidentId}::uuid, 'PRIMARY', ${viewer.userId}
+        WHERE EXISTS (SELECT 1 FROM assurance_investigations v WHERE v.organisation_id = ${org} AND v.id = ${id}::uuid)
+      `,
+      sql`
+        INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
+        SELECT gen_random_uuid()::text, ${org}, ${viewer.userId}, a.action, a.resource_type, a.resource_id, NULL, a.after_state
+        FROM (VALUES
+          ('assurance_investigation.created', 'assurance_investigation', ${id}::text,
+           jsonb_build_object('investigation_reference', ${reference}::text, 'status', 'OPEN', 'restricted', ${restricted}::boolean,
+                              'incident_ids', jsonb_build_array(${incidentId}::text))),
+          ('assurance_incident.investigation_started', 'assurance_incident', ${incidentId}::text,
+           jsonb_build_object('investigation_id', ${id}::text, 'investigation_reference', ${reference}::text))
+        ) AS a(action, resource_type, resource_id, after_state)
+        WHERE EXISTS (SELECT 1 FROM assurance_investigations v WHERE v.organisation_id = ${org} AND v.id = ${id}::uuid)
+      `,
+    ]);
+    if ((results[1] as unknown[]).length === 0) {
+      throw new AssuranceConflictError('This incident already has an active investigation as its primary incident (or it was just closed). Open that investigation instead, or link this incident to it.');
+    }
+    return { id, investigation_reference: reference };
+  });
+}
+
+/**
+ * Assigns (or clears) the lead investigator. Optimistic on the lead the
+ * user saw. Finished investigations keep their lead. Note that the lead of
+ * a RESTRICTED investigation can see it: assigning a lead widens visibility
+ * to that person, as the restricted-visibility model defines.
+ */
+export async function assignInvestigationLead(viewer: AssuranceViewer, id: string, raw: Record<string, unknown>): Promise<{ id: string; lead_user_id: string | null }> {
+  if (!viewerCan(viewer, 'record')) throw new AssuranceForbiddenError();
+  const leadUserId = optionalUserId(raw.leadUserId, 'Lead investigator');
+  const expected = raw.expectedLeadUserId === undefined ? undefined : optionalUserId(raw.expectedLeadUserId, 'Current lead');
+  const current = await assertInvestigationVisible(viewer, id);
+  if (current.status === 'COMPLETED' || current.status === 'CANCELLED') {
+    throw new AssuranceConflictError('The lead of a completed or cancelled investigation cannot be changed.');
+  }
+  await assertSameOrgUsers(viewer.organisationId, [{ field: 'Lead investigator', userId: leadUserId }]);
+  const results = await sql.transaction([
+    sql`SELECT id FROM assurance_investigations WHERE organisation_id = ${viewer.organisationId} AND id = ${id}::uuid FOR UPDATE`,
+    sql`
+      WITH prev AS (
+        SELECT lead_user_id FROM assurance_investigations
+        WHERE organisation_id = ${viewer.organisationId} AND id = ${id}::uuid
+      ), upd AS (
+        UPDATE assurance_investigations v
+        SET lead_user_id = ${leadUserId}, updated_at = now()
+        WHERE v.organisation_id = ${viewer.organisationId} AND v.id = ${id}::uuid
+          AND v.status NOT IN ('COMPLETED', 'CANCELLED')
+          AND (${expected === undefined}::boolean OR v.lead_user_id IS NOT DISTINCT FROM ${expected ?? null}::text)
+          AND v.lead_user_id IS DISTINCT FROM ${leadUserId}::text
+        RETURNING v.id, v.lead_user_id
+      ), aud AS (
+        INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
+        SELECT gen_random_uuid()::text, ${viewer.organisationId}, ${viewer.userId}, 'assurance_investigation.lead_changed',
+               'assurance_investigation', upd.id::text,
+               jsonb_build_object('lead_user_id', (SELECT lead_user_id FROM prev)),
+               jsonb_build_object('lead_user_id', upd.lead_user_id)
+        FROM upd
+      )
+      SELECT id, lead_user_id FROM upd
+    `,
+  ]);
+  const rows = results[1] as { id: string; lead_user_id: string | null }[];
+  if (!rows[0]) {
+    throw new AssuranceConflictError('The lead was not changed: someone else changed it (or the investigation) first, or it is already that person. Refresh and try again.');
+  }
   return rows[0];
 }

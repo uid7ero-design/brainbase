@@ -29,7 +29,7 @@ const libFiles = walk('lib/assurance')
 const CLIENT_SAFE_LIB = ['lib/assurance/domain.ts', 'lib/assurance/input.ts', 'lib/assurance/errors.ts', 'lib/assurance/references.ts',
   'lib/assurance/help/registry.ts', 'lib/assurance/help/markdown.ts', 'lib/assurance/help/search.ts', 'lib/assurance/help/topics.ts',
   'lib/assurance/riskLevelRules.ts', 'lib/assurance/deadlineRules.ts', 'lib/assurance/contractorAssuranceRules.ts',
-  'lib/assurance/evidenceRules.ts', 'lib/assurance/findingRules.ts']
+  'lib/assurance/evidenceRules.ts', 'lib/assurance/findingRules.ts', 'lib/assurance/incidentRules.ts']
 
 describe('API routes', () => {
   it('exist and every one is built from the authorizing factories', () => {
@@ -382,5 +382,44 @@ describe('findings & corrective actions (A0.1I)', () => {
     const actions = stripComments(read('lib/assurance/actions.ts'))
     expect(actions).not.toMatch(/reopen/i)
     expect(actions).not.toMatch(/SET status = 'OPEN'/)
+  })
+})
+
+describe('incidents & investigations', () => {
+  const inc = stripComments(read('lib/assurance/incidents.ts'))
+  const inv = stripComments(read('lib/assurance/investigations.ts'))
+  const body = (src: string, fn: string) => {
+    const start = src.indexOf(`export async function ${fn}(`)
+    return src.slice(start, src.indexOf('\nexport ', start + 10))
+  }
+  it('new routes use the authorizing factories with the record operation', () => {
+    for (const r of ['incidents/[id]/owner', 'incidents/[id]/investigations', 'investigations/[id]/lead']) {
+      expect(stripComments(read(`app/api/assurance/${r}/route.ts`)), r).toMatch(/assurancePostWithId\('record'/)
+    }
+  })
+  it('owner / lead changes lock, guard on the value the user saw, and audit in the same statement', () => {
+    for (const [src, fn, col] of [[inc, 'assignIncidentOwner', 'owner_user_id'], [inv, 'assignInvestigationLead', 'lead_user_id']] as const) {
+      const b = body(src, fn)
+      expect(b, fn).toMatch(/viewerCan\(viewer, 'record'\)/)
+      expect(b.indexOf('FOR UPDATE'), fn).toBeLessThan(b.indexOf('INSERT INTO audit_logs'))
+      expect(b, fn).toMatch(new RegExp(`${col} IS NOT DISTINCT FROM`))
+      expect(b, fn).not.toMatch(/SET status|risk_level_id =/)
+    }
+  })
+  it('starting an investigation locks the incident, refuses a duplicate active primary, inherits restriction and never moves the incident', () => {
+    const b = body(inv, 'startInvestigationFromIncident')
+    expect(b).toMatch(/FROM assurance_incidents WHERE organisation_id = \$\{org\} AND id = \$\{incidentId\}::uuid FOR UPDATE/)
+    expect(b).toMatch(/relationship = 'PRIMARY'[\s\S]*status NOT IN \('COMPLETED', 'CANCELLED'\)/)
+    expect(b).toMatch(/const restricted = inc\[0\]\.restricted \|\| input\.restricted/)
+    expect(b).not.toMatch(/UPDATE assurance_incidents/)
+  })
+  it('restricted incidents can only be linked to restricted investigations', () => {
+    expect(body(inv, 'createInvestigation')).toMatch(/anyRestricted\(/)
+    expect(body(inv, 'linkIncidentToInvestigation')).toMatch(/v\.restricted OR NOT EXISTS/)
+  })
+  it('incident / investigation services never close or change findings, actions or each other', () => {
+    expect(inc).not.toMatch(/UPDATE assurance_(investigations|findings|actions|evidence|verifications|timeframes)\b/)
+    expect(inv).not.toMatch(/UPDATE assurance_(incidents|findings|actions|evidence|verifications|timeframes)\b/)
+    expect(inc + inv).not.toMatch(/INSERT INTO assurance_(findings|actions|timeframes)\b/)
   })
 })
