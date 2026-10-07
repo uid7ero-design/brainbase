@@ -80,9 +80,11 @@ export async function createBudget(params: {
   if (fy.length === 0) throw new Error('financial_year_id not found for this organisation');
 
   const results = await sql.transaction(tx => [
+    tx`SELECT id FROM commercial_financial_years WHERE id=${params.financialYearId} AND organisation_id=${params.organisationId} FOR UPDATE`,
     tx`INSERT INTO commercial_budgets
       (organisation_id, financial_year_id, name, currency, tax_basis, periodisation_mode, created_by)
-      VALUES (${params.organisationId}, ${params.financialYearId}, ${name}, ${currency}, ${params.taxBasis}, ${params.periodisationMode}, ${params.userId})
+      SELECT ${params.organisationId}, ${params.financialYearId}, ${name}, ${currency}, ${params.taxBasis}, ${params.periodisationMode}, ${params.userId}
+      WHERE EXISTS(SELECT 1 FROM commercial_financial_years WHERE id=${params.financialYearId} AND organisation_id=${params.organisationId} AND status='OPEN')
       RETURNING *`,
     tx`INSERT INTO commercial_budget_versions
       (organisation_id, budget_id, version_number, status, notes, created_by)
@@ -93,8 +95,9 @@ export async function createBudget(params: {
         AND currency = ${currency}
       RETURNING *`,
   ]);
-  const budget = (results[0] as CommercialBudget[])[0];
-  const version = (results[1] as CommercialBudgetVersion[])[0];
+  const budget = (results[1] as CommercialBudget[])[0];
+  const version = (results[2] as CommercialBudgetVersion[])[0];
+  if (!budget || !version) throw new Error('Budget financial year must be OPEN');
   await logBudgetCreated({ organisationId: params.organisationId, userId: params.userId, budgetId: budget.id, after: { financial_year_id: budget.financial_year_id, currency: budget.currency, tax_basis: budget.tax_basis, periodisation_mode: budget.periodisation_mode } });
   await logBudgetVersionCreated({ organisationId: params.organisationId, userId: params.userId, budgetVersionId: version.id, budgetId: budget.id, versionNumber: 1 });
   return { budget, version };

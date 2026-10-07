@@ -44,9 +44,9 @@ and period creation by parent year. The period lock also coordinates with
 existing year close/reopen. Existing records are neither rewritten nor deleted;
 legacy internal creation helpers remain unchanged. No schema migration or
 customer entitlement change is needed. Account, cost-centre and draft Budget
-setup remain subsequent implementation slices. This branch is not yet released.
+setup are described below. This branch is not yet released.
 
-### Account and cost-centre setup draft
+### Account and cost-centre setup implementation
 
 The local setup page now includes Budget account and cost-centre creation and
 deactivation. Administrator routes reuse the existing tenant-scoped domain
@@ -65,8 +65,32 @@ Database barriers prove both activation-first and deactivation-first orders
 for both dimension types. The integration fixture now includes the existing
 production cost-centre updated_at column required by deactivation.
 
-Draft Budget creation/activation UI remains subsequent work. No customer
-configuration, capability or production record was changed by this draft.
+No customer configuration, capability or production record was changed.
+
+### Draft Budget setup implementation
+
+The local setup page now creates a Budget header and its first DRAFT version,
+then supports line amounts, explicit commitment mappings and period allocations.
+Amounts are decimal integer minor-unit strings validated against PostgreSQL
+BIGINT range without converting through JavaScript Number. Account and cost-centre
+references must be active and tenant-owned; allocation periods must belong to
+the selected Budget year. Existing activation validation remains authoritative.
+An ACTIVE version displays its saved configuration without editing forms, and
+the API rejects further edits. This stage creates initial drafts only; it does
+not expose later version creation or deletion.
+
+Budget creation locks its financial year before checking OPEN status and writing
+the header/version, coordinating with year close. The setup navigation and all
+mutations require budgeting entitlement and administrator access. Calendar and
+dimension changes refresh Budget choices without requiring a page reload.
+
+This stage passed 2,252 Commercial containment tests, focused lint, production
+build, PASS=30 / FAIL=0 disposable database verification and the real-runtime
+walkthrough in Australia/Adelaide. The walkthrough creates the draft through
+forms, rejects an unbalanced allocation, activates the corrected version,
+verifies its active pointer and rejects subsequent edits. It also checks duplicate
+headers, unauthenticated/viewer/unentitled/foreign-tenant access and mobile fit.
+All setup changes remain local and have not been pushed or deployed.
 
 ## Decisions for the walkthrough
 
@@ -123,25 +147,25 @@ Retain record IDs, entered dates, mapping IDs, source lineage, reconciliation
 and close IDs, expected amounts, screenshots and outcomes. Do not describe a
 zero-row customer screen as a passed monetary reconciliation.
 
-## Next implementation: administrator setup
+## Administrator setup delivery and remaining work
 
-Build the missing setup workflow locally before the customer pilot. Keep the
+Complete the setup workflow locally before the customer pilot. Keep the
 existing session -> budgeting capability -> administrator role checks and
 derive the organisation exclusively from the authenticated session.
 
-Suggested delivery slices:
+Delivery slices:
 
-1. Financial calendar creation and readback: year and explicit child-period
+1. Implemented locally: financial calendar creation and readback, with explicit child-period
    forms, date-only responses and server validation of boundaries. Define
    overlap/containment behavior against the existing schema and domain before
    exposing mutations; do not silently rewrite existing periods.
-2. Account and cost-centre configuration: reuse existing domain functions and
+2. Implemented locally: account and cost-centre configuration, reusing domain functions and
    tenant uniqueness rules. Expose active/inactive state without deleting
    historical references.
-3. Draft Budget configuration: header, lines, period allocations and explicit
+3. Implemented locally: initial draft Budget configuration, header, lines, period allocations and explicit
    commitment mapping; reuse the existing version activation rules. Never
    make an incomplete draft ACTIVE as a setup shortcut.
-4. Connect setup to the existing mapping, reporting and finance-control screens
+4. Remaining: connect setup to the existing mapping, reporting and finance-control screens
    with clear empty-state links. Keep administrator mutations inaccessible to
    viewers and other organisations.
 
@@ -173,8 +197,9 @@ concurrent retries/conflicts, close/reopen/sign-off, staleness, mobile tables,
 permissions and tenant isolation. It cleans its browser, server and database.
 It now also creates a year and period through the calendar setup UI in the
 initially empty second organisation and checks persisted dates, concurrency,
-closed-year rejection, validation, mobile layout and access boundaries. It does
-not yet prove the subsequent account, cost-centre or draft Budget setup UI.
+closed-year rejection, validation, mobile layout and access boundaries. It
+also exercises account/cost-centre creation and deactivation, draft Budget forms,
+allocation mismatch rejection, successful activation and locked ACTIVE editing.
 
 See [the verification matrix](c7-9-verification-matrix.md) and
 [the finance-close design](c7-9-finance-close-reconciliation-design.md).

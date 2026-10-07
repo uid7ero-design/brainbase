@@ -353,6 +353,57 @@ try {
     if(protectedResult!==409)throw new Error('Active Budget dimension deactivated');
   }
   const setupPost=(path,body)=>other.page.evaluate(async ({path,body})=>{const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return {status:response.status,data:await response.json()};},{path,body});
+  // Complete an operational Budget through the new setup forms.
+  const budgetDimensions=[];
+  for(const [kind,title,code] of [['accounts','Budget accounts','BUDGET-ACC'],['cost-centres','Cost centres','BUDGET-CC']]){
+    const section=other.page.getByRole('region',{name:title,exact:true});
+    await section.getByLabel('Code',{exact:false}).fill(code);
+    await section.getByLabel('Name',{exact:false}).fill('Budget '+title);
+    await section.getByRole('button',{name:kind==='accounts'?'Create account':'Create cost centre',exact:true}).click();
+    await expect(section.getByRole('table')).toContainText(code);
+    budgetDimensions.push((await pool.query(`SELECT id FROM ${kind==='accounts'?'commercial_budget_accounts':'commercial_cost_centres'} WHERE organisation_id='runtime-b' AND code=$1`,[code])).rows[0].id);
+  }
+  const budgetSection=other.page.getByRole('region',{name:'Budget setup',exact:true});
+  const createBudgetForm=budgetSection.getByRole('form',{name:'Create Budget',exact:true});
+  await createBudgetForm.getByLabel('Budget name',{exact:false}).fill('Pilot Budget');
+  await createBudgetForm.getByLabel('Budget financial year',{exact:false}).selectOption(setupYearId);
+  await createBudgetForm.getByLabel('Budget currency',{exact:false}).fill('AUD');
+  await createBudgetForm.getByLabel('Tax basis',{exact:false}).selectOption('INCLUSIVE');
+  await createBudgetForm.getByLabel('Periodisation',{exact:false}).selectOption('PERIODISED');
+  await createBudgetForm.getByRole('button',{name:'Create draft Budget',exact:true}).click();
+  await expect(budgetSection.getByRole('status')).toContainText('Budget setup saved.');
+  const lineForm=budgetSection.getByRole('form',{name:'Budget line',exact:true});
+  await lineForm.getByLabel('Line account',{exact:false}).selectOption(budgetDimensions[0]);
+  await lineForm.getByLabel('Line cost centre',{exact:false}).selectOption(budgetDimensions[1]);
+  await lineForm.getByLabel('Annual amount (minor units)',{exact:false}).fill('10000');
+  await lineForm.getByRole('button',{name:'Save line',exact:true}).click();
+  await expect(budgetSection.getByRole('table')).toContainText('10000');
+  const mappingForm=budgetSection.getByRole('form',{name:'Commitment mapping',exact:true});
+  await mappingForm.getByLabel('Mapping account',{exact:false}).selectOption(budgetDimensions[0]);
+  await mappingForm.getByLabel('Mapping cost centre',{exact:false}).selectOption(budgetDimensions[1]);
+  await mappingForm.getByRole('button',{name:'Save commitment mapping',exact:true}).click();
+  await expect(budgetSection.getByText('Commitment mappings: BUDGET-CC → BUDGET-ACC',{exact:true})).toBeVisible();
+  const budgetState=(await pool.query("SELECT b.id,v.id AS version_id,l.id AS line_id FROM commercial_budgets b JOIN commercial_budget_versions v ON v.budget_id=b.id JOIN commercial_budget_lines l ON l.budget_version_id=v.id WHERE b.organisation_id='runtime-b'")).rows[0];
+  const setupPeriod=(await pool.query("SELECT id FROM commercial_financial_periods WHERE financial_year_id=$1 AND name='July'",[setupYearId])).rows[0].id;
+  const allocationForm=budgetSection.getByRole('form',{name:'Period allocation',exact:true});
+  async function allocate(amount){await allocationForm.getByLabel('Allocation line',{exact:false}).selectOption(budgetState.line_id);await allocationForm.getByLabel('Allocation period',{exact:false}).selectOption(setupPeriod);await allocationForm.getByLabel('Period amount (minor units)',{exact:false}).fill(amount);await allocationForm.getByRole('button',{name:'Save allocation',exact:true}).click();await expect(budgetSection.getByText(new RegExp('Period allocations:.*'+amount))).toBeVisible();}
+  await allocate('9000');
+  await budgetSection.getByRole('button',{name:'Activate Budget version',exact:true}).click();
+  await expect(budgetSection.getByRole('alert')).toContainText('period allocations');
+  await allocate('10000');
+  await budgetSection.getByRole('button',{name:'Activate Budget version',exact:true}).click();
+  await expect(budgetSection.getByRole('status')).toContainText('Budget version activated.');
+  await expect(budgetSection.getByRole('button',{name:'Save line',exact:true})).toHaveCount(0);
+  const budgetSetupPath='/api/commercial/budgeting/budgets/'+budgetState.id+'/versions/'+budgetState.version_id+'/setup';
+  if((await setupPost(budgetSetupPath,{action:'line',budgetAccountId:budgetDimensions[0],costCentreId:budgetDimensions[1],annualBudgetCents:'1'})).status!==409)throw new Error('Activated Budget remained editable');
+  const activatedBudget=(await pool.query("SELECT b.active_version_id,v.status FROM commercial_budgets b JOIN commercial_budget_versions v ON v.id=b.active_version_id WHERE b.id=$1",[budgetState.id])).rows[0];
+  if(activatedBudget.active_version_id!==budgetState.version_id||activatedBudget.status!=='ACTIVE')throw new Error('Budget activation did not persist');
+  if((await setupPost('/api/commercial/budgeting/budgets',{name:'Duplicate',financialYearId:setupYearId,currency:'AUD',taxBasis:'INCLUSIVE',periodisationMode:'PERIODISED'})).status!==409)throw new Error('Duplicate Budget header accepted');
+  if((await page.evaluate(async path=>(await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,budgetSetupPath))!==404)throw new Error('Budget editing crossed tenants');
+  for(const path of ['/api/commercial/budgeting/budgets',budgetSetupPath]){
+    if((await fetch(origin+path,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status!==401)throw new Error('Unauthenticated Budget mutation accepted');
+    if((await viewer.page.evaluate(async path=>(await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,path))!==403)throw new Error('Viewer Budget mutation accepted');
+  }
   const periodPath='/api/commercial/budgeting/financial-years/'+setupYearId+'/periods';
   for(const [body,expected] of [[{name:'Overlap',startsOn:'2027-07-31',endsOn:'2027-08-15'},409],[{name:'Outside',startsOn:'2027-06-01',endsOn:'2027-06-30'},409],[{name:'Invalid',startsOn:'2028-02-30',endsOn:'2028-03-31'},400],[{name:'July',startsOn:'2027-08-01',endsOn:'2027-08-31'},409]]){
     if((await setupPost(periodPath,body)).status!==expected)throw new Error('Calendar validation failed: '+JSON.stringify(body));
@@ -391,6 +442,7 @@ try {
   await pool.query("UPDATE organisation_modules SET enabled=false WHERE organisation_id='runtime-b' AND module_key='budgeting'");
   if((await setupPost('/api/commercial/budgeting/financial-years',{name:'Denied',startsOn:'2029-07-01',endsOn:'2030-06-30'})).status!==403)throw new Error('Unentitled calendar creation accepted');
   if((await setupPost('/api/commercial/budgeting/setup/accounts',{code:'DENIED',name:'Denied'})).status!==403)throw new Error('Unentitled dimension creation accepted');
+  if((await setupPost('/api/commercial/budgeting/budgets',{})).status!==403)throw new Error('Unentitled Budget creation accepted');
   if(errors.length||failedApi.length)throw new Error(JSON.stringify({errors,failedApi}));
   const externalGlChecks=['mapping list calendar dates','account and cost-centre creation through real forms','exact create response dates','overlap rejection without duplicate facts','source filter','account and cost-centre retirement through real forms','exact retire response and persisted dates','viewer mutation denial','foreign mapping read and retirement denial'];
   const evidence={verified_at:new Date().toISOString(),serverTimezone,checks:['real login and production runtime','calendar dates preserved through API and screen','mobile metrics remain inside viewport','mobile history and reconciliation tables scroll to last column','exact $100 source and ledger match','prepare and review','sign-off blocked before close','period close and durable sign-off','year close and reopen','period reopen invalidates close and reconciliation','viewer denial','tenant isolation'],overflow,build_id:readFileSync('.next/BUILD_ID','utf8').trim()};
@@ -399,6 +451,7 @@ try {
   evidence.importConcurrencyChecks=['database-gated overlapping identical requests return IMPORTED and IDEMPOTENT for one identity','concurrent changed facts return one import and one conflict','conflicting request does not overwrite the winning immutable fact'];
   evidence.calendarSetupChecks=['fresh organisation creates year and period through UI','exact dates persist and survive reload','audit retains session actor and dates','invalid dates, overlaps, duplicate names and outside-year periods rejected','concurrent year and period overlaps rejected','closed year rejects new periods','year close and new-period race preserves close invariants','unauthenticated, viewer, unentitled and foreign-tenant mutations denied','mobile setup fits viewport'];
   evidence.dimensionSetupChecks=['account and cost-centre creation through forms','tenant duplicate-code rejection','deactivation retains inactive records after reload','active Budget references prevent deactivation','viewer, unentitled and foreign mutations denied'];
+  evidence.budgetSetupChecks=['fresh Budget and DRAFT version created through form','draft line and commitment mapping through forms','period allocation mismatch blocks activation','correct allocation permits activation','ACTIVE version read-only and API rejects edits','active version pointer persisted','duplicate header rejected','unauthenticated, viewer, unentitled and foreign-tenant mutations denied'];
   writeFileSync(resolve(artifacts,'evidence.json'),JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));
 } finally {
   await browser?.close();

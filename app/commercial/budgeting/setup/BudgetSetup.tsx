@@ -1,0 +1,79 @@
+'use client';
+import { useEffect,useState,type FormEvent } from 'react';
+import { Field,TableContainer,buttonProps,fieldControlClassName,tableStyles } from '@/components/ui/app';
+type Dimension={id:string;code:string;active:boolean};
+type Year={id:string;name:string;status:string;periods:{id:string;name:string}[]};
+type Version={budget_id:string;version_id:string;name:string;financial_year_id:string;currency:string;tax_basis:string;periodisation_mode:string;version_number:number;status:string;lines:{id:string;budget_account_id:string;cost_centre_id:string;annual_budget_cents:string}[];allocations:{budget_line_id:string;financial_period_id:string;amount_cents:string}[];mappings:{cost_centre_id:string;budget_account_id:string}[]};
+async function readSetup(){
+  const responses=await Promise.all(['/api/commercial/budgeting/budgets','/api/commercial/budgeting/financial-periods','/api/commercial/budgeting/setup/accounts','/api/commercial/budgeting/setup/cost-centres'].map(url=>fetch(url)));
+  if(responses.some(response=>!response.ok))throw new Error('Unable to load Budget setup.');
+  const [budgets,calendar,accounts,centres]=await Promise.all(responses.map(response=>response.json()));
+  return {versions:budgets.versions as Version[],years:calendar.years as Year[],accounts:accounts.records as Dimension[],centres:centres.records as Dimension[]};
+}
+function SelectField({label,name,options}:{label:string;name:string;options:{id:string;label:string}[]}){
+  return <Field label={label} required>{control=><select {...control} name={name} required defaultValue="" className={fieldControlClassName}><option value="">Choose…</option>{options.map(option=><option key={option.id} value={option.id}>{option.label}</option>)}</select>}</Field>;
+}
+const formStyle={display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(min(100%, 190px), 1fr))',gap:12,alignItems:'end',border:0,padding:0,margin:'16px 0'} as const;
+export default function BudgetSetup({revision}:{revision:number}){
+  const [data,setData]=useState<{versions:Version[];years:Year[];accounts:Dimension[];centres:Dimension[]}>({versions:[],years:[],accounts:[],centres:[]});
+  const [versionId,setVersionId]=useState(''),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
+  const version=data.versions.find(row=>row.version_id===versionId);
+  useEffect(()=>{
+    let current=true;
+    async function load(){try{const result=await readSetup();if(current){setData(result);setVersionId(id=>result.versions.some(row=>row.version_id===id)?id:result.versions[0]?.version_id??'');setError('');}}
+      catch(failure){if(current)setError(failure instanceof Error?failure.message:'Unable to load Budget setup.');}finally{if(current)setLoading(false);}}
+    void load();return()=>{current=false;};
+  },[revision]);
+  async function submit(event:FormEvent<HTMLFormElement>,action:'create'|'line'|'allocation'|'mapping'|'activate'){
+    event.preventDefault();if(loading||busy)return;
+    const form=event.currentTarget,body={...Object.fromEntries(new FormData(form)),action};
+    const target=version;
+    setBusy(true);setError('');setMessage('');
+    try{
+      const endpoint=action==='create'?'/api/commercial/budgeting/budgets':`/api/commercial/budgeting/budgets/${target?.budget_id}/versions/${target?.version_id}/${action==='activate'?'activate':'setup'}`;
+      const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      const result=await response.json();if(!response.ok)throw new Error(result.error??'Unable to save Budget setup.');
+      const next=await readSetup();setData(next);if(action==='create')setVersionId(result.version.id);
+      form.reset();setMessage(action==='activate'?'Budget version activated. Draft editing is now locked.':'Budget setup saved.');
+    }catch(failure){setError(failure instanceof Error?failure.message:'Unable to save Budget setup.');}finally{setBusy(false);}
+  }
+  const accountOptions=data.accounts.filter(row=>row.active).map(row=>({id:row.id,label:row.code}));
+  const centreOptions=data.centres.filter(row=>row.active).map(row=>({id:row.id,label:row.code}));
+  const accountCode=(id:string)=>data.accounts.find(row=>row.id===id)?.code??id;
+  const centreCode=(id:string)=>data.centres.find(row=>row.id===id)?.code??id;
+  const periods=data.years.find(year=>year.id===version?.financial_year_id)?.periods??[];
+  return <section aria-labelledby="budget-setup-title" style={{marginTop:20,padding:20,border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',background:'var(--bg-surface)'}}>
+    <h2 id="budget-setup-title" style={{marginTop:0,fontSize:16}}>Budget setup</h2>
+    <p style={{fontSize:13,color:'var(--text-secondary)'}}>Create a draft, add its lines and commitment mappings, then activate when ready. Enter amounts as integer minor units: 10000 means $100.00 for AUD. Periodised allocations must equal each line’s annual amount.</p>
+    {error&&<p role="alert" style={{color:'var(--status-danger)'}}>{error}</p>}<p role="status">{loading?'Loading Budget setup…':message}</p>
+    <form aria-label="Create Budget" onSubmit={event=>void submit(event,'create')}><fieldset disabled={loading||busy} style={formStyle}>
+      <Field label="Budget name" required>{control=><input {...control} name="name" required maxLength={100} className={fieldControlClassName}/>}</Field>
+      <SelectField label="Budget financial year" name="financialYearId" options={data.years.filter(year=>year.status==='OPEN').map(year=>({id:year.id,label:year.name}))}/>
+      <Field label="Budget currency" required>{control=><input {...control} name="currency" required pattern="[A-Za-z]{3}" maxLength={3} className={fieldControlClassName}/>}</Field>
+      <SelectField label="Tax basis" name="taxBasis" options={[{id:'INCLUSIVE',label:'Tax inclusive'},{id:'EXCLUSIVE',label:'Tax exclusive'}]}/>
+      <SelectField label="Periodisation" name="periodisationMode" options={[{id:'ANNUAL_ONLY',label:'Annual only'},{id:'PERIODISED',label:'Periodised'}]}/>
+      <button {...buttonProps('primary')} type="submit">Create draft Budget</button>
+    </fieldset></form>
+    <Field label="Budget version">{control=><select {...control} className={fieldControlClassName} value={versionId} onChange={event=>setVersionId(event.target.value)} disabled={loading||busy}><option value="">Choose Budget</option>{data.versions.map(row=><option key={row.version_id} value={row.version_id}>{row.name} · {row.currency} · v{row.version_number} · {row.status}</option>)}</select>}</Field>
+    {version?<div key={version.version_id}>
+      <p>{version.currency} · {version.tax_basis} · {version.periodisation_mode} · {version.status}</p>
+      {version.status==='DRAFT'?<>
+        <form aria-label="Budget line" onSubmit={event=>void submit(event,'line')}><fieldset disabled={busy} style={formStyle}>
+          <SelectField label="Line account" name="budgetAccountId" options={accountOptions}/><SelectField label="Line cost centre" name="costCentreId" options={centreOptions}/>
+          <Field label="Annual amount (minor units)" required>{control=><input {...control} name="annualBudgetCents" required inputMode="numeric" pattern="[0-9]+" className={fieldControlClassName}/>}</Field><button {...buttonProps('secondary')} type="submit">Save line</button>
+        </fieldset></form>
+        <form aria-label="Commitment mapping" onSubmit={event=>void submit(event,'mapping')}><fieldset disabled={busy} style={formStyle}>
+          <SelectField label="Mapping cost centre" name="costCentreId" options={centreOptions}/><SelectField label="Mapping account" name="budgetAccountId" options={accountOptions}/><button {...buttonProps('secondary')} type="submit">Save commitment mapping</button>
+        </fieldset></form>
+        {version.periodisation_mode==='PERIODISED'&&<form aria-label="Period allocation" onSubmit={event=>void submit(event,'allocation')}><fieldset disabled={busy} style={formStyle}>
+          <SelectField label="Allocation line" name="budgetLineId" options={version.lines.map(line=>({id:line.id,label:accountCode(line.budget_account_id)+' / '+centreCode(line.cost_centre_id)}))}/><SelectField label="Allocation period" name="financialPeriodId" options={periods.map(period=>({id:period.id,label:period.name}))}/>
+          <Field label="Period amount (minor units)" required>{control=><input {...control} name="amountCents" required inputMode="numeric" pattern="[0-9]+" className={fieldControlClassName}/>}</Field><button {...buttonProps('secondary')} type="submit">Save allocation</button>
+        </fieldset></form>}
+        <form aria-label="Activate Budget" onSubmit={event=>void submit(event,'activate')}><button {...buttonProps('primary')} disabled={busy||version.lines.length===0||version.mappings.length===0} type="submit">Activate Budget version</button></form>
+      </>:<p>This version is read-only. Its existing lines, mappings and allocations remain available below.</p>}
+      <TableContainer label="Budget setup lines" minWidth={600}><table className={tableStyles.table}><thead><tr>{['Account','Cost centre','Annual minor units'].map(label=><th key={label} scope="col">{label}</th>)}</tr></thead><tbody>{version.lines.length?version.lines.map(line=><tr key={line.id}><td>{accountCode(line.budget_account_id)}</td><td>{centreCode(line.cost_centre_id)}</td><td>{line.annual_budget_cents}</td></tr>):<tr><td colSpan={3}>No Budget lines yet.</td></tr>}</tbody></table></TableContainer>
+      <p style={{fontSize:13}}>Commitment mappings: {version.mappings.length?version.mappings.map(mapping=>centreCode(mapping.cost_centre_id)+' → '+accountCode(mapping.budget_account_id)).join('; '):'None yet.'}</p>
+      <p style={{fontSize:13}}>Period allocations: {version.allocations.length?version.allocations.map(allocation=>{const line=version.lines.find(row=>row.id===allocation.budget_line_id);return (line?accountCode(line.budget_account_id)+' / '+centreCode(line.cost_centre_id):allocation.budget_line_id)+' · '+(periods.find(period=>period.id===allocation.financial_period_id)?.name??allocation.financial_period_id)+' · '+allocation.amount_cents;}).join('; '):'None.'}</p>
+    </div>:!loading&&<p>No Budget versions yet. Create the first draft above.</p>}
+  </section>;
+}

@@ -197,6 +197,7 @@ describe('C7.7C — Budget and version creation', () => {
       const tx = (() => ({})) as unknown;
       builder(tx);
       return [
+        [{ id: 'fy-1' }],
         [{ id: 'b1', organisation_id: 'org-a', financial_year_id: 'fy-1', name: 'FY Budget', currency: 'AUD', tax_basis: 'INCLUSIVE', periodisation_mode: 'PERIODISED', active_version_id: null }],
         [{ ...draftVersion, budget_id: 'b1' }],
       ];

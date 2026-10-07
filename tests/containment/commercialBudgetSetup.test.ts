@@ -1,0 +1,28 @@
+import { beforeEach,describe,expect,it,vi } from 'vitest';
+const mocks=vi.hoisted(()=>({auth:vi.fn(),create:vi.fn(),budget:vi.fn(),version:vi.fn(),line:vi.fn(),allocation:vi.fn(),mapping:vi.fn(),year:vi.fn(),periods:vi.fn(),account:vi.fn(),centre:vi.fn()}));
+vi.mock('@/lib/db',()=>({default:vi.fn()}));
+vi.mock('@/lib/commercial/authorize',()=>({authorizeCommercialRequest:mocks.auth,COMMERCIAL_MIN_ROLE:{administer:'admin'}}));
+vi.mock('@/lib/commercial/budgets',()=>({createBudget:mocks.create,getBudget:mocks.budget,getBudgetVersion:mocks.version,upsertBudgetLine:mocks.line,setBudgetPeriodAllocation:mocks.allocation,setBudgetCommitmentMapping:mocks.mapping}));
+vi.mock('@/lib/commercial/financialPeriods',()=>({getFinancialYear:mocks.year,listFinancialPeriods:mocks.periods}));
+vi.mock('@/lib/commercial/budgetAccounts',()=>({getBudgetAccount:mocks.account}));
+vi.mock('@/lib/commercial/costCentres',()=>({getCostCentre:mocks.centre}));
+const {setupAmount}=await import('@/lib/commercial/budgetSetup');
+const createRoute=await import('@/app/api/commercial/budgeting/budgets/route');
+const changeRoute=await import('@/app/api/commercial/budgeting/budgets/[id]/versions/[versionId]/setup/route');
+const id='00000000-0000-4000-8000-000000000901';
+const context={params:Promise.resolve({id,versionId:id})};
+const request=(body:unknown)=>new Request('http://localhost',{method:'POST',body:JSON.stringify(body)});
+const header={name:' Budget ',financialYearId:id,currency:'aud',taxBasis:'INCLUSIVE',periodisationMode:'PERIODISED',organisationId:'foreign'};
+beforeEach(()=>{vi.clearAllMocks();mocks.auth.mockResolvedValue({ok:true,session:{organisationId:'org-a',userId:'user-a'}});mocks.year.mockResolvedValue({id,status:'OPEN'});mocks.budget.mockResolvedValue({id,financial_year_id:id,periodisation_mode:'PERIODISED'});mocks.version.mockResolvedValue({id,budget_id:id,status:'DRAFT'});mocks.account.mockResolvedValue({id,active:true});mocks.centre.mockResolvedValue({id,active:true});mocks.periods.mockResolvedValue([{id}]);});
+describe('Budget setup boundary',()=>{
+  it.each([null,true,[],{},1,1.5,'1.5','1e3','-1','9223372036854775808'])('rejects invalid minor units %j',value=>expect(()=>setupAmount(value)).toThrow());
+  it('keeps values above JavaScript safe integer precision exact',()=>expect(setupAmount('9007199254740993')).toBe(9007199254740993n));
+  it.each([401,403,503])('preserves authorization denial %s',async status=>{mocks.auth.mockResolvedValue({ok:false,response:new Response(null,{status})});expect((await createRoute.POST(request(header))).status).toBe(status);expect((await changeRoute.POST(request({}),context)).status).toBe(status);expect(mocks.create).not.toHaveBeenCalled();expect(mocks.budget).not.toHaveBeenCalled();});
+  it('normalizes Budget input and derives identity from session',async()=>{mocks.create.mockResolvedValue({budget:{id},version:{id}});expect((await createRoute.POST(request(header))).status).toBe(201);expect(mocks.create).toHaveBeenCalledWith({organisationId:'org-a',userId:'user-a',financialYearId:id,name:'Budget',currency:'AUD',taxBasis:'INCLUSIVE',periodisationMode:'PERIODISED'});});
+  it('rejects closed-year creation',async()=>{mocks.year.mockResolvedValue({id,status:'CLOSED'});expect((await createRoute.POST(request(header))).status).toBe(409);expect(mocks.create).not.toHaveBeenCalled();});
+  it('rejects a foreign version',async()=>{mocks.version.mockResolvedValue(null);expect((await changeRoute.POST(request({action:'line'}),context)).status).toBe(404);expect(mocks.line).not.toHaveBeenCalled();});
+  it('rejects edits to an ACTIVE version',async()=>{mocks.version.mockResolvedValue({id,budget_id:id,status:'ACTIVE'});expect((await changeRoute.POST(request({action:'line'}),context)).status).toBe(409);expect(mocks.line).not.toHaveBeenCalled();});
+  it('binds an exact amount to a tenant-scoped draft line',async()=>{mocks.line.mockResolvedValue({id});expect((await changeRoute.POST(request({action:'line',budgetAccountId:id,costCentreId:id,annualBudgetCents:'9007199254740993'}),context)).status).toBe(200);expect(mocks.line).toHaveBeenCalledWith({organisationId:'org-a',userId:'user-a',budgetVersionId:id,budgetAccountId:id,costCentreId:id,annualBudgetCents:9007199254740993n});});
+  it('rejects periods from another financial year',async()=>{mocks.periods.mockResolvedValue([]);expect((await changeRoute.POST(request({action:'allocation',budgetLineId:id,financialPeriodId:id,amountCents:'100'}),context)).status).toBe(404);expect(mocks.allocation).not.toHaveBeenCalled();});
+  it('rejects inactive dimensions',async()=>{mocks.account.mockResolvedValue({id,active:false});expect((await changeRoute.POST(request({action:'mapping',budgetAccountId:id,costCentreId:id}),context)).status).toBe(409);expect(mocks.mapping).not.toHaveBeenCalled();});
+});

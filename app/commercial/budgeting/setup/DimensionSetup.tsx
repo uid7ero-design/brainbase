@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Field, TableContainer, buttonProps, fieldControlClassName, tableStyles } from '@/components/ui/app';
 
 type RecordRow = { id: string; code: string; name: string; description: string | null; active: boolean };
-export default function DimensionSetup({ kind, title }: { kind: 'accounts' | 'cost-centres'; title: string }) {
+export default function DimensionSetup({ kind, title, onChange }: { kind: 'accounts' | 'cost-centres'; title: string; onChange?: () => void }) {
   const [records, setRecords] = useState<RecordRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -34,6 +34,7 @@ export default function DimensionSetup({ kind, title }: { kind: 'accounts' | 'co
       if (!response.ok) throw new Error(data.error ?? 'Unable to create record.');
       setRecords(current => [...current, data.record].sort((a, b) => a.code.localeCompare(b.code)));
       form.reset(); setMessage('Created ' + data.record.code + '.');
+      onChange?.();
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'Unable to create record.'); }
     finally { setBusy(false); }
   }
@@ -45,6 +46,7 @@ export default function DimensionSetup({ kind, title }: { kind: 'accounts' | 'co
       if (!response.ok) throw new Error(data.error ?? 'Unable to deactivate record.');
       setRecords(current => current.map(row => row.id === record.id ? data.record : row));
       setMessage(record.code + ' deactivated. Historical references remain available.');
+      onChange?.();
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'Unable to deactivate record.'); }
     finally { setBusy(false); }
   }

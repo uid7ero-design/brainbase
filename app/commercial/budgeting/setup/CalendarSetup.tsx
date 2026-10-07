@@ -17,7 +17,7 @@ function CalendarFields({ prefix }: { prefix: string }) {
   </>;
 }
 
-export default function CalendarSetup() {
+export default function CalendarSetup({ onChange }: { onChange?: () => void }) {
   const [years, setYears] = useState<Year[]>([]);
   const [yearId, setYearId] = useState('');
   const [loading, setLoading] = useState(true);
@@ -63,6 +63,7 @@ export default function CalendarSetup() {
         setYears(current => current.map(year => year.id === targetYearId ? { ...year, periods: [...year.periods, data.period].sort((a, b) => a.starts_on.localeCompare(b.starts_on)) } : year));
       }
       form.reset();
+      onChange?.();
       setMessage(kind === 'year' ? 'Financial year created. Add its periods below.' : 'Financial period created.');
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'Unable to save the financial calendar.'); }
     finally { setBusy(false); }

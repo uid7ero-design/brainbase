@@ -104,7 +104,25 @@ and exercises concurrent year and period creation plus year-close/period-create 
 It checks closed-year, unauthenticated, viewer, unentitled and foreign-tenant rejection and
 mobile layout. This stage passed the runtime regression in Australia/Adelaide, 2,203
 Commercial tests, PASS=30 / FAIL=0 database verification, lint and production build locally.
-Account, cost-centre and draft Budget setup remain subsequent stages.
+Account, cost-centre and draft Budget setup are verified in the later local stages below.
+
+### Dimension and initial Budget setup stages, 7 October 2026
+
+Account and cost-centre forms create tenant-owned records, reject duplicate codes,
+retain inactive records and prevent deactivation of ACTIVE Budget references.
+Database barriers prove activation-first and deactivation-first serialization for
+both dimension types using shared row locks.
+
+The production-runtime walkthrough now completes an initial periodised Budget
+through forms: header/DRAFT version, line, commitment mapping and allocation.
+A mismatched allocation blocks activation; correcting it permits activation and
+persists the active pointer. ACTIVE versions remove edit forms and reject API
+edits. Duplicate headers and unauthenticated/viewer/unentitled/foreign-tenant
+mutations are rejected. The complete setup screen fits the 390px viewport.
+
+The Budget stage passed 2,252 Commercial containment tests, PASS=30 / FAIL=0
+disposable database verification, focused lint, production build and runtime
+regression in Australia/Adelaide. All setup stages remain local and unreleased.
 
 ## Deliberately deferred policy decisions
 
