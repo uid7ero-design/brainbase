@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Data Hub 6.2D4D1B2 -- real disposable-Postgres proof for the dataset
-# profile execution service. Local throwaway postgres only. Never
+# profile execution service and D4D5N upload count service. Local throwaway postgres only. Never
 # Production/Preview/Neon.
 set -uo pipefail
 
@@ -105,7 +105,7 @@ done
 
 echo "DATABASE_URL=$DATABASE_URL (disposable container only)"
 echo ""
-echo "=== Running the B2B2 dataset-profile execution integration suite ==="
+echo "=== Running dataset-profile execution and D4D5N upload count integration proofs ==="
 npx vitest run --config vitest.integration.config.ts scripts/tests/dataHubDatasetProfileExecution.integration.test.ts
 RESULT=$?
 
