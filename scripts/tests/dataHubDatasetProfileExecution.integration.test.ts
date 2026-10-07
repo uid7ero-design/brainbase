@@ -868,6 +868,14 @@ describe("D4D5Q durable analysis review foundation", () => {
     expect(await saveAnalysisReview(scope, decisions)).toEqual({ ok: true, revision: 1 });
     expect(await saveAnalysisReview(scope, decisions)).toEqual({ ok: true, revision: 2 });
     expect(await loadAnalysisReview(f.scope)).toMatchObject({ ok: true, revision: 2 });
+    const { analyzeReviewedUploadCount } = await import("@/lib/data-hub/analysisExecution/analyzeReviewedUploadCount");
+    expect(await analyzeReviewedUploadCount(f.scope, { requestVersion: "v1", kind: "ROW_COUNT" }))
+      .toMatchObject({ ok: true, reviewRevision: 2, result: { count: 2 } });
+    expect(await analyzeReviewedUploadCount(f.scope, { requestVersion: "v1", kind: "AGGREGATE",
+      sourceSchemaColumnId: f.ids.col2, operator: "COUNT_PRESENT" }))
+      .toMatchObject({ ok: true, reviewRevision: 2, result: { count: 1 } });
+    expect(await analyzeReviewedUploadCount({ ...f.scope, organisationId: ORG_B }, { requestVersion: "v1", kind: "ROW_COUNT" }))
+      .toEqual({ ok: false, code: "UPLOAD_NOT_FOUND" });
     const attempts = await Promise.all([saveAnalysisReview(scope, decisions), saveAnalysisReview(scope, decisions)]);
     expect(attempts.some((result) => result.ok)).toBe(true);
     const stored = await prisma.$queryRawUnsafe<Array<{ revision: number }>>(
