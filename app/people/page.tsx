@@ -86,6 +86,7 @@ export default function PeoplePage() {
         description={<>Your organisation&apos;s workers, teams, and basic employment information.</>}
         actions={
           <>
+            <Link href="/people/lifecycle" {...secondaryAction}>Lifecycle Overview</Link>
             <Link href="/people/restricted-cases" {...secondaryAction}>Restricted Cases</Link>
             {canManage && (
               <>
