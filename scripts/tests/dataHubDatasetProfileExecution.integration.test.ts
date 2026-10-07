@@ -837,6 +837,21 @@ describe("D4D5Q durable analysis review foundation", () => {
         sourceSchemaColumnId: f.ids.col2, decision: "ACKNOWLEDGE" }]));
     return id;
   }
+  it("D4D5S loads latest persisted decisions through real Prisma and recomputes count readiness", async () => {
+    const f = await countWorld();
+    const { loadAnalysisReview } = await import("@/lib/data-hub/analysisExecution/loadAnalysisReview");
+    expect(await loadAnalysisReview(f.scope)).toEqual({ ok: false, code: "REVIEW_NOT_FOUND" });
+    await insertReview(f);
+    const loaded = await loadAnalysisReview(f.scope);
+    if (!loaded.ok) throw new Error(loaded.code);
+    expect(loaded.revision).toBe(1);
+    expect(await f.analyze(f.scope, loaded.schema, loaded.quality, { requestVersion: "v1", kind: "ROW_COUNT" }))
+      .toMatchObject({ ok: true, result: { count: 2 } });
+    expect(await loadAnalysisReview({ ...f.scope, organisationId: ORG_B }))
+      .toEqual({ ok: false, code: "UPLOAD_NOT_FOUND" });
+    await insertReview(f, { revision: 2, decisions: [] });
+    expect(await loadAnalysisReview(f.scope)).toMatchObject({ ok: false });
+  });
   it("stores explicit decisions in sequential immutable revisions with server timestamps", async () => {
     const f = await countWorld(), id = await insertReview(f);
     await insertReview(f, { revision: 2 });

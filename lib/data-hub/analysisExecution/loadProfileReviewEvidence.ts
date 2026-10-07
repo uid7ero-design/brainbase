@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../../prisma";
 import { DATASET_PROFILER_VERSION, type DatasetReviewEvidence, type ValueKind, type Unit } from "../profiling/contracts";
 import { VALUE_KINDS, UNITS } from "../schemaProfiles/profileDocument";
@@ -34,7 +35,17 @@ export async function loadProfileReviewEvidence(
   if (typeof input.organisationId !== "string" || !input.organisationId.trim() ||
     typeof input.uploadId !== "string" || !input.uploadId.trim()) return { ok: false, code: "CONTEXT_INPUT_INVALID" };
   try {
-    return await prisma.$transaction(async (tx): Promise<LoadProfileReviewEvidenceResult> => {
+    return await prisma.$transaction((tx) => loadProfileReviewEvidenceInTransaction(input, tx),
+      { isolationLevel: "RepeatableRead" });
+  } catch {
+    return { ok: false, code: "CONTEXT_READ_FAILED" };
+  }
+}
+
+// Internal composition entry point: caller owns the consistent transaction.
+export async function loadProfileReviewEvidenceInTransaction(
+  input: { organisationId: string; uploadId: string }, tx: Prisma.TransactionClient,
+): Promise<LoadProfileReviewEvidenceResult> {
       const resolved = await resolveAnalysisContextInTransaction(input, tx);
       if (!resolved.ok) return resolved;
       const context = resolved.context;
@@ -71,8 +82,4 @@ export async function loadProfileReviewEvidence(
         return { ok: false, code: "PROFILE_EVIDENCE_INVALID" };
       }
       return { ok: true, profile: { context, snapshot } };
-    }, { isolationLevel: "RepeatableRead" });
-  } catch {
-    return { ok: false, code: "CONTEXT_READ_FAILED" };
-  }
 }
