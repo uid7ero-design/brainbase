@@ -33,3 +33,16 @@ read from storage. The returned revision identifies the snapshot used; it is
 not a guarantee that upload pointers stay current after the transaction.
 This remains an internal read service; session authorization and review saving
 are separate work. The review migration must be installed before using it.
+
+D4D5T adds the internal `saveAnalysisReview` service. A trusted caller must
+derive organization and actor from the authenticated session and authorize the
+upload. The decision body cannot supply either identity. The service checks
+active same-organization reviewer eligibility, loads authoritative profile
+evidence, compares the freshness pin and recomputes full review resolution
+before appending a database-controlled revision. HOLD decisions are valid
+reviews and remain holds when loaded. No derived readiness is persisted.
+Serializable transactions and the existing SQL insertion guards prevent
+concurrent revisions or pointer changes from producing an invalid commit.
+Conflicts return REVIEW_SAVE_FAILED; no automatic retry is performed. A client
+retry is a new append operation, not an idempotent replay. HTTP/session wiring
+and conflict UX remain follow-up work. Production migration status is unchanged.

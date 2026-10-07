@@ -852,6 +852,28 @@ describe("D4D5Q durable analysis review foundation", () => {
     await insertReview(f, { revision: 2, decisions: [] });
     expect(await loadAnalysisReview(f.scope)).toMatchObject({ ok: false });
   });
+  it("D4D5T saves recomputed reviews and rejects invalid actors, stale pins and incomplete decisions", async () => {
+    const f = await countWorld();
+    const { saveAnalysisReview } = await import("@/lib/data-hub/analysisExecution/saveAnalysisReview");
+    const { loadAnalysisReview } = await import("@/lib/data-hub/analysisExecution/loadAnalysisReview");
+    const scope = { ...f.scope, actorId: f.ids.userId };
+    const decisions = { reviewVersion: "v1", datasetProfileRunId: f.context.datasetProfileRunId,
+      semanticChoices: [{ sourceSchemaColumnId: f.ids.col1, role: "IDENTIFIER" }, { sourceSchemaColumnId: f.ids.col2, role: "MEASURE" }],
+      qualityDecisions: [{ code: "COLUMN_PARTIALLY_NULL", scope: "COLUMN", sourceSchemaColumnId: f.ids.col2, decision: "ACKNOWLEDGE" },
+        { code: "COLUMN_CONSTANT", scope: "COLUMN", sourceSchemaColumnId: f.ids.col2, decision: "ACKNOWLEDGE" }] };
+    expect(await saveAnalysisReview({ ...scope, actorId: "missing" }, decisions)).toEqual({ ok: false, code: "REVIEW_ACTOR_INVALID" });
+    expect(await saveAnalysisReview(scope, { ...decisions, datasetProfileRunId: "old" })).toEqual({ ok: false, code: "REVIEW_PROFILE_CHANGED" });
+    expect(await saveAnalysisReview(scope, { ...decisions, qualityDecisions: [] })).toMatchObject({ ok: false });
+    expect(await loadAnalysisReview(f.scope)).toEqual({ ok: false, code: "REVIEW_NOT_FOUND" });
+    expect(await saveAnalysisReview(scope, decisions)).toEqual({ ok: true, revision: 1 });
+    expect(await saveAnalysisReview(scope, decisions)).toEqual({ ok: true, revision: 2 });
+    expect(await loadAnalysisReview(f.scope)).toMatchObject({ ok: true, revision: 2 });
+    const attempts = await Promise.all([saveAnalysisReview(scope, decisions), saveAnalysisReview(scope, decisions)]);
+    expect(attempts.some((result) => result.ok)).toBe(true);
+    const stored = await prisma.$queryRawUnsafe<Array<{ revision: number }>>(
+      "SELECT revision FROM data_hub_analysis_reviews WHERE profile_run_id=$1 ORDER BY revision", f.context.datasetProfileRunId);
+    expect(stored.map((row) => row.revision)).toEqual(stored.map((_, index) => index + 1));
+  });
   it("stores explicit decisions in sequential immutable revisions with server timestamps", async () => {
     const f = await countWorld(), id = await insertReview(f);
     await insertReview(f, { revision: 2 });
