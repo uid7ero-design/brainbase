@@ -1,19 +1,19 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { Field, PageHeader, TableContainer, buttonProps, fieldControlClassName, tableStyles } from '@/components/ui/app';
+import { australianDateToIso, formatAustralianDate } from '@/lib/commercial/financeSetupDisplay';
+import styles from './page.module.css';
 
 type Period = { id: string; name: string; starts_on: string; ends_on: string; status: string };
 type Year = Period & { periods: Period[] };
-const panel: CSSProperties = { padding: 20, border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-surface)' };
-const grid: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 190px), 1fr))', gap: 12, alignItems: 'end' };
 
 function CalendarFields({ prefix }: { prefix: string }) {
   return <>
     <Field label={`${prefix} name`} required>{control => <input {...control} name="name" required maxLength={100} className={fieldControlClassName} />}</Field>
-    <Field label={`${prefix} start date`} required>{control => <input {...control} name="startsOn" type="date" required className={fieldControlClassName} />}</Field>
-    <Field label={`${prefix} end date`} required>{control => <input {...control} name="endsOn" type="date" required className={fieldControlClassName} />}</Field>
+    <Field label={`${prefix} start date`} required>{control => <input {...control} name="startsOn" placeholder="DD/MM/YYYY" maxLength={10} required className={fieldControlClassName} />}</Field>
+    <Field label={`${prefix} end date`} required>{control => <input {...control} name="endsOn" placeholder="DD/MM/YYYY" maxLength={10} required className={fieldControlClassName} />}</Field>
   </>;
 }
 
@@ -51,6 +51,8 @@ export default function CalendarSetup({ onChange }: { onChange?: () => void }) {
     const targetYearId = yearId;
     setBusy(true); setError(''); setMessage('');
     try {
+      body.startsOn = australianDateToIso(String(body.startsOn));
+      body.endsOn = australianDateToIso(String(body.endsOn));
       const response = await fetch(kind === 'year' ? '/api/commercial/budgeting/financial-years' : `/api/commercial/budgeting/financial-years/${targetYearId}/periods`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
@@ -71,29 +73,29 @@ export default function CalendarSetup({ onChange }: { onChange?: () => void }) {
 
   return <div style={{ maxWidth: 1100 }}>
     <PageHeader title="Finance setup" />
-    <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Start with your financial calendar. Dates are inclusive; years and periods must not overlap. Each period must stay within its year.</p>
+    <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Start with your financial calendar. Enter dates as DD/MM/YYYY. Dates are inclusive; years and periods must not overlap. Each period must stay within its year.</p>
     <p><Link href="/commercial/budgeting/finance-controls">Open finance controls</Link></p>
     {error && <p role="alert" style={{ color: 'var(--status-danger)' }}>{error}</p>}
     <p role="status">{loading ? 'Loading financial calendar…' : message}</p>
-    <section aria-labelledby="create-year" style={{ ...panel, marginBottom: 20 }}>
+    <section aria-labelledby="create-year" className={styles.panel}>
       <h2 id="create-year" style={{ marginTop: 0, fontSize: 16 }}>Create financial year</h2>
       <form onSubmit={event => void create(event, 'year')}>
-        <fieldset disabled={loading || busy} style={{ border: 0, padding: 0, margin: 0, ...grid }}>
+        <fieldset disabled={loading || busy} className={styles.formGrid}>
           <CalendarFields prefix="Year" />
           <button {...buttonProps('primary')} type="submit">Create year</button>
         </fieldset>
       </form>
     </section>
-    <section aria-labelledby="configure-periods" style={panel}>
+    <section aria-labelledby="configure-periods" className={styles.panel}>
       <h2 id="configure-periods" style={{ marginTop: 0, fontSize: 16 }}>Financial periods</h2>
       <Field label="Financial year">{control => <select {...control} className={fieldControlClassName} value={yearId} onChange={event => setYearId(event.target.value)} disabled={loading || busy}>
         <option value="">Choose year</option>
         {years.map(year => <option key={year.id} value={year.id}>{year.name} · {year.status}</option>)}
       </select>}</Field>
       {selectedYear ? <>
-        <p style={{ fontSize: 13 }}>{selectedYear.starts_on} to {selectedYear.ends_on} · {selectedYear.status}</p>
+        <p style={{ fontSize: 13 }}>{formatAustralianDate(selectedYear.starts_on)} to {formatAustralianDate(selectedYear.ends_on)} · {selectedYear.status}</p>
         {selectedYear.status === 'OPEN' ? <form onSubmit={event => void create(event, 'period')}>
-          <fieldset disabled={busy || loading} style={{ border: 0, padding: 0, margin: '16px 0', ...grid }}>
+          <fieldset disabled={busy || loading} className={styles.formGrid}>
             <CalendarFields prefix="Period" />
             <button {...buttonProps('primary')} type="submit">Create period</button>
           </fieldset>
@@ -101,7 +103,7 @@ export default function CalendarSetup({ onChange }: { onChange?: () => void }) {
         <TableContainer label="Financial period calendar" minWidth={500}>
           <table className={tableStyles.table}>
             <thead><tr>{['Period', 'Start date', 'End date', 'Status'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
-            <tbody>{selectedYear.periods.length ? selectedYear.periods.map(period => <tr key={period.id}><td>{period.name}</td><td>{period.starts_on}</td><td>{period.ends_on}</td><td>{period.status}</td></tr>) : <tr><td colSpan={4}>No periods yet. Add the first period above.</td></tr>}</tbody>
+            <tbody>{selectedYear.periods.length ? selectedYear.periods.map(period => <tr key={period.id}><td>{period.name}</td><td>{formatAustralianDate(period.starts_on)}</td><td>{formatAustralianDate(period.ends_on)}</td><td>{period.status}</td></tr>) : <tr><td colSpan={4}>No periods yet. Add the first period above.</td></tr>}</tbody>
           </table>
         </TableContainer>
       </> : !loading && <p>{years.length ? 'Choose a financial year to view its periods.' : 'No financial years yet. Create your first year above.'}</p>}
