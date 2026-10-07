@@ -3,6 +3,10 @@ import { notFound } from 'next/navigation';
 import { getActionDetail, listOrganiserItemOptions } from '@/lib/assurance/actions';
 import { viewerCan } from '@/lib/assurance/authorize';
 import { VERIFICATION_RESULTS, assuranceLabel, formatAssuranceDate, formatAssuranceDateTime, isPast } from '@/lib/assurance/domain';
+import {
+  ACTION_CLOSURE_LABELS, ACTION_CLOSURE_TONES, ACTION_VERIFICATION_LABELS, ACTION_VERIFICATION_TONES, ACTION_WORK_LABELS,
+  ACTION_WORK_TONES, actionFacts, isFindingTerminal,
+} from '@/lib/assurance/findingRules';
 import { resolvePageViewer } from '../../_components/pageAccess';
 import ActionPanel from '../../_components/ActionPanel';
 import { EvidenceSection } from '../../_components/shared';
@@ -37,11 +41,14 @@ export default async function ActionDetailPage({ params }: { params: Promise<{ i
   const independent = a.owner_user_id !== viewer.userId && a.work_completed_by !== viewer.userId;
   const due = detail.timeframes.find(t => t.status === 'ACTIVE' || t.status === 'OVERDUE');
   const activeEvidence = detail.evidence.filter(e => !e.removed_at);
+  const acceptedEvidence = activeEvidence.filter(e => e.verification_status === 'ACCEPTED');
+  const facts = actionFacts({ ...a, latest_verification_result: latest?.result ?? null, latest_verified_at: latest?.verified_at ?? null });
+  const reopenedFindings = finished ? detail.findings.filter(f => !isFindingTerminal(f.status)) : [];
 
   const chain: ChainStep[] = [
     { label: 'Finding', state: 'done', detail: detail.findings.map(f => f.finding_reference).join(', ') || 'Restricted' },
     { label: 'Work', state: r.workCompleted ? 'done' : a.status === 'IN_PROGRESS' || a.status === 'OPEN' ? 'current' : 'pending', detail: r.workCompleted ? `Completed ${formatAssuranceDate(a.work_completed_at)}` : 'Not complete' },
-    { label: 'Evidence', state: !a.evidence_required ? (activeEvidence.length > 0 ? 'done' : 'na') : r.evidenceSatisfied ? 'done' : a.status === 'AWAITING_EVIDENCE' ? 'blocked' : 'pending', detail: a.evidence_required ? `${activeEvidence.length} linked` : 'Optional' },
+    { label: 'Evidence', state: !a.evidence_required ? (activeEvidence.length > 0 ? 'done' : 'na') : r.evidenceSatisfied ? 'done' : a.status === 'AWAITING_EVIDENCE' ? 'blocked' : 'pending', detail: a.evidence_required ? `${activeEvidence.length} linked, ${acceptedEvidence.length} accepted` : 'Optional' },
     { label: 'Verification', state: !a.verification_required ? 'na' : r.verificationSatisfied ? 'done' : latest ? 'blocked' : a.status === 'AWAITING_VERIFICATION' ? 'current' : 'pending', detail: !a.verification_required ? 'Not required' : latest ? assuranceLabel(latest.result) : 'Not yet' },
     { label: 'Closure', state: a.status === 'CLOSED' ? 'done' : r.canClose ? 'current' : 'pending', detail: a.status === 'CLOSED' ? formatAssuranceDate(a.closed_at) : r.canClose ? 'Ready to close' : 'Blocked' },
   ];
@@ -62,6 +69,25 @@ export default async function ActionDetailPage({ params }: { params: Promise<{ i
       <Section title="Assurance chain">
         <Card><ChainStrip steps={chain} /></Card>
       </Section>
+
+      <Section title="Corrective work status" id="status">
+        <Card>
+          <KeyValues items={[
+            { label: 'Work complete', value: <span><Badge value={facts.work} label={ACTION_WORK_LABELS[facts.work]} tone={ACTION_WORK_TONES[facts.work]} />{a.work_completed_at && <div style={{ marginTop: 4 }}><Dim>Last recorded {formatAssuranceDateTime(a.work_completed_at, tz)}{a.work_completed_by_name ? ` by ${a.work_completed_by_name}` : ''}</Dim></div>}</span> },
+            { label: 'Action verified', value: <span><Badge value={facts.verification} label={ACTION_VERIFICATION_LABELS[facts.verification]} tone={ACTION_VERIFICATION_TONES[facts.verification]} />{latest && <div style={{ marginTop: 4 }}><Dim>Attempt #{latest.attempt_number}{latest.verified_by_name ? ` by ${latest.verified_by_name}` : ''}</Dim></div>}</span> },
+            { label: 'Action closed', value: <span><Badge value={facts.closure} label={ACTION_CLOSURE_LABELS[facts.closure]} tone={ACTION_CLOSURE_TONES[facts.closure]} />{a.closed_at && <div style={{ marginTop: 4 }}><Dim>{formatAssuranceDateTime(a.closed_at, tz)}{a.closed_by_name ? ` by ${a.closed_by_name}` : ''}</Dim></div>}</span> },
+          ]} />
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '12px 0 0' }}>
+            These are separate steps. Completing linked tasks, accepting evidence or recording a verification never closes this action; closing it never closes its findings.
+          </p>
+        </Card>
+      </Section>
+
+      {reopenedFindings.length > 0 && (
+        <Notice tone="info">
+          {reopenedFindings.map(f => f.finding_reference).join(', ')} {reopenedFindings.length === 1 ? 'is' : 'are'} open again. This action stays {a.status.toLowerCase()} — closed actions are never reopened. Record follow-up work as a new action on the finding.
+        </Notice>
+      )}
 
       {!finished && (canRecord || canVerify || canClose) && (
         <Section title="Next step">
