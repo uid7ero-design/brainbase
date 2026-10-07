@@ -308,12 +308,66 @@ try {
   if(foreignRetire!==404)throw new Error('Foreign mapping retirement accepted');
   const separateTenantImport=await other.page.evaluate(async body=>{const response=await fetch('/api/commercial/budgeting/external-gl/entries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return {status:response.status,payload:await response.json()};},signedImport);
   if(separateTenantImport.status!==201||separateTenantImport.payload.entry.organisation_id!=='runtime-b'||separateTenantImport.payload.staleReconciliationCount!==0)throw new Error('Ledger import identity or invalidation crossed organisation boundaries');
+  // A fresh organisation must create its calendar through the real setup UI.
+  await other.page.goto(origin+'/commercial/budgeting/setup');
+  await expect(other.page.getByText('No financial years yet. Create your first year above.')).toBeVisible();
+  const yearForm=other.page.locator('form').first();
+  await yearForm.getByLabel('Year name',{exact:false}).fill('Pilot FY');
+  await yearForm.getByLabel('Year start date',{exact:false}).fill('2027-07-01');
+  await yearForm.getByLabel('Year end date',{exact:false}).fill('2028-06-30');
+  await yearForm.getByRole('button',{name:'Create year',exact:true}).click();
+  await expect(other.page.getByRole('status')).toContainText('Financial year created.');
+  const periodForm=other.page.locator('form').nth(1);
+  await periodForm.getByLabel('Period name',{exact:false}).fill('July');
+  await periodForm.getByLabel('Period start date',{exact:false}).fill('2027-07-01');
+  await periodForm.getByLabel('Period end date',{exact:false}).fill('2027-07-31');
+  await periodForm.getByRole('button',{name:'Create period',exact:true}).click();
+  await expect(other.page.getByRole('region',{name:'Financial period calendar',exact:true})).toContainText('2027-07-31');
+  const configured=(await pool.query("SELECT y.id,y.starts_on::text,y.ends_on::text,p.starts_on::text AS period_start,p.ends_on::text AS period_end FROM commercial_financial_years y JOIN commercial_financial_periods p ON p.financial_year_id=y.id WHERE y.organisation_id='runtime-b'")).rows;
+  if(configured.length!==1||configured[0].starts_on!=='2027-07-01'||configured[0].ends_on!=='2028-06-30'||configured[0].period_start!=='2027-07-01'||configured[0].period_end!=='2027-07-31')throw new Error('Calendar setup did not persist exact dates');
+  const calendarAudit=(await pool.query("SELECT action,user_id,after_state FROM audit_logs WHERE organisation_id='runtime-b' AND action IN ('commercial_financial_year.created','commercial_financial_period.created')")).rows;
+  if(calendarAudit.length!==2||calendarAudit.some(row=>row.user_id!=='runtime-other'||row.after_state.starts_on!=='2027-07-01'))throw new Error('Calendar creation audit lost actor or calendar dates');
+  const setupYearId=configured[0].id;
+  const setupPost=(path,body)=>other.page.evaluate(async ({path,body})=>{const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return {status:response.status,data:await response.json()};},{path,body});
+  const periodPath='/api/commercial/budgeting/financial-years/'+setupYearId+'/periods';
+  for(const [body,expected] of [[{name:'Overlap',startsOn:'2027-07-31',endsOn:'2027-08-15'},409],[{name:'Outside',startsOn:'2027-06-01',endsOn:'2027-06-30'},409],[{name:'Invalid',startsOn:'2028-02-30',endsOn:'2028-03-31'},400],[{name:'July',startsOn:'2027-08-01',endsOn:'2027-08-31'},409]]){
+    if((await setupPost(periodPath,body)).status!==expected)throw new Error('Calendar validation failed: '+JSON.stringify(body));
+  }
+  const parallelPeriods=await Promise.all(['August A','August B'].map(name=>setupPost(periodPath,{name,startsOn:'2027-08-01',endsOn:'2027-08-31'})));
+  if(parallelPeriods.map(result=>result.status).sort().join(',')!=='201,409')throw new Error('Concurrent calendar periods overlapped');
+  const parallelYears=await Promise.all(['Next A','Next B'].map(name=>setupPost('/api/commercial/budgeting/financial-years',{name,startsOn:'2028-07-01',endsOn:'2029-06-30'})));
+  if(parallelYears.map(result=>result.status).sort().join(',')!=='201,409')throw new Error('Concurrent financial years overlapped');
+  const closedYearId=parallelYears.find(result=>result.status===201).data.year.id;
+  if((await setupPost('/api/commercial/budgeting/financial-years/'+closedYearId+'/close',{})).status!==200)throw new Error('Demo year close failed');
+  if((await setupPost('/api/commercial/budgeting/financial-years/'+closedYearId+'/periods',{name:'Blocked',startsOn:'2028-07-01',endsOn:'2028-07-31'})).data.code!=='CLOSED_YEAR')throw new Error('Closed year accepted a period');
+  const racingYear=await setupPost('/api/commercial/budgeting/financial-years',{name:'Close race',startsOn:'2029-07-01',endsOn:'2030-06-30'});
+  const racingId=racingYear.data.year.id;
+  const racingResults=await Promise.all([setupPost('/api/commercial/budgeting/financial-years/'+racingId+'/close',{}),setupPost('/api/commercial/budgeting/financial-years/'+racingId+'/periods',{name:'Race period',startsOn:'2029-07-01',endsOn:'2029-07-31'})]);
+  if(!racingResults.every(result=>[200,201,409].includes(result.status)))throw new Error('Year close/calendar race failed unexpectedly');
+  const invalidClosed=(await pool.query("SELECT count(*)::int AS n FROM commercial_financial_years y JOIN commercial_financial_periods p ON p.financial_year_id=y.id WHERE y.id=$1 AND y.status='CLOSED' AND p.status='OPEN'",[racingId])).rows[0].n;
+  if(invalidClosed)throw new Error('Concurrent setup created an OPEN period inside a CLOSED year');
+  const foreignCalendar=await page.evaluate(async ({id})=>(await fetch('/api/commercial/budgeting/financial-years/'+id+'/periods',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Foreign',startsOn:'2027-09-01',endsOn:'2027-09-30'})})).status,{id:setupYearId});
+  if(foreignCalendar!==404)throw new Error('Calendar creation crossed tenants');
+  for(const path of ['/api/commercial/budgeting/financial-years',periodPath]){
+    if((await fetch(origin+path,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status!==401)throw new Error('Calendar accepted unauthenticated mutation');
+    if((await viewer.page.evaluate(async path=>(await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,path))!==403)throw new Error('Viewer calendar mutation accepted');
+  }
+  await other.page.reload();
+  await other.page.getByRole('combobox',{name:'Financial year',exact:true}).selectOption(setupYearId);
+  await expect(other.page.getByRole('region',{name:'Financial period calendar',exact:true})).toContainText('2027-08-31');
+  await other.page.setViewportSize({width:390,height:844});
+  const calendarOverflow=await other.page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth}));
+  if(calendarOverflow.scrollWidth>calendarOverflow.width)throw new Error('Calendar setup overflows mobile viewport');
+  await other.page.screenshot({path:resolve(artifacts,'finance-setup-mobile.png'),fullPage:true});
+  await pool.query("UPDATE organisation_modules SET enabled=false WHERE organisation_id='runtime-b' AND module_key='budgeting'");
+  if((await setupPost('/api/commercial/budgeting/financial-years',{name:'Denied',startsOn:'2029-07-01',endsOn:'2030-06-30'})).status!==403)throw new Error('Unentitled calendar creation accepted');
   if(errors.length||failedApi.length)throw new Error(JSON.stringify({errors,failedApi}));
   const externalGlChecks=['mapping list calendar dates','account and cost-centre creation through real forms','exact create response dates','overlap rejection without duplicate facts','source filter','account and cost-centre retirement through real forms','exact retire response and persisted dates','viewer mutation denial','foreign mapping read and retirement denial'];
   const evidence={verified_at:new Date().toISOString(),serverTimezone,checks:['real login and production runtime','calendar dates preserved through API and screen','mobile metrics remain inside viewport','mobile history and reconciliation tables scroll to last column','exact $100 source and ledger match','prepare and review','sign-off blocked before close','period close and durable sign-off','year close and reopen','period reopen invalidates close and reconciliation','viewer denial','tenant isolation'],overflow,build_id:readFileSync('.next/BUILD_ID','utf8').trim()};
   evidence.externalGlChecks=externalGlChecks;
   evidence.importChecks=['real authenticated import API','exact BIGINT amount beyond JavaScript safe integers','date-only import response','exact duplicate idempotency','conflict preserves immutable facts','unsafe numeric, fractional and out-of-range amounts rejected','duplicate preserves signed-off reconciliation','conflict marks current reconciliation and close evidence stale','durable conflict event preserved','new ledger fact invalidates affected sign-off','new import stale event preserves source identity','viewer import denial','import identity and invalidation stay inside organisation'];
   evidence.importConcurrencyChecks=['database-gated overlapping identical requests return IMPORTED and IDEMPOTENT for one identity','concurrent changed facts return one import and one conflict','conflicting request does not overwrite the winning immutable fact'];
+  evidence.calendarSetupChecks=['fresh organisation creates year and period through UI','exact dates persist and survive reload','audit retains session actor and dates','invalid dates, overlaps, duplicate names and outside-year periods rejected','concurrent year and period overlaps rejected','closed year rejects new periods','year close and new-period race preserves close invariants','unauthenticated, viewer, unentitled and foreign-tenant mutations denied','mobile setup fits viewport'];
   writeFileSync(resolve(artifacts,'evidence.json'),JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));
 } finally {
   await browser?.close();

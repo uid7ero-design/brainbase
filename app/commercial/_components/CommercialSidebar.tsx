@@ -75,6 +75,7 @@ export default function CommercialSidebar({
       : []),
     ...(budgetingAdminEnabled
       ? [
+          { href: '/commercial/budgeting/setup', label: 'Finance Setup' },
           { href: '/commercial/budgeting/finance-controls', label: 'Finance Controls' },
           { href: '/commercial/budgeting/external-gl', label: 'External GL Mappings' },
         ]

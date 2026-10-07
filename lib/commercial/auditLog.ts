@@ -119,6 +119,18 @@ export async function logCostCentreDeactivated(params: { organisationId: string;
 // finance-control action a future auditor may need to attribute to a
 // specific person and time.
 
+export async function logFinanceCalendarCreated(params: {
+  organisationId: string; userId: string; kind: 'year' | 'period'; id: string;
+  after: { name: string; starts_on: string; ends_on: string; financial_year_id?: string };
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId,
+    action: `commercial_financial_${params.kind}.created`,
+    resourceType: `commercial_financial_${params.kind}`, resourceId: params.id,
+    beforeState: null, afterState: params.after,
+  });
+}
+
 export async function logFinancialYearStatusChanged(params: {
   organisationId: string; userId: string; financialYearId: string; before: string; after: string;
 }): Promise<void> {

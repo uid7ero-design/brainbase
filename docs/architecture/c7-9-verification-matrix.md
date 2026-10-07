@@ -92,8 +92,19 @@ as `6ca8a81b`; production was READY and the live alias matched that merge. These
 release observations, not a claim that future builds or customer configuration are verified.
 
 Customer setup and pilot acceptance are tracked in
-[`commercial-finance-pilot.md`](commercial-finance-pilot.md). The current runtime fixture
-creates its prerequisites directly and does not prove an administrator setup UI exists.
+[`commercial-finance-pilot.md`](commercial-finance-pilot.md). The PR #375 runtime fixture
+created its prerequisites directly and did not prove an administrator setup UI existed.
+
+### Calendar setup stage, 7 October 2026
+
+The runtime regression now also starts the second organisation with no calendar, creates
+a year and period through the administrator UI, verifies calendar-date persistence and
+creation audit actor, rejects malformed dates/duplicate names/overlaps/outside-year ranges,
+and exercises concurrent year and period creation plus year-close/period-create concurrency.
+It checks closed-year, unauthenticated, viewer, unentitled and foreign-tenant rejection and
+mobile layout. This stage passed the runtime regression in Australia/Adelaide, 2,203
+Commercial tests, PASS=30 / FAIL=0 database verification, lint and production build locally.
+Account, cost-centre and draft Budget setup remain subsequent stages.
 
 ## Deliberately deferred policy decisions
 

@@ -18,7 +18,7 @@ live Brainbase organisation still showed the budgeting administrator access
 message, so customer finance mutations were not exercised there.
 
 Enabling budgeting alone is not sufficient for an empty organisation. The
-current app has no setup UI for creating years, periods, Budget accounts,
+released app has no setup UI for creating years, periods, Budget accounts,
 cost centres, budgets or draft Budget lines. Domain functions exist in
 `lib/commercial/financialPeriods.ts`, `budgetAccounts.ts`, `costCentres.ts`
 and `budgets.ts`, but are not exposed as a complete setup workflow. The
@@ -27,6 +27,24 @@ an API, but does not supply the missing draft creation workflow.
 
 External GL mapping has a UI; entry import currently has an administrator
 JSON API, not a file-import screen or automatic accounting-system connector.
+
+### Calendar setup implementation on this branch
+
+`/commercial/budgeting/setup` now provides administrator year and period
+creation, with its navigation item gated by budgeting access and role. New
+POST routes create financial years and child periods. The API takes the tenant
+from the session and validates real calendar dates, names and ordered ranges.
+Year ranges may not overlap within an organisation. Periods must fit within an
+OPEN parent year, may not overlap in that year, and have unique names there.
+All date ranges are inclusive; an adjacent period starts on the following day.
+Gaps are permitted and periods are explicit rather than generated automatically.
+
+Separate transaction lock statements serialize year creation by organisation
+and period creation by parent year. The period lock also coordinates with
+existing year close/reopen. Existing records are neither rewritten nor deleted;
+legacy internal creation helpers remain unchanged. No schema migration or
+customer entitlement change is needed. Account, cost-centre and draft Budget
+setup remain subsequent implementation slices. This branch is not yet released.
 
 ## Decisions for the walkthrough
 
@@ -131,7 +149,10 @@ production runtime, with the test-only Neon adapter restricted to loopback.
 It checks mapping forms, date preservation, exact BIGINT imports, database-gated
 concurrent retries/conflicts, close/reopen/sign-off, staleness, mobile tables,
 permissions and tenant isolation. It cleans its browser, server and database.
-It proves the operational controls, not the planned setup UI.
+It now also creates a year and period through the calendar setup UI in the
+initially empty second organisation and checks persisted dates, concurrency,
+closed-year rejection, validation, mobile layout and access boundaries. It does
+not yet prove the subsequent account, cost-centre or draft Budget setup UI.
 
 See [the verification matrix](c7-9-verification-matrix.md) and
 [the finance-close design](c7-9-finance-close-reconciliation-design.md).
