@@ -46,6 +46,28 @@ legacy internal creation helpers remain unchanged. No schema migration or
 customer entitlement change is needed. Account, cost-centre and draft Budget
 setup remain subsequent implementation slices. This branch is not yet released.
 
+### Account and cost-centre setup draft
+
+The local setup page now includes Budget account and cost-centre creation and
+deactivation. Administrator routes reuse the existing tenant-scoped domain
+functions and audit helpers, validate code/name/description input, and map
+duplicate tenant codes to HTTP 409. Inactive records remain listed and their
+codes remain reserved. No hard-delete or reactivation route is added.
+Deactivation checks cover active Budget lines and commitment mappings for both
+dimension types. Existing historical mappings and finance evidence are retained.
+
+This draft passed 2,231 Commercial tests, focused lint and production build.
+Database integration and the extended real-runtime UI walkthrough are pending:
+Docker Desktop was stopped, its startup did not complete, and the session could
+not start the Windows Docker service. Earlier calendar-stage database results
+must not be presented as validation of this new stage.
+
+Before release, run the extended runtime regression and database suite. Also
+verify activation/deactivation concurrency before enabling these actions for
+customer use; the new active-reference predicates do not alone prove that race
+safe. Draft Budget creation/activation UI remains subsequent work. No customer
+configuration, capability or production record was changed by this draft.
+
 ## Decisions for the walkthrough
 
 Confirm these values before creating a customer configuration:

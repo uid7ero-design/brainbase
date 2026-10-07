@@ -124,6 +124,11 @@ export async function deactivateBudgetAccount(params: {
           AND bl.organisation_id = commercial_budget_accounts.organisation_id
           AND bv.status = 'ACTIVE'
       )
+      AND NOT EXISTS (
+        SELECT 1 FROM commercial_budget_commitment_mappings m
+        JOIN commercial_budget_versions bv ON bv.id=m.budget_version_id AND bv.organisation_id=m.organisation_id
+        WHERE m.budget_account_id=commercial_budget_accounts.id AND m.organisation_id=commercial_budget_accounts.organisation_id AND bv.status='ACTIVE'
+      )
     RETURNING id
   ` as { id: string }[];
   if (rows.length === 0) return false;
