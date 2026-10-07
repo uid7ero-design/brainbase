@@ -23,3 +23,13 @@ it has not been applied to Production. Prisma mirrors the table, while SQL
 owns its payload and lifecycle checks. The v1 record version binds the current
 v1 profiler, semantic and quality algorithms; future algorithm changes need
 an explicit record-version compatibility decision.
+
+D4D5S adds `loadAnalysisReview` for an already-authorized organization/upload
+scope. It loads structural profile evidence and the latest matching review in
+one RepeatableRead transaction, validates the stored decision format and
+recomputes semantic and quality resolution. Missing, invalid or incomplete
+latest decisions cannot fall back to an older review. No readiness state is
+read from storage. The returned revision identifies the snapshot used; it is
+not a guarantee that upload pointers stay current after the transaction.
+This remains an internal read service; session authorization and review saving
+are separate work. The review migration must be installed before using it.
