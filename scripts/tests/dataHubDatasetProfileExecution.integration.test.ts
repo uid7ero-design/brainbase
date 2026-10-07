@@ -793,4 +793,23 @@ describe("D4D5N real persisted upload count service", () => {
     expect(await f.analyze(f.scope, f.schema, f.quality, { ...rows, profile: { rowCount: 999 } }))
       .toEqual({ ok: false, code: "INVALID_REQUEST" });
   });
+  it("derives review snapshots from real persisted structural evidence and evaluates counts", async () => {
+    const f = await countWorld();
+    const { loadProfileReviewEvidence } = await import("@/lib/data-hub/analysisExecution/loadProfileReviewEvidence");
+    const { buildAnalysisReviewSnapshots } = await import("@/lib/data-hub/analysis");
+    const loaded = await loadProfileReviewEvidence(f.scope); if (!loaded.ok) throw new Error(loaded.code);
+    const context = loaded.profile.context;
+    const reviewed = buildAnalysisReviewSnapshots(context, loaded.profile, { context, snapshot: [
+      { sourceSchemaColumnId: f.ids.col1, role: "IDENTIFIER" }, { sourceSchemaColumnId: f.ids.col2, role: "MEASURE" },
+    ] }, { context, snapshot: [
+      { code: "COLUMN_PARTIALLY_NULL", scope: "COLUMN", sourceSchemaColumnId: f.ids.col2, decision: "ACKNOWLEDGE" },
+      { code: "COLUMN_CONSTANT", scope: "COLUMN", sourceSchemaColumnId: f.ids.col2, decision: "ACKNOWLEDGE" },
+    ] });
+    if (!reviewed.ok) throw new Error(reviewed.code);
+    expect(await f.analyze(f.scope, reviewed.schema, reviewed.quality, rows))
+      .toMatchObject({ ok: true, result: { count: 2, context: f.context } });
+    expect(loaded.profile.snapshot.columns.map((column) => column.sourceSchemaColumnId))
+      .toEqual([f.ids.col1, f.ids.col2, f.ids.col3, f.ids.col4]);
+    expect(JSON.stringify(loaded.profile)).not.toMatch(/numericStats|stringStats|temporalStats|ID-1|2024-01-01/);
+  });
 });

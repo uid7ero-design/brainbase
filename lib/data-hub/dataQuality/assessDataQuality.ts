@@ -1,4 +1,4 @@
-import type { ColumnProfile, DatasetProfile } from "../profiling/contracts";
+import type { ColumnReviewEvidence, DatasetReviewEvidence } from "../profiling/contracts";
 import type {
   SemanticDatasetSchemaDraft,
   SemanticSchemaFieldDraft,
@@ -11,7 +11,7 @@ import {
 } from "./contracts";
 
 function lineageMatches(
-  profile: DatasetProfile,
+  profile: DatasetReviewEvidence,
   schema: SemanticDatasetSchemaDraft,
 ): boolean {
   if (profile.profilerVersion !== schema.profilerVersion) return false;
@@ -25,7 +25,7 @@ function lineageMatches(
 }
 
 function columnObservations(
-  column: ColumnProfile,
+  column: ColumnReviewEvidence,
   field: SemanticSchemaFieldDraft,
 ): DataQualityObservation[] {
   const observations: DataQualityObservation[] = [];
@@ -92,7 +92,7 @@ function assessmentStatus(
 }
 
 export function assessDataQuality(
-  profile: DatasetProfile,
+  profile: DatasetReviewEvidence,
   schema: SemanticDatasetSchemaDraft,
 ): AssessDataQualityResult {
   if (!lineageMatches(profile, schema)) {
