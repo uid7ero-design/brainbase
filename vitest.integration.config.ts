@@ -158,6 +158,25 @@ import path from 'path';
 // Assurance Findings & Corrective Actions addition: scripts/tests/assuranceFindings
 // .integration.test.ts (see scripts/tests/verify-assurance-findings.sh),
 // same explicit-file-argument isolation.
+//
+// Essio integration B1 addition: scripts/tests/essioIntegrationB1.integration
+// .test.ts (integration credentials, essio_integration capability gate,
+// Organiser external-link identity, deletion semantics and tenant isolation
+// against the real A0.1A + B1 migrations — see
+// scripts/tests/verify-essio-integration-b1.sh), same explicit-file-argument
+// isolation. Needs only the lib/db sql-client seam.
+//
+// Essio integration B2 addition: scripts/tests/essioIntegrationB2.integration
+// .test.ts (create-work, target discovery and super_admin credential
+// management routes against the real A0.1A + B1 schema — see
+// scripts/tests/verify-essio-integration-b2.sh), same explicit-file-argument
+// isolation. Needs the lib/db seam and a lib/org requireRole stand-in.
+//
+// Essio integration B3 addition: scripts/tests/essioIntegrationB3.integration
+// .test.ts (status read of Essio-created work: linked/deleted/moved,
+// normalised status, tenant isolation — see
+// scripts/tests/verify-essio-integration-b3.sh), same explicit-file-argument
+// isolation and seams as the B2 suite.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -210,6 +229,9 @@ export default defineConfig({
       'scripts/tests/supplierApOverview.integration.test.ts',
       'scripts/tests/supplierApHistory.integration.test.ts',
       'scripts/tests/supplierApReadiness.integration.test.ts',
+      'scripts/tests/essioIntegrationB1.integration.test.ts',
+      'scripts/tests/essioIntegrationB2.integration.test.ts',
+      'scripts/tests/essioIntegrationB3.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,
