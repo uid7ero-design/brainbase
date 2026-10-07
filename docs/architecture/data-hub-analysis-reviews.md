@@ -66,3 +66,12 @@ and returns the review revision with the result. Caller-created semantic or
 quality snapshots are not accepted. Results describe that transaction's
 snapshot, not later review or pointer changes. The count HTTP endpoint remains
 follow-up work.
+
+D4D5W adds POST `/api/data-hub/worksheets/[id]/analysis-count`, a read-only
+count evaluation endpoint under the existing manager boundary. The body is
+the closed v1 analysis request; organization comes only from the session.
+Success returns the count result, pinned lineage and review revision with
+200. All responses are private/no-store. Invalid requests return 400, missing
+upload/review 404, stale lineage 409, held or unsupported analysis 422, and
+unavailable evaluation 503. No new profile/review writes occur. Browser
+workflow and full deployed end-to-end verification remain required.
