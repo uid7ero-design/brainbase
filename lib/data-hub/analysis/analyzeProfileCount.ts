@@ -1,4 +1,4 @@
-import type { DatasetProfile } from "../profiling/contracts";
+import type { ProfileCountEvidence } from "./profileCounts";
 import type { SemanticDatasetSchemaDraft } from "../semanticInference/schemaSynthesis";
 import type { DataQualityReviewResolution } from "../dataQuality/reviewResolution";
 import { buildAnalysisReadiness } from "./buildAnalysisReadiness";
@@ -16,7 +16,7 @@ export function analyzeProfileCount(
   expected: AnalysisDatasetContext,
   schema: ScopedAnalysisSnapshot<SemanticDatasetSchemaDraft>,
   quality: ScopedAnalysisSnapshot<DataQualityReviewResolution>,
-  profile: ScopedAnalysisSnapshot<DatasetProfile>,
+  profile: ScopedAnalysisSnapshot<ProfileCountEvidence>,
   input: unknown,
 ): AnalyzeProfileCountResult {
   const context = validateAnalysisDatasetContexts(expected, [schema.context, quality.context, profile.context]);

@@ -1,4 +1,5 @@
 import { prisma } from "../../prisma";
+import type { Prisma } from "@prisma/client";
 import { DATASET_PROFILER_VERSION } from "../profiling/contracts";
 import { validateAnalysisDatasetContexts, type AnalysisDatasetContext } from "../analysis/scopedProfileCounts";
 
@@ -18,7 +19,18 @@ export async function resolveAnalysisContext(
     return { ok: false, code: "CONTEXT_INPUT_INVALID" };
   }
   try {
-    return await prisma.$transaction(async (tx): Promise<ResolveAnalysisContextResult> => {
+    return await prisma.$transaction((tx) => resolveAnalysisContextInTransaction(input, tx),
+      { isolationLevel: "RepeatableRead" });
+  } catch {
+    return { ok: false, code: "CONTEXT_READ_FAILED" };
+  }
+}
+
+// Internal composition entry point: caller owns the consistent transaction.
+export async function resolveAnalysisContextInTransaction(
+  input: { organisationId: string; uploadId: string },
+  tx: Prisma.TransactionClient,
+): Promise<ResolveAnalysisContextResult> {
       const upload = await tx.upload.findFirst({
         where: { id: input.uploadId, organisation_id: input.organisationId, lineage_kind: "DATA_HUB" },
         select: { id: true, organisation_id: true, import_batch_id: true,
@@ -69,8 +81,4 @@ export async function resolveAnalysisContext(
         return { ok: false, code: "PROFILE_LINEAGE_MISMATCH" };
       }
       return { ok: true, context };
-    }, { isolationLevel: "RepeatableRead" });
-  } catch {
-    return { ok: false, code: "CONTEXT_READ_FAILED" };
-  }
 }

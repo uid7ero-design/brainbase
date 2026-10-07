@@ -5,6 +5,13 @@ import { buildAnalysisPlan, type BuildAnalysisPlanResult,
 
 export const PROFILE_COUNT_RESULT_VERSION = "v1" as const;
 
+export interface ProfileCountEvidence {
+  profilerVersion: DatasetProfile["profilerVersion"];
+  rowCount: number;
+  columnCount: number;
+  columns: Pick<DatasetProfile["columns"][number], "sourceSchemaColumnId" | "rowCount" | "nonNullCount" | "nullCount">[];
+}
+
 export interface ProfileCountResult {
   resultVersion: typeof PROFILE_COUNT_RESULT_VERSION;
   plan: RowCountAnalysisPlan | CountPresentAnalysisPlan;
@@ -20,13 +27,21 @@ function validCount(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 0;
 }
 
+export function hasValidProfileCounts(profile: ProfileCountEvidence): boolean {
+  return validCount(profile.rowCount) && profile.columnCount === profile.columns.length &&
+    new Set(profile.columns.map((column) => column.sourceSchemaColumnId)).size === profile.columns.length &&
+    profile.columns.every((column) => column.sourceSchemaColumnId.trim().length > 0 &&
+      column.rowCount === profile.rowCount && validCount(column.nonNullCount) && validCount(column.nullCount) &&
+      column.nonNullCount <= profile.rowCount && column.nullCount === profile.rowCount - column.nonNullCount);
+}
+
 // Pure projection of already-computed profile statistics. Callers must supply
 // matching snapshots: version and column checks do not establish dataset
 // identity, freshness, or access authorization.
 export function evaluateProfileCount(
   readiness: AnalysisReadiness,
   input: unknown,
-  profile: DatasetProfile,
+  profile: ProfileCountEvidence,
 ): EvaluateProfileCountResult {
   const planned = buildAnalysisPlan(readiness, input);
   if (!planned.ok) return planned;
@@ -44,12 +59,7 @@ export function evaluateProfileCount(
   ) {
     return { ok: false, code: "PROFILE_LINEAGE_MISMATCH" };
   }
-  if (!validCount(profile.rowCount) || profile.columns.some((column) =>
-    column.rowCount !== profile.rowCount ||
-    !validCount(column.nonNullCount) || !validCount(column.nullCount) ||
-    column.nonNullCount > profile.rowCount ||
-    column.nullCount !== profile.rowCount - column.nonNullCount
-  )) {
+  if (!hasValidProfileCounts(profile)) {
     return { ok: false, code: "PROFILE_COUNTS_INVALID" };
   }
   const plan = planned.plan;
