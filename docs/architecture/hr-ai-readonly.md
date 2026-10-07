@@ -81,9 +81,11 @@ deployment was confirmed Ready on 7 October 2026. No production migration,
 database mutation, environment update or live model request was performed in
 this development session.
 
-Further HR-8 merges are held because the user requires production to remain
-untouched without explicit authorization. HR-8H and HR-8I can be reviewed and
-validated in PR previews. Do not merge either while the automatic production
-deployment linkage is active unless the user explicitly authorizes that effect
-or authorizes a concrete change to the release configuration. Do not silently
-roll back the shared production application.
+HR-8H and HR-8I were initially held as draft PRs because the user required
+production to remain untouched without explicit authorization. After being
+informed of the automatic deployment effect and asked for authorization to
+merge the remaining PRs, the user instructed the development session to
+continue on 7 October 2026. The session resumed those two merges with that
+deployment effect explicitly stated. Database migrations, production data
+mutations and environment changes remain outside the authorization. Future
+release work must account for main's automatic deployment linkage.
