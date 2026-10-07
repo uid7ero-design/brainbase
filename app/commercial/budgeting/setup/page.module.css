@@ -50,6 +50,59 @@
   margin: 24px 0 16px;
 }
 
+.budgetReview {
+  margin: 24px 0 16px;
+}
+
+.budgetReview h3 {
+  margin: 0 0 16px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.reviewTotals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 16px;
+  margin: 0 0 16px;
+}
+
+.reviewTotals > div {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.reviewTotals dt {
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+}
+
+.reviewTotals dd {
+  margin: 8px 0 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.reviewWarning {
+  color: var(--status-warning);
+}
+
+.reviewBalanced {
+  color: var(--text-secondary);
+}
+
+.reviewCaption {
+  padding: 16px 12px;
+  text-align: left;
+  font-weight: 500;
+}
+
+.budgetReview > [role='region'] + [role='region'] {
+  margin-top: 20px;
+}
+
 .panel {
   box-sizing: border-box;
   width: 100%;
