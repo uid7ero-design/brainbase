@@ -523,8 +523,16 @@ describe('6.2D3A — no runtime consumer; XLSX mapping/confirm/import remain dis
     // never a live/current mapping pointer).
     const D4D1B2_PROFILE_RUN_SERVICE = path.join('lib', 'data-hub', 'profileExecution', 'dataHubDatasetProfileRun.ts')
     const D4D1B2_EVIDENCE_ADAPTER = path.join('lib', 'data-hub', 'profileExecution', 'normalizedEvidenceAdapter.ts')
+    // D4D5J reads pinned analysis lineage inside a consistent snapshot.
+    // It selects metadata only and performs no mutation.
+    const D4D5J_ANALYSIS_CONTEXT = path.join('lib', 'data-hub', 'analysisExecution', 'resolveAnalysisContext.ts')
     const offenders = runtimeFiles.filter(f => forbidden.test(fs.readFileSync(f, 'utf-8'))).map(f => path.relative(REPO_ROOT, f))
-    expect(offenders.sort()).toEqual([D3D_LINEAGE_PIN_SERVICE, D4B_STAGING_RUN_SERVICE, D4B_ELIGIBILITY_SERVICE, D3C_READ_ONLY_LOADER, D4C_A_PROFILE_DOCUMENT_CONTRACT, D4C_B2A_NORMALIZATION_CONTRACTS, D4C_B2A_NORMALIZATION_PLAN, D4C_B2B2A_NORMALIZATION_RUN_SERVICE, D4C_B2B2A_NORMALIZE_BATCHES_SERVICE, D4D1B2_PROFILE_RUN_SERVICE, D4D1B2_EVIDENCE_ADAPTER].sort())
+    expect(offenders.sort()).toEqual([D3D_LINEAGE_PIN_SERVICE, D4B_STAGING_RUN_SERVICE, D4B_ELIGIBILITY_SERVICE, D3C_READ_ONLY_LOADER, D4C_A_PROFILE_DOCUMENT_CONTRACT, D4C_B2A_NORMALIZATION_CONTRACTS, D4C_B2A_NORMALIZATION_PLAN, D4C_B2B2A_NORMALIZATION_RUN_SERVICE, D4C_B2B2A_NORMALIZE_BATCHES_SERVICE, D4D1B2_PROFILE_RUN_SERVICE, D4D1B2_EVIDENCE_ADAPTER, D4D5J_ANALYSIS_CONTEXT].sort())
+    const analysisContext = readSource(D4D5J_ANALYSIS_CONTEXT)
+    expect(analysisContext).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\$executeRaw|\$queryRaw/)
+    expect([...analysisContext.matchAll(/tx\.(\w+)\.(\w+)\(/g)].map(m => `${m[1]}.${m[2]}`)).toEqual([
+      'upload.findFirst', 'dataHubDatasetProfileRun.findFirst',
+    ])
     const loader = readSource(D3C_READ_ONLY_LOADER)
     expect(loader).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\$transaction|\$executeRaw|\$queryRaw/)
     expect([...loader.matchAll(/prisma\.(\w+)\.(\w+)\(/g)].map(m => `${m[1]}.${m[2]}`)).toEqual([
