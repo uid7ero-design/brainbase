@@ -311,6 +311,26 @@ setup or testing. Keep zero-cent reconciliation tolerance and the current
 year-close policy; requiring an external sign-off for every year close remains
 a deferred policy decision in the finance-close design.
 
+## Budget allocation review
+
+The setup screen now shows exact annual and period-allocation totals, checks
+each line independently, and lists saved allocations in financial-calendar
+order. Offsetting shortages and excesses cannot make the review appear balanced.
+Amounts remain integer cents through calculation, including aggregate totals
+above the database's single-value BIGINT range. Annual-only Budgets show their
+annual total without period-allocation requirements. The activation action
+follows the review; existing server activation validation remains authoritative.
+A balanced allocation does not certify tax treatment or commitment mappings.
+
+Verification: 12 focused calculation/rendered-component tests, 2,297 Commercial
+containment tests, targeted lint and the production build passed. The disposable
+Adelaide runtime verified shortage/excess feedback, corrected allocation and
+activation, read-only ACTIVE behavior, and both review tables within the mobile
+viewport. Evidence is in `allocation-review-focused.log`,
+`allocation-review-containment.log`, `allocation-review-build.log` and
+`allocation-review-runtime.log` under the local finance-review artifact folder.
+No schema or customer finance data changes are required by this feature.
+
 ## Repeatable runtime evidence
 
 After a production build, run:
