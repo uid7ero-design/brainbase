@@ -707,6 +707,7 @@ describe("T30 — no new backend route was introduced", () => {
     found.sort();
     expect(found).toEqual(
       [
+        "worksheets/[id]/analysis-review/route.ts", // D4D5U authenticated review API
         "import-batches/route.ts",
         "import-batches/[id]/route.ts",
         "import-batches/[id]/finalize/route.ts",
