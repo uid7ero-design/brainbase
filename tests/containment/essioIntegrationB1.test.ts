@@ -28,7 +28,7 @@ import {
 const ROOT = path.resolve(__dirname, '../..');
 // Normalise line endings: Windows checkouts (core.autocrlf=true) are CRLF.
 const read = (p: string) => fs.readFileSync(path.join(ROOT, p), 'utf8').replace(/\r\n/g, '\n');
-const ID = '0f8fad5b-d9cb-469f-a165-70867728950e';
+const ID = '00000000-0000-4000-8000-00000000000a';
 
 describe('integration token format', () => {
   it('round-trips and has the documented shape', () => {
@@ -68,7 +68,7 @@ describe('secret hashing', () => {
     const hash = hashIntegrationSecret(ID, secret);
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
     expect(hashIntegrationSecret(ID.toUpperCase(), secret)).toBe(hash);
-    expect(hashIntegrationSecret('1f8fad5b-d9cb-469f-a165-70867728950e', secret)).not.toBe(hash);
+    expect(hashIntegrationSecret('00000000-0000-4000-8000-00000000000b', secret)).not.toBe(hash);
     expect(hash).not.toContain(secret);
   });
 
@@ -77,7 +77,7 @@ describe('secret hashing', () => {
     const hash = hashIntegrationSecret(ID, secret);
     expect(verifyIntegrationSecret(ID, secret, hash)).toBe(true);
     expect(verifyIntegrationSecret(ID, generateIntegrationSecret(), hash)).toBe(false);
-    expect(verifyIntegrationSecret('1f8fad5b-d9cb-469f-a165-70867728950e', secret, hash)).toBe(false);
+    expect(verifyIntegrationSecret('00000000-0000-4000-8000-00000000000b', secret, hash)).toBe(false);
     expect(verifyIntegrationSecret(ID, secret, hash.toUpperCase())).toBe(false);
     expect(verifyIntegrationSecret(ID, secret, 'not-a-hash')).toBe(false);
   });
