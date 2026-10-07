@@ -27,7 +27,14 @@ export interface GroupedRowCountAnalysisPlan extends AnalysisPlanLineage {
   missingValuePolicy: "SEPARATE_GROUP";
 }
 
-export type AnalysisPlan = RowCountAnalysisPlan | GroupedRowCountAnalysisPlan;
+export interface CountPresentAnalysisPlan extends AnalysisPlanLineage {
+  operation: "COUNT_PRESENT";
+  sourceSchemaColumnId: string;
+  // A future executor counts normalized present values, including zero.
+  missingValuePolicy: "EXCLUDE_MISSING";
+}
+
+export type AnalysisPlan = RowCountAnalysisPlan | GroupedRowCountAnalysisPlan | CountPresentAnalysisPlan;
 
 export type BuildAnalysisPlanResult =
   | { ok: true; plan: AnalysisPlan }
@@ -39,7 +46,7 @@ export function buildAnalysisPlan(
 ): BuildAnalysisPlanResult {
   const result = validateAnalysisRequest(buildAnalysisCapabilities(readiness), input);
   if (!result.ok) return result;
-  if (result.request.kind === "AGGREGATE") {
+  if (result.request.kind === "AGGREGATE" && result.request.operator !== "COUNT_PRESENT") {
     return { ok: false, code: "PLAN_KIND_NOT_SUPPORTED" };
   }
   // Explicit allowlist also rejects an invalid runtime readiness state.
@@ -54,6 +61,16 @@ export function buildAnalysisPlan(
     qualityResolutionVersion: readiness.qualityResolutionVersion,
     readinessState: readiness.state,
   };
+  if (result.request.kind === "AGGREGATE") {
+    return {
+      ok: true,
+      plan: {
+        ...lineage, operation: "COUNT_PRESENT",
+        sourceSchemaColumnId: result.request.sourceSchemaColumnId,
+        missingValuePolicy: "EXCLUDE_MISSING",
+      },
+    };
+  }
   if (result.request.kind === "GROUP_BY") {
     return {
       ok: true,

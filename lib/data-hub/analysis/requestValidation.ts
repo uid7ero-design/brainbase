@@ -2,14 +2,20 @@ import type { AnalysisCapabilitySet } from "./capabilities";
 
 export const ANALYSIS_REQUEST_VERSION = "v1" as const;
 
-// These describe intent only. AGGREGATE does not select an operator or
-// authorize SUM/AVG for currencies, percentages, or other specialized roles.
+// Requests describe intent only. COUNT_PRESENT is the only supported aggregate
+// operator; a generic AGGREGATE intent remains valid but cannot yet be planned.
 export type AnalysisRequest =
   | { requestVersion: typeof ANALYSIS_REQUEST_VERSION; kind: "ROW_COUNT" }
   | {
       requestVersion: typeof ANALYSIS_REQUEST_VERSION;
-      kind: "GROUP_BY" | "AGGREGATE";
+      kind: "GROUP_BY";
       sourceSchemaColumnId: string;
+    }
+  | {
+      requestVersion: typeof ANALYSIS_REQUEST_VERSION;
+      kind: "AGGREGATE";
+      sourceSchemaColumnId: string;
+      operator?: "COUNT_PRESENT";
     };
 
 export type AnalysisRequestErrorCode =
@@ -44,6 +50,7 @@ export function validateAnalysisRequest(
     return { ok: false, code: "INVALID_REQUEST" };
   }
   const keys = Object.keys(request);
+  const hasOperator = keys.includes("operator");
   if (request.kind === "ROW_COUNT") {
     if (keys.length !== 2 || !keys.includes("kind") || !keys.includes("requestVersion")) {
       return { ok: false, code: "INVALID_REQUEST" };
@@ -57,7 +64,8 @@ export function validateAnalysisRequest(
     (request.kind !== "GROUP_BY" && request.kind !== "AGGREGATE") ||
     typeof request.sourceSchemaColumnId !== "string" ||
     request.sourceSchemaColumnId.trim().length === 0 ||
-    keys.length !== 3 ||
+    keys.length !== (hasOperator ? 4 : 3) ||
+    (hasOperator && (request.kind !== "AGGREGATE" || request.operator !== "COUNT_PRESENT")) ||
     !keys.includes("kind") || !keys.includes("requestVersion") ||
     !keys.includes("sourceSchemaColumnId")
   ) {
@@ -68,6 +76,16 @@ export function validateAnalysisRequest(
       entry.capability === request.kind,
   )) {
     return { ok: false, code: "CAPABILITY_NOT_AVAILABLE" };
+  }
+  if (request.kind === "AGGREGATE" && hasOperator) {
+    return {
+      ok: true,
+      request: {
+        requestVersion: "v1", kind: "AGGREGATE",
+        sourceSchemaColumnId: request.sourceSchemaColumnId,
+        operator: "COUNT_PRESENT",
+      },
+    };
   }
   return {
     ok: true,
