@@ -69,6 +69,8 @@ export interface ExternalGlEntry {
   imported_at: string;
 }
 
+// Keep mapping DATE boundaries as calendar strings in list and mutation
+// responses; timestamp parsing would shift them on servers ahead of UTC.
 export async function listExternalGlAccountMappings(params: {
   organisationId: string;
   sourceSystemId?: string | null;
@@ -77,7 +79,7 @@ export async function listExternalGlAccountMappings(params: {
   const sourceSystemId = params.sourceSystemId?.trim() || null;
   const status = params.status ?? null;
   return await sql`
-    SELECT m.*,
+    SELECT m.*, m.effective_from::text AS effective_from, m.effective_to::text AS effective_to,
            a.code AS budget_account_code,
            a.name AS budget_account_name
     FROM commercial_external_gl_account_mappings m
@@ -100,7 +102,7 @@ export async function listExternalGlCostCentreMappings(params: {
   const sourceSystemId = params.sourceSystemId?.trim() || null;
   const status = params.status ?? null;
   return await sql`
-    SELECT m.*,
+    SELECT m.*, m.effective_from::text AS effective_from, m.effective_to::text AS effective_to,
            c.code AS cost_centre_code,
            c.name AS cost_centre_name
     FROM commercial_external_gl_cost_centre_mappings m
@@ -256,15 +258,16 @@ export async function createExternalGlAccountMapping(params: {
           jsonb_build_object(
             'cause','EXTERNAL_GL_ACCOUNT_MAPPING_CREATED',
             'mappingId',(SELECT id FROM inserted LIMIT 1),
-            'sourceSystemId',${sourceSystemId},
-            'externalAccountCode',${externalAccountCode},
+            'sourceSystemId',${sourceSystemId}::text,
+            'externalAccountCode',${externalAccountCode}::text,
             'effectiveFrom',${effectiveFrom}::text,
             'effectiveTo',${effectiveTo}::text
           )
         FROM staled
         RETURNING reconciliation_id
       )
-      SELECT inserted.* FROM inserted
+      SELECT inserted.*, inserted.effective_from::text AS effective_from,
+             inserted.effective_to::text AS effective_to FROM inserted
     `,
   ], { isolationLevel: 'ReadCommitted' });
 
@@ -352,7 +355,8 @@ export async function retireExternalGlAccountMapping(params: {
       JOIN current ON current.id=retired.id
       RETURNING reconciliation_id
     )
-    SELECT retired.* FROM retired
+    SELECT retired.*, retired.effective_from::text AS effective_from,
+           retired.effective_to::text AS effective_to FROM retired
   ` as ExternalGlAccountMapping[];
   if (rows[0]) return rows[0];
 
@@ -451,15 +455,16 @@ export async function createExternalGlCostCentreMapping(params: {
           jsonb_build_object(
             'cause','EXTERNAL_GL_COST_CENTRE_MAPPING_CREATED',
             'mappingId',(SELECT id FROM inserted LIMIT 1),
-            'sourceSystemId',${sourceSystemId},
-            'externalCostCentreCode',${externalCostCentreCode},
+            'sourceSystemId',${sourceSystemId}::text,
+            'externalCostCentreCode',${externalCostCentreCode}::text,
             'effectiveFrom',${effectiveFrom}::text,
             'effectiveTo',${effectiveTo}::text
           )
         FROM staled
         RETURNING reconciliation_id
       )
-      SELECT inserted.* FROM inserted
+      SELECT inserted.*, inserted.effective_from::text AS effective_from,
+             inserted.effective_to::text AS effective_to FROM inserted
     `,
   ], { isolationLevel: 'ReadCommitted' });
 
@@ -551,7 +556,8 @@ export async function retireExternalGlCostCentreMapping(params: {
       JOIN current ON current.id=retired.id
       RETURNING reconciliation_id
     )
-    SELECT retired.* FROM retired
+    SELECT retired.*, retired.effective_from::text AS effective_from,
+           retired.effective_to::text AS effective_to FROM retired
   ` as ExternalGlCostCentreMapping[];
   if (rows[0]) return rows[0];
 
@@ -596,7 +602,19 @@ export async function importExternalGlEntry(params: {
     stale_reconciliation_count: number;
   };
 
-  const rows = await sql`
+  // Acquire the identity lock in its own statement. Under READ COMMITTED the
+  // following statement sees a competing import committed while we waited.
+  // A lock inside the INSERT statement would retain its earlier snapshot.
+  const [, rows] = await sql.transaction(txn => [
+    txn`
+      WITH lock_guard AS MATERIALIZED (
+        SELECT pg_advisory_xact_lock(hashtextextended(
+          ${'external-gl-entry|' + JSON.stringify([params.organisationId, sourceSystemId, externalEntryId])}, 0
+        ))
+      )
+      SELECT 1::int AS locked FROM lock_guard
+    `,
+    txn`
     WITH inserted AS (
       INSERT INTO commercial_external_gl_entries(
         organisation_id,source_system_id,external_entry_id,external_journal_id,
@@ -701,21 +719,22 @@ export async function importExternalGlEntry(params: {
             WHEN EXISTS (SELECT 1 FROM inserted) THEN 'EXTERNAL_GL_NEW_ENTRY'
             ELSE 'EXTERNAL_GL_CHANGED_IDENTITY'
           END,
-          'externalEntryId',${externalEntryId},
-          'sourceSystemId',${sourceSystemId},
-          'incomingTransactionDate',${params.transactionDate},
-          'incomingCurrency',${currency},
-          'sourceLineageId',${sourceLineageId}
+          'externalEntryId',${externalEntryId}::text,
+          'sourceSystemId',${sourceSystemId}::text,
+          'incomingTransactionDate',${params.transactionDate}::text,
+          'incomingCurrency',${currency}::text,
+          'sourceLineageId',${sourceLineageId}::text
         )
       FROM staled
       RETURNING reconciliation_id
     )
-    SELECT decision.*,
+    SELECT decision.*, decision.transaction_date::text AS transaction_date,
            (SELECT COUNT(*)::int FROM staled) AS stale_reconciliation_count
     FROM decision
-  ` as ImportDecisionRow[];
+    `,
+  ], { isolationLevel: 'ReadCommitted' });
 
-  const row = rows[0];
+  const row = (rows as ImportDecisionRow[])[0];
   if (!row) {
     throw new ExternalGlError('EXTERNAL_IDENTITY_CONFLICT', 'External identity conflict.');
   }
