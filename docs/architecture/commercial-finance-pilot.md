@@ -165,9 +165,13 @@ Delivery slices:
 3. Implemented locally: initial draft Budget configuration, header, lines, period allocations and explicit
    commitment mapping; reuse the existing version activation rules. Never
    make an incomplete draft ACTIVE as a setup shortcut.
-4. Remaining: connect setup to the existing mapping, reporting and finance-control screens
-   with clear empty-state links. Keep administrator mutations inaccessible to
-   viewers and other organisations.
+4. Implemented locally: connect setup to mapping, reporting and finance-control
+   screens with shared workflow links and guidance for missing prerequisites.
+   The server shell supplies budgeting administrator access to those links;
+   existing API authorization remains authoritative. Viewers retain reporting
+   access without administrator workflow links. Filtered empty reports do not
+   imply missing setup: guidance uses the unfiltered report rows and explains
+   that operational activity or ledger imports may still be needed.
 
 Acceptance requires a fresh, entitled demo organisation to complete setup
 through the app without manual SQL, then complete the walkthrough above.
@@ -175,6 +179,31 @@ Verify malformed dates, tenant references, amount precision, duplicate/retry
 behavior, activation failures, desktop/mobile layout, Commercial containment,
 disposable database integration and production build. Push and deployment are
 separate release steps after review.
+
+## Pilot review packet
+
+The local implementation now covers all four setup delivery slices. Review the
+administrator journey from an empty finance-control screen to setup, then back
+to mapping, reporting and finance controls. New dimensions must appear in mapping
+choices, the calendar must appear in control selectors, and the activated Budget
+must remain read-only after navigating back. No financial records are created
+by navigation or guidance alone.
+
+| Review item | State |
+| --- | --- |
+| Calendar, dimensions and initial Budget setup | Implemented and verified locally |
+| Activation validation and ACTIVE edit protection | Verified locally |
+| Shared workflow links and prerequisite guidance | Implemented locally; browser verification recorded in the verification matrix |
+| Monetary reconciliation, close/reopen and sign-off | Existing disposable-runtime regression retained; synthetic source/ledger fixtures |
+| Release review, push and deployment | Pending separate authorization |
+| Pilot organisation, capability and financial configuration | Customer decisions pending |
+| Customer pilot acceptance | Pending after release and agreed configuration |
+
+The fresh second organisation proves setup through the UI and reference readback
+in mapping and controls. The matched monetary reconciliation uses the existing
+first organisation's synthetic fixture; do not describe it as a customer pilot
+or a complete fresh-organisation source-posting walkthrough. Use the acceptance
+steps above for that final pilot once its configuration is agreed.
 
 Capability enablement is a separate customer decision, not a side effect of
 setup or testing. Keep zero-cent reconciliation tolerance and the current

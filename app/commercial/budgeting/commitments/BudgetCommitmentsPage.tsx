@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { FinanceWorkflow } from '../../_components/FinanceWorkflow';
 import { fieldControlClassName, tableStyles } from '@/components/ui/app';
 import { formatMoneyCents, formatMoneyCentsExact } from '@/lib/commercial/money';
 import {
@@ -427,6 +428,7 @@ export default function BudgetCommitmentsPage() {
   if (!report) return (
     <>
       <div style={{ color: MUTED }}>No Budget consumption report is available.</div>
+      <FinanceWorkflow current="reporting" setupHint="Use Finance setup to configure your calendar, accounts, cost centres and draft Budget. Activate the completed version to make its Budget available for reporting." />
       <BudgetExportControls legacyAvailable={false} financeAvailable={false} disabledReason="No report data is available to export." />
     </>
   );
@@ -444,6 +446,7 @@ export default function BudgetCommitmentsPage() {
         </p>
       </div>
 
+      <FinanceWorkflow current="reporting" setupHint={rows.length === 0 && financeRows.length === 0 ? 'No Budget rows are available. Check Finance setup for an active Budget and its lines and commitment mappings. Operational activity or ledger imports may still need to be added separately.' : undefined} />
       <FinanceSourceSelector
         sourceSystemIds={sourceSystemIds}
         selectedSourceSystemId={activeSourceSystemId ?? ''}

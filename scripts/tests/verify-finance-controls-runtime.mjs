@@ -300,6 +300,18 @@ try {
   const importDenial=await viewer.page.evaluate(async body=>(await fetch('/api/commercial/budgeting/external-gl/entries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).status,importPayload);
   if(importDenial!==403)throw new Error('Viewer ledger import accepted');
   const other=await login('runtime-other');
+  await other.page.goto(origin+'/commercial/budgeting/finance-controls');
+  await expect(other.page.getByText('Create your financial year and periods in Finance setup before using finance controls.',{exact:true})).toBeVisible();
+  await other.page.getByRole('navigation',{name:'Finance workflow',exact:true}).getByRole('link',{name:'Finance setup',exact:true}).click();
+  await expect(other.page.getByRole('heading',{name:'Finance setup',exact:true})).toBeVisible();
+  await other.page.getByRole('navigation',{name:'Finance workflow',exact:true}).getByRole('link',{name:'External GL mappings',exact:true}).click();
+  await expect(other.page.getByText('Create active Budget accounts and cost centres in Finance setup before adding External GL mappings.',{exact:true})).toBeVisible();
+  await other.page.getByRole('navigation',{name:'Finance workflow',exact:true}).getByRole('link',{name:'Budget reporting',exact:true}).click();
+  await expect(other.page.getByText('No Budget rows are available. Check Finance setup for an active Budget and its lines and commitment mappings. Operational activity or ledger imports may still need to be added separately.',{exact:true})).toBeVisible();
+  await other.page.getByRole('navigation',{name:'Finance workflow',exact:true}).getByRole('link',{name:'Finance setup',exact:true}).click();
+  await viewer.page.goto(origin+'/commercial/budgeting/commitments');
+  await expect(viewer.page.getByRole('heading',{name:'Budget vs Actual vs Committed',exact:true})).toBeVisible();
+  await expect(viewer.page.getByRole('navigation',{name:'Finance workflow',exact:true})).toHaveCount(0);
   const tenant=await other.page.evaluate(async()=>await(await fetch('/api/commercial/budgeting/financial-periods')).json());
   if(tenant.years.length)throw new Error('Foreign year exposed');
   const foreignMappings=await other.page.evaluate(async()=> (await(await fetch('/api/commercial/budgeting/external-gl/mappings')).json()).mappings);
@@ -404,6 +416,18 @@ try {
     if((await fetch(origin+path,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status!==401)throw new Error('Unauthenticated Budget mutation accepted');
     if((await viewer.page.evaluate(async path=>(await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,path))!==403)throw new Error('Viewer Budget mutation accepted');
   }
+  await other.page.getByRole('navigation',{name:'Finance workflow',exact:true}).getByRole('link',{name:'External GL mappings',exact:true}).click();
+  await other.page.getByLabel('BrainBase Budget account', {exact:false}).selectOption(budgetDimensions[0]);
+  await expect(other.page.getByLabel('BrainBase Budget account', {exact:false})).toHaveValue(budgetDimensions[0]);
+  await other.page.getByLabel('BrainBase cost centre', {exact:false}).selectOption(budgetDimensions[1]);
+  await expect(other.page.getByLabel('BrainBase cost centre', {exact:false})).toHaveValue(budgetDimensions[1]);
+  await expect(other.page.getByText('Create active Budget accounts and cost centres in Finance setup before adding External GL mappings.',{exact:true})).toHaveCount(0);
+  await other.page.getByRole('navigation',{name:'Finance workflow',exact:true}).getByRole('link',{name:'Finance controls',exact:true}).click();
+  await other.page.getByRole('combobox',{name:'Financial year',exact:true}).selectOption(setupYearId);
+  await other.page.getByRole('combobox',{name:'Financial period',exact:true}).selectOption(setupPeriod);
+  await expect(other.page.getByRole('combobox',{name:'Financial period',exact:true})).toHaveValue(setupPeriod);
+  await other.page.getByRole('navigation',{name:'Finance workflow',exact:true}).getByRole('link',{name:'Finance setup',exact:true}).click();
+  await expect(other.page.getByRole('combobox',{name:'Budget version',exact:true})).toContainText('Pilot Budget · AUD · v1 · ACTIVE');
   const periodPath='/api/commercial/budgeting/financial-years/'+setupYearId+'/periods';
   for(const [body,expected] of [[{name:'Overlap',startsOn:'2027-07-31',endsOn:'2027-08-15'},409],[{name:'Outside',startsOn:'2027-06-01',endsOn:'2027-06-30'},409],[{name:'Invalid',startsOn:'2028-02-30',endsOn:'2028-03-31'},400],[{name:'July',startsOn:'2027-08-01',endsOn:'2027-08-31'},409]]){
     if((await setupPost(periodPath,body)).status!==expected)throw new Error('Calendar validation failed: '+JSON.stringify(body));
@@ -443,6 +467,9 @@ try {
   if((await setupPost('/api/commercial/budgeting/financial-years',{name:'Denied',startsOn:'2029-07-01',endsOn:'2030-06-30'})).status!==403)throw new Error('Unentitled calendar creation accepted');
   if((await setupPost('/api/commercial/budgeting/setup/accounts',{code:'DENIED',name:'Denied'})).status!==403)throw new Error('Unentitled dimension creation accepted');
   if((await setupPost('/api/commercial/budgeting/budgets',{})).status!==403)throw new Error('Unentitled Budget creation accepted');
+  await other.page.goto(origin+'/commercial/budgeting/commitments');
+  await expect(other.page.getByText('Budgeting access is required to view Budget consumption.',{exact:true})).toBeVisible();
+  await expect(other.page.getByRole('navigation',{name:'Finance workflow',exact:true})).toHaveCount(0);
   if(errors.length||failedApi.length)throw new Error(JSON.stringify({errors,failedApi}));
   const externalGlChecks=['mapping list calendar dates','account and cost-centre creation through real forms','exact create response dates','overlap rejection without duplicate facts','source filter','account and cost-centre retirement through real forms','exact retire response and persisted dates','viewer mutation denial','foreign mapping read and retirement denial'];
   const evidence={verified_at:new Date().toISOString(),serverTimezone,checks:['real login and production runtime','calendar dates preserved through API and screen','mobile metrics remain inside viewport','mobile history and reconciliation tables scroll to last column','exact $100 source and ledger match','prepare and review','sign-off blocked before close','period close and durable sign-off','year close and reopen','period reopen invalidates close and reconciliation','viewer denial','tenant isolation'],overflow,build_id:readFileSync('.next/BUILD_ID','utf8').trim()};
@@ -452,6 +479,7 @@ try {
   evidence.calendarSetupChecks=['fresh organisation creates year and period through UI','exact dates persist and survive reload','audit retains session actor and dates','invalid dates, overlaps, duplicate names and outside-year periods rejected','concurrent year and period overlaps rejected','closed year rejects new periods','year close and new-period race preserves close invariants','unauthenticated, viewer, unentitled and foreign-tenant mutations denied','mobile setup fits viewport'];
   evidence.dimensionSetupChecks=['account and cost-centre creation through forms','tenant duplicate-code rejection','deactivation retains inactive records after reload','active Budget references prevent deactivation','viewer, unentitled and foreign mutations denied'];
   evidence.budgetSetupChecks=['fresh Budget and DRAFT version created through form','draft line and commitment mapping through forms','period allocation mismatch blocks activation','correct allocation permits activation','ACTIVE version read-only and API rejects edits','active version pointer persisted','duplicate header rejected','unauthenticated, viewer, unentitled and foreign-tenant mutations denied'];
+  evidence.financeWorkflowChecks=['empty finance controls directs administrator to setup','setup links to mappings, reporting and finance controls','empty mapping and reporting screens provide setup guidance','workflow links navigate between actual screens','new dimensions are available in mapping choices and completed guidance clears','new calendar is available in finance controls','activated Budget persists when returning through workflow links','viewer and unentitled users do not see administrator workflow links'];
   writeFileSync(resolve(artifacts,'evidence.json'),JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));
 } finally {
   await browser?.close();

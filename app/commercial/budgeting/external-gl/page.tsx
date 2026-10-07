@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { FinanceWorkflow } from '../../_components/FinanceWorkflow';
 import { buttonProps, fieldControlClassName, tableStyles } from '@/components/ui/app';
 
 const CARD = 'var(--bg-surface)';
@@ -253,6 +254,8 @@ export default function ExternalGlMappingsPage() {
 
       {error ? <div role="alert" style={errorBox}>{error}</div> : null}
       {notice ? <div role="status" style={noticeBox}>{notice}</div> : null}
+
+      {!loading && !error && <FinanceWorkflow current="mappings" setupHint={referenceData.budgetAccounts.length === 0 || referenceData.costCentres.length === 0 ? 'Create active Budget accounts and cost centres in Finance setup before adding External GL mappings.' : undefined} />}
 
       <MappingSection title="GL account mappings" description="Map an external GL account code to one BrainBase Budget account.">
         <form onSubmit={createAccountMapping} style={formGrid}>

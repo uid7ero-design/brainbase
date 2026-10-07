@@ -124,6 +124,28 @@ The Budget stage passed 2,252 Commercial containment tests, PASS=30 / FAIL=0
 disposable database verification, focused lint, production build and runtime
 regression in Australia/Adelaide. All setup stages remain local and unreleased.
 
+### Connected finance workflow, 7 October 2026
+
+The shared workflow links use budgeting administrator access supplied by the
+server Commercial shell, with a false context default. Existing API authorization
+is unchanged. Empty finance controls point to calendar setup; mappings point to
+active dimension setup; unfiltered empty reporting points to Budget setup while
+explaining the separate need for operational activity or ledger imports.
+
+The real-runtime walkthrough follows those links from the empty second tenant,
+completes setup, selects its new accounts/cost centres in mapping controls,
+selects its new year/period in finance controls and returns to its ACTIVE Budget.
+It verifies completed dimension guidance clears, viewers retain reporting without
+administrator workflow links, unentitled reporting denies access and the complete
+setup screen remains inside the mobile viewport.
+
+This UI-only stage passed 2,252 Commercial containment tests, focused lint,
+production build and the extended production-runtime regression in
+Australia/Adelaide. The prior PASS=30 / FAIL=0 database verification belongs to
+the unchanged Budget/database implementation; it was not rerun for these links.
+The pilot review packet is in `commercial-finance-pilot.md`. No push, deployment
+or customer configuration change was performed.
+
 ## Deliberately deferred policy decisions
 
 These are not missing implementations and must not be inferred silently:
