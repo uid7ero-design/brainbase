@@ -1,0 +1,2316 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { renderBrainbase } from '../../a11y/render';
+
+const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>();
+
+const { default: PersonDrawer } = await import('@/app/people/_components/PersonDrawer');
+
+const PERSON = {
+  id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  first_name: 'Alex',
+  last_name: 'Worker',
+  preferred_name: null,
+  work_email: 'alex@example.test',
+  work_phone: null,
+  job_title: 'Operator',
+  worker_type: 'employee',
+  employment_status: 'active',
+  team_id: null,
+  manager_person_id: null,
+  start_date: '2026-01-01',
+  end_date: null,
+  linked_user_id: 'user-a',
+  team_name: null,
+  manager_first_name: null,
+  manager_last_name: null,
+};
+
+const DOCUMENT = {
+  id: 'doc-1',
+  document_type: 'policy',
+  title: 'Safety policy',
+  lifecycle_task_id: null,
+  created_at: '2026-10-01T00:00:00.000Z',
+  current_version: {
+    id: 'version-2',
+    version_number: 2,
+    expires_at: '2027-10-01',
+    created_at: '2026-10-02T00:00:00.000Z',
+  },
+};
+
+function response(body: unknown, status = 200) {
+  return Promise.resolve(new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  }));
+}
+
+function assuranceResponse(overrides: Record<string, unknown> = {}) {
+  return response({
+    assurance: {
+      document_version_id: 'version-2',
+      capabilities: {
+        can_acknowledge: false,
+        can_verify: false,
+      },
+      employee_acknowledgement: {
+        acknowledged: true,
+        acknowledged_at: '2026-10-03T01:02:03.000Z',
+      },
+      latest_verification: {
+        decision: 'VERIFIED',
+        verified_at: '2026-10-03T02:03:04.000Z',
+      },
+      ...overrides,
+    },
+  });
+}
+
+function renderDrawer() {
+  return renderBrainbase(
+    <PersonDrawer
+      personId={PERSON.id}
+      canManage={false}
+      onClose={vi.fn()}
+      onEdit={vi.fn()}
+    />,
+  );
+}
+
+beforeEach(() => {
+  fetchMock.mockReset();
+  vi.stubGlobal('fetch', fetchMock);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe('HR-7E6C/6D PersonDrawer employee documents', () => {
+  it('shows safe document metadata and current-version assurance status', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ capabilities: { can_manage_documents: false }, documents: [DOCUMENT] });
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Alex Worker')).toBeTruthy();
+    expect(await screen.findByText('Documents')).toBeTruthy();
+    expect(screen.getByText('Safety policy')).toBeTruthy();
+    expect(screen.getByText('policy · Version 2')).toBeTruthy();
+    expect(screen.getByText('Expires 2027-10-01')).toBeTruthy();
+    expect(await screen.findByText('Acknowledged 2026-10-03')).toBeTruthy();
+    expect(screen.getByText('Verified 2026-10-03')).toBeTruthy();
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('version-2');
+    expect(text).not.toContain('storage');
+    expect(text).not.toContain('filename');
+    expect(text).not.toContain('uploaded');
+    expect(text).not.toContain('verified_by');
+    expect(text).not.toContain('comment');
+  });
+
+  it('shows only safe lifecycle workflow summary fields for the selected person', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            person_id: PERSON.id,
+            template_id: 'sensitive-template-id',
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_by: 'sensitive-starter-id',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+            internal_note: 'sensitive workflow detail',
+          }],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Lifecycle')).toBeTruthy();
+    expect(await screen.findByText('Onboarding · ACTIVE')).toBeTruthy();
+    expect(screen.getByText('Anchor 2026-10-01')).toBeTruthy();
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-template-id');
+    expect(text).not.toContain('sensitive-starter-id');
+    expect(text).not.toContain('sensitive workflow detail');
+    expect(text).not.toContain(workflowId);
+  });
+
+  it('shows an empty lifecycle state when the person has no visible workflows', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({ workflows: [] });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('No lifecycle workflows')).toBeTruthy();
+    expect(screen.getByText('Safety policy')).toBeTruthy();
+  });
+
+  it('shows only a generic lifecycle failure and keeps the person drawer usable', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({ error: 'sensitive lifecycle database detail' }, 500);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Could not load lifecycle.')).toBeTruthy();
+    expect(screen.getByText('Safety policy')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive lifecycle database detail');
+  });
+
+  it('lazy-loads only safe lifecycle task fields for a visible workflow', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const taskId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          workflow: {
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+          },
+          tasks: [{
+            id: taskId,
+            sequence: 1,
+            title: 'Complete induction',
+            description: 'sensitive internal task description',
+            responsibility_type: 'EMPLOYEE',
+            assigned_user_id: 'sensitive-assignee-id',
+            due_at: '2026-10-08T00:00:00.000Z',
+            requires_approval: true,
+            approval_type: 'MANAGER',
+            employee_visible: true,
+            manager_visible: true,
+            internal_only: false,
+            status: 'IN_PROGRESS',
+          }],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    const viewTasks = await screen.findByRole('button', { name: 'View tasks' });
+    expect(fetchMock.mock.calls.some(([input]) =>
+      String(input) === `/api/hr/lifecycle/workflows/${workflowId}`
+    )).toBe(false);
+
+    fireEvent.click(viewTasks);
+
+    expect(await screen.findByText('Complete induction · IN_PROGRESS')).toBeTruthy();
+    expect(screen.getByText('Due 2026-10-08')).toBeTruthy();
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive internal task description');
+    expect(text).not.toContain('sensitive-assignee-id');
+    expect(text).not.toContain(taskId);
+    expect(text).not.toContain('internal_only');
+    expect(text).not.toContain('employee_visible');
+    expect(text).not.toContain('manager_visible');
+  });
+
+  it('reuses loaded lifecycle tasks when task detail is hidden and reopened', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'offboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-15',
+            started_at: '2026-10-05T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          tasks: [{
+            id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+            title: 'Return equipment',
+            status: 'NOT_STARTED',
+            due_at: null,
+          }],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
+    expect(await screen.findByText('Return equipment · NOT_STARTED')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide tasks' }));
+    expect(screen.queryByText('Return equipment · NOT_STARTED')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'View tasks' }));
+    expect(screen.getByText('Return equipment · NOT_STARTED')).toBeTruthy();
+
+    const detailCalls = fetchMock.mock.calls.filter(([input]) =>
+      String(input) === `/api/hr/lifecycle/workflows/${workflowId}`
+    );
+    expect(detailCalls).toHaveLength(1);
+  });
+
+  it('shows only a generic lifecycle task-detail failure and preserves the workflow', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({ error: 'sensitive lifecycle task database detail' }, 500);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
+
+    expect(await screen.findByText('Lifecycle tasks unavailable.')).toBeTruthy();
+    expect(screen.getByText('Onboarding · ACTIVE')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive lifecycle task database detail');
+  });
+
+  it('starts an executable lifecycle task and advances the local task state', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const taskId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          tasks: [{
+            id: taskId,
+            title: 'Complete induction',
+            status: 'NOT_STARTED',
+            due_at: null,
+            capabilities: { can_execute: true, can_approve: false },
+            assigned_user_id: 'sensitive-assignee-id',
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/tasks/${taskId}` && init?.method === 'PATCH') {
+        return response({
+          task: {
+            id: taskId,
+            status: 'IN_PROGRESS',
+            completed_by: 'sensitive-completer-id',
+          },
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
+    const start = await screen.findByRole('button', { name: 'Start task' });
+    fireEvent.click(start);
+
+    expect(await screen.findByText('Complete induction · IN_PROGRESS')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Complete task' })).toBeTruthy();
+
+    const patchCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input) === `/api/hr/lifecycle/tasks/${taskId}`
+      && init?.method === 'PATCH'
+    );
+    expect(patchCall).toBeTruthy();
+    expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual({ action: 'start' });
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-assignee-id');
+    expect(text).not.toContain('sensitive-completer-id');
+  });
+
+  it('completes an executable lifecycle task and updates a completed workflow summary', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const taskId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          tasks: [{
+            id: taskId,
+            title: 'Complete induction',
+            status: 'IN_PROGRESS',
+            due_at: '2026-10-06T00:00:00.000Z',
+            capabilities: { can_execute: true, can_approve: false },
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/tasks/${taskId}` && init?.method === 'PATCH') {
+        return response({
+          task: {
+            id: taskId,
+            status: 'COMPLETED',
+            completed_by: 'sensitive-completer-id',
+            completed_at: '2026-10-06T01:00:00.000Z',
+          },
+          workflow: {
+            id: workflowId,
+            status: 'COMPLETED',
+            completed_at: '2026-10-06T01:00:00.000Z',
+          },
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Complete task' }));
+
+    expect(await screen.findByText('Complete induction · COMPLETED')).toBeTruthy();
+    expect(screen.getByText('Onboarding · COMPLETED')).toBeTruthy();
+    expect(screen.getByText('Completed 2026-10-06')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Complete task' })).toBeNull();
+
+    const patchCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input) === `/api/hr/lifecycle/tasks/${taskId}`
+      && init?.method === 'PATCH'
+    );
+    expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual({ action: 'complete' });
+    expect(document.body.textContent).not.toContain('sensitive-completer-id');
+  });
+
+  it('does not show lifecycle execution controls when the server capability is false', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          tasks: [{
+            id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+            title: 'Complete induction',
+            status: 'NOT_STARTED',
+            due_at: null,
+            capabilities: { can_execute: false, can_approve: false },
+          }],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
+    expect(await screen.findByText('Complete induction · NOT_STARTED')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Start task' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Complete task' })).toBeNull();
+  });
+
+  it('shows only a generic lifecycle task mutation failure and preserves task state', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const taskId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          tasks: [{
+            id: taskId,
+            title: 'Complete induction',
+            status: 'NOT_STARTED',
+            due_at: null,
+            capabilities: { can_execute: true, can_approve: false },
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/tasks/${taskId}` && init?.method === 'PATCH') {
+        return response({ error: 'sensitive lifecycle mutation detail' }, 500);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Start task' }));
+
+    expect(await screen.findByText('Could not update lifecycle task.')).toBeTruthy();
+    expect(screen.getByText('Complete induction · NOT_STARTED')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Start task' })).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive lifecycle mutation detail');
+  });
+
+  it('approves an authorised lifecycle task without rendering approval identity metadata', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const taskId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          tasks: [{
+            id: taskId,
+            title: 'Manager sign-off',
+            status: 'AWAITING_APPROVAL',
+            due_at: null,
+            capabilities: { can_execute: false, can_approve: true },
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/tasks/${taskId}/approvals` && init?.method === 'POST') {
+        return response({
+          approval: {
+            id: 'sensitive-approval-id',
+            task_id: taskId,
+            workflow_id: workflowId,
+            person_id: PERSON.id,
+            approver_user_id: 'sensitive-approver-id',
+            decision: 'APPROVED',
+            comment: 'sensitive approval comment',
+            decided_at: '2026-10-06T01:00:00.000Z',
+          },
+          task: {
+            id: taskId,
+            status: 'COMPLETED',
+            completed_at: '2026-10-06T01:00:00.000Z',
+          },
+          workflow: {
+            id: workflowId,
+            status: 'COMPLETED',
+            completed_at: '2026-10-06T01:00:00.000Z',
+          },
+        }, 201);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+
+    expect(await screen.findByText('Manager sign-off · COMPLETED')).toBeTruthy();
+    expect(screen.getByText('Onboarding · COMPLETED')).toBeTruthy();
+    expect(screen.getByText('Completed 2026-10-06')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
+
+    const postCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input) === `/api/hr/lifecycle/tasks/${taskId}/approvals`
+      && init?.method === 'POST'
+    );
+    expect(JSON.parse(String(postCall?.[1]?.body))).toEqual({ decision: 'APPROVED' });
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-approval-id');
+    expect(text).not.toContain('sensitive-approver-id');
+    expect(text).not.toContain('sensitive approval comment');
+  });
+
+  it('rejects an authorised lifecycle task and returns it to the server-provided state', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const taskId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          tasks: [{
+            id: taskId,
+            title: 'Manager sign-off',
+            status: 'AWAITING_APPROVAL',
+            due_at: null,
+            capabilities: { can_execute: false, can_approve: true },
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/tasks/${taskId}/approvals` && init?.method === 'POST') {
+        return response({
+          approval: {
+            id: 'sensitive-approval-id',
+            approver_user_id: 'sensitive-approver-id',
+            decision: 'REJECTED',
+            comment: 'sensitive rejection comment',
+          },
+          task: {
+            id: taskId,
+            status: 'IN_PROGRESS',
+            completed_at: null,
+          },
+          workflow: {
+            id: workflowId,
+            status: 'ACTIVE',
+            completed_at: null,
+          },
+        }, 201);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Reject' }));
+
+    expect(await screen.findByText('Manager sign-off · IN_PROGRESS')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
+
+    const postCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input) === `/api/hr/lifecycle/tasks/${taskId}/approvals`
+      && init?.method === 'POST'
+    );
+    expect(JSON.parse(String(postCall?.[1]?.body))).toEqual({ decision: 'REJECTED' });
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-approval-id');
+    expect(text).not.toContain('sensitive-approver-id');
+    expect(text).not.toContain('sensitive rejection comment');
+  });
+
+  it('does not show lifecycle approval controls when can_approve is false', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          tasks: [{
+            id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+            title: 'Manager sign-off',
+            status: 'AWAITING_APPROVAL',
+            due_at: null,
+            capabilities: { can_execute: true, can_approve: false },
+          }],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
+    expect(await screen.findByText('Manager sign-off · AWAITING_APPROVAL')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
+  });
+
+  it('shows only a generic lifecycle approval failure and preserves awaiting-approval state', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const taskId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-01',
+            started_at: '2026-10-01T01:02:03.000Z',
+            completed_at: null,
+            cancelled_at: null,
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          tasks: [{
+            id: taskId,
+            title: 'Manager sign-off',
+            status: 'AWAITING_APPROVAL',
+            due_at: null,
+            capabilities: { can_execute: false, can_approve: true },
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/tasks/${taskId}/approvals` && init?.method === 'POST') {
+        return response({ error: 'sensitive approval failure detail' }, 500);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+
+    expect(await screen.findByText('Could not record lifecycle task approval.')).toBeTruthy();
+    expect(screen.getByText('Manager sign-off · AWAITING_APPROVAL')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Reject' })).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive approval failure detail');
+  });
+
+  it('shows workflow start controls only from server capability and loads safe active templates', async () => {
+    const templateId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          capabilities: { can_start_workflow: true },
+          workflows: [],
+        });
+      }
+      if (url === '/api/hr/lifecycle/templates?status=ACTIVE') {
+        return response({
+          templates: [{
+            id: templateId,
+            template_key: 'sensitive-template-key',
+            version_number: 3,
+            lifecycle_type: 'onboarding',
+            name: 'Standard onboarding',
+            description: 'sensitive template description',
+            status: 'ACTIVE',
+            created_by: 'sensitive-creator-id',
+          }],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    const startWorkflow = await screen.findByRole('button', { name: 'Start workflow' });
+    fireEvent.click(startWorkflow);
+
+    expect(await screen.findByRole('option', {
+      name: 'Standard onboarding · onboarding · v3',
+    })).toBeTruthy();
+    expect(screen.getByLabelText('Anchor date')).toBeTruthy();
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-template-key');
+    expect(text).not.toContain('sensitive template description');
+    expect(text).not.toContain('sensitive-creator-id');
+    expect(text).not.toContain(templateId);
+  });
+
+  it('starts a workflow and refreshes server-derived workflow capabilities', async () => {
+    const templateId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    let workflowReads = 0;
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        workflowReads += 1;
+        if (workflowReads === 1) {
+          return response({
+            capabilities: { can_start_workflow: true },
+            workflows: [],
+          });
+        }
+        return response({
+          capabilities: { can_start_workflow: true },
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-20',
+            started_at: '2026-10-06T09:00:00.000Z',
+            completed_at: null,
+            cancelled_at: null,
+            capabilities: { can_cancel: true },
+          }],
+        });
+      }
+      if (url === '/api/hr/lifecycle/templates?status=ACTIVE') {
+        return response({
+          templates: [{
+            id: templateId,
+            version_number: 1,
+            lifecycle_type: 'onboarding',
+            name: 'Standard onboarding',
+            status: 'ACTIVE',
+          }],
+        });
+      }
+      if (url === '/api/hr/lifecycle/workflows' && init?.method === 'POST') {
+        return response({
+          workflow: {
+            id: workflowId,
+            person_id: PERSON.id,
+            template_id: templateId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-20',
+            started_by: 'sensitive-starter-id',
+            started_at: '2026-10-06T09:00:00.000Z',
+          },
+          tasks: [{
+            id: 'sensitive-task-id',
+            assigned_user_id: 'sensitive-assignee-id',
+          }],
+        }, 201);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start workflow' }));
+    const templateSelect = await screen.findByLabelText('Template');
+    fireEvent.change(templateSelect, { target: { value: templateId } });
+    fireEvent.change(screen.getByLabelText('Anchor date'), {
+      target: { value: '2026-10-20' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+
+    expect(await screen.findByText('Onboarding · ACTIVE')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Cancel workflow' })).toBeTruthy();
+
+    const postCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input) === '/api/hr/lifecycle/workflows' && init?.method === 'POST'
+    );
+    expect(JSON.parse(String(postCall?.[1]?.body))).toEqual({
+      person_id: PERSON.id,
+      template_id: templateId,
+      anchor_date: '2026-10-20',
+    });
+    expect(workflowReads).toBe(2);
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-starter-id');
+    expect(text).not.toContain('sensitive-task-id');
+    expect(text).not.toContain('sensitive-assignee-id');
+  });
+
+  it('requires explicit confirmation before cancelling a workflow and refreshes server state', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    let workflowReads = 0;
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        workflowReads += 1;
+        return response({
+          capabilities: { can_start_workflow: true },
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'offboarding',
+            status: workflowReads === 1 ? 'ACTIVE' : 'CANCELLED',
+            anchor_date: '2026-10-25',
+            started_at: '2026-10-06T09:00:00.000Z',
+            completed_at: null,
+            cancelled_at: workflowReads === 1 ? null : '2026-10-06T10:00:00.000Z',
+            capabilities: { can_cancel: workflowReads === 1 },
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}/cancel` && init?.method === 'POST') {
+        return response({
+          workflow: {
+            id: workflowId,
+            status: 'CANCELLED',
+            cancelled_at: '2026-10-06T10:00:00.000Z',
+            started_by: 'sensitive-starter-id',
+          },
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel workflow' }));
+
+    expect(screen.getByText('Cancel this workflow?')).toBeTruthy();
+    expect(fetchMock.mock.calls.some(([input, init]) =>
+      String(input).endsWith('/cancel') && init?.method === 'POST'
+    )).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm cancel' }));
+
+    expect(await screen.findByText('Offboarding · CANCELLED')).toBeTruthy();
+    expect(screen.getByText('Cancelled 2026-10-06')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Cancel workflow' })).toBeNull();
+    expect(workflowReads).toBe(2);
+    expect(document.body.textContent).not.toContain('sensitive-starter-id');
+  });
+
+  it('shows only a generic workflow-cancel failure and preserves the active workflow', async () => {
+    const workflowId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          capabilities: { can_start_workflow: true },
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            anchor_date: '2026-10-20',
+            started_at: '2026-10-06T09:00:00.000Z',
+            completed_at: null,
+            cancelled_at: null,
+            capabilities: { can_cancel: true },
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}/cancel` && init?.method === 'POST') {
+        return response({ error: 'sensitive cancellation database detail' }, 500);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel workflow' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm cancel' }));
+
+    expect(await screen.findByText('Could not cancel lifecycle workflow.')).toBeTruthy();
+    expect(screen.getByText('Onboarding · ACTIVE')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive cancellation database detail');
+  });
+
+  it('shows create controls only when the server document-management capability permits them', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByRole('button', { name: 'Add document' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Add document' }));
+    expect(screen.getByLabelText('Document type')).toBeTruthy();
+    expect(screen.getByLabelText('Title')).toBeTruthy();
+    expect(screen.getByLabelText('Expiry date (optional)')).toBeTruthy();
+    expect(screen.getByLabelText('File')).toBeTruthy();
+  });
+
+  it('creates a document with multipart form data and renders only safe returned fields', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents') && init?.method === 'POST') {
+        return response({
+          document: {
+            id: 'doc-2',
+            person_id: PERSON.id,
+            document_type: 'licence',
+            title: 'Forklift licence',
+            lifecycle_task_id: null,
+            deleted_at: null,
+            created_at: '2026-10-05T07:00:00.000Z',
+          },
+          version: {
+            id: 'version-1',
+            document_id: 'doc-2',
+            version_number: 1,
+            uploaded_by: 'sensitive-user-id',
+            original_filename: 'private-name.pdf',
+            content_type: 'application/pdf',
+            byte_size: 1234,
+            expires_at: '2027-10-05',
+            is_current: true,
+            created_at: '2026-10-05T07:00:00.000Z',
+          },
+        }, 201);
+      }
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [],
+        });
+      }
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          capabilities: { can_acknowledge: false, can_verify: true },
+          employee_acknowledgement: { acknowledged: false, acknowledged_at: null },
+          latest_verification: null,
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add document' }));
+    fireEvent.change(screen.getByLabelText('Document type'), { target: { value: 'licence' } });
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Forklift licence' } });
+    fireEvent.change(screen.getByLabelText('Expiry date (optional)'), { target: { value: '2027-10-05' } });
+    const file = new File(['pdf'], 'forklift.pdf', { type: 'application/pdf' });
+    fireEvent.change(screen.getByLabelText('File'), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload document' }));
+
+    expect(await screen.findByText('Forklift licence')).toBeTruthy();
+    expect(screen.getByText('licence · Version 1')).toBeTruthy();
+    expect(screen.getByText('Expires 2027-10-05')).toBeTruthy();
+
+    const postCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input).endsWith('/documents') && init?.method === 'POST'
+    );
+    expect(postCall).toBeTruthy();
+    const body = postCall?.[1]?.body;
+    expect(body).toBeInstanceOf(FormData);
+    expect((body as FormData).get('document_type')).toBe('licence');
+    expect((body as FormData).get('title')).toBe('Forklift licence');
+    expect((body as FormData).get('expires_at')).toBe('2027-10-05');
+    expect((body as FormData).get('lifecycle_task_id')).toBeNull();
+    expect((body as FormData).get('file')).toBe(file);
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-user-id');
+    expect(text).not.toContain('private-name.pdf');
+  });
+
+  it('loads only safe lifecycle task fields for optional document linking', async () => {
+    const workflowId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    const taskId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            person_id: PERSON.id,
+            lifecycle_type: 'onboarding',
+            status: 'ACTIVE',
+            started_by: 'sensitive-starter-id',
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          workflow: {
+            id: workflowId,
+            person_id: PERSON.id,
+            lifecycle_type: 'onboarding',
+          },
+          tasks: [{
+            id: taskId,
+            title: 'Provide forklift licence',
+            status: 'IN_PROGRESS',
+            description: 'sensitive internal task description',
+            assigned_user_id: 'sensitive-assignee-id',
+            internal_only: true,
+          }],
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add document' }));
+
+    const selector = await screen.findByLabelText('Lifecycle task (optional)');
+    expect(selector).toBeTruthy();
+    expect(screen.getByRole('option', {
+      name: 'Provide forklift licence · onboarding · IN_PROGRESS',
+    })).toBeTruthy();
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-starter-id');
+    expect(text).not.toContain('sensitive internal task description');
+    expect(text).not.toContain('sensitive-assignee-id');
+  });
+
+  it('includes a selected lifecycle task in the document multipart request', async () => {
+    const workflowId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    const taskId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents') && init?.method === 'POST') {
+        return response({
+          document: {
+            id: 'doc-linked',
+            person_id: PERSON.id,
+            document_type: 'licence',
+            title: 'Linked forklift licence',
+            lifecycle_task_id: taskId,
+            deleted_at: null,
+            created_at: '2026-10-05T09:00:00.000Z',
+          },
+          version: {
+            id: 'version-linked',
+            document_id: 'doc-linked',
+            version_number: 1,
+            uploaded_by: 'sensitive-uploader-id',
+            original_filename: 'private-linked.pdf',
+            content_type: 'application/pdf',
+            byte_size: 1234,
+            expires_at: null,
+            is_current: true,
+            created_at: '2026-10-05T09:00:00.000Z',
+          },
+        }, 201);
+      }
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(PERSON.id)}`) {
+        return response({
+          workflows: [{
+            id: workflowId,
+            lifecycle_type: 'onboarding',
+          }],
+        });
+      }
+      if (url === `/api/hr/lifecycle/workflows/${workflowId}`) {
+        return response({
+          tasks: [{
+            id: taskId,
+            title: 'Provide forklift licence',
+            status: 'IN_PROGRESS',
+          }],
+        });
+      }
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          capabilities: { can_acknowledge: false, can_verify: true },
+          employee_acknowledgement: { acknowledged: false, acknowledged_at: null },
+          latest_verification: null,
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add document' }));
+    const selector = await screen.findByLabelText('Lifecycle task (optional)');
+    fireEvent.change(selector, { target: { value: taskId } });
+    fireEvent.change(screen.getByLabelText('Document type'), { target: { value: 'licence' } });
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Linked forklift licence' } });
+    const file = new File(['pdf'], 'linked.pdf', { type: 'application/pdf' });
+    fireEvent.change(screen.getByLabelText('File'), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload document' }));
+
+    expect(await screen.findByText('Linked forklift licence')).toBeTruthy();
+
+    const postCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input).endsWith('/documents') && init?.method === 'POST'
+    );
+    const body = postCall?.[1]?.body;
+    expect(body).toBeInstanceOf(FormData);
+    expect((body as FormData).get('lifecycle_task_id')).toBe(taskId);
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-uploader-id');
+    expect(text).not.toContain('private-linked.pdf');
+  });
+
+  it('keeps document upload available when lifecycle tasks cannot be loaded', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents') && init?.method === 'POST') {
+        return response({
+          document: {
+            id: 'doc-unlinked',
+            person_id: PERSON.id,
+            document_type: 'policy',
+            title: 'Unlinked policy',
+            lifecycle_task_id: null,
+            deleted_at: null,
+            created_at: '2026-10-05T09:15:00.000Z',
+          },
+          version: {
+            id: 'version-unlinked',
+            document_id: 'doc-unlinked',
+            version_number: 1,
+            uploaded_by: 'sensitive-uploader-id',
+            original_filename: 'private-unlinked.pdf',
+            content_type: 'application/pdf',
+            byte_size: 1234,
+            expires_at: null,
+            is_current: true,
+            created_at: '2026-10-05T09:15:00.000Z',
+          },
+        }, 201);
+      }
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [],
+        });
+      }
+      if (url.startsWith('/api/hr/lifecycle/workflows?person_id=')) {
+        return response({ error: 'sensitive lifecycle database detail' }, 500);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add document' }));
+
+    expect(await screen.findByText(
+      'Lifecycle tasks unavailable. You can upload without linking a task.',
+    )).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Document type'), { target: { value: 'policy' } });
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Unlinked policy' } });
+    const file = new File(['pdf'], 'unlinked.pdf', { type: 'application/pdf' });
+    fireEvent.change(screen.getByLabelText('File'), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload document' }));
+
+    expect(await screen.findByText('Unlinked policy')).toBeTruthy();
+
+    const postCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input).endsWith('/documents') && init?.method === 'POST'
+    );
+    const body = postCall?.[1]?.body;
+    expect(body).toBeInstanceOf(FormData);
+    expect((body as FormData).get('lifecycle_task_id')).toBeNull();
+    expect(document.body.textContent).not.toContain('sensitive lifecycle database detail');
+  });
+
+  it('hides create controls when document management capability is false', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Documents')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Add document' })).toBeNull();
+  });
+
+  it('shows only a generic create failure and keeps the form available', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents') && init?.method === 'POST') {
+        return response({ error: 'sensitive upload detail' }, 500);
+      }
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [],
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add document' }));
+    fireEvent.change(screen.getByLabelText('Document type'), { target: { value: 'policy' } });
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Safety policy' } });
+    const file = new File(['pdf'], 'safety.pdf', { type: 'application/pdf' });
+    fireEvent.change(screen.getByLabelText('File'), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload document' }));
+
+    expect(await screen.findByText('Could not upload document.')).toBeTruthy();
+    expect(screen.getByLabelText('Document type')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive upload detail');
+  });
+
+  it('shows add-version controls only when document management capability permits them', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    const addVersion = await screen.findByRole('button', { name: 'Add version' });
+    fireEvent.click(addVersion);
+
+    expect(screen.getByLabelText('New version expiry (optional)')).toBeTruthy();
+    expect(screen.getByLabelText('New version file')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Upload version' })).toBeTruthy();
+  });
+
+  it('adds a new immutable version and reloads assurance for the new current version', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [DOCUMENT],
+        });
+      }
+
+      if (
+        url.endsWith(`/documents/${DOCUMENT.id}/versions`)
+        && init?.method === 'POST'
+      ) {
+        return response({
+          version: {
+            id: 'version-3',
+            document_id: DOCUMENT.id,
+            version_number: 3,
+            uploaded_by: 'sensitive-uploader-id',
+            original_filename: 'private-renewal.pdf',
+            content_type: 'application/pdf',
+            byte_size: 4567,
+            expires_at: '2028-10-05',
+            is_current: true,
+            created_at: '2026-10-05T08:00:00.000Z',
+          },
+        }, 201);
+      }
+
+      if (url.endsWith('/version-3/assurance')) {
+        return assuranceResponse({
+          capabilities: {
+            can_acknowledge: false,
+            can_verify: true,
+          },
+          employee_acknowledgement: {
+            acknowledged: false,
+            acknowledged_at: null,
+          },
+          latest_verification: null,
+        });
+      }
+
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add version' }));
+    fireEvent.change(screen.getByLabelText('New version expiry (optional)'), {
+      target: { value: '2028-10-05' },
+    });
+    const file = new File(['renewed'], 'renewal.pdf', { type: 'application/pdf' });
+    fireEvent.change(screen.getByLabelText('New version file'), {
+      target: { files: [file] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload version' }));
+
+    expect(await screen.findByText('policy · Version 3')).toBeTruthy();
+    expect(screen.getByText('Expires 2028-10-05')).toBeTruthy();
+    expect(await screen.findByText('Not acknowledged')).toBeTruthy();
+    expect(screen.getByText('Not verified')).toBeTruthy();
+
+    const postCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input).endsWith(`/documents/${DOCUMENT.id}/versions`)
+      && init?.method === 'POST'
+    );
+    expect(postCall).toBeTruthy();
+    const body = postCall?.[1]?.body;
+    expect(body).toBeInstanceOf(FormData);
+    expect((body as FormData).get('expires_at')).toBe('2028-10-05');
+    expect((body as FormData).get('file')).toBe(file);
+
+    expect(fetchMock.mock.calls.some(([input]) =>
+      String(input).endsWith(`/documents/${DOCUMENT.id}/versions/version-3/assurance`)
+    )).toBe(true);
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-uploader-id');
+    expect(text).not.toContain('private-renewal.pdf');
+    expect(text).not.toContain('version-3');
+  });
+
+  it('hides add-version controls when document management capability is false', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Safety policy')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Add version' })).toBeNull();
+  });
+
+  it('shows only a generic add-version failure and keeps the version form open', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [DOCUMENT],
+        });
+      }
+      if (
+        url.endsWith(`/documents/${DOCUMENT.id}/versions`)
+        && init?.method === 'POST'
+      ) {
+        return response({ error: 'sensitive version upload detail' }, 500);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add version' }));
+    const file = new File(['renewed'], 'renewal.pdf', { type: 'application/pdf' });
+    fireEvent.change(screen.getByLabelText('New version file'), {
+      target: { files: [file] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload version' }));
+
+    expect(await screen.findByText('Could not upload document version.')).toBeTruthy();
+    expect(screen.getByLabelText('New version file')).toBeTruthy();
+    expect(screen.getByText('policy · Version 2')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive version upload detail');
+  });
+
+  it('offers the current version download to an authorised viewer without management access', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    const link = await screen.findByRole('link', { name: 'Download' });
+    expect(link.getAttribute('href')).toBe(
+      `/api/hr/people/${PERSON.id}/documents/${DOCUMENT.id}/versions/${DOCUMENT.current_version.id}`,
+    );
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add version' })).toBeNull();
+  });
+
+  it('does not show a download action when a document has no current version', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [{ ...DOCUMENT, current_version: null }],
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Safety policy')).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Download' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Version history' })).toBeNull();
+    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/assurance'))).toBe(false);
+  });
+
+  it('lazy-loads safe version history and exposes audited download links for each version', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith(`/documents/${DOCUMENT.id}/versions`) && !init?.method) {
+        return response({
+          versions: [
+            {
+              id: 'version-3',
+              version_number: 3,
+              expires_at: '2028-10-05',
+              is_current: true,
+              created_at: '2026-10-05T08:00:00.000Z',
+              uploaded_by: 'sensitive-uploader',
+              original_filename: 'private-current.pdf',
+              comment: 'sensitive comment',
+            },
+            {
+              id: 'version-2',
+              version_number: 2,
+              expires_at: null,
+              is_current: false,
+              created_at: '2026-10-02T00:00:00.000Z',
+              uploaded_by: 'older-uploader',
+              original_filename: 'private-old.pdf',
+            },
+          ],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    const historyButton = await screen.findByRole('button', { name: 'Version history' });
+    expect(fetchMock.mock.calls.some(([input]) =>
+      String(input).endsWith(`/documents/${DOCUMENT.id}/versions`)
+    )).toBe(false);
+
+    fireEvent.click(historyButton);
+
+    expect(await screen.findByText('Version 3 · Current')).toBeTruthy();
+    expect(screen.getByText('Version 2')).toBeTruthy();
+    expect(screen.getByText('Expires 2028-10-05')).toBeTruthy();
+
+    const currentLink = screen.getByRole('link', { name: 'Download version 3' });
+    const oldLink = screen.getByRole('link', { name: 'Download version 2' });
+    expect(currentLink.getAttribute('href')).toBe(
+      `/api/hr/people/${PERSON.id}/documents/${DOCUMENT.id}/versions/version-3`,
+    );
+    expect(oldLink.getAttribute('href')).toBe(
+      `/api/hr/people/${PERSON.id}/documents/${DOCUMENT.id}/versions/version-2`,
+    );
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('sensitive-uploader');
+    expect(text).not.toContain('private-current.pdf');
+    expect(text).not.toContain('sensitive comment');
+    expect(text).not.toContain('older-uploader');
+    expect(text).not.toContain('private-old.pdf');
+  });
+
+  it('reuses loaded version history when the section is hidden and reopened', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith(`/documents/${DOCUMENT.id}/versions`)) {
+        return response({
+          versions: [{
+            id: 'version-2',
+            version_number: 2,
+            expires_at: '2027-10-01',
+            is_current: true,
+            created_at: '2026-10-02T00:00:00.000Z',
+          }],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Version history' }));
+    expect(await screen.findByText('Version 2 · Current')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide version history' }));
+    expect(screen.queryByText('Version 2 · Current')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Version history' }));
+    expect(screen.getByText('Version 2 · Current')).toBeTruthy();
+
+    const versionCalls = fetchMock.mock.calls.filter(([input]) =>
+      String(input).endsWith(`/documents/${DOCUMENT.id}/versions`)
+    );
+    expect(versionCalls).toHaveLength(1);
+  });
+
+  it('shows only a generic version-history failure and preserves the document card', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith(`/documents/${DOCUMENT.id}/versions`)) {
+        return response({ error: 'sensitive version-history detail' }, 500);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Version history' }));
+
+    expect(await screen.findByText('Version history unavailable.')).toBeTruthy();
+    expect(screen.getByText('Safety policy')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive version-history detail');
+  });
+
+  it('requires explicit confirmation before deleting a managed employee document', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+
+    expect(screen.getByText('Delete this document?')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Confirm delete' })).toBeTruthy();
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByText('Delete this document?')).toBeNull();
+    expect(screen.getByText('Safety policy')).toBeTruthy();
+  });
+
+  it('soft-deletes a managed employee document and removes it from the live list', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith(`/documents/${DOCUMENT.id}`) && init?.method === 'DELETE') {
+        return response({
+          deleted: true,
+          document_id: DOCUMENT.id,
+          deleted_at: '2026-10-05T08:30:00.000Z',
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Safety policy')).toBeNull();
+    });
+    expect(screen.getByText('No documents')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/hr/people/${PERSON.id}/documents/${DOCUMENT.id}`,
+      { method: 'DELETE' },
+    );
+
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain(DOCUMENT.id);
+    expect(text).not.toContain('2026-10-05T08:30:00.000Z');
+  });
+
+  it('hides delete controls when document management capability is false', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: false },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Safety policy')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+  });
+
+  it('shows only a generic delete failure and preserves the live document', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({
+          capabilities: { can_manage_documents: true },
+          documents: [DOCUMENT],
+        });
+      }
+      if (url.endsWith(`/documents/${DOCUMENT.id}`) && init?.method === 'DELETE') {
+        return response({ error: 'sensitive delete detail' }, 500);
+      }
+      if (url.endsWith('/assurance')) return assuranceResponse();
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
+
+    expect(await screen.findByText('Could not delete document.')).toBeTruthy();
+    expect(screen.getByText('Safety policy')).toBeTruthy();
+    expect(screen.getByText('Delete this document?')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive delete detail');
+  });
+
+  it('lets the linked employee acknowledge when the assurance capability permits it', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ documents: [DOCUMENT] });
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          capabilities: {
+            can_acknowledge: true,
+            can_verify: false,
+          },
+          employee_acknowledgement: {
+            acknowledged: false,
+            acknowledged_at: null,
+          },
+          latest_verification: null,
+        });
+      }
+      if (url.endsWith('/acknowledgements') && init?.method === 'POST') {
+        return response({
+          acknowledgement: {
+            id: 'ack-1',
+            document_version_id: 'version-2',
+            acknowledged_by: 'user-a',
+            acknowledged_at: '2026-10-05T04:05:06.000Z',
+          },
+        }, 201);
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    const button = await screen.findByRole('button', { name: 'Acknowledge' });
+    fireEvent.click(button);
+
+    expect(await screen.findByText('Acknowledged 2026-10-05')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Acknowledge' })).toBeNull();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/hr/people/${PERSON.id}/documents/${DOCUMENT.id}/versions/${DOCUMENT.current_version.id}/acknowledgements`,
+      { method: 'POST' },
+    );
+  });
+
+  it('keeps document details visible and shows only a generic acknowledgement failure', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ documents: [DOCUMENT] });
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          capabilities: {
+            can_acknowledge: true,
+            can_verify: false,
+          },
+          employee_acknowledgement: {
+            acknowledged: false,
+            acknowledged_at: null,
+          },
+        });
+      }
+      if (url.endsWith('/acknowledgements') && init?.method === 'POST') {
+        return response({ error: 'sensitive mutation detail' }, 500);
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Acknowledge' }));
+
+    expect(await screen.findByText('Could not acknowledge document.')).toBeTruthy();
+    expect(screen.getByText('Safety policy')).toBeTruthy();
+    expect(screen.getByText('Not acknowledged')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive mutation detail');
+  });
+
+  it('does not show acknowledgement controls when the server capability denies them', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ documents: [DOCUMENT] });
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          capabilities: {
+            can_acknowledge: false,
+            can_verify: true,
+          },
+          employee_acknowledgement: {
+            acknowledged: false,
+            acknowledged_at: null,
+          },
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Not acknowledged')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Acknowledge' })).toBeNull();
+  });
+
+  it('lets an HR administrator verify when the assurance capability permits it', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ documents: [DOCUMENT] });
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          capabilities: {
+            can_acknowledge: false,
+            can_verify: true,
+          },
+          latest_verification: null,
+        });
+      }
+      if (url.endsWith('/verifications') && init?.method === 'POST') {
+        return response({
+          verification: {
+            id: 'verification-1',
+            document_version_id: 'version-2',
+            verified_by: 'hr-user',
+            decision: 'VERIFIED',
+            comment: 'server-only detail',
+            verified_at: '2026-10-05T05:06:07.000Z',
+          },
+        }, 201);
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Verify' }));
+
+    expect(await screen.findByText('Verified 2026-10-05')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/hr/people/${PERSON.id}/documents/${DOCUMENT.id}/versions/${DOCUMENT.current_version.id}/verifications`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision: 'VERIFIED' }),
+      },
+    );
+    expect(document.body.textContent).not.toContain('hr-user');
+    expect(document.body.textContent).not.toContain('server-only detail');
+  });
+
+  it('lets an HR administrator reject and updates the latest verification status', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ documents: [DOCUMENT] });
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          capabilities: {
+            can_acknowledge: false,
+            can_verify: true,
+          },
+          latest_verification: null,
+        });
+      }
+      if (url.endsWith('/verifications') && init?.method === 'POST') {
+        return response({
+          verification: {
+            id: 'verification-2',
+            document_version_id: 'version-2',
+            verified_by: 'hr-user',
+            decision: 'REJECTED',
+            comment: null,
+            verified_at: '2026-10-05T06:07:08.000Z',
+          },
+        }, 201);
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Reject' }));
+
+    expect(await screen.findByText('Rejected 2026-10-05')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/hr/people/${PERSON.id}/documents/${DOCUMENT.id}/versions/${DOCUMENT.current_version.id}/verifications`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ decision: 'REJECTED' }),
+      }),
+    );
+  });
+
+  it('does not show verification controls when the server capability denies them', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ documents: [DOCUMENT] });
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          capabilities: {
+            can_acknowledge: true,
+            can_verify: false,
+          },
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Verified 2026-10-03')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Verify' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
+  });
+
+  it('shows only a generic verification failure and preserves current status', async () => {
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ documents: [DOCUMENT] });
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          capabilities: {
+            can_acknowledge: false,
+            can_verify: true,
+          },
+          latest_verification: null,
+        });
+      }
+      if (url.endsWith('/verifications') && init?.method === 'POST') {
+        return response({ error: 'sensitive verification detail' }, 500);
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Verify' }));
+
+    expect(await screen.findByText('Could not record verification.')).toBeTruthy();
+    expect(screen.getByText('Not verified')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('sensitive verification detail');
+  });
+
+  it('shows explicit not-acknowledged and not-verified states', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ documents: [DOCUMENT] });
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          employee_acknowledgement: {
+            acknowledged: false,
+            acknowledged_at: null,
+          },
+          latest_verification: null,
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Not acknowledged')).toBeTruthy();
+    expect(screen.getByText('Not verified')).toBeTruthy();
+  });
+
+  it('shows a rejected latest verification without exposing verifier identity or comments', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ documents: [DOCUMENT] });
+      if (url.endsWith('/assurance')) {
+        return assuranceResponse({
+          latest_verification: {
+            decision: 'REJECTED',
+            verified_at: '2026-10-04T05:06:07.000Z',
+          },
+        });
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Rejected 2026-10-04')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('comment');
+    expect(document.body.textContent).not.toContain('verified_by');
+  });
+
+  it('keeps document metadata visible when assurance status cannot be loaded', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ documents: [DOCUMENT] });
+      if (url.endsWith('/assurance')) {
+        return response({ error: 'sensitive assurance detail' }, 500);
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Safety policy')).toBeTruthy();
+    expect(await screen.findByText('Assurance status unavailable.')).toBeTruthy();
+    expect(screen.queryByText('sensitive assurance detail')).toBeNull();
+  });
+
+  it('shows an authorised empty state when the documents API returns an empty list', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return response({ documents: [] });
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Documents')).toBeTruthy();
+    expect(screen.getByText('No documents')).toBeTruthy();
+    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/assurance'))).toBe(false);
+  });
+
+  it('hides the entire Documents section when the documents API returns 404', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({ error: 'Employee document not found.' }, 404);
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Alex Worker')).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.queryByText('Loading documents…')).toBeNull();
+    });
+    expect(screen.queryByText('Documents')).toBeNull();
+    expect(screen.queryByText('No documents')).toBeNull();
+    expect(screen.queryByText(/Employee document not found/i)).toBeNull();
+  });
+
+  it('shows a generic inline error for an authorised documents fetch failure', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) {
+        return response({ error: 'sensitive database detail' }, 500);
+      }
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Documents')).toBeTruthy();
+    expect(screen.getByText('Could not load documents.')).toBeTruthy();
+    expect(screen.queryByText('sensitive database detail')).toBeNull();
+  });
+
+  it('does not let a document-list failure prevent the person profile from rendering', async () => {
+    fetchMock.mockImplementation(input => {
+      const url = String(input);
+      if (url.endsWith('/documents')) return Promise.reject(new Error('network down'));
+      return response({ person: PERSON });
+    });
+
+    renderDrawer();
+
+    expect(await screen.findByText('Alex Worker')).toBeTruthy();
+    expect(await screen.findByText('Could not load documents.')).toBeTruthy();
+  });
+});

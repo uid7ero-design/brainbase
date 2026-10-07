@@ -58,7 +58,7 @@ export default function SuppliersPage() {
       <PageHeader
         title="Suppliers"
         description={`${suppliers.length} total`}
-        actions={<button type="button" onClick={() => setShowAdd(true)} {...buttonProps('primary')}>+ Add Supplier</button>}
+        actions={<><Link href="/commercial/purchasing/ap-overview" {...buttonProps('secondary')}>AP Overview</Link><button type="button" onClick={() => setShowAdd(true)} {...buttonProps('primary')}>+ Add Supplier</button></>}
       />
 
       <WorkToolbar count={search && !loading ? `${filtered.length} of ${suppliers.length}` : undefined}>

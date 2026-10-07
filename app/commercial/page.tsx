@@ -47,6 +47,7 @@ type Counts = {
 export default function CommercialOverviewPage() {
   const [hasQuotes, setHasQuotes] = useState(false);
   const [hasInvoicing, setHasInvoicing] = useState(false);
+  const [hasBudgeting, setHasBudgeting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [counts, setCounts] = useState<Counts>({
     customers: 'unavailable', products: 'unavailable', quotes: 'unavailable',
@@ -60,8 +61,10 @@ export default function CommercialOverviewPage() {
       const capabilityKeys = new Set((me.enabledCapabilities ?? []).map((c: { key: string }) => c.key));
       const quotes = capabilityKeys.has('quotes');
       const invoicing = capabilityKeys.has('invoicing');
+      const budgeting = capabilityKeys.has('budgeting');
       setHasQuotes(quotes);
       setHasInvoicing(invoicing);
+      setHasBudgeting(budgeting);
 
       // Shared resources: fetched whenever either capability is
       // present, exactly matching the API layer's own
@@ -117,6 +120,7 @@ export default function CommercialOverviewPage() {
         {hasQuotes && <StatCard label="Draft Quotes" value={loading ? undefined : counts.draftQuotes} href="/commercial/quotes?status=DRAFT" />}
         {hasInvoicing && <StatCard label="Invoices" value={loading ? undefined : counts.invoices} href="/commercial/invoices" />}
         {hasInvoicing && <StatCard label="Draft Invoices" value={loading ? undefined : counts.draftInvoices} href="/commercial/invoices?status=DRAFT" />}
+        {hasBudgeting && <StatCard label="Budget vs Actual" value={undefined} href="/commercial/budgeting/commitments" />}
       </div>
 
       <section aria-labelledby="commercial-get-started" style={{ borderTop: '1px solid var(--border)', paddingTop: 20 }}>

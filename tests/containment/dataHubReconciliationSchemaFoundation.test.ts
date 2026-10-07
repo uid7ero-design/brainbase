@@ -550,7 +550,7 @@ const CONTAINER = `datahub-61a-reconciliation-vitest-${process.pid}`
 function psqlExec(sql: string): { ok: boolean; output: string } {
   const result = spawnSync(
     'docker',
-    ['exec', '-i', CONTAINER, 'psql', '-X', '-q', '-U', 'postgres', '-d', 'testdb', '-v', 'ON_ERROR_STOP=1'],
+    ['exec', '-i', CONTAINER, 'psql', '-h', '127.0.0.1', '-X', '-q', '-U', 'postgres', '-d', 'testdb', '-v', 'ON_ERROR_STOP=1'],
     { input: sql, encoding: 'utf-8' }
   )
   return { ok: result.status === 0, output: (result.stdout || '') + (result.stderr || '') }
@@ -566,7 +566,9 @@ describe.runIf(HAS_DOCKER)('real disposable-Postgres proof — P1-P12', () => {
     execSync(`docker run -d --name ${CONTAINER} -e POSTGRES_PASSWORD=test -e POSTGRES_DB=testdb postgres:16-alpine`, { stdio: 'ignore' })
     let ready = false
     for (let i = 0; i < 30; i++) {
-      const r = spawnSync('docker', ['exec', CONTAINER, 'pg_isready', '-U', 'postgres'])
+      // The image's temporary initialization server only accepts Unix sockets.
+      // TCP readiness waits for the final server after that server shuts down.
+      const r = spawnSync('docker', ['exec', CONTAINER, 'pg_isready', '-h', '127.0.0.1', '-U', 'postgres', '-d', 'testdb'])
       if (r.status === 0) { ready = true; break }
       await new Promise(r2 => setTimeout(r2, 1000))
     }

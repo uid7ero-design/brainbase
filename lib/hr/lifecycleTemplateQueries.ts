@@ -31,6 +31,7 @@ export type LifecycleTemplateView = {
   createdBy: string;
   createdAt: Date | string;
   updatedAt: Date | string;
+  hasOtherActiveVersion: boolean;
   tasks?: LifecycleTemplateTaskView[];
 };
 
@@ -49,6 +50,7 @@ function mapTemplate(row: Record<string, unknown>): LifecycleTemplateView {
     createdBy: row.created_by as string,
     createdAt: row.created_at as Date | string,
     updatedAt: row.updated_at as Date | string,
+    hasOtherActiveVersion: row.has_other_active_version === true,
   };
 }
 
@@ -59,13 +61,22 @@ export async function listLifecycleTemplates(params: {
   templateKey?: string | null;
 }): Promise<LifecycleTemplateView[]> {
   const rows = await sql`
-    SELECT *
-    FROM hr_lifecycle_templates
-    WHERE organisation_id = ${params.organisationId}
-      AND (${params.lifecycleType ?? null}::text IS NULL OR lifecycle_type = ${params.lifecycleType ?? null})
-      AND (${params.status ?? null}::text IS NULL OR status = ${params.status ?? null})
-      AND (${params.templateKey ?? null}::text IS NULL OR template_key = ${params.templateKey ?? null})
-    ORDER BY template_key, version_number DESC
+    SELECT
+      t.*,
+      EXISTS (
+        SELECT 1
+        FROM hr_lifecycle_templates active
+        WHERE active.organisation_id = t.organisation_id
+          AND active.template_key = t.template_key
+          AND active.status = 'ACTIVE'
+          AND active.id <> t.id
+      ) AS has_other_active_version
+    FROM hr_lifecycle_templates t
+    WHERE t.organisation_id = ${params.organisationId}
+      AND (${params.lifecycleType ?? null}::text IS NULL OR t.lifecycle_type = ${params.lifecycleType ?? null})
+      AND (${params.status ?? null}::text IS NULL OR t.status = ${params.status ?? null})
+      AND (${params.templateKey ?? null}::text IS NULL OR t.template_key = ${params.templateKey ?? null})
+    ORDER BY t.template_key, t.version_number DESC
   `;
   return rows.map(row => mapTemplate(row as Record<string, unknown>));
 }
@@ -76,10 +87,19 @@ export async function getLifecycleTemplate(
 ): Promise<LifecycleTemplateView | null> {
   const [templateRows, taskRows] = await Promise.all([
     sql`
-      SELECT *
-      FROM hr_lifecycle_templates
-      WHERE organisation_id = ${organisationId}
-        AND id = ${templateId}::uuid
+      SELECT
+        t.*,
+        EXISTS (
+          SELECT 1
+          FROM hr_lifecycle_templates active
+          WHERE active.organisation_id = t.organisation_id
+            AND active.template_key = t.template_key
+            AND active.status = 'ACTIVE'
+            AND active.id <> t.id
+        ) AS has_other_active_version
+      FROM hr_lifecycle_templates t
+      WHERE t.organisation_id = ${organisationId}
+        AND t.id = ${templateId}::uuid
       LIMIT 1
     `,
     sql`
@@ -130,6 +150,11 @@ export function lifecycleTemplateToJson(template: LifecycleTemplateView) {
     created_by: template.createdBy,
     created_at: template.createdAt,
     updated_at: template.updatedAt,
+    capabilities: {
+      can_create_version: true,
+      can_activate: template.status === 'DRAFT' && !template.hasOtherActiveVersion,
+      can_retire: template.status === 'DRAFT' || template.status === 'ACTIVE',
+    },
     ...(template.tasks
       ? {
           tasks: template.tasks.map(task => ({

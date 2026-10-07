@@ -7,7 +7,7 @@ import {
   remainingQuantity4,
 } from './quantity';
 
-// Phase C7.5B/C7.5C — read-only Purchasing Reconciliation.
+// Phase C7.5B/C7.5C/C7.5D3 — read-only Purchasing Reconciliation.
 //
 // Reconciliation is a derived read model over the immutable PO facts and
 // POSTED receipt/bill facts. It deliberately persists nothing: no
@@ -16,12 +16,14 @@ import {
 //
 // C7.5C derives receipt quantity, billed quantity, and billed value as
 // independent facts. Exact reconciliation requires all three dimensions to
-// reach the ordered facts. This still does NOT claim receipt-line <-> bill-line
-// allocation; both document types only share PO-line lineage at this phase.
+// reach the ordered facts. C7.5D3 adds a fourth, explicit matched-quantity
+// dimension sourced only from active receipt-line <-> bill-line allocations.
+// Shared PO-line lineage by itself is never treated as a match.
 
 export type ReceivingState = 'NOT_RECEIVED' | 'PARTIALLY_RECEIVED' | 'FULLY_RECEIVED';
 export type BillingState = 'NOT_BILLED' | 'PARTIALLY_BILLED' | 'FULLY_BILLED';
 export type BilledQuantityState = 'NOT_BILLED' | 'PARTIALLY_BILLED' | 'FULLY_BILLED';
+export type MatchedQuantityState = 'NOT_MATCHED' | 'PARTIALLY_MATCHED' | 'FULLY_MATCHED';
 export type LineReconciliationState =
   | 'OPEN'
   | 'RECEIVED_NOT_BILLED'
@@ -39,6 +41,8 @@ export type PurchasingReconciliationExceptionCode =
   | 'RECEIPT_QUANTITY_MISMATCH'
   | 'BILL_QUANTITY_MISMATCH'
   | 'PARTIALLY_BILLED_QUANTITY'
+  | 'PARTIALLY_MATCHED'
+  | 'MATCH_QUANTITY_MISMATCH'
   | 'BILL_VALUE_MISMATCH';
 
 export interface PurchasingReconciliationException {
@@ -57,11 +61,14 @@ export interface PurchaseLineReconciliation {
   remainingToReceive: number;
   billedQuantity: number;
   remainingToBillQuantity: number;
+  matchedQuantity: number;
+  remainingToMatchQuantity: number;
   orderedValueCents: number;
   billedValueCents: number;
   remainingToBillCents: number;
   receivingState: ReceivingState;
   billedQuantityState: BilledQuantityState;
+  matchedQuantityState: MatchedQuantityState;
   billingState: BillingState;
   reconciliationState: LineReconciliationState;
   exceptions: PurchasingReconciliationException[];
@@ -74,6 +81,7 @@ export interface PurchaseOrderReconciliation {
   lineCount: number;
   fullyReceivedLineCount: number;
   fullyBilledQuantityLineCount: number;
+  fullyMatchedLineCount: number;
   fullyBilledLineCount: number;
   reconciledLineCount: number;
   orderedValueCents: number;
@@ -96,6 +104,7 @@ export type RawReconciliationRow = {
   ordered_value_cents: number | null;
   received_quantity: string;
   billed_quantity: string;
+  matched_quantity: string;
   billed_value_cents: string;
 };
 
@@ -106,13 +115,16 @@ function classifyLine(row: RawReconciliationRow): PurchaseLineReconciliation | n
   const orderedQuantityFixed = integerQuantityToQuantity4(orderedQuantity);
   const receivedQuantityFixed = parseQuantity4NonNegative(row.received_quantity);
   const billedQuantityFixed = parseQuantity4NonNegative(row.billed_quantity);
+  const matchedQuantityFixed = parseQuantity4NonNegative(row.matched_quantity);
   const receivedQuantity = quantity4ToDisplayNumber(receivedQuantityFixed);
   const billedQuantity = quantity4ToDisplayNumber(billedQuantityFixed);
+  const matchedQuantity = quantity4ToDisplayNumber(matchedQuantityFixed);
   const orderedValueCents = Number(row.ordered_value_cents ?? 0);
   const billedValueCents = Number(row.billed_value_cents);
 
   const receiptOver = receivedQuantityFixed > orderedQuantityFixed;
   const billQuantityOver = billedQuantityFixed > orderedQuantityFixed;
+  const matchedQuantityOver = matchedQuantityFixed > orderedQuantityFixed;
   const billValueOver = billedValueCents > orderedValueCents;
 
   const receivingState: ReceivingState =
@@ -125,6 +137,11 @@ function classifyLine(row: RawReconciliationRow): PurchaseLineReconciliation | n
       : billedQuantityFixed >= orderedQuantityFixed ? 'FULLY_BILLED'
         : 'PARTIALLY_BILLED';
 
+  const matchedQuantityState: MatchedQuantityState =
+    matchedQuantityFixed === 0 ? 'NOT_MATCHED'
+      : matchedQuantityFixed >= orderedQuantityFixed ? 'FULLY_MATCHED'
+        : 'PARTIALLY_MATCHED';
+
   const billingState: BillingState =
     billedValueCents === orderedValueCents ? 'FULLY_BILLED'
       : billedValueCents <= 0 ? 'NOT_BILLED'
@@ -133,7 +150,8 @@ function classifyLine(row: RawReconciliationRow): PurchaseLineReconciliation | n
 
   const quantitiesExact =
     receivedQuantityFixed === orderedQuantityFixed
-    && billedQuantityFixed === orderedQuantityFixed;
+    && billedQuantityFixed === orderedQuantityFixed
+    && matchedQuantityFixed === orderedQuantityFixed;
   const hasBillActivity = billedQuantityFixed > 0 || billedValueCents > 0;
 
   let reconciliationState: LineReconciliationState;
@@ -152,12 +170,16 @@ function classifyLine(row: RawReconciliationRow): PurchaseLineReconciliation | n
   const exceptions: PurchasingReconciliationException[] = [];
   if (receiptOver) exceptions.push({ code: 'RECEIPT_QUANTITY_MISMATCH', severity: 'ERROR' });
   if (billQuantityOver) exceptions.push({ code: 'BILL_QUANTITY_MISMATCH', severity: 'ERROR' });
+  if (matchedQuantityOver) exceptions.push({ code: 'MATCH_QUANTITY_MISMATCH', severity: 'ERROR' });
   if (billValueOver) exceptions.push({ code: 'BILL_VALUE_MISMATCH', severity: 'ERROR' });
   if (!receiptOver && receivedQuantityFixed > 0 && receivedQuantityFixed < orderedQuantityFixed) {
     exceptions.push({ code: 'PARTIALLY_RECEIVED', severity: 'INFO' });
   }
   if (!billQuantityOver && billedQuantityFixed > 0 && billedQuantityFixed < orderedQuantityFixed) {
     exceptions.push({ code: 'PARTIALLY_BILLED_QUANTITY', severity: 'INFO' });
+  }
+  if (!matchedQuantityOver && matchedQuantityFixed > 0 && matchedQuantityFixed < orderedQuantityFixed) {
+    exceptions.push({ code: 'PARTIALLY_MATCHED', severity: 'INFO' });
   }
   if (!billValueOver && billedValueCents > 0 && billedValueCents < orderedValueCents) {
     exceptions.push({ code: 'PARTIALLY_BILLED', severity: 'INFO' });
@@ -181,11 +203,14 @@ function classifyLine(row: RawReconciliationRow): PurchaseLineReconciliation | n
     remainingToReceive: quantity4ToDisplayNumber(remainingQuantity4(orderedQuantityFixed, receivedQuantityFixed)),
     billedQuantity,
     remainingToBillQuantity: quantity4ToDisplayNumber(remainingQuantity4(orderedQuantityFixed, billedQuantityFixed)),
+    matchedQuantity,
+    remainingToMatchQuantity: quantity4ToDisplayNumber(remainingQuantity4(orderedQuantityFixed, matchedQuantityFixed)),
     orderedValueCents,
     billedValueCents,
     remainingToBillCents: Math.max(0, orderedValueCents - billedValueCents),
     receivingState,
     billedQuantityState,
+    matchedQuantityState,
     billingState,
     reconciliationState,
     exceptions,
@@ -201,6 +226,7 @@ export function derivePurchaseOrderReconciliation(rows: RawReconciliationRow[]):
 
   const fullyReceivedLineCount = lines.filter(line => line.receivingState === 'FULLY_RECEIVED').length;
   const fullyBilledQuantityLineCount = lines.filter(line => line.billedQuantityState === 'FULLY_BILLED').length;
+  const fullyMatchedLineCount = lines.filter(line => line.matchedQuantityState === 'FULLY_MATCHED').length;
   const fullyBilledLineCount = lines.filter(line => line.billingState === 'FULLY_BILLED').length;
   const reconciledLineCount = lines.filter(line => line.reconciliationState === 'RECONCILED').length;
   const orderedValueCents = lines.reduce((sum, line) => sum + line.orderedValueCents, 0);
@@ -224,6 +250,7 @@ export function derivePurchaseOrderReconciliation(rows: RawReconciliationRow[]):
     lineCount: lines.length,
     fullyReceivedLineCount,
     fullyBilledQuantityLineCount,
+    fullyMatchedLineCount,
     fullyBilledLineCount,
     reconciledLineCount,
     orderedValueCents,
@@ -270,6 +297,19 @@ export async function getPurchaseOrderReconciliation(
         AND csb.source_purchase_order_id = ${purchaseOrderId}
         AND csb.status = 'POSTED'
       GROUP BY csbl.source_purchase_order_line_id
+    ),
+    matched AS (
+      SELECT
+        a.purchase_order_line_id AS line_id,
+        COALESCE(SUM(a.quantity_allocated), 0)::numeric(14,4) AS matched_quantity
+      FROM commercial_purchase_receipt_bill_allocations a
+      JOIN commercial_purchase_order_lines pol
+        ON pol.id = a.purchase_order_line_id
+       AND pol.organisation_id = a.organisation_id
+      WHERE a.organisation_id = ${organisationId}
+        AND pol.purchase_order_id = ${purchaseOrderId}
+        AND a.reversed_at IS NULL
+      GROUP BY a.purchase_order_line_id
     )
     SELECT
       cpo.id AS purchase_order_id,
@@ -284,6 +324,7 @@ export async function getPurchaseOrderReconciliation(
       cpol.line_total_cents AS ordered_value_cents,
       COALESCE(r.received_quantity, 0)::text AS received_quantity,
       COALESCE(b.billed_quantity, 0)::text AS billed_quantity,
+      COALESCE(m.matched_quantity, 0)::text AS matched_quantity,
       COALESCE(b.billed_value_cents, 0)::text AS billed_value_cents
     FROM commercial_purchase_orders cpo
     LEFT JOIN commercial_purchase_order_lines cpol
@@ -291,6 +332,7 @@ export async function getPurchaseOrderReconciliation(
      AND cpol.organisation_id = cpo.organisation_id
     LEFT JOIN received r ON r.line_id = cpol.id
     LEFT JOIN billed b ON b.line_id = cpol.id
+    LEFT JOIN matched m ON m.line_id = cpol.id
     WHERE cpo.id = ${purchaseOrderId}
       AND cpo.organisation_id = ${organisationId}
     ORDER BY cpol.position ASC NULLS LAST, cpol.id ASC NULLS LAST

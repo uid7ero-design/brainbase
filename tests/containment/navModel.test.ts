@@ -176,7 +176,7 @@ describe('persona matrix', () => {
 });
 
 describe('capability matrix', () => {
-  it.each([['quotes'], ['invoicing'], ['purchasing']])('Commercial shows for %s alone (matches app/commercial/layout.tsx any-of)', cap => {
+  it.each([['quotes'], ['invoicing'], ['purchasing'], ['budgeting']])('Commercial shows for %s alone (matches app/commercial/layout.tsx any-of)', cap => {
     expect(summary(ctx('viewer', [cap])).work).toEqual(['commercial']);
   });
 
@@ -188,7 +188,7 @@ describe('capability matrix', () => {
   });
 
   it('dormant / unrelated keys never create entries', () => {
-    expect(summary(ctx('viewer', ['sales', 'expenses', 'budgeting', 'finance_intelligence', 'debtors', 'waste_recycling', 'verity'])).work).toEqual([]);
+    expect(summary(ctx('viewer', ['sales', 'expenses', 'finance_intelligence', 'debtors', 'waste_recycling', 'verity'])).work).toEqual([]);
     // 'assurance' is now a real module key: it creates exactly its own entry.
     expect(summary(ctx('viewer', ['assurance'])).work).toEqual(['assurance']);
   });

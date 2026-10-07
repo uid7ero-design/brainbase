@@ -94,6 +94,12 @@ describe('Phase C7.4 — commercial_supplier_bills table shape', () => {
     expect(body).toMatch(/CONSTRAINT commercial_supplier_bills_supplier_org_fkey\s*\n?\s*FOREIGN KEY \(supplier_id, organisation_id\)\s*\n?\s*REFERENCES commercial_suppliers \(id, organisation_id\)/)
   })
 
+  it('keeps source dates explicit and never adds a mutable accounting_date', () => {
+    expect(body).toMatch(/bill_date\s+DATE/)
+    expect(body).toMatch(/posted_at\s+TIMESTAMPTZ/)
+    expect(body).not.toMatch(/\baccounting_date\b/i)
+  })
+
   it('has the full actor-attribution chain: created/posted/cancelled _by', () => {
     for (const col of ['created_by', 'posted_by', 'cancelled_by']) {
       expect(body).toMatch(new RegExp(`${col}\\s+TEXT REFERENCES users\\(id\\)`))

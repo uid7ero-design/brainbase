@@ -69,7 +69,7 @@ beforeEach(() => {
   });
 });
 
-describe('HR-7E6A employee document assurance status route', () => {
+describe('HR-7E6A/7E7A employee document assurance status route', () => {
   it('requires the shared HR context before resolving the document version', async () => {
     const response = await GET(request(), { params: params() });
 
@@ -105,7 +105,7 @@ describe('HR-7E6A employee document assurance status route', () => {
     });
   });
 
-  it('returns only safe assurance state fields', async () => {
+  it('returns safe assurance state plus server-derived action capabilities', async () => {
     const response = await GET(request(), { params: params() });
 
     expect(response.status).toBe(200);
@@ -113,6 +113,10 @@ describe('HR-7E6A employee document assurance status route', () => {
     expect(body).toEqual({
       assurance: {
         document_version_id: '11111111-1111-4111-8111-111111111111',
+        capabilities: {
+          can_acknowledge: true,
+          can_verify: false,
+        },
         employee_acknowledgement: {
           acknowledged: true,
           acknowledged_at: '2026-10-03T01:02:03.000Z',
@@ -131,6 +135,56 @@ describe('HR-7E6A employee document assurance status route', () => {
     expect(serialized).not.toContain('storage');
     expect(serialized).not.toContain('filename');
     expect(serialized).not.toContain('reminder');
+  });
+
+  it('reports HR-admin verification authority without granting acknowledgement authority', async () => {
+    resolverMock.mockResolvedValueOnce({
+      ...RESOLVED,
+      auth: {
+        actor: {
+          organisationId: 'org-a',
+          userId: 'hr-admin',
+          isHrAdministrator: true,
+        },
+        target: {
+          organisationId: 'org-a',
+          personLinkedUserId: 'actor-a',
+        },
+      },
+    });
+
+    const response = await GET(request(), { params: params() });
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).assurance.capabilities).toEqual({
+      can_acknowledge: false,
+      can_verify: true,
+    });
+  });
+
+  it('does not grant either action capability across organisations', async () => {
+    resolverMock.mockResolvedValueOnce({
+      ...RESOLVED,
+      auth: {
+        actor: {
+          organisationId: 'org-a',
+          userId: 'actor-a',
+          isHrAdministrator: true,
+        },
+        target: {
+          organisationId: 'org-b',
+          personLinkedUserId: 'actor-a',
+        },
+      },
+    });
+
+    const response = await GET(request(), { params: params() });
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).assurance.capabilities).toEqual({
+      can_acknowledge: false,
+      can_verify: false,
+    });
   });
 
   it('returns a generic 500 when assurance-state retrieval fails', async () => {

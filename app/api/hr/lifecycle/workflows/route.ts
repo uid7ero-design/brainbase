@@ -73,7 +73,15 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json({
-    workflows: workflows.map(lifecycleWorkflowToJson),
+    capabilities: {
+      can_start_workflow: ctx.context.isHrAdministrator,
+    },
+    workflows: workflows.map(workflow => ({
+      ...lifecycleWorkflowToJson(workflow),
+      capabilities: {
+        can_cancel: ctx.context.isHrAdministrator && workflow.status === 'ACTIVE',
+      },
+    })),
   });
 }
 

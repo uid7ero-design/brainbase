@@ -78,6 +78,7 @@ function templateView(overrides: Record<string, unknown> = {}) {
     createdBy: 'hr-user',
     createdAt: '2026-09-26T12:00:00.000Z',
     updatedAt: '2026-09-26T12:00:00.000Z',
+    hasOtherActiveVersion: false,
     tasks: [],
     ...overrides,
   };
@@ -205,6 +206,68 @@ describe('HR-7C lifecycle template routes', () => {
       status: 'ACTIVE',
       templateKey: 'standard-onboarding',
     });
+    const body = await res.json();
+    expect(body.capabilities).toEqual({
+      can_create_template: true,
+    });
+    expect(body.templates[0].capabilities).toEqual({
+      can_create_version: true,
+      can_activate: false,
+      can_retire: true,
+    });
+  });
+
+  it('projects truthful template action capabilities from status and active-family state', async () => {
+    listTemplatesMock.mockResolvedValue([
+      templateView({
+        id: '44444444-4444-4444-8444-444444444444',
+        status: 'DRAFT',
+        hasOtherActiveVersion: false,
+      }),
+      templateView({
+        id: '55555555-5555-4555-8555-555555555555',
+        versionNumber: 2,
+        status: 'DRAFT',
+        hasOtherActiveVersion: true,
+      }),
+      templateView({
+        id: '66666666-6666-4666-8666-666666666666',
+        versionNumber: 3,
+        status: 'RETIRED',
+        retiredAt: '2026-09-27T12:00:00.000Z',
+        hasOtherActiveVersion: false,
+      }),
+    ]);
+
+    const res = await collectionRoute.GET(
+      new Request('http://localhost/api/hr/lifecycle/templates') as unknown as NextRequest,
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.templates.map((template: {
+      capabilities: {
+        can_create_version: boolean;
+        can_activate: boolean;
+        can_retire: boolean;
+      };
+    }) => template.capabilities)).toEqual([
+      {
+        can_create_version: true,
+        can_activate: true,
+        can_retire: true,
+      },
+      {
+        can_create_version: true,
+        can_activate: false,
+        can_retire: true,
+      },
+      {
+        can_create_version: true,
+        can_activate: false,
+        can_retire: false,
+      },
+    ]);
   });
 
   it('creates the next DRAFT version without accepting family identity from the client', async () => {

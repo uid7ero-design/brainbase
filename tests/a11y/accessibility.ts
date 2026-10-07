@@ -1,3 +1,4 @@
+﻿import '@testing-library/jest-dom/vitest';
 import { expect } from 'vitest';
 
 /** The element's computed accessible name. */
@@ -39,3 +40,4 @@ export function expectDecorative(element: Element) {
     expect(element.getAttribute('focusable')).toBe('false');
   }
 }
+

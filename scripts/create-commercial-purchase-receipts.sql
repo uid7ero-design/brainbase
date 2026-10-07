@@ -159,6 +159,8 @@ CREATE TABLE IF NOT EXISTS commercial_purchase_receipt_lines (
   created_at                     TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at                     TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (id, organisation_id),
+  CONSTRAINT commercial_purchase_receipt_lines_match_identity_key
+    UNIQUE (id, organisation_id, source_purchase_order_line_id),
   CONSTRAINT commercial_purchase_receipt_lines_receipt_org_fkey
     FOREIGN KEY (purchase_receipt_id, organisation_id)
     REFERENCES commercial_purchase_receipts (id, organisation_id) ON DELETE CASCADE,

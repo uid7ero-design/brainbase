@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const ROOT = path.resolve(__dirname, "../..");
-const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8");
+const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8").replace(/\r\n/g, "\n");
 const stripSqlComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/--.*$/gm, "");
 const stripTsComments = (src: string) =>
   src
@@ -18,7 +18,7 @@ const ROLLBACK = read("scripts/rollback-datahub-profile-execution.sql");
 
 const EXECUTION_DIR = path.join(ROOT, "lib/data-hub/profileExecution");
 const EXECUTION_FILES = fs.readdirSync(EXECUTION_DIR).filter((f) => f.endsWith(".ts"));
-const executionSource = (file: string) => stripTsComments(fs.readFileSync(path.join(EXECUTION_DIR, file), "utf8"));
+const executionSource = (file: string) => stripTsComments(read(`lib/data-hub/profileExecution/${file}`));
 const ALL_EXECUTION_SOURCE = EXECUTION_FILES.map(executionSource).join("\n");
 
 const PROFILING_DIR = path.join(ROOT, "lib/data-hub/profiling");

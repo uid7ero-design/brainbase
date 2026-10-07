@@ -118,7 +118,18 @@ beforeEach(() => {
   requireWorkflowMock.mockResolvedValue({
     ok: true,
     workflow: workflow(),
-    auth: {},
+    auth: {
+      actor: {
+        organisationId: 'org-a',
+        userId: 'employee-user',
+        isHrAdministrator: false,
+      },
+      target: {
+        organisationId: 'org-a',
+        personLinkedUserId: 'employee-user',
+        currentManagerLinkedUserId: 'manager-user',
+      },
+    },
   });
 });
 
@@ -137,7 +148,14 @@ describe('HR-7C lifecycle workflow routes', () => {
       status: 'ACTIVE',
       personId: PERSON_ID,
     });
-    expect((await res.json()).workflows).toHaveLength(1);
+    const body = await res.json();
+    expect(body.capabilities).toEqual({
+      can_start_workflow: false,
+    });
+    expect(body.workflows).toHaveLength(1);
+    expect(body.workflows[0].capabilities).toEqual({
+      can_cancel: false,
+    });
   });
 
   it('returns an empty list for an authorized viewer with no visible workflows', async () => {
@@ -145,7 +163,51 @@ describe('HR-7C lifecycle workflow routes', () => {
       new Request('http://localhost/api/hr/lifecycle/workflows') as unknown as NextRequest,
     );
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ workflows: [] });
+    expect(await res.json()).toEqual({
+      capabilities: {
+        can_start_workflow: false,
+      },
+      workflows: [],
+    });
+  });
+
+  it('exposes HR-admin workflow start/cancel capabilities from server context', async () => {
+    requireContextMock.mockResolvedValue({
+      ok: true,
+      context: {
+        session: { ...session, userId: 'hr-user', role: 'admin' as const },
+        isHrAdministrator: true,
+      },
+    });
+    listMock.mockResolvedValue([
+      workflow('ACTIVE'),
+      {
+        ...workflow('COMPLETED'),
+        id: '66666666-6666-4666-8666-666666666666',
+      },
+      {
+        ...workflow('CANCELLED'),
+        id: '77777777-7777-4777-8777-777777777777',
+      },
+    ]);
+
+    const res = await collection.GET(
+      new Request('http://localhost/api/hr/lifecycle/workflows') as unknown as NextRequest,
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.capabilities).toEqual({
+      can_start_workflow: true,
+    });
+    expect(body.workflows.map((item: { status: string; capabilities: { can_cancel: boolean } }) => ({
+      status: item.status,
+      can_cancel: item.capabilities.can_cancel,
+    }))).toEqual([
+      { status: 'ACTIVE', can_cancel: true },
+      { status: 'COMPLETED', can_cancel: false },
+      { status: 'CANCELLED', can_cancel: false },
+    ]);
   });
 
   it('rejects invalid list filters before querying', async () => {
@@ -283,7 +345,7 @@ describe('HR-7C lifecycle workflow routes', () => {
     expect(requireWorkflowMock).not.toHaveBeenCalled();
   });
 
-  it('returns only tasks visible to the caller inside an otherwise-visible workflow', async () => {
+  it('returns only tasks visible to the caller with server-derived action capabilities', async () => {
     const res = await detail.GET(new Request('http://localhost'), {
       params: Promise.resolve({ id: WORKFLOW_ID }),
     });
@@ -292,6 +354,130 @@ describe('HR-7C lifecycle workflow routes', () => {
     const body = await res.json();
     expect(body.workflow.id).toBe(WORKFLOW_ID);
     expect(body.tasks).toHaveLength(1);
+    expect(body.tasks[0].capabilities).toEqual({
+      can_execute: true,
+      can_approve: false,
+    });
+  });
+
+  it('grants current-manager execution and approval only from canonical workflow relationships', async () => {
+    requireWorkflowMock.mockResolvedValueOnce({
+      ok: true,
+      workflow: workflow(),
+      auth: {
+        actor: {
+          organisationId: 'org-a',
+          userId: 'manager-user',
+          isHrAdministrator: false,
+        },
+        target: {
+          organisationId: 'org-a',
+          personLinkedUserId: 'employee-user',
+          currentManagerLinkedUserId: 'manager-user',
+        },
+      },
+    });
+    tasksMock.mockResolvedValueOnce([{
+      ...visibleTask(),
+      responsibilityType: 'MANAGER',
+      approvalType: 'MANAGER',
+      employeeVisible: false,
+      managerVisible: true,
+      assignedUserId: 'stale-assignment-user',
+      requiresApproval: true,
+      status: 'AWAITING_APPROVAL',
+    }]);
+
+    const res = await detail.GET(new Request('http://localhost'), {
+      params: Promise.resolve({ id: WORKFLOW_ID }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.tasks[0].capabilities).toEqual({
+      can_execute: true,
+      can_approve: true,
+    });
+  });
+
+  it('does not let the HR administrative override satisfy a MANAGER approval requirement', async () => {
+    requireWorkflowMock.mockResolvedValueOnce({
+      ok: true,
+      workflow: workflow(),
+      auth: {
+        actor: {
+          organisationId: 'org-a',
+          userId: 'hr-user',
+          isHrAdministrator: true,
+        },
+        target: {
+          organisationId: 'org-a',
+          personLinkedUserId: 'employee-user',
+          currentManagerLinkedUserId: 'manager-user',
+        },
+      },
+    });
+    tasksMock.mockResolvedValueOnce([{
+      ...visibleTask(),
+      responsibilityType: 'MANAGER',
+      approvalType: 'MANAGER',
+      employeeVisible: false,
+      managerVisible: false,
+      internalOnly: true,
+      requiresApproval: true,
+      status: 'AWAITING_APPROVAL',
+    }]);
+
+    const res = await detail.GET(new Request('http://localhost'), {
+      params: Promise.resolve({ id: WORKFLOW_ID }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.tasks[0].capabilities).toEqual({
+      can_execute: true,
+      can_approve: false,
+    });
+  });
+
+  it('grants HR_ADMIN approval only to HR administration', async () => {
+    requireWorkflowMock.mockResolvedValueOnce({
+      ok: true,
+      workflow: workflow(),
+      auth: {
+        actor: {
+          organisationId: 'org-a',
+          userId: 'hr-user',
+          isHrAdministrator: true,
+        },
+        target: {
+          organisationId: 'org-a',
+          personLinkedUserId: 'employee-user',
+          currentManagerLinkedUserId: 'manager-user',
+        },
+      },
+    });
+    tasksMock.mockResolvedValueOnce([{
+      ...visibleTask(),
+      responsibilityType: 'HR_ADMIN',
+      approvalType: 'HR_ADMIN',
+      employeeVisible: false,
+      managerVisible: false,
+      internalOnly: true,
+      requiresApproval: true,
+      status: 'AWAITING_APPROVAL',
+    }]);
+
+    const res = await detail.GET(new Request('http://localhost'), {
+      params: Promise.resolve({ id: WORKFLOW_ID }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.tasks[0].capabilities).toEqual({
+      can_execute: true,
+      can_approve: true,
+    });
   });
 
   it('requires HR administration to cancel a workflow', async () => {
