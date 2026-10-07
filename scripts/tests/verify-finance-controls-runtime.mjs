@@ -399,7 +399,7 @@ try {
   await expect(budgetSection.getByRole('alert')).toContainText('at most two decimal places');
   await lineForm.getByLabel('Annual amount (AUD)',{exact:false}).fill('100.00');
   await lineForm.getByRole('button',{name:'Save line',exact:true}).click();
-  await expect(budgetSection.getByRole('table')).toContainText('AUD 100.00');
+  await expect(budgetSection.getByRole('table',{name:'Budget lines and allocation checks',exact:true})).toContainText('AUD 100.00');
   const persistedAmount=(await pool.query("SELECT annual_budget_cents::text AS cents FROM commercial_budget_lines WHERE organisation_id='runtime-b'")).rows;
   if(persistedAmount.length!==1||persistedAmount[0].cents!=='10000')throw new Error('Dollar input did not persist exact cents');
   const mappingForm=budgetSection.getByRole('form',{name:'Commitment mapping',exact:true});
@@ -410,11 +410,17 @@ try {
   const budgetState=(await pool.query("SELECT b.id,v.id AS version_id,l.id AS line_id FROM commercial_budgets b JOIN commercial_budget_versions v ON v.budget_id=b.id JOIN commercial_budget_lines l ON l.budget_version_id=v.id WHERE b.organisation_id='runtime-b'")).rows[0];
   const setupPeriod=(await pool.query("SELECT id FROM commercial_financial_periods WHERE financial_year_id=$1 AND name='July'",[setupYearId])).rows[0].id;
   const allocationForm=budgetSection.getByRole('form',{name:'Period allocation',exact:true});
-  async function allocate(amount){await allocationForm.getByLabel('Allocation line',{exact:false}).selectOption(budgetState.line_id);await allocationForm.getByLabel('Allocation period',{exact:false}).selectOption(setupPeriod);await allocationForm.getByLabel('Period amount (AUD)',{exact:false}).fill(amount);await allocationForm.getByRole('button',{name:'Save allocation',exact:true}).click();await expect(budgetSection.getByText(/^Period allocations:/)).toContainText('AUD '+amount);}
+  async function allocate(amount){await allocationForm.getByLabel('Allocation line',{exact:false}).selectOption(budgetState.line_id);await allocationForm.getByLabel('Allocation period',{exact:false}).selectOption(setupPeriod);await allocationForm.getByLabel('Period amount (AUD)',{exact:false}).fill(amount);await allocationForm.getByRole('button',{name:'Save allocation',exact:true}).click();await expect(budgetSection.getByRole('table',{name:'Period allocations',exact:true})).toContainText('AUD '+amount);}
   await allocate('90.00');
+  await expect(budgetSection.getByText('AUD 10.00 left to allocate',{exact:true})).toBeVisible();
+  await expect(budgetSection.getByText(/1 line needs allocation changes/)).toBeVisible();
   await budgetSection.getByRole('button',{name:'Activate Budget version',exact:true}).click();
   await expect(budgetSection.getByRole('alert')).toContainText('period allocations');
+  await allocate('110.00');
+  await expect(budgetSection.getByText('AUD 10.00 over allocated',{exact:true})).toBeVisible();
   await allocate('100.00');
+  await expect(budgetSection.getByText('Balanced',{exact:true})).toBeVisible();
+  await expect(budgetSection.getByText('All lines are fully allocated. Check tax basis and commitment mappings before activation.',{exact:true})).toBeVisible();
   await other.page.screenshot({path:resolve(artifacts,'finance-setup-draft-desktop.png'),fullPage:true});
   // Recover each retained dimension without replacing the draft's identity or lines.
   for(const [index,kind,title,code] of [[0,'accounts','Budget accounts','BUDGET-ACC'],[1,'cost-centres','Cost centres','BUDGET-CC']]){
@@ -492,6 +498,15 @@ try {
   await other.page.setViewportSize({width:390,height:844});
   const calendarOverflow=await other.page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth}));
   if(calendarOverflow.scrollWidth>calendarOverflow.width)throw new Error('Calendar setup overflows mobile viewport');
+  const mobileReview=other.page.getByRole('region',{name:'Budget setup',exact:true});
+  await expect(mobileReview.getByRole('table',{name:'Period allocations',exact:true})).toContainText('AUD 100.00');
+  for(const label of ['Budget setup lines','Budget period allocations']){
+    const region=mobileReview.getByRole('region',{name:label,exact:true});
+    const bounds=await region.boundingBox();
+    if(!bounds||bounds.x<0||bounds.x+bounds.width>391)throw new Error(label+' extends beyond the mobile viewport');
+    await region.evaluate(element=>{element.scrollLeft=element.scrollWidth;});
+    await expect(region.getByRole('columnheader').last()).toBeVisible();
+  }
   await other.page.screenshot({path:resolve(artifacts,'finance-setup-mobile.png'),fullPage:true});
   await pool.query("UPDATE organisation_modules SET enabled=false WHERE organisation_id='runtime-b' AND module_key='budgeting'");
   if((await setupPost('/api/commercial/budgeting/financial-years',{name:'Denied',startsOn:'2029-07-01',endsOn:'2030-06-30'})).status!==403)throw new Error('Unentitled calendar creation accepted');
@@ -510,6 +525,7 @@ try {
   evidence.calendarSetupChecks=['fresh organisation creates year and period through UI','exact dates persist and survive reload','audit retains session actor and dates','invalid dates, overlaps, duplicate names and outside-year periods rejected','concurrent year and period overlaps rejected','closed year rejects new periods','year close and new-period race preserves close invariants','unauthenticated, viewer, unentitled and foreign-tenant mutations denied','mobile setup fits viewport'];
   evidence.dimensionSetupChecks=['account and cost-centre creation through forms','tenant duplicate-code rejection','deactivation retains inactive records after reload','active Budget references prevent deactivation','viewer, unentitled and foreign mutations denied'];
   evidence.budgetSetupChecks=['fresh Budget and DRAFT version created through form','draft line and commitment mapping through forms','period allocation mismatch blocks activation','correct allocation permits activation','ACTIVE version read-only and API rejects edits','active version pointer persisted','duplicate header rejected','unauthenticated, viewer, unentitled and foreign-tenant mutations denied'];
+  evidence.budgetReviewChecks=['exact shortage and excess shown per line','corrected allocation marked balanced with remaining review guidance','saved allocation shown in named table','both review tables contained and scrollable on mobile'];
   evidence.financeWorkflowChecks=['empty finance controls directs administrator to setup','setup links to mappings, reporting and finance controls','empty mapping and reporting screens provide setup guidance','workflow links navigate between actual screens','new dimensions are available in mapping choices and completed guidance clears','new calendar is available in finance controls','activated Budget persists when returning through workflow links','viewer and unentitled users do not see administrator workflow links'];
   evidence.draftRecoveryChecks=['both draft dimensions can be deactivated','inactive references still block activation','both dimensions restored through UI without replacing draft references','restored draft activates with original version pointer','reactivation retains session actor and audits transition once on retry','unauthenticated, viewer, unentitled and foreign reactivation denied','non-string Budget enums return 400'];
   writeFileSync(resolve(artifacts,'evidence.json'),JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));

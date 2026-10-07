@@ -1,8 +1,9 @@
 'use client';
 import { useEffect,useState,type FormEvent } from 'react';
-import { Field,TableContainer,buttonProps,fieldControlClassName,tableStyles } from '@/components/ui/app';
+import { Field,buttonProps,fieldControlClassName } from '@/components/ui/app';
 import styles from './page.module.css';
-import { budgetAmountToCents, formatBudgetAmount } from '@/lib/commercial/financeSetupDisplay';
+import { budgetAmountToCents } from '@/lib/commercial/financeSetupDisplay';
+import BudgetReview from './BudgetReview';
 type Dimension={id:string;code:string;active:boolean};
 type Year={id:string;name:string;status:string;periods:{id:string;name:string}[]};
 type Version={budget_id:string;version_id:string;name:string;financial_year_id:string;currency:string;tax_basis:string;periodisation_mode:string;version_number:number;status:string;lines:{id:string;budget_account_id:string;cost_centre_id:string;annual_budget_cents:string}[];allocations:{budget_line_id:string;financial_period_id:string;amount_cents:string}[];mappings:{cost_centre_id:string;budget_account_id:string}[]};
@@ -72,11 +73,10 @@ export default function BudgetSetup({revision}:{revision:number}){
           <SelectField label="Allocation line" name="budgetLineId" options={version.lines.map(line=>({id:line.id,label:accountCode(line.budget_account_id)+' / '+centreCode(line.cost_centre_id)}))}/><SelectField label="Allocation period" name="financialPeriodId" options={periods.map(period=>({id:period.id,label:period.name}))}/>
           <Field label={`Period amount (${version.currency})`} required>{control=><input {...control} name="amountCents" required inputMode="decimal" placeholder="0.00" className={fieldControlClassName}/>}</Field><button {...buttonProps('secondary')} type="submit">Save allocation</button>
         </fieldset></form>}
-        <form className={styles.activationAction} aria-label="Activate Budget" onSubmit={event=>void submit(event,'activate')}><button {...buttonProps('primary')} disabled={busy||version.lines.length===0||version.mappings.length===0} type="submit">Activate Budget version</button></form>
       </>:<p>This version is read-only. Its existing lines, mappings and allocations remain available below.</p>}
-      <TableContainer label="Budget setup lines" minWidth={600}><table className={tableStyles.table}><thead><tr>{['Account','Cost centre',`Annual amount (${version.currency})`].map(label=><th key={label} scope="col">{label}</th>)}</tr></thead><tbody>{version.lines.length?version.lines.map(line=><tr key={line.id}><td>{accountCode(line.budget_account_id)}</td><td>{centreCode(line.cost_centre_id)}</td><td>{formatBudgetAmount(line.annual_budget_cents,version.currency)}</td></tr>):<tr><td colSpan={3}>No Budget lines yet.</td></tr>}</tbody></table></TableContainer>
+      <BudgetReview currency={version.currency} periodised={version.periodisation_mode==='PERIODISED'} draft={version.status==='DRAFT'} lines={version.lines} allocations={version.allocations} periods={periods} accountCode={accountCode} centreCode={centreCode}/>
       <p style={{fontSize:13}}>Commitment mappings: {version.mappings.length?version.mappings.map(mapping=>centreCode(mapping.cost_centre_id)+' → '+accountCode(mapping.budget_account_id)).join('; '):'None yet.'}</p>
-      <p style={{fontSize:13}}>Period allocations: {version.allocations.length?version.allocations.map(allocation=>{const line=version.lines.find(row=>row.id===allocation.budget_line_id);return (line?accountCode(line.budget_account_id)+' / '+centreCode(line.cost_centre_id):allocation.budget_line_id)+' · '+(periods.find(period=>period.id===allocation.financial_period_id)?.name??allocation.financial_period_id)+' · '+formatBudgetAmount(allocation.amount_cents,version.currency);}).join('; '):'None.'}</p>
+      {version.status==='DRAFT'&&<form className={styles.activationAction} aria-label="Activate Budget" onSubmit={event=>void submit(event,'activate')}><button {...buttonProps('primary')} disabled={busy||version.lines.length===0||version.mappings.length===0} type="submit">Activate Budget version</button></form>}
     </div>:!loading&&<p>No Budget versions yet. Create the first draft above.</p>}
   </section>;
 }
