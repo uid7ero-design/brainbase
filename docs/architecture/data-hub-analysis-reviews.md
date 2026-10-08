@@ -98,3 +98,16 @@ This slice provides row counts only. Present-value count controls, friendly
 governed field labels, authenticated browser-to-database verification and the
 Production migration/deployment sequence remain outstanding. The prepared
 analysis-review migration has not been applied to Production by this work.
+
+## D4D5Z — authenticated route-to-database proof
+
+The disposable Postgres harness now runs signed-session planning, review save,
+review reload, row count and present-value count through the actual route
+handlers. JWT verification, session user revalidation, role checks, review
+engines, Prisma and SQL triggers run unchanged. The harness supplies the Next
+cookie adapter and adapts the Neon SQL transport to local Postgres. It verifies
+missing/tampered sessions, demotion, inactivity, moved accounts, foreign
+worksheets and stale profile pins, including no unauthorized review insertion.
+
+This is authenticated route-to-database proof, not an HTTP server or browser
+journey. A full browser journey and Production rollout remain unverified.

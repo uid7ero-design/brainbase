@@ -13,6 +13,9 @@ import { SEMANTIC_ROLES } from "@/lib/data-hub/semanticInference/contracts";
 // "no route, no auth seam, only the lib/db sql-client seam" pattern -- the
 // service takes already-trusted {organisationId, uploadId, actorId}
 // directly.
+// D4D5Z additionally exercises the review/planning/count route handlers with
+// real signed sessions and DB-backed requireRole. Only the Next cookie adapter
+// and Neon transport are replaced; the authorization and services are real.
 //
 // WHY REAL POSTGRES: the one-RUNNING-per-normalization-run partial unique
 // index, the completion reconciliation trigger, and the Upload pointer
@@ -47,6 +50,15 @@ async function neonCompatibleSql(strings: TemplateStringsArray, ...values: unkno
 }
 
 vi.doMock("@/lib/db", () => ({ default: neonCompatibleSql }));
+
+// Local test signing key only. The Next request cookie adapter is supplied by
+// the harness; JWT verification, requireRole, DB users and route services run
+// unchanged. This is route-to-DB proof, not a hosted browser/session proof.
+process.env.SESSION_SECRET = "disposable-datahub-integration-session-key";
+let routeSessionToken: string | undefined;
+vi.doMock("next/headers", () => ({ cookies: async () => ({
+  get: (name: string) => name === "session" && routeSessionToken ? { value: routeSessionToken } : undefined,
+}) }));
 
 let profileUploadDataset: typeof import("@/lib/data-hub/profileExecution/profileUploadDataset").profileUploadDataset;
 let createDatasetProfileRunAttempt: typeof import("@/lib/data-hub/profileExecution/dataHubDatasetProfileRun").createDatasetProfileRunAttempt;
@@ -756,6 +768,77 @@ async function countWorld(empty = false) {
     quality: { context: { ...context }, snapshot: quality }, analyze: analyzeUploadProfileCount,
     scope: { organisationId: ORG_A, uploadId: ids.uploadId } };
 }
+
+describe("D4D5Z authenticated review/count routes with real Postgres", () => {
+  async function routeWorld() {
+    const f = await countWorld();
+    const { encrypt } = await import("@/lib/session");
+    const token = await encrypt({ userId: f.ids.userId, organisationId: ORG_A, role: "manager", name: "Test manager",
+      expiresAt: new Date(Date.now() + 60_000).toISOString() });
+    routeSessionToken = token;
+    const review = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/route");
+    const planning = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/plan/route");
+    const count = await import("@/app/api/data-hub/worksheets/[id]/analysis-count/route");
+    const context = { params: Promise.resolve({ id: f.ids.uploadId }) };
+    const choices = [{ sourceSchemaColumnId: f.ids.col1, role: "IDENTIFIER" }, { sourceSchemaColumnId: f.ids.col2, role: "MEASURE" }];
+    const body = { reviewVersion: "v1", datasetProfileRunId: f.context.datasetProfileRunId, semanticChoices: choices, qualityDecisions: [] as unknown[] };
+    const post = (value: unknown) => new Request("http://localhost/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) });
+    return { f, token, review, planning, count, context, body, post };
+  }
+  it("plans, saves, reloads and counts through signed manager sessions", async () => {
+    const w = await routeWorld();
+    const initial = await w.planning.GET(new Request("http://localhost/test"), w.context);
+    expect(initial.status).toBe(200);
+    expect(await initial.json()).toMatchObject({ ok: true, datasetProfileRunId: w.f.context.datasetProfileRunId, quality: null });
+    const planned = await w.planning.POST(w.post(w.body), w.context);
+    expect(planned.status).toBe(200);
+    const preview = await planned.json();
+    w.body.qualityDecisions = preview.quality.items.map((item: { code: string; scope: string; sourceSchemaColumnId?: string; action: string }) => ({
+      code: item.code, scope: item.scope, ...(item.sourceSchemaColumnId ? { sourceSchemaColumnId: item.sourceSchemaColumnId } : {}),
+      decision: item.action === "ACKNOWLEDGE_NOTICE" ? "ACKNOWLEDGE" : "CONTINUE",
+    }));
+    const saved = await w.review.POST(w.post(w.body), w.context);
+    expect(saved.status).toBe(201); expect(await saved.json()).toEqual({ ok: true, revision: 1 });
+    const loaded = await w.review.GET(new Request("http://localhost/test"), w.context);
+    expect(loaded.status).toBe(200); expect(await loaded.json()).toMatchObject({ ok: true, revision: 1 });
+    for (const [request, expected] of [[{ requestVersion: "v1", kind: "ROW_COUNT" }, 2],
+      [{ requestVersion: "v1", kind: "AGGREGATE", operator: "COUNT_PRESENT", sourceSchemaColumnId: w.f.ids.col2 }, 1]] as const) {
+      const result = await w.count.POST(w.post(request), w.context);
+      expect(result.status).toBe(200); expect(result.headers.get("Cache-Control")).toBe("private, no-store");
+      expect(await result.json()).toMatchObject({ ok: true, reviewRevision: 1, result: { count: expected, context: { datasetProfileRunId: w.f.context.datasetProfileRunId } } });
+    }
+    const records = await prisma.dataHubAnalysisReview.findMany({ where: { profile_run_id: w.f.context.datasetProfileRunId } });
+    expect(records).toHaveLength(1); expect(records[0].reviewed_by_id).toBe(w.f.ids.userId);
+  });
+  it.each(["missing", "tampered", "demoted", "inactive", "moved"])("denies %s sessions before planning, saving or counting", async kind => {
+    const w = await routeWorld();
+    if (kind === "missing") routeSessionToken = undefined;
+    if (kind === "tampered") routeSessionToken = w.token + "invalid";
+    if (kind === "demoted") await prisma.user.update({ where: { id: w.f.ids.userId }, data: { role: "VIEWER" } });
+    if (kind === "inactive") await prisma.user.update({ where: { id: w.f.ids.userId }, data: { status: "INACTIVE" } });
+    if (kind === "moved") await prisma.user.update({ where: { id: w.f.ids.userId }, data: { organisation_id: ORG_B } });
+    for (const result of [await w.planning.GET(new Request("http://localhost/test"), w.context),
+      await w.review.POST(w.post(w.body), w.context), await w.count.POST(w.post({ requestVersion: "v1", kind: "ROW_COUNT" }), w.context)]) {
+      expect(result.status).toBe(kind === "demoted" ? 403 : 401);
+      expect(result.headers.get("Cache-Control")).toBe("private, no-store");
+    }
+    expect(await prisma.dataHubAnalysisReview.count({ where: { profile_run_id: w.f.context.datasetProfileRunId } })).toBe(0);
+  });
+  it("conceals another organisation's worksheet and rejects stale profile pins", async () => {
+    const w = await routeWorld();
+    const foreign = await countWorld();
+    const { encrypt } = await import("@/lib/session");
+    await prisma.user.update({ where: { id: foreign.ids.userId }, data: { organisation_id: ORG_B } });
+    routeSessionToken = await encrypt({ userId: foreign.ids.userId, organisationId: ORG_B, role: "manager", name: "Other manager", expiresAt: new Date(Date.now() + 60_000).toISOString() });
+    expect((await w.planning.GET(new Request("http://localhost/test"), w.context)).status).toBe(404);
+    expect((await w.review.POST(w.post(w.body), w.context)).status).toBe(404);
+    expect((await w.count.POST(w.post({ requestVersion: "v1", kind: "ROW_COUNT" }), w.context)).status).toBe(404);
+    routeSessionToken = w.token;
+    expect((await w.planning.POST(w.post({ ...w.body, datasetProfileRunId: "stale" }), w.context)).status).toBe(409);
+    expect((await w.review.POST(w.post({ ...w.body, datasetProfileRunId: "stale" }), w.context)).status).toBe(409);
+    expect(await prisma.dataHubAnalysisReview.count({ where: { profile_run_id: w.f.context.datasetProfileRunId } })).toBe(0);
+  });
+});
 
 describe("D4D5N real persisted upload count service", () => {
   const rows = { requestVersion: "v1", kind: "ROW_COUNT" };
