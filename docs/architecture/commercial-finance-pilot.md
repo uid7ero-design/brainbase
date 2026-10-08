@@ -372,6 +372,20 @@ busy controls and draft-only actions. The disposable runtime additionally checks
 cancelled and saved amounts in PostgreSQL, retained identity and allocations,
 restored balance, ACTIVE controls and the mobile editor.
 
+## Saved draft allocation editing
+
+Saved period allocations provide an Edit action with the exact currency amount
+prefilled and fixed line/period identity. Updating uses the existing allocation
+upsert, preserving the annual amount and other periods. Cancel submits nothing;
+version switching clears the editor. Only one saved line or allocation editor
+is open at a time. ACTIVE versions and unavailable references offer no enabled
+allocation editing. The existing review reports shortages and excesses.
+
+Rendered tests cover fixed submitted IDs, exact BIGINT values, cancel, busy and
+ACTIVE restrictions. Disposable runtime checks cover persisted amounts, invalid
+input, cancellation, version switching, annual amount preservation, restored
+balance and mobile layout. No migration or customer Budget change is required.
+
 ## Repeatable runtime evidence
 
 After a production build, run:
