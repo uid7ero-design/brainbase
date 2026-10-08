@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../../prisma";
 import { parseAnalysisReviewDecisionInput, buildAnalysisReviewSnapshots } from "../analysis";
 import type { BuildAnalysisReviewSnapshotsResult } from "../analysis/buildAnalysisReviewSnapshots";
@@ -17,7 +18,17 @@ export async function loadAnalysisReview(
   if (typeof input.organisationId !== "string" || !input.organisationId.trim() ||
     typeof input.uploadId !== "string" || !input.uploadId.trim()) return { ok: false, code: "CONTEXT_INPUT_INVALID" };
   try {
-    return await prisma.$transaction(async (tx): Promise<LoadAnalysisReviewResult> => {
+    return await prisma.$transaction((tx) => loadAnalysisReviewInTransaction(input, tx),
+      { isolationLevel: "RepeatableRead" });
+  } catch {
+    return { ok: false, code: "REVIEW_READ_FAILED" };
+  }
+}
+
+// Internal composition: caller owns the consistent snapshot.
+export async function loadAnalysisReviewInTransaction(
+  input: { organisationId: string; uploadId: string }, tx: Prisma.TransactionClient,
+): Promise<LoadAnalysisReviewResult> {
       const loaded = await loadProfileReviewEvidenceInTransaction(input, tx);
       if (!loaded.ok) return loaded;
       const { context } = loaded.profile;
@@ -40,8 +51,4 @@ export async function loadAnalysisReview(
       const resolved = buildAnalysisReviewSnapshots(context, loaded.profile,
         { context, snapshot: parsed.input.semanticChoices }, { context, snapshot: parsed.input.qualityDecisions });
       return resolved.ok ? { ...resolved, revision: review.revision } : resolved;
-    }, { isolationLevel: "RepeatableRead" });
-  } catch {
-    return { ok: false, code: "REVIEW_READ_FAILED" };
-  }
 }
