@@ -84,3 +84,17 @@ is resolved before quality questions are returned. Neither method saves a
 review or asserts readiness. This supplies the two-phase browser workflow:
 choose meanings, preview quality questions, then submit explicit review
 decisions to the existing save endpoint. The browser screen remains to be built.
+# D4D5Y — worksheet review and row-count screen
+
+Managers can open `/data-hub/analysis/[uploadId]` from the worksheet inventory.
+Loading is explicit and reads the current planning endpoint and saved review.
+Field choices are restricted to server candidates. Quality planning, saving and
+counting are explicit actions; no save is automatically retried. Changing a
+choice clears quality planning and prior results. The saved review is reloaded
+after insertion, and holds disable row counts. Count results display the server
+review revision and profile identity, even if they advanced since the screen load.
+
+This slice provides row counts only. Present-value count controls, friendly
+governed field labels, authenticated browser-to-database verification and the
+Production migration/deployment sequence remain outstanding. The prepared
+analysis-review migration has not been applied to Production by this work.
