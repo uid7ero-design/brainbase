@@ -62,7 +62,7 @@ export default function LifecycleOverviewPage() {
   return (
     <div style={{ maxWidth: 1100 }}>
       <PageHeader title="Lifecycle overview" description="Active workflows and visible outstanding work. Hidden tasks are excluded from all counts." actions={
-        <><Link href="/people" {...buttonProps('secondary')}>People</Link><button type="button" {...buttonProps('secondary')} onClick={() => setRefresh(value => value + 1)} disabled={state === 'loading'}>Refresh</button></>
+        <><Link href="/people" {...buttonProps('secondary')}>People</Link><Link href="/people/lifecycle/tasks" {...buttonProps('secondary')}>Task queue</Link><button type="button" {...buttonProps('secondary')} onClick={() => setRefresh(value => value + 1)} disabled={state === 'loading'}>Refresh</button></>
       } />
       <label>Show workflows{' '}
         <select value={filter} onChange={event => setFilter(event.target.value)}>
