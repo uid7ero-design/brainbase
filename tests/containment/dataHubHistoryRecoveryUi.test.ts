@@ -365,6 +365,7 @@ describe("T32/M20: no new backend route", () => {
       .sort();
     expect(routeFiles).toEqual(
       [
+        "app/api/data-hub/worksheets/[id]/analysis-review/plan/route.ts", // D4D5X review planning
         "app/api/data-hub/worksheets/[id]/analysis-review/route.ts", // D4D5U authenticated review API
         "app/api/data-hub/worksheets/[id]/analysis-count/route.ts", // D4D5W authenticated count API
         "app/api/data-hub/import-batches/[id]/finalize/route.ts",

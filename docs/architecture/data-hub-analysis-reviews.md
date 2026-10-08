@@ -75,3 +75,12 @@ Success returns the count result, pinned lineage and review revision with
 upload/review 404, stale lineage 409, held or unsupported analysis 422, and
 unavailable evaluation 503. No new profile/review writes occur. Browser
 workflow and full deployed end-to-end verification remain required.
+
+D4D5X adds manager GET/POST `analysis-review/plan`. GET discovers candidate
+roles and clarification requirements from the authoritative profile. POST
+previews semantic choices using the closed v1 review envelope, with an empty
+quality-decision list and the current profile pin. Actual candidate membership
+is resolved before quality questions are returned. Neither method saves a
+review or asserts readiness. This supplies the two-phase browser workflow:
+choose meanings, preview quality questions, then submit explicit review
+decisions to the existing save endpoint. The browser screen remains to be built.
