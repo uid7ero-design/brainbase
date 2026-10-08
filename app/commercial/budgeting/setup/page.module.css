@@ -163,3 +163,22 @@
     min-width: 0;
   }
 }
+
+.lineActions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.lineActions > button {
+  min-width: 168px;
+}
+
+@media (max-width: 600px) {
+  .lineActions > button {
+    width: 100%;
+    min-width: 0;
+  }
+}

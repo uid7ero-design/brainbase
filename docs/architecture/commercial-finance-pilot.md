@@ -358,6 +358,20 @@ races. Evidence is `draft-settings-focused.log`, `draft-settings-containment.log
 `draft-settings-adelaide/evidence.json` in the local finance-review artifact folder.
 No schema migration or automatic customer settings change is required.
 
+## Saved draft line editing
+
+Draft Budget review rows provide an Edit action that prefills the exact annual
+amount in currency units. Account and cost centre remain fixed while editing;
+Update line uses the existing line upsert and retains the line ID and period
+allocations. Cancel sends no request, and switching versions clears the editor.
+The review shows any allocation shortage or excess caused by the new amount.
+ACTIVE versions do not offer editing; existing server controls remain in force.
+
+Focused rendered tests cover exact BIGINT prefills, fixed submitted IDs, cancel,
+busy controls and draft-only actions. The disposable runtime additionally checks
+cancelled and saved amounts in PostgreSQL, retained identity and allocations,
+restored balance, ACTIVE controls and the mobile editor.
+
 ## Repeatable runtime evidence
 
 After a production build, run:

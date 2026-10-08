@@ -12,6 +12,11 @@ export function budgetAmountToCents(value: string): string {
   return cents.toString();
 }
 
+export function budgetCentsToAmount(cents: string): string {
+  const value = BigInt(cents);
+  return `${value / BigInt(100)}.${(value % BigInt(100)).toString().padStart(2, '0')}`;
+}
+
 export function formatBudgetAmount(cents: string, currency: string): string {
   const value = BigInt(cents);
   const whole = (value / BigInt(100)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
