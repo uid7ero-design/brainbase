@@ -87,6 +87,7 @@ export default function PeoplePage() {
         actions={
           <>
             <Link href="/people/lifecycle" {...secondaryAction}>Lifecycle Overview</Link>
+            <Link href="/people/documents" {...secondaryAction}>Document Assurance</Link>
             <Link href="/people/restricted-cases" {...secondaryAction}>Restricted Cases</Link>
             {canManage && (
               <>
