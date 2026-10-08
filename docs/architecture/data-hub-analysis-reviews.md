@@ -58,3 +58,11 @@ conditions 409, invalid review resolutions 422 and persistence/read failures
 or exception text. No automatic POST retry is safe to assume. The review SQL
 migration must be installed before using these endpoints; it is not applied
 by deployment of this route. Browser review workflow remains follow-up work.
+
+D4D5V adds `analyzeReviewedUploadCount`, an internal already-authorized read
+service. It accepts only scope and the closed analysis request, loads the
+latest saved review and profile counts in one RepeatableRead transaction,
+and returns the review revision with the result. Caller-created semantic or
+quality snapshots are not accepted. Results describe that transaction's
+snapshot, not later review or pointer changes. The count HTTP endpoint remains
+follow-up work.
