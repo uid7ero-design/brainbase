@@ -391,6 +391,9 @@ try {
   await createBudgetForm.getByLabel('Periodisation',{exact:false}).selectOption('PERIODISED');
   await createBudgetForm.getByRole('button',{name:'Create draft Budget',exact:true}).click();
   await expect(budgetSection.getByRole('status')).toContainText('Budget setup saved.');
+  const activationChecks=budgetSection.getByRole('region',{name:'Draft activation checks',exact:true});
+  await expect(activationChecks).toContainText('Add at least one Budget line.');
+  await expect(activationChecks).toContainText('Add a commitment mapping');
   const lineForm=budgetSection.getByRole('form',{name:'Budget line',exact:true});
   await lineForm.getByLabel('Line account',{exact:false}).selectOption(budgetDimensions[0]);
   await lineForm.getByLabel('Line cost centre',{exact:false}).selectOption(budgetDimensions[1]);
@@ -400,6 +403,8 @@ try {
   await lineForm.getByLabel('Annual amount (AUD)',{exact:false}).fill('100.00');
   await lineForm.getByRole('button',{name:'Save line',exact:true}).click();
   await expect(budgetSection.getByRole('table',{name:'Budget lines and allocation checks',exact:true})).toContainText('AUD 100.00');
+  await expect(activationChecks).not.toContainText('Add at least one Budget line.');
+  await expect(activationChecks).toContainText('1 line needs allocation changes');
   const persistedAmount=(await pool.query("SELECT annual_budget_cents::text AS cents FROM commercial_budget_lines WHERE organisation_id='runtime-b'")).rows;
   if(persistedAmount.length!==1||persistedAmount[0].cents!=='10000')throw new Error('Dollar input did not persist exact cents');
   const mappingForm=budgetSection.getByRole('form',{name:'Commitment mapping',exact:true});
@@ -407,6 +412,7 @@ try {
   await mappingForm.getByLabel('Mapping cost centre',{exact:false}).selectOption(budgetDimensions[1]);
   await mappingForm.getByRole('button',{name:'Save commitment mapping',exact:true}).click();
   await expect(budgetSection.getByText('Commitment mappings: BUDGET-CC → BUDGET-ACC',{exact:true})).toBeVisible();
+  await expect(activationChecks).not.toContainText('Add a commitment mapping');
   const budgetState=(await pool.query("SELECT b.id,v.id AS version_id,l.id AS line_id FROM commercial_budgets b JOIN commercial_budget_versions v ON v.budget_id=b.id JOIN commercial_budget_lines l ON l.budget_version_id=v.id WHERE b.organisation_id='runtime-b'")).rows[0];
   const setupPeriod=(await pool.query("SELECT id FROM commercial_financial_periods WHERE financial_year_id=$1 AND name='July'",[setupYearId])).rows[0].id;
   await budgetSection.getByText('Edit draft settings',{exact:true}).click();
@@ -425,13 +431,15 @@ try {
   async function allocate(amount){await allocationForm.getByLabel('Allocation line',{exact:false}).selectOption(budgetState.line_id);await allocationForm.getByLabel('Allocation period',{exact:false}).selectOption(setupPeriod);await allocationForm.getByLabel('Period amount (AUD)',{exact:false}).fill(amount);await allocationForm.getByRole('button',{name:'Save allocation',exact:true}).click();await expect(budgetSection.getByRole('table',{name:'Period allocations',exact:true})).toContainText('AUD '+amount);}
   await allocate('90.00');
   await expect(budgetSection.getByText('AUD 10.00 left to allocate',{exact:true})).toBeVisible();
-  await expect(budgetSection.getByText(/1 line needs allocation changes/)).toBeVisible();
+  await expect(activationChecks).toContainText('1 line needs allocation changes');
+  await expect(budgetSection.getByText('1 line needs allocation changes. Each line’s period allocations must equal its annual amount before activation.',{exact:true})).toBeVisible();
   await budgetSection.getByRole('button',{name:'Activate Budget version',exact:true}).click();
   await expect(budgetSection.getByRole('alert')).toContainText('period allocations');
   await allocate('110.00');
   await expect(budgetSection.getByText('AUD 10.00 over allocated',{exact:true})).toBeVisible();
   await allocate('100.00');
   await expect(budgetSection.getByText('Balanced',{exact:true})).toBeVisible();
+  await expect(activationChecks).toContainText('No setup issues found in the loaded draft.');
   await expect(budgetSection.getByText('All lines are fully allocated. Check tax basis and commitment mappings before activation.',{exact:true})).toBeVisible();
   const editLine=budgetSection.getByRole('button',{name:'Edit BUDGET-ACC / BUDGET-CC',exact:true});
   await editLine.click();
@@ -531,6 +539,7 @@ try {
     const section=other.page.getByRole('region',{name:title,exact:true});
     await section.getByRole('button',{name:'Deactivate '+code,exact:true}).click();
     await expect(section.getByRole('button',{name:'Reactivate '+code,exact:true})).toBeVisible();
+    await expect(activationChecks).toContainText('Reactivate or correct');
     await budgetSection.getByRole('button',{name:'Activate Budget version',exact:true}).click();
     await expect(budgetSection.getByRole('alert')).toContainText('active same-tenant');
     const path='/api/commercial/budgeting/setup/'+kind+'/'+budgetDimensions[index]+'/reactivate';
@@ -545,6 +554,7 @@ try {
   }
   await budgetSection.getByRole('button',{name:'Activate Budget version',exact:true}).click();
   await expect(budgetSection.getByRole('status')).toContainText('Budget version activated.');
+  await expect(activationChecks).toHaveCount(0);
   await expect(budgetSection.getByRole('button',{name:'Edit BUDGET-ACC / BUDGET-CC',exact:true})).toHaveCount(0);
   await expect(budgetSection.getByRole('button',{name:'Edit allocation BUDGET-ACC / BUDGET-CC / July',exact:true})).toHaveCount(0);
   await expect(budgetSection.getByRole('button',{name:'Save line',exact:true})).toHaveCount(0);
@@ -686,6 +696,7 @@ try {
   evidence.dimensionSetupChecks=['account and cost-centre creation through forms','tenant duplicate-code rejection','deactivation retains inactive records after reload','active Budget references prevent deactivation','viewer, unentitled and foreign mutations denied'];
   evidence.budgetSetupChecks=['fresh Budget and DRAFT version created through form','draft line and commitment mapping through forms','period allocation mismatch blocks activation','correct allocation permits activation','ACTIVE version read-only and API rejects edits','active version pointer persisted','duplicate header rejected','unauthenticated, viewer, unentitled and foreign-tenant mutations denied'];
   evidence.budgetReviewChecks=['exact shortage and excess shown per line','corrected allocation marked balanced with remaining review guidance','saved allocation shown in named table','both review tables contained and scrollable on mobile'];
+  evidence.budgetActivationGuidanceChecks=['empty draft explains missing lines and mapping','saving lines and mappings updates guidance','allocation imbalance remains visible until resolved','balanced draft still requires tax and mapping review','deactivation reveals inactive reference issue','ACTIVE version omits draft checklist'];
   evidence.budgetAllocationEditChecks=['exact saved amount and fixed line/period prefilled','invalid decimal retains editor without mutation','cancel preserves saved allocation','version switching clears unsaved editor','update retains allocation ID annual amount and another period allocation','shortage excess and recovered balance shown','mobile editor contained','ACTIVE edit action absent'];
   evidence.budgetLineEditChecks=['saved amount prefilled exactly','fixed dimension identity retained','cancel leaves saved amount unchanged','update preserves line ID and allocations','allocation mismatch shown after annual amount change','saved amount reloads and balance restores','editor fits mobile viewport'];
   evidence.budgetSettingsChecks=['draft name and tax basis changed through populated form','saved amounts and allocations preserved','editor reloads saved values and fits mobile viewport','session actor and before/after settings audited','ACTIVE version hides editor and rejects mutation','later draft cannot rewrite published Budget settings','database-gated year close rejects waiting settings','database-gated activation rejects waiting settings without rewriting published facts'];

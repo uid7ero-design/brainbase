@@ -6,6 +6,7 @@ import { budgetAmountToCents } from '@/lib/commercial/financeSetupDisplay';
 import BudgetReview from './BudgetReview';
 import DraftBudgetLineForm from './DraftBudgetLineForm';
 import DraftBudgetAllocationForm from './DraftBudgetAllocationForm';
+import BudgetActivationReview from './BudgetActivationReview';
 type Dimension={id:string;code:string;active:boolean};
 type Year={id:string;name:string;status:string;periods:{id:string;name:string}[]};
 type Version={budget_id:string;version_id:string;name:string;financial_year_id:string;currency:string;tax_basis:string;periodisation_mode:string;version_number:number;status:string;can_edit_settings:boolean;lines:{id:string;budget_account_id:string;cost_centre_id:string;annual_budget_cents:string}[];allocations:{budget_line_id:string;financial_period_id:string;amount_cents:string}[];mappings:{cost_centre_id:string;budget_account_id:string}[]};
@@ -81,11 +82,15 @@ export default function BudgetSetup({revision}:{revision:number}){
         <form aria-label="Commitment mapping" onSubmit={event=>void submit(event,'mapping')}><fieldset disabled={busy} className={styles.formGrid}>
           <SelectField label="Mapping cost centre" name="costCentreId" options={centreOptions}/><SelectField label="Mapping account" name="budgetAccountId" options={accountOptions}/><button {...buttonProps('secondary')} type="submit">Save commitment mapping</button>
         </fieldset></form>
+        <p>Each cost centre routes commitments to one Budget account. Saving a mapping for the same cost centre replaces its previous account.</p>
         {version.periodisation_mode==='PERIODISED'&&<DraftBudgetAllocationForm key={`${version.version_id}:${editingAllocation?.budget_line_id??'new'}:${editingAllocation?.financial_period_id??''}`} currency={version.currency} busy={busy} allocation={editingAllocation} lines={version.lines.map(line=>({id:line.id,label:accountCode(line.budget_account_id)+' / '+centreCode(line.cost_centre_id)}))} periods={periods.map(period=>({id:period.id,label:period.name}))} onSubmit={event=>void submit(event,'allocation')} onCancel={()=>setEditingAllocationKey(null)}/>}
       </>:<p>This version is read-only. Its existing lines, mappings and allocations remain available below.</p>}
       <BudgetReview currency={version.currency} periodised={version.periodisation_mode==='PERIODISED'} draft={version.status==='DRAFT'} lines={version.lines} allocations={version.allocations} periods={periods} accountCode={accountCode} centreCode={centreCode} busy={busy} onEditLine={id=>{setEditingLineId(id);setEditingAllocationKey(null);}} onEditAllocation={(lineId,periodId)=>{setEditingAllocationKey({lineId,periodId});setEditingLineId('');}}/>
       <p style={{fontSize:13}}>Commitment mappings: {version.mappings.length?version.mappings.map(mapping=>centreCode(mapping.cost_centre_id)+' → '+accountCode(mapping.budget_account_id)).join('; '):'None yet.'}</p>
-      {version.status==='DRAFT'&&<form className={styles.activationAction} aria-label="Activate Budget" onSubmit={event=>void submit(event,'activate')}><button {...buttonProps('primary')} disabled={busy||version.lines.length===0||version.mappings.length===0} type="submit">Activate Budget version</button></form>}
+      {version.status==='DRAFT'&&<>
+        <BudgetActivationReview financialYearStatus={data.years.find(year=>year.id===version.financial_year_id)?.status} periodised={version.periodisation_mode==='PERIODISED'} lines={version.lines} mappings={version.mappings} allocations={version.allocations} periods={periods} accounts={data.accounts} centres={data.centres}/>
+        <form className={styles.activationAction} aria-label="Activate Budget" onSubmit={event=>void submit(event,'activate')}><button {...buttonProps('primary')} disabled={busy||version.lines.length===0||version.mappings.length===0} type="submit">Activate Budget version</button></form>
+      </>}
     </div>:!loading&&<p>No Budget versions yet. Create the first draft above.</p>}
   </section>;
 }
