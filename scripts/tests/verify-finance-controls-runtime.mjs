@@ -433,6 +433,32 @@ try {
   await allocate('100.00');
   await expect(budgetSection.getByText('Balanced',{exact:true})).toBeVisible();
   await expect(budgetSection.getByText('All lines are fully allocated. Check tax basis and commitment mappings before activation.',{exact:true})).toBeVisible();
+  const editLine=budgetSection.getByRole('button',{name:'Edit BUDGET-ACC / BUDGET-CC',exact:true});
+  await editLine.click();
+  await expect(lineForm.getByLabel('Annual amount (AUD)',{exact:false})).toHaveValue('100.00');
+  await expect(lineForm.getByLabel('Line account',{exact:false})).toHaveValue('BUDGET-ACC');
+  await expect(lineForm.getByLabel('Line account',{exact:false})).toHaveAttribute('readonly','');
+  await lineForm.getByLabel('Annual amount (AUD)',{exact:false}).fill('999.00');
+  await lineForm.getByRole('button',{name:'Cancel editing',exact:true}).click();
+  await expect(lineForm.getByRole('button',{name:'Save line',exact:true})).toBeVisible();
+  const cancelledLine=(await pool.query('SELECT annual_budget_cents::text AS cents FROM commercial_budget_lines WHERE id=$1',[budgetState.line_id])).rows[0];
+  if(cancelledLine.cents!=='10000')throw new Error('Cancelling line editing changed the saved amount');
+  await editLine.click();
+  await other.page.setViewportSize({width:390,height:844});
+  if(await other.page.evaluate(()=>document.documentElement.scrollWidth>innerWidth))throw new Error('Draft line editor overflows mobile viewport');
+  await other.page.screenshot({path:resolve(artifacts,'draft-line-edit-mobile.png'),fullPage:true});
+  await other.page.setViewportSize({width:1440,height:1000});
+  await lineForm.getByLabel('Annual amount (AUD)',{exact:false}).fill('110.00');
+  await lineForm.getByRole('button',{name:'Update line',exact:true}).click();
+  await expect(budgetSection.getByText('AUD 10.00 left to allocate',{exact:true})).toBeVisible();
+  await expect(budgetSection.getByRole('table',{name:'Period allocations',exact:true})).toContainText('AUD 100.00');
+  const editedLines=(await pool.query('SELECT id,annual_budget_cents::text AS cents FROM commercial_budget_lines WHERE budget_version_id=$1',[budgetState.version_id])).rows;
+  if(editedLines.length!==1||editedLines[0].id!==budgetState.line_id||editedLines[0].cents!=='11000')throw new Error('Editing replaced or duplicated the saved line');
+  await editLine.click();
+  await expect(lineForm.getByLabel('Annual amount (AUD)',{exact:false})).toHaveValue('110.00');
+  await lineForm.getByLabel('Annual amount (AUD)',{exact:false}).fill('100.00');
+  await lineForm.getByRole('button',{name:'Update line',exact:true}).click();
+  await expect(budgetSection.getByText('Balanced',{exact:true})).toBeVisible();
   await budgetSection.getByText('Edit draft settings',{exact:true}).click();
   await expect(settingsForm.getByLabel('Draft Budget name',{exact:false})).toHaveValue('Pilot Budget revised');
   await expect(settingsForm.getByLabel('Draft tax basis',{exact:false})).toHaveValue('EXCLUSIVE');
@@ -468,6 +494,7 @@ try {
   }
   await budgetSection.getByRole('button',{name:'Activate Budget version',exact:true}).click();
   await expect(budgetSection.getByRole('status')).toContainText('Budget version activated.');
+  await expect(budgetSection.getByRole('button',{name:'Edit BUDGET-ACC / BUDGET-CC',exact:true})).toHaveCount(0);
   await expect(budgetSection.getByRole('button',{name:'Save line',exact:true})).toHaveCount(0);
   const budgetSetupPath='/api/commercial/budgeting/budgets/'+budgetState.id+'/versions/'+budgetState.version_id+'/setup';
   if((await setupPost(budgetSetupPath,{action:'line',budgetAccountId:budgetDimensions[0],costCentreId:budgetDimensions[1],annualBudgetCents:'1'})).status!==409)throw new Error('Activated Budget remained editable');
@@ -607,6 +634,7 @@ try {
   evidence.dimensionSetupChecks=['account and cost-centre creation through forms','tenant duplicate-code rejection','deactivation retains inactive records after reload','active Budget references prevent deactivation','viewer, unentitled and foreign mutations denied'];
   evidence.budgetSetupChecks=['fresh Budget and DRAFT version created through form','draft line and commitment mapping through forms','period allocation mismatch blocks activation','correct allocation permits activation','ACTIVE version read-only and API rejects edits','active version pointer persisted','duplicate header rejected','unauthenticated, viewer, unentitled and foreign-tenant mutations denied'];
   evidence.budgetReviewChecks=['exact shortage and excess shown per line','corrected allocation marked balanced with remaining review guidance','saved allocation shown in named table','both review tables contained and scrollable on mobile'];
+  evidence.budgetLineEditChecks=['saved amount prefilled exactly','fixed dimension identity retained','cancel leaves saved amount unchanged','update preserves line ID and allocations','allocation mismatch shown after annual amount change','saved amount reloads and balance restores','editor fits mobile viewport'];
   evidence.budgetSettingsChecks=['draft name and tax basis changed through populated form','saved amounts and allocations preserved','editor reloads saved values and fits mobile viewport','session actor and before/after settings audited','ACTIVE version hides editor and rejects mutation','later draft cannot rewrite published Budget settings','database-gated year close rejects waiting settings','database-gated activation rejects waiting settings without rewriting published facts'];
   evidence.financeWorkflowChecks=['empty finance controls directs administrator to setup','setup links to mappings, reporting and finance controls','empty mapping and reporting screens provide setup guidance','workflow links navigate between actual screens','new dimensions are available in mapping choices and completed guidance clears','new calendar is available in finance controls','activated Budget persists when returning through workflow links','viewer and unentitled users do not see administrator workflow links'];
   evidence.draftRecoveryChecks=['both draft dimensions can be deactivated','inactive references still block activation','both dimensions restored through UI without replacing draft references','restored draft activates with original version pointer','reactivation retains session actor and audits transition once on retry','unauthenticated, viewer, unentitled and foreign reactivation denied','non-string Budget enums return 400'];

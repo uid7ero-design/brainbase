@@ -1,5 +1,5 @@
-import { cleanup, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import BudgetReview from '@/app/commercial/budgeting/setup/BudgetReview';
 
 afterEach(cleanup);
@@ -47,5 +47,15 @@ describe('Budget review screen', () => {
     render(<BudgetReview {...base} draft={false} allocations={[{ budget_line_id: 'a', financial_period_id: 'q1', amount_cents: '10000' }]}/>);
     expect(screen.getByText('All lines are fully allocated.')).toBeVisible();
     expect(screen.queryByText(/before activation/)).not.toBeInTheDocument();
+  });
+  it('edits the saved line identity only in an idle draft', () => {
+    const onEditLine = vi.fn();
+    const { rerender } = render(<BudgetReview {...base} allocations={[]} onEditLine={onEditLine}/>);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit SOFTWARE / GENERAL' }));
+    expect(onEditLine).toHaveBeenCalledWith('a');
+    rerender(<BudgetReview {...base} allocations={[]} onEditLine={onEditLine} busy/>);
+    expect(screen.getByRole('button', { name: 'Edit SOFTWARE / GENERAL' })).toBeDisabled();
+    rerender(<BudgetReview {...base} allocations={[]} onEditLine={onEditLine} draft={false}/>);
+    expect(screen.queryByRole('button', { name: /Edit SOFTWARE/ })).not.toBeInTheDocument();
   });
 });
