@@ -58,4 +58,19 @@ describe('Budget review screen', () => {
     rerender(<BudgetReview {...base} allocations={[]} onEditLine={onEditLine} draft={false}/>);
     expect(screen.queryByRole('button', { name: /Edit SOFTWARE/ })).not.toBeInTheDocument();
   });
+  it('identifies the selected allocation by both line and period and locks ACTIVE actions', () => {
+    const onEditAllocation = vi.fn();
+    const allocations = [{ budget_line_id: 'a', financial_period_id: 'q1', amount_cents: '5000' }, { budget_line_id: 'a', financial_period_id: 'q2', amount_cents: '5000' }];
+    const { rerender } = render(<BudgetReview {...base} allocations={allocations} onEditAllocation={onEditAllocation}/>);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit allocation SOFTWARE / GENERAL / QTR 2' }));
+    expect(onEditAllocation).toHaveBeenCalledWith('a', 'q2');
+    rerender(<BudgetReview {...base} allocations={allocations} onEditAllocation={onEditAllocation} busy/>);
+    expect(screen.getByRole('button', { name: 'Edit allocation SOFTWARE / GENERAL / QTR 1' })).toBeDisabled();
+    rerender(<BudgetReview {...base} allocations={allocations} onEditAllocation={onEditAllocation} draft={false}/>);
+    expect(screen.queryByRole('button', { name: /Edit allocation/ })).not.toBeInTheDocument();
+  });
+  it('does not offer mutation for an unavailable allocation line or period', () => {
+    render(<BudgetReview {...base} allocations={[{ budget_line_id: 'missing', financial_period_id: 'q1', amount_cents: '1' }, { budget_line_id: 'a', financial_period_id: 'missing', amount_cents: '1' }]} onEditAllocation={vi.fn()}/>);
+    for (const button of screen.getAllByRole('button', { name: /Edit allocation/ })) expect(button).toBeDisabled();
+  });
 });

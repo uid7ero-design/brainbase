@@ -15,10 +15,12 @@ type Props = {
   accountCode: (id: string) => string;
   centreCode: (id: string) => string;
   onEditLine?: (id: string) => void;
+  onEditAllocation?: (lineId: string, periodId: string) => void;
   busy?: boolean;
 };
 
-export default function BudgetReview({ currency, periodised, draft, lines, allocations, periods, accountCode, centreCode, onEditLine, busy = false }: Props) {
+export default function BudgetReview({ currency, periodised, draft, lines, allocations, periods, accountCode, centreCode, onEditLine, onEditAllocation, busy = false }: Props) {
+  const editableAllocations = draft && Boolean(onEditAllocation);
   const editable = draft && Boolean(onEditLine);
   const review = reviewBudgetAllocations(lines, allocations);
   const lineById = new Map(lines.map(line => [line.id, line]));
@@ -57,13 +59,14 @@ export default function BudgetReview({ currency, periodised, draft, lines, alloc
     {periodised && <TableContainer label="Budget period allocations" minWidth={600}>
       <table className={tableStyles.table}>
         <caption className={styles.reviewCaption}>Period allocations</caption>
-        <thead><tr>{['Account', 'Cost centre', 'Period', `Amount (${currency})`].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
+        <thead><tr>{['Account', 'Cost centre', 'Period', `Amount (${currency})`, ...(editableAllocations ? ['Action'] : [])].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
         <tbody>{orderedAllocations.length ? orderedAllocations.map(allocation => {
           const line = lineById.get(allocation.budget_line_id);
           return <tr key={`${allocation.budget_line_id}:${allocation.financial_period_id}`}>
             <td>{line ? accountCode(line.budget_account_id) : 'Unavailable line'}</td><td>{line ? centreCode(line.cost_centre_id) : '—'}</td><td>{periodName.get(allocation.financial_period_id) ?? 'Unavailable period'}</td><td>{money(allocation.amount_cents)}</td>
+            {editableAllocations && <td><button {...buttonProps('secondary')} type="button" disabled={busy || !line || !periodName.has(allocation.financial_period_id)} aria-label={`Edit allocation ${line ? accountCode(line.budget_account_id)+' / '+centreCode(line.cost_centre_id) : 'Unavailable line'} / ${periodName.get(allocation.financial_period_id) ?? 'Unavailable period'}`} onClick={() => onEditAllocation?.(allocation.budget_line_id, allocation.financial_period_id)}>Edit</button></td>}
           </tr>;
-        }) : <tr><td colSpan={4}>No period allocations yet.</td></tr>}</tbody>
+        }) : <tr><td colSpan={editableAllocations ? 5 : 4}>No period allocations yet.</td></tr>}</tbody>
       </table>
     </TableContainer>}
   </div>;
