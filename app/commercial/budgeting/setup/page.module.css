@@ -50,6 +50,20 @@
   margin: 24px 0 16px;
 }
 
+.mappingSetup {
+  margin-top: 24px;
+  scroll-margin-top: 96px;
+}
+
+.mappingSetup h3 {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.mappingReview {
+  margin-top: 24px;
+}
+
 .activationReview {
   margin-top: 24px;
   padding: 16px;
