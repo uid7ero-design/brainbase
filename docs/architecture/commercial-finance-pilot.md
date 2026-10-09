@@ -418,6 +418,21 @@ cancel, version switching, retained identity/amounts/allocations, reset after
 save, inactive references, ACTIVE visibility, checklist navigation and mobile
 layout. No schema or authorization change and no customer mapping is created.
 
+## Activation issue navigation
+
+The draft checklist links missing lines to line setup, allocation problems to
+the exact per-line amount review, and inactive references to account and
+cost-centre setup. A financial-year warning links to Finance controls, where
+year status is governed. Corrective links disappear when their issue resolves;
+the mapping review link remains available for the required routing check.
+In-page destinations accept keyboard focus and leave space below the header.
+Navigation changes no saved amounts, settings or activation state. The checklist
+remains loaded-snapshot guidance and does not replace server validation.
+
+Rendered checks cover link destinations, conditional visibility and resolution.
+The disposable runtime checks navigation, destination focus and unchanged
+Budget behavior through line creation, allocation correction and dimension recovery.
+
 ## Repeatable runtime evidence
 
 After a production build, run:

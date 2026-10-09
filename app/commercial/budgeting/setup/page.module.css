@@ -87,6 +87,17 @@
   margin-top: 8px;
 }
 
+.activationLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 8px;
+}
+
+.navigationTarget {
+  scroll-margin-top: 96px;
+}
+
 .budgetReview {
   margin: 24px 0 16px;
 }

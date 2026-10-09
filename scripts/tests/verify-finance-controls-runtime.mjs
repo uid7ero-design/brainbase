@@ -394,6 +394,9 @@ try {
   const activationChecks=budgetSection.getByRole('region',{name:'Draft activation checks',exact:true});
   await expect(activationChecks).toContainText('Add at least one Budget line.');
   await expect(activationChecks).toContainText('Add a commitment mapping');
+  await activationChecks.getByRole('link',{name:'Add Budget lines',exact:true}).click();
+  await expect(other.page).toHaveURL(/#budget-line-setup$/);
+  await expect(budgetSection.getByRole('region',{name:'Budget line setup',exact:true})).toBeFocused();
   const lineForm=budgetSection.getByRole('form',{name:'Budget line',exact:true});
   await lineForm.getByLabel('Line account',{exact:false}).selectOption(budgetDimensions[0]);
   await lineForm.getByLabel('Line cost centre',{exact:false}).selectOption(budgetDimensions[1]);
@@ -405,6 +408,10 @@ try {
   await expect(budgetSection.getByRole('table',{name:'Budget lines and allocation checks',exact:true})).toContainText('AUD 100.00');
   await expect(activationChecks).not.toContainText('Add at least one Budget line.');
   await expect(activationChecks).toContainText('1 line needs allocation changes');
+  await expect(activationChecks.getByRole('link',{name:'Add Budget lines',exact:true})).toHaveCount(0);
+  await activationChecks.getByRole('link',{name:'Review allocation amounts',exact:true}).click();
+  await expect(other.page).toHaveURL(/#budget-allocation-review$/);
+  await expect(budgetSection.getByRole('region',{name:'Budget amount review',exact:true})).toBeFocused();
   const persistedAmount=(await pool.query("SELECT annual_budget_cents::text AS cents FROM commercial_budget_lines WHERE organisation_id='runtime-b'")).rows;
   if(persistedAmount.length!==1||persistedAmount[0].cents!=='10000')throw new Error('Dollar input did not persist exact cents');
   const mappingForm=budgetSection.getByRole('form',{name:'Commitment mapping',exact:true});
@@ -444,6 +451,7 @@ try {
   await allocate('100.00');
   await expect(budgetSection.getByText('Balanced',{exact:true})).toBeVisible();
   await expect(activationChecks).toContainText('No setup issues found in the loaded draft.');
+  await expect(activationChecks.getByRole('link',{name:'Review allocation amounts',exact:true})).toHaveCount(0);
   await expect(budgetSection.getByText('All lines are fully allocated. Check tax basis and commitment mappings before activation.',{exact:true})).toBeVisible();
   await activationChecks.getByRole('link',{name:'Review commitment mappings',exact:true}).click();
   await expect(other.page).toHaveURL(/#budget-commitment-mapping$/);
@@ -585,6 +593,18 @@ try {
     await section.getByRole('button',{name:'Deactivate '+code,exact:true}).click();
     await expect(section.getByRole('button',{name:'Reactivate '+code,exact:true})).toBeVisible();
     await expect(activationChecks).toContainText('Reactivate or correct');
+    await activationChecks.getByRole('link',{name:kind==='accounts'?'Review Budget accounts':'Review cost centres',exact:true}).click();
+    await expect(other.page).toHaveURL(new RegExp('#dimension-'+kind+'$'));
+    await expect(section.getByRole('heading',{name:title,exact:true})).toBeFocused();
+    if(kind==='accounts'){
+      await other.page.setViewportSize({width:390,height:844});
+      await expect(activationChecks.getByRole('link',{name:'Review Budget accounts',exact:true})).toBeVisible();
+      await expect(activationChecks.getByRole('link',{name:'Review cost centres',exact:true})).toBeVisible();
+      const navigationOverflow=await other.page.evaluate(()=>document.documentElement.scrollWidth>innerWidth);
+      if(navigationOverflow)throw new Error('Activation navigation overflows mobile viewport');
+      await other.page.screenshot({path:resolve(artifacts,'activation-navigation-mobile.png'),fullPage:true});
+      await other.page.setViewportSize({width:1440,height:1000});
+    }
     await expect(mappingsTable).toContainText(kind==='accounts'?'Account inactive':'Cost centre inactive');
     await budgetSection.getByRole('button',{name:'Activate Budget version',exact:true}).click();
     await expect(budgetSection.getByRole('alert')).toContainText('active same-tenant');
@@ -743,7 +763,7 @@ try {
   evidence.calendarSetupChecks=['fresh organisation creates year and period through UI','exact dates persist and survive reload','audit retains session actor and dates','invalid dates, overlaps, duplicate names and outside-year periods rejected','concurrent year and period overlaps rejected','closed year rejects new periods','year close and new-period race preserves close invariants','unauthenticated, viewer, unentitled and foreign-tenant mutations denied','mobile setup fits viewport'];
   evidence.dimensionSetupChecks=['account and cost-centre creation through forms','tenant duplicate-code rejection','deactivation retains inactive records after reload','active Budget references prevent deactivation','viewer, unentitled and foreign mutations denied'];
   evidence.budgetSetupChecks=['fresh Budget and DRAFT version created through form','draft line and commitment mapping through forms','period allocation mismatch blocks activation','correct allocation permits activation','ACTIVE version read-only and API rejects edits','active version pointer persisted','duplicate header rejected','unauthenticated, viewer, unentitled and foreign-tenant mutations denied'];
-  evidence.budgetReviewChecks=['exact shortage and excess shown per line','corrected allocation marked balanced with remaining review guidance','saved allocation shown in named table','both review tables contained and scrollable on mobile'];
+  evidence.budgetReviewChecks=['exact shortage and excess shown per line','corrected allocation marked balanced with remaining review guidance','saved allocation shown in named table','both review tables contained and scrollable on mobile','activation issue links focus line setup, allocation review and dimension headings','resolved issues remove corrective links'];
   evidence.budgetMappingManagementChecks=['saved mapping table shows codes and reference status','checklist link navigates to mapping form','saved account prefilled with fixed cost centre','cancel and version switch discard unsaved edit','update preserves mapping ID cost centre amounts and allocations','saved account reloads and original mapping restored','inactive references flagged','ACTIVE mappings readable without editing','mobile editor fits viewport'];
   evidence.budgetActivationGuidanceChecks=['empty draft explains missing lines and mapping','saving lines and mappings updates guidance','allocation imbalance remains visible until resolved','balanced draft still requires tax and mapping review','deactivation reveals inactive reference issue','ACTIVE version omits draft checklist'];
   evidence.budgetAllocationEditChecks=['exact saved amount and fixed line/period prefilled','invalid decimal retains editor without mutation','cancel preserves saved allocation','version switching clears unsaved editor','update retains allocation ID annual amount and another period allocation','shortage excess and recovered balance shown','mobile editor contained','ACTIVE edit action absent'];

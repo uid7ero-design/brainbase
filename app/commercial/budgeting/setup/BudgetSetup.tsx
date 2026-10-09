@@ -82,17 +82,21 @@ export default function BudgetSetup({revision}:{revision:number}){
         </fieldset></form>
       </details>:<p>Budget settings are locked after activation or when the financial year is closed.</p>}
       {version.status==='DRAFT'?<>
-        <DraftBudgetLineForm key={`${version.version_id}:${editingLine?.id??'new'}`} currency={version.currency} busy={busy} line={editingLine} accounts={accountOptions} centres={centreOptions} accountCode={accountCode} centreCode={centreCode} onSubmit={event=>void submit(event,'line')} onCancel={()=>setEditingLineId('')}/>
+        <section id="budget-line-setup" aria-label="Budget line setup" tabIndex={-1} className={styles.navigationTarget}>
+          <DraftBudgetLineForm key={`${version.version_id}:${editingLine?.id??'new'}`} currency={version.currency} busy={busy} line={editingLine} accounts={accountOptions} centres={centreOptions} accountCode={accountCode} centreCode={centreCode} onSubmit={event=>void submit(event,'line')} onCancel={()=>setEditingLineId('')}/>
+        </section>
         <section id="budget-commitment-mapping" aria-label="Commitment mapping setup" tabIndex={-1} className={styles.mappingSetup}>
           <h3>Commitment mapping setup</h3>
           <DraftBudgetMappingForm key={`${version.version_id}:${editingMapping?.cost_centre_id??'new'}`} busy={busy} mapping={editingMapping} accounts={data.accounts} centres={data.centres} onSubmit={event=>void submit(event,'mapping')} onCancel={()=>setEditingMappingCentreId('')}/>
         </section>
         {version.periodisation_mode==='PERIODISED'&&<DraftBudgetAllocationForm key={`${version.version_id}:${editingAllocation?.budget_line_id??'new'}:${editingAllocation?.financial_period_id??''}`} currency={version.currency} busy={busy} allocation={editingAllocation} lines={version.lines.map(line=>({id:line.id,label:accountCode(line.budget_account_id)+' / '+centreCode(line.cost_centre_id)}))} periods={periods.map(period=>({id:period.id,label:period.name}))} onSubmit={event=>void submit(event,'allocation')} onCancel={()=>setEditingAllocationKey(null)}/>}
       </>:<p>This version is read-only. Its existing lines, mappings and allocations remain available below.</p>}
-      <BudgetReview currency={version.currency} periodised={version.periodisation_mode==='PERIODISED'} draft={version.status==='DRAFT'} lines={version.lines} allocations={version.allocations} periods={periods} accountCode={accountCode} centreCode={centreCode} busy={busy} onEditLine={id=>{setEditingLineId(id);setEditingAllocationKey(null);setEditingMappingCentreId('');}} onEditAllocation={(lineId,periodId)=>{setEditingAllocationKey({lineId,periodId});setEditingLineId('');setEditingMappingCentreId('');}}/>
+      <section id="budget-allocation-review" aria-label="Budget amount review" tabIndex={-1} className={styles.navigationTarget}>
+        <BudgetReview currency={version.currency} periodised={version.periodisation_mode==='PERIODISED'} draft={version.status==='DRAFT'} lines={version.lines} allocations={version.allocations} periods={periods} accountCode={accountCode} centreCode={centreCode} busy={busy} onEditLine={id=>{setEditingLineId(id);setEditingAllocationKey(null);setEditingMappingCentreId('');}} onEditAllocation={(lineId,periodId)=>{setEditingAllocationKey({lineId,periodId});setEditingLineId('');setEditingMappingCentreId('');}}/>
+      </section>
       <BudgetMappingReview mappings={version.mappings} accounts={data.accounts} centres={data.centres} draft={version.status==='DRAFT'} busy={busy} onEdit={centreId=>{setEditingMappingCentreId(centreId);setEditingLineId('');setEditingAllocationKey(null);}}/>
       {version.status==='DRAFT'&&<>
-        <BudgetActivationReview mappingFormId="budget-commitment-mapping" financialYearStatus={data.years.find(year=>year.id===version.financial_year_id)?.status} periodised={version.periodisation_mode==='PERIODISED'} lines={version.lines} mappings={version.mappings} allocations={version.allocations} periods={periods} accounts={data.accounts} centres={data.centres}/>
+        <BudgetActivationReview setupNavigation mappingFormId="budget-commitment-mapping" financialYearStatus={data.years.find(year=>year.id===version.financial_year_id)?.status} periodised={version.periodisation_mode==='PERIODISED'} lines={version.lines} mappings={version.mappings} allocations={version.allocations} periods={periods} accounts={data.accounts} centres={data.centres}/>
         <form className={styles.activationAction} aria-label="Activate Budget" onSubmit={event=>void submit(event,'activate')}><button {...buttonProps('primary')} disabled={busy||version.lines.length===0||version.mappings.length===0} type="submit">Activate Budget version</button></form>
       </>}
     </div>:!loading&&<p>No Budget versions yet. Create the first draft above.</p>}

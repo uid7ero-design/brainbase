@@ -57,4 +57,24 @@ describe('Draft activation guidance', () => {
     render(<BudgetActivationReview {...base} mappings={[]} mappingFormId="budget-commitment-mapping"/>);
     expect(screen.getByRole('link', { name: 'Review commitment mappings' })).toHaveAttribute('href', '#budget-commitment-mapping');
   });
+  it('offers corrective navigation only for current issues and removes it when resolved', () => {
+    const { rerender } = render(<BudgetActivationReview {...base} setupNavigation financialYearStatus="CLOSED" lines={[]} allocations={[]} mappings={[{...reference, budget_account_id:'missing'}]}/>);
+    expect(screen.getByRole('link', { name: 'Review financial year controls' })).toHaveAttribute('href', '/commercial/budgeting/finance-controls');
+    expect(screen.getByRole('link', { name: 'Add Budget lines' })).toHaveAttribute('href', '#budget-line-setup');
+    expect(screen.getByRole('link', { name: 'Review Budget accounts' })).toHaveAttribute('href', '#dimension-accounts');
+    expect(screen.getByRole('link', { name: 'Review cost centres' })).toHaveAttribute('href', '#dimension-cost-centres');
+    expect(screen.queryByRole('link', { name: 'Review allocation amounts' })).not.toBeInTheDocument();
+    rerender(<BudgetActivationReview {...base} setupNavigation/>);
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+  it('routes an allocation shortage to the per-line review', () => {
+    render(<BudgetActivationReview {...base} setupNavigation allocations={[{...base.allocations[0],amount_cents:'9000'}]}/>);
+    expect(screen.getByRole('link', { name: 'Review allocation amounts' })).toHaveAttribute('href', '#budget-allocation-review');
+    expect(screen.queryByRole('link', { name: 'Add Budget lines' })).not.toBeInTheDocument();
+  });
+  it('does not advertise setup targets when the caller has not supplied the setup workflow', () => {
+    render(<BudgetActivationReview {...base} financialYearStatus="CLOSED" lines={[]} accounts={[]}/>);
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
 });
