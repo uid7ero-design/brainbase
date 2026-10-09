@@ -111,3 +111,21 @@ worksheets and stale profile pins, including no unauthorized review insertion.
 
 This is authenticated route-to-database proof, not an HTTP server or browser
 journey. A full browser journey and Production rollout remain unverified.
+
+## Governed count workflow bundle
+
+Planning now returns governed field labels from the same RepeatableRead
+snapshot as profile evidence. The screen offers present-value counts only for
+measure fields in the saved review matching that planning profile. Counts still
+come from the existing reviewed server service and show their actual revision
+and profile identity; zero is present and missing values are excluded. Holds
+block both count controls. An uncertain save requires an explicit reload before
+another save, including when the append succeeded but the following read failed.
+
+The opt-in disposable browser harness starts the built application, signs in
+through the real form and exercises review and count APIs against real
+PostgreSQL with the migration chain installed. Only the Neon HTTP transport is
+adapted to loopback PostgreSQL. It starts with already-profiled synthetic
+worksheets; it does not prove file upload/inspection or hosted Neon transport.
+Production schema and deployment acceptance remain separate. See
+`data-hub-analysis-release-plan.md` for rollout prerequisites and recovery.

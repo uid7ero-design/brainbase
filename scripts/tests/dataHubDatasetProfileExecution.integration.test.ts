@@ -84,6 +84,27 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
+  if (process.env.DATAHUB_BROWSER_PROOF === "1") {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const { hash } = await import("bcryptjs");
+    const { randomBytes } = await import("node:crypto");
+    const password = randomBytes(24).toString("hex");
+    const worlds = [];
+    for (const held of [false, true]) {
+      const suffix = nextSuffix(held ? "browserhold" : "browserready");
+      const ids = await seedWorld(suffix, ORG_A, [
+        { id: `${suffix}-r1`, sourceRowNumber: 2, col1: "ID-1", col2: held ? null : "0", col3: "2024-01-01", col4: "first" },
+        { id: `${suffix}-r2`, sourceRowNumber: 3, col1: "ID-2", col2: null, col3: "2024-01-02", col4: "second" },
+        { id: `${suffix}-r3`, sourceRowNumber: 4, col1: "ID-3", col2: held ? null : "5", col3: "2024-01-03", col4: "third" },
+      ]);
+      const profiled = await profileUploadDataset({ organisationId: ORG_A, uploadId: ids.uploadId, actorId: ids.userId });
+      if (!profiled.ok) throw new Error("browser fixture profiling failed");
+      await prisma.user.update({ where: { id: ids.userId }, data: { password_hash: await hash(password, 4) } });
+      worlds.push({ ...ids, datasetProfileRunId: profiled.profileRunId, held });
+    }
+    mkdirSync("test-results/datahub-runtime", { recursive: true });
+    writeFileSync("test-results/datahub-runtime/fixture.json", JSON.stringify({ worlds, password }));
+  }
   // The analysis service uses the real application Prisma client as well.
   const { prisma: analysisPrisma } = await import("@/lib/prisma");
   await analysisPrisma.$disconnect();
