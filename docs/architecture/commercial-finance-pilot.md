@@ -372,6 +372,36 @@ busy controls and draft-only actions. The disposable runtime additionally checks
 cancelled and saved amounts in PostgreSQL, retained identity and allocations,
 restored balance, ACTIVE controls and the mobile editor.
 
+## Saved draft allocation editing
+
+Saved period allocations provide an Edit action with the exact currency amount
+prefilled and fixed line/period identity. Updating uses the existing allocation
+upsert, preserving the annual amount and other periods. Cancel submits nothing;
+version switching clears the editor. Only one saved line or allocation editor
+is open at a time. ACTIVE versions and unavailable references offer no enabled
+allocation editing. The existing review reports shortages and excesses.
+
+Rendered tests cover fixed submitted IDs, exact BIGINT values, cancel, busy and
+ACTIVE restrictions. Disposable runtime checks cover persisted amounts, invalid
+input, cancellation, version switching, annual amount preservation, restored
+balance and mobile layout. No migration or customer Budget change is required.
+
+## Draft activation guidance
+
+A Before activation checklist explains missing lines/mappings, a closed or
+unavailable year, inactive/unavailable dimensions and allocation problems from
+the loaded setup snapshot. It updates after setup saves and dimension changes,
+and disappears on ACTIVE versions. It does not promise activation or replace
+the server's fresh transactional validation. The existing activation controls
+and authorization remain unchanged. Mapping guidance explicitly explains that
+each cost centre routes commitments to one account, and saving again replaces
+that account. No customer mapping or tax decision is automated.
+
+Rendered tests cover empty/balanced drafts, missing mappings/year/periods,
+inactive mapping references, exact offsetting imbalances and annual-only rules.
+The disposable runtime checks progression through missing setup, imbalance,
+balance, deactivation and activation without weakening server validation.
+
 ## Repeatable runtime evidence
 
 After a production build, run:
