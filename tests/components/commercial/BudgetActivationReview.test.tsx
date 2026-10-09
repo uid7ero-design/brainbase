@@ -53,4 +53,8 @@ describe('Draft activation guidance', () => {
     rerender(<BudgetActivationReview {...base} periodised={false} allocations={[]} periods={[]}/>);
     expect(within(screen.getByRole('region', { name: 'Draft activation checks' })).getByText('No setup issues found in the loaded draft.')).toBeVisible();
   });
+  it('links to the mapping editor when a target is provided', () => {
+    render(<BudgetActivationReview {...base} mappings={[]} mappingFormId="budget-commitment-mapping"/>);
+    expect(screen.getByRole('link', { name: 'Review commitment mappings' })).toHaveAttribute('href', '#budget-commitment-mapping');
+  });
 });

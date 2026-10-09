@@ -402,6 +402,22 @@ inactive mapping references, exact offsetting imbalances and annual-only rules.
 The disposable runtime checks progression through missing setup, imbalance,
 balance, deactivation and activation without weakening server validation.
 
+## Commitment mapping management
+
+Saved mappings use the shared scrollable table with cost-centre/account codes,
+reference status and draft-only Edit actions. The editor prefills the saved
+account and fixes cost-centre identity. Updating uses the existing mapping
+upsert, preserving mapping identity and all Budget amounts/allocations. Cancel
+and version switching discard unsaved editing. Inactive saved accounts remain
+visible; updating requires an active chosen account and cost centre. The
+activation checklist links directly to the mapping setup section. ACTIVE
+versions retain a readable mapping table without editing controls.
+
+Rendered and disposable PostgreSQL/runtime checks cover prefills, fixed IDs,
+cancel, version switching, retained identity/amounts/allocations, reset after
+save, inactive references, ACTIVE visibility, checklist navigation and mobile
+layout. No schema or authorization change and no customer mapping is created.
+
 ## Repeatable runtime evidence
 
 After a production build, run:
