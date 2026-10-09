@@ -4,6 +4,7 @@ import Link from 'next/link';
 import SlidePanel from './_components/SlidePanel';
 import PersonForm from './_components/PersonForm';
 import PersonDrawer, { type PersonDetail } from './_components/PersonDrawer';
+import { HrOperationsNav } from './_components/HrRegisterControls';
 import {
   Badge,
   PageHeader,
@@ -86,8 +87,7 @@ export default function PeoplePage() {
         description={<>Your organisation&apos;s workers, teams, and basic employment information.</>}
         actions={
           <>
-            <Link href="/people/lifecycle" {...secondaryAction}>Lifecycle Overview</Link>
-            <Link href="/people/documents" {...secondaryAction}>Document Assurance</Link>
+            <HrOperationsNav current="/people" />
             <Link href="/people/restricted-cases" {...secondaryAction}>Restricted Cases</Link>
             {canManage && (
               <>

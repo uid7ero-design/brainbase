@@ -26,11 +26,14 @@ action capabilities; queue visibility does not grant execution or approval.
 Closing the drawer refreshes the queue. Failed refreshes clear old rows; cancelled
 requests cannot update the view.
 
+See [the operational register bundle](hr-operational-register-bundle.md) for
+search, lifecycle filters, display pagination, navigation and additional proof.
 Tests use canonical-reader and HTTP fixtures for status/expiry boundaries,
 allowlists, denial/failure behavior, bounded concurrency, filters and navigation.
-Existing lifecycle containment tests provide separate permission evidence. Live
-PostgreSQL/browser smoke tests and large-tenant pagination/load certification are
-not claimed. There are no schema changes, mutations, reminders or model calls.
+Existing lifecycle containment tests provide separate permission evidence. The
+bundle adds disposable PostgreSQL and real-component Chromium fixture checks.
+Live production/browser smoke and large-tenant load certification are not claimed.
+There are no schema changes, mutations, reminders or model calls.
 
 Release hold: main automatically deploys to production. Prior approval covered
 PR #413; this task-queue slice requires its own release authorization before merge.

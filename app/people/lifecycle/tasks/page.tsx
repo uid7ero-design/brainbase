@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { HR_PAGE_SIZE, HrOperationsNav, HrRegisterSearch, HrRegisterPagination } from '../../_components/HrRegisterControls';
 import PersonDrawer from '../../_components/PersonDrawer';
 import { PageHeader, TableContainer, TableStateRow, buttonProps, tableStyles } from '@/components/ui/app';
 
@@ -30,6 +30,9 @@ export default function LifecycleTaskQueuePage() {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [refresh, setRefresh] = useState(0);
   const [filter, setFilter] = useState('all');
+  const [search, setSearch] = useState('');
+  const [lifecycle, setLifecycle] = useState('all');
+  const [page, setPage] = useState(1);
   const [personId, setPersonId] = useState<string | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -48,13 +51,22 @@ export default function LifecycleTaskQueuePage() {
     return () => controller.abort();
   }, [refresh]);
   const names = new Map(snapshot?.people.map(person => [person.id, `${person.first_name} ${person.last_name}`]));
-  const tasks = snapshot?.tasks.filter(task => filter === 'all' || (filter === 'overdue' ? task.overdue : task.status === filter)) ?? [];
+  const query = search.trim().toLowerCase();
+  const matches = snapshot?.tasks.filter(task => (filter === 'all' || (filter === 'overdue' ? task.overdue : task.status === filter))
+    && (lifecycle === 'all' || task.lifecycle_type === lifecycle)
+    && (!query || `${names.get(task.person_id) ?? ''} ${task.title}`.toLowerCase().includes(query))) ?? [];
+  const currentPage = Math.min(page, Math.max(1, Math.ceil(matches.length / HR_PAGE_SIZE)));
+  const tasks = matches.slice((currentPage - 1) * HR_PAGE_SIZE, currentPage * HR_PAGE_SIZE);
   return <div style={{ maxWidth: 1100 }}>
     <PageHeader title="Lifecycle task queue" description="Visible outstanding tasks from active workflows, with overdue work first." actions={<>
-      <Link href="/people/lifecycle" {...buttonProps('secondary')}>Lifecycle overview</Link>
+      <HrOperationsNav current="/people/lifecycle/tasks" />
       <button type="button" {...buttonProps('secondary')} disabled={state === 'loading'} onClick={() => setRefresh(value => value + 1)}>Refresh</button>
     </>} />
-    <label>Show tasks{' '}<select value={filter} onChange={event => setFilter(event.target.value)}>
+    <HrRegisterSearch label="Search people or tasks" value={search} onChange={value => { setSearch(value); setPage(1); }} />
+    <label>Lifecycle{' '}<select value={lifecycle} onChange={event => { setLifecycle(event.target.value); setPage(1); }}>
+      <option value="all">All lifecycle types</option><option value="onboarding">Onboarding</option><option value="offboarding">Offboarding</option>
+    </select></label>
+    <label>Show tasks{' '}<select value={filter} onChange={event => { setFilter(event.target.value); setPage(1); }}>
       <option value="all">All outstanding</option><option value="overdue">Overdue</option>
       {Object.entries(STATUSES).map(([key, title]) => <option key={key} value={key}>{title}</option>)}
     </select></label>
@@ -73,6 +85,7 @@ export default function LifecycleTaskQueuePage() {
         </tbody>
       </table>
     </TableContainer>
+    {state === 'ready' && <HrRegisterPagination page={currentPage} total={matches.length} onChange={setPage} />}
     <p style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Hidden tasks are excluded. Visibility does not grant execution or approval rights; open a person to review the available actions. {snapshot && <>As of {snapshot.as_of}.</>}</p>
     <PersonDrawer personId={personId} canManage={false} onEdit={() => {}} onClose={() => { setPersonId(null); setRefresh(value => value + 1); }} />
   </div>;
