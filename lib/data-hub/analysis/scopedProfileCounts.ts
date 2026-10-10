@@ -49,6 +49,12 @@ export function validateAnalysisDatasetContexts(
   return { ok: true };
 }
 
+// Projection only; callers validate before copying. Never retain unknown
+// metadata or a mutable context reference in an accepted result.
+export function copyAnalysisDatasetContext(context: AnalysisDatasetContext): AnalysisDatasetContext {
+  return Object.fromEntries(CONTEXT_KEYS.map((key) => [key, context[key]])) as unknown as AnalysisDatasetContext;
+}
+
 // Checks compatibility with the expected context supplied by the caller.
 // This pure wrapper does not resolve database pointers or access rights.
 export function evaluateScopedProfileCount(
@@ -61,6 +67,6 @@ export function evaluateScopedProfileCount(
   if (!checked.ok) return checked;
   const evaluated = evaluateProfileCount(readiness.snapshot, input, profile.snapshot);
   if (!evaluated.ok) return evaluated;
-  const context = Object.fromEntries(CONTEXT_KEYS.map((key) => [key, expected[key]])) as unknown as AnalysisDatasetContext;
+  const context = copyAnalysisDatasetContext(expected);
   return { ok: true, result: { ...evaluated.result, context } };
 }

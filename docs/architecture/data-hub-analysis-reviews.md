@@ -98,3 +98,148 @@ This slice provides row counts only. Present-value count controls, friendly
 governed field labels, authenticated browser-to-database verification and the
 Production migration/deployment sequence remain outstanding. The prepared
 analysis-review migration has not been applied to Production by this work.
+
+## D4D5Z — authenticated route-to-database proof
+
+The disposable Postgres harness now runs signed-session planning, review save,
+review reload, row count and present-value count through the actual route
+handlers. JWT verification, session user revalidation, role checks, review
+engines, Prisma and SQL triggers run unchanged. The harness supplies the Next
+cookie adapter and adapts the Neon SQL transport to local Postgres. It verifies
+missing/tampered sessions, demotion, inactivity, moved accounts, foreign
+worksheets and stale profile pins, including no unauthorized review insertion.
+
+This is authenticated route-to-database proof, not an HTTP server or browser
+journey. A full browser journey and Production rollout remain unverified.
+
+## Governed count workflow bundle
+
+Planning now returns governed field labels from the same RepeatableRead
+snapshot as profile evidence. The screen offers present-value counts only for
+measure fields in the saved review matching that planning profile. Counts still
+come from the existing reviewed server service and show their actual revision
+and profile identity; zero is present and missing values are excluded. Holds
+block both count controls. An uncertain save requires an explicit reload before
+another save, including when the append succeeded but the following read failed.
+
+The opt-in disposable browser harness starts the built application, signs in
+through the real form and exercises review and count APIs against real
+PostgreSQL with the migration chain installed. Only the Neon HTTP transport is
+adapted to loopback PostgreSQL. It starts with already-profiled synthetic
+worksheets; it does not prove file upload/inspection or hosted Neon transport.
+Production schema and deployment acceptance remain separate. See
+`data-hub-analysis-release-plan.md` for rollout prerequisites and recovery.
+
+## Reviewed count response contract
+
+`parseReviewedCountResponse` validates the closed v1 successful count envelope
+before the screen displays it. Counts are nonnegative safe integers and review
+revisions are positive safe integers. All plan/result algorithm versions and
+eight lineage identities are required. Only ready row-count and present-count
+plans are accepted; present counts retain `EXCLUDE_MISSING`. Unexpected fields,
+grouped operations, holds, malformed values and incompatible versions fail
+closed. The returned worksheet, operation and measure must match the request.
+
+The parser is pure and returns copied validated records. It does not execute,
+recompute counts, authenticate, establish organization access or prove current
+database pointers. A valid server result can use a newer profile/review than
+the screen load; that actual lineage is retained. The existing server remains
+responsible for authorization and fresh review/capability evaluation. Rejected
+responses clear the prior count; retry remains an explicit user action.
+
+The browser proof additionally corrupts nine otherwise genuine count responses
+to check rejection, clearing prior results, hiding unexpected response contents,
+no extra request during the observed recovery interval and explicit valid retry.
+Only these contract probes intercept response bodies; baseline workflow,
+authorization and persistence recovery still use genuine responses. Invalid JSON
+and non-object envelopes yield `RESPONSE_INVALID`, never decoding snippets.
+
+## Failure display contract
+
+`analysisFailureReference` is a pure closed projection of review/count failure
+references. Recognized codes retain their recovery meaning; unknown codes,
+non-string values and unexpected exception messages become `REQUEST_FAILED`.
+Neither server diagnostics nor connection messages are displayed. This is a
+display boundary, not authorization, error-envelope validation or permission to
+retry. The existing save uncertainty guard still requires explicit reload;
+count failures still clear results and await an explicit retry.
+
+## Profile-statistics planning target
+
+`buildAnalysisPlan` can describe a governed grouped-row-count intent without
+making grouping executable. `buildProfileCountPlan` narrows that description to
+the existing profile-statistics target: row count and present-value count only.
+Grouped intent retains `PROFILE_OPERATION_NOT_SUPPORTED`; generic aggregate
+intent retains `PLAN_KIND_NOT_SUPPORTED`. Holds and capability denials remain
+checked before target acceptance. Supported schema, profiler and quality
+resolution versions are required; incompatible versions return
+`PROFILE_PLAN_VERSION_UNSUPPORTED` before profile statistics are read.
+
+The existing pure evaluator uses this target planner. No database/API/UI/AI
+execution is added. The target plan establishes neither dataset provenance nor
+freshness, access authorization or sufficient profile evidence; the existing
+scoped evaluator and server loaders retain those responsibilities.
+
+## Catalog admission before planning
+
+The general planner now requires a complete structural field catalog before
+deriving capabilities. Its seven role lists must be arrays of nonblank string
+identities, with no repeats within or across roles. Their total must equal a
+nonnegative safe integer field count; missing or additional role lists fail.
+An empty catalog remains valid for row counts. Original identities are retained,
+never normalized or silently deduplicated.
+
+Malformed catalog metadata returns `READINESS_CATALOG_INVALID` from general
+planning, profile-target planning and evaluation before profile evidence is
+read. This replaces the later `PROFILE_LINEAGE_MISMATCH` diagnostic for duplicate
+readiness identities; mismatched profile evidence retains its lineage error.
+Quality holds retain precedence even when catalog metadata is unavailable.
+The guard validates structural consistency only, not provenance, freshness,
+algorithm support or access. Those existing version/scoped/server checks remain.
+
+## Closed readiness state admission
+
+Readiness derivation accepts only the three known reviewed-quality states.
+An unknown state returns `QUALITY_STATE_INVALID` instead of defaulting to ready.
+Direct capability derivation accepts only supported readiness-version metadata,
+a valid structural catalog and either ready state. Unknown readiness states,
+incompatible readiness versions and malformed catalogs produce
+`UNAVAILABLE_INVALID_READINESS` with no dataset or field capabilities. Request
+validation rejects that capability state using its existing unsupported-state
+failure. A genuine quality hold retains `BLOCKED_QUALITY_HOLD`; invalid metadata
+is never relabeled as a reviewed hold or permission to proceed.
+
+These pure admission checks add no execution or access authority. The existing
+profile-target version checks, scoped evidence checks and server authorization
+remain required. Valid empty datasets and acknowledged notices remain supported.
+
+## Dataset-scoped intent planning
+
+`buildScopedProfileCountPlan` compares the readiness snapshot's eight lineage
+identities against the context supplied by the trusted caller before accessing
+readiness or planning the request. Invalid and mismatched contexts retain their
+existing distinct errors. Matching metadata then passes through the existing
+profile-target planner, preserving holds, catalog/version denials and supported
+operations. The accepted result is a scoped snapshot of the plan with a copied,
+closed context. Unknown context metadata is omitted; later input mutation cannot
+relabel the accepted description.
+
+No profile statistics are required or read. Matching context does not prove
+authorization, fresh database pointers, saved-review status or sufficient
+evidence for a count. A later execution caller must load and revalidate those
+facts; this contract is neither a replay token nor a durable execution grant.
+
+## Review-derived planning composition
+
+`buildReviewedProfileCountPlan` accepts trusted loaded semantic and quality
+snapshots plus their review revision. It first compares both full contexts
+against the expected dataset, validates a positive safe integer revision,
+derives readiness and then invokes the dataset-scoped profile-target planner.
+Callers do not supply readiness or profile statistics. An accepted result
+retains the actual supplied review revision and a detached scoped plan.
+
+Scope mismatches, invalid revisions, unknown quality states, holds, incompatible
+algorithm versions and unsupported field operations fail closed. The snapshots
+and revision must come from an authorized loader; this pure composition cannot
+prove persistence, fresh pointers or permissions. No API accepts caller-created
+review snapshots, and this bundle adds no database or analysis execution path.
