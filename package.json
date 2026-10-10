@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "test:browser:hr": "playwright test tests/browser/hrOperationalRegisters.spec.ts",
+    "test:hr:registers": "node scripts/tests/verify-hr-registers-runtime.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",

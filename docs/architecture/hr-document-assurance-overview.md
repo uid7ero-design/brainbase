@@ -33,13 +33,14 @@ the overview. Failed refreshes clear old totals; cancelled requests cannot repla
 newer state. No mutations, reminder scheduling/delivery, model calls, environment
 changes or schema changes are added.
 
-The aggregate returns all matching people; pagination and large-tenant load
-certification remain future work. New tests inspect parameterized query scope,
+The aggregate returns all matching people; server pagination and large-tenant load
+certification remain future work. The operational register bundle adds client
+display pages/search/navigation and disposable PostgreSQL aggregate proof. New tests inspect parameterized query scope,
 evidence joins, allowlists, date boundaries, context failures and UI flows using
 synthetic query/HTTP fixtures. Existing document containment tests cover the
-dedicated access policy. They do not replace real PostgreSQL execution or a live
-production-data smoke test.
+dedicated access policy. The bundle executes the aggregate against synthetic
+PostgreSQL fixtures; a live production-data smoke test remains unclaimed.
 
-Release hold: main automatically deploys to production. Previous authorization
-covered PR #409; this separate document overview requires release authorization
-after validation before merging.
+The original document overview was released in PR #413. Main automatically deploys
+to production. Subsequent bundled browsing changes remain held in PR #416 until
+release authorization.

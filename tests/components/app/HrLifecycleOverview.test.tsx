@@ -22,8 +22,8 @@ describe('HR operational lifecycle overview', () => {
   it('renders authorized person names and counts without automatic mutations or AI calls', async () => {
     renderBrainbase(<Page />);
     expect(await screen.findByRole('button', { name: 'Alex Worker' })).toBeTruthy();
-    expect(screen.getByText('Onboarding')).toBeTruthy();
-    expect(screen.getByText('Offboarding')).toBeTruthy();
+    expect(screen.getByRole('cell', { name: 'Onboarding' })).toBeTruthy();
+    expect(screen.getByRole('cell', { name: 'Offboarding' })).toBeTruthy();
     expect(fetchMock.mock.calls.map(call => call[0]).sort()).toEqual(['/api/hr/lifecycle/overview', '/api/hr/people']);
     expect(fetchMock.mock.calls.every(call => call[1].cache === 'no-store')).toBe(true);
   });

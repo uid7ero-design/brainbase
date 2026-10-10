@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { HR_PAGE_SIZE, HrOperationsNav, HrRegisterSearch, HrRegisterPagination } from '../_components/HrRegisterControls';
 import PersonDrawer from '../_components/PersonDrawer';
 import { PageHeader, TableContainer, TableStateRow, buttonProps, tableStyles } from '@/components/ui/app';
 
@@ -29,6 +29,8 @@ export default function DocumentOverviewPage() {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [refresh, setRefresh] = useState(0);
   const [filter, setFilter] = useState('all');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [personId, setPersonId] = useState<string | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -44,13 +46,18 @@ export default function DocumentOverviewPage() {
     });
     return () => controller.abort();
   }, [refresh]);
-  const rows = snapshot?.people.filter(person => filter === 'all' || person[filter as keyof Counts] > 0) ?? [];
+  const query = search.trim().toLowerCase();
+  const matches = snapshot?.people.filter(person => (filter === 'all' || person[filter as keyof Counts] > 0)
+    && (!query || `${person.first_name} ${person.last_name}`.toLowerCase().includes(query))) ?? [];
+  const currentPage = Math.min(page, Math.max(1, Math.ceil(matches.length / HR_PAGE_SIZE)));
+  const rows = matches.slice((currentPage - 1) * HR_PAGE_SIZE, currentPage * HR_PAGE_SIZE);
   return <div style={{ maxWidth: 1300 }}>
     <PageHeader title="Document assurance overview" description="Current employee-document assurance and expiry work within your document access." actions={<>
-      <Link href="/people" {...buttonProps('secondary')}>People</Link>
+      <HrOperationsNav current="/people/documents" />
       <button type="button" {...buttonProps('secondary')} disabled={state === 'loading'} onClick={() => setRefresh(value => value + 1)}>Refresh</button>
     </>} />
-    <label>Show documents{' '}<select value={filter} onChange={event => setFilter(event.target.value)}>
+    <HrRegisterSearch value={search} onChange={value => { setSearch(value); setPage(1); }} />
+    <label>Show documents{' '}<select value={filter} onChange={event => { setFilter(event.target.value); setPage(1); }}>
       <option value="all">All visible documents</option>
       {Object.entries(COLUMNS).filter(([key]) => key !== 'documents').map(([key, title]) => <option key={key} value={key}>{title}</option>)}
     </select></label>
@@ -68,6 +75,7 @@ export default function DocumentOverviewPage() {
         </tbody>
       </table>
     </TableContainer>
+    {state === 'ready' && <HrRegisterPagination page={currentPage} total={matches.length} onChange={setPage} />}
     <p style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
       {snapshot && <>As of {snapshot.as_of_date} (UTC); upcoming expiry through {snapshot.expiring_through}. </>}
       Expiry excludes today. Counts cover current versions and may overlap. Unacknowledged means no acknowledgement by the currently linked employee; it does not imply a required acknowledgement. Employees without a linked account are shown separately. Open a person to review documents.
