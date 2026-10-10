@@ -15,13 +15,16 @@ type Props = {
   accountCode: (id: string) => string;
   centreCode: (id: string) => string;
   onEditLine?: (id: string) => void;
+  onRemoveLine?: (id: string) => void;
   onEditAllocation?: (lineId: string, periodId: string) => void;
   busy?: boolean;
 };
 
-export default function BudgetReview({ currency, periodised, draft, lines, allocations, periods, accountCode, centreCode, onEditLine, onEditAllocation, busy = false }: Props) {
+export default function BudgetReview({ currency, periodised, draft, lines, allocations, periods, accountCode, centreCode, onEditLine, onRemoveLine, onEditAllocation, busy = false }: Props) {
   const editableAllocations = draft && Boolean(onEditAllocation);
   const editable = draft && Boolean(onEditLine);
+  const removable = draft && Boolean(onRemoveLine);
+  const lineActions = editable || removable;
   const review = reviewBudgetAllocations(lines, allocations);
   const lineById = new Map(lines.map(line => [line.id, line]));
   const periodName = new Map(periods.map(period => [period.id, period.name]));
@@ -45,15 +48,18 @@ export default function BudgetReview({ currency, periodised, draft, lines, alloc
     <TableContainer label="Budget setup lines" minWidth={periodised ? 800 : 600}>
       <table className={tableStyles.table}>
         <caption className={styles.reviewCaption}>Budget lines{periodised ? ' and allocation checks' : ''}</caption>
-        <thead><tr>{['Account', 'Cost centre', `Annual amount (${currency})`, ...(periodised ? ['Allocated', 'Allocation check'] : []), ...(editable ? ['Action'] : [])].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
+        <thead><tr>{['Account', 'Cost centre', `Annual amount (${currency})`, ...(periodised ? ['Allocated', 'Allocation check'] : []), ...(lineActions ? ['Action'] : [])].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
         <tbody>{lines.length ? lines.map((line, index) => {
           const checked = review.lines[index];
           return <tr key={line.id}>
             <td>{accountCode(line.budget_account_id)}</td><td>{centreCode(line.cost_centre_id)}</td><td>{money(line.annual_budget_cents)}</td>
             {periodised && <><td>{money(checked.allocatedCents)}</td><td>{checked.state === 'BALANCED' ? 'Balanced' : checked.state === 'UNDER' ? `${money(checked.differenceCents)} left to allocate` : `${money((-BigInt(checked.differenceCents)).toString())} over allocated`}</td></>}
-            {editable && <td><button {...buttonProps('secondary')} type="button" disabled={busy} aria-label={`Edit ${accountCode(line.budget_account_id)} / ${centreCode(line.cost_centre_id)}`} onClick={() => onEditLine?.(line.id)}>Edit</button></td>}
+            {lineActions && <td><div className={styles.lineActions}>
+              {editable && <button {...buttonProps('secondary')} type="button" disabled={busy} aria-label={`Edit ${accountCode(line.budget_account_id)} / ${centreCode(line.cost_centre_id)}`} onClick={() => onEditLine?.(line.id)}>Edit</button>}
+              {removable && <button {...buttonProps('secondary')} type="button" disabled={busy} aria-label={`Remove draft line ${accountCode(line.budget_account_id)} / ${centreCode(line.cost_centre_id)}`} onClick={() => onRemoveLine?.(line.id)}>Remove</button>}
+            </div></td>}
           </tr>;
-        }) : <tr><td colSpan={(periodised ? 5 : 3) + (editable ? 1 : 0)}>No Budget lines yet.</td></tr>}</tbody>
+        }) : <tr><td colSpan={(periodised ? 5 : 3) + (lineActions ? 1 : 0)}>No Budget lines yet.</td></tr>}</tbody>
       </table>
     </TableContainer>
     {periodised && <TableContainer label="Budget period allocations" minWidth={600}>

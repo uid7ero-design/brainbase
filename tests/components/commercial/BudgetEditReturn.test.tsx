@@ -31,6 +31,7 @@ beforeEach(() => {
     if (options?.method === 'POST') {
       const body = JSON.parse(String(options.body)); mutations.push(body);
       if (failSave) return Response.json({ error: 'Save rejected. Draft remains unchanged.' }, { status: 409 });
+      if (body.action === 'remove-line') { version.lines = []; version.allocations = []; }
       if (body.action === 'line') version.lines[0].annual_budget_cents = body.annualBudgetCents;
       if (body.action === 'allocation') version.allocations[0].amount_cents = body.amountCents;
       if (body.action === 'mapping') version.mappings[0].budget_account_id = body.budgetAccountId;
@@ -45,6 +46,44 @@ beforeEach(() => {
 });
 
 describe('Saved Budget editor return navigation', () => {
+  it('requires confirmation, supports cancellation, and returns to the saved review after removal', async () => {
+    render(<BudgetSetup revision={0}/>);
+    const remove = await screen.findByRole('button', { name: 'Remove draft line SOFTWARE / GENERAL', exact: true });
+    fireEvent.click(remove);
+    expect(mutations).toHaveLength(0);
+    expect(screen.getByRole('region', { name: 'Draft line removal confirmation' })).toHaveTextContent('1 saved period allocations');
+    expect(screen.getByLabelText('Removal reason', { exact: false })).toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep draft line' }));
+    expect(version).toEqual(initial);
+    expect(mutations).toHaveLength(0);
+    expect(screen.getByRole('region', { name: 'Budget amount review' })).toHaveFocus();
+    fireEvent.click(remove);
+    fireEvent.change(screen.getByLabelText('Removal reason', { exact: false }), { target: { value: 'Accidental line' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm remove draft line' }));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Draft line and its period allocations removed.'));
+    expect(mutations).toEqual([{ action: 'remove-line', budgetLineId: 'line', reason: 'Accidental line' }]);
+    expect(version.mappings).toEqual(initial.mappings);
+    expect(screen.getByRole('region', { name: 'Budget amount review' })).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Activate Budget version' })).toBeDisabled();
+    expect(screen.queryByRole('region', { name: 'Draft line removal confirmation' })).not.toBeInTheDocument();
+  });
+  it('retains a failed removal confirmation and reason for recovery', async () => {
+    failSave = true;
+    render(<BudgetSetup revision={0}/>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove draft line SOFTWARE / GENERAL', exact: true }));
+    fireEvent.change(screen.getByLabelText('Removal reason', { exact: false }), { target: { value: 'Accidental line' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm remove draft line' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Save rejected.');
+    expect(screen.getByLabelText('Removal reason', { exact: false })).toHaveValue('Accidental line');
+    expect(version).toEqual(initial);
+    expect(scroll).not.toHaveBeenCalled();
+  });
+  it.each(['ACTIVE', 'SUPERSEDED'])('keeps %s versions free of removal controls', async status => {
+    version.status = status;
+    render(<BudgetSetup revision={0}/>);
+    await screen.findByRole('table', { name: /Budget lines/ });
+    expect(screen.queryByRole('button', { name: /Remove draft line/ })).not.toBeInTheDocument();
+  });
   it('keeps mapping creation at the form instead of returning to review', async () => {
     render(<BudgetSetup revision={0}/>);
     await screen.findByRole('button', { name: 'Edit mapping GENERAL', exact: true });

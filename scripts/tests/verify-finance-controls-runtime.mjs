@@ -655,6 +655,46 @@ try {
     const audit=(await pool.query("SELECT count(*)::int AS n FROM audit_logs WHERE organisation_id='runtime-b' AND resource_id=$1 AND action=$2 AND user_id='runtime-other'",[budgetDimensions[index],(kind==='accounts'?'commercial_budget_account':'commercial_cost_centre')+'.reactivated'])).rows[0];
     if(audit.n!==1)throw new Error('Reactivation actor or retry audit is incorrect');
   }
+  // Remove an accidental extra line through the real confirmation, preserving the original draft.
+  const removalPath='/api/commercial/budgeting/budgets/'+budgetState.id+'/versions/'+budgetState.version_id+'/setup';
+  if((await setupPost(removalPath,{action:'line',budgetAccountId:alternateAccount,costCentreId:budgetDimensions[1],annualBudgetCents:'9007199254740993'})).status!==200)throw new Error('Removal fixture creation failed');
+  const removalLine=(await pool.query('SELECT id FROM commercial_budget_lines WHERE budget_version_id=$1 AND budget_account_id=$2',[budgetState.version_id,alternateAccount])).rows[0].id;
+  if((await setupPost(removalPath,{action:'allocation',budgetLineId:removalLine,financialPeriodId:setupPeriod,amountCents:'9007199254740993'})).status!==200)throw new Error('Removal allocation fixture creation failed');
+  const removalBody={action:'remove-line',budgetLineId:removalLine,reason:'Accidental test line'};
+  for(const [testPage,status] of [[viewer.page,403],[page,404]]){
+    if((await testPage.evaluate(async ({path,body})=>(await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).status,{path:removalPath,body:removalBody}))!==status)throw new Error('Removal crossed role/tenant boundary');
+  }
+  if((await fetch(origin+removalPath,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(removalBody)})).status!==401)throw new Error('Unauthenticated removal accepted');
+  if((await setupPost(removalPath,{...removalBody,reason:'xx'})).status!==400)throw new Error('Invalid removal reason accepted');
+  if((await setupPost(removalPath,{...removalBody,budgetLineId:'00000000-0000-4000-8000-000000000000'})).status!==404)throw new Error('Missing removal line accepted');
+  await pool.query("UPDATE commercial_financial_years SET status='CLOSED' WHERE id=$1",[setupYearId]);
+  if((await setupPost(removalPath,removalBody)).status!==409)throw new Error('Closed year removal accepted');
+  await pool.query("UPDATE commercial_financial_years SET status='OPEN' WHERE id=$1",[setupYearId]);
+  await other.page.reload();
+  await budgetSection.getByRole('button',{name:'Remove draft line MAPPING-ALT / BUDGET-CC',exact:true}).click();
+  const removalForm=budgetSection.getByRole('form',{name:'Remove draft Budget line',exact:true});
+  await expect(removalForm.getByLabel('Removal reason',{exact:false})).toBeFocused();
+  await expect(budgetSection.getByRole('region',{name:'Draft line removal confirmation'})).toContainText('AUD 90,071,992,547,409.93');
+  await removalForm.getByLabel('Removal reason',{exact:false}).fill('Accidental test line');
+  await removalForm.getByRole('button',{name:'Keep draft line',exact:true}).click();
+  if((await pool.query('SELECT count(*)::int AS n FROM commercial_budget_period_allocations WHERE budget_line_id=$1',[removalLine])).rows[0].n!==1)throw new Error('Removal cancellation changed allocations');
+  await budgetSection.getByRole('button',{name:'Remove draft line MAPPING-ALT / BUDGET-CC',exact:true}).click();
+  await other.page.setViewportSize({width:390,height:844});
+  if(await other.page.evaluate(()=>document.documentElement.scrollWidth>innerWidth))throw new Error('Removal confirmation overflows mobile');
+  await budgetSection.getByRole('region',{name:'Draft line removal confirmation'}).screenshot({path:resolve(artifacts,'draft-line-removal-mobile.png')});
+  await removalForm.getByLabel('Removal reason',{exact:false}).fill('Accidental test line');
+  await removalForm.getByRole('button',{name:'Confirm remove draft line',exact:true}).click();
+  await expect(budgetSection.getByRole('status')).toContainText('Draft line and its period allocations removed.');
+  await expect(budgetSection.getByRole('region',{name:'Budget amount review',exact:true})).toBeFocused();
+  await expect(budgetSection.getByRole('button',{name:'Remove draft line MAPPING-ALT / BUDGET-CC',exact:true})).toHaveCount(0);
+  await other.page.setViewportSize({width:1440,height:1000});
+  const removedCounts=(await pool.query('SELECT (SELECT count(*) FROM commercial_budget_lines WHERE id=$1)::int AS lines,(SELECT count(*) FROM commercial_budget_period_allocations WHERE budget_line_id=$1)::int AS allocations',[removalLine])).rows[0];
+  if(removedCounts.lines||removedCounts.allocations)throw new Error('Removal did not delete line and allocations');
+  if((await pool.query('SELECT annual_budget_cents::text AS cents FROM commercial_budget_lines WHERE id=$1',[budgetState.line_id])).rows[0].cents!=='10000'||(await pool.query('SELECT amount_cents::text AS cents FROM commercial_budget_period_allocations WHERE budget_line_id=$1',[budgetState.line_id])).rows[0].cents!=='10000')throw new Error('Removal changed another line or allocation');
+  if((await pool.query('SELECT budget_account_id FROM commercial_budget_commitment_mappings WHERE id=$1',[originalMapping.id])).rows[0].budget_account_id!==budgetDimensions[0])throw new Error('Removal changed commitment mapping');
+  if((await setupPost(removalPath,removalBody)).status!==404)throw new Error('Repeated removal did not report missing line');
+  const removalAudit=(await pool.query("SELECT user_id,before_state,after_state FROM audit_logs WHERE resource_id=$1 AND action='commercial_budget_line.removed'",[removalLine])).rows;
+  if(removalAudit.length!==1||removalAudit[0].user_id!=='runtime-other'||removalAudit[0].after_state.reason!=='Accidental test line'||removalAudit[0].before_state.annual_budget_cents!=='9007199254740993'||removalAudit[0].before_state.allocations[0].amount_cents!=='9007199254740993')throw new Error('Removal audit lost actor reason or exact before-state');
   await budgetSection.getByRole('button',{name:'Activate Budget version',exact:true}).click();
   await expect(budgetSection.getByRole('status')).toContainText('Budget version activated.');
   await expect(activationChecks).toHaveCount(0);
@@ -705,7 +745,7 @@ try {
     await pool.query("UPDATE commercial_financial_years SET status='OPEN' WHERE id=$1",[setupYearId]);
   }
   // Queue activation first, then settings, with both held at the Budget lock.
-  const activationGate=await pool.connect();let queuedActivation,queuedSettings;
+  const activationGate=await pool.connect();let queuedActivation,queuedSettings,queuedRemoval;
   try{
     await activationGate.query('BEGIN');
     await activationGate.query('SELECT id FROM commercial_budgets WHERE id=$1 FOR UPDATE',[raceBudgetId]);
@@ -713,11 +753,15 @@ try {
     await waitForBudgetLockWaiters(1);
     queuedSettings=setupPost(racePath+'/setup',{action:'settings',name:'Must not save',taxBasis:'EXCLUSIVE'});
     await waitForBudgetLockWaiters(2);
+    const raceLine=(await pool.query('SELECT id FROM commercial_budget_lines WHERE budget_version_id=$1',[raceVersionId])).rows[0].id;
+    queuedRemoval=setupPost(racePath+'/setup',{action:'remove-line',budgetLineId:raceLine,reason:'Must not remove'});
+    await waitForBudgetLockWaiters(3);
     await activationGate.query('COMMIT');
+    if((await queuedRemoval).status!==409||(await pool.query('SELECT count(*)::int AS n FROM commercial_budget_lines WHERE id=$1',[raceLine])).rows[0].n!==1)throw new Error('Activation/removal race removed published line');
     if((await queuedActivation).status!==200||(await queuedSettings).status!==409)throw new Error('Activation/settings race did not preserve published settings');
   }finally{
     await activationGate.query('ROLLBACK');activationGate.release();
-    await Promise.allSettled([queuedActivation,queuedSettings].filter(Boolean));
+    await Promise.allSettled([queuedActivation,queuedSettings,queuedRemoval].filter(Boolean));
   }
   const raceSaved=(await pool.query('SELECT name,tax_basis FROM commercial_budgets WHERE id=$1',[raceBudgetId])).rows[0];
   if(raceSaved.name!=='Race Budget'||raceSaved.tax_basis!=='INCLUSIVE')throw new Error('Rejected concurrent settings changed Budget facts');
@@ -783,9 +827,27 @@ try {
     await expect(region.getByRole('columnheader').last()).toBeVisible();
   }
   await other.page.screenshot({path:resolve(artifacts,'finance-setup-mobile.png'),fullPage:true});
+  // Synthetic finance evidence in this disposable database must block deletion even on a DRAFT.
+  const evidenceBudget=await setupPost('/api/commercial/budgeting/budgets',{name:'Evidence guard',financialYearId:setupYearId,currency:'EUR',taxBasis:'INCLUSIVE',periodisationMode:'PERIODISED'});
+  if(evidenceBudget.status!==201)throw new Error('Evidence guard Budget creation failed');
+  const evidenceBudgetId=evidenceBudget.data.budget.id,evidenceVersionId=evidenceBudget.data.version.id;
+  const evidencePath='/api/commercial/budgeting/budgets/'+evidenceBudgetId+'/versions/'+evidenceVersionId+'/setup';
+  if((await setupPost(evidencePath,{action:'line',budgetAccountId:budgetDimensions[0],costCentreId:budgetDimensions[1],annualBudgetCents:'100'})).status!==200)throw new Error('Evidence guard line creation failed');
+  const evidenceLine=(await pool.query('SELECT id FROM commercial_budget_lines WHERE budget_version_id=$1',[evidenceVersionId])).rows[0].id;
+  if((await setupPost(evidencePath,{action:'allocation',budgetLineId:evidenceLine,financialPeriodId:setupPeriod,amountCents:'100'})).status!==200)throw new Error('Evidence guard allocation creation failed');
+  const evidenceAdjustment=(await pool.query("INSERT INTO commercial_finance_adjustments(organisation_id,adjustment_type,effective_financial_period_id,currency,description,reason_code,created_by) VALUES('runtime-b','MANUAL_FINANCE_ADJUSTMENT',$1,'EUR','Synthetic guard fixture','TEST','runtime-other') RETURNING id",[setupPeriod])).rows[0].id;
+  await pool.query("INSERT INTO commercial_finance_adjustment_lines(organisation_id,adjustment_id,financial_period_id,position,budget_account_id,cost_centre_id,amount_exclusive_cents,tax_cents,amount_inclusive_cents,resolved_budget_id,resolved_budget_version_id,resolved_budget_line_id,resolved_tax_basis,budget_basis_cents) VALUES('runtime-b',$1,$2,1,$3,$4,100,0,100,$5,$6,$7,'INCLUSIVE',100)",[evidenceAdjustment,setupPeriod,budgetDimensions[0],budgetDimensions[1],evidenceBudgetId,evidenceVersionId,evidenceLine]);
+  const evidenceBefore=(await pool.query('SELECT * FROM commercial_finance_adjustment_lines WHERE adjustment_id=$1',[evidenceAdjustment])).rows;
+  const guardedRemoval=await setupPost(evidencePath,{action:'remove-line',budgetLineId:evidenceLine,reason:'Must retain evidence'});
+  if(guardedRemoval.status!==409||!guardedRemoval.data.error.includes('finance evidence'))throw new Error('Finance evidence deletion guard failed');
+  if(JSON.stringify((await pool.query('SELECT * FROM commercial_finance_adjustment_lines WHERE adjustment_id=$1',[evidenceAdjustment])).rows)!==JSON.stringify(evidenceBefore)||(await pool.query('SELECT count(*)::int AS n FROM commercial_budget_period_allocations WHERE budget_line_id=$1',[evidenceLine])).rows[0].n!==1)throw new Error('Guarded removal changed evidence or allocations');
+  await pool.query("UPDATE commercial_budget_versions SET status='SUPERSEDED',activated_at=now(),superseded_at=now(),activated_by='runtime-other' WHERE id=$1",[evidenceVersionId]);
+  if((await setupPost(evidencePath,{action:'remove-line',budgetLineId:evidenceLine,reason:'Must retain history'})).status!==409)throw new Error('SUPERSEDED removal accepted');
+  if((await setupPost(removalPath,{...removalBody,budgetLineId:budgetState.line_id})).status!==409)throw new Error('ACTIVE line removal accepted');
   await pool.query("UPDATE organisation_modules SET enabled=false WHERE organisation_id='runtime-b' AND module_key='budgeting'");
   if((await setupPost('/api/commercial/budgeting/financial-years',{name:'Denied',startsOn:'2029-07-01',endsOn:'2030-06-30'})).status!==403)throw new Error('Unentitled calendar creation accepted');
   if((await setupPost('/api/commercial/budgeting/setup/accounts',{code:'DENIED',name:'Denied'})).status!==403)throw new Error('Unentitled dimension creation accepted');
+  if((await setupPost(removalPath,removalBody)).status!==403)throw new Error('Unentitled removal accepted');
   if((await setupPost('/api/commercial/budgeting/budgets',{})).status!==403)throw new Error('Unentitled Budget creation accepted');
   if((await setupPost('/api/commercial/budgeting/setup/accounts/'+budgetDimensions[0]+'/reactivate',{})).status!==403)throw new Error('Unentitled reactivation accepted');
   await other.page.goto(origin+'/commercial/budgeting/commitments');
@@ -802,6 +864,7 @@ try {
   evidence.budgetSetupChecks=['fresh Budget and DRAFT version created through form','draft line and commitment mapping through forms','period allocation mismatch blocks activation','correct allocation permits activation','ACTIVE version read-only and API rejects edits','active version pointer persisted','duplicate header rejected','unauthenticated, viewer, unentitled and foreign-tenant mutations denied'];
   evidence.budgetReviewChecks=['exact shortage and excess shown per line','corrected allocation marked balanced with remaining review guidance','saved allocation shown in named table','both review tables contained and scrollable on mobile','activation issue links focus line setup, allocation review and dimension headings','resolved issues remove corrective links'];
   evidence.budgetMappingManagementChecks=['saved mapping table shows codes and reference status','checklist link navigates to mapping form','saved account prefilled with fixed cost centre','cancel and version switch discard unsaved edit','update preserves mapping ID cost centre amounts and allocations','saved account reloads and original mapping restored','inactive references flagged','ACTIVE mappings readable without editing','mobile editor fits viewport'];
+  evidence.budgetLineRemovalChecks=['real confirmation and cancel preserve draft','exact BIGINT line and allocations removed together','actor reason and exact before-state audited once','other lines allocations and mappings unchanged','mobile confirmation contained','finance evidence and its allocations retained on rejected removal','SUPERSEDED removal rejected','missing line retry returns 404','invalid reason closed year ACTIVE viewer tenant unauthenticated unentitled denial','actual activation queued before removal preserves published line','removal followed by activation succeeds for remaining draft'];
   evidence.budgetEditReturnChecks=['mapping cancel and successful update return focus to saved mapping review','line cancel and successful update return focus to amount review','allocation failure retains editor; cancel and successful update return focus to amount review'];
   evidence.budgetSetupExportChecks=['three real CSV downloads have selected draft metadata','exact saved decimal amounts exclude unsaved editor values','allocation dates use DD/MM/YYYY','mapping codes and active status retained','downloads send no finance mutations and leave editor value intact'];
   evidence.budgetActivationGuidanceChecks=['empty draft explains missing lines and mapping','saving lines and mappings updates guidance','allocation imbalance remains visible until resolved','balanced draft still requires tax and mapping review','deactivation reveals inactive reference issue','ACTIVE version omits draft checklist'];
