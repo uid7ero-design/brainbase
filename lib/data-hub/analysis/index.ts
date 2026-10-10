@@ -4,6 +4,7 @@ export * from "./capabilities";
 export * from "./requestValidation";
 export * from "./plan";
 export * from "./profileCountPlan";
+export * from "./scopedProfileCountPlan";
 export * from "./fieldCatalogValidation";
 export * from "./profileCounts";
 export * from "./scopedProfileCounts";

@@ -212,3 +212,19 @@ is never relabeled as a reviewed hold or permission to proceed.
 These pure admission checks add no execution or access authority. The existing
 profile-target version checks, scoped evidence checks and server authorization
 remain required. Valid empty datasets and acknowledged notices remain supported.
+
+## Dataset-scoped intent planning
+
+`buildScopedProfileCountPlan` compares the readiness snapshot's eight lineage
+identities against the context supplied by the trusted caller before accessing
+readiness or planning the request. Invalid and mismatched contexts retain their
+existing distinct errors. Matching metadata then passes through the existing
+profile-target planner, preserving holds, catalog/version denials and supported
+operations. The accepted result is a scoped snapshot of the plan with a copied,
+closed context. Unknown context metadata is omitted; later input mutation cannot
+relabel the accepted description.
+
+No profile statistics are required or read. Matching context does not prove
+authorization, fresh database pointers, saved-review status or sufficient
+evidence for a count. A later execution caller must load and revalidate those
+facts; this contract is neither a replay token nor a durable execution grant.

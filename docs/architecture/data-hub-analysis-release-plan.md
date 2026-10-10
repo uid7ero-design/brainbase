@@ -157,7 +157,7 @@ response/route/failure-reference tests and all 64 rerun disposable PostgreSQL
 service tests pass. It adds no execution path, migration or raw-value access.
 The predecessor workflow browser evidence remains explicitly separate.
 
-The closed-state admission bundle rejects unknown reviewed-quality states
+The closed-state admission bundle on `fc2fb967` rejects unknown reviewed-quality states
 instead of defaulting ready. Direct capability derivation exposes an explicit
 unavailable state with no capabilities for invalid readiness state/version or
 catalog metadata, retaining genuine quality-hold semantics. All 240 focused
@@ -165,3 +165,11 @@ readiness/capability/planning/count/response/route/failure-reference tests and
 64 rerun disposable PostgreSQL service tests pass, along with TypeScript,
 changed-file lint and diff checks. This is pure admission hardening; no new
 execution path or migration is added. Earlier browser evidence remains separate.
+
+The dataset-scoped planning bundle checks all eight lineage identities before
+reading readiness, then returns a copied closed context with the supported
+profile-target plan. It reads no statistics and grants no access or execution
+authority. Its 265 focused planning/readiness/capability/count/response/route/
+failure-reference tests and 64 rerun disposable PostgreSQL service tests pass,
+as do TypeScript, changed-file lint and diff checks. Earlier browser/build
+evidence is not claimed as rerun by these pure contract tests.
