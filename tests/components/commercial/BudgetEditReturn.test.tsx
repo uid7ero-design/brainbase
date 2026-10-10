@@ -58,18 +58,18 @@ beforeEach(() => {
 describe('Saved Budget editor return navigation', () => {
   it.each([false,true])('requires read-only recovery when post outcome is uncertain=%s',async lost=>{
     render(<BudgetSetup revision={0}/>);
-    fireEvent.click(await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL',exact:true}));
-    const editor=within(screen.getByRole('form',{name:'Budget line',exact:true}));
+    fireEvent.click(await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL'}));
+    const editor=within(screen.getByRole('form',{name:'Budget line'}));
     fireEvent.change(editor.getByLabelText('Annual amount (AUD)',{exact:false}),{target:{value:'123.45'}});
     failRead=true;loseResponse=lost;
-    fireEvent.click(editor.getByRole('button',{name:'Update line',exact:true}));
+    fireEvent.click(editor.getByRole('button',{name:'Update line'}));
     expect(await screen.findByRole('alert')).toHaveTextContent(lost?'save outcome could not be confirmed':'Your change was saved');
     expect(version.lines[0].annual_budget_cents).toBe('12345');
     expect(editor.getByLabelText('Annual amount (AUD)',{exact:false})).toHaveValue('123.45');
     expect(editor.getByRole('button',{name:'Update line'})).toBeDisabled();
     expect(screen.getByRole('button',{name:'Export Budget lines CSV'})).toBeDisabled();
     expect(screen.getByRole('button',{name:'Activate Budget version'})).toBeDisabled();
-    fireEvent.submit(screen.getByRole('form',{name:'Budget line',exact:true}));
+    fireEvent.submit(screen.getByRole('form',{name:'Budget line'}));
     expect(mutations).toHaveLength(1);
     fireEvent.click(screen.getByRole('button',{name:'Reload saved Budget'}));
     await waitFor(()=>expect(screen.getByRole('alert')).toHaveTextContent('Read unavailable'));
@@ -78,16 +78,16 @@ describe('Saved Budget editor return navigation', () => {
     failRead=false;
     fireEvent.click(screen.getByRole('button',{name:'Reload saved Budget'}));
     await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent('Saved Budget reloaded.'));
-    expect(screen.getByRole('region',{name:'Budget amount review',exact:true})).toHaveFocus();
-    expect(screen.getByRole('region',{name:'Budget amount review',exact:true})).toHaveTextContent('AUD 123.45');
+    expect(screen.getByRole('region',{name:'Budget amount review'})).toHaveFocus();
+    expect(screen.getByRole('region',{name:'Budget amount review'})).toHaveTextContent('AUD 123.45');
     expect(screen.getByRole('button',{name:'Export Budget lines CSV'})).toBeEnabled();
-    expect(screen.queryByRole('button',{name:'Cancel editing',exact:true})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'Cancel editing'})).not.toBeInTheDocument();
     expect(mutations).toHaveLength(1);
   });
   it('selects the newly created draft after a failed readback and reload',async()=>{
     render(<BudgetSetup revision={0}/>);
-    await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL',exact:true});
-    const form=screen.getByRole('form',{name:'Create Budget',exact:true}),fields=within(form);
+    await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL'});
+    const form=screen.getByRole('form',{name:'Create Budget'}),fields=within(form);
     fireEvent.change(fields.getByLabelText('Budget name',{exact:false}),{target:{value:'Recovered draft'}});
     fireEvent.change(fields.getByLabelText('Budget financial year',{exact:false}),{target:{value:'year'}});
     fireEvent.change(fields.getByLabelText('Budget currency',{exact:false}),{target:{value:'AUD'}});
@@ -101,7 +101,7 @@ describe('Saved Budget editor return navigation', () => {
   });
   it('reviews saved values, locks editors, cancels without mutation and confirms once',async()=>{
     render(<BudgetSetup revision={0}/>);
-    fireEvent.click(await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL',exact:true}));
+    fireEvent.click(await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL'}));
     fireEvent.change(screen.getByLabelText('Annual amount (AUD)',{exact:false}),{target:{value:'888.00'}});
     fireEvent.click(screen.getByRole('button',{name:'Activate Budget version'}));
     const review=screen.getByRole('region',{name:'Budget activation confirmation'});
@@ -110,7 +110,7 @@ describe('Saved Budget editor return navigation', () => {
     expect(review).toHaveTextContent('Tax exclusive · Periodised');
     expect(review).toHaveTextContent('Saved lines: 1 · Period allocations: 1 · Commitment mappings: 1');
     expect(screen.getByRole('button',{name:'Update line'})).toBeDisabled();
-    fireEvent.submit(screen.getByRole('form',{name:'Budget line',exact:true}));
+    fireEvent.submit(screen.getByRole('form',{name:'Budget line'}));
     expect(mutations).toHaveLength(0);
     fireEvent.click(screen.getByRole('button',{name:'Keep draft'}));
     await waitFor(()=>expect(screen.getByRole('button',{name:'Activate Budget version'})).toHaveFocus());
@@ -138,28 +138,28 @@ describe('Saved Budget editor return navigation', () => {
   });
   it('opens an empty calendar cell with fixed identities and cancels without mutation',async()=>{
     version.allocations=[];render(<BudgetSetup revision={0}/>);
-    await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL',exact:true});
+    await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL'});
     fireEvent.click(screen.getByText('Amounts by line and period'));
     fireEvent.click(screen.getByRole('button',{name:'Add calendar allocation SOFTWARE / GENERAL / QTR 1'}));
-    const form=within(screen.getByRole('form',{name:'Period allocation',exact:true}));
+    const form=within(screen.getByRole('form',{name:'Period allocation'}));
     expect(form.getByLabelText('Allocation line',{exact:false})).toHaveValue('SOFTWARE / GENERAL');
     expect(form.getByLabelText('Allocation period',{exact:false})).toHaveValue('QTR 1');
     expect(form.getByLabelText('Period amount (AUD)',{exact:false})).toHaveFocus();
     expect(form.getByLabelText('Period amount (AUD)',{exact:false})).toHaveValue('');
     fireEvent.click(form.getByRole('button',{name:'Cancel allocation editing'}));
     expect(mutations).toHaveLength(0);expect(version.allocations).toHaveLength(0);
-    expect(screen.getByRole('region',{name:'Budget amount review',exact:true})).toHaveFocus();
+    expect(screen.getByRole('region',{name:'Budget amount review'})).toHaveFocus();
   });
   it('saves a zero from the calendar, returns to review and reloads it as a saved allocation',async()=>{
     version.allocations=[];render(<BudgetSetup revision={0}/>);
-    await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL',exact:true});
+    await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL'});
     fireEvent.click(screen.getByText('Amounts by line and period'));
     fireEvent.click(screen.getByRole('button',{name:'Add calendar allocation SOFTWARE / GENERAL / QTR 1'}));
     fireEvent.change(screen.getByLabelText('Period amount (AUD)',{exact:false}),{target:{value:'0.00'}});
-    fireEvent.click(screen.getByRole('button',{name:'Save allocation',exact:true}));
+    fireEvent.click(screen.getByRole('button',{name:'Save allocation'}));
     await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent('Budget setup saved.'));
     expect(mutations).toEqual([{action:'allocation',budgetLineId:'line',financialPeriodId:'period',amountCents:'0'}]);
-    expect(screen.getByRole('region',{name:'Budget amount review',exact:true})).toHaveFocus();
+    expect(screen.getByRole('region',{name:'Budget amount review'})).toHaveFocus();
     expect(screen.getByRole('button',{name:'Edit calendar allocation SOFTWARE / GENERAL / QTR 1'})).toBeVisible();
     fireEvent.click(screen.getByRole('button',{name:'Reload saved Budget'}));
     await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent('Saved Budget reloaded.'));
@@ -168,7 +168,7 @@ describe('Saved Budget editor return navigation', () => {
   });
   it('restores the authoritative activated view after losing the activation response',async()=>{
     render(<BudgetSetup revision={0}/>);
-    await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL',exact:true});
+    await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL'});
     loseResponse=true;fireEvent.click(screen.getByRole('button',{name:'Activate Budget version'}));
     fireEvent.click(screen.getByRole('button',{name:'Confirm activation'}));
     expect(await screen.findByRole('alert')).toHaveTextContent('save outcome could not be confirmed');
@@ -180,8 +180,8 @@ describe('Saved Budget editor return navigation', () => {
   });
   it('a dimension revision cannot unlock an uncertain save before explicit reload',async()=>{
     const view=render(<BudgetSetup revision={0}/>);
-    fireEvent.click(await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL',exact:true}));
-    loseResponse=true;fireEvent.submit(screen.getByRole('form',{name:'Budget line',exact:true}));
+    fireEvent.click(await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL'}));
+    loseResponse=true;fireEvent.submit(screen.getByRole('form',{name:'Budget line'}));
     await screen.findByRole('alert');
     const reads=vi.mocked(fetch).mock.calls.filter(([,options])=>options?.method!=='POST').length;
     view.rerender(<BudgetSetup revision={1}/>);
@@ -191,8 +191,8 @@ describe('Saved Budget editor return navigation', () => {
   it('blocks two submissions in the same turn before state rerenders',async()=>{
     let release!:()=>void;postGate=new Promise<void>(resolve=>{release=resolve;});
     render(<BudgetSetup revision={0}/>);
-    fireEvent.click(await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL',exact:true}));
-    const form=screen.getByRole('form',{name:'Budget line',exact:true});
+    fireEvent.click(await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL'}));
+    const form=screen.getByRole('form',{name:'Budget line'});
     fireEvent.submit(form);fireEvent.submit(form);
     expect(mutations).toHaveLength(1);
     release();
@@ -200,12 +200,12 @@ describe('Saved Budget editor return navigation', () => {
   });
   it('manual reload discards unsaved editor values without saving',async()=>{
     render(<BudgetSetup revision={0}/>);
-    fireEvent.click(await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL',exact:true}));
+    fireEvent.click(await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL'}));
     fireEvent.change(screen.getByLabelText('Annual amount (AUD)',{exact:false}),{target:{value:'888.00'}});
     fireEvent.click(screen.getByRole('button',{name:'Reload saved Budget'}));
     await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent('Saved Budget reloaded.'));
     expect(version).toEqual(initial);expect(mutations).toHaveLength(0);
-    expect(screen.getByRole('region',{name:'Budget amount review',exact:true})).toHaveTextContent('AUD 100.00');
+    expect(screen.getByRole('region',{name:'Budget amount review'})).toHaveTextContent('AUD 100.00');
     expect(screen.getByLabelText('Annual amount (AUD)',{exact:false})).toHaveValue('');
   });
   it('does not describe an unavailable initial setup as an empty Budget',async()=>{
@@ -214,7 +214,7 @@ describe('Saved Budget editor return navigation', () => {
     expect(screen.queryByText('No Budget versions yet. Create the first draft above.')).not.toBeInTheDocument();
     expect(screen.getByRole('button',{name:'Create draft Budget'})).toBeDisabled();
     failRead=false;fireEvent.click(screen.getByRole('button',{name:'Reload saved Budget'}));
-    await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL',exact:true});
+    await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL'});
     expect(mutations).toHaveLength(0);
   });
   const removalCases=[
@@ -223,40 +223,40 @@ describe('Saved Budget editor return navigation', () => {
   ] as const;
   it.each(removalCases)('$kind removal confirms, cancels without mutation, then refreshes only the selected entry',async item=>{
     render(<BudgetSetup revision={0}/>);
-    const remove=await screen.findByRole('button',{name:item.button,exact:true});
+    const remove=await screen.findByRole('button',{name:item.button});
     fireEvent.click(remove);
     expect(mutations).toHaveLength(0);
     expect(screen.getByLabelText('Removal reason',{exact:false})).toHaveFocus();
-    fireEvent.click(screen.getByRole('button',{name:item.keep,exact:true}));
+    fireEvent.click(screen.getByRole('button',{name:item.keep}));
     expect(version).toEqual(initial);
     expect(mutations).toHaveLength(0);
-    expect(screen.getByRole('region',{name:item.review,exact:true})).toHaveFocus();
+    expect(screen.getByRole('region',{name:item.review})).toHaveFocus();
     fireEvent.click(remove);
     fireEvent.change(screen.getByLabelText('Removal reason',{exact:false}),{target:{value:'Accidental entry'}});
-    fireEvent.click(screen.getByRole('button',{name:item.confirm,exact:true}));
+    fireEvent.click(screen.getByRole('button',{name:item.confirm}));
     await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent(item.message));
     expect(mutations).toEqual([{action:item.action,...item.identity,reason:'Accidental entry'}]);
     expect(version.lines).toEqual(initial.lines);
     expect(item.kind==='allocation'?version.mappings:version.allocations).toEqual(item.kind==='allocation'?initial.mappings:initial.allocations);
-    expect(screen.getByRole('region',{name:item.review,exact:true})).toHaveFocus();
+    expect(screen.getByRole('region',{name:item.review})).toHaveFocus();
     if(item.kind==='allocation') expect(screen.getByText('AUD 100.00 left to allocate')).toBeVisible();
     else expect(screen.getByRole('button',{name:'Activate Budget version'})).toBeDisabled();
   });
   it.each(removalCases)('$kind failed removal retains the entered reason; switching to editing clears confirmation',async item=>{
     failSave=true;
     render(<BudgetSetup revision={0}/>);
-    fireEvent.click(await screen.findByRole('button',{name:item.button,exact:true}));
+    fireEvent.click(await screen.findByRole('button',{name:item.button}));
     fireEvent.change(screen.getByLabelText('Removal reason',{exact:false}),{target:{value:'Accidental entry'}});
-    fireEvent.click(screen.getByRole('button',{name:item.confirm,exact:true}));
+    fireEvent.click(screen.getByRole('button',{name:item.confirm}));
     expect(await screen.findByRole('alert')).toHaveTextContent('Save rejected.');
     expect(screen.getByLabelText('Removal reason',{exact:false})).toHaveValue('Accidental entry');
     expect(version).toEqual(initial);
-    fireEvent.click(screen.getByRole('button',{name:'Edit SOFTWARE / GENERAL',exact:true}));
+    fireEvent.click(screen.getByRole('button',{name:'Edit SOFTWARE / GENERAL'}));
     expect(screen.queryByRole('form',{name:item.form})).not.toBeInTheDocument();
   });
   it('requires confirmation, supports cancellation, and returns to the saved review after removal', async () => {
     render(<BudgetSetup revision={0}/>);
-    const remove = await screen.findByRole('button', { name: 'Remove draft line SOFTWARE / GENERAL', exact: true });
+    const remove = await screen.findByRole('button', { name: 'Remove draft line SOFTWARE / GENERAL' });
     fireEvent.click(remove);
     expect(mutations).toHaveLength(0);
     expect(screen.getByRole('region', { name: 'Draft line removal confirmation' })).toHaveTextContent('1 saved period allocation');
@@ -278,7 +278,7 @@ describe('Saved Budget editor return navigation', () => {
   it('retains a failed removal confirmation and reason for recovery', async () => {
     failSave = true;
     render(<BudgetSetup revision={0}/>);
-    fireEvent.click(await screen.findByRole('button', { name: 'Remove draft line SOFTWARE / GENERAL', exact: true }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove draft line SOFTWARE / GENERAL' }));
     fireEvent.change(screen.getByLabelText('Removal reason', { exact: false }), { target: { value: 'Accidental line' } });
     fireEvent.click(screen.getByRole('button', { name: 'Confirm remove draft line' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Save rejected.');
@@ -294,11 +294,11 @@ describe('Saved Budget editor return navigation', () => {
   });
   it('keeps mapping creation at the form instead of returning to review', async () => {
     render(<BudgetSetup revision={0}/>);
-    await screen.findByRole('button', { name: 'Edit mapping GENERAL', exact: true });
-    const form = within(screen.getByRole('form', { name: 'Commitment mapping', exact: true }));
+    await screen.findByRole('button', { name: 'Edit mapping GENERAL' });
+    const form = within(screen.getByRole('form', { name: 'Commitment mapping' }));
     fireEvent.change(form.getByLabelText('Mapping cost centre', { exact: false }), { target: { value: 'centre' } });
     fireEvent.change(form.getByLabelText('Mapping account', { exact: false }), { target: { value: 'alternate' } });
-    const save = form.getByRole('button', { name: 'Save commitment mapping', exact: true });
+    const save = form.getByRole('button', { name: 'Save commitment mapping' });
     save.focus(); fireEvent.click(save);
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Budget setup saved.'));
     expect(save).toHaveFocus();
@@ -307,11 +307,11 @@ describe('Saved Budget editor return navigation', () => {
   });
   it.each(cases)('$kind cancellation returns focus without saving', async item => {
     render(<BudgetSetup revision={0}/>);
-    fireEvent.click(await screen.findByRole('button', { name: item.edit, exact: true }));
-    const form = within(screen.getByRole('form', { name: item.form, exact: true }));
+    fireEvent.click(await screen.findByRole('button', { name: item.edit }));
+    const form = within(screen.getByRole('form', { name: item.form }));
     fireEvent.change(form.getByLabelText(item.field, { exact: false }), { target: { value: item.value } });
-    fireEvent.click(form.getByRole('button', { name: item.cancel, exact: true }));
-    expect(screen.getByRole('region', { name: item.review, exact: true })).toHaveFocus();
+    fireEvent.click(form.getByRole('button', { name: item.cancel }));
+    expect(screen.getByRole('region', { name: item.review })).toHaveFocus();
     expect(scroll).toHaveBeenCalledWith({ block: 'start', behavior: 'instant' });
     expect(mutations).toHaveLength(0);
     expect(version).toEqual(initial);
@@ -319,30 +319,30 @@ describe('Saved Budget editor return navigation', () => {
   });
   it.each(cases)('$kind save returns focus to the refreshed review', async item => {
     render(<BudgetSetup revision={0}/>);
-    fireEvent.click(await screen.findByRole('button', { name: item.edit, exact: true }));
-    const form = within(screen.getByRole('form', { name: item.form, exact: true }));
+    fireEvent.click(await screen.findByRole('button', { name: item.edit }));
+    const form = within(screen.getByRole('form', { name: item.form }));
     fireEvent.change(form.getByLabelText(item.field, { exact: false }), { target: { value: item.value } });
-    fireEvent.click(form.getByRole('button', { name: item.update, exact: true }));
-    await waitFor(() => expect(screen.getByRole('region', { name: item.review, exact: true })).toHaveFocus());
+    fireEvent.click(form.getByRole('button', { name: item.update }));
+    await waitFor(() => expect(screen.getByRole('region', { name: item.review })).toHaveFocus());
     expect(mutations).toHaveLength(1);
     expect(mutations[0].action).toBe(item.kind);
-    expect(screen.queryByRole('button', { name: item.cancel, exact: true })).not.toBeInTheDocument();
-    const review = screen.getByRole('region', { name: item.review, exact: true });
+    expect(screen.queryByRole('button', { name: item.cancel })).not.toBeInTheDocument();
+    const review = screen.getByRole('region', { name: item.review });
     expect(review).toHaveTextContent(item.kind === 'line' ? 'AUD 120.00' : item.kind === 'allocation' ? 'AUD 90.00' : 'HOSTING');
   });
   it.each(cases)('$kind failed save retains the edit and does not return to review', async item => {
     failSave = true;
     render(<BudgetSetup revision={0}/>);
-    fireEvent.click(await screen.findByRole('button', { name: item.edit, exact: true }));
-    const form = within(screen.getByRole('form', { name: item.form, exact: true }));
+    fireEvent.click(await screen.findByRole('button', { name: item.edit }));
+    const form = within(screen.getByRole('form', { name: item.form }));
     fireEvent.change(form.getByLabelText(item.field, { exact: false }), { target: { value: item.value } });
-    fireEvent.click(form.getByRole('button', { name: item.update, exact: true }));
+    fireEvent.click(form.getByRole('button', { name: item.update }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Save rejected.');
     expect(form.getByLabelText(item.field, { exact: false })).toHaveValue(item.value);
     expect(scroll).not.toHaveBeenCalled();
     expect(version).toEqual(initial);
-    fireEvent.click(form.getByRole('button', { name: item.cancel, exact: true }));
+    fireEvent.click(form.getByRole('button', { name: item.cancel }));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.getByRole('region', { name: item.review, exact: true })).toHaveFocus();
+    expect(screen.getByRole('region', { name: item.review })).toHaveFocus();
   });
 });

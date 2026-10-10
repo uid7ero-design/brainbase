@@ -465,6 +465,12 @@ checks their contents, dates, saved amounts and absence of finance POST requests
 
 ## Repeatable runtime evidence
 
+Run `npx tsc --noEmit` separately before release verification. This checks the
+test sources as well as application code; a passing production build and
+Vitest run do not establish that the test TypeScript passes CI. Testing Library
+role queries match string names exactly by default and do not accept an `exact`
+option. Keep Playwright's supported `exact` options on browser locators.
+
 After a production build, run:
 
 ```powershell
