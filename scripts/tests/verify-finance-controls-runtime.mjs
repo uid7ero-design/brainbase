@@ -468,7 +468,13 @@ try {
   await expect(mappingForm.getByLabel('Mapping cost centre',{exact:false})).toHaveAttribute('readonly','');
   await expect(mappingForm.getByLabel('Mapping account',{exact:false})).toHaveValue(budgetDimensions[0]);
   await mappingForm.getByLabel('Mapping account',{exact:false}).selectOption(alternateAccount);
+  await other.page.setViewportSize({width:390,height:844});
   await mappingForm.getByRole('button',{name:'Cancel mapping editing',exact:true}).click();
+  await expect(budgetSection.getByRole('region',{name:'Commitment mapping review',exact:true})).toBeFocused();
+  const returnedReview=await budgetSection.getByRole('region',{name:'Commitment mapping review',exact:true}).boundingBox();
+  if(!returnedReview||returnedReview.y<0||returnedReview.y>=844)throw new Error('Mapping cancellation did not return review into mobile view');
+  await other.page.screenshot({path:resolve(artifacts,'mapping-review-return-mobile.png')});
+  await other.page.setViewportSize({width:1440,height:1000});
   if((await pool.query('SELECT budget_account_id FROM commercial_budget_commitment_mappings WHERE id=$1',[originalMapping.id])).rows[0].budget_account_id!==budgetDimensions[0])throw new Error('Cancelling mapping editing changed saved routing');
   await editMapping.click();
   await mappingForm.getByLabel('Mapping account',{exact:false}).selectOption(alternateAccount);
@@ -484,6 +490,7 @@ try {
   await mappingForm.getByLabel('Mapping account',{exact:false}).selectOption(alternateAccount);
   await mappingForm.getByRole('button',{name:'Update mapping',exact:true}).click();
   await expect(mappingsTable).toContainText('MAPPING-ALT');
+  await expect(budgetSection.getByRole('region',{name:'Commitment mapping review',exact:true})).toBeFocused();
   const updatedMappings=(await pool.query('SELECT id,cost_centre_id,budget_account_id FROM commercial_budget_commitment_mappings WHERE budget_version_id=$1',[budgetState.version_id])).rows;
   if(updatedMappings.length!==1||updatedMappings[0].id!==originalMapping.id||updatedMappings[0].cost_centre_id!==budgetDimensions[1]||updatedMappings[0].budget_account_id!==alternateAccount)throw new Error('Mapping update duplicated or changed cost centre identity');
   const unchangedLine=(await pool.query('SELECT annual_budget_cents::text AS cents FROM commercial_budget_lines WHERE id=$1',[budgetState.line_id])).rows[0];
@@ -501,6 +508,7 @@ try {
   await expect(lineForm.getByLabel('Line account',{exact:false})).toHaveAttribute('readonly','');
   await lineForm.getByLabel('Annual amount (AUD)',{exact:false}).fill('999.00');
   await lineForm.getByRole('button',{name:'Cancel editing',exact:true}).click();
+  await expect(budgetSection.getByRole('region',{name:'Budget amount review',exact:true})).toBeFocused();
   await expect(lineForm.getByRole('button',{name:'Save line',exact:true})).toBeVisible();
   const cancelledLine=(await pool.query('SELECT annual_budget_cents::text AS cents FROM commercial_budget_lines WHERE id=$1',[budgetState.line_id])).rows[0];
   if(cancelledLine.cents!=='10000')throw new Error('Cancelling line editing changed the saved amount');
@@ -512,6 +520,7 @@ try {
   await lineForm.getByLabel('Annual amount (AUD)',{exact:false}).fill('110.00');
   await lineForm.getByRole('button',{name:'Update line',exact:true}).click();
   await expect(budgetSection.getByText('AUD 10.00 left to allocate',{exact:true})).toBeVisible();
+  await expect(budgetSection.getByRole('region',{name:'Budget amount review',exact:true})).toBeFocused();
   await expect(budgetSection.getByRole('table',{name:'Period allocations',exact:true})).toContainText('AUD 100.00');
   const editedLines=(await pool.query('SELECT id,annual_budget_cents::text AS cents FROM commercial_budget_lines WHERE budget_version_id=$1',[budgetState.version_id])).rows;
   if(editedLines.length!==1||editedLines[0].id!==budgetState.line_id||editedLines[0].cents!=='11000')throw new Error('Editing replaced or duplicated the saved line');
@@ -530,7 +539,9 @@ try {
   await allocationForm.getByRole('button',{name:'Update allocation',exact:true}).click();
   await expect(budgetSection.getByRole('alert')).toContainText('two decimal places');
   await expect(allocationForm.getByRole('button',{name:'Update allocation',exact:true})).toBeVisible();
+  await expect(budgetSection.getByRole('region',{name:'Budget amount review',exact:true})).not.toBeFocused();
   await allocationForm.getByRole('button',{name:'Cancel allocation editing',exact:true}).click();
+  await expect(budgetSection.getByRole('region',{name:'Budget amount review',exact:true})).toBeFocused();
   const cancelledAllocation=(await pool.query('SELECT amount_cents::text AS cents FROM commercial_budget_period_allocations WHERE budget_line_id=$1',[budgetState.line_id])).rows;
   if(cancelledAllocation.length!==1||cancelledAllocation[0].cents!=='10000')throw new Error('Cancelled allocation editing changed saved amounts');
   await editAllocation.click();
@@ -556,6 +567,7 @@ try {
     await allocationForm.getByLabel('Period amount (AUD)',{exact:false}).fill(amount);
     await allocationForm.getByRole('button',{name:'Update allocation',exact:true}).click();
     await expect(budgetSection.getByText(check,{exact:true})).toBeVisible();
+    await expect(budgetSection.getByRole('region',{name:'Budget amount review',exact:true})).toBeFocused();
     const allocationRows=(await pool.query('SELECT id,financial_period_id,amount_cents::text AS cents FROM commercial_budget_period_allocations WHERE budget_line_id=$1',[budgetState.line_id])).rows;
     const annualRow=(await pool.query('SELECT annual_budget_cents::text AS cents FROM commercial_budget_lines WHERE id=$1',[budgetState.line_id])).rows[0];
     const targetAllocation=allocationRows.find(row=>row.financial_period_id===setupPeriod),siblingAllocation=allocationRows.find(row=>row.financial_period_id===siblingPeriod);
@@ -765,6 +777,7 @@ try {
   evidence.budgetSetupChecks=['fresh Budget and DRAFT version created through form','draft line and commitment mapping through forms','period allocation mismatch blocks activation','correct allocation permits activation','ACTIVE version read-only and API rejects edits','active version pointer persisted','duplicate header rejected','unauthenticated, viewer, unentitled and foreign-tenant mutations denied'];
   evidence.budgetReviewChecks=['exact shortage and excess shown per line','corrected allocation marked balanced with remaining review guidance','saved allocation shown in named table','both review tables contained and scrollable on mobile','activation issue links focus line setup, allocation review and dimension headings','resolved issues remove corrective links'];
   evidence.budgetMappingManagementChecks=['saved mapping table shows codes and reference status','checklist link navigates to mapping form','saved account prefilled with fixed cost centre','cancel and version switch discard unsaved edit','update preserves mapping ID cost centre amounts and allocations','saved account reloads and original mapping restored','inactive references flagged','ACTIVE mappings readable without editing','mobile editor fits viewport'];
+  evidence.budgetEditReturnChecks=['mapping cancel and successful update return focus to saved mapping review','line cancel and successful update return focus to amount review','allocation failure retains editor; cancel and successful update return focus to amount review'];
   evidence.budgetActivationGuidanceChecks=['empty draft explains missing lines and mapping','saving lines and mappings updates guidance','allocation imbalance remains visible until resolved','balanced draft still requires tax and mapping review','deactivation reveals inactive reference issue','ACTIVE version omits draft checklist'];
   evidence.budgetAllocationEditChecks=['exact saved amount and fixed line/period prefilled','invalid decimal retains editor without mutation','cancel preserves saved allocation','version switching clears unsaved editor','update retains allocation ID annual amount and another period allocation','shortage excess and recovered balance shown','mobile editor contained','ACTIVE edit action absent'];
   evidence.budgetLineEditChecks=['saved amount prefilled exactly','fixed dimension identity retained','cancel leaves saved amount unchanged','update preserves line ID and allocations','allocation mismatch shown after annual amount change','saved amount reloads and balance restores','editor fits mobile viewport'];

@@ -433,6 +433,17 @@ Rendered checks cover link destinations, conditional visibility and resolution.
 The disposable runtime checks navigation, destination focus and unchanged
 Budget behavior through line creation, allocation correction and dimension recovery.
 
+## Returning from saved Budget edits
+
+Saved line, allocation and mapping editors return focus and scroll position to
+their corresponding saved review after cancellation or a successful save/readback.
+Failed saves retain the populated editor. Creation forms keep their existing
+navigation behavior. Cancellation clears the dismissed error and confirms that
+saved records are unchanged; it sends no request. Returning to review uses an
+instant scroll and the existing header spacing. Rendered parent-component tests
+cover all three editors for cancellation, successful readback and rejected saves;
+the disposable runtime checks focus alongside persisted record invariants.
+
 ## Repeatable runtime evidence
 
 After a production build, run:

@@ -1,5 +1,5 @@
 'use client';
-import { useEffect,useState,type FormEvent } from 'react';
+import { useEffect,useRef,useState,type FormEvent } from 'react';
 import { Field,buttonProps,fieldControlClassName } from '@/components/ui/app';
 import styles from './page.module.css';
 import { budgetAmountToCents } from '@/lib/commercial/financeSetupDisplay';
@@ -27,6 +27,19 @@ export default function BudgetSetup({revision}:{revision:number}){
   const [editingLineId,setEditingLineId]=useState('');
   const [editingAllocationKey,setEditingAllocationKey]=useState<{lineId:string;periodId:string}|null>(null);
   const [editingMappingCentreId,setEditingMappingCentreId]=useState('');
+  const amountReviewRef=useRef<HTMLElement>(null);
+  const mappingReviewRef=useRef<HTMLElement>(null);
+  function returnToReview(target:HTMLElement|null){
+    target?.focus({preventScroll:true});
+    target?.scrollIntoView({block:'start',behavior:'instant'});
+  }
+  function cancelEditing(kind:'line'|'allocation'|'mapping'){
+    if(kind==='line')setEditingLineId('');
+    if(kind==='allocation')setEditingAllocationKey(null);
+    if(kind==='mapping')setEditingMappingCentreId('');
+    setError('');setMessage('Editing cancelled. Saved Budget records are unchanged.');
+    returnToReview(kind==='mapping'?mappingReviewRef.current:amountReviewRef.current);
+  }
   const version=data.versions.find(row=>row.version_id===versionId);
   const editingLine=version?.lines.find(line=>line.id===editingLineId);
   const editingAllocation=version?.allocations.find(row=>row.budget_line_id===editingAllocationKey?.lineId&&row.financial_period_id===editingAllocationKey?.periodId);
@@ -41,6 +54,9 @@ export default function BudgetSetup({revision}:{revision:number}){
     event.preventDefault();if(loading||busy)return;
     const form=event.currentTarget,body:Record<string,unknown>={...Object.fromEntries(new FormData(form)),action};
     const target=version;
+    const editingSavedRecord=(action==='mapping'&&Boolean(editingMapping))
+      ||(action==='line'&&Boolean(editingLine))||(action==='allocation'&&Boolean(editingAllocation));
+    const returnTarget=editingSavedRecord?(action==='mapping'?mappingReviewRef.current:amountReviewRef.current):null;
     setBusy(true);setError('');setMessage('');
     try{
       if(action==='line')body.annualBudgetCents=budgetAmountToCents(String(body.annualBudgetCents));
@@ -50,6 +66,7 @@ export default function BudgetSetup({revision}:{revision:number}){
       const result=await response.json();if(!response.ok)throw new Error(result.error??'Unable to save Budget setup.');
       const next=await readSetup();setData(next);if(action==='create')setVersionId(result.version.id);
       form.reset();if(action==='mapping'||action==='create'||action==='activate')setEditingMappingCentreId('');if(action==='line'||action==='create'||action==='activate')setEditingLineId('');if(action==='allocation'||action==='create'||action==='activate')setEditingAllocationKey(null);setMessage(action==='activate'?'Budget version activated. Draft editing is now locked.':action==='settings'?'Budget settings saved. Existing amounts and allocations are unchanged.':'Budget setup saved.');
+      returnToReview(returnTarget);
     }catch(failure){setError(failure instanceof Error?failure.message:'Unable to save Budget setup.');}finally{setBusy(false);}
   }
   const accountOptions=data.accounts.filter(row=>row.active).map(row=>({id:row.id,label:row.code}));
@@ -83,18 +100,20 @@ export default function BudgetSetup({revision}:{revision:number}){
       </details>:<p>Budget settings are locked after activation or when the financial year is closed.</p>}
       {version.status==='DRAFT'?<>
         <section id="budget-line-setup" aria-label="Budget line setup" tabIndex={-1} className={styles.navigationTarget}>
-          <DraftBudgetLineForm key={`${version.version_id}:${editingLine?.id??'new'}`} currency={version.currency} busy={busy} line={editingLine} accounts={accountOptions} centres={centreOptions} accountCode={accountCode} centreCode={centreCode} onSubmit={event=>void submit(event,'line')} onCancel={()=>setEditingLineId('')}/>
+          <DraftBudgetLineForm key={`${version.version_id}:${editingLine?.id??'new'}`} currency={version.currency} busy={busy} line={editingLine} accounts={accountOptions} centres={centreOptions} accountCode={accountCode} centreCode={centreCode} onSubmit={event=>void submit(event,'line')} onCancel={()=>cancelEditing('line')}/>
         </section>
         <section id="budget-commitment-mapping" aria-label="Commitment mapping setup" tabIndex={-1} className={styles.mappingSetup}>
           <h3>Commitment mapping setup</h3>
-          <DraftBudgetMappingForm key={`${version.version_id}:${editingMapping?.cost_centre_id??'new'}`} busy={busy} mapping={editingMapping} accounts={data.accounts} centres={data.centres} onSubmit={event=>void submit(event,'mapping')} onCancel={()=>setEditingMappingCentreId('')}/>
+          <DraftBudgetMappingForm key={`${version.version_id}:${editingMapping?.cost_centre_id??'new'}`} busy={busy} mapping={editingMapping} accounts={data.accounts} centres={data.centres} onSubmit={event=>void submit(event,'mapping')} onCancel={()=>cancelEditing('mapping')}/>
         </section>
-        {version.periodisation_mode==='PERIODISED'&&<DraftBudgetAllocationForm key={`${version.version_id}:${editingAllocation?.budget_line_id??'new'}:${editingAllocation?.financial_period_id??''}`} currency={version.currency} busy={busy} allocation={editingAllocation} lines={version.lines.map(line=>({id:line.id,label:accountCode(line.budget_account_id)+' / '+centreCode(line.cost_centre_id)}))} periods={periods.map(period=>({id:period.id,label:period.name}))} onSubmit={event=>void submit(event,'allocation')} onCancel={()=>setEditingAllocationKey(null)}/>}
+        {version.periodisation_mode==='PERIODISED'&&<DraftBudgetAllocationForm key={`${version.version_id}:${editingAllocation?.budget_line_id??'new'}:${editingAllocation?.financial_period_id??''}`} currency={version.currency} busy={busy} allocation={editingAllocation} lines={version.lines.map(line=>({id:line.id,label:accountCode(line.budget_account_id)+' / '+centreCode(line.cost_centre_id)}))} periods={periods.map(period=>({id:period.id,label:period.name}))} onSubmit={event=>void submit(event,'allocation')} onCancel={()=>cancelEditing('allocation')}/>}
       </>:<p>This version is read-only. Its existing lines, mappings and allocations remain available below.</p>}
-      <section id="budget-allocation-review" aria-label="Budget amount review" tabIndex={-1} className={styles.navigationTarget}>
+      <section ref={amountReviewRef} id="budget-allocation-review" aria-label="Budget amount review" tabIndex={-1} className={styles.navigationTarget}>
         <BudgetReview currency={version.currency} periodised={version.periodisation_mode==='PERIODISED'} draft={version.status==='DRAFT'} lines={version.lines} allocations={version.allocations} periods={periods} accountCode={accountCode} centreCode={centreCode} busy={busy} onEditLine={id=>{setEditingLineId(id);setEditingAllocationKey(null);setEditingMappingCentreId('');}} onEditAllocation={(lineId,periodId)=>{setEditingAllocationKey({lineId,periodId});setEditingLineId('');setEditingMappingCentreId('');}}/>
       </section>
-      <BudgetMappingReview mappings={version.mappings} accounts={data.accounts} centres={data.centres} draft={version.status==='DRAFT'} busy={busy} onEdit={centreId=>{setEditingMappingCentreId(centreId);setEditingLineId('');setEditingAllocationKey(null);}}/>
+      <section ref={mappingReviewRef} aria-label="Commitment mapping review" tabIndex={-1} className={styles.navigationTarget}>
+        <BudgetMappingReview mappings={version.mappings} accounts={data.accounts} centres={data.centres} draft={version.status==='DRAFT'} busy={busy} onEdit={centreId=>{setEditingMappingCentreId(centreId);setEditingLineId('');setEditingAllocationKey(null);}}/>
+      </section>
       {version.status==='DRAFT'&&<>
         <BudgetActivationReview setupNavigation mappingFormId="budget-commitment-mapping" financialYearStatus={data.years.find(year=>year.id===version.financial_year_id)?.status} periodised={version.periodisation_mode==='PERIODISED'} lines={version.lines} mappings={version.mappings} allocations={version.allocations} periods={periods} accounts={data.accounts} centres={data.centres}/>
         <form className={styles.activationAction} aria-label="Activate Budget" onSubmit={event=>void submit(event,'activate')}><button {...buttonProps('primary')} disabled={busy||version.lines.length===0||version.mappings.length===0} type="submit">Activate Budget version</button></form>
