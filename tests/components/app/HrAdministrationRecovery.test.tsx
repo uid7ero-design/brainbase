@@ -68,7 +68,7 @@ describe('HR administration read recovery', () => {
     fetchMock.mockResolvedValueOnce(response({}, 403));
     fireEvent.click(screen.getByText('Refresh', { exact: true }));
     await screen.findByText(/Please refresh to try again/);
-    expect((screen.getByRole('button', { name: 'Create Team', exact: true }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Create Team' }) as HTMLButtonElement).disabled).toBe(true);
     expect((name as HTMLInputElement).value).toBe('Unsaved team');
     fireEvent.submit(name.closest('form')!);
     expect(fetchMock.mock.calls.every(call => !call[1].method)).toBe(true);
