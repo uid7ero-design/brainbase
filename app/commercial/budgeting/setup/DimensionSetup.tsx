@@ -52,7 +52,7 @@ export default function DimensionSetup({ kind, title, onChange }: { kind: 'accou
     finally { setBusy(false); }
   }
   return <section aria-labelledby={'dimension-' + kind} className={styles.panel}>
-    <h2 id={'dimension-' + kind} style={{ marginTop: 0, fontSize: 16 }}>{title}</h2>
+    <h2 id={'dimension-' + kind} tabIndex={-1} className={styles.navigationTarget} style={{ marginTop: 0, fontSize: 16 }}>{title}</h2>
     <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Codes are unique within your organisation. Deactivation retains the record and its history; records used by an active Budget cannot be deactivated. Reactivate an inactive record to restore its use in drafts.</p>
     {error && <p role="alert" style={{ color: 'var(--status-danger)' }}>{error}</p>}
     <p role="status">{loading ? 'Loading…' : message}</p>

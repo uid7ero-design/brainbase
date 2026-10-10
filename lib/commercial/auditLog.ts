@@ -940,6 +940,22 @@ export async function logBudgetLineChanged(params: {
   });
 }
 
+export async function logBudgetLineRemoved(params: {
+  organisationId: string; userId: string; budgetLineId: string; before: Record<string, unknown>; reason: string;
+}): Promise<void> {
+  await insertAuditLog({ organisationId: params.organisationId, userId: params.userId,
+    action: 'commercial_budget_line.removed', resourceType: 'commercial_budget_line', resourceId: params.budgetLineId,
+    beforeState: params.before, afterState: { removed: true, reason: params.reason } });
+}
+
+export async function logBudgetDraftEntryRemoved(params: {
+  organisationId: string; userId: string; kind: 'allocation' | 'mapping'; entryId: string; before: Record<string, unknown>; reason: string;
+}): Promise<void> {
+  const resourceType = params.kind === 'allocation' ? 'commercial_budget_period_allocation' : 'commercial_budget_commitment_mapping';
+  await insertAuditLog({ organisationId: params.organisationId, userId: params.userId, action: `${resourceType}.removed`, resourceType,
+    resourceId: params.entryId, beforeState: params.before, afterState: { removed: true, reason: params.reason } });
+}
+
 export async function logBudgetPeriodAllocationChanged(params: {
   organisationId: string; userId: string; budgetPeriodAllocationId: string; budgetVersionId: string; after: Record<string, unknown>;
 }): Promise<void> {
