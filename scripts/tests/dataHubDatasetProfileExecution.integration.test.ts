@@ -97,9 +97,15 @@ afterAll(async () => {
         { id: `${suffix}-r2`, sourceRowNumber: 3, col1: "ID-2", col2: null, col3: "2024-01-02", col4: "second" },
         { id: `${suffix}-r3`, sourceRowNumber: 4, col1: "ID-3", col2: held ? null : "5", col3: "2024-01-03", col4: "third" },
       ]);
+      // Complete the persisted inventory metadata needed by the real listing
+      // API; seedWorld's analysis-only fixtures intentionally omit it.
+      await prisma.upload.update({ where: { id: ids.uploadId }, data: {
+        worksheet_visibility: "visible", worksheet_is_empty: false, canonical_status: "AWAITING_CONFIRMATION",
+      } });
       const profiled = await profileUploadDataset({ organisationId: ORG_A, uploadId: ids.uploadId, actorId: ids.userId });
       if (!profiled.ok) throw new Error("browser fixture profiling failed");
       await prisma.user.update({ where: { id: ids.userId }, data: { password_hash: await hash(password, 4) } });
+      await prisma.importBatch.update({ where: { id: ids.batchId }, data: { original_filename: held ? "analysis-held.xlsx" : "analysis-ready.xlsx" } });
       worlds.push({ ...ids, datasetProfileRunId: profiled.profileRunId, held });
     }
     mkdirSync("test-results/datahub-runtime", { recursive: true });

@@ -12,6 +12,13 @@ type Plan = Extract<PlanAnalysisReviewResult, { ok: true }>;
 type Review = Extract<LoadAnalysisReviewResult, { ok: true }>;
 type Count = Extract<AnalyzeReviewedUploadCountResult, { ok: true }>;
 const words = (value: string) => value.toLowerCase().replaceAll("_", " ");
+const recoveryMessage = (code: string) => {
+  if (["PROFILE_NOT_COMPLETE", "PROFILER_VERSION_UNSUPPORTED"].includes(code)) return "This worksheet needs a completed, supported profile before analysis is available.";
+  if (["REVIEW_PROFILE_CHANGED", "PROFILE_LINEAGE_MISMATCH", "DATASET_CONTEXT_MISMATCH"].includes(code)) return "The dataset changed. Reload its current profile and review before continuing.";
+  if (["UNAUTHORIZED", "FORBIDDEN", "UPLOAD_NOT_FOUND"].includes(code)) return "This worksheet is unavailable to your current session. Sign in with an authorized account or return to imports.";
+  if (code === "QUALITY_HOLD") return "The latest review has a quality hold. Reload it and review the required corrections before counting.";
+  return "This step could not be completed. If saving failed, reload before trying again; the previous save may have completed.";
+};
 
 export default function AnalysisReviewClient({ uploadId }: { uploadId: string }) {
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -53,6 +60,16 @@ export default function AnalysisReviewClient({ uploadId }: { uploadId: string })
   const matchingProfile = !!plan && review?.schema.context.datasetProfileRunId === plan.datasetProfileRunId;
   const measures = matchingProfile ? review.schema.snapshot.fields.filter(field => field.fieldClass === "MEASURE") : [];
   const fieldLabel = (id: string) => plan?.fieldLabels.find(field => field.sourceSchemaColumnId === id)?.label ?? "Field";
+  function restoredRoles(currentPlan: Plan, saved: Review) {
+    if (saved.schema.context.datasetProfileRunId !== currentPlan.datasetProfileRunId) return {};
+    const next: Record<string, SemanticRole> = {};
+    for (const column of currentPlan.clarification.columns) {
+      const field = saved.schema.snapshot.fields.find(field => field.sourceSchemaColumnId === column.sourceSchemaColumnId);
+      if (column.resolutionState === "CLARIFICATION_REQUIRED" && field?.resolutionSource === "CLARIFIED_CHOICE" &&
+          column.candidateRoles.includes(field.semanticRole)) next[column.sourceSchemaColumnId] = field.semanticRole;
+    }
+    return next;
+  }
 
   return <main style={{ maxWidth: 800, margin: "24px auto", padding: 24 }}>
     <Link href="/data-hub/import">Back to Data Hub imports</Link>
@@ -61,14 +78,16 @@ export default function AnalysisReviewClient({ uploadId }: { uploadId: string })
     <p>Worksheet: {uploadId}</p>
     <button disabled={busy} onClick={() => void run(async () => {
       setPlan(null); setRoles({}); setDecisions({}); setReview(null); setCount(null); setMeasure("");
-      setPlan(await request<Plan>("/analysis-review/plan"));
-      try { setReview(await request<Review>("/analysis-review")); }
+      const currentPlan = await request<Plan>("/analysis-review/plan"); setPlan(currentPlan);
+      try {
+        const saved = await request<Review>("/analysis-review");
+        setReview(saved); setRoles(restoredRoles(currentPlan, saved));
+      }
       catch (failure) { if (!(failure instanceof Error) || failure.message !== "REVIEW_NOT_FOUND") throw failure; }
       setSaveNeedsReload(false);
     })}>Load current review</button>
     <p role="status" aria-live="polite">{busy ? "Working…" : ""}</p>
-    {error ? <div role="alert"><p>Unable to complete this step ({error}).</p>
-      <p>Reload the current review if the dataset changed. If saving failed, reload before trying again; the previous save may have completed.</p></div> : null}
+    {error ? <div role="alert"><p>{recoveryMessage(error)}</p><p>Reference: {error}</p></div> : null}
     {plan ? <section aria-label="Dataset review">
       <h2>Field meanings</h2>
       <p>Only choices offered by the current profile can be selected. Fields without a candidate need a new profile or corrected data.</p>
@@ -84,8 +103,19 @@ export default function AnalysisReviewClient({ uploadId }: { uploadId: string })
         </>}
       </div>)}
       <button disabled={busy || !rolesComplete} onClick={() => void run(async () => {
+        const saved = review;
         setReview(null); setCount(null); setDecisions({}); setPlan({ ...plan, quality: null });
-        setPlan(await request<Plan>("/analysis-review/plan", envelope(false)));
+        const preview = await request<Plan>("/analysis-review/plan", envelope(false)); setPlan(preview);
+        if (saved?.schema.context.datasetProfileRunId === preview.datasetProfileRunId && preview.quality) {
+          const next: Record<number, DataQualityReviewDecision> = {};
+          preview.quality.items.forEach((item, index) => {
+            const previous = saved.quality.snapshot.items.find(previous => previous.code === item.code &&
+              previous.scope === item.scope && previous.sourceSchemaColumnId === item.sourceSchemaColumnId);
+            if (previous && (item.action === "ACKNOWLEDGE_NOTICE" ? previous.decision === "ACKNOWLEDGE" :
+                previous.decision === "CONTINUE" || previous.decision === "HOLD")) next[index] = previous.decision;
+          });
+          setDecisions(next);
+        }
       })}>Review quality</button>
       {plan.quality ? <section aria-label="Quality decisions"><h2>Data quality</h2>
         {plan.quality.items.length === 0 ? <p>No quality decisions required.</p> : null}
@@ -117,7 +147,9 @@ export default function AnalysisReviewClient({ uploadId }: { uploadId: string })
         <label htmlFor="count-field">Measure to count</label>
         <select id="count-field" disabled={busy || held} value={measure} onChange={event => { setMeasure(event.target.value); setCount(null); }}>
           <option value="">Choose measure</option>
-          {measures.map(field => <option key={field.sourceSchemaColumnId} value={field.sourceSchemaColumnId}>{fieldLabel(field.sourceSchemaColumnId)}</option>)}
+          {measures.map(field => <option key={field.sourceSchemaColumnId} value={field.sourceSchemaColumnId}>
+            {fieldLabel(field.sourceSchemaColumnId)} (field {(plan?.fieldLabels.findIndex(label => label.sourceSchemaColumnId === field.sourceSchemaColumnId) ?? -1) + 1})
+          </option>)}
         </select>
         <p>Present values include zero. Missing values are excluded.</p>
         <button disabled={busy || held || !measures.some(field => field.sourceSchemaColumnId === measure)} onClick={() => void run(async () => {

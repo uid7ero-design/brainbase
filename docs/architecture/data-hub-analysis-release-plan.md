@@ -3,8 +3,9 @@
 ## Candidate and scope
 
 The candidate combines D4D5Z authenticated route proofs, governed field labels,
-present-value count controls, uncertain-save recovery and the disposable
-browser journey. It builds on the merged D4D5Q–Y review/count services and
+present-value count controls, worksheet navigation from import history,
+saved-choice restoration, uncertain-save recovery and the disposable browser
+journey. It builds on the merged D4D5Q–Y review/count services and
 screen. It introduces no database migration, backfill, AI calls, generic
 aggregate execution, grouping execution or access to uploaded cell values.
 
@@ -24,6 +25,14 @@ Saving appends a revision, and has no idempotent replay contract. Any failed
 save or reload after saving requires an explicit reload of the current review
 before another save. This prevents a quick retry when the first response is
 uncertain; it does not provide exactly-once delivery across tabs or clients.
+
+Import history offers an explicit, bounded read through the existing
+tenant-scoped persisted-worksheet listing API. It does not inspect the file
+again or imply profile readiness. Worksheet names are distinguished by their
+positions. Opening analysis still requires the current profile and review.
+Reload restores only saved clarified meanings offered by that same profile;
+an explicit quality preview restores matching valid decisions. Neither step
+appends a revision. Changed meanings clear the saved decisions before preview.
 
 ## Release prerequisites — owner verification required
 
@@ -85,7 +94,7 @@ append a correction.
 
 ## Verification and limits
 
-Local candidate validation passed: 2,174 Data Hub/component tests across 88
+Local candidate validation passed: 2,182 Data Hub/component tests across 89
 files, all 64 disposable-Postgres integration tests, the built-app browser
 journey, TypeScript, changed-file lint and diff checks. The application build
 passed with local build-only placeholders; the existing missing dashboard-copy
@@ -101,7 +110,8 @@ applies the actual migration chain, runs the integration suite, seeds synthetic
 profile evidence and starts the built Next application. Real form login,
 cookies, session revalidation, APIs, Prisma and SQL constraints run unchanged.
 Only Neon HTTP transport is adapted to local PostgreSQL. Browser checks cover
-saved review persistence, both counts, zero/null behavior, holds, stale pins,
+history-to-worksheet navigation, saved review persistence and choice restoration
+without an automatic append, both counts, zero/null behavior, holds, stale pins,
 denied access and timed-out save recovery. Evidence stays in ignored
 `test-results/datahub-runtime`; disposable login credentials are removed.
 

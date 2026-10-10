@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useImportHistory } from "../useImportHistory";
 import { describeBatchHistoryStatus } from "../historyStatusCopy";
+import AnalysisWorksheetLinks from "@/app/data-hub/analysis/_components/AnalysisWorksheetLinks";
 
 // Data Hub 5A.3D.2 — "Recent imports" panel embedded below the existing
 // FileSelector on the SELECT screen only (spec Section 7: no separate nav
@@ -153,7 +154,8 @@ function HistoryRow({
   );
 
   if (!presentation.actionable) {
-    return <li>{content}</li>;
+    return <li>{content}{row.status !== "AWAITING_UPLOAD" && row.status !== "PROCESSING" && row.status !== "DELETION_PENDING" ?
+      <AnalysisWorksheetLinks batchId={row.id} filename={row.originalFilename} /> : null}</li>;
   }
 
   return (
@@ -161,6 +163,7 @@ function HistoryRow({
       <Link href={`/data-hub/import/${encodeURIComponent(row.id)}`} style={{ display: "block", textDecoration: "none" }}>
         {content}
       </Link>
+      <AnalysisWorksheetLinks batchId={row.id} filename={row.originalFilename} />
     </li>
   );
 }

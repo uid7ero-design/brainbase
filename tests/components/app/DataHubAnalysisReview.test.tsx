@@ -48,6 +48,30 @@ describe("Data Hub review screen", () => {
     expect(screen.getByText("Count rows")).toBeDisabled();
     expect(screen.getByText("Count present values")).toBeDisabled();
   });
+  it("restores validated saved meanings and quality decisions for the matching profile", async () => {
+    const loaded = { ...saved(), schema: { context: { datasetProfileRunId: "profile-1" }, snapshot: { fields: [
+      { sourceSchemaColumnId: "amount", semanticRole: "MEASURE", fieldClass: "MEASURE", resolutionSource: "CLARIFIED_CHOICE" },
+    ] } }, quality: { snapshot: { state: "READY", items: [{ code: "PARTIAL_NULL_VALUES", scope: "COLUMN", sourceSchemaColumnId: "amount", decision: "ACKNOWLEDGE" }] } } };
+    const fetcher = vi.fn().mockResolvedValueOnce(reply(initial)).mockResolvedValueOnce(reply(loaded)).mockResolvedValueOnce(reply(preview));
+    vi.stubGlobal("fetch", fetcher); render(<AnalysisReviewClient uploadId="upload" />);
+    fireEvent.click(screen.getByText("Load current review")); await screen.findByText("Saved review 2");
+    expect(screen.getByLabelText("Amount (field 1)")).toHaveValue("MEASURE");
+    fireEvent.click(screen.getByText("Review quality")); await screen.findByText("Data quality");
+    expect(screen.getByLabelText("partial null values — Amount")).toHaveValue("ACKNOWLEDGE");
+    expect(screen.getByText("Save review")).toBeEnabled();
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher.mock.calls.filter(call => call[0].endsWith("/analysis-review") && call[1].method === "POST")).toHaveLength(0);
+  });
+  it("does not restore meanings across profile changes", async () => {
+    const loaded = { ...saved(), schema: { context: { datasetProfileRunId: "profile-2" }, snapshot: { fields: [
+      { sourceSchemaColumnId: "amount", semanticRole: "MEASURE", fieldClass: "MEASURE", resolutionSource: "CLARIFIED_CHOICE" },
+    ] } } };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(reply(initial)).mockResolvedValueOnce(reply(loaded)));
+    render(<AnalysisReviewClient uploadId="upload" />);
+    fireEvent.click(screen.getByText("Load current review")); await screen.findByText("Saved review 2");
+    expect(screen.getByLabelText("Amount (field 1)")).toHaveValue("");
+    expect(screen.getByText("Review quality")).toBeDisabled();
+  });
   it("counts only a saved measure with an explicit closed request", async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(reply(initial)).mockResolvedValueOnce(reply(saved()))
       .mockResolvedValueOnce(reply({ ok: true, result: { plan: { operation: "COUNT_PRESENT", sourceSchemaColumnId: "amount" }, count: 0,

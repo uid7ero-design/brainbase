@@ -97,7 +97,13 @@ try {
       return { status: response.status, cache: response.headers.get('Cache-Control'), body: await response.json() };
     }, { path, body });
   }
-  await open(ready.uploadId);
+  await page.goto(origin + '/data-hub/import');
+  await page.getByRole('button', { name: 'Review worksheets in analysis-ready.xlsx', exact: true }).click();
+  await page.getByRole('link', { name: 'Data (worksheet 1) — review and count', exact: true }).click();
+  await expect(page).toHaveURL(origin + `/data-hub/analysis/${ready.uploadId}`);
+  await page.getByRole('button', { name: 'Load current review', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Field meanings', exact: true })).toBeVisible();
+  evidence.checks.push('Import history to persisted worksheet navigation through real metadata API, without file reinspection');
   await expect(page.getByLabel('Amount (field 2)', { exact: true })).toBeVisible();
   await chooseMeanings(); await chooseQuality();
   await page.getByRole('button', { name: 'Save review', exact: true }).click();
@@ -118,6 +124,11 @@ try {
   if (reloaded.status !== 200 || reloaded.cache !== 'private, no-store' || reloaded.body.revision !== 1) throw new Error('Reload/caching failed');
   await page.reload(); await page.getByRole('button', { name: 'Load current review', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Saved review 1', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Amount (field 2)', { exact: true })).toHaveValue('MEASURE');
+  await page.getByRole('button', { name: 'Review quality', exact: true }).click();
+  await expect(page.locator('select[id^="quality-"]').first()).toHaveValue('ACKNOWLEDGE');
+  if ((await pool.query('SELECT count(*)::int AS n FROM data_hub_analysis_reviews WHERE upload_id=$1', [ready.uploadId])).rows[0].n !== 1) throw new Error('Reload or preview appended review automatically');
+  evidence.checks.push('Saved explicit meanings and matched quality decisions restored after reload; reads/preview append nothing');
   evidence.checks.push('Saved review survives browser reload; private no-store responses; mobile controls fit');
 
   // A role edit invalidates prior results and requires a new quality preview.
