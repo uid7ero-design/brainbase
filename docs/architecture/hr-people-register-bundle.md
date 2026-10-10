@@ -16,11 +16,14 @@ Refresh and view changes clear previous rows, totals and management controls whi
 
 People, lifecycle overview, task queue and document assurance share a keyboard-accessible **Reset view** action. It clears each screen's search and filters and returns the requested page to one in a single batched interaction. It remains available while a changed view is loading, empty or failed; resetting aborts the superseded read. It is disabled for the default view. Resetting changes view state only, leaves existing drawers/forms alone and does not cache, persist or mutate HR records.
 
+The person drawer's initial detail, workflow, document and assurance reads use an abort signal and no-store caching. Closing or switching the selected person aborts those reads; cancellation guards also ignore late responses from transports that do not honor abort. A cancelled queued load does not start requests. Person detail must match the selected ID and have valid required display fields before it renders; previous-person content is hidden immediately on selection changes. HTTP/read failures use a generic person-load message without reflecting server error text. Write actions and their authorization are unchanged; aborting these reads does not roll back writes.
+
 ## Verification and release boundary
 
 - 1,148 HR containment/component tests across 89 files pass, including access failures, response projection, late reads, recovery and separate create/edit callback wiring.
 - Four Chromium fixture flows pass for People, lifecycle, tasks and documents. Drawer/form seams are substituted; these checks do not certify real authenticated form submissions.
 - Twelve additional cross-register component checks cover combined-filter/page reset, empty/failure recovery and pending-read cancellation. Chromium exercises keyboard activation of reset on every register.
+- Drawer component regressions cover generic denial/failure messages, wrong-person and malformed detail rejection, ignored late responses after switching, and assurance-read cancellation/reopening. Register browser tests substitute the drawer, so actual drawer behavior is verified separately in components.
 - Disposable PostgreSQL 16 checks execute the actual readers and compare People visibility against the canonical access helpers. They cover active-organisation switching, ordinary admin denial, super-admin scope, malformed cross-organisation relations, manager/grant revocation, literal search, filtered totals, disjoint pages and clamping across 2,000 synthetic people. No production database or real HR records are used.
 - TypeScript and changed-file lint pass. Production compilation is checked using an unreachable loopback database URL, without pulling credentials or changing environment configuration.
 
