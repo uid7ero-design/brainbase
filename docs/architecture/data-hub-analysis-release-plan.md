@@ -4,7 +4,8 @@
 
 The candidate combines D4D5Z authenticated route proofs, governed field labels,
 present-value count controls, worksheet navigation from import history,
-saved-choice restoration, a closed count-response contract, uncertain-save recovery and the disposable browser
+saved-choice restoration, closed count-response and failure display contracts,
+uncertain-save recovery and the disposable browser
 journey. It builds on the merged D4D5Q–Y review/count services and
 screen. It introduces no database migration, backfill, AI calls, generic
 aggregate execution, grouping execution or access to uploaded cell values.
@@ -101,9 +102,13 @@ append a correction.
 
 ## Verification and limits
 
-Local candidate validation passed: 2,233 Data Hub/component tests across 90
-files, all 64 disposable-Postgres integration tests, the built-app browser
-journey, TypeScript, changed-file lint and diff checks. The application build
+Local validation passed: 49 failure-contract/review-screen tests, all 64
+disposable-Postgres integration tests, the built-app browser journey, TypeScript,
+changed-file lint and diff checks. The wider 2,265-test suite encountered
+timeouts in unchanged schema/database and repository-scanning tests; the two
+affected files passed an isolated rerun (90/90), while a second wider run still
+encountered scanning timeouts. No time limits or unrelated tests were changed.
+The complete hosted CI remains a separate gate. The application build
 passed with local build-only placeholders; the existing missing dashboard-copy
 and middleware deprecation warnings remain. The browser reported no page
 exceptions, verified mobile containment, and the outer harness successfully
@@ -122,8 +127,9 @@ without an automatic append, both counts, zero/null behavior, holds, stale pins,
 denied access and timed-out save recovery. Evidence stays in ignored
 `test-results/datahub-runtime`; disposable login credentials are removed.
 
-Eight browser contract probes intentionally corrupt otherwise genuine count
-responses, including invalid JSON. They verify failure clears previous results,
+Nine browser contract probes intentionally corrupt otherwise genuine count
+responses, including invalid JSON and an unknown failure reference. They verify
+failure clears previous results,
 response contents are hidden, no extra request occurs during the observed
 recovery interval and explicit genuine retries succeed without appending reviews.
 These intercepted responses are separate from the unmodified baseline workflow;

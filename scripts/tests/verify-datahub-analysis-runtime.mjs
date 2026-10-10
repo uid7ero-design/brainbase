@@ -123,7 +123,7 @@ try {
   // Deliberately corrupt otherwise genuine count responses only for these
   // contract probes. The remaining journey uses unmodified HTTP responses.
   const countUrl = origin + endpoint(ready.uploadId) + '/analysis-count';
-  const probes = ['negative', 'foreign', 'version', 'revision', 'extra', 'held', 'wrong-measure', 'invalid-json'];
+  const probes = ['negative', 'foreign', 'version', 'revision', 'extra', 'held', 'wrong-measure', 'invalid-json', 'unknown-error'];
   for (const kind of probes) {
     const present = kind === 'wrong-measure';
     const button = page.getByRole('button', { name: present ? 'Count present values' : 'Count rows', exact: true });
@@ -132,6 +132,9 @@ try {
     const corrupt = async route => {
       const actual = await route.fetch();
       if (actual.status() !== 200) throw new Error('Contract probe requires a genuine successful count');
+      if (kind === 'unknown-error') {
+        await route.fulfill({ response: actual, status: 503, json: { ok: false, code: 'private-response-probe' } }); return;
+      }
       if (kind === 'invalid-json') {
         await route.fulfill({ response: actual, body: 'private-response-probe' }); return;
       }
@@ -148,7 +151,7 @@ try {
     page.on('request', observed); await page.route(countUrl, corrupt);
     try {
       await button.click();
-      await expect(page.locator('main').getByRole('alert')).toContainText(/COUNT_RESPONSE_INVALID|COUNT_RESPONSE_MISMATCH|RESPONSE_INVALID/);
+      await expect(page.locator('main').getByRole('alert')).toContainText(/COUNT_RESPONSE_INVALID|COUNT_RESPONSE_MISMATCH|RESPONSE_INVALID|REQUEST_FAILED/);
       await expect(page.locator('main').getByText(/^(Rows|Present values):/)).toHaveCount(0);
       await expect(page.locator('main')).not.toContainText('private-');
       await expect(button).toBeEnabled(); await pause(300);
@@ -158,7 +161,7 @@ try {
     await expect(page.getByText(`${present ? 'Present values: 2' : 'Rows: 3'}. Based on review 1, profile ${ready.datasetProfileRunId}.`, { exact: true })).toBeVisible();
   }
   if ((await pool.query('SELECT count(*)::int AS n FROM data_hub_analysis_reviews WHERE upload_id=$1', [ready.uploadId])).rows[0].n !== 1) throw new Error('Count response probes appended a review');
-  evidence.checks.push('Eight deliberately corrupted count responses rejected without showing prior counts/private data or automatic retry; explicit genuine retries recover, review history unchanged');
+  evidence.checks.push('Nine deliberately corrupted count responses rejected without showing prior counts/private data or automatic retry; explicit genuine retries recover, review history unchanged');
   const reloaded = await api(endpoint(ready.uploadId) + '/analysis-review');
   if (reloaded.status !== 200 || reloaded.cache !== 'private, no-store' || reloaded.body.revision !== 1) throw new Error('Reload/caching failed');
   await page.reload(); await page.getByRole('button', { name: 'Load current review', exact: true }).click();

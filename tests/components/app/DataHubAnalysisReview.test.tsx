@@ -136,10 +136,12 @@ describe("Data Hub review screen", () => {
     fireEvent.click(screen.getByText("Count rows")); await screen.findByText("Rows: 7. Based on review 3, profile profile-2.");
     expect(fetcher).toHaveBeenCalledTimes(4);
   });
-  it("requires reload after an uncertain save and never automatically retries", async () => {
+  it.each(["transport", "server"])("requires reload after an uncertain %s save and hides diagnostics without retry", async kind => {
     const fetcher = vi.fn().mockResolvedValueOnce(reply(initial))
       .mockResolvedValueOnce(reply({ ok: false, code: "REVIEW_NOT_FOUND" }, 404))
-      .mockResolvedValueOnce(reply(preview)).mockRejectedValueOnce(new Error("Connection lost"));
+      .mockResolvedValueOnce(reply(preview));
+    if (kind === "transport") fetcher.mockRejectedValueOnce(new Error("private-connection-diagnostic"));
+    else fetcher.mockResolvedValueOnce(reply({ ok: false, code: "private-save-diagnostic" }, 503));
     vi.stubGlobal("fetch", fetcher);
     render(<AnalysisReviewClient uploadId="upload" />);
     fireEvent.click(screen.getByText("Load current review")); await screen.findByText("Field meanings");
@@ -147,9 +149,27 @@ describe("Data Hub review screen", () => {
     fireEvent.click(screen.getByText("Review quality")); await screen.findByText("Data quality");
     fireEvent.change(screen.getByLabelText("partial null values — Amount"), { target: { value: "ACKNOWLEDGE" } });
     fireEvent.click(screen.getByText("Save review")); await screen.findByRole("alert");
+    expect(screen.getByRole("alert")).toHaveTextContent("REQUEST_FAILED");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("private-");
     expect(screen.getByText("Save review")).toBeDisabled();
     expect(fetcher).toHaveBeenCalledTimes(4);
   });
+  it.each(["private-server-diagnostic", "UNKNOWN_FUTURE_CODE", "toString", null, { secret: "private-object" }])(
+    "hides an unrecognized count failure reference: %s", async code => {
+      const fetcher = vi.fn().mockResolvedValueOnce(reply(initial)).mockResolvedValueOnce(reply(saved()))
+        .mockResolvedValueOnce(reply({ ok: false, code }, 503)).mockResolvedValueOnce(reply(counted("upload")));
+      vi.stubGlobal("fetch", fetcher); render(<AnalysisReviewClient uploadId="upload" />);
+      fireEvent.click(screen.getByText("Load current review")); await screen.findByText("Saved review 2");
+      fireEvent.click(screen.getByText("Count rows")); await screen.findByRole("alert");
+      expect(screen.getByRole("alert")).toHaveTextContent("Reference: REQUEST_FAILED");
+      expect(screen.getByRole("alert")).not.toHaveTextContent("private-");
+      expect(screen.queryByText(/Rows: /)).not.toBeInTheDocument();
+      expect(fetcher).toHaveBeenCalledTimes(3);
+      await waitFor(() => expect(screen.getByText("Count rows")).toBeEnabled());
+      fireEvent.click(screen.getByText("Count rows"));
+      await screen.findByText("Rows: 7. Based on review 3, profile profile-2.");
+      expect(fetcher).toHaveBeenCalledTimes(4);
+    });
   it("clears results before refresh and shows a stale-profile failure", async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(reply(initial)).mockResolvedValueOnce(reply(saved()))
       .mockResolvedValueOnce(reply({ ok: false, code: "REVIEW_PROFILE_CHANGED" }, 409));

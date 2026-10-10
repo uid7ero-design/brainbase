@@ -8,6 +8,7 @@ import type { AnalyzeReviewedUploadCountResult } from "@/lib/data-hub/analysisEx
 import type { SemanticRole } from "@/lib/data-hub/semanticInference/contracts";
 import type { DataQualityReviewDecision } from "@/lib/data-hub/dataQuality/reviewResolution";
 import { parseReviewedCountResponse, type CountResponseExpectation } from "@/lib/data-hub/analysis/countResponse";
+import { analysisFailureReference } from "@/lib/data-hub/analysis/failureReference";
 
 type Plan = Extract<PlanAnalysisReviewResult, { ok: true }>;
 type Review = Extract<LoadAnalysisReviewResult, { ok: true }>;
@@ -40,14 +41,14 @@ export default function AnalysisReviewClient({ uploadId }: { uploadId: string })
     const data: unknown = await response.json().catch(() => { throw new Error("RESPONSE_INVALID"); });
     if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("RESPONSE_INVALID");
     const envelope = data as { ok?: unknown; code?: unknown };
-    if (!response.ok || envelope.ok !== true) throw new Error(typeof envelope.code === "string" ? envelope.code : "REQUEST_FAILED");
+    if (!response.ok || envelope.ok !== true) throw new Error(analysisFailureReference(envelope.code));
     return data as T;
   }
   async function run(action: () => Promise<void>) {
     if (pending.current) return;
     pending.current = true; setBusy(true); setError("");
     try { await action(); } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "REQUEST_FAILED");
+      setError(analysisFailureReference(failure instanceof Error ? failure.message : undefined));
     } finally { pending.current = false; setBusy(false); }
   }
   async function requestCount(body: unknown, expected: CountResponseExpectation) {

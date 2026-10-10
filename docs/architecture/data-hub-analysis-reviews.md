@@ -147,9 +147,19 @@ the screen load; that actual lineage is retained. The existing server remains
 responsible for authorization and fresh review/capability evaluation. Rejected
 responses clear the prior count; retry remains an explicit user action.
 
-The browser proof additionally corrupts eight otherwise genuine count responses
+The browser proof additionally corrupts nine otherwise genuine count responses
 to check rejection, clearing prior results, hiding unexpected response contents,
 no extra request during the observed recovery interval and explicit valid retry.
 Only these contract probes intercept response bodies; baseline workflow,
 authorization and persistence recovery still use genuine responses. Invalid JSON
 and non-object envelopes yield `RESPONSE_INVALID`, never decoding snippets.
+
+## Failure display contract
+
+`analysisFailureReference` is a pure closed projection of review/count failure
+references. Recognized codes retain their recovery meaning; unknown codes,
+non-string values and unexpected exception messages become `REQUEST_FAILED`.
+Neither server diagnostics nor connection messages are displayed. This is a
+display boundary, not authorization, error-envelope validation or permission to
+retry. The existing save uncertainty guard still requires explicit reload;
+count failures still clear results and await an explicit retry.
