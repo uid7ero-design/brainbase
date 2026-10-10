@@ -7,6 +7,7 @@ import BudgetReview from './BudgetReview';
 import DraftBudgetLineForm from './DraftBudgetLineForm';
 import DraftBudgetAllocationForm from './DraftBudgetAllocationForm';
 import BudgetActivationReview from './BudgetActivationReview';
+import BudgetActivationConfirmation from './BudgetActivationConfirmation';
 import DraftBudgetMappingForm from './DraftBudgetMappingForm';
 import BudgetMappingReview from './BudgetMappingReview';
 import BudgetSetupExports from './BudgetSetupExports';
@@ -32,7 +33,9 @@ export default function BudgetSetup({revision}:{revision:number}){
   const [editorRevision,setEditorRevision]=useState(0);
   const operation=useRef(false),readSequence=useRef(0),pendingVersionId=useRef(''),recoveryRequired=useRef(false);
   function requireReload(){recoveryRequired.current=true;setNeedsReload(true);}
-  const locked=busy||loading||needsReload;
+  const [reviewingActivation,setReviewingActivation]=useState(false);
+  const activationLocked=busy||loading||needsReload;
+  const locked=activationLocked||reviewingActivation;
   const [editingLineId,setEditingLineId]=useState('');
   const [removingLineId,setRemovingLineId]=useState('');
   const [removingEntry,setRemovingEntry]=useState<EntryRemoval|null>(null);
@@ -65,7 +68,7 @@ export default function BudgetSetup({revision}:{revision:number}){
   useEffect(()=>{
     if(operation.current||recoveryRequired.current)return;
     let current=true;const sequence=++readSequence.current;setLoading(true);
-    async function load(){try{const result=await readSetup();if(current&&sequence===readSequence.current){setData(result);setNeedsReload(false);setVersionId(id=>result.versions.some(row=>row.version_id===id)?id:result.versions[0]?.version_id??'');setError('');}}
+    async function load(){try{const result=await readSetup();if(current&&sequence===readSequence.current){setData(result);setReviewingActivation(false);setNeedsReload(false);setVersionId(id=>result.versions.some(row=>row.version_id===id)?id:result.versions[0]?.version_id??'');setError('');}}
       catch(failure){if(current&&sequence===readSequence.current){requireReload();setError(failure instanceof Error?failure.message:'Unable to load Budget setup.');}}finally{if(current&&sequence===readSequence.current)setLoading(false);}}
     void load();return()=>{current=false;};
   },[revision]);
@@ -77,13 +80,13 @@ export default function BudgetSetup({revision}:{revision:number}){
       const next=await readSetup();setData(next);
       const desiredVersion=pendingVersionId.current;
       setVersionId(id=>next.versions.some(row=>row.version_id===(desiredVersion||id))?(desiredVersion||id):next.versions[0]?.version_id??'');
-      pendingVersionId.current='';clearRemoval();setEditingLineId('');setEditingAllocationKey(null);setEditingMappingCentreId('');
+      pendingVersionId.current='';setReviewingActivation(false);clearRemoval();setEditingLineId('');setEditingAllocationKey(null);setEditingMappingCentreId('');
       setEditorRevision(value=>value+1);recoveryRequired.current=false;setNeedsReload(false);setMessage('Saved Budget reloaded. Review the current records before making another change.');
     }catch(failure){requireReload();setError(failure instanceof Error?failure.message:'Unable to reload saved Budget.');}
     finally{operation.current=false;setBusy(false);}
   }
   async function submit(event:FormEvent<HTMLFormElement>,action:'create'|'line'|'allocation'|'mapping'|'activate'|'settings'|'remove-line'|'remove-allocation'|'remove-mapping'){
-    event.preventDefault();if(operation.current||recoveryRequired.current||locked)return;
+    event.preventDefault();if(operation.current||recoveryRequired.current||activationLocked||(action==='activate'?!reviewingActivation:reviewingActivation))return;
     operation.current=true;++readSequence.current;let outcome:'not-started'|'sent'|'confirmed'|'rejected'='not-started';
     const form=event.currentTarget,body:Record<string,unknown>={...Object.fromEntries(new FormData(form)),action};
     const target=version;
@@ -100,14 +103,14 @@ export default function BudgetSetup({revision}:{revision:number}){
       if(response.ok)outcome='confirmed';else if(response.status<500)outcome='rejected';
       const result=await response.json();if(!response.ok)throw new Error(result.error??'Unable to save Budget setup.');
       if(action==='create')pendingVersionId.current=result.version.id;
-      const next=await readSetup();setData(next);if(action==='create')setVersionId(result.version.id);pendingVersionId.current='';
+      const next=await readSetup();setData(next);setReviewingActivation(false);if(action==='create')setVersionId(result.version.id);pendingVersionId.current='';
       form.reset();if(action==='mapping'||action==='create'||action==='activate')setEditingMappingCentreId('');if(action==='line'||action==='create'||action==='activate')setEditingLineId('');if(action==='allocation'||action==='create'||action==='activate')setEditingAllocationKey(null);setMessage(action==='activate'?'Budget version activated. Draft editing is now locked.':action==='settings'?'Budget settings saved. Existing amounts and allocations are unchanged.':'Budget setup saved.');
       if(action.startsWith('remove-')){clearRemoval();setEditingLineId('');setEditingAllocationKey(null);setEditingMappingCentreId('');setMessage(action==='remove-line'?'Draft line and its period allocations removed. Commitment mappings are unchanged.':action==='remove-allocation'?'Period allocation removed. Annual amounts and commitment mappings are unchanged.':'Commitment mapping removed. Budget lines and period allocations are unchanged.');}
       if(action==='create'||action==='activate')clearRemoval();
       returnToReview(returnTarget);
     }catch(failure){
       if(outcome==='confirmed'||outcome==='sent'){requireReload();setError(outcome==='confirmed'?'Your change was saved, but the refreshed Budget could not be loaded. Reload saved Budget before making another change.':'The save outcome could not be confirmed. Reload saved Budget before trying again.');}
-      else setError(failure instanceof Error?failure.message:'Unable to save Budget setup.');
+      else {if(action==='activate')setReviewingActivation(false);setError(failure instanceof Error?failure.message:'Unable to save Budget setup.');}
     }finally{operation.current=false;setBusy(false);}
   }
   const accountOptions=data.accounts.filter(row=>row.active).map(row=>({id:row.id,label:row.code}));
@@ -131,7 +134,7 @@ export default function BudgetSetup({revision}:{revision:number}){
       <SelectField label="Periodisation" name="periodisationMode" options={[{id:'ANNUAL_ONLY',label:'Annual only'},{id:'PERIODISED',label:'Periodised'}]}/>
       <button {...buttonProps('primary')} type="submit">Create draft Budget</button>
     </fieldset></form>
-    <Field label="Budget version">{control=><select {...control} className={fieldControlClassName} value={versionId} onChange={event=>{setVersionId(event.target.value);clearRemoval();setEditingLineId('');setEditingAllocationKey(null);setEditingMappingCentreId('');}} disabled={locked}><option value="">Choose Budget</option>{data.versions.map(row=><option key={row.version_id} value={row.version_id}>{row.name} · {row.currency} · v{row.version_number} · {row.status}</option>)}</select>}</Field>
+    <Field label="Budget version">{control=><select {...control} className={fieldControlClassName} value={versionId} onChange={event=>{setVersionId(event.target.value);setReviewingActivation(false);clearRemoval();setEditingLineId('');setEditingAllocationKey(null);setEditingMappingCentreId('');}} disabled={locked}><option value="">Choose Budget</option>{data.versions.map(row=><option key={row.version_id} value={row.version_id}>{row.name} · {row.currency} · v{row.version_number} · {row.status}</option>)}</select>}</Field>
     {version?<div key={`${version.version_id}:${editorRevision}`} className={styles.budgetDetails}>
       <p className={styles.versionSummary}>{version.currency} · {version.tax_basis} · {version.periodisation_mode} · {version.status}</p>
       {version.can_edit_settings?<details className={styles.settingsDisclosure}>
@@ -165,7 +168,7 @@ export default function BudgetSetup({revision}:{revision:number}){
       <BudgetSetupExports input={{version,year:data.years.find(year=>year.id===version.financial_year_id),accounts:data.accounts,centres:data.centres}} busy={locked}/>
       {version.status==='DRAFT'&&<>
         <BudgetActivationReview setupNavigation mappingFormId="budget-commitment-mapping" financialYearStatus={data.years.find(year=>year.id===version.financial_year_id)?.status} periodised={version.periodisation_mode==='PERIODISED'} lines={version.lines} mappings={version.mappings} allocations={version.allocations} periods={periods} accounts={data.accounts} centres={data.centres}/>
-        <form className={styles.activationAction} aria-label="Activate Budget" onSubmit={event=>void submit(event,'activate')}><button {...buttonProps('primary')} disabled={locked||version.lines.length===0||version.mappings.length===0} type="submit">Activate Budget version</button></form>
+        <BudgetActivationConfirmation version={version} yearName={data.years.find(year=>year.id===version.financial_year_id)?.name??'Unavailable financial year'} reviewing={reviewingActivation} disabled={activationLocked} onReview={()=>{clearRemoval();setReviewingActivation(true);setError('');setMessage('');}} onCancel={()=>{setReviewingActivation(false);setMessage('Activation cancelled. The saved Budget remains a draft.');}} onSubmit={event=>void submit(event,'activate')}/>
       </>}
     </div>:!loading&&!needsReload&&<p>No Budget versions yet. Create the first draft above.</p>}
   </section>;

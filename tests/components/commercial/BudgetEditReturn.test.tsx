@@ -99,10 +99,48 @@ describe('Saved Budget editor return navigation', () => {
     await waitFor(()=>expect(screen.getByLabelText('Budget version',{exact:true})).toHaveValue('created-version'));
     expect(mutations).toHaveLength(1);expect(extraVersions).toHaveLength(1);
   });
+  it('reviews saved values, locks editors, cancels without mutation and confirms once',async()=>{
+    render(<BudgetSetup revision={0}/>);
+    fireEvent.click(await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL',exact:true}));
+    fireEvent.change(screen.getByLabelText('Annual amount (AUD)',{exact:false}),{target:{value:'888.00'}});
+    fireEvent.click(screen.getByRole('button',{name:'Activate Budget version'}));
+    const review=screen.getByRole('region',{name:'Budget activation confirmation'});
+    expect(review).toHaveFocus();expect(review).toHaveTextContent('Draft · v1 · FY');
+    expect(review).toHaveTextContent('AUD 100.00');expect(review).not.toHaveTextContent('888.00');
+    expect(review).toHaveTextContent('Tax exclusive · Periodised');
+    expect(review).toHaveTextContent('Saved lines: 1 · Period allocations: 1 · Commitment mappings: 1');
+    expect(screen.getByRole('button',{name:'Update line'})).toBeDisabled();
+    fireEvent.submit(screen.getByRole('form',{name:'Budget line',exact:true}));
+    expect(mutations).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button',{name:'Keep draft'}));
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Activate Budget version'})).toHaveFocus());
+    expect(version).toEqual(initial);expect(mutations).toHaveLength(0);
+    expect(screen.getByLabelText('Annual amount (AUD)',{exact:false})).toHaveValue('888.00');
+    fireEvent.click(screen.getByRole('button',{name:'Activate Budget version'}));
+    const form=screen.getByRole('form',{name:'Activate Budget'});
+    fireEvent.submit(form);fireEvent.submit(form);
+    await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent('Budget version activated.'));
+    expect(mutations).toEqual([{action:'activate'}]);expect(version.lines).toEqual(initial.lines);
+    expect(screen.queryByRole('button',{name:'Confirm activation'})).not.toBeInTheDocument();
+  });
+  it('requires fresh confirmation after rejection and clears review on read-only reload',async()=>{
+    render(<BudgetSetup revision={0}/>);
+    fireEvent.click(await screen.findByRole('button',{name:'Activate Budget version'}));
+    failSave=true;fireEvent.click(screen.getByRole('button',{name:'Confirm activation'}));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Save rejected.');
+    expect(screen.queryByRole('button',{name:'Confirm activation'})).not.toBeInTheDocument();
+    expect(version.status).toBe('DRAFT');
+    fireEvent.click(screen.getByRole('button',{name:'Activate Budget version'}));
+    fireEvent.click(screen.getByRole('button',{name:'Reload saved Budget'}));
+    await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent('Saved Budget reloaded.'));
+    expect(screen.queryByRole('button',{name:'Confirm activation'})).not.toBeInTheDocument();
+    expect(mutations).toHaveLength(1);
+  });
   it('restores the authoritative activated view after losing the activation response',async()=>{
     render(<BudgetSetup revision={0}/>);
     await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL',exact:true});
     loseResponse=true;fireEvent.click(screen.getByRole('button',{name:'Activate Budget version'}));
+    fireEvent.click(screen.getByRole('button',{name:'Confirm activation'}));
     expect(await screen.findByRole('alert')).toHaveTextContent('save outcome could not be confirmed');
     fireEvent.click(screen.getByRole('button',{name:'Reload saved Budget'}));
     await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent('Saved Budget reloaded.'));

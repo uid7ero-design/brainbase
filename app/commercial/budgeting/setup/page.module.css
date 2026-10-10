@@ -50,6 +50,22 @@
   margin: 24px 0 16px;
 }
 
+.activationConfirmation {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+.activationConfirmation p {
+  margin: 12px 0;
+}
+
+.activationConfirmation h3 {
+  margin-top: 0;
+  font-size: 0.875rem;
+}
+
 .mappingSetup {
   margin-top: 24px;
   scroll-margin-top: 96px;

@@ -446,6 +446,7 @@ try {
   await expect(activationChecks).toContainText('1 line needs allocation changes');
   await expect(budgetSection.getByText('1 line needs allocation changes. Each line’s period allocations must equal its annual amount before activation.',{exact:true})).toBeVisible();
   await budgetSection.getByRole('button',{name:'Activate Budget version',exact:true}).click();
+  await budgetSection.getByRole('button',{name:'Confirm activation',exact:true}).click();
   await expect(budgetSection.getByRole('alert')).toContainText('period allocations');
   await allocate('110.00');
   await expect(budgetSection.getByText('AUD 10.00 over allocated',{exact:true})).toBeVisible();
@@ -644,6 +645,7 @@ try {
     }
     await expect(mappingsTable).toContainText(kind==='accounts'?'Account inactive':'Cost centre inactive');
     await budgetSection.getByRole('button',{name:'Activate Budget version',exact:true}).click();
+    await budgetSection.getByRole('button',{name:'Confirm activation',exact:true}).click();
     await expect(budgetSection.getByRole('alert')).toContainText('active same-tenant');
     const path='/api/commercial/budgeting/setup/'+kind+'/'+budgetDimensions[index]+'/reactivate';
     if((await fetch(origin+path,{method:'POST'})).status!==401)throw new Error('Unauthenticated reactivation accepted');
@@ -787,6 +789,18 @@ try {
   const removalAudit=(await pool.query("SELECT user_id,before_state,after_state FROM audit_logs WHERE resource_id=$1 AND action='commercial_budget_line.removed'",[removalLine])).rows;
   if(removalAudit.length!==1||removalAudit[0].user_id!=='runtime-other'||removalAudit[0].after_state.reason!=='Accidental test line'||removalAudit[0].before_state.annual_budget_cents!=='9007199254740993'||removalAudit[0].before_state.allocations[0].amount_cents!=='9007199254740993')throw new Error('Removal audit lost actor reason or exact before-state');
   await budgetSection.getByRole('button',{name:'Activate Budget version',exact:true}).click();
+  const finalActivationReview=budgetSection.getByRole('region',{name:'Budget activation confirmation',exact:true});
+  await expect(finalActivationReview).toBeFocused();
+  await expect(finalActivationReview).toContainText('AUD 100.00');
+  await expect(budgetSection.getByRole('button',{name:'Save line',exact:true})).toBeDisabled();
+  await other.page.setViewportSize({width:390,height:844});
+  await finalActivationReview.screenshot({path:resolve(artifacts,'budget-activation-confirmation-mobile.png')});
+  await budgetSection.getByRole('button',{name:'Keep draft',exact:true}).click();
+  await expect(budgetSection.getByRole('button',{name:'Activate Budget version',exact:true})).toBeFocused();
+  if((await pool.query('SELECT status FROM commercial_budget_versions WHERE id=$1',[budgetState.version_id])).rows[0].status!=='DRAFT')throw new Error('Activation review or cancellation changed saved status');
+  await other.page.setViewportSize({width:1440,height:1000});
+  await budgetSection.getByRole('button',{name:'Activate Budget version',exact:true}).click();
+  await budgetSection.getByRole('button',{name:'Confirm activation',exact:true}).click();
   await expect(budgetSection.getByRole('status')).toContainText('Budget version activated.');
   await expect(activationChecks).toHaveCount(0);
   await expect(budgetSection.getByRole('button',{name:/^Remove (allocation|mapping|draft line)/})).toHaveCount(0);
@@ -981,6 +995,7 @@ try {
   evidence.budgetLineEditChecks=['saved amount prefilled exactly','fixed dimension identity retained','cancel leaves saved amount unchanged','update preserves line ID and allocations','allocation mismatch shown after annual amount change','saved amount reloads and balance restores','editor fits mobile viewport'];
   evidence.budgetSettingsChecks=['draft name and tax basis changed through populated form','saved amounts and allocations preserved','editor reloads saved values and fits mobile viewport','session actor and before/after settings audited','ACTIVE version hides editor and rejects mutation','later draft cannot rewrite published Budget settings','database-gated year close rejects waiting settings','database-gated activation rejects waiting settings without rewriting published facts'];
   evidence.financeWorkflowChecks=['empty finance controls directs administrator to setup','setup links to mappings, reporting and finance controls','empty mapping and reporting screens provide setup guidance','workflow links navigate between actual screens','new dimensions are available in mapping choices and completed guidance clears','new calendar is available in finance controls','activated Budget persists when returning through workflow links','viewer and unentitled users do not see administrator workflow links'];
+  evidence.activationConfirmationChecks=['review focuses saved activation context and exact annual total','draft editors disabled during confirmation','cancelling returns focus and leaves persisted version DRAFT','confirmed activation persists ACTIVE and locks editing','server rejects unbalanced allocations and inactive references through confirmation','mobile activation confirmation rendered for visual review'];
   evidence.draftRecoveryChecks=['both draft dimensions can be deactivated','inactive references still block activation','both dimensions restored through UI without replacing draft references','restored draft activates with original version pointer','reactivation retains session actor and audits transition once on retry','unauthenticated, viewer, unentitled and foreign reactivation denied','non-string Budget enums return 400'];
   writeFileSync(resolve(artifacts,'evidence.json'),JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));
 } finally {
