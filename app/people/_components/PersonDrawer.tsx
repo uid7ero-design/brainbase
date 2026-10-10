@@ -228,8 +228,10 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
 
     queueMicrotask(() => {
+      if (cancelled) return;
       if (!personId) {
         setPerson(null);
         setDocuments([]);
@@ -307,15 +309,16 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setCancelLifecycleWorkflowId(null);
       setLifecycleCancelState('idle');
 
-      void fetch(`/api/hr/people/${personId}`)
+      void fetch(`/api/hr/people/${personId}`, { signal: controller.signal, cache: 'no-store' })
         .then(async response => {
+          if (!response.ok) throw new Error('Unavailable');
           const data = await response.json();
           if (cancelled) return;
-          if (!response.ok) {
-            setError(data.error ?? 'Could not load person.');
-            return;
-          }
-          setPerson(data.person);
+          const next = data?.person;
+          if (!next || next.id !== personId
+            || !['first_name', 'last_name', 'worker_type', 'employment_status'].every(key => typeof next[key] === 'string')
+            || (next.job_title !== null && typeof next.job_title !== 'string')) throw new Error('Invalid person');
+          setPerson(next);
         })
         .catch(() => {
           if (!cancelled) setError('Could not load person.');
@@ -324,7 +327,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
           if (!cancelled) setLoading(false);
         });
 
-      void fetch(`/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(personId)}`)
+      void fetch(`/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(personId)}`, { signal: controller.signal, cache: 'no-store' })
         .then(async response => {
           const data = await response.json().catch(() => ({}));
           if (cancelled) return;
@@ -355,7 +358,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
           }
         });
 
-      void fetch(`/api/hr/people/${personId}/documents`)
+      void fetch(`/api/hr/people/${personId}/documents`, { signal: controller.signal, cache: 'no-store' })
         .then(async response => {
           if (cancelled) return;
 
@@ -406,6 +409,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
 
             void fetch(
               `/api/hr/people/${personId}/documents/${document.id}/versions/${version.id}/assurance`,
+              { signal: controller.signal, cache: 'no-store' },
             )
               .then(async assuranceResponse => {
                 const assuranceData = await assuranceResponse.json().catch(() => ({}));
@@ -457,6 +461,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [personId]);
 
@@ -1433,7 +1438,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
     <SlidePanel open={personId !== null} onClose={onClose} title="Person">
       {loading && <StateMessage kind="loading" title="Loading person…" />}
       {error && <StateMessage kind="error" title={error} />}
-      {person && (
+      {person && person.id === personId && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
             <div>

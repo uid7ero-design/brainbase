@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { validateRegisterPagination, type RegisterPagination } from '@/lib/hr/registerPaging';
+import { HrOperationsNav, HrRegisterReset, HrRegisterSearch, HrRegisterPagination } from '../_components/HrRegisterControls';
 import PersonDrawer from '../_components/PersonDrawer';
 import { PageHeader, TableContainer, TableStateRow, buttonProps, tableStyles } from '@/components/ui/app';
 
@@ -11,7 +12,7 @@ const COLUMNS = {
 };
 type Counts = Record<keyof typeof COLUMNS, number>;
 type Person = Counts & { person_id: string; first_name: string; last_name: string };
-type Snapshot = { as_of_date: string; expiring_through: string; people: Person[] };
+type Snapshot = { pagination: RegisterPagination; as_of_date: string; expiring_through: string; people: Person[] };
 
 function parseSnapshot(value: unknown): Snapshot {
   if (!value || typeof value !== 'object' || !('people' in value) || !Array.isArray(value.people)
@@ -21,6 +22,7 @@ function parseSnapshot(value: unknown): Snapshot {
     if (!person || typeof person.person_id !== 'string' || typeof person.first_name !== 'string' || typeof person.last_name !== 'string'
       || !Object.keys(COLUMNS).every(key => Number.isSafeInteger(person[key]) && person[key] >= 0)) throw new Error('Invalid counts');
   }
+  validateRegisterPagination((value as Snapshot).pagination, value.people.length);
   return value as Snapshot;
 }
 
@@ -29,6 +31,8 @@ export default function DocumentOverviewPage() {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [refresh, setRefresh] = useState(0);
   const [filter, setFilter] = useState('all');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [personId, setPersonId] = useState<string | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -36,24 +40,27 @@ export default function DocumentOverviewPage() {
       if (controller.signal.aborted) return;
       setState('loading'); setSnapshot(null);
       try {
-        const response = await fetch('/api/hr/documents/overview', { signal: controller.signal, cache: 'no-store' });
+        const response = await fetch(`/api/hr/documents/overview?${new URLSearchParams({ page: String(page), search, filter })}`, { signal: controller.signal, cache: 'no-store' });
         if (!response.ok) throw new Error('Unavailable');
         const next = parseSnapshot(await response.json());
         if (!controller.signal.aborted) { setSnapshot(next); setState('ready'); }
       } catch { if (!controller.signal.aborted) setState('error'); }
     });
     return () => controller.abort();
-  }, [refresh]);
-  const rows = snapshot?.people.filter(person => filter === 'all' || person[filter as keyof Counts] > 0) ?? [];
+  }, [refresh, page, search, filter]);
+  const rows = snapshot?.people ?? [];
+  const currentPage = snapshot?.pagination.page ?? 1;
   return <div style={{ maxWidth: 1300 }}>
     <PageHeader title="Document assurance overview" description="Current employee-document assurance and expiry work within your document access." actions={<>
-      <Link href="/people" {...buttonProps('secondary')}>People</Link>
+      <HrOperationsNav current="/people/documents" />
       <button type="button" {...buttonProps('secondary')} disabled={state === 'loading'} onClick={() => setRefresh(value => value + 1)}>Refresh</button>
     </>} />
-    <label>Show documents{' '}<select value={filter} onChange={event => setFilter(event.target.value)}>
+    <HrRegisterSearch value={search} onChange={value => { setSearch(value); setPage(1); }} />
+    <label>Show documents{' '}<select value={filter} onChange={event => { setFilter(event.target.value); setPage(1); }}>
       <option value="all">All visible documents</option>
       {Object.entries(COLUMNS).filter(([key]) => key !== 'documents').map(([key, title]) => <option key={key} value={key}>{title}</option>)}
     </select></label>
+    <HrRegisterReset active={Boolean(search) || filter !== 'all' || page !== 1} onReset={() => { setSearch(''); setFilter('all'); setPage(1); }} />
     <TableContainer label="Employee document assurance" minWidth={1100}>
       <table className={tableStyles.table}>
         <thead><tr><th scope="col">Person</th>{Object.entries(COLUMNS).map(([key, title]) => <th scope="col" key={key}>{title}</th>)}</tr></thead>
@@ -68,6 +75,7 @@ export default function DocumentOverviewPage() {
         </tbody>
       </table>
     </TableContainer>
+    {state === 'ready' && <HrRegisterPagination page={currentPage} total={snapshot?.pagination.total ?? 0} onChange={setPage} />}
     <p style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
       {snapshot && <>As of {snapshot.as_of_date} (UTC); upcoming expiry through {snapshot.expiring_through}. </>}
       Expiry excludes today. Counts cover current versions and may overlap. Unacknowledged means no acknowledgement by the currently linked employee; it does not imply a required acknowledgement. Employees without a linked account are shown separately. Open a person to review documents.

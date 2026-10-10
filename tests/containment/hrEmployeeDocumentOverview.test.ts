@@ -3,6 +3,10 @@ import { NextResponse } from 'next/server';
 const mocks = vi.hoisted(() => ({ sql: vi.fn(), context: vi.fn() }));
 vi.mock('@/lib/db', () => ({ default: mocks.sql }));
 vi.mock('@/lib/hr/employeeDocumentHttp', () => ({ requireEmployeeDocumentContext: mocks.context }));
+vi.mock('@/lib/hr/registerPageQueries', () => ({ loadRegisterPage: async (session: unknown) => {
+  const { loadEmployeeDocumentOverview } = await import('@/lib/hr/employeeDocumentOverview');
+  return loadEmployeeDocumentOverview(session as Parameters<typeof loadEmployeeDocumentOverview>[0]);
+} }));
 const { loadEmployeeDocumentOverview } = await import('@/lib/hr/employeeDocumentOverview');
 const { GET } = await import('@/app/api/hr/documents/overview/route');
 const session = { userId: 'employee-a', organisationId: 'org-a', homeOrganisationId: 'org-a', role: 'viewer' as const, name: 'Employee' };
