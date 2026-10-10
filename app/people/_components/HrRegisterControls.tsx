@@ -4,6 +4,11 @@ import { HR_REGISTER_PAGE_SIZE } from '@/lib/hr/registerPaging';
 
 export const HR_PAGE_SIZE = HR_REGISTER_PAGE_SIZE;
 
+/** Reset the view only; readers still derive identity and authority from the session. */
+export function HrRegisterReset({ active, onReset }: { active: boolean; onReset: () => void }) {
+  return <button type="button" {...buttonProps('secondary')} disabled={!active} onClick={onReset}>Reset view</button>;
+}
+
 export function HrOperationsNav({ current }: { current: string }) {
   return <nav aria-label="HR operational views" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
     {[
