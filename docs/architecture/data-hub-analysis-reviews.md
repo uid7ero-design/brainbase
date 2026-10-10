@@ -196,3 +196,19 @@ readiness identities; mismatched profile evidence retains its lineage error.
 Quality holds retain precedence even when catalog metadata is unavailable.
 The guard validates structural consistency only, not provenance, freshness,
 algorithm support or access. Those existing version/scoped/server checks remain.
+
+## Closed readiness state admission
+
+Readiness derivation accepts only the three known reviewed-quality states.
+An unknown state returns `QUALITY_STATE_INVALID` instead of defaulting to ready.
+Direct capability derivation accepts only supported readiness-version metadata,
+a valid structural catalog and either ready state. Unknown readiness states,
+incompatible readiness versions and malformed catalogs produce
+`UNAVAILABLE_INVALID_READINESS` with no dataset or field capabilities. Request
+validation rejects that capability state using its existing unsupported-state
+failure. A genuine quality hold retains `BLOCKED_QUALITY_HOLD`; invalid metadata
+is never relabeled as a reviewed hold or permission to proceed.
+
+These pure admission checks add no execution or access authority. The existing
+profile-target version checks, scoped evidence checks and server authorization
+remain required. Valid empty datasets and acknowledged notices remain supported.

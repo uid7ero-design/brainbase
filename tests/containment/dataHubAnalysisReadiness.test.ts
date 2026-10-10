@@ -73,6 +73,10 @@ function quality(
 }
 
 describe("D4D5A analysis readiness", () => {
+  it.each([undefined, null, "", "UNKNOWN", "READY "])("rejects an unknown quality state instead of defaulting ready: %s", state => {
+    const input = quality("READY"); Object.assign(input, { state });
+    expect(buildAnalysisReadiness(schema([]), input)).toEqual({ ok: false, code: "QUALITY_STATE_INVALID" });
+  });
   it("returns READY for quality-approved aligned inputs", () => {
     const result = buildAnalysisReadiness(
       schema([field("c1", "MEASURE")]),

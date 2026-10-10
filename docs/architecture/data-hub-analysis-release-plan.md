@@ -151,8 +151,17 @@ The workflow browser/build
 evidence above belongs to `d271fc52`; those checks are not claimed as rerun by
 the focused planner tests.
 
-The catalog-admission bundle rejects inconsistent structural metadata before
+The catalog-admission bundle on `66a127a1` rejects inconsistent structural metadata before
 planning or profile-statistics access. Its 188 focused catalog/planning/count/
 response/route/failure-reference tests and all 64 rerun disposable PostgreSQL
 service tests pass. It adds no execution path, migration or raw-value access.
 The predecessor workflow browser evidence remains explicitly separate.
+
+The closed-state admission bundle rejects unknown reviewed-quality states
+instead of defaulting ready. Direct capability derivation exposes an explicit
+unavailable state with no capabilities for invalid readiness state/version or
+catalog metadata, retaining genuine quality-hold semantics. All 240 focused
+readiness/capability/planning/count/response/route/failure-reference tests and
+64 rerun disposable PostgreSQL service tests pass, along with TypeScript,
+changed-file lint and diff checks. This is pure admission hardening; no new
+execution path or migration is added. Earlier browser evidence remains separate.
