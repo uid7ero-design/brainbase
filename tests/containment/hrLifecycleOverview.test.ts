@@ -4,6 +4,10 @@ import { NextResponse } from 'next/server';
 const mocks = vi.hoisted(() => ({ workflows: vi.fn(), tasks: vi.fn(), context: vi.fn() }));
 vi.mock('@/lib/hr/lifecycleWorkflowQueries', () => ({ listLifecycleWorkflows: mocks.workflows, getVisibleLifecycleTasksForWorkflow: mocks.tasks }));
 vi.mock('@/lib/hr/lifecycleWorkflowRoute', () => ({ requireLifecycleWorkflowContext: mocks.context }));
+vi.mock('@/lib/hr/registerPageQueries', () => ({ loadRegisterPage: async (session: unknown) => {
+  const { loadLifecycleOverview } = await import('@/lib/hr/lifecycleOverview');
+  return loadLifecycleOverview(session as Parameters<typeof loadLifecycleOverview>[0]);
+} }));
 const { loadLifecycleOverview } = await import('@/lib/hr/lifecycleOverview');
 const { GET } = await import('@/app/api/hr/lifecycle/overview/route');
 const SESSION = { userId: 'viewer', organisationId: 'org-a', homeOrganisationId: 'org-a', role: 'viewer' as const, name: 'Viewer' };

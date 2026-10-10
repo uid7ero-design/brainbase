@@ -37,8 +37,8 @@ try {
     },
     load(id) {
       if (id === '\0server-only') return 'export default {}';
-      if (id === '\0@/lib/db') return 'export default async function sql(strings,...values){const text=strings.reduce((query,part,i)=>query+(i?"$"+i:"")+part,"");return (await globalThis.__hrRegisterPool.query(text,values)).rows;}';
-      if (id === '\0hr-runtime-entry') return `export {loadLifecycleTaskQueue} from ${JSON.stringify(resolve('lib/hr/lifecycleTaskQueue.ts').replaceAll('\\', '/'))}; export {loadLifecycleOverview} from ${JSON.stringify(resolve('lib/hr/lifecycleOverview.ts').replaceAll('\\', '/'))}; export {loadEmployeeDocumentOverview} from ${JSON.stringify(resolve('lib/hr/employeeDocumentOverview.ts').replaceAll('\\', '/'))};`;
+      if (id === '\0@/lib/db') return 'async function sql(strings,...values){const text=strings.reduce((query,part,i)=>query+(i?"$"+i:"")+part,"");return (await globalThis.__hrRegisterPool.query(text,values)).rows;} sql.query=async(text,values)=>{globalThis.__hrRegisterQueryCount=(globalThis.__hrRegisterQueryCount??0)+1;return (await globalThis.__hrRegisterPool.query(text,values)).rows;}; export default sql;';
+      if (id === '\0hr-runtime-entry') return `export {loadRegisterPage} from ${JSON.stringify(resolve('lib/hr/registerPageQueries.ts').replaceAll('\\', '/'))}; export {loadLifecycleTaskQueue} from ${JSON.stringify(resolve('lib/hr/lifecycleTaskQueue.ts').replaceAll('\\', '/'))}; export {loadLifecycleOverview} from ${JSON.stringify(resolve('lib/hr/lifecycleOverview.ts').replaceAll('\\', '/'))}; export {loadEmployeeDocumentOverview} from ${JSON.stringify(resolve('lib/hr/employeeDocumentOverview.ts').replaceAll('\\', '/'))};`;
     },
   }], build: { ssr: true, write: false, rollupOptions: { input: 'hr-runtime-entry' } } });
   const bundle = result.output.find(item => item.type === 'chunk');
@@ -83,14 +83,69 @@ try {
   const expired = (await readers.loadEmployeeDocumentOverview(session('employee'), now)).people[0];
   assert.equal(expired.expired, 1); assert.equal(expired.missing_version, 0); assert.equal(expired.pending_acknowledgement, 2);
   await assert.rejects(pool.query("INSERT INTO hr_employee_documents(organisation_id,person_id,document_type,title) VALUES ('b',$1,'policy','Cross-tenant attempt')", [uuid(1)]), error => error.code === '23503');
+  const view = { page: 1, search: '', filter: 'all', lifecycle: 'all' };
+  for (const [user, total] of [['employee',2],['manager',2],['outsider',0],['hr',3]]) {
+    const page = await readers.loadRegisterPage(session(user), 'queue', view, now);
+    assert.equal(page.pagination.total, total); assert.equal(page.tasks.length, total);
+    const canonical = await readers.loadLifecycleTaskQueue(session(user), now);
+    assert.deepEqual(page.tasks, canonical.tasks);
+  }
+  assert.deepEqual((await readers.loadRegisterPage(session('employee'), 'overview', view, now)).workflows, overview.workflows);
+  assert.deepEqual((await readers.loadRegisterPage(session('employee'), 'documents', view, now)).people, [expired]);
+  assert.equal((await readers.loadRegisterPage(session('manager'), 'documents', view, now)).pagination.total, 0);
+  assert.equal((await readers.loadRegisterPage(session('hr','b'), 'queue', view, now)).pagination.total, 0);
+  assert.equal((await readers.loadRegisterPage(session('hr','b','super_admin'), 'queue', view, now)).pagination.total, 3);
+  assert.equal((await readers.loadRegisterPage(session('employee'), 'queue', { ...view, search:'Task 1' }, now)).pagination.total,0);
+  assert.equal((await readers.loadRegisterPage(session('hr'), 'queue', { ...view, search:'Task 1' }, now)).pagination.total,1);
+  assert.equal((await readers.loadRegisterPage(session('employee'), 'queue', { ...view, filter:'NOT_STARTED' }, now)).pagination.total,2);
+  assert.equal((await readers.loadRegisterPage(session('employee'), 'queue', { ...view, filter:'IN_PROGRESS' }, now)).pagination.total,0);
+  assert.equal((await readers.loadRegisterPage(session('employee'), 'overview', { ...view, lifecycle:'offboarding' }, now)).pagination.total,0);
+  assert.equal((await readers.loadRegisterPage(session('employee'), 'documents', { ...view, filter:'expired' }, now)).pagination.total,1);
+  await pool.query('UPDATE hr_lifecycle_tasks SET employee_visible=false,manager_visible=true,due_at=$1 WHERE id=$2', [now,uuid(1100)]);
+  assert.equal((await readers.loadRegisterPage(session('employee'), 'queue', view, now)).pagination.total,1);
+  const managerPage = await readers.loadRegisterPage(session('manager'), 'queue', view, now);
+  assert.equal(managerPage.pagination.total,2);
+  assert.equal(managerPage.tasks.find(task=>task.task_id===uuid(1100)).overdue,false);
+  await pool.query("UPDATE hr_lifecycle_tasks SET employee_visible=true,due_at='2026-10-08' WHERE id=$1", [uuid(1100)]);
+  // 2,000 active workflows/tasks and document owners, all synthetic, same real schema.
+  await pool.query(`INSERT INTO hr_people(id,organisation_id,first_name,last_name)
+    SELECT md5('person-'||n)::uuid,'a','Volume '||lpad(n::text,4,'0'),'Fixture' FROM generate_series(1,2000) n;
+    INSERT INTO hr_employee_documents(id,organisation_id,person_id,document_type,title)
+    SELECT md5('doc-'||n)::uuid,'a',md5('person-'||n)::uuid,'policy','Fixture' FROM generate_series(1,2000) n;
+    INSERT INTO hr_lifecycle_workflows(id,organisation_id,person_id,template_id,lifecycle_type,anchor_date,started_by)
+    SELECT md5('workflow-'||n)::uuid,'a',md5('person-'||n)::uuid,'${uuid(10)}','onboarding','2026-10-09','hr' FROM generate_series(1,2000) n;
+    INSERT INTO hr_lifecycle_tasks(id,organisation_id,workflow_id,person_id,template_id,template_task_id,sequence,title,responsibility_type,employee_visible,manager_visible,internal_only,status)
+    SELECT md5('task-'||n)::uuid,'a',md5('workflow-'||n)::uuid,md5('person-'||n)::uuid,'${uuid(10)}','${uuid(1000)}',1,'Volume task '||n,'EMPLOYEE',true,true,false,'NOT_STARTED' FROM generate_series(1,2000) n;`);
+  const volumeEvidence = [];
+  for (const kind of ['overview','queue','documents']) {
+    const start = performance.now();
+    const beforeQueries = globalThis.__hrRegisterQueryCount;
+    const page = await readers.loadRegisterPage(session('hr'), kind, { ...view, search: 'Volume', page: 2 }, now);
+    assert.equal(globalThis.__hrRegisterQueryCount - beforeQueries,1);
+    const items = page.workflows ?? page.tasks ?? page.people;
+    assert.equal(page.pagination.total,2000); assert.equal(page.pagination.page,2); assert.equal(items.length,25);
+    assert(Buffer.byteLength(JSON.stringify(page)) < 256*1024);
+    const last = await readers.loadRegisterPage(session('hr'), kind, { ...view, search:'Volume', page:999999 }, now);
+    assert.equal(last.pagination.page,80);
+    const only = await readers.loadRegisterPage(session('hr'), kind, { ...view, search:'Volume 2000' }, now);
+    assert.equal(only.pagination.total,1);
+    const literal = await readers.loadRegisterPage(session('hr'), kind, { ...view, search:'%' }, now);
+    assert.equal(literal.pagination.total,0);
+    assert.equal((await readers.loadRegisterPage(session('employee'), kind, { ...view, search:'Volume' }, now)).pagination.total,0);
+    volumeEvidence.push({ kind, filtered_rows:2000, returned_rows:items.length, statements_per_page:1, response_bytes:Buffer.byteLength(JSON.stringify(page)), sequence_ms:Math.round(performance.now()-start) });
+    console.log(`${kind}: 2000-row filtered paging proof passed in ${Math.round(performance.now()-start)}ms`);
+  }
   await pool.query('UPDATE hr_people SET manager_person_id=NULL WHERE id=$1', [uuid(1)]);
   assert.equal((await readers.loadLifecycleTaskQueue(session('manager'), now)).tasks.length, 0);
+  assert.equal((await readers.loadRegisterPage(session('manager'), 'queue', view, now)).pagination.total, 0);
   await pool.query("DELETE FROM hr_administrators WHERE organisation_id='a' AND user_id='hr'");
   assert.equal((await readers.loadEmployeeDocumentOverview(session('hr'), now)).people.length, 0);
-  writeFileSync(resolve(artifacts, 'results.json'), JSON.stringify({ passed: true, database: 'disposable PostgreSQL 16', checks: ['employee/manager/HR/cross-tenant visibility', 'assigned-user denial', 'manager and HR grant revocation', 'current/deleted/version evidence', 'verification tie-break', 'UTC calendar expiry boundaries'] }, null, 2));
+  assert.equal((await readers.loadRegisterPage(session('hr'), 'documents', view, now)).pagination.total, 0);
+  writeFileSync(resolve(artifacts, 'results.json'), JSON.stringify({ passed: true, database: 'disposable PostgreSQL 16', volumeEvidence, checks: ['employee/manager/HR/cross-tenant visibility', 'assigned-user denial', 'manager and HR grant revocation', 'current/deleted/version evidence', 'verification tie-break', 'UTC calendar expiry boundaries', '2000-row paging and exact filtered totals', 'literal wildcard search', 'one statement per page', 'bounded UTF-8 response'] }, null, 2));
   console.log('HR PostgreSQL register checks passed');
 } finally {
   delete globalThis.__hrRegisterPool;
+  delete globalThis.__hrRegisterQueryCount;
   await pool?.end();
   if (created) await command('docker', ['rm', '-f', container]);
 }

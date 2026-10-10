@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { HR_PAGE_SIZE, HrOperationsNav, HrRegisterSearch, HrRegisterPagination } from '../_components/HrRegisterControls';
+import { validateRegisterPagination, type RegisterPagination } from '@/lib/hr/registerPaging';
+import { HrOperationsNav, HrRegisterSearch, HrRegisterPagination } from '../_components/HrRegisterControls';
 import PersonDrawer from '../_components/PersonDrawer';
 import { PageHeader, TableContainer, TableStateRow, buttonProps, tableStyles } from '@/components/ui/app';
 
@@ -11,7 +12,7 @@ const COLUMNS = {
 };
 type Counts = Record<keyof typeof COLUMNS, number>;
 type Person = Counts & { person_id: string; first_name: string; last_name: string };
-type Snapshot = { as_of_date: string; expiring_through: string; people: Person[] };
+type Snapshot = { pagination: RegisterPagination; as_of_date: string; expiring_through: string; people: Person[] };
 
 function parseSnapshot(value: unknown): Snapshot {
   if (!value || typeof value !== 'object' || !('people' in value) || !Array.isArray(value.people)
@@ -21,6 +22,7 @@ function parseSnapshot(value: unknown): Snapshot {
     if (!person || typeof person.person_id !== 'string' || typeof person.first_name !== 'string' || typeof person.last_name !== 'string'
       || !Object.keys(COLUMNS).every(key => Number.isSafeInteger(person[key]) && person[key] >= 0)) throw new Error('Invalid counts');
   }
+  validateRegisterPagination((value as Snapshot).pagination, value.people.length);
   return value as Snapshot;
 }
 
@@ -38,19 +40,16 @@ export default function DocumentOverviewPage() {
       if (controller.signal.aborted) return;
       setState('loading'); setSnapshot(null);
       try {
-        const response = await fetch('/api/hr/documents/overview', { signal: controller.signal, cache: 'no-store' });
+        const response = await fetch(`/api/hr/documents/overview?${new URLSearchParams({ page: String(page), search, filter })}`, { signal: controller.signal, cache: 'no-store' });
         if (!response.ok) throw new Error('Unavailable');
         const next = parseSnapshot(await response.json());
         if (!controller.signal.aborted) { setSnapshot(next); setState('ready'); }
       } catch { if (!controller.signal.aborted) setState('error'); }
     });
     return () => controller.abort();
-  }, [refresh]);
-  const query = search.trim().toLowerCase();
-  const matches = snapshot?.people.filter(person => (filter === 'all' || person[filter as keyof Counts] > 0)
-    && (!query || `${person.first_name} ${person.last_name}`.toLowerCase().includes(query))) ?? [];
-  const currentPage = Math.min(page, Math.max(1, Math.ceil(matches.length / HR_PAGE_SIZE)));
-  const rows = matches.slice((currentPage - 1) * HR_PAGE_SIZE, currentPage * HR_PAGE_SIZE);
+  }, [refresh, page, search, filter]);
+  const rows = snapshot?.people ?? [];
+  const currentPage = snapshot?.pagination.page ?? 1;
   return <div style={{ maxWidth: 1300 }}>
     <PageHeader title="Document assurance overview" description="Current employee-document assurance and expiry work within your document access." actions={<>
       <HrOperationsNav current="/people/documents" />
@@ -75,7 +74,7 @@ export default function DocumentOverviewPage() {
         </tbody>
       </table>
     </TableContainer>
-    {state === 'ready' && <HrRegisterPagination page={currentPage} total={matches.length} onChange={setPage} />}
+    {state === 'ready' && <HrRegisterPagination page={currentPage} total={snapshot?.pagination.total ?? 0} onChange={setPage} />}
     <p style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
       {snapshot && <>As of {snapshot.as_of_date} (UTC); upcoming expiry through {snapshot.expiring_through}. </>}
       Expiry excludes today. Counts cover current versions and may overlap. Unacknowledged means no acknowledgement by the currently linked employee; it does not imply a required acknowledgement. Employees without a linked account are shown separately. Open a person to review documents.

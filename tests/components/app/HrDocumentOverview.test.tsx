@@ -1,3 +1,4 @@
+import { hrRegisterFixture } from '../../helpers/hrRegisterFixture';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { renderBrainbase } from '../../a11y/render';
@@ -6,7 +7,7 @@ vi.mock('@/app/people/_components/PersonDrawer', () => ({ default: ({ personId, 
 const fetchMock = vi.fn();
 const person = { person_id: 'p-a', first_name: 'Alex', last_name: 'Worker', documents: 3, missing_version: 0, pending_acknowledgement: 1, unlinked_employee: 0, pending_verification: 1, rejected: 0, expired: 1, expiring_soon: 0 };
 const snapshot = { as_of_date: '2026-10-08', expiring_through: '2026-11-07', people: [person, { ...person, person_id: 'p-b', first_name: 'Morgan', expired: 0, pending_acknowledgement: 0, pending_verification: 0 }] };
-const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }));
+const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(hrRegisterFixture(body, String(fetchMock.mock.calls.at(-1)?.[0] ?? ''), [])), { status }));
 beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); fetchMock.mockImplementation(() => json(snapshot)); });
 afterEach(() => vi.unstubAllGlobals());
 describe('document assurance overview', () => {
@@ -15,17 +16,18 @@ describe('document assurance overview', () => {
     expect(await screen.findByRole('button', { name: 'Alex Worker' })).toBeTruthy();
     expect(screen.getByText(/Counts cover current versions and may overlap/)).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/hr/documents/overview');
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/hr/documents/overview?page=1&search=&filter=all');
     expect(fetchMock.mock.calls[0][1].cache).toBe('no-store');
   });
   it.each(['expired', 'pending_acknowledgement', 'pending_verification'])('filters %s and opens/refreshes the authorized person', async filter => {
     renderBrainbase(<Page />); await screen.findByRole('button', { name: 'Alex Worker' });
     fireEvent.change(screen.getByLabelText('Show documents'), { target: { value: filter } });
+    await screen.findByRole('button', { name: 'Alex Worker' });
     expect(screen.queryByRole('button', { name: 'Morgan Worker' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Alex Worker' }));
     expect(screen.getByText('Selected p-a')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Close person' }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
   });
   it('shows an empty state without implying document access to anyone else', async () => {
     fetchMock.mockImplementation(() => json({ ...snapshot, people: [] }));

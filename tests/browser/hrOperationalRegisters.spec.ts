@@ -1,3 +1,4 @@
+import { hrRegisterFixture } from '../helpers/hrRegisterFixture';
 import { test, expect } from '@playwright/test';
 import { build } from 'vite';
 import path from 'node:path';
@@ -40,7 +41,7 @@ for (const mode of modes) test(`${mode} search, filters, pages, drawer refresh a
     const rows = <T,>(values: T[]) => shrink ? values.slice(0, 1) : values;
     const body = url.pathname === '/api/hr/people' ? { people } : mode === 'tasks' ? { as_of: '2026-10-09T00:00:00Z', tasks: rows(tasks) }
       : mode === 'documents' ? { as_of_date: '2026-10-09', expiring_through: '2026-11-08', people: rows(documents) } : { workflows: rows(workflows) };
-    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(hrRegisterFixture(body, url.href, people)) });
   });
   await page.goto('http://brainbase.local/'); await page.addScriptTag({ content: bundles.get(mode)! });
   await expect(page.getByRole('button', { name: 'Worker 001 Fixture' })).toBeVisible();
