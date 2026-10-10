@@ -179,3 +179,20 @@ The existing pure evaluator uses this target planner. No database/API/UI/AI
 execution is added. The target plan establishes neither dataset provenance nor
 freshness, access authorization or sufficient profile evidence; the existing
 scoped evaluator and server loaders retain those responsibilities.
+
+## Catalog admission before planning
+
+The general planner now requires a complete structural field catalog before
+deriving capabilities. Its seven role lists must be arrays of nonblank string
+identities, with no repeats within or across roles. Their total must equal a
+nonnegative safe integer field count; missing or additional role lists fail.
+An empty catalog remains valid for row counts. Original identities are retained,
+never normalized or silently deduplicated.
+
+Malformed catalog metadata returns `READINESS_CATALOG_INVALID` from general
+planning, profile-target planning and evaluation before profile evidence is
+read. This replaces the later `PROFILE_LINEAGE_MISMATCH` diagnostic for duplicate
+readiness identities; mismatched profile evidence retains its lineage error.
+Quality holds retain precedence even when catalog metadata is unavailable.
+The guard validates structural consistency only, not provenance, freshness,
+algorithm support or access. Those existing version/scoped/server checks remain.

@@ -141,7 +141,7 @@ journey preceding the already-profiled worksheet. Those remain separate
 acceptance checks. The first owner action is to approve the exact release
 candidate and verify target prerequisite/migration state.
 
-The follow-on pure profile-target planner distinguishes descriptive grouping
+The follow-on pure profile-target planner on `8234e716` distinguishes descriptive grouping
 intent from supported profile statistics and rejects incompatible algorithm
 versions before evidence evaluation. It adds no execution path or migration.
 Its focused planning/evaluator/response/route and failure-reference suites pass
@@ -150,3 +150,9 @@ service integration tests were rerun successfully through the target planner.
 The workflow browser/build
 evidence above belongs to `d271fc52`; those checks are not claimed as rerun by
 the focused planner tests.
+
+The catalog-admission bundle rejects inconsistent structural metadata before
+planning or profile-statistics access. Its 188 focused catalog/planning/count/
+response/route/failure-reference tests and all 64 rerun disposable PostgreSQL
+service tests pass. It adds no execution path, migration or raw-value access.
+The predecessor workflow browser evidence remains explicitly separate.

@@ -1,6 +1,7 @@
 import { buildAnalysisCapabilities } from "./capabilities";
 import type { AnalysisReadiness } from "./contracts";
 import { validateAnalysisRequest, type AnalysisRequestErrorCode } from "./requestValidation";
+import { hasValidAnalysisFieldCatalog } from "./fieldCatalogValidation";
 
 export const ANALYSIS_PLAN_VERSION = "v1" as const;
 
@@ -38,12 +39,14 @@ export type AnalysisPlan = RowCountAnalysisPlan | GroupedRowCountAnalysisPlan | 
 
 export type BuildAnalysisPlanResult =
   | { ok: true; plan: AnalysisPlan }
-  | { ok: false; code: AnalysisRequestErrorCode | "PLAN_KIND_NOT_SUPPORTED" };
+  | { ok: false; code: AnalysisRequestErrorCode | "PLAN_KIND_NOT_SUPPORTED" | "READINESS_CATALOG_INVALID" };
 
 export function buildAnalysisPlan(
   readiness: AnalysisReadiness,
   input: unknown,
 ): BuildAnalysisPlanResult {
+  if (readiness?.state === "BLOCKED_QUALITY_HOLD") return { ok: false, code: "QUALITY_HOLD" };
+  if (!hasValidAnalysisFieldCatalog(readiness)) return { ok: false, code: "READINESS_CATALOG_INVALID" };
   const result = validateAnalysisRequest(buildAnalysisCapabilities(readiness), input);
   if (!result.ok) return result;
   if (result.request.kind === "AGGREGATE" && result.request.operator !== "COUNT_PRESENT") {
