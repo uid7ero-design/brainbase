@@ -54,29 +54,33 @@ export default function TeamsPage() {
   const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
 
-  async function load() {
-    setLoading(true); setError('');
-    const teamsUrl = showArchived ? '/api/hr/teams?include_archived=1' : '/api/hr/teams';
-    const [teamsRes, peopleRes] = await Promise.all([
-      fetch(teamsUrl),
-      fetch('/api/hr/people'),
-    ]);
-    if (teamsRes.ok) {
-      const data = await teamsRes.json();
-      setTeams(data.teams ?? []);
-    } else {
-      const data = await teamsRes.json().catch(() => ({}));
-      setError(data.error ?? 'Could not load Teams.');
-    }
-    if (peopleRes.ok) {
-      const data = await peopleRes.json();
-      setManagers(data.people ?? []);
-      setCanManage(Boolean(data.canManage));
-    }
-    setLoading(false);
-  }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- re-run only on showArchived; `load` is redefined every render and isn't itself a dependency.
-  useEffect(() => { queueMicrotask(() => { load(); }); }, [showArchived]);
+  const [refresh, setRefresh] = useState(0);
+  async function load() { setRefresh(value => value + 1); }
+  useEffect(() => {
+    const controller = new AbortController();
+    queueMicrotask(async () => {
+      if (controller.signal.aborted) return;
+      setLoading(true); setError(''); setTeams([]); setManagers([]); setCanManage(false); setConfirmArchiveId(null);
+      const teamsUrl = showArchived ? '/api/hr/teams?include_archived=1' : '/api/hr/teams';
+      try {
+        const [teamsRes, peopleRes] = await Promise.all([
+          fetch(teamsUrl, { signal: controller.signal, cache: 'no-store' }),
+          fetch('/api/hr/people', { signal: controller.signal, cache: 'no-store' }),
+        ]);
+        if (!teamsRes.ok || !peopleRes.ok) throw new Error('Unavailable');
+        const [data, peopleData] = await Promise.all([teamsRes.json(), peopleRes.json()]);
+        if (!Array.isArray(data.teams) || !data.teams.every((team: Team) => team && typeof team.id === 'string' && typeof team.name === 'string'
+          && [team.description, team.manager_person_id, team.archived_at].every(value => value === null || typeof value === 'string'))
+          || !Array.isArray(peopleData.people) || !peopleData.people.every((person: ManagerOption) => person && typeof person.id === 'string' && typeof person.first_name === 'string' && typeof person.last_name === 'string')
+          || typeof peopleData.canManage !== 'boolean') throw new Error('Invalid Teams');
+        if (!controller.signal.aborted) {
+          setTeams(data.teams); setManagers(peopleData.people); setCanManage(peopleData.canManage);
+        }
+      } catch { if (!controller.signal.aborted) setError('Could not load Teams. Please refresh to try again.'); }
+      finally { if (!controller.signal.aborted) setLoading(false); }
+    });
+    return () => controller.abort();
+  }, [showArchived, refresh]);
 
   async function archive(id: string) {
     setActionError('');
@@ -106,6 +110,7 @@ export default function TeamsPage() {
         description={<>Manage your organisation&apos;s teams.</>}
         actions={
           <>
+            <button type="button" {...buttonProps('secondary')} disabled={loading} onClick={load}>Refresh</button>
             {canManage && (
               <>
                 <label style={checkboxLabel}>
@@ -180,20 +185,20 @@ export default function TeamsPage() {
       </TableContainer>
 
       <SlidePanel open={showCreate} onClose={() => setShowCreate(false)} title="Create Team">
-        <TeamForm managers={managers} onSaved={() => { setShowCreate(false); load(); }} />
+        <TeamForm canManage={canManage} managers={managers} onSaved={() => { setShowCreate(false); load(); }} />
       </SlidePanel>
 
       <SlidePanel open={editingTeam !== null} onClose={() => setEditingTeam(null)} title="Edit Team">
         {editingTeam && (
-          <TeamForm initial={editingTeam} managers={managers} onSaved={() => { setEditingTeam(null); load(); }} />
+          <TeamForm canManage={canManage} initial={editingTeam} managers={managers} onSaved={() => { setEditingTeam(null); load(); }} />
         )}
       </SlidePanel>
     </div>
   );
 }
 
-function TeamForm({ initial, managers, onSaved }: {
-  initial?: Team; managers: ManagerOption[]; onSaved: () => void;
+function TeamForm({ initial, managers, onSaved, canManage }: {
+  initial?: Team; managers: ManagerOption[]; onSaved: () => void; canManage: boolean;
 }) {
   const [name, setName] = useState(initial?.name ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
@@ -203,6 +208,7 @@ function TeamForm({ initial, managers, onSaved }: {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!canManage || saving) return;
     setSaving(true); setError('');
     const isEdit = Boolean(initial?.id);
     const url = isEdit ? `/api/hr/teams/${initial!.id}` : '/api/hr/teams';
@@ -232,7 +238,7 @@ function TeamForm({ initial, managers, onSaved }: {
       </Field>
       {error && <FormError>{error}</FormError>}
       <FormActions align="stretch">
-        <button type="submit" disabled={saving} {...buttonProps('primary')}>
+        <button type="submit" disabled={saving || !canManage} {...buttonProps('primary')}>
           {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Team'}
         </button>
       </FormActions>

@@ -30,12 +30,13 @@ describe('app/people/teams/page.tsx — sits under the existing People module, n
   });
 
   it('fetches the default (active-only) team list from the canonical HR teams endpoint', () => {
-    expect(src).toContain("fetch(teamsUrl)");
+    expect(src).toContain("fetch(teamsUrl,");
     expect(src).toMatch(/showArchived\s*\?\s*'\/api\/hr\/teams\?include_archived=1'\s*:\s*'\/api\/hr\/teams'/);
   });
 
   it('derives canManage from the server response, never a client-only guess', () => {
-    expect(src).toMatch(/setCanManage\(Boolean\(data\.canManage\)\)/);
+    expect(src).toMatch(/typeof peopleData\.canManage !== 'boolean'/);
+    expect(src).toMatch(/setCanManage\(peopleData\.canManage\)/);
   });
 
   it('"+ Create Team" and the "Show archived" toggle are both gated on the same canManage block, never rendered unconditionally', () => {
