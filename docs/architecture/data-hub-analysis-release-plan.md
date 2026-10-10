@@ -101,7 +101,7 @@ append a correction.
 
 ## Verification and limits
 
-Local candidate validation passed: 2,230 Data Hub/component tests across 90
+Local candidate validation passed: 2,233 Data Hub/component tests across 90
 files, all 64 disposable-Postgres integration tests, the built-app browser
 journey, TypeScript, changed-file lint and diff checks. The application build
 passed with local build-only placeholders; the existing missing dashboard-copy
@@ -121,6 +121,13 @@ history-to-worksheet navigation, saved review persistence and choice restoration
 without an automatic append, both counts, zero/null behavior, holds, stale pins,
 denied access and timed-out save recovery. Evidence stays in ignored
 `test-results/datahub-runtime`; disposable login credentials are removed.
+
+Eight browser contract probes intentionally corrupt otherwise genuine count
+responses, including invalid JSON. They verify failure clears previous results,
+response contents are hidden, no extra request occurs during the observed
+recovery interval and explicit genuine retries succeed without appending reviews.
+These intercepted responses are separate from the unmodified baseline workflow;
+they prove client handling of faults, not server production of those faults.
 
 This does not certify the hosted Neon transport, Production migration status,
 Production deployment, large-tenant load or the file-upload/normalization

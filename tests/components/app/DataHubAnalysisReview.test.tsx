@@ -96,6 +96,17 @@ describe("Data Hub review screen", () => {
     fireEvent.change(screen.getByLabelText("Measure to count"), { target: { value: "" } });
     expect(screen.queryByText(/Present values: 0/)).not.toBeInTheDocument();
   });
+  it.each(['private-response-probe', 'null', '[]'])("rejects undecodable/non-object JSON without displaying response contents: %s", async body => {
+    const fetcher = vi.fn().mockResolvedValueOnce(reply(initial)).mockResolvedValueOnce(reply(saved()))
+      .mockResolvedValueOnce(new Response(body, { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetcher); render(<AnalysisReviewClient uploadId="upload" />);
+    fireEvent.click(screen.getByText("Load current review")); await screen.findByText("Saved review 2");
+    fireEvent.click(screen.getByText("Count rows")); await screen.findByRole("alert");
+    expect(screen.getByRole("alert")).toHaveTextContent("RESPONSE_INVALID");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("private-");
+    expect(screen.queryByText(/Rows: /)).not.toBeInTheDocument();
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
   it("does not offer measures from a saved review on a different profile", async () => {
     const different = saved(); different.schema.context.datasetProfileRunId = "profile-2";
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(reply(initial)).mockResolvedValueOnce(reply(different)));

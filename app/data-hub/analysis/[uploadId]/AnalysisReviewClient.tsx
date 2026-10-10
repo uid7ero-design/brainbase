@@ -37,8 +37,10 @@ export default function AnalysisReviewClient({ uploadId }: { uploadId: string })
   async function request<T>(path: string, body?: unknown): Promise<T> {
     const response = await fetch(endpoint + path, { method: body === undefined ? "GET" : "POST",
       cache: "no-store", ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
-    const data = await response.json();
-    if (!response.ok || data.ok !== true) throw new Error(typeof data.code === "string" ? data.code : "REQUEST_FAILED");
+    const data: unknown = await response.json().catch(() => { throw new Error("RESPONSE_INVALID"); });
+    if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("RESPONSE_INVALID");
+    const envelope = data as { ok?: unknown; code?: unknown };
+    if (!response.ok || envelope.ok !== true) throw new Error(typeof envelope.code === "string" ? envelope.code : "REQUEST_FAILED");
     return data as T;
   }
   async function run(action: () => Promise<void>) {

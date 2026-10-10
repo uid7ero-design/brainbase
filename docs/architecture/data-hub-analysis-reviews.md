@@ -146,3 +146,10 @@ database pointers. A valid server result can use a newer profile/review than
 the screen load; that actual lineage is retained. The existing server remains
 responsible for authorization and fresh review/capability evaluation. Rejected
 responses clear the prior count; retry remains an explicit user action.
+
+The browser proof additionally corrupts eight otherwise genuine count responses
+to check rejection, clearing prior results, hiding unexpected response contents,
+no extra request during the observed recovery interval and explicit valid retry.
+Only these contract probes intercept response bodies; baseline workflow,
+authorization and persistence recovery still use genuine responses. Invalid JSON
+and non-object envelopes yield `RESPONSE_INVALID`, never decoding snippets.
