@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { validateRegisterPagination, type RegisterPagination } from '@/lib/hr/registerPaging';
-import { HrOperationsNav, HrRegisterSearch, HrRegisterPagination } from '../../_components/HrRegisterControls';
+import { HrOperationsNav, HrRegisterReset, HrRegisterSearch, HrRegisterPagination } from '../../_components/HrRegisterControls';
 import PersonDrawer from '../../_components/PersonDrawer';
 import { PageHeader, TableContainer, TableStateRow, buttonProps, tableStyles } from '@/components/ui/app';
 
@@ -66,6 +66,7 @@ export default function LifecycleTaskQueuePage() {
       <option value="all">All outstanding</option><option value="overdue">Overdue</option>
       {Object.entries(STATUSES).map(([key, title]) => <option key={key} value={key}>{title}</option>)}
     </select></label>
+    <HrRegisterReset active={Boolean(search) || filter !== 'all' || page !== 1 || lifecycle !== 'all'} onReset={() => { setSearch(''); setFilter('all'); setPage(1); setLifecycle('all'); }} />
     <TableContainer label="Outstanding lifecycle tasks" minWidth={750}>
       <table className={tableStyles.table}>
         <thead><tr>{['Person', 'Lifecycle', 'Task', 'Status', 'Due (UTC)', 'Overdue'].map(title => <th key={title} scope="col">{title}</th>)}</tr></thead>

@@ -14,10 +14,13 @@ Unknown or duplicate query keys, unsupported filter values, invalid page numbers
 
 Refresh and view changes clear previous rows, totals and management controls while loading. Abort cleanup prevents late responses restoring stale rows or permissions. Failed reads show a generic retry message. Closing the person drawer and existing create/edit save callbacks refresh the register. Browsing does not create or update HR data. Employment and worker values share the existing validation enums without changing their meanings.
 
+People, lifecycle overview, task queue and document assurance share a keyboard-accessible **Reset view** action. It clears each screen's search and filters and returns the requested page to one in a single batched interaction. It remains available while a changed view is loading, empty or failed; resetting aborts the superseded read. It is disabled for the default view. Resetting changes view state only, leaves existing drawers/forms alone and does not cache, persist or mutate HR records.
+
 ## Verification and release boundary
 
 - 1,148 HR containment/component tests across 89 files pass, including access failures, response projection, late reads, recovery and separate create/edit callback wiring.
 - Four Chromium fixture flows pass for People, lifecycle, tasks and documents. Drawer/form seams are substituted; these checks do not certify real authenticated form submissions.
+- Twelve additional cross-register component checks cover combined-filter/page reset, empty/failure recovery and pending-read cancellation. Chromium exercises keyboard activation of reset on every register.
 - Disposable PostgreSQL 16 checks execute the actual readers and compare People visibility against the canonical access helpers. They cover active-organisation switching, ordinary admin denial, super-admin scope, malformed cross-organisation relations, manager/grant revocation, literal search, filtered totals, disjoint pages and clamping across 2,000 synthetic people. No production database or real HR records are used.
 - TypeScript and changed-file lint pass. Production compilation is checked using an unreachable loopback database URL, without pulling credentials or changing environment configuration.
 

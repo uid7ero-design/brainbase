@@ -4,7 +4,7 @@ import Link from 'next/link';
 import SlidePanel from './_components/SlidePanel';
 import PersonForm from './_components/PersonForm';
 import PersonDrawer, { type PersonDetail } from './_components/PersonDrawer';
-import { HrOperationsNav, HrRegisterPagination } from './_components/HrRegisterControls';
+import { HrOperationsNav, HrRegisterReset, HrRegisterPagination } from './_components/HrRegisterControls';
 import { parsePeopleRegisterSnapshot, type PeopleRegisterRow } from '@/lib/hr/peopleRegisterContract';
 import { EMPLOYMENT_STATUSES, WORKER_TYPES } from '@/lib/hr/personEnums';
 import type { RegisterPagination } from '@/lib/hr/registerPaging';
@@ -114,6 +114,7 @@ export default function PeoplePage() {
         <label>Worker type{' '}<select value={workerType} onChange={event => { setWorkerType(event.target.value); setPage(1); }}>
           <option value="all">All worker types</option>{WORKER_TYPES.map(value => <option key={value} value={value}>{value.charAt(0).toUpperCase() + value.slice(1)}</option>)}
         </select></label>
+        <HrRegisterReset active={Boolean(search) || status !== 'all' || workerType !== 'all' || page !== 1} onReset={() => { setSearch(''); setStatus('all'); setWorkerType('all'); setPage(1); }} />
       </WorkToolbar>
 
       <TableContainer label="People" minWidth={760}>

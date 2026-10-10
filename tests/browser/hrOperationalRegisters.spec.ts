@@ -75,6 +75,13 @@ for (const mode of modes) test(`${mode} search, filters, pages, drawer refresh a
     await expect(page.getByRole('status')).toContainText('30 matching rows');
     await page.getByRole('combobox', { name: /^Lifecycle/ }).selectOption('all');
   }
+  await search.fill('Worker 061');
+  await expect(page.getByRole('button', { name: 'Worker 061 Fixture', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Reset view', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect(search).toHaveValue('');
+  await expect(page.getByRole('status')).toContainText('61 matching rows');
+  await expect(page.getByRole('button', { name: 'Reset view', exact: true })).toBeDisabled();
   await expect(page.getByRole('navigation', { name: 'HR operational views' }).getByRole('link')).toHaveCount(4);
   await page.getByRole('button', { name: 'Next', exact: true }).click();
   await page.getByRole('button', { name: 'Next', exact: true }).click();

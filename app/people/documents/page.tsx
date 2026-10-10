@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { validateRegisterPagination, type RegisterPagination } from '@/lib/hr/registerPaging';
-import { HrOperationsNav, HrRegisterSearch, HrRegisterPagination } from '../_components/HrRegisterControls';
+import { HrOperationsNav, HrRegisterReset, HrRegisterSearch, HrRegisterPagination } from '../_components/HrRegisterControls';
 import PersonDrawer from '../_components/PersonDrawer';
 import { PageHeader, TableContainer, TableStateRow, buttonProps, tableStyles } from '@/components/ui/app';
 
@@ -60,6 +60,7 @@ export default function DocumentOverviewPage() {
       <option value="all">All visible documents</option>
       {Object.entries(COLUMNS).filter(([key]) => key !== 'documents').map(([key, title]) => <option key={key} value={key}>{title}</option>)}
     </select></label>
+    <HrRegisterReset active={Boolean(search) || filter !== 'all' || page !== 1} onReset={() => { setSearch(''); setFilter('all'); setPage(1); }} />
     <TableContainer label="Employee document assurance" minWidth={1100}>
       <table className={tableStyles.table}>
         <thead><tr><th scope="col">Person</th>{Object.entries(COLUMNS).map(([key, title]) => <th scope="col" key={key}>{title}</th>)}</tr></thead>

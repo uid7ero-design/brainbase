@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { validateRegisterPagination, type RegisterPagination } from '@/lib/hr/registerPaging';
-import { HrOperationsNav, HrRegisterSearch, HrRegisterPagination } from '../_components/HrRegisterControls';
+import { HrOperationsNav, HrRegisterReset, HrRegisterSearch, HrRegisterPagination } from '../_components/HrRegisterControls';
 import PersonDrawer from '../_components/PersonDrawer';
 import { PageHeader, TableContainer, TableStateRow, buttonProps, tableStyles } from '@/components/ui/app';
 
@@ -71,6 +71,7 @@ export default function LifecycleOverviewPage() {
           <option value="all">All active</option><option value="outstanding">Outstanding work</option><option value="approvals">Awaiting approval</option><option value="overdue">Overdue work</option>
         </select>
       </label>
+      <HrRegisterReset active={Boolean(search) || filter !== 'all' || page !== 1 || lifecycle !== 'all'} onReset={() => { setSearch(''); setFilter('all'); setPage(1); setLifecycle('all'); }} />
       <TableContainer label="Active lifecycle workflows" minWidth={700}>
         <table className={tableStyles.table}>
           <thead><tr><th scope="col">Person</th><th scope="col">Lifecycle</th><th scope="col">Visible tasks</th><th scope="col">Outstanding</th><th scope="col">Awaiting approval</th><th scope="col">Overdue</th></tr></thead>
