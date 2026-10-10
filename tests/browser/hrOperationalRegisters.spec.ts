@@ -6,7 +6,7 @@ import path from 'node:path';
 const modes = ['lifecycle', 'tasks', 'documents', 'people'] as const;
 const bundles = new Map<string, string>();
 test.beforeAll(async () => {
-  for (const mode of [...modes, 'people-drawer']) {
+  for (const mode of [...modes, 'people-drawer', 'teams', 'administrators']) {
     const file = mode.startsWith('people') ? 'app/people/page.tsx' : mode === 'tasks' ? 'app/people/lifecycle/tasks/page.tsx' : `app/people/${mode}/page.tsx`;
     const result = await build({ configFile: false, logLevel: 'error', resolve: { alias: { '@': process.cwd() } },
       define: { 'process.env.NODE_ENV': JSON.stringify('production'), 'process.env': '{}' }, oxc: { jsx: { runtime: 'automatic' } },
@@ -132,5 +132,33 @@ for (const detailFailure of [false, true]) test(`real person drawer: ${detailFai
   await expect(dialog).toHaveCount(0);
   await expect(selected).toBeFocused();
   await expect.poll(() => registerReads).toBe(detailFailure ? 3 : 2);
+  expect(errors).toEqual([]); expect(methods.every(method => method === 'GET')).toBe(true);
+});
+
+for (const mode of ['teams', 'administrators']) test(`${mode} administration: denial clears controls and refresh recovers safely`, async ({ page }) => {
+  let fail = false;
+  const errors: string[] = [], methods: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.route('http://brainbase.local/**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<div id="root"></div>' });
+    methods.push(route.request().method());
+    const body = fail ? { error: 'server secret' } : mode === 'administrators'
+      ? { users: [{ id: 'admin', name: 'Alex Administrator', email: null, is_hr_administrator: true, grant_eligible: false }, { id: 'candidate', name: 'Morgan Candidate', email: null, is_hr_administrator: false, grant_eligible: true }] }
+      : url.pathname === '/api/hr/teams' ? { teams: [{ id: 'team', name: 'Delivery', description: null, manager_person_id: null, archived_at: null }] } : { people: [], canManage: true };
+    return route.fulfill({ status: fail ? 403 : 200, contentType: 'application/json', body: JSON.stringify(body) });
+  });
+  await page.goto('http://brainbase.local/'); await page.addScriptTag({ content: bundles.get(mode)! });
+  const name = mode === 'teams' ? 'Delivery' : 'Alex Administrator';
+  const action = mode === 'teams' ? '+ Create Team' : 'Grant';
+  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: action, exact: true })).toBeVisible();
+  fail = true; await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByText(/Please refresh to try again/)).toBeVisible();
+  await expect(page.getByText(name, { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: action, exact: true })).toHaveCount(0);
+  await expect(page.getByText('server secret', { exact: true })).toHaveCount(0);
+  fail = false; await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByText(name, { exact: true })).toBeVisible();
   expect(errors).toEqual([]); expect(methods.every(method => method === 'GET')).toBe(true);
 });

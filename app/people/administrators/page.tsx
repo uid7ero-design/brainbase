@@ -48,19 +48,27 @@ export default function AdministratorsPage() {
   const [granting, setGranting] = useState(false);
   const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null);
 
-  async function load() {
-    setLoading(true); setError('');
-    const res = await fetch('/api/hr/administrators');
-    if (res.ok) {
-      const data = await res.json();
-      setUsers(data.users ?? []);
-    } else {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error ?? 'Could not load HR administrators.');
-    }
-    setLoading(false);
-  }
-  useEffect(() => { queueMicrotask(() => { load(); }); }, []);
+  const [refresh, setRefresh] = useState(0);
+
+  async function load() { setRefresh(value => value + 1); }
+  useEffect(() => {
+    const controller = new AbortController();
+    queueMicrotask(async () => {
+      if (controller.signal.aborted) return;
+      setLoading(true); setError(''); setUsers([]); setSelectedUserId(''); setConfirmRevokeId(null);
+      try {
+        const res = await fetch('/api/hr/administrators', { signal: controller.signal, cache: 'no-store' });
+        if (!res.ok) throw new Error('Unavailable');
+        const data = await res.json();
+        if (!Array.isArray(data.users) || !data.users.every((user: AdminUser) => user && typeof user.id === 'string' && typeof user.name === 'string'
+          && (user.email === null || typeof user.email === 'string') && typeof user.is_hr_administrator === 'boolean' && typeof user.grant_eligible === 'boolean')) throw new Error('Invalid administrators');
+        if (!controller.signal.aborted) setUsers(data.users);
+      } catch { if (!controller.signal.aborted) setError('Could not load HR administrators. Please refresh to try again.'); }
+      finally { if (!controller.signal.aborted) setLoading(false); }
+    });
+    return () => controller.abort();
+  }, [refresh]);
+
 
   const administrators = users.filter(u => u.is_hr_administrator);
   const candidates = users.filter(u => !u.is_hr_administrator && u.grant_eligible);
@@ -99,6 +107,7 @@ export default function AdministratorsPage() {
     <div style={{ maxWidth: 900 }}>
       <PageHeader
         title="HR Administrators"
+        actions={<button type="button" {...buttonProps('secondary')} disabled={loading} onClick={load}>Refresh</button>}
         description="Grant or revoke HR administrator access for your organisation."
       />
 
