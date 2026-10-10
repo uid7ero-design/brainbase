@@ -3,6 +3,7 @@ export * from "./buildAnalysisReadiness";
 export * from "./capabilities";
 export * from "./requestValidation";
 export * from "./plan";
+export * from "./profileCountPlan";
 export * from "./profileCounts";
 export * from "./scopedProfileCounts";
 export * from "./analyzeProfileCount";

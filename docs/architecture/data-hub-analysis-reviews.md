@@ -163,3 +163,19 @@ Neither server diagnostics nor connection messages are displayed. This is a
 display boundary, not authorization, error-envelope validation or permission to
 retry. The existing save uncertainty guard still requires explicit reload;
 count failures still clear results and await an explicit retry.
+
+## Profile-statistics planning target
+
+`buildAnalysisPlan` can describe a governed grouped-row-count intent without
+making grouping executable. `buildProfileCountPlan` narrows that description to
+the existing profile-statistics target: row count and present-value count only.
+Grouped intent retains `PROFILE_OPERATION_NOT_SUPPORTED`; generic aggregate
+intent retains `PLAN_KIND_NOT_SUPPORTED`. Holds and capability denials remain
+checked before target acceptance. Supported schema, profiler and quality
+resolution versions are required; incompatible versions return
+`PROFILE_PLAN_VERSION_UNSUPPORTED` before profile statistics are read.
+
+The existing pure evaluator uses this target planner. No database/API/UI/AI
+execution is added. The target plan establishes neither dataset provenance nor
+freshness, access authorization or sufficient profile evidence; the existing
+scoped evaluator and server loaders retain those responsibilities.

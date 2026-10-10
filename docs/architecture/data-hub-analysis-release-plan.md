@@ -102,7 +102,7 @@ append a correction.
 
 ## Verification and limits
 
-Local validation passed: 49 failure-contract/review-screen tests, all 64
+Workflow validation on predecessor `d271fc52` passed: 49 failure-contract/review-screen tests, all 64
 disposable-Postgres integration tests, the built-app browser journey, TypeScript,
 changed-file lint and diff checks. The wider 2,265-test suite encountered
 timeouts in unchanged schema/database and repository-scanning tests; the two
@@ -140,3 +140,13 @@ Production deployment, large-tenant load or the file-upload/normalization
 journey preceding the already-profiled worksheet. Those remain separate
 acceptance checks. The first owner action is to approve the exact release
 candidate and verify target prerequisite/migration state.
+
+The follow-on pure profile-target planner distinguishes descriptive grouping
+intent from supported profile statistics and rejects incompatible algorithm
+versions before evidence evaluation. It adds no execution path or migration.
+Its focused planning/evaluator/response/route and failure-reference suites pass
+167 tests; TypeScript and changed-file lint pass. All 64 disposable PostgreSQL
+service integration tests were rerun successfully through the target planner.
+The workflow browser/build
+evidence above belongs to `d271fc52`; those checks are not claimed as rerun by
+the focused planner tests.
