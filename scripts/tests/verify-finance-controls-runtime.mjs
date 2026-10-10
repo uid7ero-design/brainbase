@@ -750,6 +750,37 @@ try {
     if((await pool.query('SELECT annual_budget_cents::text AS cents FROM commercial_budget_lines WHERE id=$1',[budgetState.line_id])).rows[0].cents!=='10000'||(await pool.query('SELECT amount_cents::text AS cents FROM commercial_budget_period_allocations WHERE id=$1',[originalAllocationId])).rows[0].cents!=='10000'||(await pool.query('SELECT budget_account_id FROM commercial_budget_commitment_mappings WHERE id=$1',[originalMapping.id])).rows[0].budget_account_id!==budgetDimensions[0])throw new Error('Correction changed retained Budget records');
   }
 
+  // Enter a saved zero through an empty calendar cell; never auto-fill or alter annual amounts.
+  await other.page.reload();
+  const allocationCalendar=budgetSection.getByRole('region',{name:'Budget allocation calendar',exact:true});
+  const periodTotals=allocationCalendar.getByRole('table',{name:'Totals by financial period',exact:true});
+  await expect(periodTotals.getByRole('row').filter({hasText:'Correction period'})).toContainText('Not entered');
+  await allocationCalendar.getByText('Amounts by line and period',{exact:true}).click();
+  const addCalendar=allocationCalendar.getByRole('button',{name:'Add calendar allocation BUDGET-ACC / BUDGET-CC / Correction period',exact:true});
+  await addCalendar.click();
+  await expect(allocationForm.getByLabel('Allocation line',{exact:false})).toHaveValue('BUDGET-ACC / BUDGET-CC');
+  await expect(allocationForm.getByLabel('Allocation period',{exact:false})).toHaveValue('Correction period');
+  await expect(allocationForm.getByLabel('Period amount (AUD)',{exact:false})).toBeFocused();
+  await expect(allocationForm.getByLabel('Period amount (AUD)',{exact:false})).toHaveValue('');
+  await allocationForm.getByRole('button',{name:'Cancel allocation editing',exact:true}).click();
+  if((await pool.query('SELECT id FROM commercial_budget_period_allocations WHERE budget_line_id=$1 AND financial_period_id=$2',[budgetState.line_id,correctionPeriodId])).rows.length)throw new Error('Calendar selection or cancellation saved an allocation');
+  await addCalendar.click();
+  await allocationForm.getByLabel('Period amount (AUD)',{exact:false}).fill('0.00');
+  await allocationForm.getByRole('button',{name:'Save allocation',exact:true}).click();
+  await expect(budgetSection.getByRole('status')).toContainText('Budget setup saved.');
+  await expect(budgetSection.getByRole('region',{name:'Budget amount review',exact:true})).toBeFocused();
+  const calendarZero=(await pool.query('SELECT amount_cents::text AS cents FROM commercial_budget_period_allocations WHERE budget_line_id=$1 AND financial_period_id=$2',[budgetState.line_id,correctionPeriodId])).rows;
+  if(calendarZero.length!==1||calendarZero[0].cents!=='0')throw new Error('Calendar entry did not persist one exact zero');
+  if((await pool.query('SELECT annual_budget_cents::text AS cents FROM commercial_budget_lines WHERE id=$1',[budgetState.line_id])).rows[0].cents!=='10000'||(await pool.query('SELECT amount_cents::text AS cents FROM commercial_budget_period_allocations WHERE id=$1',[originalAllocationId])).rows[0].cents!=='10000')throw new Error('Calendar entry changed retained amounts');
+  await other.page.reload();
+  await expect(periodTotals.getByRole('row').filter({hasText:'Correction period'})).toContainText('AUD 0.00');
+  await allocationCalendar.getByText('Amounts by line and period',{exact:true}).click();
+  await expect(allocationCalendar.getByRole('button',{name:'Edit calendar allocation BUDGET-ACC / BUDGET-CC / Correction period',exact:true})).toBeVisible();
+  await other.page.setViewportSize({width:390,height:844});
+  if(await other.page.evaluate(()=>document.documentElement.scrollWidth>innerWidth))throw new Error('Allocation calendar overflows mobile page');
+  await allocationCalendar.screenshot({path:resolve(artifacts,'allocation-calendar-mobile.png')});
+  await other.page.setViewportSize({width:1440,height:1000});
+
   if((await setupPost(removalPath,{action:'line',budgetAccountId:alternateAccount,costCentreId:budgetDimensions[1],annualBudgetCents:'9007199254740993'})).status!==200)throw new Error('Removal fixture creation failed');
   const removalLine=(await pool.query('SELECT id FROM commercial_budget_lines WHERE budget_version_id=$1 AND budget_account_id=$2',[budgetState.version_id,alternateAccount])).rows[0].id;
   if((await setupPost(removalPath,{action:'allocation',budgetLineId:removalLine,financialPeriodId:setupPeriod,amountCents:'9007199254740993'})).status!==200)throw new Error('Removal allocation fixture creation failed');
@@ -803,6 +834,7 @@ try {
   await budgetSection.getByRole('button',{name:'Confirm activation',exact:true}).click();
   await expect(budgetSection.getByRole('status')).toContainText('Budget version activated.');
   await expect(activationChecks).toHaveCount(0);
+  await expect(allocationCalendar.getByRole('button')).toHaveCount(0);
   await expect(budgetSection.getByRole('button',{name:/^Remove (allocation|mapping|draft line)/})).toHaveCount(0);
   await expect(budgetSection.getByRole('button',{name:'Edit mapping BUDGET-CC',exact:true})).toHaveCount(0);
   await expect(mappingsTable).toContainText('BUDGET-ACC');
@@ -995,6 +1027,7 @@ try {
   evidence.budgetLineEditChecks=['saved amount prefilled exactly','fixed dimension identity retained','cancel leaves saved amount unchanged','update preserves line ID and allocations','allocation mismatch shown after annual amount change','saved amount reloads and balance restores','editor fits mobile viewport'];
   evidence.budgetSettingsChecks=['draft name and tax basis changed through populated form','saved amounts and allocations preserved','editor reloads saved values and fits mobile viewport','session actor and before/after settings audited','ACTIVE version hides editor and rejects mutation','later draft cannot rewrite published Budget settings','database-gated year close rejects waiting settings','database-gated activation rejects waiting settings without rewriting published facts'];
   evidence.financeWorkflowChecks=['empty finance controls directs administrator to setup','setup links to mappings, reporting and finance controls','empty mapping and reporting screens provide setup guidance','workflow links navigate between actual screens','new dimensions are available in mapping choices and completed guidance clears','new calendar is available in finance controls','activated Budget persists when returning through workflow links','viewer and unentitled users do not see administrator workflow links'];
+  evidence.allocationCalendarChecks=['empty calendar cell selects exact line and period with blank focused amount','selection and cancellation leave database unchanged','explicit zero persists exactly once and differs from an empty cell','annual amount and original allocation retained','saved calendar totals reload from database','mobile calendar scroll stays contained','activated calendar exposes no mutation controls'];
   evidence.activationConfirmationChecks=['review focuses saved activation context and exact annual total','draft editors disabled during confirmation','cancelling returns focus and leaves persisted version DRAFT','confirmed activation persists ACTIVE and locks editing','server rejects unbalanced allocations and inactive references through confirmation','mobile activation confirmation rendered for visual review'];
   evidence.draftRecoveryChecks=['both draft dimensions can be deactivated','inactive references still block activation','both dimensions restored through UI without replacing draft references','restored draft activates with original version pointer','reactivation retains session actor and audits transition once on retry','unauthenticated, viewer, unentitled and foreign reactivation denied','non-string Budget enums return 400'];
   writeFileSync(resolve(artifacts,'evidence.json'),JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));

@@ -4,6 +4,7 @@ import { Field,buttonProps,fieldControlClassName } from '@/components/ui/app';
 import styles from './page.module.css';
 import { budgetAmountToCents,formatBudgetAmount } from '@/lib/commercial/financeSetupDisplay';
 import BudgetReview from './BudgetReview';
+import BudgetAllocationCalendar from './BudgetAllocationCalendar';
 import DraftBudgetLineForm from './DraftBudgetLineForm';
 import DraftBudgetAllocationForm from './DraftBudgetAllocationForm';
 import BudgetActivationReview from './BudgetActivationReview';
@@ -91,7 +92,7 @@ export default function BudgetSetup({revision}:{revision:number}){
     const form=event.currentTarget,body:Record<string,unknown>={...Object.fromEntries(new FormData(form)),action};
     const target=version;
     const editingSavedRecord=(action==='mapping'&&Boolean(editingMapping))
-      ||(action==='line'&&Boolean(editingLine))||(action==='allocation'&&Boolean(editingAllocation));
+      ||(action==='line'&&Boolean(editingLine))||(action==='allocation'&&Boolean(editingAllocationKey));
     const returnTarget=action.startsWith('remove-')?(action==='remove-mapping'?mappingReviewRef.current:amountReviewRef.current):editingSavedRecord?(action==='mapping'?mappingReviewRef.current:amountReviewRef.current):null;
     setBusy(true);setError('');setMessage('');
     try{
@@ -154,10 +155,11 @@ export default function BudgetSetup({revision}:{revision:number}){
           <h3>Commitment mapping setup</h3>
           <DraftBudgetMappingForm key={`${version.version_id}:${editingMapping?.cost_centre_id??'new'}`} busy={locked} mapping={editingMapping} accounts={data.accounts} centres={data.centres} onSubmit={event=>void submit(event,'mapping')} onCancel={()=>cancelEditing('mapping')}/>
         </section>
-        {version.periodisation_mode==='PERIODISED'&&<DraftBudgetAllocationForm key={`${version.version_id}:${editingAllocation?.budget_line_id??'new'}:${editingAllocation?.financial_period_id??''}`} currency={version.currency} busy={locked} allocation={editingAllocation} lines={version.lines.map(line=>({id:line.id,label:accountCode(line.budget_account_id)+' / '+centreCode(line.cost_centre_id)}))} periods={periods.map(period=>({id:period.id,label:period.name}))} onSubmit={event=>void submit(event,'allocation')} onCancel={()=>cancelEditing('allocation')}/>}
+        {version.periodisation_mode==='PERIODISED'&&<DraftBudgetAllocationForm key={`${version.version_id}:${editingAllocationKey?.lineId??'new'}:${editingAllocationKey?.periodId??''}`} selection={editingAllocationKey&&!editingAllocation?{budget_line_id:editingAllocationKey.lineId,financial_period_id:editingAllocationKey.periodId}:undefined} currency={version.currency} busy={locked} allocation={editingAllocation} lines={version.lines.map(line=>({id:line.id,label:accountCode(line.budget_account_id)+' / '+centreCode(line.cost_centre_id)}))} periods={periods.map(period=>({id:period.id,label:period.name}))} onSubmit={event=>void submit(event,'allocation')} onCancel={()=>cancelEditing('allocation')}/>}
       </>:<p>This version is read-only. Its existing lines, mappings and allocations remain available below.</p>}
       <section ref={amountReviewRef} id="budget-allocation-review" aria-label="Budget amount review" tabIndex={-1} className={styles.navigationTarget}>
         <BudgetReview currency={version.currency} periodised={version.periodisation_mode==='PERIODISED'} draft={version.status==='DRAFT'} lines={version.lines} allocations={version.allocations} periods={periods} accountCode={accountCode} centreCode={centreCode} busy={locked} onRemoveAllocation={(lineId,periodId)=>startEntryRemoval({kind:'allocation',lineId,periodId})} onRemoveLine={id=>{setRemovingEntry(null);setRemovingLineId(id);setEditingLineId('');setEditingAllocationKey(null);setEditingMappingCentreId('');setError('');setMessage('');}} onEditLine={id=>{clearRemoval();setEditingLineId(id);setEditingAllocationKey(null);setEditingMappingCentreId('');}} onEditAllocation={(lineId,periodId)=>{clearRemoval();setEditingAllocationKey({lineId,periodId});setEditingLineId('');setEditingMappingCentreId('');}}/>
+        {version.periodisation_mode==='PERIODISED'&&<BudgetAllocationCalendar currency={version.currency} draft={version.status==='DRAFT'} busy={locked} lines={version.lines} allocations={version.allocations} periods={periods} accountCode={accountCode} centreCode={centreCode} onSelect={(lineId,periodId)=>{clearRemoval();setEditingAllocationKey({lineId,periodId});setEditingLineId('');setEditingMappingCentreId('');}}/>}
         {version.status==='DRAFT'&&removingLine&&<DraftBudgetLineRemoval key={removingLine.id} line={removingLine} account={accountCode(removingLine.budget_account_id)} centre={centreCode(removingLine.cost_centre_id)} currency={version.currency} allocationCount={version.allocations.filter(row=>row.budget_line_id===removingLine.id).length} busy={locked} onSubmit={event=>void submit(event,'remove-line')} onCancel={()=>{setRemovingLineId('');setError('');setMessage('Removal cancelled. Saved Budget records are unchanged.');returnToReview(amountReviewRef.current);}}/>}
         {version.status==='DRAFT'&&removingAllocation&&removingAllocationLine&&<DraftBudgetEntryRemoval key={`${removingAllocation.budget_line_id}:${removingAllocation.financial_period_id}`} kind="allocation" identity={{budgetLineId:removingAllocation.budget_line_id,financialPeriodId:removingAllocation.financial_period_id}} summary={`${accountCode(removingAllocationLine.budget_account_id)} / ${centreCode(removingAllocationLine.cost_centre_id)} / ${periods.find(row=>row.id===removingAllocation.financial_period_id)?.name??'Unavailable period'} · ${formatBudgetAmount(removingAllocation.amount_cents,version.currency)}`} busy={locked} onSubmit={event=>void submit(event,'remove-allocation')} onCancel={()=>cancelRemoval('allocation')}/>}
       </section>

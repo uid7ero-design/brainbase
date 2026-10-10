@@ -41,7 +41,7 @@ beforeEach(() => {
       if (body.action === 'remove-mapping') version.mappings = [];
       if (body.action === 'remove-line') { version.lines = []; version.allocations = []; }
       if (body.action === 'line') version.lines[0].annual_budget_cents = body.annualBudgetCents;
-      if (body.action === 'allocation') version.allocations[0].amount_cents = body.amountCents;
+      if (body.action === 'allocation') {const saved=version.allocations.find(row=>row.budget_line_id===body.budgetLineId&&row.financial_period_id===body.financialPeriodId);if(saved)saved.amount_cents=body.amountCents;else version.allocations.push({budget_line_id:body.budgetLineId,financial_period_id:body.financialPeriodId,amount_cents:body.amountCents});}
       if (body.action === 'mapping') version.mappings[0].budget_account_id = body.budgetAccountId;
       if(loseResponse)throw new Error('Response lost');
       return Response.json({});
@@ -134,6 +134,36 @@ describe('Saved Budget editor return navigation', () => {
     fireEvent.click(screen.getByRole('button',{name:'Reload saved Budget'}));
     await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent('Saved Budget reloaded.'));
     expect(screen.queryByRole('button',{name:'Confirm activation'})).not.toBeInTheDocument();
+    expect(mutations).toHaveLength(1);
+  });
+  it('opens an empty calendar cell with fixed identities and cancels without mutation',async()=>{
+    version.allocations=[];render(<BudgetSetup revision={0}/>);
+    await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL',exact:true});
+    fireEvent.click(screen.getByText('Amounts by line and period'));
+    fireEvent.click(screen.getByRole('button',{name:'Add calendar allocation SOFTWARE / GENERAL / QTR 1'}));
+    const form=within(screen.getByRole('form',{name:'Period allocation',exact:true}));
+    expect(form.getByLabelText('Allocation line',{exact:false})).toHaveValue('SOFTWARE / GENERAL');
+    expect(form.getByLabelText('Allocation period',{exact:false})).toHaveValue('QTR 1');
+    expect(form.getByLabelText('Period amount (AUD)',{exact:false})).toHaveFocus();
+    expect(form.getByLabelText('Period amount (AUD)',{exact:false})).toHaveValue('');
+    fireEvent.click(form.getByRole('button',{name:'Cancel allocation editing'}));
+    expect(mutations).toHaveLength(0);expect(version.allocations).toHaveLength(0);
+    expect(screen.getByRole('region',{name:'Budget amount review',exact:true})).toHaveFocus();
+  });
+  it('saves a zero from the calendar, returns to review and reloads it as a saved allocation',async()=>{
+    version.allocations=[];render(<BudgetSetup revision={0}/>);
+    await screen.findByRole('button',{name:'Edit SOFTWARE / GENERAL',exact:true});
+    fireEvent.click(screen.getByText('Amounts by line and period'));
+    fireEvent.click(screen.getByRole('button',{name:'Add calendar allocation SOFTWARE / GENERAL / QTR 1'}));
+    fireEvent.change(screen.getByLabelText('Period amount (AUD)',{exact:false}),{target:{value:'0.00'}});
+    fireEvent.click(screen.getByRole('button',{name:'Save allocation',exact:true}));
+    await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent('Budget setup saved.'));
+    expect(mutations).toEqual([{action:'allocation',budgetLineId:'line',financialPeriodId:'period',amountCents:'0'}]);
+    expect(screen.getByRole('region',{name:'Budget amount review',exact:true})).toHaveFocus();
+    expect(screen.getByRole('button',{name:'Edit calendar allocation SOFTWARE / GENERAL / QTR 1'})).toBeVisible();
+    fireEvent.click(screen.getByRole('button',{name:'Reload saved Budget'}));
+    await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent('Saved Budget reloaded.'));
+    expect(within(screen.getByRole('table',{name:'Totals by financial period'})).getByText('AUD 0.00')).toBeVisible();
     expect(mutations).toHaveLength(1);
   });
   it('restores the authoritative activated view after losing the activation response',async()=>{
