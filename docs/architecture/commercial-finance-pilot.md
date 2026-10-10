@@ -463,6 +463,23 @@ reference status, formula-like text, disabled controls and temporary URL cleanup
 The disposable runtime downloads all three files during an unsaved edit and
 checks their contents, dates, saved amounts and absence of finance POST requests.
 
+## Financial calendar save recovery
+
+Year and period creation use a synchronous submission lock. A lost response,
+server failure, or incomplete successful response pauses both calendar editors
+until an explicit GET-only reload succeeds. Failed reloads retain entered values
+and the save lock. A successful reload clears unsaved calendar entries, returns
+focus to financial-period review, selects the recovered year where available,
+and refreshes the parent Budget calendar. Rejected saves remain editable. An
+initial calendar read failure does not claim that the organisation has no years.
+Closed years continue to prevent period creation.
+
+The disposable runtime deliberately loses a real year-creation response after
+PostgreSQL commits, attempts duplicate submission, fails the first reload, then
+recovers with GET. Database rows and audit events prove that exactly one year was
+created and that recovery did not resubmit it. Component checks also cover
+period recovery and incomplete successful responses.
+
 ## Repeatable runtime evidence
 
 Run `npx tsc --noEmit` separately before release verification. This checks the
