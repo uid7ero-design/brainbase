@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { buttonProps } from '@/components/ui/app';
+import { HR_REGISTER_PAGE_SIZE } from '@/lib/hr/registerPaging';
 
-export const HR_PAGE_SIZE = 25;
+export const HR_PAGE_SIZE = HR_REGISTER_PAGE_SIZE;
 
 export function HrOperationsNav({ current }: { current: string }) {
   return <nav aria-label="HR operational views" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -13,7 +14,7 @@ export function HrOperationsNav({ current }: { current: string }) {
 }
 
 export function HrRegisterSearch({ value, onChange, label = 'Search people' }: { value: string; onChange: (value: string) => void; label?: string }) {
-  return <label>{label}{' '}<input type="search" value={value} onChange={event => onChange(event.target.value)} /></label>;
+  return <label>{label}{' '}<input type="search" maxLength={200} value={value} onChange={event => onChange(event.target.value)} /></label>;
 }
 
 export function HrRegisterPagination({ page, total, onChange }: { page: number; total: number; onChange: (page: number) => void }) {

@@ -1,28 +1,30 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { HR_PAGE_SIZE, HrOperationsNav, HrRegisterSearch, HrRegisterPagination } from '../../_components/HrRegisterControls';
+import { validateRegisterPagination, type RegisterPagination } from '@/lib/hr/registerPaging';
+import { HrOperationsNav, HrRegisterSearch, HrRegisterPagination } from '../../_components/HrRegisterControls';
 import PersonDrawer from '../../_components/PersonDrawer';
 import { PageHeader, TableContainer, TableStateRow, buttonProps, tableStyles } from '@/components/ui/app';
 
 const STATUSES = { NOT_STARTED: 'Not started', IN_PROGRESS: 'In progress', AWAITING_APPROVAL: 'Awaiting approval' };
 type Task = { task_id: string; workflow_id: string; person_id: string; lifecycle_type: 'onboarding' | 'offboarding'; title: string; status: keyof typeof STATUSES; due_at: string | null; overdue: boolean };
 type Person = { id: string; first_name: string; last_name: string };
-type Snapshot = { as_of: string; tasks: Task[]; people: Person[] };
+type Snapshot = { pagination: RegisterPagination; as_of: string; tasks: Task[]; people: Person[] };
 
-function parseSnapshot(queue: unknown, people: unknown): Snapshot {
+function parseSnapshot(queue: unknown): Snapshot {
   if (!queue || typeof queue !== 'object' || !('as_of' in queue) || typeof queue.as_of !== 'string' || !Number.isFinite(Date.parse(queue.as_of))
     || !('tasks' in queue) || !Array.isArray(queue.tasks)
-    || !people || typeof people !== 'object' || !('people' in people) || !Array.isArray(people.people)) throw new Error('Invalid queue');
+    || !('people' in queue) || !Array.isArray(queue.people)) throw new Error('Invalid queue');
   for (const task of queue.tasks) {
     if (!task || !['task_id', 'workflow_id', 'person_id', 'title'].every(key => typeof task[key] === 'string')
       || !Object.hasOwn(STATUSES, task.status) || !['onboarding', 'offboarding'].includes(task.lifecycle_type)
       || typeof task.overdue !== 'boolean' || (task.due_at !== null && (typeof task.due_at !== 'string' || !Number.isFinite(Date.parse(task.due_at))))) throw new Error('Invalid task');
   }
-  for (const person of people.people) {
+  for (const person of queue.people) {
     if (!person || typeof person.id !== 'string' || typeof person.first_name !== 'string' || typeof person.last_name !== 'string') throw new Error('Invalid person');
   }
-  return { as_of: queue.as_of, tasks: queue.tasks, people: people.people };
+  const pagination = validateRegisterPagination((queue as Snapshot).pagination, queue.tasks.length);
+  return { pagination, as_of: queue.as_of, tasks: queue.tasks, people: queue.people };
 }
 
 export default function LifecycleTaskQueuePage() {
@@ -40,23 +42,17 @@ export default function LifecycleTaskQueuePage() {
       if (controller.signal.aborted) return;
       setState('loading'); setSnapshot(null);
       try {
-        const options = { signal: controller.signal, cache: 'no-store' as const };
-        const [queue, people] = await Promise.all([fetch('/api/hr/lifecycle/queue', options), fetch('/api/hr/people', options)]);
-        if (!queue.ok || !people.ok) throw new Error('Unavailable');
-        const [queueBody, peopleBody] = await Promise.all([queue.json(), people.json()]);
-        const next = parseSnapshot(queueBody, peopleBody);
+        const response = await fetch(`/api/hr/lifecycle/queue?${new URLSearchParams({ page: String(page), search, filter, lifecycle })}`, { signal: controller.signal, cache: 'no-store' });
+        if (!response.ok) throw new Error('Unavailable');
+        const next = parseSnapshot(await response.json());
         if (!controller.signal.aborted) { setSnapshot(next); setState('ready'); }
       } catch { if (!controller.signal.aborted) setState('error'); }
     });
     return () => controller.abort();
-  }, [refresh]);
+  }, [refresh, page, search, filter, lifecycle]);
   const names = new Map(snapshot?.people.map(person => [person.id, `${person.first_name} ${person.last_name}`]));
-  const query = search.trim().toLowerCase();
-  const matches = snapshot?.tasks.filter(task => (filter === 'all' || (filter === 'overdue' ? task.overdue : task.status === filter))
-    && (lifecycle === 'all' || task.lifecycle_type === lifecycle)
-    && (!query || `${names.get(task.person_id) ?? ''} ${task.title}`.toLowerCase().includes(query))) ?? [];
-  const currentPage = Math.min(page, Math.max(1, Math.ceil(matches.length / HR_PAGE_SIZE)));
-  const tasks = matches.slice((currentPage - 1) * HR_PAGE_SIZE, currentPage * HR_PAGE_SIZE);
+  const currentPage = snapshot?.pagination.page ?? 1;
+  const tasks = snapshot?.tasks ?? [];
   return <div style={{ maxWidth: 1100 }}>
     <PageHeader title="Lifecycle task queue" description="Visible outstanding tasks from active workflows, with overdue work first." actions={<>
       <HrOperationsNav current="/people/lifecycle/tasks" />
@@ -85,7 +81,7 @@ export default function LifecycleTaskQueuePage() {
         </tbody>
       </table>
     </TableContainer>
-    {state === 'ready' && <HrRegisterPagination page={currentPage} total={matches.length} onChange={setPage} />}
+    {state === 'ready' && <HrRegisterPagination page={currentPage} total={snapshot?.pagination.total ?? 0} onChange={setPage} />}
     <p style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Hidden tasks are excluded. Visibility does not grant execution or approval rights; open a person to review the available actions. {snapshot && <>As of {snapshot.as_of}.</>}</p>
     <PersonDrawer personId={personId} canManage={false} onEdit={() => {}} onClose={() => { setPersonId(null); setRefresh(value => value + 1); }} />
   </div>;

@@ -3,6 +3,10 @@ import { NextResponse } from 'next/server';
 const mocks = vi.hoisted(() => ({ workflows: vi.fn(), tasks: vi.fn(), context: vi.fn() }));
 vi.mock('@/lib/hr/lifecycleWorkflowQueries', () => ({ listLifecycleWorkflows: mocks.workflows, getVisibleLifecycleTasksForWorkflow: mocks.tasks }));
 vi.mock('@/lib/hr/lifecycleWorkflowRoute', () => ({ requireLifecycleWorkflowContext: mocks.context }));
+vi.mock('@/lib/hr/registerPageQueries', () => ({ loadRegisterPage: async (session: unknown) => {
+  const { loadLifecycleTaskQueue } = await import('@/lib/hr/lifecycleTaskQueue');
+  return loadLifecycleTaskQueue(session as Parameters<typeof loadLifecycleTaskQueue>[0]);
+} }));
 const { loadLifecycleTaskQueue } = await import('@/lib/hr/lifecycleTaskQueue');
 const { GET } = await import('@/app/api/hr/lifecycle/queue/route');
 const session = { userId: 'viewer', organisationId: 'org-a', homeOrganisationId: 'org-a', role: 'viewer' as const, name: 'Viewer' };

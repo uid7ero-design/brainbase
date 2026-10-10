@@ -13,10 +13,24 @@ dataset that shrinks clamps the displayed page into range. The matching-row coun
 covers the complete filtered result, not only the displayed page. Document counts
 are never added together because categories overlap.
 
-This is client display pagination. APIs still return complete authorized datasets;
-it does not bound database reads or response bytes. Server pagination and large-
-tenant load certification remain separate work. Lifecycle readers retain their
-four-read concurrency limit, and document assurance retains its single aggregate.
+The register routes now paginate on the server: authenticated requests accept a
+validated page, literal text search (up to 200 characters), category/status and,
+for lifecycle registers, lifecycle type. Each response contains 25 rows at most,
+full filtered totals and the actual page. Out-of-range pages clamp to the last
+available page in the same database statement. Unknown or repeated query fields,
+including organisation or user identifiers, are rejected with a generic 400.
+
+Each register uses one parameterized SQL statement. Lifecycle visibility matches
+the canonical workflow/task readers, including organisation/person/template
+consistency and current-manager visibility flags. The overview materializes the
+visible-task relation once before aggregation. Document assurance preserves the
+existing current-version/evidence aggregate. Lifecycle page names travel in a
+bounded people index; the screens no longer fetch the whole people register.
+
+Responses are private, no-store and capped at 256 KiB of serialized UTF-8 JSON.
+Excessive fields fail generically rather than being silently truncated. SQL must
+still scan authorized matches to produce exact totals; pagination is not a
+constant-work guarantee or a production-scale performance certification.
 
 Existing authorization is unchanged. Task readers exclude hidden tasks and
 assignment-only access. Document metadata/counts remain linked-employee or HR-only;
@@ -47,6 +61,15 @@ Commands:
 - `npm run test:hr:registers` for the PostgreSQL fixture proof (Docker required).
 - `npm run test:browser:hr` for Chromium register flows (installed browser required).
 
-Release hold: main automatically deploys to production. The bundle remains in
-PR #416 for one review and release authorization after validation. Prior approval
-for #413 does not authorize merging this bundle.
+The preceding browsing bundle was merged as PR #416. This server-pagination
+follow-up remains separately held for review and explicit release authorization:
+main automatically deploys to production. No production schema, environment,
+data or model-provider operation is part of this follow-up.
+
+The disposable PostgreSQL proof adds 2,000 synthetic workflow/task/document
+owners. It compares paged rows with canonical readers, checks exact filtered
+totals, page clamping, literal wildcard search, hidden-title search denial,
+cross-tenant/role/grant revocation and one statement per page. Ignored results
+record observed timing and response bytes, not a latency SLA. Chromium still uses
+HTTP and drawer seams; it now returns server-filtered pages and verifies requests
+and stale-response cancellation alongside component coverage.
