@@ -228,3 +228,18 @@ No profile statistics are required or read. Matching context does not prove
 authorization, fresh database pointers, saved-review status or sufficient
 evidence for a count. A later execution caller must load and revalidate those
 facts; this contract is neither a replay token nor a durable execution grant.
+
+## Review-derived planning composition
+
+`buildReviewedProfileCountPlan` accepts trusted loaded semantic and quality
+snapshots plus their review revision. It first compares both full contexts
+against the expected dataset, validates a positive safe integer revision,
+derives readiness and then invokes the dataset-scoped profile-target planner.
+Callers do not supply readiness or profile statistics. An accepted result
+retains the actual supplied review revision and a detached scoped plan.
+
+Scope mismatches, invalid revisions, unknown quality states, holds, incompatible
+algorithm versions and unsupported field operations fail closed. The snapshots
+and revision must come from an authorized loader; this pure composition cannot
+prove persistence, fresh pointers or permissions. No API accepts caller-created
+review snapshots, and this bundle adds no database or analysis execution path.

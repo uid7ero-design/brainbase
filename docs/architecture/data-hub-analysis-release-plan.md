@@ -166,10 +166,18 @@ readiness/capability/planning/count/response/route/failure-reference tests and
 changed-file lint and diff checks. This is pure admission hardening; no new
 execution path or migration is added. Earlier browser evidence remains separate.
 
-The dataset-scoped planning bundle checks all eight lineage identities before
+The dataset-scoped planning bundle on `787ce478` checks all eight lineage identities before
 reading readiness, then returns a copied closed context with the supported
 profile-target plan. It reads no statistics and grants no access or execution
 authority. Its 265 focused planning/readiness/capability/count/response/route/
 failure-reference tests and 64 rerun disposable PostgreSQL service tests pass,
 as do TypeScript, changed-file lint and diff checks. Earlier browser/build
 evidence is not claimed as rerun by these pure contract tests.
+
+The review-derived planning bundle composes trusted semantic/quality snapshots
+and their revision into a scoped plan without caller-supplied readiness or
+profile statistics. It does not certify persistence or freshness. All 290
+focused contract/count/response/route tests and 64 rerun disposable PostgreSQL
+service tests pass, along with TypeScript, changed-file lint and diff checks.
+It adds no database/API/UI/AI execution or migration. Earlier workflow browser
+evidence remains separate from these pure planning tests.
