@@ -8,6 +8,13 @@ const initial = { ok: true, datasetProfileRunId: "profile-1", clarification: { c
 const preview = { ...initial, quality: { items: [{ code: "PARTIAL_NULL_VALUES", scope: "COLUMN", sourceSchemaColumnId: "amount", action: "ACKNOWLEDGE_NOTICE" }] } };
 const saved = (held = false) => ({ ok: true, revision: 2, quality: { snapshot: { state: held ? "HOLD_FOR_REMEDIATION" : "READY" } }, schema: { context: { datasetProfileRunId: "profile-1" }, snapshot: { fields: [{ sourceSchemaColumnId: "amount", fieldClass: "MEASURE" }] } } });
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+const counted = (uploadId: string, present = false) => ({ ok: true, reviewRevision: 3, result: {
+  resultVersion: "v1", count: 7, plan: { planVersion: "v1", readinessVersion: "v1", schemaVersion: "v1", profilerVersion: "v1",
+    qualityResolutionVersion: "v1", readinessState: "READY", operation: present ? "COUNT_PRESENT" : "ROW_COUNT",
+    ...(present ? { sourceSchemaColumnId: "amount", missingValuePolicy: "EXCLUDE_MISSING" } : {}) },
+  context: { organisationId: "org", uploadId, importBatchId: "batch", normalizationRunId: "normalization", datasetProfileRunId: "profile-2",
+    sourceSchemaVersionId: "schema", sourceSchemaWorksheetId: "worksheet", worksheetMappingProfileVersionId: "mapping" },
+} });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("Data Hub review screen", () => {
@@ -15,7 +22,7 @@ describe("Data Hub review screen", () => {
     const fetcher = vi.fn().mockResolvedValueOnce(reply(initial))
       .mockResolvedValueOnce(reply({ ok: false, code: "REVIEW_NOT_FOUND" }, 404))
       .mockResolvedValueOnce(reply(preview)).mockResolvedValueOnce(reply({ ok: true }, 201))
-      .mockResolvedValueOnce(reply(saved())).mockResolvedValueOnce(reply({ ok: true, result: { plan: { operation: "ROW_COUNT" }, count: 7, context: { datasetProfileRunId: "profile-2" } }, reviewRevision: 3 }));
+      .mockResolvedValueOnce(reply(saved())).mockResolvedValueOnce(reply(counted("upload/a")));
     vi.stubGlobal("fetch", fetcher);
     render(<AnalysisReviewClient uploadId="upload/a" />);
     expect(fetcher).not.toHaveBeenCalled();
@@ -73,9 +80,9 @@ describe("Data Hub review screen", () => {
     expect(screen.getByText("Review quality")).toBeDisabled();
   });
   it("counts only a saved measure with an explicit closed request", async () => {
+    const result = counted("upload", true); result.reviewRevision = 2; result.result.count = 0; result.result.context.datasetProfileRunId = "profile-1";
     const fetcher = vi.fn().mockResolvedValueOnce(reply(initial)).mockResolvedValueOnce(reply(saved()))
-      .mockResolvedValueOnce(reply({ ok: true, result: { plan: { operation: "COUNT_PRESENT", sourceSchemaColumnId: "amount" }, count: 0,
-        context: { datasetProfileRunId: "profile-1" } }, reviewRevision: 2 }));
+      .mockResolvedValueOnce(reply(result));
     vi.stubGlobal("fetch", fetcher);
     render(<AnalysisReviewClient uploadId="upload" />);
     fireEvent.click(screen.getByText("Load current review"));
@@ -97,6 +104,26 @@ describe("Data Hub review screen", () => {
     await screen.findByText("Saved review 2");
     expect(screen.queryByLabelText("Measure to count")).not.toBeInTheDocument();
     expect(screen.getByText(/Reload the current review to load field choices/)).toBeInTheDocument();
+  });
+  it.each(["negative", "foreign", "operation", "version", "revision", "extra"])("rejects a %s count response and accepts only an explicit valid retry", async kind => {
+    const bad = counted("upload");
+    if (kind === "negative") bad.result.count = -1;
+    if (kind === "foreign") bad.result.context.uploadId = "foreign";
+    if (kind === "operation") bad.result.plan.operation = "COUNT_PRESENT";
+    if (kind === "version") bad.result.resultVersion = "v2";
+    if (kind === "revision") bad.reviewRevision = 0;
+    if (kind === "extra") Object.assign(bad.result, { sourceValues: ["private"] });
+    const fetcher = vi.fn().mockResolvedValueOnce(reply(initial)).mockResolvedValueOnce(reply(saved()))
+      .mockResolvedValueOnce(reply(bad)).mockResolvedValueOnce(reply(counted("upload")));
+    vi.stubGlobal("fetch", fetcher); render(<AnalysisReviewClient uploadId="upload" />);
+    fireEvent.click(screen.getByText("Load current review")); await screen.findByText("Saved review 2");
+    fireEvent.click(screen.getByText("Count rows")); await screen.findByRole("alert");
+    expect(screen.queryByText(/Rows: /)).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).not.toHaveTextContent("private");
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    await waitFor(() => expect(screen.getByText("Count rows")).toBeEnabled());
+    fireEvent.click(screen.getByText("Count rows")); await screen.findByText("Rows: 7. Based on review 3, profile profile-2.");
+    expect(fetcher).toHaveBeenCalledTimes(4);
   });
   it("requires reload after an uncertain save and never automatically retries", async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(reply(initial))

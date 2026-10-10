@@ -7,6 +7,7 @@ import type { LoadAnalysisReviewResult } from "@/lib/data-hub/analysisExecution/
 import type { AnalyzeReviewedUploadCountResult } from "@/lib/data-hub/analysisExecution/analyzeReviewedUploadCount";
 import type { SemanticRole } from "@/lib/data-hub/semanticInference/contracts";
 import type { DataQualityReviewDecision } from "@/lib/data-hub/dataQuality/reviewResolution";
+import { parseReviewedCountResponse, type CountResponseExpectation } from "@/lib/data-hub/analysis/countResponse";
 
 type Plan = Extract<PlanAnalysisReviewResult, { ok: true }>;
 type Review = Extract<LoadAnalysisReviewResult, { ok: true }>;
@@ -46,6 +47,11 @@ export default function AnalysisReviewClient({ uploadId }: { uploadId: string })
     try { await action(); } catch (failure) {
       setError(failure instanceof Error ? failure.message : "REQUEST_FAILED");
     } finally { pending.current = false; setBusy(false); }
+  }
+  async function requestCount(body: unknown, expected: CountResponseExpectation) {
+    const parsed = parseReviewedCountResponse(await request<unknown>("/analysis-count", body), expected);
+    if (!parsed.ok) throw new Error(parsed.code);
+    return parsed.response;
   }
   function envelope(includeQuality: boolean) {
     return { reviewVersion: "v1", datasetProfileRunId: plan!.datasetProfileRunId,
@@ -141,7 +147,7 @@ export default function AnalysisReviewClient({ uploadId }: { uploadId: string })
     {review ? <section aria-label="Saved review results"><h2>Saved review {review.revision}</h2>
       <p>{held ? "On hold for correction. Counts are unavailable." : "Review complete. Counts are available."}</p>
       <button disabled={busy || held} onClick={() => void run(async () => {
-        setCount(null); setCount(await request<Count>("/analysis-count", { requestVersion: "v1", kind: "ROW_COUNT" }));
+        setCount(null); setCount(await requestCount({ requestVersion: "v1", kind: "ROW_COUNT" }, { uploadId, operation: "ROW_COUNT" }));
       })}>Count rows</button>
       {matchingProfile && measures.length > 0 ? <div>
         <label htmlFor="count-field">Measure to count</label>
@@ -153,7 +159,8 @@ export default function AnalysisReviewClient({ uploadId }: { uploadId: string })
         </select>
         <p>Present values include zero. Missing values are excluded.</p>
         <button disabled={busy || held || !measures.some(field => field.sourceSchemaColumnId === measure)} onClick={() => void run(async () => {
-          setCount(null); setCount(await request<Count>("/analysis-count", { requestVersion: "v1", kind: "AGGREGATE", operator: "COUNT_PRESENT", sourceSchemaColumnId: measure }));
+          setCount(null); setCount(await requestCount({ requestVersion: "v1", kind: "AGGREGATE", operator: "COUNT_PRESENT", sourceSchemaColumnId: measure },
+            { uploadId, operation: "COUNT_PRESENT", sourceSchemaColumnId: measure }));
         })}>Count present values</button>
       </div> : null}
       {!matchingProfile ? <p>Reload the current review to load field choices for this profile.</p> : null}

@@ -129,3 +129,20 @@ adapted to loopback PostgreSQL. It starts with already-profiled synthetic
 worksheets; it does not prove file upload/inspection or hosted Neon transport.
 Production schema and deployment acceptance remain separate. See
 `data-hub-analysis-release-plan.md` for rollout prerequisites and recovery.
+
+## Reviewed count response contract
+
+`parseReviewedCountResponse` validates the closed v1 successful count envelope
+before the screen displays it. Counts are nonnegative safe integers and review
+revisions are positive safe integers. All plan/result algorithm versions and
+eight lineage identities are required. Only ready row-count and present-count
+plans are accepted; present counts retain `EXCLUDE_MISSING`. Unexpected fields,
+grouped operations, holds, malformed values and incompatible versions fail
+closed. The returned worksheet, operation and measure must match the request.
+
+The parser is pure and returns copied validated records. It does not execute,
+recompute counts, authenticate, establish organization access or prove current
+database pointers. A valid server result can use a newer profile/review than
+the screen load; that actual lineage is retained. The existing server remains
+responsible for authorization and fresh review/capability evaluation. Rejected
+responses clear the prior count; retry remains an explicit user action.

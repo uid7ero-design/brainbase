@@ -4,7 +4,7 @@
 
 The candidate combines D4D5Z authenticated route proofs, governed field labels,
 present-value count controls, worksheet navigation from import history,
-saved-choice restoration, uncertain-save recovery and the disposable browser
+saved-choice restoration, a closed count-response contract, uncertain-save recovery and the disposable browser
 journey. It builds on the merged D4D5Q–Y review/count services and
 screen. It introduces no database migration, backfill, AI calls, generic
 aggregate execution, grouping execution or access to uploaded cell values.
@@ -20,6 +20,13 @@ matching the loaded planning profile. The existing server recomputes review
 readiness and validates capabilities again. Zero is present; missing values
 are excluded. A quality hold blocks row and present counts. Returned results
 display the actual server review revision and profile identity.
+
+The pure response parser validates the result's closed shape, supported versions,
+safe count/revision, ready plan and full lineage before display. Worksheet,
+operation and selected measure must match the request. It preserves the actual
+returned profile/revision and does not establish authorization or freshness.
+Malformed or mismatched success responses clear the previous count and require
+an explicit retry; the server remains responsible for capability evaluation.
 
 Saving appends a revision, and has no idempotent replay contract. Any failed
 save or reload after saving requires an explicit reload of the current review
@@ -94,7 +101,7 @@ append a correction.
 
 ## Verification and limits
 
-Local candidate validation passed: 2,182 Data Hub/component tests across 89
+Local candidate validation passed: 2,230 Data Hub/component tests across 90
 files, all 64 disposable-Postgres integration tests, the built-app browser
 journey, TypeScript, changed-file lint and diff checks. The application build
 passed with local build-only placeholders; the existing missing dashboard-copy

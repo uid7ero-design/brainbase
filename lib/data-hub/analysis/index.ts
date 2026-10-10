@@ -8,3 +8,4 @@ export * from "./scopedProfileCounts";
 export * from "./analyzeProfileCount";
 export * from "./buildAnalysisReviewSnapshots";
 export * from "./reviewDecisionInput";
+export * from "./countResponse";

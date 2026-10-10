@@ -832,7 +832,12 @@ describe("D4D5Z authenticated review/count routes with real Postgres", () => {
       [{ requestVersion: "v1", kind: "AGGREGATE", operator: "COUNT_PRESENT", sourceSchemaColumnId: w.f.ids.col2 }, 1]] as const) {
       const result = await w.count.POST(w.post(request), w.context);
       expect(result.status).toBe(200); expect(result.headers.get("Cache-Control")).toBe("private, no-store");
-      expect(await result.json()).toMatchObject({ ok: true, reviewRevision: 1, result: { count: expected, context: { datasetProfileRunId: w.f.context.datasetProfileRunId } } });
+      const payload = await result.json();
+      expect(payload).toMatchObject({ ok: true, reviewRevision: 1, result: { count: expected, context: { datasetProfileRunId: w.f.context.datasetProfileRunId } } });
+      const { parseReviewedCountResponse } = await import("@/lib/data-hub/analysis/countResponse");
+      expect(parseReviewedCountResponse(payload, request.kind === "ROW_COUNT" ?
+        { uploadId: w.f.ids.uploadId, operation: "ROW_COUNT" } :
+        { uploadId: w.f.ids.uploadId, operation: "COUNT_PRESENT", sourceSchemaColumnId: w.f.ids.col2 })).toEqual({ ok: true, response: payload });
     }
     const records = await prisma.dataHubAnalysisReview.findMany({ where: { profile_run_id: w.f.context.datasetProfileRunId } });
     expect(records).toHaveLength(1); expect(records[0].reviewed_by_id).toBe(w.f.ids.userId);
