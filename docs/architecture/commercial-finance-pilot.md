@@ -444,6 +444,25 @@ instant scroll and the existing header spacing. Rendered parent-component tests
 cover all three editors for cancellation, successful readback and rejected saves;
 the disposable runtime checks focus alongside persisted record invariants.
 
+## Saved Budget setup exports
+
+The selected version provides CSV downloads of saved lines, allocations and
+commitment mappings from its loaded setup snapshot. Each row identifies the
+Budget, financial year, version, status, currency, tax basis and periodisation.
+Money is exact currency-unit text with two decimals; period dates use
+DD/MM/YYYY. Line exports retain per-line shortage/excess checks. Annual-only
+allocation values are not applicable rather than zero. Missing or inactive
+mapping references remain explicit. Empty collections and busy saves disable
+their export controls. Unsaved editor values are excluded; no server mutation,
+activation, Actual calculation or approval is implied by downloading a file.
+
+The shared CSV serializer retains BOM/CRLF and quoting; text fields apply the
+Commercial formula-prefix protection, including leading whitespace and controls.
+Focused checks cover exact BIGINT amounts, offsetting imbalances, calendar order,
+reference status, formula-like text, disabled controls and temporary URL cleanup.
+The disposable runtime downloads all three files during an unsaved edit and
+checks their contents, dates, saved amounts and absence of finance POST requests.
+
 ## Repeatable runtime evidence
 
 After a production build, run:

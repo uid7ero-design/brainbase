@@ -7,6 +7,7 @@ import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
 import { SignJWT } from 'jose';
 import { chromium, expect } from '@playwright/test';
+import { parse } from 'csv-parse/sync';
 
 // Run after next build --webpack. No application modules or route handlers are
 // mocked. Ancillary prerequisite tables are minimal fixtures; finance tables use
@@ -507,6 +508,30 @@ try {
   await expect(lineForm.getByLabel('Line account',{exact:false})).toHaveValue('BUDGET-ACC');
   await expect(lineForm.getByLabel('Line account',{exact:false})).toHaveAttribute('readonly','');
   await lineForm.getByLabel('Annual amount (AUD)',{exact:false}).fill('999.00');
+  // Download loaded saved records while an unsaved amount is still in the editor.
+  const exportPosts=[];
+  const captureExportPost=request=>{if(request.method()==='POST'&&request.url().includes('/api/commercial/budgeting/'))exportPosts.push(request.url());};
+  other.page.on('request',captureExportPost);
+  for(const [kind,label] of [['lines','Export Budget lines CSV'],['allocations','Export period allocations CSV'],['mappings','Export commitment mappings CSV']]){
+    const downloaded=other.page.waitForEvent('download');
+    await budgetSection.getByRole('button',{name:label,exact:true}).click();
+    const file=await downloaded;
+    if(file.suggestedFilename()!==`budget-v1-${kind}.csv`)throw new Error('Unexpected Budget export filename');
+    const csv=readFileSync(await file.path(),'utf8');
+    writeFileSync(resolve(artifacts,`budget-${kind}.csv`),csv);
+    const rows=parse(csv,{columns:true,bom:true});
+    if(rows.length!==1||rows[0].Budget!=='Pilot Budget revised'||rows[0].Status!=='DRAFT'||rows[0].Currency!=='AUD'||rows[0]['Tax basis']!=='EXCLUSIVE')throw new Error('Budget export lost selected version metadata');
+    if(kind==='lines'&&(rows[0]['Annual amount']!=='100.00'||rows[0]['Allocated amount']!=='100.00'||rows[0]['Allocation check']!=='Balanced'))throw new Error('Budget export included unsaved editor amount');
+    if(kind==='allocations'&&(rows[0].Amount!=='100.00'||rows[0]['Period start (DD/MM/YYYY)']!=='01/07/2027'||rows[0]['Period end (DD/MM/YYYY)']!=='31/07/2027'))throw new Error('Allocation export lost exact amount or Australian dates');
+    if(kind==='mappings'&&(rows[0].Account!=='BUDGET-ACC'||rows[0]['Cost centre']!=='BUDGET-CC'||rows[0]['Account status']!=='Active'))throw new Error('Mapping export lost saved references');
+  }
+  other.page.off('request',captureExportPost);
+  if(exportPosts.length)throw new Error('Budget exports submitted a finance mutation');
+  await other.page.setViewportSize({width:390,height:844});
+  if(await other.page.evaluate(()=>document.documentElement.scrollWidth>innerWidth))throw new Error('Budget export controls overflow mobile viewport');
+  await budgetSection.getByRole('region',{name:'Budget setup exports',exact:true}).screenshot({path:resolve(artifacts,'budget-export-controls-mobile.png')});
+  await other.page.setViewportSize({width:1440,height:1000});
+  await expect(lineForm.getByLabel('Annual amount (AUD)',{exact:false})).toHaveValue('999.00');
   await lineForm.getByRole('button',{name:'Cancel editing',exact:true}).click();
   await expect(budgetSection.getByRole('region',{name:'Budget amount review',exact:true})).toBeFocused();
   await expect(lineForm.getByRole('button',{name:'Save line',exact:true})).toBeVisible();
@@ -778,6 +803,7 @@ try {
   evidence.budgetReviewChecks=['exact shortage and excess shown per line','corrected allocation marked balanced with remaining review guidance','saved allocation shown in named table','both review tables contained and scrollable on mobile','activation issue links focus line setup, allocation review and dimension headings','resolved issues remove corrective links'];
   evidence.budgetMappingManagementChecks=['saved mapping table shows codes and reference status','checklist link navigates to mapping form','saved account prefilled with fixed cost centre','cancel and version switch discard unsaved edit','update preserves mapping ID cost centre amounts and allocations','saved account reloads and original mapping restored','inactive references flagged','ACTIVE mappings readable without editing','mobile editor fits viewport'];
   evidence.budgetEditReturnChecks=['mapping cancel and successful update return focus to saved mapping review','line cancel and successful update return focus to amount review','allocation failure retains editor; cancel and successful update return focus to amount review'];
+  evidence.budgetSetupExportChecks=['three real CSV downloads have selected draft metadata','exact saved decimal amounts exclude unsaved editor values','allocation dates use DD/MM/YYYY','mapping codes and active status retained','downloads send no finance mutations and leave editor value intact'];
   evidence.budgetActivationGuidanceChecks=['empty draft explains missing lines and mapping','saving lines and mappings updates guidance','allocation imbalance remains visible until resolved','balanced draft still requires tax and mapping review','deactivation reveals inactive reference issue','ACTIVE version omits draft checklist'];
   evidence.budgetAllocationEditChecks=['exact saved amount and fixed line/period prefilled','invalid decimal retains editor without mutation','cancel preserves saved allocation','version switching clears unsaved editor','update retains allocation ID annual amount and another period allocation','shortage excess and recovered balance shown','mobile editor contained','ACTIVE edit action absent'];
   evidence.budgetLineEditChecks=['saved amount prefilled exactly','fixed dimension identity retained','cancel leaves saved amount unchanged','update preserves line ID and allocations','allocation mismatch shown after annual amount change','saved amount reloads and balance restores','editor fits mobile viewport'];

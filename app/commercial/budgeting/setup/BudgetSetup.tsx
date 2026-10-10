@@ -9,8 +9,9 @@ import DraftBudgetAllocationForm from './DraftBudgetAllocationForm';
 import BudgetActivationReview from './BudgetActivationReview';
 import DraftBudgetMappingForm from './DraftBudgetMappingForm';
 import BudgetMappingReview from './BudgetMappingReview';
+import BudgetSetupExports from './BudgetSetupExports';
 type Dimension={id:string;code:string;active:boolean};
-type Year={id:string;name:string;status:string;periods:{id:string;name:string}[]};
+type Year={id:string;name:string;status:string;periods:{id:string;name:string;starts_on?:string;ends_on?:string}[]};
 type Version={budget_id:string;version_id:string;name:string;financial_year_id:string;currency:string;tax_basis:string;periodisation_mode:string;version_number:number;status:string;can_edit_settings:boolean;lines:{id:string;budget_account_id:string;cost_centre_id:string;annual_budget_cents:string}[];allocations:{budget_line_id:string;financial_period_id:string;amount_cents:string}[];mappings:{cost_centre_id:string;budget_account_id:string}[]};
 async function readSetup(){
   const responses=await Promise.all(['/api/commercial/budgeting/budgets','/api/commercial/budgeting/financial-periods','/api/commercial/budgeting/setup/accounts','/api/commercial/budgeting/setup/cost-centres'].map(url=>fetch(url)));
@@ -114,6 +115,7 @@ export default function BudgetSetup({revision}:{revision:number}){
       <section ref={mappingReviewRef} aria-label="Commitment mapping review" tabIndex={-1} className={styles.navigationTarget}>
         <BudgetMappingReview mappings={version.mappings} accounts={data.accounts} centres={data.centres} draft={version.status==='DRAFT'} busy={busy} onEdit={centreId=>{setEditingMappingCentreId(centreId);setEditingLineId('');setEditingAllocationKey(null);}}/>
       </section>
+      <BudgetSetupExports input={{version,year:data.years.find(year=>year.id===version.financial_year_id),accounts:data.accounts,centres:data.centres}} busy={busy}/>
       {version.status==='DRAFT'&&<>
         <BudgetActivationReview setupNavigation mappingFormId="budget-commitment-mapping" financialYearStatus={data.years.find(year=>year.id===version.financial_year_id)?.status} periodised={version.periodisation_mode==='PERIODISED'} lines={version.lines} mappings={version.mappings} allocations={version.allocations} periods={periods} accounts={data.accounts} centres={data.centres}/>
         <form className={styles.activationAction} aria-label="Activate Budget" onSubmit={event=>void submit(event,'activate')}><button {...buttonProps('primary')} disabled={busy||version.lines.length===0||version.mappings.length===0} type="submit">Activate Budget version</button></form>
