@@ -6,16 +6,16 @@ import path from 'node:path';
 const modes = ['lifecycle', 'tasks', 'documents', 'people'] as const;
 const bundles = new Map<string, string>();
 test.beforeAll(async () => {
-  for (const mode of modes) {
-    const file = mode === 'people' ? 'app/people/page.tsx' : mode === 'tasks' ? 'app/people/lifecycle/tasks/page.tsx' : `app/people/${mode}/page.tsx`;
+  for (const mode of [...modes, 'people-drawer']) {
+    const file = mode.startsWith('people') ? 'app/people/page.tsx' : mode === 'tasks' ? 'app/people/lifecycle/tasks/page.tsx' : `app/people/${mode}/page.tsx`;
     const result = await build({ configFile: false, logLevel: 'error', resolve: { alias: { '@': process.cwd() } },
       define: { 'process.env.NODE_ENV': JSON.stringify('production'), 'process.env': '{}' }, oxc: { jsx: { runtime: 'automatic' } },
       plugins: [{ name: 'hr-register-browser-harness', enforce: 'pre', resolveId(id) {
         if (id.replaceAll('\\', '/').endsWith('/hr-browser-entry')) return '\0hr-browser-entry';
-        if (/\/_components\/SlidePanel(?:\.tsx)?$/.test(id.replaceAll('\\', '/'))) return '\0panel';
+        if (mode !== 'people-drawer' && /\/_components\/SlidePanel(?:\.tsx)?$/.test(id.replaceAll('\\', '/'))) return '\0panel';
         if (/\/_components\/PersonForm(?:\.tsx)?$/.test(id.replaceAll('\\', '/'))) return '\0form';
         if (id === 'hr-browser-entry' || id === 'next/link') return `\0${id}`;
-        if (/\/_components\/PersonDrawer(?:\.tsx)?$/.test(id.replaceAll('\\', '/'))) return '\0drawer';
+        if (mode !== 'people-drawer' && /\/_components\/PersonDrawer(?:\.tsx)?$/.test(id.replaceAll('\\', '/'))) return '\0drawer';
       }, load(id) {
         if (id === '\0next/link') return "import {createElement} from 'react'; export default function Link(props){return createElement('a',props)}";
         if (id === '\0panel') return 'export default function Panel({open,children}){return open?children:null}';
@@ -91,5 +91,46 @@ for (const mode of modes) test(`${mode} search, filters, pages, drawer refresh a
   await expect(page.getByText(/Unable to load .*Please refresh to try again/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Worker 001 Fixture', exact: true })).toHaveCount(0);
   await expect(page.getByText('secret', { exact: true })).toHaveCount(0);
+  expect(errors).toEqual([]); expect(methods.every(method => method === 'GET')).toBe(true);
+});
+
+for (const detailFailure of [false, true]) test(`real person drawer: ${detailFailure ? 'generic failure and reopening recovery' : 'document denial, keyboard close and refresh'}`, async ({ page }) => {
+  const errors: string[] = [], methods: string[] = [];
+  const person = { id: 'p-selected', first_name: 'Alex', last_name: 'Fixture', job_title: 'Operator', employment_status: 'active', worker_type: 'employee', team_name: null, manager_first_name: null, manager_last_name: null };
+  let fail = detailFailure, registerReads = 0;
+  page.on('pageerror', error => errors.push(error.message));
+  await page.route('http://brainbase.local/**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<div id="root"></div>' });
+    methods.push(route.request().method());
+    const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+    if (url.pathname === '/api/hr/people/register') {
+      registerReads++;
+      return json(hrRegisterFixture({ people: [person], canManage: false }, url.href, [person]));
+    }
+    if (url.pathname === '/api/hr/people/p-selected') return fail ? json({ error: 'database secret' }, 503) : json({ person });
+    if (url.pathname === '/api/hr/lifecycle/workflows') return json({ workflows: [], capabilities: { can_start_workflow: false } });
+    if (url.pathname === '/api/hr/people/p-selected/documents') return json({ error: 'document secret' }, 403);
+    return json({ error: 'Unexpected fixture request' }, 500);
+  });
+  await page.goto('http://brainbase.local/'); await page.addScriptTag({ content: bundles.get('people-drawer')! });
+  const selected = page.getByRole('button', { name: 'Alex Fixture', exact: true });
+  await selected.click();
+  const dialog = page.getByRole('dialog', { name: 'Person', exact: true });
+  await expect(dialog).toBeVisible();
+  if (detailFailure) {
+    await expect(dialog.getByText('Could not load person.', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('database secret', { exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    fail = false; await selected.click();
+  }
+  await expect(dialog.getByText('Operator', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('document secret', { exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: /Edit|Upload|Verify|Acknowledge|Start workflow/i })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(selected).toBeFocused();
+  await expect.poll(() => registerReads).toBe(detailFailure ? 3 : 2);
   expect(errors).toEqual([]); expect(methods.every(method => method === 'GET')).toBe(true);
 });
