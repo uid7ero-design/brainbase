@@ -230,3 +230,9 @@
     min-width: 0;
   }
 }
+
+.reviewActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

@@ -1,6 +1,7 @@
 import { beforeEach,describe,expect,it,vi } from 'vitest';
-const mocks=vi.hoisted(()=>({remove:vi.fn(),auth:vi.fn(),create:vi.fn(),budget:vi.fn(),version:vi.fn(),line:vi.fn(),allocation:vi.fn(),mapping:vi.fn(),settings:vi.fn(),year:vi.fn(),periods:vi.fn(),account:vi.fn(),centre:vi.fn()}));
+const mocks=vi.hoisted(()=>({entryRemoval:vi.fn(),remove:vi.fn(),auth:vi.fn(),create:vi.fn(),budget:vi.fn(),version:vi.fn(),line:vi.fn(),allocation:vi.fn(),mapping:vi.fn(),settings:vi.fn(),year:vi.fn(),periods:vi.fn(),account:vi.fn(),centre:vi.fn()}));
 vi.mock('@/lib/commercial/budgetLineRemoval',async()=>{const actual=await vi.importActual<typeof import('@/lib/commercial/budgetLineRemoval')>('@/lib/commercial/budgetLineRemoval');return {...actual,removeDraftBudgetLine:mocks.remove};});
+vi.mock('@/lib/commercial/budgetDraftEntryRemoval',async()=>{const actual=await vi.importActual<typeof import('@/lib/commercial/budgetDraftEntryRemoval')>('@/lib/commercial/budgetDraftEntryRemoval');return {...actual,removeDraftBudgetEntry:mocks.entryRemoval};});
 vi.mock('@/lib/db',()=>({default:vi.fn()}));
 vi.mock('@/lib/commercial/authorize',()=>({authorizeCommercialRequest:mocks.auth,COMMERCIAL_MIN_ROLE:{administer:'admin'}}));
 vi.mock('@/lib/commercial/budgets',()=>({createBudget:mocks.create,getBudget:mocks.budget,getBudgetVersion:mocks.version,upsertBudgetLine:mocks.line,setBudgetPeriodAllocation:mocks.allocation,setBudgetCommitmentMapping:mocks.mapping,updateDraftBudgetSettings:mocks.settings}));
@@ -16,6 +17,24 @@ const request=(body:unknown)=>new Request('http://localhost',{method:'POST',body
 const header={name:' Budget ',financialYearId:id,currency:'aud',taxBasis:'INCLUSIVE',periodisationMode:'PERIODISED',organisationId:'foreign'};
 beforeEach(()=>{vi.clearAllMocks();mocks.auth.mockResolvedValue({ok:true,session:{organisationId:'org-a',userId:'user-a'}});mocks.year.mockResolvedValue({id,status:'OPEN'});mocks.budget.mockResolvedValue({id,financial_year_id:id,periodisation_mode:'PERIODISED'});mocks.version.mockResolvedValue({id,budget_id:id,status:'DRAFT'});mocks.account.mockResolvedValue({id,active:true});mocks.centre.mockResolvedValue({id,active:true});mocks.periods.mockResolvedValue([{id}]);});
 describe('Budget setup boundary',()=>{
+  it.each(['remove-allocation','remove-mapping'])('binds %s removal to session and version',async action=>{
+    mocks.entryRemoval.mockResolvedValue({removed:true});
+    expect((await changeRoute.POST(request({action,budgetLineId:id,financialPeriodId:id,costCentreId:id,reason:'  Accidental entry  ',organisationId:'foreign',userId:'foreign'}),context)).status).toBe(200);
+    expect(mocks.entryRemoval).toHaveBeenCalledWith({organisationId:'org-a',userId:'user-a',budgetId:id,budgetVersionId:id,reason:'Accidental entry',...(action==='remove-allocation'?{kind:'allocation',budgetLineId:id,financialPeriodId:id}:{kind:'mapping',costCentreId:id})});
+  });
+  it.each(['remove-allocation','remove-mapping'])('rejects invalid reason for %s',async action=>{
+    expect((await changeRoute.POST(request({action,budgetLineId:id,financialPeriodId:id,costCentreId:id,reason:'xx'}),context)).status).toBe(400);
+    expect(mocks.entryRemoval).not.toHaveBeenCalled();
+  });
+  it.each(['remove-allocation','remove-mapping'])('rejects malformed identity for %s',async action=>{
+    expect((await changeRoute.POST(request({action,budgetLineId:'bad',financialPeriodId:'bad',costCentreId:'bad',reason:'Accidental entry'}),context)).status).toBe(400);
+    expect(mocks.entryRemoval).not.toHaveBeenCalled();
+  });
+  it('refuses allocation removal from an annual-only Budget',async()=>{
+    mocks.budget.mockResolvedValue({id,financial_year_id:id,periodisation_mode:'ANNUAL_ONLY'});
+    expect((await changeRoute.POST(request({action:'remove-allocation',budgetLineId:id,financialPeriodId:id,reason:'Accidental entry'}),context)).status).toBe(409);
+    expect(mocks.entryRemoval).not.toHaveBeenCalled();
+  });
   it('removes a bound draft line with a normalized reason and session identity',async()=>{
     mocks.remove.mockResolvedValue({removed:true});
     expect((await changeRoute.POST(request({action:'remove-line',budgetLineId:id,reason:'  Accidental line  ',organisationId:'foreign',userId:'foreign'}),context)).status).toBe(200);

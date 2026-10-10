@@ -31,6 +31,8 @@ beforeEach(() => {
     if (options?.method === 'POST') {
       const body = JSON.parse(String(options.body)); mutations.push(body);
       if (failSave) return Response.json({ error: 'Save rejected. Draft remains unchanged.' }, { status: 409 });
+      if (body.action === 'remove-allocation') version.allocations = [];
+      if (body.action === 'remove-mapping') version.mappings = [];
       if (body.action === 'remove-line') { version.lines = []; version.allocations = []; }
       if (body.action === 'line') version.lines[0].annual_budget_cents = body.annualBudgetCents;
       if (body.action === 'allocation') version.allocations[0].amount_cents = body.amountCents;
@@ -46,12 +48,49 @@ beforeEach(() => {
 });
 
 describe('Saved Budget editor return navigation', () => {
+  const removalCases=[
+    {kind:'allocation',button:'Remove allocation SOFTWARE / GENERAL / QTR 1',form:'Remove draft period allocation',confirm:'Confirm remove allocation',keep:'Keep allocation',review:'Budget amount review',action:'remove-allocation',identity:{budgetLineId:'line',financialPeriodId:'period'},message:'Period allocation removed.'},
+    {kind:'mapping',button:'Remove mapping GENERAL',form:'Remove draft commitment mapping',confirm:'Confirm remove mapping',keep:'Keep mapping',review:'Commitment mapping review',action:'remove-mapping',identity:{costCentreId:'centre'},message:'Commitment mapping removed.'},
+  ] as const;
+  it.each(removalCases)('$kind removal confirms, cancels without mutation, then refreshes only the selected entry',async item=>{
+    render(<BudgetSetup revision={0}/>);
+    const remove=await screen.findByRole('button',{name:item.button,exact:true});
+    fireEvent.click(remove);
+    expect(mutations).toHaveLength(0);
+    expect(screen.getByLabelText('Removal reason',{exact:false})).toHaveFocus();
+    fireEvent.click(screen.getByRole('button',{name:item.keep,exact:true}));
+    expect(version).toEqual(initial);
+    expect(mutations).toHaveLength(0);
+    expect(screen.getByRole('region',{name:item.review,exact:true})).toHaveFocus();
+    fireEvent.click(remove);
+    fireEvent.change(screen.getByLabelText('Removal reason',{exact:false}),{target:{value:'Accidental entry'}});
+    fireEvent.click(screen.getByRole('button',{name:item.confirm,exact:true}));
+    await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent(item.message));
+    expect(mutations).toEqual([{action:item.action,...item.identity,reason:'Accidental entry'}]);
+    expect(version.lines).toEqual(initial.lines);
+    expect(item.kind==='allocation'?version.mappings:version.allocations).toEqual(item.kind==='allocation'?initial.mappings:initial.allocations);
+    expect(screen.getByRole('region',{name:item.review,exact:true})).toHaveFocus();
+    if(item.kind==='allocation') expect(screen.getByText('AUD 100.00 left to allocate')).toBeVisible();
+    else expect(screen.getByRole('button',{name:'Activate Budget version'})).toBeDisabled();
+  });
+  it.each(removalCases)('$kind failed removal retains the entered reason; switching to editing clears confirmation',async item=>{
+    failSave=true;
+    render(<BudgetSetup revision={0}/>);
+    fireEvent.click(await screen.findByRole('button',{name:item.button,exact:true}));
+    fireEvent.change(screen.getByLabelText('Removal reason',{exact:false}),{target:{value:'Accidental entry'}});
+    fireEvent.click(screen.getByRole('button',{name:item.confirm,exact:true}));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Save rejected.');
+    expect(screen.getByLabelText('Removal reason',{exact:false})).toHaveValue('Accidental entry');
+    expect(version).toEqual(initial);
+    fireEvent.click(screen.getByRole('button',{name:'Edit SOFTWARE / GENERAL',exact:true}));
+    expect(screen.queryByRole('form',{name:item.form})).not.toBeInTheDocument();
+  });
   it('requires confirmation, supports cancellation, and returns to the saved review after removal', async () => {
     render(<BudgetSetup revision={0}/>);
     const remove = await screen.findByRole('button', { name: 'Remove draft line SOFTWARE / GENERAL', exact: true });
     fireEvent.click(remove);
     expect(mutations).toHaveLength(0);
-    expect(screen.getByRole('region', { name: 'Draft line removal confirmation' })).toHaveTextContent('1 saved period allocations');
+    expect(screen.getByRole('region', { name: 'Draft line removal confirmation' })).toHaveTextContent('1 saved period allocation');
     expect(screen.getByLabelText('Removal reason', { exact: false })).toHaveFocus();
     fireEvent.click(screen.getByRole('button', { name: 'Keep draft line' }));
     expect(version).toEqual(initial);

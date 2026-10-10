@@ -10,7 +10,7 @@ export default function DraftBudgetLineRemoval({ line, account, centre, currency
   return <section aria-label="Draft line removal confirmation" className={styles.activationReview}>
     <h3>Remove draft Budget line</h3>
     <p><strong>{account} / {centre}</strong> · {formatBudgetAmount(line.annual_budget_cents, currency)}</p>
-    <p>This removes this draft line and its {allocationCount} saved period allocations. Commitment mappings stay in place. Activated versions and financial facts are protected. You can add a replacement draft line afterwards.</p>
+    <p>This removes this draft line and its {allocationCount} saved period {allocationCount === 1 ? 'allocation' : 'allocations'}. Commitment mappings stay in place. Activated versions and financial facts are protected. You can add a replacement draft line afterwards.</p>
     <form aria-label="Remove draft Budget line" onSubmit={onSubmit}>
       <fieldset disabled={busy} className={styles.formGrid}>
         <input type="hidden" name="budgetLineId" value={line.id}/>

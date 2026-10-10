@@ -657,6 +657,53 @@ try {
   }
   // Remove an accidental extra line through the real confirmation, preserving the original draft.
   const removalPath='/api/commercial/budgeting/budgets/'+budgetState.id+'/versions/'+budgetState.version_id+'/setup';
+  // Bundle individual allocation and mapping corrections before publishing this draft.
+  const correctionPeriod=await setupPost('/api/commercial/budgeting/financial-years/'+setupYearId+'/periods',{name:'Correction period',startsOn:'2027-09-01',endsOn:'2027-09-30'});
+  if(correctionPeriod.status!==201)throw new Error('Correction period fixture failed');
+  const correctionPeriodId=correctionPeriod.data.period.id;
+  if((await setupPost(removalPath,{action:'allocation',budgetLineId:budgetState.line_id,financialPeriodId:correctionPeriodId,amountCents:'9007199254740993'})).status!==200)throw new Error('Correction allocation fixture failed');
+  const correctionCentre=await setupPost('/api/commercial/budgeting/setup/cost-centres',{code:'REMOVE-CC',name:'Correction fixture'});
+  if(correctionCentre.status!==201)throw new Error('Correction mapping centre failed');
+  const correctionCentreId=(await pool.query("SELECT id FROM commercial_cost_centres WHERE organisation_id='runtime-b' AND code='REMOVE-CC'")).rows[0].id;
+  if((await setupPost(removalPath,{action:'mapping',costCentreId:correctionCentreId,budgetAccountId:alternateAccount})).status!==200)throw new Error('Correction mapping fixture failed');
+  for(const target of [
+    {kind:'allocation',body:{action:'remove-allocation',budgetLineId:budgetState.line_id,financialPeriodId:correctionPeriodId,reason:'Accidental allocation'},button:'Remove allocation BUDGET-ACC / BUDGET-CC / Correction period',confirm:'Confirm remove allocation',keep:'Keep allocation',review:'Budget amount review',resource:'commercial_budget_period_allocation',query:'SELECT id FROM commercial_budget_period_allocations WHERE budget_line_id=$1 AND financial_period_id=$2',keys:[budgetState.line_id,correctionPeriodId]},
+    {kind:'mapping',body:{action:'remove-mapping',costCentreId:correctionCentreId,reason:'Accidental mapping'},button:'Remove mapping REMOVE-CC',confirm:'Confirm remove mapping',keep:'Keep mapping',review:'Commitment mapping review',resource:'commercial_budget_commitment_mapping',query:'SELECT id FROM commercial_budget_commitment_mappings WHERE budget_version_id=$1 AND cost_centre_id=$2',keys:[budgetState.version_id,correctionCentreId]},
+  ]){
+    const targetId=(await pool.query(target.query,target.keys)).rows[0].id;
+    for(const [testPage,status] of [[viewer.page,403],[page,404]]){
+      if((await testPage.evaluate(async ({path,body})=>(await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).status,{path:removalPath,body:target.body}))!==status)throw new Error(target.kind+' correction crossed role/tenant');
+    }
+    if((await fetch(origin+removalPath,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(target.body)})).status!==401)throw new Error('Unauthenticated correction accepted');
+    if((await setupPost(removalPath,{...target.body,reason:'xx'})).status!==400)throw new Error('Invalid correction reason accepted');
+    await pool.query("UPDATE commercial_financial_years SET status='CLOSED' WHERE id=$1",[setupYearId]);
+    if((await setupPost(removalPath,target.body)).status!==409)throw new Error('Closed year correction accepted');
+    await pool.query("UPDATE commercial_financial_years SET status='OPEN' WHERE id=$1",[setupYearId]);
+    await other.page.reload();
+    await budgetSection.getByRole('button',{name:target.button,exact:true}).click();
+    const confirmation=budgetSection.getByRole('region',{name:'Draft '+target.kind+' removal confirmation',exact:true});
+    await expect(confirmation.getByLabel('Removal reason',{exact:false})).toBeFocused();
+    if(target.kind==='allocation')await expect(confirmation).toContainText('AUD 90,071,992,547,409.93');
+    await confirmation.getByRole('button',{name:target.keep,exact:true}).click();
+    if((await pool.query(target.query,target.keys)).rows.length!==1)throw new Error('Correction cancel mutated saved entry');
+    await expect(budgetSection.getByRole('region',{name:target.review,exact:true})).toBeFocused();
+    await budgetSection.getByRole('button',{name:target.button,exact:true}).click();
+    await other.page.setViewportSize({width:390,height:844});
+    if(await other.page.evaluate(()=>document.documentElement.scrollWidth>innerWidth))throw new Error('Correction confirmation overflows mobile');
+    await confirmation.screenshot({path:resolve(artifacts,'draft-'+target.kind+'-removal-mobile.png')});
+    await confirmation.getByLabel('Removal reason',{exact:false}).fill(target.body.reason);
+    await confirmation.getByRole('button',{name:target.confirm,exact:true}).click();
+    await expect(budgetSection.getByRole('status')).toContainText(target.kind==='allocation'?'Period allocation removed.':'Commitment mapping removed.');
+    await expect(budgetSection.getByRole('region',{name:target.review,exact:true})).toBeFocused();
+    await expect(budgetSection.getByRole('button',{name:target.button,exact:true})).toHaveCount(0);
+    await other.page.setViewportSize({width:1440,height:1000});
+    if((await pool.query(target.query,target.keys)).rows.length)throw new Error('Correction persisted a removed entry');
+    if((await setupPost(removalPath,target.body)).status!==404)throw new Error('Repeated correction did not return missing entry');
+    const audit=(await pool.query('SELECT user_id,before_state,after_state FROM audit_logs WHERE resource_id=$1 AND action=$2',[targetId,target.resource+'.removed'])).rows;
+    if(audit.length!==1||audit[0].user_id!=='runtime-other'||audit[0].after_state.reason!==target.body.reason||(target.kind==='allocation'?audit[0].before_state.amount_cents!=='9007199254740993':audit[0].before_state.budget_account_id!==alternateAccount))throw new Error('Correction audit lost actor reason or exact before-state');
+    if((await pool.query('SELECT annual_budget_cents::text AS cents FROM commercial_budget_lines WHERE id=$1',[budgetState.line_id])).rows[0].cents!=='10000'||(await pool.query('SELECT amount_cents::text AS cents FROM commercial_budget_period_allocations WHERE id=$1',[originalAllocationId])).rows[0].cents!=='10000'||(await pool.query('SELECT budget_account_id FROM commercial_budget_commitment_mappings WHERE id=$1',[originalMapping.id])).rows[0].budget_account_id!==budgetDimensions[0])throw new Error('Correction changed retained Budget records');
+  }
+
   if((await setupPost(removalPath,{action:'line',budgetAccountId:alternateAccount,costCentreId:budgetDimensions[1],annualBudgetCents:'9007199254740993'})).status!==200)throw new Error('Removal fixture creation failed');
   const removalLine=(await pool.query('SELECT id FROM commercial_budget_lines WHERE budget_version_id=$1 AND budget_account_id=$2',[budgetState.version_id,alternateAccount])).rows[0].id;
   if((await setupPost(removalPath,{action:'allocation',budgetLineId:removalLine,financialPeriodId:setupPeriod,amountCents:'9007199254740993'})).status!==200)throw new Error('Removal allocation fixture creation failed');
@@ -698,6 +745,7 @@ try {
   await budgetSection.getByRole('button',{name:'Activate Budget version',exact:true}).click();
   await expect(budgetSection.getByRole('status')).toContainText('Budget version activated.');
   await expect(activationChecks).toHaveCount(0);
+  await expect(budgetSection.getByRole('button',{name:/^Remove (allocation|mapping|draft line)/})).toHaveCount(0);
   await expect(budgetSection.getByRole('button',{name:'Edit mapping BUDGET-CC',exact:true})).toHaveCount(0);
   await expect(mappingsTable).toContainText('BUDGET-ACC');
   await expect(budgetSection.getByRole('button',{name:'Edit BUDGET-ACC / BUDGET-CC',exact:true})).toHaveCount(0);
@@ -714,13 +762,15 @@ try {
   const laterPath='/api/commercial/budgeting/budgets/'+budgetState.id+'/versions/'+laterDraft+'/setup';
   if((await setupPost(laterPath,{action:'settings',name:'Forbidden',taxBasis:'INCLUSIVE'})).status!==409)throw new Error('A later draft rewrote published Budget settings');
   await pool.query('DELETE FROM commercial_budget_versions WHERE id=$1',[laterDraft]);
-  const raceBudget=await setupPost('/api/commercial/budgeting/budgets',{name:'Race Budget',financialYearId:setupYearId,currency:'NZD',taxBasis:'INCLUSIVE',periodisationMode:'ANNUAL_ONLY'});
+  const raceBudget=await setupPost('/api/commercial/budgeting/budgets',{name:'Race Budget',financialYearId:setupYearId,currency:'NZD',taxBasis:'INCLUSIVE',periodisationMode:'PERIODISED'});
   if(raceBudget.status!==201)throw new Error('Settings race fixture creation failed');
   const raceBudgetId=raceBudget.data.budget.id,raceVersionId=raceBudget.data.version.id;
   const racePath='/api/commercial/budgeting/budgets/'+raceBudgetId+'/versions/'+raceVersionId;
   for(const body of [{action:'line',budgetAccountId:budgetDimensions[0],costCentreId:budgetDimensions[1],annualBudgetCents:'10000'},{action:'mapping',budgetAccountId:budgetDimensions[0],costCentreId:budgetDimensions[1]}]){
     if((await setupPost(racePath+'/setup',body)).status!==200)throw new Error('Settings race fixture line/mapping failed');
   }
+  const raceAllocationLine=(await pool.query('SELECT id FROM commercial_budget_lines WHERE budget_version_id=$1',[raceVersionId])).rows[0].id;
+  if((await setupPost(racePath+'/setup',{action:'allocation',budgetLineId:raceAllocationLine,financialPeriodId:setupPeriod,amountCents:'10000'})).status!==200)throw new Error('Correction race allocation fixture failed');
   async function waitForBudgetLockWaiters(count){
     for(let attempt=0;attempt<100;attempt++){
       const waiting=(await pool.query("SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname=$1 AND wait_event_type='Lock' AND query LIKE '%commercial_budgets%'",[database])).rows[0].n;
@@ -730,22 +780,27 @@ try {
     throw new Error('Budget settings requests did not reach the database lock gate');
   }
   // Hold the year until a settings request has passed its initial DRAFT check.
-  const yearGate=await pool.connect();let closedSettings;
+  const yearGate=await pool.connect();let closedSettings,closedAllocationRemoval,closedMappingRemoval;
   try{
     await yearGate.query('BEGIN');
     await yearGate.query('SELECT id FROM commercial_financial_years WHERE id=$1 FOR UPDATE',[setupYearId]);
     closedSettings=setupPost(racePath+'/setup',{action:'settings',name:'Must not save',taxBasis:'EXCLUSIVE'});
     await waitForBudgetLockWaiters(1);
+    closedAllocationRemoval=setupPost(racePath+'/setup',{action:'remove-allocation',budgetLineId:raceAllocationLine,financialPeriodId:setupPeriod,reason:'Must retain allocation'});
+    await waitForBudgetLockWaiters(2);
+    closedMappingRemoval=setupPost(racePath+'/setup',{action:'remove-mapping',costCentreId:budgetDimensions[1],reason:'Must retain mapping'});
+    await waitForBudgetLockWaiters(3);
     await yearGate.query("UPDATE commercial_financial_years SET status='CLOSED' WHERE id=$1",[setupYearId]);
     await yearGate.query('COMMIT');
+    if((await closedAllocationRemoval).status!==409||(await closedMappingRemoval).status!==409)throw new Error('Corrections changed after concurrent year close');
     if((await closedSettings).status!==409)throw new Error('Settings changed after a concurrent year close');
   }finally{
     await yearGate.query('ROLLBACK');yearGate.release();
-    await closedSettings?.catch(()=>{});
+    await Promise.allSettled([closedSettings,closedAllocationRemoval,closedMappingRemoval].filter(Boolean));
     await pool.query("UPDATE commercial_financial_years SET status='OPEN' WHERE id=$1",[setupYearId]);
   }
   // Queue activation first, then settings, with both held at the Budget lock.
-  const activationGate=await pool.connect();let queuedActivation,queuedSettings,queuedRemoval;
+  const activationGate=await pool.connect();let queuedActivation,queuedSettings,queuedRemoval,queuedAllocationRemoval,queuedMappingRemoval;
   try{
     await activationGate.query('BEGIN');
     await activationGate.query('SELECT id FROM commercial_budgets WHERE id=$1 FOR UPDATE',[raceBudgetId]);
@@ -756,12 +811,17 @@ try {
     const raceLine=(await pool.query('SELECT id FROM commercial_budget_lines WHERE budget_version_id=$1',[raceVersionId])).rows[0].id;
     queuedRemoval=setupPost(racePath+'/setup',{action:'remove-line',budgetLineId:raceLine,reason:'Must not remove'});
     await waitForBudgetLockWaiters(3);
+    queuedAllocationRemoval=setupPost(racePath+'/setup',{action:'remove-allocation',budgetLineId:raceLine,financialPeriodId:setupPeriod,reason:'Must not remove'});
+    await waitForBudgetLockWaiters(4);
+    queuedMappingRemoval=setupPost(racePath+'/setup',{action:'remove-mapping',costCentreId:budgetDimensions[1],reason:'Must not remove'});
+    await waitForBudgetLockWaiters(5);
     await activationGate.query('COMMIT');
     if((await queuedRemoval).status!==409||(await pool.query('SELECT count(*)::int AS n FROM commercial_budget_lines WHERE id=$1',[raceLine])).rows[0].n!==1)throw new Error('Activation/removal race removed published line');
+    if((await queuedAllocationRemoval).status!==409||(await queuedMappingRemoval).status!==409||(await pool.query('SELECT count(*)::int AS n FROM commercial_budget_period_allocations WHERE budget_line_id=$1',[raceLine])).rows[0].n!==1||(await pool.query('SELECT count(*)::int AS n FROM commercial_budget_commitment_mappings WHERE budget_version_id=$1',[raceVersionId])).rows[0].n!==1)throw new Error('Activation/correction race changed published entries');
     if((await queuedActivation).status!==200||(await queuedSettings).status!==409)throw new Error('Activation/settings race did not preserve published settings');
   }finally{
     await activationGate.query('ROLLBACK');activationGate.release();
-    await Promise.allSettled([queuedActivation,queuedSettings,queuedRemoval].filter(Boolean));
+    await Promise.allSettled([queuedActivation,queuedSettings,queuedRemoval,queuedAllocationRemoval,queuedMappingRemoval].filter(Boolean));
   }
   const raceSaved=(await pool.query('SELECT name,tax_basis FROM commercial_budgets WHERE id=$1',[raceBudgetId])).rows[0];
   if(raceSaved.name!=='Race Budget'||raceSaved.tax_basis!=='INCLUSIVE')throw new Error('Rejected concurrent settings changed Budget facts');
@@ -837,6 +897,8 @@ try {
   if((await setupPost(evidencePath,{action:'allocation',budgetLineId:evidenceLine,financialPeriodId:setupPeriod,amountCents:'100'})).status!==200)throw new Error('Evidence guard allocation creation failed');
   const evidenceAdjustment=(await pool.query("INSERT INTO commercial_finance_adjustments(organisation_id,adjustment_type,effective_financial_period_id,currency,description,reason_code,created_by) VALUES('runtime-b','MANUAL_FINANCE_ADJUSTMENT',$1,'EUR','Synthetic guard fixture','TEST','runtime-other') RETURNING id",[setupPeriod])).rows[0].id;
   await pool.query("INSERT INTO commercial_finance_adjustment_lines(organisation_id,adjustment_id,financial_period_id,position,budget_account_id,cost_centre_id,amount_exclusive_cents,tax_cents,amount_inclusive_cents,resolved_budget_id,resolved_budget_version_id,resolved_budget_line_id,resolved_tax_basis,budget_basis_cents) VALUES('runtime-b',$1,$2,1,$3,$4,100,0,100,$5,$6,$7,'INCLUSIVE',100)",[evidenceAdjustment,setupPeriod,budgetDimensions[0],budgetDimensions[1],evidenceBudgetId,evidenceVersionId,evidenceLine]);
+  const evidenceAllocationRemoval=await setupPost(evidencePath,{action:'remove-allocation',budgetLineId:evidenceLine,financialPeriodId:setupPeriod,reason:'Must retain evidence'});
+  if(evidenceAllocationRemoval.status!==409||!evidenceAllocationRemoval.data.error.includes('finance evidence'))throw new Error('Allocation correction altered finance evidence');
   const evidenceBefore=(await pool.query('SELECT * FROM commercial_finance_adjustment_lines WHERE adjustment_id=$1',[evidenceAdjustment])).rows;
   const guardedRemoval=await setupPost(evidencePath,{action:'remove-line',budgetLineId:evidenceLine,reason:'Must retain evidence'});
   if(guardedRemoval.status!==409||!guardedRemoval.data.error.includes('finance evidence'))throw new Error('Finance evidence deletion guard failed');
@@ -847,6 +909,7 @@ try {
   await pool.query("UPDATE organisation_modules SET enabled=false WHERE organisation_id='runtime-b' AND module_key='budgeting'");
   if((await setupPost('/api/commercial/budgeting/financial-years',{name:'Denied',startsOn:'2029-07-01',endsOn:'2030-06-30'})).status!==403)throw new Error('Unentitled calendar creation accepted');
   if((await setupPost('/api/commercial/budgeting/setup/accounts',{code:'DENIED',name:'Denied'})).status!==403)throw new Error('Unentitled dimension creation accepted');
+  for(const action of ['remove-allocation','remove-mapping']){if((await setupPost(removalPath,{action,budgetLineId:budgetState.line_id,financialPeriodId:setupPeriod,costCentreId:budgetDimensions[1],reason:'Denied'})).status!==403)throw new Error('Unentitled correction accepted');}
   if((await setupPost(removalPath,removalBody)).status!==403)throw new Error('Unentitled removal accepted');
   if((await setupPost('/api/commercial/budgeting/budgets',{})).status!==403)throw new Error('Unentitled Budget creation accepted');
   if((await setupPost('/api/commercial/budgeting/setup/accounts/'+budgetDimensions[0]+'/reactivate',{})).status!==403)throw new Error('Unentitled reactivation accepted');
@@ -864,6 +927,7 @@ try {
   evidence.budgetSetupChecks=['fresh Budget and DRAFT version created through form','draft line and commitment mapping through forms','period allocation mismatch blocks activation','correct allocation permits activation','ACTIVE version read-only and API rejects edits','active version pointer persisted','duplicate header rejected','unauthenticated, viewer, unentitled and foreign-tenant mutations denied'];
   evidence.budgetReviewChecks=['exact shortage and excess shown per line','corrected allocation marked balanced with remaining review guidance','saved allocation shown in named table','both review tables contained and scrollable on mobile','activation issue links focus line setup, allocation review and dimension headings','resolved issues remove corrective links'];
   evidence.budgetMappingManagementChecks=['saved mapping table shows codes and reference status','checklist link navigates to mapping form','saved account prefilled with fixed cost centre','cancel and version switch discard unsaved edit','update preserves mapping ID cost centre amounts and allocations','saved account reloads and original mapping restored','inactive references flagged','ACTIVE mappings readable without editing','mobile editor fits viewport'];
+  evidence.draftCorrectionBundleChecks=['allocation and mapping removal through confirmation UI','cancel leaves target intact and returns focus','exact BIGINT allocation audited before removal','only selected saved entry removed; annual amount other allocations and mappings retained','missing entry retry 404','invalid reason closed year role tenant unauthenticated unentitled denial','real activation queued ahead of both correction requests preserves published entries','year close queued ahead of correction requests preserves saved entries','allocation backed by finance evidence refuses removal','both confirmations contained on mobile'];
   evidence.budgetLineRemovalChecks=['real confirmation and cancel preserve draft','exact BIGINT line and allocations removed together','actor reason and exact before-state audited once','other lines allocations and mappings unchanged','mobile confirmation contained','finance evidence and its allocations retained on rejected removal','SUPERSEDED removal rejected','missing line retry returns 404','invalid reason closed year ACTIVE viewer tenant unauthenticated unentitled denial','actual activation queued before removal preserves published line','removal followed by activation succeeds for remaining draft'];
   evidence.budgetEditReturnChecks=['mapping cancel and successful update return focus to saved mapping review','line cancel and successful update return focus to amount review','allocation failure retains editor; cancel and successful update return focus to amount review'];
   evidence.budgetSetupExportChecks=['three real CSV downloads have selected draft metadata','exact saved decimal amounts exclude unsaved editor values','allocation dates use DD/MM/YYYY','mapping codes and active status retained','downloads send no finance mutations and leave editor value intact'];

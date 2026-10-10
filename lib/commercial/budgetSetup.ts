@@ -3,6 +3,7 @@ import { createBudget, getBudget, getBudgetVersion, setBudgetCommitmentMapping, 
 import { getFinancialYear, listFinancialPeriods } from './financialPeriods';
 import { getBudgetAccount } from './budgetAccounts';
 import { getCostCentre } from './costCentres';
+import { removeDraftBudgetEntry, BudgetDraftEntryRemovalError } from './budgetDraftEntryRemoval';
 import { removeDraftBudgetLine, BudgetLineRemovalError } from './budgetLineRemoval';
 
 export class BudgetSetupError extends Error {
@@ -55,6 +56,14 @@ export async function changeSetupBudget(organisationId: string, userId: string, 
   const [budget, version] = await Promise.all([getBudget(organisationId, budgetId),getBudgetVersion(organisationId,versionId)]);
   if (!budget || !version || version.budget_id !== budget.id) throw new BudgetSetupError('NOT_FOUND', 'Budget version not found.');
   if (version.status !== 'DRAFT') throw new BudgetSetupError('CONFLICT', 'Only DRAFT budget versions are editable.');
+  if (input.action === 'remove-allocation' || input.action === 'remove-mapping') {
+    const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
+    if (reason.length < 3 || reason.length > 500) throw new BudgetSetupError('INVALID_INPUT', 'Enter a removal reason of 3 to 500 characters.');
+    const identity = { organisationId, userId, budgetId, budgetVersionId: versionId, reason };
+    if (input.action === 'remove-mapping') return removeDraftBudgetEntry({ ...identity, kind: 'mapping', costCentreId: setupId(input.costCentreId) });
+    if (budget.periodisation_mode !== 'PERIODISED') throw new BudgetSetupError('CONFLICT', 'Annual-only Budgets do not have period allocations.');
+    return removeDraftBudgetEntry({ ...identity, kind: 'allocation', budgetLineId: setupId(input.budgetLineId), financialPeriodId: setupId(input.financialPeriodId) });
+  }
   if (input.action === 'remove-line') {
     const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
     if (reason.length < 3 || reason.length > 500) throw new BudgetSetupError('INVALID_INPUT', 'Enter a removal reason of 3 to 500 characters.');
@@ -84,7 +93,7 @@ export async function changeSetupBudget(organisationId: string, userId: string, 
     : setBudgetCommitmentMapping({ organisationId,userId,budgetVersionId:versionId,budgetAccountId,costCentreId });
 }
 export function budgetSetupFailure(error: unknown): { status: number; message: string } | null {
-  if (error instanceof BudgetLineRemovalError) return { status: error.code === 'INVALID_INPUT' ? 400 : error.code === 'NOT_FOUND' ? 404 : 409, message: error.message };
+  if (error instanceof BudgetLineRemovalError || error instanceof BudgetDraftEntryRemovalError) return { status: error.code === 'INVALID_INPUT' ? 400 : error.code === 'NOT_FOUND' ? 404 : 409, message: error.message };
   if (error instanceof BudgetSetupError) return { status: error.code === 'INVALID_INPUT' ? 400 : error.code === 'NOT_FOUND' ? 404 : 409, message: error.message };
   if (error && typeof error === 'object' && 'code' in error && error.code === '23505') return { status: 409, message: 'A Budget already exists for this financial year and currency.' };
   if (error instanceof Error && ['Only DRAFT budget versions are editable','Budget financial year must be OPEN','budget_line_id not found for this DRAFT version','Budget settings can only be changed before activation and while the financial year is OPEN.'].includes(error.message)) return { status: 409, message: error.message };
