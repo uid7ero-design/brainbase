@@ -236,3 +236,17 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+
+.reloadControls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0;
+}
+.reloadControls p {
+  flex: 1 1 240px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}

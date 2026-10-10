@@ -657,6 +657,50 @@ try {
   }
   // Remove an accidental extra line through the real confirmation, preserving the original draft.
   const removalPath='/api/commercial/budgeting/budgets/'+budgetState.id+'/versions/'+budgetState.version_id+'/setup';
+  // Real saves with failed readback/lost response must recover through GET without replaying mutations.
+  const savedBudgetReads='**/api/commercial/budgeting/budgets';
+  for(const loseSaveResponse of [false,true]){
+    const auditCount=async()=>(await pool.query("SELECT count(*)::int AS n FROM audit_logs WHERE resource_id=$1 AND action='commercial_budget_line.changed'",[budgetState.line_id])).rows[0].n;
+    const beforeAudit=await auditCount();let blockReads=!loseSaveResponse;
+    const readFailure=route=>blockReads?route.abort('failed'):route.continue();
+    await other.page.route(savedBudgetReads,readFailure);
+    const lostResponse=async route=>{await route.fetch();await route.abort('failed');};
+    if(loseSaveResponse)await other.page.route('**'+removalPath,lostResponse);
+    await budgetSection.getByRole('button',{name:'Edit BUDGET-ACC / BUDGET-CC',exact:true}).click();
+    const recoveryEditor=budgetSection.getByRole('form',{name:'Budget line',exact:true});
+    await recoveryEditor.getByLabel('Annual amount (AUD)',{exact:false}).fill('123.45');
+    // Two events in one browser turn exercise the synchronous submission guard.
+    await recoveryEditor.evaluate(form=>{form.requestSubmit();form.requestSubmit();});
+    await expect(budgetSection.getByRole('alert')).toContainText(loseSaveResponse?'save outcome could not be confirmed':'Your change was saved');
+    await expect(recoveryEditor.getByRole('button',{name:'Update line',exact:true})).toBeDisabled();
+    await expect(budgetSection.getByRole('button',{name:'Export Budget lines CSV',exact:true})).toBeDisabled();
+    await expect(budgetSection.getByRole('button',{name:'Activate Budget version',exact:true})).toBeDisabled();
+    if((await pool.query('SELECT annual_budget_cents::text AS cents FROM commercial_budget_lines WHERE id=$1',[budgetState.line_id])).rows[0].cents!=='12345'||await auditCount()!==beforeAudit+1)throw new Error('Interrupted save did not persist once');
+    blockReads=true;
+    await budgetSection.getByRole('button',{name:'Reload saved Budget',exact:true}).click();
+    await expect(budgetSection.getByRole('button',{name:'Reload saved Budget',exact:true})).toBeEnabled();
+    await expect(budgetSection.getByRole('button',{name:'Export Budget lines CSV',exact:true})).toBeDisabled();
+    if(await auditCount()!==beforeAudit+1)throw new Error('Failed recovery replayed save');
+    await other.page.setViewportSize({width:390,height:844});
+    if(await other.page.evaluate(()=>document.documentElement.scrollWidth>innerWidth))throw new Error('Save recovery controls overflow mobile');
+    await budgetSection.getByRole('button',{name:'Reload saved Budget',exact:true}).scrollIntoViewIfNeeded();
+    await budgetSection.getByRole('region',{name:'Saved Budget reload',exact:true}).screenshot({path:resolve(artifacts,'draft-save-recovery-'+(loseSaveResponse?'unknown':'saved')+'-mobile.png')});
+    blockReads=false;
+    await budgetSection.getByRole('button',{name:'Reload saved Budget',exact:true}).click();
+    await expect(budgetSection.getByRole('status')).toContainText('Saved Budget reloaded.');
+    await expect(budgetSection.getByRole('region',{name:'Budget amount review',exact:true})).toBeFocused();
+    await expect(budgetSection.getByRole('table',{name:'Budget lines and allocation checks',exact:true})).toContainText('AUD 123.45');
+    await expect(budgetSection.getByRole('button',{name:'Export Budget lines CSV',exact:true})).toBeEnabled();
+    if(await auditCount()!==beforeAudit+1)throw new Error('Read-only recovery repeated save');
+    await other.page.setViewportSize({width:1440,height:1000});
+    await other.page.unroute(savedBudgetReads,readFailure);
+    if(loseSaveResponse)await other.page.unroute('**'+removalPath,lostResponse);
+    await budgetSection.getByRole('button',{name:'Edit BUDGET-ACC / BUDGET-CC',exact:true}).click();
+    await recoveryEditor.getByLabel('Annual amount (AUD)',{exact:false}).fill('100.00');
+    await recoveryEditor.getByRole('button',{name:'Update line',exact:true}).click();
+    await expect(budgetSection.getByRole('status')).toContainText('Budget setup saved.');
+  }
+
   // Bundle individual allocation and mapping corrections before publishing this draft.
   const correctionPeriod=await setupPost('/api/commercial/budgeting/financial-years/'+setupYearId+'/periods',{name:'Correction period',startsOn:'2027-09-01',endsOn:'2027-09-30'});
   if(correctionPeriod.status!==201)throw new Error('Correction period fixture failed');
@@ -927,6 +971,7 @@ try {
   evidence.budgetSetupChecks=['fresh Budget and DRAFT version created through form','draft line and commitment mapping through forms','period allocation mismatch blocks activation','correct allocation permits activation','ACTIVE version read-only and API rejects edits','active version pointer persisted','duplicate header rejected','unauthenticated, viewer, unentitled and foreign-tenant mutations denied'];
   evidence.budgetReviewChecks=['exact shortage and excess shown per line','corrected allocation marked balanced with remaining review guidance','saved allocation shown in named table','both review tables contained and scrollable on mobile','activation issue links focus line setup, allocation review and dimension headings','resolved issues remove corrective links'];
   evidence.budgetMappingManagementChecks=['saved mapping table shows codes and reference status','checklist link navigates to mapping form','saved account prefilled with fixed cost centre','cancel and version switch discard unsaved edit','update preserves mapping ID cost centre amounts and allocations','saved account reloads and original mapping restored','inactive references flagged','ACTIVE mappings readable without editing','mobile editor fits viewport'];
+  evidence.draftSaveRecoveryChecks=['real line save persists once despite two simultaneous form events','failed refresh explicitly confirms saved outcome','lost response reports uncertain outcome','editing activation and exports paused while snapshot stale','failed reload keeps protections and does not repeat POST','successful GET reload restores authoritative amount and focus','audit count proves each interrupted save occurs only once','mobile recovery controls fit viewport'];
   evidence.draftCorrectionBundleChecks=['allocation and mapping removal through confirmation UI','cancel leaves target intact and returns focus','exact BIGINT allocation audited before removal','only selected saved entry removed; annual amount other allocations and mappings retained','missing entry retry 404','invalid reason closed year role tenant unauthenticated unentitled denial','real activation queued ahead of both correction requests preserves published entries','year close queued ahead of correction requests preserves saved entries','allocation backed by finance evidence refuses removal','both confirmations contained on mobile'];
   evidence.budgetLineRemovalChecks=['real confirmation and cancel preserve draft','exact BIGINT line and allocations removed together','actor reason and exact before-state audited once','other lines allocations and mappings unchanged','mobile confirmation contained','finance evidence and its allocations retained on rejected removal','SUPERSEDED removal rejected','missing line retry returns 404','invalid reason closed year ACTIVE viewer tenant unauthenticated unentitled denial','actual activation queued before removal preserves published line','removal followed by activation succeeds for remaining draft'];
   evidence.budgetEditReturnChecks=['mapping cancel and successful update return focus to saved mapping review','line cancel and successful update return focus to amount review','allocation failure retains editor; cancel and successful update return focus to amount review'];
