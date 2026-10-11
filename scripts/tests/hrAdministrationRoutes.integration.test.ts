@@ -2,6 +2,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { Pool } from 'pg';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServer } from 'node:http';
+import { chromium, expect as browserExpect } from '@playwright/test';
+import { build } from 'vite';
+import path from 'node:path';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl || !['localhost', '127.0.0.1'].includes(new URL(databaseUrl).hostname)) {
@@ -78,6 +81,72 @@ async function perform(action: typeof actions[number]) {
   return administrators.DELETE(request('administrators?userId=proof-candidate', 'DELETE'));
 }
 describe('HR administration real routes and Postgres', () => {
+  it('renders committed grant/revoke recovery through Chromium, HTTP routes and Postgres', async () => {
+    const built = await build({ configFile: false, logLevel: 'error', resolve: { alias: { '@': process.cwd() } },
+      define: { 'process.env.NODE_ENV': JSON.stringify('production'), 'process.env': '{}' }, oxc: { jsx: { runtime: 'automatic', development: false } },
+      plugins: [{ name: 'admin-database-browser', resolveId(id) {
+        if (id === 'hr-admin-entry' || id.replaceAll('\\', '/').endsWith('/hr-admin-entry')) return '\0hr-admin-entry';
+      }, load(id) {
+        if (id === '\0hr-admin-entry') return `import {createElement} from 'react'; import {createRoot} from 'react-dom/client'; import Page from ${JSON.stringify(path.resolve('app/people/administrators/page.tsx').replaceAll('\\', '/'))}; createRoot(document.getElementById('root')).render(createElement(Page));`;
+      } }], build: { write: false, lib: { entry: 'hr-admin-entry', name: 'AdminProof', formats: ['iife'] } } });
+    const output = Array.isArray(built) ? built[0] : built;
+    if (!('output' in output)) throw new Error('Expected browser bundle');
+    const script = output.output.filter(item => item.type === 'chunk').map(item => item.code).join('\n');
+    const writes: string[] = [], errors: string[] = [];
+    const server = createServer((incoming, outgoing) => {
+      void (async () => {
+        if (incoming.url === '/') { outgoing.writeHead(200, { 'Content-Type': 'text/html' }); outgoing.end('<div id="root"></div>'); return; }
+        const url = new URL(incoming.url!, 'http://fixture.local');
+        if (url.pathname !== '/api/hr/administrators') { outgoing.writeHead(404); outgoing.end(); return; }
+        let result: NextResponse;
+        if (incoming.method === 'GET') result = await administrators.GET();
+        else {
+          writes.push(incoming.method!);
+          let body = ''; for await (const chunk of incoming) body += chunk.toString();
+          result = incoming.method === 'POST'
+            ? await administrators.POST(request('administrators', 'POST', JSON.parse(body)))
+            : await administrators.DELETE(request(`administrators${url.search}`, 'DELETE'));
+          expect(result.status).toBe(incoming.method === 'POST' ? 201 : 200);
+        }
+        outgoing.writeHead(result.status, { 'Content-Type': 'application/json' }); outgoing.end(await result.text());
+      })().catch(error => { errors.push(String(error)); outgoing.destroy(error); });
+    });
+    await new Promise<void>(resolve => { server.listen(0, '127.0.0.1', resolve); });
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Expected loopback listener');
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage(); page.on('pageerror', error => errors.push(error.message));
+      // Lose the response after actual HTTP completion. Raw socket resets can be retried
+      // by Chromium itself, which would confound the application's no-retry proof.
+      await page.route('**/api/hr/administrators**', async route => {
+        if (route.request().method() === 'GET') return route.continue();
+        await route.fetch();
+        await route.abort('failed');
+      });
+      await page.goto(`http://127.0.0.1:${address.port}/`); await page.addScriptTag({ content: script });
+      await page.getByLabel('User to grant HR administrator access').selectOption('proof-candidate', { timeout: 5000 }).catch(async error => {
+        throw new Error(`${String(error)}; browser errors: ${JSON.stringify(errors)}; rendered: ${await page.locator('body').innerText()}`);
+      });
+      await page.getByRole('button', { name: 'Grant', exact: true }).click();
+      await browserExpect(page.getByText(/Access change outcome is unknown/)).toBeVisible();
+      const granted = await snapshot();
+      await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+      const revoke = page.getByRole('button', { name: 'Revoke HR administrator access for Candidate', exact: true });
+      await browserExpect(revoke).toBeVisible(); expect(await snapshot()).toEqual(granted); expect(writes).toEqual(['POST']);
+      await revoke.click();
+      await page.getByRole('button', { name: 'Confirm revoke HR administrator access for Candidate', exact: true }).click();
+      await browserExpect(page.getByText(/Access change outcome is unknown/)).toBeVisible();
+      const revoked = await snapshot();
+      await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+      await browserExpect(page.getByLabel('User to grant HR administrator access')).toBeVisible();
+      await browserExpect(revoke).toHaveCount(0); expect(await snapshot()).toEqual(revoked);
+      expect(writes).toEqual(['POST', 'DELETE']); expect(errors).toEqual([]);
+    } finally {
+      await browser.close(); server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => { server.close(error => error ? reject(error) : resolve()); });
+    }
+  }, 60_000);
   it.each(actions)('reconciles committed %s after a lost HTTP response without repeating the write', async action => {
     if (action === 'restore') await perform('archive');
     if (action === 'revoke') await perform('grant');
