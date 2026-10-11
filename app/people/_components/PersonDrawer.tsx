@@ -62,7 +62,7 @@ type AcknowledgementActionState = 'idle' | 'submitting' | 'error';
 type VerificationActionState = 'idle' | 'verifying' | 'rejecting' | 'error';
 type DocumentCreateState = 'idle' | 'submitting' | 'error' | 'uncertain';
 type DocumentVersionState = 'idle' | 'submitting' | 'error' | 'uncertain';
-type DocumentDeleteState = 'idle' | 'submitting' | 'error';
+type DocumentDeleteState = 'idle' | 'submitting' | 'error' | 'uncertain';
 type LifecycleTaskOptionsState = 'idle' | 'loading' | 'ready' | 'error';
 type LifecycleWorkflowsState = 'idle' | 'loading' | 'ready' | 'error';
 type LifecycleTaskActionState = 'idle' | 'submitting' | 'error';
@@ -1052,6 +1052,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   }
 
   async function deleteDocument(document: EmployeeDocumentSummary) {
+    if (documentDeleteState === 'uncertain' || documentDeleteState === 'submitting') return;
     if (!personId || !canManageDocuments) return;
 
     setDocumentDeleteState('submitting');
@@ -1068,6 +1069,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         || data.deleted !== true
         || data.document_id !== document.id
       ) {
+        if (response.ok || response.status >= 500) throw new Error('Unknown deletion outcome');
         setDocumentDeleteState('error');
         return;
       }
@@ -1107,7 +1109,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setDeleteDocumentId(null);
       setDocumentDeleteState('idle');
     } catch {
-      setDocumentDeleteState('error');
+      setCanManageDocuments(false);
+      setDocumentDeleteState('uncertain');
     }
   }
 
@@ -2034,7 +2037,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                           </div>
                         )}
 
-                        {canManageDocuments && confirmingDelete && (
+                        {(canManageDocuments || documentDeleteState === 'uncertain') && confirmingDelete && (
                           <div style={{ borderTop: '1px solid var(--border-subtle)', marginTop: 9, paddingTop: 9 }}>
                             <div style={{ color: 'var(--text-primary)', fontSize: 12, fontWeight: 600 }}>
                               Delete this document?
@@ -2046,7 +2049,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                               <button
                                 type="button"
                                 onClick={() => void deleteDocument(document)}
-                                disabled={documentDeleteState === 'submitting'}
+                                disabled={documentDeleteState === 'submitting' || documentDeleteState === 'uncertain'}
                                 {...confirmDeleteDocumentButton}
                               >
                                 {documentDeleteState === 'submitting' ? 'Deleting…' : 'Confirm delete'}
@@ -2066,6 +2069,11 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                             {documentDeleteState === 'error' && (
                               <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 7 }}>
                                 Could not delete document.
+                              </div>
+                            )}
+                            {documentDeleteState === 'uncertain' && (
+                              <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                                Deletion outcome is unknown. Close and reopen this person to check saved documents before deleting again.
                               </div>
                             )}
                           </div>

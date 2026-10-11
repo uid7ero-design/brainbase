@@ -217,7 +217,8 @@ describe('Employee document mutations against Postgres with in-memory storage', 
       }
       await page.getByRole('button', { name: 'Delete', exact: true }).click(); await page.getByRole('button', { name: 'Confirm delete', exact: true }).click();
       if (scenario === 'lost-delete') {
-        await browserExpect(page.getByText('Could not delete document.', { exact: true })).toBeVisible();
+        await browserExpect(page.getByText(/Deletion outcome is unknown/)).toBeVisible();
+        await browserExpect(page.getByRole('button', { name: 'Confirm delete', exact: true })).toBeDisabled();
         const committed = await snapshot(); expect(committed.documents[0].deleted_at).not.toBeNull();
         expect(committed.versions).toHaveLength(2); expect(committed.acknowledgements).toHaveLength(1); expect(committed.verifications).toHaveLength(2);
         const attempts = [...writes];

@@ -1948,7 +1948,8 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
 
-    expect(await screen.findByText('Could not delete document.')).toBeTruthy();
+    expect(await screen.findByText(/Deletion outcome is unknown/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Confirm delete' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('Safety policy')).toBeTruthy();
     expect(screen.getByText('Delete this document?')).toBeTruthy();
     expect(document.body.textContent).not.toContain('sensitive delete detail');
