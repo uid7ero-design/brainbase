@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { NextRequest, NextResponse } from 'next/server';
+import { createServer } from 'node:http';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl || !['localhost', '127.0.0.1'].includes(new URL(databaseUrl).hostname)) {
@@ -77,6 +78,57 @@ async function perform(action: typeof actions[number]) {
   return administrators.DELETE(request('administrators?userId=proof-candidate', 'DELETE'));
 }
 describe('HR administration real routes and Postgres', () => {
+  it.each(actions)('reconciles committed %s after a lost HTTP response without repeating the write', async action => {
+    if (action === 'restore') await perform('archive');
+    if (action === 'revoke') await perform('grant');
+    let writes = 0;
+    let committed!: () => void;
+    const commitObserved = new Promise<void>(resolve => { committed = resolve; });
+    // Loopback transport deliberately loses the response only after the real route commits.
+    const server = createServer((incoming, outgoing) => {
+      void (async () => {
+        if (incoming.method === 'POST') {
+          writes++;
+          const result = await perform(action);
+          expect(result.status).toBe(action === 'create' || action === 'grant' ? 201 : 200);
+          committed();
+          incoming.socket.destroy();
+          return;
+        }
+        const result = action === 'grant' || action === 'revoke'
+          ? await administrators.GET()
+          : await teams.GET(request('teams?include_archived=1', 'GET'));
+        outgoing.writeHead(result.status, { 'Content-Type': 'application/json' });
+        outgoing.end(await result.text());
+      })().catch(error => { outgoing.destroy(error); });
+    });
+    await new Promise<void>(resolve => { server.listen(0, '127.0.0.1', resolve); });
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Expected loopback listener');
+    const url = `http://127.0.0.1:${address.port}/reconcile`;
+    try {
+      await expect(fetch(url, { method: 'POST' })).rejects.toThrow();
+      await commitObserved;
+      const saved = await snapshot();
+      const response = await fetch(url, { cache: 'no-store' });
+      expect(response.status).toBe(200);
+      const state = await response.json();
+      if (action === 'grant' || action === 'revoke') {
+        expect(state.users.find((row: { id: string }) => row.id === 'proof-candidate').is_hr_administrator).toBe(action === 'grant');
+      } else if (action === 'create') {
+        expect(state.teams.filter((row: { name: string }) => row.name === 'Created')).toHaveLength(1);
+      } else {
+        const row = state.teams.find((item: { id: string }) => item.id === teamId);
+        expect(row.name).toBe(action === 'edit' ? 'Edited' : 'Delivery');
+        expect(Boolean(row.archived_at)).toBe(action === 'archive');
+      }
+      expect(writes).toBe(1);
+      expect(await snapshot()).toEqual(saved);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => { server.close(error => error ? reject(error) : resolve()); });
+    }
+  });
   it.each(['grant', 'archive'] as const)('denies pending %s if the grant is revoked before context resolution', async action => {
     let release!: () => void;
     let entered!: () => void;
