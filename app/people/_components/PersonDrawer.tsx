@@ -61,7 +61,7 @@ type AssuranceState =
 type AcknowledgementActionState = 'idle' | 'submitting' | 'error';
 type VerificationActionState = 'idle' | 'verifying' | 'rejecting' | 'error';
 type DocumentCreateState = 'idle' | 'submitting' | 'error' | 'uncertain';
-type DocumentVersionState = 'idle' | 'submitting' | 'error';
+type DocumentVersionState = 'idle' | 'submitting' | 'error' | 'uncertain';
 type DocumentDeleteState = 'idle' | 'submitting' | 'error';
 type LifecycleTaskOptionsState = 'idle' | 'loading' | 'ready' | 'error';
 type LifecycleWorkflowsState = 'idle' | 'loading' | 'ready' | 'error';
@@ -1156,6 +1156,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   }
 
   async function addDocumentVersion(document: EmployeeDocumentSummary) {
+    if (documentVersionState === 'uncertain' || documentVersionState === 'submitting') return;
     if (!personId || !canManageDocuments || !newVersionFile) {
       setDocumentVersionState('error');
       return;
@@ -1174,11 +1175,13 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       );
       const data = await response.json().catch(() => ({}));
 
+      if (response.status >= 500) throw new Error('Unknown version outcome');
       if (
         !response.ok
         || !data.version?.id
         || typeof data.version?.version_number !== 'number'
       ) {
+        if (response.ok) throw new Error('Unknown version outcome');
         setDocumentVersionState('error');
         return;
       }
@@ -1220,7 +1223,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
 
       void loadDocumentAssurance(document.id, nextVersion.id);
     } catch {
-      setDocumentVersionState('error');
+      setCanManageDocuments(false);
+      setDocumentVersionState('uncertain');
     }
   }
 
@@ -2067,7 +2071,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                           </div>
                         )}
 
-                        {canManageDocuments && addingVersion && (
+                        {(canManageDocuments || documentVersionState === 'uncertain') && addingVersion && (
                           <div style={{ borderTop: '1px solid var(--border-subtle)', marginTop: 9, paddingTop: 9 }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                               <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
@@ -2089,7 +2093,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                 <button
                                   type="button"
                                   onClick={() => void addDocumentVersion(document)}
-                                  disabled={documentVersionState === 'submitting'}
+                                  disabled={documentVersionState === 'submitting' || documentVersionState === 'uncertain'}
                                   {...saveVersionButton}
                                 >
                                   {documentVersionState === 'submitting' ? 'Uploading…' : 'Upload version'}
@@ -2111,6 +2115,11 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                               {documentVersionState === 'error' && (
                                 <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
                                   Could not upload document version.
+                                </div>
+                              )}
+                              {documentVersionState === 'uncertain' && (
+                                <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                                  Version upload outcome is unknown. Close and reopen this person to check version history before uploading again.
                                 </div>
                               )}
                             </div>

@@ -1659,7 +1659,8 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Upload version' }));
 
-    expect(await screen.findByText('Could not upload document version.')).toBeTruthy();
+    expect(await screen.findByText(/Version upload outcome is unknown/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Upload version' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByLabelText('New version file')).toBeTruthy();
     expect(screen.getByText('policy · Version 2')).toBeTruthy();
     expect(document.body.textContent).not.toContain('sensitive version upload detail');
