@@ -99,20 +99,37 @@ beforeEach(async () => {
 });
 afterAll(async () => { await pool.end(); });
 describe('Employee document mutations against Postgres with in-memory storage', () => {
-  it('proves lifecycle start/read/cancel routes with current database authority in the shared fixture', async () => {
+  it.each(['cancel', 'approval'] as const)('proves lifecycle %s routes with current database authority in the shared fixture', async scenario => {
     const workflows = await import('@/app/api/hr/lifecycle/workflows/route');
     const cancel = await import('@/app/api/hr/lifecycle/workflows/[id]/cancel/route');
-    const templateId = '95555555-5555-4555-8555-555555555555';
+    const templateId = scenario === 'cancel' ? '95555555-5555-4555-8555-555555555555' : '95555555-5555-4555-8555-555555555556';
     await q(`INSERT INTO hr_lifecycle_templates(id,organisation_id,template_key,version_number,lifecycle_type,name,status,activated_at,created_by)
-      VALUES($1,$2,'route-proof',1,'onboarding','Route proof','ACTIVE',now(),$3)`, [templateId, org, hr.userId]);
+      VALUES($1,$2,$4,1,'onboarding','Route proof','ACTIVE',now(),$3)`, [templateId, org, hr.userId, `route-proof-${scenario}`]);
     await q(`INSERT INTO hr_lifecycle_template_tasks(organisation_id,template_id,sequence,title,responsibility_type,due_offset_days,requires_approval,approval_type,employee_visible,manager_visible,internal_only)
-      VALUES($1,$2,1,'Employee route task','EMPLOYEE',0,false,'NONE',true,false,false)`, [org, templateId]);
+      VALUES($1,$2,1,'Employee route task','EMPLOYEE',0,$3,$4,true,false,false)`, [org, templateId, scenario === 'approval', scenario === 'approval' ? 'HR_ADMIN' : 'NONE']);
     const request = new NextRequest('http://fixture.local/api/hr/lifecycle/workflows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ person_id: personId, template_id: templateId, anchor_date: '2026-10-12' }) });
     authenticated = false; expect((await workflows.POST(request.clone() as NextRequest)).status).toBe(401); authenticated = true;
     const started = await workflows.POST(request); expect(started.status).toBe(201); const result = await started.json();
     expect(result.tasks).toHaveLength(1);
     const read = () => workflows.GET(new NextRequest(`http://fixture.local/api/hr/lifecycle/workflows?person_id=${personId}`));
     expect((await (await read()).json()).capabilities.can_start_workflow).toBe(true);
+    if (scenario === 'approval') {
+      const tasks = await import('@/app/api/hr/lifecycle/tasks/[id]/route');
+      const approvals = await import('@/app/api/hr/lifecycle/tasks/[id]/approvals/route');
+      const taskParams = { params: Promise.resolve({ id: result.tasks[0].id }) };
+      routeUser = employee.userId;
+      expect((await tasks.PATCH(routeRequest('PATCH', { action: 'start' }), taskParams)).status).toBe(200);
+      expect((await tasks.PATCH(routeRequest('PATCH', { action: 'complete' }), taskParams)).status).toBe(200);
+      expect((await approvals.POST(routeRequest('POST', { decision: 'APPROVED' }), taskParams)).status).toBe(403);
+      routeUser = hr.userId;
+      expect((await approvals.POST(routeRequest('POST', { decision: 'REJECTED' }), taskParams)).status).toBe(201);
+      routeUser = employee.userId;
+      expect((await tasks.PATCH(routeRequest('PATCH', { action: 'complete' }), taskParams)).status).toBe(200);
+      routeUser = hr.userId;
+      expect((await approvals.POST(routeRequest('POST', { decision: 'APPROVED' }), taskParams)).status).toBe(201);
+      expect((await q('SELECT decision FROM hr_lifecycle_task_approvals WHERE task_id=$1 ORDER BY decision', [result.tasks[0].id])).map(row => row.decision)).toEqual(['APPROVED', 'REJECTED']);
+      const listed = await (await read()).json(); expect(listed.workflows[0].status).toBe('COMPLETED'); expect(listed.workflows[0].capabilities.can_cancel).toBe(false); return;
+    }
     const params = { params: Promise.resolve({ id: result.workflow.id }) };
     await q('DELETE FROM hr_administrators WHERE organisation_id=$1', [org]);
     expect((await cancel.POST(routeRequest('POST'), params)).status).toBe(403);
