@@ -222,7 +222,7 @@ is added, and earlier database/browser evidence remains separate.
 All 376 focused contract/count/response/route tests pass, along with TypeScript,
 changed-file lint and diff checks. The Production release hold remains in force.
 
-The pure pipeline acceptance bundle exercises actual metadata-derived semantic
+The pure pipeline acceptance bundle on `802d2f3d` exercises actual metadata-derived semantic
 and quality review through the review-pinned request planner rather than using
 handwritten ready snapshots. Fourteen new cases cover notices, empty-profile
 decisions, scope, invalid decisions, automatic flags, unsupported intents and
@@ -232,3 +232,14 @@ No evaluator, database/API/UI/AI execution or migration is added. Existing
 browser/database evidence remains separate, and the release hold still applies.
 All 404 focused review/pipeline/contract/count/response/route tests pass, along
 with TypeScript, changed-file lint and diff checks.
+
+The profile-target discovery bundle exposes versioned row-count and explicit
+present-measure request templates from trusted review metadata. Scope, review
+revision, quality and target-version/catalog admission precede discovery.
+Templates round-trip through governed planning; the inventory retains every
+measure while submitted bundles remain bounded at 20. General grouping and
+generic aggregates are not advertised. Discovery grants no execution authority
+and adds no DB/API/UI/AI execution, migration or raw-value access. Earlier
+database/browser evidence remains separate and the release hold is unchanged.
+All 430 focused discovery/review/pipeline/contract/count/response/route tests
+pass, along with TypeScript, changed-file lint and diff checks.

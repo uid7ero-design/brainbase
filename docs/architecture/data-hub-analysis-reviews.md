@@ -330,3 +330,26 @@ mismatches and inconsistent profile counts. A valid first intent never survives
 a later bundle denial. This proves compatibility of the pure contracts; it
 does not establish authenticated loading, saved review provenance, current
 database pointers, hosted transport or Production readiness.
+
+## Profile-target request discovery
+
+`buildReviewedProfileCountRequestCatalog` derives a versioned request inventory
+from trusted scoped semantic/quality review metadata. Both contexts and a
+positive safe review revision are admitted before readiness derivation. The
+existing profile-target row planner checks quality holds, catalog structure and
+supported algorithm versions before any templates are exposed. Denials return
+their existing closed diagnostic with no partial inventory.
+
+Success carries copied closed dataset context, actual supplied review revision,
+ready/acknowledged state, one ROW_COUNT template and explicit COUNT_PRESENT
+templates for reviewed measures in catalog order. Other field classes do not
+produce measure templates; grouping and generic aggregates are not advertised.
+Templates contain copied scalar identities, with no labels, statistics, counts
+or raw values. Accepted templates round-trip through the existing planners.
+
+This inventory is metadata discovery, not a submitted batch: it retains all
+measure templates even when there are more than 20. A caller selecting a bundle
+still must satisfy the existing 1–20 admission bound. Catalogs grant no access,
+saved-review provenance, freshness or execution permission. A later authorized
+caller must load current review metadata and plan its selected requests again.
+No catalog API/UI, query execution or persistence is added.

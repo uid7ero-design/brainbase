@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { profileDataset } from "@/lib/data-hub/profiling/profileDataset";
-import { buildAnalysisReviewSnapshots, buildReviewedProfileCountBundle, type AnalysisDatasetContext } from "@/lib/data-hub/analysis";
+import { buildAnalysisReviewSnapshots, buildReviewedProfileCountBundle, buildReviewedProfileCountRequestCatalog, type AnalysisDatasetContext } from "@/lib/data-hub/analysis";
 import type { SemanticClarificationChoice } from "@/lib/data-hub/semanticInference/resolution";
 import type { DataQualityReviewDecisionInput } from "@/lib/data-hub/dataQuality/reviewResolution";
 
@@ -28,6 +28,16 @@ function plan(f: ReturnType<typeof fixture>, requests: unknown[] = [rows, presen
 }
 
 describe("pure governed review-to-bundle acceptance", () => {
+  it("discovers target-supported requests from actual reviewed meanings and replans them", () => {
+    const f = fixture("DECIMAL", ["0", "5"]);
+    f.choices.snapshot.push({ sourceSchemaColumnId: "amount", role: "MEASURE" });
+    const reviewed = buildAnalysisReviewSnapshots(f.context, f.profile, f.choices, f.decisions);
+    if (!reviewed.ok) throw new Error(reviewed.code);
+    const catalog = buildReviewedProfileCountRequestCatalog(f.context, { revision: 6, schema: reviewed.schema, quality: reviewed.quality });
+    if (!catalog.ok) throw new Error(catalog.code);
+    expect(catalog.catalog.requests).toEqual([rows, present]);
+    expect(plan(f, [...catalog.catalog.requests], catalog.catalog.reviewRevision)).toMatchObject({ ok: true });
+  });
   it("derives measure plans from actual semantic review without leaking statistics or computing counts", () => {
     const f = fixture("DECIMAL", ["0", "5"]);
     f.choices.snapshot.push({ sourceSchemaColumnId: "amount", role: "MEASURE" });
