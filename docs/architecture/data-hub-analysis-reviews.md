@@ -312,3 +312,21 @@ Later payload mutation cannot relabel admitted valid intents. Structural
 admission proves neither field availability nor dataset/review provenance,
 permission or support for executing the operation. No capability is granted by
 parsing and no API accepts prepared bundles.
+
+## Pure pipeline acceptance
+
+`dataHubPlanningPipeline.test.ts` composes the real profiler, semantic review,
+quality review and review-pinned bundle planner using synthetic fixtures. The
+test revision is supplied explicitly and makes no persistence claim. The path
+ends at detached intent plans: no count evaluator, database, API, UI or AI is
+invoked. Synthetic cells are used only to construct fixture profile metadata;
+plans omit cells, numeric statistics and count values.
+
+Acceptance covers explicit ambiguous meanings, generated constant-column
+notices and acknowledgement, empty-profile CONTINUE/HOLD decisions, all eight
+lineage identities across profile/choices/decisions, invented decisions,
+automatic flag semantics, unsupported grouping/generic aggregates, revision
+mismatches and inconsistent profile counts. A valid first intent never survives
+a later bundle denial. This proves compatibility of the pure contracts; it
+does not establish authenticated loading, saved review provenance, current
+database pointers, hosted transport or Production readiness.

@@ -212,7 +212,7 @@ Production release hold remains in force.
 All 351 focused contract/count/response/route tests pass, along with TypeScript,
 changed-file lint and diff checks.
 
-The detached-intent bundle shares closed structural request parsing between
+The detached-intent bundle on `09e04c9c` shares closed structural request parsing between
 single-request capability validation and bundle admission. Valid scalar intents
 are copied before review preparation, so source payload mutation cannot change
 admitted work. Malformed payloads retain indexed rejection; reviewed holds and
@@ -221,3 +221,14 @@ capability or execution authority. No API/UI/database/AI execution or migration
 is added, and earlier database/browser evidence remains separate.
 All 376 focused contract/count/response/route tests pass, along with TypeScript,
 changed-file lint and diff checks. The Production release hold remains in force.
+
+The pure pipeline acceptance bundle exercises actual metadata-derived semantic
+and quality review through the review-pinned request planner rather than using
+handwritten ready snapshots. Fourteen new cases cover notices, empty-profile
+decisions, scope, invalid decisions, automatic flags, unsupported intents and
+revision mismatch. It adds acceptance tests and architecture documentation;
+the existing product contracts compose without a production-code change.
+No evaluator, database/API/UI/AI execution or migration is added. Existing
+browser/database evidence remains separate, and the release hold still applies.
+All 404 focused review/pipeline/contract/count/response/route tests pass, along
+with TypeScript, changed-file lint and diff checks.
