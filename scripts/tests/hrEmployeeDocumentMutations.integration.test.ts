@@ -127,6 +127,8 @@ describe('Employee document mutations against Postgres with in-memory storage', 
         if (segments.length === 6) result = incoming.method === 'GET' ? await routes.GET(req, params) : await routes.POST(req, params);
         else if (segments.length === 7) result = await remove.DELETE(req, params);
         else if (segments.length === 8) result = incoming.method === 'GET' ? await versions.GET(req, params) : await versions.POST(req, params);
+        else if (segments[9] === 'acknowledgements') result = await acknowledge.POST(req, params);
+        else if (segments[9] === 'verifications') result = await verify.POST(req, params);
         else result = await status.GET(req, params);
       }
       outgoing.writeHead(result.status, { 'Content-Type': 'application/json' }); outgoing.end(await result.text());
@@ -151,10 +153,26 @@ describe('Employee document mutations against Postgres with in-memory storage', 
       await browserExpect(page.getByText(/Version 2/).first()).toBeVisible(); expect((await snapshot()).versions).toHaveLength(2);
       await page.getByRole('button', { name: 'Version history', exact: true }).click();
       await browserExpect(page.getByRole('button', { name: 'Hide version history', exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Reject', exact: true }).click();
+      await browserExpect(page.getByText(/^Rejected \d/)).toBeVisible();
+      await page.getByRole('button', { name: 'Verify', exact: true }).click();
+      await browserExpect(page.getByText(/^Verified \d/)).toBeVisible();
+      expect((await snapshot()).verifications).toHaveLength(2);
+      routeUser = employee.userId;
+      await page.reload(); await page.addScriptTag({ content: script });
+      await browserExpect(page.getByRole('button', { name: 'Verify', exact: true })).toHaveCount(0);
+      await page.getByRole('button', { name: 'Acknowledge', exact: true }).click();
+      await browserExpect(page.getByText(/^Acknowledged \d/)).toBeVisible();
+      expect((await snapshot()).acknowledgements).toHaveLength(1);
+      await browserExpect(page.getByRole('button', { name: 'Add document', exact: true })).toHaveCount(0);
+      routeUser = hr.userId;
+      await page.reload(); await page.addScriptTag({ content: script });
+      await browserExpect(page.getByText(/^Acknowledged \d/)).toBeVisible();
       await page.getByRole('button', { name: 'Delete', exact: true }).click(); await page.getByRole('button', { name: 'Confirm delete', exact: true }).click();
       await browserExpect(page.getByText('Browser policy', { exact: true })).toHaveCount(0);
       const saved = await snapshot(); expect(saved.documents[0].deleted_at).not.toBeNull(); expect(saved.versions).toHaveLength(2);
-      expect(blobs.size).toBe(2); expect(writes).toEqual(['POST', 'POST', 'DELETE']); expect(errors).toEqual([]);
+      expect(saved.acknowledgements).toHaveLength(1); expect(saved.verifications).toHaveLength(2);
+      expect(blobs.size).toBe(2); expect(writes).toEqual(['POST', 'POST', 'POST', 'POST', 'POST', 'DELETE']); expect(errors).toEqual([]);
     } finally { await browser.close(); server.closeAllConnections(); await new Promise<void>((resolve, reject) => { server.close(error => error ? reject(error) : resolve()); }); }
   }, 60_000);
   it('executes multipart upload, version history, acknowledgement, verification and deletion through real routes', async () => {
