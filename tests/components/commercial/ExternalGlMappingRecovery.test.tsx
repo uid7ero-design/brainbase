@@ -18,12 +18,18 @@ const fetcher = async (url: string, options?: RequestInit) => {
     posts++;
     if (saveMode === 'reject') return Response.json({ error: 'Overlap rejected.' }, { status: 409 });
     const rows = kind === 'account' ? accounts : centres;
-    const saved = { ...(kind === 'account' ? account : centre), id: kind + '-saved' };
+    const body = JSON.parse(String(options?.body));
+    const saved = { ...(kind === 'account' ? account : centre), id: kind + '-saved',
+      source_system_id: body.sourceSystemId?.trim(), effective_from: body.effectiveFrom, effective_to: body.effectiveTo,
+      ...(kind === 'account' ? { external_gl_account_code: body.externalAccountCode?.trim(), budget_account_id: body.budgetAccountId,
+        external_gl_account_name: body.externalAccountName?.trim() || null }
+        : { external_cost_centre_code: body.externalCostCentreCode?.trim(), cost_centre_id: body.costCentreId }) };
     if (url.endsWith('/retire')) {
       rows[0].status = 'RETIRED'; rows[0].effective_to = '2026-09-30';
     } else rows.push(saved as typeof account & typeof centre);
     if (saveMode === 'lost') throw new Error('Connection lost after commit');
     if (saveMode === 'malformed') return Response.json({});
+    if (saveMode === 'wrong-record') return Response.json({ mapping: { ...saved, source_system_id: 'OTHER' } });
     if (saveMode === 'readback') brokenRead = 'reference-data';
     return Response.json({ mapping: url.endsWith('/retire') ? rows[0] : saved });
   }
@@ -44,7 +50,7 @@ function fill(kind: 'account' | 'centre') {
   fireEvent.change(form.getByLabelText('Source system'), { target: { value: 'OLD' } });
   fireEvent.change(form.getByLabelText(kind === 'account' ? 'External GL code' : 'External cost-centre code'), { target: { value: 'NEW-CODE' } });
   fireEvent.change(form.getByRole('combobox'), { target: { value: kind } });
-  fireEvent.change(form.getByLabelText('Effective from'), { target: { value: '2026-08-01' } });
+  fireEvent.change(form.getByLabelText('Effective from'), { target: { value: '01/08/2026' } });
   return screen.getByRole('form', { name: kind === 'account' ? 'Create GL account mapping' : 'Create cost-centre mapping' });
 }
 async function recover() {
@@ -55,6 +61,35 @@ async function recover() {
 }
 
 describe('External GL mapping recovery', () => {
+  it.each(['account', 'centre'] as const)('converts Australian %s date entry to exact API dates', async kind => {
+    await ready(); const form = fill(kind);
+    fireEvent.change(within(form).getByLabelText('Effective from'), { target: { value: '04/07/2026' } });
+    fireEvent.change(within(form).getByLabelText('Effective to'), { target: { value: '29/02/2028' } });
+    fireEvent.submit(form);
+    await screen.findByText(kind === 'account' ? 'GL account mapping created.' : 'Cost-centre mapping created.');
+    expect((kind === 'account' ? accounts : centres)[1]).toMatchObject({ effective_from: '2026-07-04', effective_to: '2028-02-29' });
+    expect(screen.getByText('04/07/2026 → 29/02/2028')).toBeVisible();
+  });
+  it.each(['31/04/2026', '02/29/2028', '2026-07-01'])('rejects invalid date %s without sending a save', async date => {
+    await ready(); const form = fill('account');
+    fireEvent.change(within(form).getByLabelText('Effective from'), { target: { value: date } });
+    fireEvent.submit(form); await screen.findByText(/Enter a valid date/);
+    expect(posts).toBe(0); expect(within(form).getByLabelText('Effective from')).toHaveValue(date);
+    expect(accountForm().getByRole('button', { name: 'Create mapping' })).toBeEnabled();
+  });
+  it('rejects a reversed range and invalid retirement without sending either action', async () => {
+    await ready(); const form = fill('account');
+    fireEvent.change(within(form).getByLabelText('Effective to'), { target: { value: '31/07/2026' } });
+    fireEvent.submit(form); await screen.findByText('Effective to must be on or after effective from.');
+    fireEvent.change(screen.getAllByLabelText('Effective-to date')[0], { target: { value: '31/06/2026' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Retire' })[0]);
+    await screen.findByText(/Enter a valid date/); expect(posts).toBe(0);
+  });
+  it('rejects impossible saved calendar dates instead of showing an authoritative mapping', async () => {
+    accounts[0].effective_from = '2026-02-30'; render(<ExternalGlMappingsPage />);
+    await screen.findByRole('alert'); expect(accountForm().getByRole('button', { name: 'Create mapping' })).toBeDisabled();
+  });
+
   it.each(['sources', 'mappings', 'cost-centre-mappings', 'reference-data'])('does not treat incomplete %s as an empty configuration', async endpoint => {
     brokenRead = endpoint;
     render(<ExternalGlMappingsPage />);
@@ -82,7 +117,7 @@ describe('External GL mapping recovery', () => {
     expect(posts).toBe(1);
     expect(kind === 'account' ? accounts : centres).toHaveLength(2);
   });
-  it.each(['malformed', 'readback'])('pauses after a confirmed save with %s failure', async mode => {
+  it.each(['malformed', 'readback', 'wrong-record'])('pauses after a confirmed save with %s failure', async mode => {
     await ready(); const form = fill('account'); saveMode = mode;
     fireEvent.submit(form); await screen.findByText(/mapping change was saved/);
     expect(accountForm().getByRole('button', { name: 'Create mapping' })).toBeDisabled();
@@ -99,7 +134,7 @@ describe('External GL mapping recovery', () => {
   it('recovers a committed retirement without repeating it', async () => {
     await ready(); saveMode = 'lost';
     const date = screen.getAllByLabelText('Effective-to date')[0];
-    fireEvent.change(date, { target: { value: '2026-09-30' } });
+    fireEvent.change(date, { target: { value: '30/09/2026' } });
     fireEvent.click(screen.getAllByRole('button', { name: 'Retire' })[0]);
     await screen.findByText(/save outcome could not be confirmed/);
     expect(screen.getAllByRole('button', { name: 'Retire' })[0]).toBeDisabled();

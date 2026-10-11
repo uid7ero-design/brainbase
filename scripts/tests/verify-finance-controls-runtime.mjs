@@ -151,29 +151,42 @@ try {
   await expect(page.getByRole('heading',{name:'External GL mappings',exact:true})).toBeVisible();
   const accountSection=page.locator('section').filter({has:page.getByRole('heading',{name:'GL account mappings',exact:true})});
   const centreSection=page.locator('section').filter({has:page.getByRole('heading',{name:'Cost-centre mappings',exact:true})});
-  await expect(accountSection.getByRole('table')).toContainText('2026-07-01 → ongoing');
-  await expect(centreSection.getByRole('table')).toContainText('2026-07-01 → ongoing');
+  await expect(accountSection.getByRole('table')).toContainText('01/07/2026 → ongoing');
+  await expect(centreSection.getByRole('table')).toContainText('01/07/2026 → ongoing');
+  let invalidDatePosts=0;
+  const invalidDatePattern='**/api/commercial/budgeting/external-gl/mappings';
+  await page.route(invalidDatePattern,async route=>{if(route.request().method()==='POST')invalidDatePosts++;await route.continue();});
+  const invalidDateForm=accountSection.getByRole('form');
+  await invalidDateForm.getByLabel('Source system',{exact:true}).fill('flow-ledger');
+  await invalidDateForm.getByLabel('External GL code',{exact:true}).fill('INVALID-DATE');
+  await invalidDateForm.getByRole('combobox').selectOption('00000000-0000-4000-8000-000000000404');
+  await invalidDateForm.getByLabel('Effective from',{exact:true}).fill('31/04/2026');
+  await invalidDateForm.getByRole('button',{name:'Create mapping',exact:true}).click();
+  await expect(page.getByRole('alert').filter({hasText:'Enter a valid date in DD/MM/YYYY format.'})).toBeVisible();
+  await expect(invalidDateForm.getByLabel('Effective from',{exact:true})).toHaveValue('31/04/2026');
+  if(invalidDatePosts!==0)throw new Error('Invalid calendar date was sent to the API');
+  await page.unroute(invalidDatePattern);
   const createdMappings=[];
   for(const [section,kind,code,dimension] of [[accountSection,'mappings','601','00000000-0000-4000-8000-000000000404'],[centreSection,'cost-centre-mappings','OPS-SECOND','00000000-0000-4000-8000-000000000403']]){
     const form=section.locator('form');
     await form.getByLabel('Source system',{exact:true}).fill('flow-ledger');
     await form.getByLabel(kind==='mappings'?'External GL code':'External cost-centre code',{exact:true}).fill(code);
     await form.getByRole('combobox').selectOption(dimension);
-    await form.getByLabel('Effective from',{exact:true}).fill('2026-09-01');
-    await form.getByLabel('Effective to',{exact:true}).fill('2026-09-30');
+    await form.getByLabel('Effective from',{exact:true}).fill('01/09/2026');
+    await form.getByLabel('Effective to',{exact:true}).fill('30/09/2026');
     const responseEvent=page.waitForResponse(response=>new URL(response.url()).pathname.endsWith('/external-gl/'+kind)&&response.request().method()==='POST');
     await form.getByRole('button',{name:'Create mapping',exact:true}).click();
     const response=await responseEvent;
     const payload=await response.json();
     if(response.status()!==201||payload.mapping.effective_from!=='2026-09-01'||payload.mapping.effective_to!=='2026-09-30')throw new Error('Mapping create response lost calendar dates: '+JSON.stringify(payload));
     createdMappings.push({id:payload.mapping.id,kind,code});
-    await expect(section.getByRole('table')).toContainText('2026-09-01 → 2026-09-30');
+    await expect(section.getByRole('table')).toContainText('01/09/2026 → 30/09/2026');
     // An overlapping mapping must be rejected without inserting another fact.
     await form.getByLabel('Source system',{exact:true}).fill('flow-ledger');
     await form.getByLabel(kind==='mappings'?'External GL code':'External cost-centre code',{exact:true}).fill(code);
     await form.getByRole('combobox').selectOption(dimension);
-    await form.getByLabel('Effective from',{exact:true}).fill('2026-09-15');
-    await form.getByLabel('Effective to',{exact:true}).fill('2026-09-30');
+    await form.getByLabel('Effective from',{exact:true}).fill('15/09/2026');
+    await form.getByLabel('Effective to',{exact:true}).fill('30/09/2026');
     const conflictEvent=page.waitForResponse(response=>new URL(response.url()).pathname.endsWith('/external-gl/'+kind)&&response.request().method()==='POST');
     await form.getByRole('button',{name:'Create mapping',exact:true}).click();
     if((await conflictEvent).status()!==409)throw new Error('Overlapping mapping accepted');
@@ -184,12 +197,12 @@ try {
   for(const [section,mapping] of [[accountSection,createdMappings[0]],[centreSection,createdMappings[1]]]){
     const row=section.locator('tbody tr').filter({hasText:mapping.code});
     await expect(section.getByRole('table')).not.toContainText('review-ledger');
-    await row.getByLabel('Effective-to date',{exact:true}).fill('2026-09-20');
+    await row.getByLabel('Effective-to date',{exact:true}).fill('20/09/2026');
     const retireEvent=page.waitForResponse(response=>new URL(response.url()).pathname.endsWith('/'+mapping.id+'/retire')&&response.request().method()==='POST');
     await row.getByRole('button',{name:'Retire',exact:true}).click();
     const response=await retireEvent;const payload=await response.json();
     if(response.status()!==200||payload.mapping.status!=='RETIRED'||payload.mapping.effective_from!=='2026-09-01'||payload.mapping.effective_to!=='2026-09-20')throw new Error('Mapping retirement response lost dates or status');
-    await expect(row).toContainText('2026-09-01 → 2026-09-20');
+    await expect(row).toContainText('01/09/2026 → 20/09/2026');
     await expect(row).toContainText('RETIRED');
   }
   const storedMappings=(await pool.query("SELECT effective_from::text,effective_to::text,status FROM commercial_external_gl_account_mappings WHERE source_system_id='flow-ledger' UNION ALL SELECT effective_from::text,effective_to::text,status FROM commercial_external_gl_cost_centre_mappings WHERE source_system_id='flow-ledger'")).rows;
@@ -203,7 +216,7 @@ try {
     await form.getByLabel('Source system',{exact:true}).fill('flow-ledger');
     await form.getByLabel(kind==='mappings'?'External GL code':'External cost-centre code',{exact:true}).fill(code);
     await form.getByRole('combobox').selectOption(dimension);
-    await form.getByLabel('Effective from',{exact:true}).fill('2026-09-01');
+    await form.getByLabel('Effective from',{exact:true}).fill('01/09/2026');
     let createPosts=0;
     const createPattern='**/api/commercial/budgeting/external-gl/'+kind;
     await page.route(createPattern,async route=>{
@@ -240,7 +253,7 @@ try {
       if(response.status()!==200)throw new Error('Recovery mapping retirement did not commit');
       await route.abort();
     });
-    await row.getByLabel('Effective-to date',{exact:true}).fill('2026-09-20');
+    await row.getByLabel('Effective-to date',{exact:true}).fill('20/09/2026');
     await row.getByRole('button',{name:'Retire',exact:true}).click();
     await expect(page.getByRole('alert').filter({hasText:'mapping save outcome could not be confirmed'})).toBeVisible();
     await expect(row.getByRole('button',{name:'Retire',exact:true})).toBeDisabled();
@@ -263,19 +276,25 @@ try {
   await page.getByRole('combobox').nth(2).selectOption('review-ledger');
   const calendar=await page.evaluate(async()=> (await(await fetch('/api/commercial/budgeting/financial-periods')).json()).years[0]);
   if(calendar.starts_on!=='2026-07-01'||calendar.ends_on!=='2027-06-30'||calendar.periods[0].starts_on!=='2026-09-01'||calendar.periods[0].ends_on!=='2026-09-30')throw new Error('Calendar boundaries shifted during API serialization');
-  for(const date of ['2026-07-01','2027-06-30','2026-09-01','2026-09-30'])await expect(page.getByText(date,{exact:true})).toBeVisible();
+  for(const date of ['01/07/2026','30/06/2027','01/09/2026','30/09/2026'])await expect(page.getByText(date,{exact:true})).toBeVisible();
   const recoveredFinanceActions=[];
-  async function recoverFinanceAction(name,pattern,failReload=false){
+  async function recoverFinanceAction(name,pattern,failReload=false,wrongAcknowledgement=false){
     let posts=0;
     await page.route(pattern,async route=>{
       if(route.request().method()!=='POST'){await route.continue();return;}
       posts++;
       const response=await route.fetch();
       if(!response.ok())throw new Error('Finance recovery action did not commit: '+name);
-      await route.abort();
+      if(wrongAcknowledgement){
+        const payload=await response.json();
+        const saved=payload.year??payload.close??payload.reconciliation;
+        if(payload.close)saved.financial_period_id='00000000-0000-4000-8000-999999999999';
+        else saved.id='00000000-0000-4000-8000-999999999999';
+        await route.fulfill({response,json:payload});
+      }else await route.abort();
     });
     await page.getByRole('button',{name,exact:true}).click();
-    await expect(page.getByRole('alert').filter({hasText:'finance action outcome could not be confirmed'})).toBeVisible();
+    await expect(page.getByRole('alert').filter({hasText:wrongAcknowledgement?'finance action was saved':'finance action outcome could not be confirmed'})).toBeVisible();
     await expect(page.getByRole('button',{name,exact:true})).toBeDisabled();
     if(name==='Prepare reconciliation')await page.getByRole('form',{name:'Prepare reconciliation',exact:true}).evaluate(element=>element.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
     if(posts!==1)throw new Error('Uncertain finance action was repeated');
@@ -302,9 +321,24 @@ try {
   await expect(page.locator('[data-reconciliation-id]')).toContainText('PREPARED');
   let recon=(await pool.query('SELECT * FROM commercial_finance_reconciliations')).rows[0];
   if(recon.source_actual_cents!=='10000'||recon.external_gl_total_cents!=='10000'||recon.variance_cents!=='0'||recon.unresolved_item_count!==0)throw new Error('Totals do not reconcile: '+JSON.stringify(recon));
-  await recoverFinanceAction('Review','**/api/commercial/budgeting/reconciliations/*/review');
+  const wrongScopePattern='**/api/commercial/budgeting/reconciliations/control-state*';
+  await page.getByRole('textbox',{name:'Notes',exact:true}).fill('Retain scope note');
+  await page.route(wrongScopePattern,async route=>{
+    const response=await route.fetch();const payload=await response.json();
+    payload.reconciliations.forEach(row=>{row.financialPeriodId='00000000-0000-4000-8000-999999999999';});
+    await route.fulfill({response,json:payload});
+  });
+  await page.getByRole('button',{name:'Refresh',exact:true}).click();
+  await expect(page.getByRole('alert').filter({hasText:'saved reconciliation control view is incomplete'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Review',exact:true})).toBeDisabled();
+  await expect(page.getByRole('textbox',{name:'Notes',exact:true})).toHaveValue('Retain scope note');
+  await page.unroute(wrongScopePattern);
+  await page.getByRole('button',{name:'Refresh',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Review',exact:true})).toBeEnabled();
+  await expect(page.getByRole('textbox',{name:'Notes',exact:true})).toHaveValue('');
+  await recoverFinanceAction('Review','**/api/commercial/budgeting/reconciliations/*/review',false,true);
   await expect(page.getByRole('button',{name:'Sign off',exact:true})).toBeDisabled();
-  await recoverFinanceAction('Close period','**/api/commercial/budgeting/financial-periods/*/close');
+  await recoverFinanceAction('Close period','**/api/commercial/budgeting/financial-periods/*/close',false,true);
   await expect(page.getByRole('button',{name:'Sign off',exact:true})).toBeEnabled();
   await recoverFinanceAction('Sign off','**/api/commercial/budgeting/reconciliations/*/sign-off');
   await expect(page.locator('[data-reconciliation-id]')).toContainText('SIGNED_OFF');
@@ -316,7 +350,7 @@ try {
   await page.screenshot({path:resolve(artifacts,'finance-signed-off-desktop.png'),fullPage:true});
   recon=(await pool.query('SELECT * FROM commercial_finance_reconciliations')).rows[0];
   if(!recon.close_id||recon.status!=='SIGNED_OFF')throw new Error('Sign-off not persisted');
-  await recoverFinanceAction('Close financial year','**/api/commercial/budgeting/financial-years/*/close');
+  await recoverFinanceAction('Close financial year','**/api/commercial/budgeting/financial-years/*/close',false,true);
   await expect(page.getByRole('status')).toContainText('Finance controls refreshed.');
   await page.getByLabel('Year reopen reason (required)',{exact:true}).fill('Isolated finance review');
   await recoverFinanceAction('Reopen financial year','**/api/commercial/budgeting/financial-years/*/reopen');
@@ -332,7 +366,7 @@ try {
   await page.evaluate(()=>{window.scrollTo(0,0);});
   await page.screenshot({path:resolve(artifacts,'finance-reopened-desktop.png'),fullPage:true});
   await page.setViewportSize({width:390,height:844});
-  for(const date of ['2026-07-01','2027-06-30','2026-09-01','2026-09-30']){
+  for(const date of ['01/07/2026','30/06/2027','01/09/2026','30/09/2026']){
     const bounds=await page.getByText(date,{exact:true}).boundingBox();
     if(!bounds||bounds.x<0||bounds.x+bounds.width>390)throw new Error('Mobile calendar metric clipped');
   }
@@ -1260,6 +1294,7 @@ try {
   const externalGlChecks=['mapping list calendar dates','account and cost-centre creation through real forms','exact create response dates','overlap rejection without duplicate facts','source filter','account and cost-centre retirement through real forms','exact retire response and persisted dates','viewer mutation denial','foreign mapping read and retirement denial'];
   const evidence={verified_at:new Date().toISOString(),serverTimezone,checks:['real login and production runtime','calendar dates preserved through API and screen','mobile metrics remain inside viewport','mobile history and reconciliation tables scroll to last column','exact $100 source and ledger match','prepare and review','sign-off blocked before close','period close and durable sign-off','year close and reopen','period reopen invalidates close and reconciliation','viewer denial','tenant isolation'],overflow,build_id:readFileSync('.next/BUILD_ID','utf8').trim()};
   evidence.financeControlRecoveryChecks=recoveredFinanceActions;
+  evidence.financeConsistencyChecks={invalidDatePosts,wrongScopeReadRecovery:true,wrongAcknowledgementRecovery:['Review','Close period','Close financial year'],displayLocale:'en-AU',calendarEntry:'DD/MM/YYYY'};
   evidence.externalGlChecks=externalGlChecks;
   evidence.mappingRecoveryChecks=['account and cost-centre creates committed before response interruption','paused submissions do not repeat POST','failed GET retains inputs and recovery lock','complete GET clears inputs and focuses saved review','one durable mapping with authenticated actor','both retirement kinds recover without repeating POST'];
   evidence.importChecks=['real authenticated import API','exact BIGINT amount beyond JavaScript safe integers','date-only import response','exact duplicate idempotency','conflict preserves immutable facts','unsafe numeric, fractional and out-of-range amounts rejected','duplicate preserves signed-off reconciliation','conflict marks current reconciliation and close evidence stale','durable conflict event preserved','new ledger fact invalidates affected sign-off','new import stale event preserves source identity','viewer import denial','import identity and invalidation stay inside organisation'];

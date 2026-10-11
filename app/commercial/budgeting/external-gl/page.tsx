@@ -2,6 +2,8 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { australianDateToIso, formatAustralianDate, isFinanceCalendarDate } from '@/lib/commercial/financeSetupDisplay';
+import styles from './page.module.css';
 import { FinanceWorkflow } from '../../_components/FinanceWorkflow';
 import { buttonProps, fieldControlClassName, tableStyles } from '@/components/ui/app';
 
@@ -83,8 +85,8 @@ function validMapping(value: unknown, kind: 'account' | 'cost-centre', joined = 
     ? ['external_gl_account_code', 'budget_account_id', ...(joined ? ['budget_account_code', 'budget_account_name'] : [])]
     : ['external_cost_centre_code', 'cost_centre_id', ...(joined ? ['cost_centre_code', 'cost_centre_name'] : [])];
   return ['id', 'source_system_id', ...fields].every(key => typeof row[key] === 'string' && row[key] !== '')
-    && typeof row.effective_from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.effective_from)
-    && (row.effective_to === null || (typeof row.effective_to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.effective_to)))
+    && isFinanceCalendarDate(row.effective_from)
+    && (row.effective_to === null || (isFinanceCalendarDate(row.effective_to) && row.effective_to >= row.effective_from))
     && (row.status === 'ACTIVE' || row.status === 'RETIRED')
     && (kind !== 'account' || row.external_gl_account_name === null || typeof row.external_gl_account_name === 'string');
 }
@@ -216,8 +218,16 @@ export default function ExternalGlMappingsPage() {
       const payload = await response.json();
       if (!response.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : 'The External GL mapping change could not be saved.');
       const kind = url.includes('/cost-centre-mappings') ? 'cost-centre' : 'account';
+      const expected = url.endsWith('/retire')
+        ? { id: decodeURIComponent(url.split('/').at(-2)!), status: 'RETIRED', effective_to: body.effectiveTo }
+        : { source_system_id: String(body.sourceSystemId).trim(), status: 'ACTIVE',
+          effective_from: body.effectiveFrom, effective_to: body.effectiveTo,
+          ...(kind === 'account'
+            ? { external_gl_account_code: String(body.externalAccountCode).trim(), budget_account_id: body.budgetAccountId,
+              external_gl_account_name: typeof body.externalAccountName === 'string' ? body.externalAccountName.trim() || null : null }
+            : { external_cost_centre_code: String(body.externalCostCentreCode).trim(), cost_centre_id: body.costCentreId }) };
       if (!validMapping(payload?.mapping, kind, false)
-        || (url.endsWith('/retire') && (payload.mapping.id !== url.split('/').at(-2) || payload.mapping.status !== 'RETIRED'))) {
+        || !Object.entries(expected).every(([key, value]) => payload.mapping[key] === value)) {
         throw new Error('Incomplete mapping save response.');
       }
       if (!await loadData()) throw new Error('Saved mapping readback unavailable.');
@@ -235,15 +245,31 @@ export default function ExternalGlMappingsPage() {
     } finally { operation.current = false; setWorking(false); }
   }
 
+  function mappingDates(form: EventTarget & Element) {
+    const fields = new FormData(form as HTMLFormElement);
+    try {
+      const effectiveFrom = australianDateToIso(String(fields.get('effectiveFrom') ?? ''));
+      const inputTo = String(fields.get('effectiveTo') ?? '').trim();
+      const effectiveTo = inputTo ? australianDateToIso(inputTo) : null;
+      if (effectiveTo && effectiveTo < effectiveFrom) throw new Error('Effective to must be on or after effective from.');
+      return { effectiveFrom, effectiveTo };
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'Check the effective dates.');
+      return null;
+    }
+  }
+
   async function createAccountMapping(event: FormEvent) {
     event.preventDefault();
+    if (operation.current || blocked.current || locked) return;
+    const dates = mappingDates(event.currentTarget);
+    if (!dates) return;
     const ok = await postJson('/api/commercial/budgeting/external-gl/mappings', {
       sourceSystemId: accountDraft.sourceSystemId,
       externalAccountCode: accountDraft.externalAccountCode,
       externalAccountName: accountDraft.externalAccountName || null,
       budgetAccountId: accountDraft.budgetAccountId,
-      effectiveFrom: accountDraft.effectiveFrom,
-      effectiveTo: accountDraft.effectiveTo || null,
+      ...dates,
     });
     if (!ok) return;
     setAccountDraft(EMPTY_ACCOUNT);
@@ -252,12 +278,14 @@ export default function ExternalGlMappingsPage() {
 
   async function createCostCentreMapping(event: FormEvent) {
     event.preventDefault();
+    if (operation.current || blocked.current || locked) return;
+    const dates = mappingDates(event.currentTarget);
+    if (!dates) return;
     const ok = await postJson('/api/commercial/budgeting/external-gl/cost-centre-mappings', {
       sourceSystemId: costCentreDraft.sourceSystemId,
       externalCostCentreCode: costCentreDraft.externalCostCentreCode,
       costCentreId: costCentreDraft.costCentreId,
-      effectiveFrom: costCentreDraft.effectiveFrom,
-      effectiveTo: costCentreDraft.effectiveTo || null,
+      ...dates,
     });
     if (!ok) return;
     setCostCentreDraft(EMPTY_COST_CENTRE);
@@ -266,9 +294,18 @@ export default function ExternalGlMappingsPage() {
 
   async function retire(kind: 'account' | 'cost-centre', id: string) {
     if (operation.current || blocked.current || locked) return;
-    const effectiveTo = retireDates[id];
+    const enteredDate = retireDates[id];
+    let effectiveTo = enteredDate;
     if (!effectiveTo) {
       setError('Choose an effective-to date before retiring a mapping.');
+      return;
+    }
+    try {
+      effectiveTo = australianDateToIso(enteredDate);
+      const row = (kind === 'account' ? accountMappings : costCentreMappings).find(mapping => mapping.id === id);
+      if (!row || effectiveTo < row.effective_from) throw new Error('Effective to must be on or after effective from.');
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'Check the effective-to date.');
       return;
     }
     const base = kind === 'account'
@@ -327,8 +364,8 @@ export default function ExternalGlMappingsPage() {
       {needsReload ? <p>Changes are paused until saved mappings can be checked. Previously loaded records may be out of date.</p> : null}
       {!loading && !needsReload && !error && <FinanceWorkflow current="mappings" setupHint={referenceData.budgetAccounts.length === 0 || referenceData.costCentres.length === 0 ? 'Create active Budget accounts and cost centres in Finance setup before adding External GL mappings.' : undefined} />}
 
-      <MappingSection title="GL account mappings" description="Map an external GL account code to one BrainBase Budget account.">
-        <form aria-label="Create GL account mapping" onSubmit={createAccountMapping}><fieldset disabled={locked} style={{ ...formGrid, border: 0, padding: 0, margin: 0 }}>
+      <MappingSection title="GL account mappings" description="Map an external GL account code to one BrainBase Budget account. Dates use DD/MM/YYYY; leave Effective to blank for an ongoing mapping.">
+        <form aria-label="Create GL account mapping" onSubmit={createAccountMapping}><fieldset disabled={locked} className={styles.mappingGrid}>
           <TextInput label="Source system" value={accountDraft.sourceSystemId} onChange={value => setAccountDraft(current => ({ ...current, sourceSystemId: value }))} required />
           <TextInput label="External GL code" value={accountDraft.externalAccountCode} onChange={value => setAccountDraft(current => ({ ...current, externalAccountCode: value }))} required />
           <TextInput label="External name" value={accountDraft.externalAccountName} onChange={value => setAccountDraft(current => ({ ...current, externalAccountName: value }))} />
@@ -349,8 +386,8 @@ export default function ExternalGlMappingsPage() {
         {loaded ? <AccountMappingTable rows={accountMappings} retireDates={retireDates} setRetireDates={setRetireDates} onRetire={id => retire('account', id)} working={locked} /> : <p>Saved mappings are not available yet.</p>}
       </MappingSection>
 
-      <MappingSection title="Cost-centre mappings" description="Map an external cost-centre code to one BrainBase cost centre.">
-        <form aria-label="Create cost-centre mapping" onSubmit={createCostCentreMapping}><fieldset disabled={locked} style={{ ...formGrid, border: 0, padding: 0, margin: 0 }}>
+      <MappingSection title="Cost-centre mappings" description="Map an external cost-centre code to one BrainBase cost centre. Dates use DD/MM/YYYY; leave Effective to blank for an ongoing mapping.">
+        <form aria-label="Create cost-centre mapping" onSubmit={createCostCentreMapping}><fieldset disabled={locked} className={styles.mappingGrid}>
           <TextInput label="Source system" value={costCentreDraft.sourceSystemId} onChange={value => setCostCentreDraft(current => ({ ...current, sourceSystemId: value }))} required />
           <TextInput label="External cost-centre code" value={costCentreDraft.externalCostCentreCode} onChange={value => setCostCentreDraft(current => ({ ...current, externalCostCentreCode: value }))} required />
           <Field label="BrainBase cost centre">
@@ -456,7 +493,10 @@ function RetireControl({
     <div style={{ display: 'flex', gap: 6, minWidth: 220 }}>
       <input
         aria-label="Effective-to date"
-        type="date"
+        type="text"
+        placeholder="DD/MM/YYYY"
+        maxLength={10}
+        disabled={working}
         value={value}
         onChange={event => setRetireDates(current => ({ ...current, [id]: event.target.value }))}
         className={fieldControlClassName} style={{ minWidth: 135 }}
@@ -475,16 +515,15 @@ function TextInput({ label, value, onChange, required = false }: { label: string
 }
 
 function DateInput({ label, value, onChange, required = false }: { label: string; value: string; onChange: (value: string) => void; required?: boolean }) {
-  return <Field label={label}><input type="date" required={required} value={value} onChange={event => onChange(event.target.value)} className={fieldControlClassName} /></Field>;
+  return <Field label={label}><input type="text" name={label === 'Effective from' ? 'effectiveFrom' : 'effectiveTo'} placeholder="DD/MM/YYYY" maxLength={10} required={required} value={value} onChange={event => onChange(event.target.value)} className={fieldControlClassName} /></Field>;
 }
 
 function dateRange(from: string, to: string | null) {
-  const start = from.slice(0, 10);
-  return to ? `${start} → ${to.slice(0, 10)}` : `${start} → ongoing`;
+  const start = formatAustralianDate(from);
+  return to ? `${start} → ${formatAustralianDate(to)}` : `${start} → ongoing`;
 }
 
 const panel: React.CSSProperties = { background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 18 };
-const formGrid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, alignItems: 'end' };
 const sub: React.CSSProperties = { color: MUTED, marginTop: 3, fontSize: 11 };
 const emptyCell: React.CSSProperties = { color: MUTED, textAlign: 'center', padding: 22 };
 const errorBox: React.CSSProperties = { marginBottom: 14, border: '1px solid var(--status-danger-border)', background: 'var(--status-danger-muted)', color: 'var(--status-danger)', borderRadius: 8, padding: 10, fontSize: 12 };

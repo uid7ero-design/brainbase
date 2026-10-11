@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { formatAustralianDate, formatAustralianTimestamp, isFinanceCalendarDate, isFinanceAuditTimestamp } from '@/lib/commercial/financeSetupDisplay';
 import { FinanceWorkflow } from '../../_components/FinanceWorkflow';
 import { buttonProps, fieldControlClassName, TableContainer, tableStyles } from '@/components/ui/app';
 import { formatMoneyCentsExact } from '@/lib/commercial/money';
@@ -91,6 +92,7 @@ function record(value: unknown): value is Record<string, unknown> { return !!val
 function text(row: Record<string, unknown>, fields: string[]) { return fields.every(field => typeof row[field] === 'string'); }
 function validClose(value: unknown, year: boolean): boolean {
   return record(value) && text(value, ['id', 'closed_at']) && value.id !== ''
+    && isFinanceAuditTimestamp(value.closed_at) && (value.invalidated_at === null || isFinanceAuditTimestamp(value.invalidated_at))
     && Number.isSafeInteger(value.close_sequence) && Number(value.close_sequence) > 0
     && (value.status === 'CLOSED' || value.status === 'INVALIDATED')
     && ['close_reason', 'invalidated_at', 'invalidation_reason'].every(field => value[field] === null || typeof value[field] === 'string')
@@ -98,12 +100,15 @@ function validClose(value: unknown, year: boolean): boolean {
 }
 function validPeriod(value: unknown, year: boolean): boolean {
   return record(value) && text(value, ['id', 'name', 'starts_on', 'ends_on']) && value.id !== ''
+    && isFinanceCalendarDate(value.starts_on) && isFinanceCalendarDate(value.ends_on) && value.ends_on >= value.starts_on
     && (value.status === 'OPEN' || value.status === 'CLOSED')
     && Array.isArray(value.closes) && value.closes.every(close => validClose(close, year))
-    && (!year || (Array.isArray(value.periods) && value.periods.every(period => validPeriod(period, false))));
+    && (!year || (Array.isArray(value.periods) && value.periods.every(period => validPeriod(period, false) && record(period) && String(period.starts_on) >= String(value.starts_on) && String(period.ends_on) <= String(value.ends_on))));
 }
 function validReconciliation(value: unknown): boolean {
   return record(value) && text(value, ['id', 'financialYearId', 'financialYearName', 'financialPeriodId', 'financialPeriodName', 'sourceSystemId', 'currency', 'snapshotAt', 'preparedAt'])
+    && isFinanceAuditTimestamp(value.snapshotAt) && isFinanceAuditTimestamp(value.preparedAt)
+    && (value.reviewedAt === null || isFinanceAuditTimestamp(value.reviewedAt))
     && value.id !== '' && ['PREPARED', 'REVIEWED', 'SIGNED_OFF', 'STALE'].includes(String(value.status))
     && ['closeId', 'reviewedAt', 'notes'].every(field => value[field] === null || typeof value[field] === 'string')
     && ['sourceActualCents', 'financeAdjustmentCents', 'brainbaseEffectiveActualCents', 'externalGlTotalCents', 'varianceCents'].every(field => typeof value[field] === 'string' && /^-?(0|[1-9]\d*)$/.test(value[field] as string))
@@ -188,7 +193,10 @@ export default function FinanceControlsPage() {
         if (!response.ok) throw new Error(response.status === 403 ? 'Budgeting administrator access is required to operate finance controls.' : 'Unable to load reconciliation control state.');
         const payload = await response.json();
         if (request !== serial.current) return false;
-        if (!Array.isArray(payload?.reconciliations) || !payload.reconciliations.every(validReconciliation)) throw new Error('The saved reconciliation control view is incomplete.');
+        if (!Array.isArray(payload?.reconciliations) || !payload.reconciliations.every((row: unknown) => validReconciliation(row) && record(row)
+          && row.financialYearId === nextYear?.id && row.financialPeriodId === nextPeriod.id
+          && (!nextSource || row.sourceSystemId === nextSource)
+          && (!currency.trim() || row.currency === currency.trim().toUpperCase()))) throw new Error('The saved reconciliation control view is incomplete.');
         nextReconciliations = payload.reconciliations;
       }
       loadedScope.current = JSON.stringify([nextYear?.id ?? '', nextPeriod?.id ?? '', nextSource, currency.trim().toUpperCase()]);
@@ -206,8 +214,11 @@ export default function FinanceControlsPage() {
   }, [currency, selectedYearId, selectedPeriodId, sourceSystemId]);
 
   useEffect(() => {
+    if (operation.current || recoveryRequired.current) return;
     if (loadedScope.current === scopeKey && !blocked.current) return;
-    const timer = window.setTimeout(() => { void loadSnapshot(); }, 0);
+    const timer = window.setTimeout(() => {
+      if (!operation.current && !recoveryRequired.current) void loadSnapshot();
+    }, 0);
     return () => { window.clearTimeout(timer); invalidateReads(); };
   }, [loadSnapshot, scopeKey, invalidateReads]);
 
@@ -237,9 +248,22 @@ export default function FinanceControlsPage() {
       outcome = response.ok ? 'confirmed' : response.status < 500 ? 'rejected' : 'sent';
       const payload = await response.json();
       if (!response.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : 'The finance control action could not be completed.');
-      const saved = payload?.year ?? payload?.close ?? payload?.reconciliation;
-      const expectedStatus = url.endsWith('/reopen') ? (payload?.year ? 'OPEN' : 'INVALIDATED') : url.endsWith('/close') ? 'CLOSED' : url.endsWith('/review') ? 'REVIEWED' : url.endsWith('/sign-off') ? 'SIGNED_OFF' : 'PREPARED';
-      if (!record(saved) || typeof saved.id !== 'string' || saved.id === '' || saved.status !== expectedStatus) throw new Error('Incomplete finance action response.');
+      const yearAction = url.includes('/financial-years/');
+      const periodAction = url.includes('/financial-periods/');
+      const saved = yearAction ? payload?.year : periodAction ? payload?.close : payload?.reconciliation;
+      const targetId = decodeURIComponent(url.split('/').at(-2)!);
+      const expected = yearAction ? { id: selectedYearId }
+        : periodAction ? { financial_period_id: effectiveSelectedPeriodId,
+          ...(url.endsWith('/reopen') ? { id: activeClose?.id } : {}) }
+        : { financialPeriodId: effectiveSelectedPeriodId,
+          ...(url.endsWith('/prepare')
+            ? { sourceSystemId: body.sourceSystemId, currency: body.currency }
+            : { id: targetId, sourceSystemId: reconciliations.find(row => row.id === targetId)?.sourceSystemId,
+              currency: reconciliations.find(row => row.id === targetId)?.currency }),
+          ...(url.endsWith('/sign-off') ? { closeId: body.closeId } : {}) };
+      const expectedStatus = url.endsWith('/reopen') ? (yearAction ? 'OPEN' : 'INVALIDATED') : url.endsWith('/close') ? 'CLOSED' : url.endsWith('/review') ? 'REVIEWED' : url.endsWith('/sign-off') ? 'SIGNED_OFF' : 'PREPARED';
+      if (!record(saved) || typeof saved.id !== 'string' || saved.id === '' || saved.status !== expectedStatus
+        || !Object.entries(expected).every(([key, value]) => value !== undefined && saved[key] === value)) throw new Error('Incomplete finance action response.');
       if (!await loadSnapshot()) throw new Error('Saved finance readback unavailable.');
       return true;
     } catch (failure) {
@@ -502,8 +526,8 @@ function YearControlPanel({
           <div style={metricGrid}>
             <Metric label="Year" value={year.name} />
             <Metric label="Status" value={year.status} />
-            <Metric label="Start" value={year.starts_on.slice(0, 10)} />
-            <Metric label="End" value={year.ends_on.slice(0, 10)} />
+            <Metric label="Start" value={formatAustralianDate(year.starts_on)} />
+            <Metric label="End" value={formatAustralianDate(year.ends_on)} />
           </div>
 
           {year.status === 'OPEN' ? (
@@ -549,7 +573,7 @@ function YearControlPanel({
                       <tr key={close.id} data-year-close-id={close.id}>
                         <td>{close.close_sequence}</td>
                         <td>{close.status}</td>
-                        <td>{new Date(close.closed_at).toLocaleString()}</td>
+                        <td>{formatAustralianTimestamp(close.closed_at)}</td>
                         <td>{close.close_reason ?? '—'}</td>
                         <td>
                           <div>{String(close.control_totals.financialPeriodCount ?? '—')} periods</div>
@@ -560,7 +584,7 @@ function YearControlPanel({
                         <td>
                           {close.invalidated_at ? (
                             <>
-                              {new Date(close.invalidated_at).toLocaleString()}
+                              {formatAustralianTimestamp(close.invalidated_at)}
                               <div style={sub}>{close.invalidation_reason}</div>
                             </>
                           ) : '—'}
@@ -609,8 +633,8 @@ function PeriodControlPanel({
           <div style={metricGrid}>
             <Metric label="Period" value={period.name} />
             <Metric label="Status" value={period.status} />
-            <Metric label="Start" value={period.starts_on.slice(0, 10)} />
-            <Metric label="End" value={period.ends_on.slice(0, 10)} />
+            <Metric label="Start" value={formatAustralianDate(period.starts_on)} />
+            <Metric label="End" value={formatAustralianDate(period.ends_on)} />
           </div>
 
           {period.status === 'OPEN' ? (
@@ -646,10 +670,10 @@ function PeriodControlPanel({
                       <tr key={close.id} data-close-id={close.id}>
                         <td>{close.close_sequence}</td>
                         <td>{close.status}{activeClose?.id === close.id ? <div style={sub}>Current close</div> : null}</td>
-                        <td>{new Date(close.closed_at).toLocaleString()}</td>
+                        <td>{formatAustralianTimestamp(close.closed_at)}</td>
                         <td>{close.reconciliation_status}</td>
                         <td>{close.close_reason ?? '—'}</td>
-                        <td>{close.invalidated_at ? <>{new Date(close.invalidated_at).toLocaleString()}<div style={sub}>{close.invalidation_reason}</div></> : '—'}</td>
+                        <td>{close.invalidated_at ? <>{formatAustralianTimestamp(close.invalidated_at)}<div style={sub}>{close.invalidation_reason}</div></> : '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -708,7 +732,7 @@ function ReconciliationControlTable({
                     <td className={tableStyles.num}>{formatMoneyCentsExact(reconciliation.externalGlTotalCents, reconciliation.currency)}</td>
                     <td className={tableStyles.num}>{formatMoneyCentsExact(reconciliation.varianceCents, reconciliation.currency)}</td>
                     <td>{reconciliation.unresolvedItemCount}</td>
-                    <td>{new Date(reconciliation.preparedAt).toLocaleString()}</td>
+                    <td>{formatAustralianTimestamp(reconciliation.preparedAt)}</td>
                     <td>{reconciliation.closeId ?? '—'}</td>
                     <td>
                       {action === 'REVIEW' ? (

@@ -658,6 +658,57 @@ name resolved the assertion; the complete rerun passed in
 `controls-recovery-runtime-first.log`. Reviewed captures and structured evidence
 are in `controls-recovery-adelaide-retry`.
 
+## Australian dates and finance scope consistency
+
+External GL account and cost-centre mapping forms now use explicit DD/MM/YYYY
+entry, including retirement dates. Conversion to ISO calendar text happens only
+at submission; API payloads and stored DATE values remain unchanged. Impossible
+dates and reversed ranges retain user entries and send no write. Saved mappings
+also require real, ordered calendar boundaries before they can unlock editing.
+Mapping forms use equal-width columns with consistent spacing, reducing to two
+columns and then one column on smaller screens. Retirement date controls lock
+alongside other inputs while a save or recovery is unresolved.
+
+Finance controls display year and period boundaries day first. Audit timestamps
+use en-AU notation, 24-hour time and an explicit timezone label in the viewer's
+timezone. Calendar DATE values are never converted through an instant. Complete
+control views reject invalid calendar/audit dates and periods outside their year.
+Reconciliation results must belong to the resolved year, period and any selected
+source/currency before they replace the saved view or enable actions.
+
+Successful mapping acknowledgements must match the submitted source, code,
+dimension and dates (or retirement identity and date). Finance acknowledgements
+must match the targeted year, period or reconciliation, including source/currency
+and the current close for sign-off. A mismatch keeps the existing recovery lock;
+GET-only recovery checks saved state without repeating a committed action. Automatic
+scope effects and their queued callbacks cannot start a read during an action or
+unresolved recovery, preventing a scheduled refresh from clearing that lock. No
+endpoint, schema, authorization rule or finance calculation changes.
+
+Focused coverage includes Australian entry and leap dates, no-write validation,
+invalid saved dates, wrong-scope reads and mismatched successful acknowledgements.
+The expanded disposable runtime verifies day-first UI dates against unchanged
+ISO API/database values, no POST for invalid entry, wrong-period read recovery,
+and committed Review, period close and year close with mismatched acknowledgements.
+Other lifecycle and mapping actions retain lost-response recovery proof. All
+checks continue to use the isolated local database, real login and production
+runtime. Evidence uses the `finance-consistency` prefix in the local finance-review
+folder.
+
+The final full Commercial run passed 2,544 tests across 157 files, with standalone
+TypeScript and targeted lint clean. Initial focused fixtures were corrected to
+represent the real acknowledgement contracts after an interrupted fixture edit;
+that output remains in `finance-consistency-focused.log`. A subsequent focused
+run exposed the queued automatic-refresh race above; its output remains in
+`finance-consistency-focused-final.log`. The guard and no-automatic-GET assertions
+passed in `finance-consistency-commercial-final.log`. The first production build
+and expanded runtime passed before the guard. After the correction the production
+build and complete expanded runtime passed again; final logs are
+`finance-consistency-build-final.log` and `finance-consistency-runtime-final.log`.
+Reviewed screenshots and structured evidence are in
+`finance-consistency-adelaide-final`. Mobile page width remains 390px at a 390px
+viewport, with mapping forms stacked and history tables contained for scrolling.
+
 ## Repeatable runtime evidence
 
 Run `npx tsc --noEmit` separately before release verification. This checks the

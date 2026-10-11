@@ -23,7 +23,15 @@ async function fetcher(url: string, options?: RequestInit) {
     if (mode === 'lost') throw new Error('Response lost after commit');
     if (mode === 'malformed') return Response.json({});
     if (mode === 'readback') broken = 'sources';
-    return Response.json(url.includes('/financial-years/') ? { year } : url.includes('/financial-periods/') ? { close: { ...close, status } } : { reconciliation: { id: 'recon', status } });
+    const saved = url.includes('/financial-years/') ? { year }
+      : url.includes('/financial-periods/') ? { close: { ...close, status, financial_period_id: 'period' } }
+      : { reconciliation: { ...recon, status, ...(url.endsWith('/sign-off') ? { closeId: 'close' } : {}) } };
+    if (mode === 'wrong-record') {
+      if ('year' in saved) saved.year = { ...year, id: 'other-year' };
+      else if ('close' in saved) saved.close = { ...saved.close!, financial_period_id: 'other-period' };
+      else saved.reconciliation = { ...saved.reconciliation!, id: 'other-recon', sourceSystemId: 'OTHER' };
+    }
+    return Response.json(saved);
   }
   if (broken && url.includes(broken)) return Response.json({});
   if (url.includes('/financial-periods')) return Response.json({ years: [year] });
@@ -40,6 +48,40 @@ async function refresh() {
 }
 
 describe('Finance control recovery', () => {
+  it('displays calendar boundaries day first', async () => {
+    await ready(); expect(screen.getAllByText('01/07/2026')).toHaveLength(2);
+    expect(screen.getByText('30/06/2027')).toBeVisible();
+    expect(screen.queryByText('2026-07-01')).not.toBeInTheDocument();
+  });
+  it.each(['financialPeriodId', 'financialYearId', 'sourceSystemId', 'currency'])('rejects a reconciliation outside selected %s scope', async field => {
+    if (field === 'currency') {
+      await ready(); recon.currency = 'USD';
+      fireEvent.change(screen.getByLabelText('Reconciliation currency'), { target: { value: 'AUD' } });
+    } else {
+      Object.assign(recon, { [field]: 'OTHER' }); render(<FinanceControlsPage />);
+    }
+    await screen.findByText('The saved reconciliation control view is incomplete.');
+    expect(screen.getByRole('button', { name: 'Prepare reconciliation' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled();
+  });
+  it.each(['calendar', 'history', 'reconciliation'])('rejects invalid saved %s dates', async kind => {
+    if (kind === 'calendar') year.starts_on = '2026-02-30';
+    if (kind === 'history') year.periods[0].closes = [{ ...close, closed_at: 'not-a-date' }];
+    if (kind === 'reconciliation') recon.preparedAt = '2026-02-30T00:00:00Z';
+    render(<FinanceControlsPage />); await screen.findByRole('alert');
+    expect(screen.getByRole('button', { name: 'Prepare reconciliation' })).toBeDisabled();
+  });
+  it.each(['Close financial year', 'Close period', 'Review'])('pauses on a successful %s acknowledgement for a different target', async action => {
+    await ready(); mode = 'wrong-record';
+    const beforeReads = vi.mocked(fetch).mock.calls.filter(([, options]) => options?.method !== 'POST').length;
+    fireEvent.click(screen.getByRole('button', { name: action }));
+    await screen.findByText(/finance action was saved/);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(vi.mocked(fetch).mock.calls.filter(([, options]) => options?.method !== 'POST')).toHaveLength(beforeReads);
+    expect(screen.getByRole('button', { name: 'Prepare reconciliation' })).toBeDisabled();
+    await refresh(); expect(posts).toBe(1);
+  });
+
   it('distinguishes a complete empty calendar from unavailable configuration', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.includes('/financial-periods') ? { years: [] } : { sourceSystemIds: [] })));
     render(<FinanceSetupAccessProvider allowed><FinanceControlsPage /></FinanceSetupAccessProvider>);
@@ -81,7 +123,7 @@ describe('Finance control recovery', () => {
     expect(screen.getByRole('button', { name: 'Prepare reconciliation' })).toBeDisabled();
     await refresh(); expect(posts).toBe(1);
   });
-  it.each(['malformed', 'readback'])('retains notes and pauses after a confirmed action with %s failure', async failure => {
+  it.each(['malformed', 'readback', 'wrong-record'])('retains notes and pauses after a confirmed action with %s failure', async failure => {
     await ready(); fireEvent.change(screen.getByLabelText('Notes'), { target: { value: 'Retain this note' } }); mode = failure;
     fireEvent.click(screen.getByRole('button', { name: 'Review' })); await screen.findByText(/finance action was saved/);
     expect(screen.getByLabelText('Notes')).toHaveValue('Retain this note');
