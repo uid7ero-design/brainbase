@@ -58,8 +58,8 @@ type AssuranceState =
   | { state: 'ready'; assurance: DocumentAssurance }
   | { state: 'error' };
 
-type AcknowledgementActionState = 'idle' | 'submitting' | 'error';
-type VerificationActionState = 'idle' | 'verifying' | 'rejecting' | 'error';
+type AcknowledgementActionState = 'idle' | 'submitting' | 'error' | 'uncertain';
+type VerificationActionState = 'idle' | 'verifying' | 'rejecting' | 'error' | 'uncertain';
 type DocumentCreateState = 'idle' | 'submitting' | 'error' | 'uncertain';
 type DocumentVersionState = 'idle' | 'submitting' | 'error' | 'uncertain';
 type DocumentDeleteState = 'idle' | 'submitting' | 'error' | 'uncertain';
@@ -1315,6 +1315,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
     document: EmployeeDocumentSummary,
     decision: 'VERIFIED' | 'REJECTED',
   ) {
+    if (['uncertain', 'verifying', 'rejecting'].includes(verificationByDocument[document.id])) return;
     if (!personId || !document.current_version) return;
 
     const assuranceState = assuranceByDocument[document.id];
@@ -1346,6 +1347,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         || (data.verification?.decision !== 'VERIFIED' && data.verification?.decision !== 'REJECTED')
         || !data.verification?.verified_at
       ) {
+        if (response.ok || response.status >= 500) throw new Error('Unknown verification outcome');
         setVerificationByDocument(current => ({
           ...current,
           [document.id]: 'error',
@@ -1378,12 +1380,13 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
     } catch {
       setVerificationByDocument(current => ({
         ...current,
-        [document.id]: 'error',
+        [document.id]: 'uncertain',
       }));
     }
   }
 
   async function acknowledgeDocument(document: EmployeeDocumentSummary) {
+    if (['uncertain', 'submitting'].includes(acknowledgementByDocument[document.id])) return;
     if (!personId || !document.current_version) return;
 
     const assuranceState = assuranceByDocument[document.id];
@@ -1408,6 +1411,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok || !data.acknowledgement?.acknowledged_at) {
+        if (response.ok || response.status >= 500) throw new Error('Unknown acknowledgement outcome');
         setAcknowledgementByDocument(current => ({
           ...current,
           [document.id]: 'error',
@@ -1440,7 +1444,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
     } catch {
       setAcknowledgementByDocument(current => ({
         ...current,
-        [document.id]: 'error',
+        [document.id]: 'uncertain',
       }));
     }
   }
@@ -2167,7 +2171,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                 <button
                                   type="button"
                                   onClick={() => void acknowledgeDocument(document)}
-                                  disabled={acknowledgementAction === 'submitting'}
+                                  disabled={acknowledgementAction === 'submitting' || acknowledgementAction === 'uncertain'}
                                   {...acknowledgeButton}
                                 >
                                   {acknowledgementAction === 'submitting' ? 'Acknowledging…' : 'Acknowledge'}
@@ -2186,7 +2190,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                 <button
                                   type="button"
                                   onClick={() => void verifyDocument(document, 'VERIFIED')}
-                                  disabled={verificationAction === 'verifying' || verificationAction === 'rejecting'}
+                                  disabled={verificationAction === 'verifying' || verificationAction === 'rejecting' || verificationAction === 'uncertain'}
                                   {...verifyButton}
                                 >
                                   {verificationAction === 'verifying' ? 'Verifying…' : 'Verify'}
@@ -2194,7 +2198,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                 <button
                                   type="button"
                                   onClick={() => void verifyDocument(document, 'REJECTED')}
-                                  disabled={verificationAction === 'verifying' || verificationAction === 'rejecting'}
+                                  disabled={verificationAction === 'verifying' || verificationAction === 'rejecting' || verificationAction === 'uncertain'}
                                   {...rejectButton}
                                 >
                                   {verificationAction === 'rejecting' ? 'Rejecting…' : 'Reject'}
@@ -2202,6 +2206,11 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                               </div>
                             )}
 
+                            {(acknowledgementAction === 'uncertain' || verificationAction === 'uncertain') && (
+                              <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                                Assurance outcome is unknown. Close and reopen this person to check saved status before trying again.
+                              </div>
+                            )}
                             {verificationAction === 'error' && (
                               <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 7 }}>
                                 Could not record verification.

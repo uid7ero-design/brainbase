@@ -197,7 +197,8 @@ describe('Employee document mutations against Postgres with in-memory storage', 
       if (scenario === 'lost-verification') {
         await page.route('**/verifications', async route => { const response = await route.fetch(); expect(response.status()).toBe(201); await route.abort('failed'); });
         await page.getByRole('button', { name: 'Verify', exact: true }).click();
-        await browserExpect(page.getByText('Could not record verification.', { exact: true })).toBeVisible();
+        await browserExpect(page.getByText(/Assurance outcome is unknown/)).toBeVisible();
+        await browserExpect(page.getByRole('button', { name: 'Verify', exact: true })).toBeDisabled();
         const committed = await snapshot(); expect(committed.verifications).toHaveLength(1); const attempts = [...writes];
         await page.reload(); await page.addScriptTag({ content: script });
         await browserExpect(page.getByText(/^Verified \d/)).toBeVisible();
@@ -214,7 +215,8 @@ describe('Employee document mutations against Postgres with in-memory storage', 
       if (scenario === 'lost-acknowledgement') {
         await page.route('**/acknowledgements', async route => { const response = await route.fetch(); expect(response.status()).toBe(201); await route.abort('failed'); });
         await page.getByRole('button', { name: 'Acknowledge', exact: true }).click();
-        await browserExpect(page.getByText('Could not acknowledge document.', { exact: true })).toBeVisible();
+        await browserExpect(page.getByText(/Assurance outcome is unknown/)).toBeVisible();
+        await browserExpect(page.getByRole('button', { name: 'Acknowledge', exact: true })).toBeDisabled();
         const committed = await snapshot(); expect(committed.acknowledgements).toHaveLength(1); const attempts = [...writes];
         await page.reload(); await page.addScriptTag({ content: script });
         await browserExpect(page.getByText(/^Acknowledged \d/)).toBeVisible();

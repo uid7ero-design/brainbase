@@ -2025,7 +2025,8 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Acknowledge' }));
 
-    expect(await screen.findByText('Could not acknowledge document.')).toBeTruthy();
+    expect(await screen.findByText(/Assurance outcome is unknown/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Acknowledge' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('Safety policy')).toBeTruthy();
     expect(screen.getByText('Not acknowledged')).toBeTruthy();
     expect(document.body.textContent).not.toContain('sensitive mutation detail');
@@ -2188,7 +2189,8 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Verify' }));
 
-    expect(await screen.findByText('Could not record verification.')).toBeTruthy();
+    expect(await screen.findByText(/Assurance outcome is unknown/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Verify' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('Not verified')).toBeTruthy();
     expect(document.body.textContent).not.toContain('sensitive verification detail');
   });
