@@ -289,8 +289,26 @@ growth, replacement or reordering cannot expand or reorder the accepted work.
 List copying uses own index data descriptors without invoking a custom
 iterator or entry getter. Accessor entries return `PROFILE_BUNDLE_INVALID`;
 holes and inherited entries become undefined intents and retain the planner's
-indexed `INVALID_REQUEST`. Individual payload objects remain unknown and are
-validated by the governed request planner; admission alone does not claim they
-are valid requests. This is a shallow membership snapshot, not deep immutability,
-a freshness check, an execution quota or authorization. No new execution path
-or persistence is introduced.
+indexed `INVALID_REQUEST`. Individual intents now use structural admission
+before review preparation, as described below. Neither envelope nor structural
+admission establishes available capabilities, fresh review state or execution
+authority. No new execution path or persistence is introduced.
+
+## Detached structural intents
+
+`parseAnalysisRequestInput` accepts the closed v1 row, grouping and aggregate
+intent shapes using own enumerable data properties. Accessors, inherited
+required fields, hidden/symbol extras and unsupported operators return
+`INVALID_REQUEST` without invoking request property getters. Success projects
+a fresh intent containing only scalar version, kind, field identity and the
+supported operator; identities are preserved exactly. Structurally valid generic
+aggregates and grouping remain subject to the existing planner's restrictions.
+
+The capability validator uses this shared parser after its hold/state/version
+checks, retaining denial precedence. Bundle admission uses it to copy intents
+before review preparation; malformed payloads become undefined entries so the
+governed planner retains indexed `INVALID_REQUEST` and quality-hold precedence.
+Later payload mutation cannot relabel admitted valid intents. Structural
+admission proves neither field availability nor dataset/review provenance,
+permission or support for executing the operation. No capability is granted by
+parsing and no API accepts prepared bundles.

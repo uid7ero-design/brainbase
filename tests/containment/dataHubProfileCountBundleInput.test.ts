@@ -12,12 +12,12 @@ describe("bounded profile bundle admission", () => {
     expect(result).toEqual({ ok: true, bundle: input });
     if (!result.ok) throw new Error(result.code);
     expect(result.bundle).not.toBe(input); expect(result.bundle.requests).not.toBe(requests);
-    expect(result.bundle.requests[0]).toBe(rows); // Payload validation belongs to the planner.
+    expect(result.bundle.requests[0]).not.toBe(rows); // Capability validation still belongs to the planner.
   });
   it("retains admission when the source list is replaced, reordered or enlarged", () => {
     const input = envelope([rows, null]); const result = validateProfileCountBundleInput(input);
     input.requests.reverse(); input.requests.push(...Array(30).fill(rows)); input.requests = [];
-    expect(result).toEqual({ ok: true, bundle: envelope([rows, null]) });
+    expect(result).toEqual({ ok: true, bundle: envelope([rows, undefined]) });
   });
   it.each([1, MAX_PROFILE_COUNT_BUNDLE_REQUESTS])("accepts supported list size %s", length => {
     expect(validateProfileCountBundleInput(envelope(Array(length).fill(rows)))).toMatchObject({ ok: true });

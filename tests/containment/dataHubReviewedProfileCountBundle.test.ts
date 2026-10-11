@@ -20,6 +20,24 @@ const bundle = (requests: unknown[] = [rows, present], expectedReviewRevision = 
   ({ bundleVersion: "v1", expectedReviewRevision, requests });
 
 describe("review-pinned profile planning bundles", () => {
+  it("retains copied request payloads when review preparation mutates the originals", () => {
+    const metadata = review(); const schema = metadata.schema.snapshot;
+    const request = { ...present }; const input = bundle([request, request]);
+    Object.defineProperty(metadata.schema, "snapshot", { get() {
+      request.sourceSchemaColumnId = "missing"; request.operator = "SUM"; return schema;
+    } });
+    const result = buildReviewedProfileCountBundle(context(), metadata, input);
+    expect(result).toMatchObject({ ok: true, plans: [
+      { snapshot: { operation: "COUNT_PRESENT", sourceSchemaColumnId: "amount" } },
+      { snapshot: { operation: "COUNT_PRESENT", sourceSchemaColumnId: "amount" } },
+    ] });
+  });
+  it("returns indexed invalid intent for accessor payloads without invoking them", () => {
+    const request = { ...present };
+    Object.defineProperty(request, "sourceSchemaColumnId", { get() { throw new Error("must not read payload getter"); } });
+    expect(buildReviewedProfileCountBundle(context(), review(), bundle([rows, request])))
+      .toEqual({ ok: false, code: "INVALID_REQUEST", requestIndex: 1 });
+  });
   it("uses the admitted fixed list when review loading changes the source requests", () => {
     const metadata = review(); const schema = metadata.schema.snapshot;
     const input = bundle([rows, present]);

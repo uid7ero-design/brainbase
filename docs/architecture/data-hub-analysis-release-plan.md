@@ -202,7 +202,7 @@ All 324 focused contract/count/response/route tests pass, along with TypeScript,
 changed-file lint and diff checks.
 Earlier database/browser evidence remains separate; Production is untouched.
 
-The fixed-admission bundle captures a closed own-data envelope and bounded
+The fixed-admission bundle on `f7aa475a` captures a closed own-data envelope and bounded
 request-list membership before review preparation. Caller list mutation cannot
 expand or reorder admitted work. Envelope/entry accessors are rejected without
 invocation; list holes retain indexed request denial. Individual payloads still
@@ -211,3 +211,13 @@ Earlier disposable database/browser evidence remains separate, and the existing
 Production release hold remains in force.
 All 351 focused contract/count/response/route tests pass, along with TypeScript,
 changed-file lint and diff checks.
+
+The detached-intent bundle shares closed structural request parsing between
+single-request capability validation and bundle admission. Valid scalar intents
+are copied before review preparation, so source payload mutation cannot change
+admitted work. Malformed payloads retain indexed rejection; reviewed holds and
+unavailable capabilities retain their earlier precedence. Parsing grants no
+capability or execution authority. No API/UI/database/AI execution or migration
+is added, and earlier database/browser evidence remains separate.
+All 376 focused contract/count/response/route tests pass, along with TypeScript,
+changed-file lint and diff checks. The Production release hold remains in force.
