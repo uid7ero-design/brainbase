@@ -480,6 +480,23 @@ recovers with GET. Database rows and audit events prove that exactly one year wa
 created and that recovery did not resubmit it. Component checks also cover
 period recovery and incomplete successful responses.
 
+## Budget account and cost-centre save recovery
+
+Both dimension editors use a synchronous lock across creation, deactivation and
+reactivation. An uncertain or incomplete save response pauses mutations until a
+GET-only reload succeeds. A failed reload retains entered values and the lock;
+a successful reload clears unsaved entries, focuses the section heading and
+refreshes parent Budget references. Rejected saves remain editable and keep the
+saved status. Initial load failures show records as unavailable rather than empty.
+Existing server role, tenant and active-Budget restrictions remain authoritative.
+
+Focused component checks exercise creation and both status transitions for each
+resource. The disposable runtime loses real creation and deactivation responses
+after persistence, fails a reload, then checks the recovered UI against PostgreSQL.
+It verifies retained IDs, exactly one audit event per mutation, actor attribution,
+and existing access and active-Budget restrictions. These changes do not write
+Budget Actual or reconciliation records.
+
 ## Repeatable runtime evidence
 
 Run `npx tsc --noEmit` separately before release verification. This checks the
