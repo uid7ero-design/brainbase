@@ -99,7 +99,7 @@ beforeEach(async () => {
 });
 afterAll(async () => { await pool.end(); });
 describe('Employee document mutations against Postgres with in-memory storage', () => {
-  it.each(['success', 'revoked', 'lost-response', 'lost-version', 'lost-delete'] as const)('real drawer document writes: %s', async scenario => {
+  it.each(['success', 'revoked', 'lost-response', 'lost-version', 'lost-delete', 'lost-verification', 'lost-acknowledgement'] as const)('real drawer document writes: %s', async scenario => {
     const status = await import('@/app/api/hr/people/[id]/documents/[documentId]/versions/[versionId]/assurance/route');
     const built = await build({ configFile: false, logLevel: 'error', resolve: { alias: { '@': process.cwd() } },
       define: { 'process.env.NODE_ENV': JSON.stringify('production'), 'process.env': '{}' }, oxc: { jsx: { runtime: 'automatic', development: false } },
@@ -194,6 +194,15 @@ describe('Employee document mutations against Postgres with in-memory storage', 
       await browserExpect(page.getByText(/Version 2/).first()).toBeVisible(); expect((await snapshot()).versions).toHaveLength(2);
       await page.getByRole('button', { name: 'Version history', exact: true }).click();
       await browserExpect(page.getByRole('button', { name: 'Hide version history', exact: true })).toBeVisible();
+      if (scenario === 'lost-verification') {
+        await page.route('**/verifications', async route => { const response = await route.fetch(); expect(response.status()).toBe(201); await route.abort('failed'); });
+        await page.getByRole('button', { name: 'Verify', exact: true }).click();
+        await browserExpect(page.getByText('Could not record verification.', { exact: true })).toBeVisible();
+        const committed = await snapshot(); expect(committed.verifications).toHaveLength(1); const attempts = [...writes];
+        await page.reload(); await page.addScriptTag({ content: script });
+        await browserExpect(page.getByText(/^Verified \d/)).toBeVisible();
+        expect(await snapshot()).toEqual(committed); expect(writes).toEqual(attempts); expect(errors).toEqual([]); return;
+      }
       await page.getByRole('button', { name: 'Reject', exact: true }).click();
       await browserExpect(page.getByText(/^Rejected \d/)).toBeVisible();
       await page.getByRole('button', { name: 'Verify', exact: true }).click();
@@ -202,6 +211,16 @@ describe('Employee document mutations against Postgres with in-memory storage', 
       routeUser = employee.userId;
       await page.reload(); await page.addScriptTag({ content: script });
       await browserExpect(page.getByRole('button', { name: 'Verify', exact: true })).toHaveCount(0);
+      if (scenario === 'lost-acknowledgement') {
+        await page.route('**/acknowledgements', async route => { const response = await route.fetch(); expect(response.status()).toBe(201); await route.abort('failed'); });
+        await page.getByRole('button', { name: 'Acknowledge', exact: true }).click();
+        await browserExpect(page.getByText('Could not acknowledge document.', { exact: true })).toBeVisible();
+        const committed = await snapshot(); expect(committed.acknowledgements).toHaveLength(1); const attempts = [...writes];
+        await page.reload(); await page.addScriptTag({ content: script });
+        await browserExpect(page.getByText(/^Acknowledged \d/)).toBeVisible();
+        await browserExpect(page.getByRole('button', { name: 'Acknowledge', exact: true })).toHaveCount(0);
+        expect(await snapshot()).toEqual(committed); expect(writes).toEqual(attempts); expect(errors).toEqual([]); return;
+      }
       await page.getByRole('button', { name: 'Acknowledge', exact: true }).click();
       await browserExpect(page.getByText(/^Acknowledged \d/)).toBeVisible();
       expect((await snapshot()).acknowledgements).toHaveLength(1);
