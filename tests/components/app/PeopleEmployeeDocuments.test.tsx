@@ -1497,7 +1497,8 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     fireEvent.change(screen.getByLabelText('File'), { target: { files: [file] } });
     fireEvent.click(screen.getByRole('button', { name: 'Upload document' }));
 
-    expect(await screen.findByText('Could not upload document.')).toBeTruthy();
+    expect(await screen.findByText(/Upload outcome is unknown/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Upload document' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByLabelText('Document type')).toBeTruthy();
     expect(document.body.textContent).not.toContain('sensitive upload detail');
   });

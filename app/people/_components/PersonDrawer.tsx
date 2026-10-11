@@ -60,7 +60,7 @@ type AssuranceState =
 
 type AcknowledgementActionState = 'idle' | 'submitting' | 'error';
 type VerificationActionState = 'idle' | 'verifying' | 'rejecting' | 'error';
-type DocumentCreateState = 'idle' | 'submitting' | 'error';
+type DocumentCreateState = 'idle' | 'submitting' | 'error' | 'uncertain';
 type DocumentVersionState = 'idle' | 'submitting' | 'error';
 type DocumentDeleteState = 'idle' | 'submitting' | 'error';
 type LifecycleTaskOptionsState = 'idle' | 'loading' | 'ready' | 'error';
@@ -1225,6 +1225,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   }
 
   async function createDocument() {
+    if (documentCreateState === 'uncertain' || documentCreateState === 'submitting') return;
     if (
       !personId
       || !canManageDocuments
@@ -1254,6 +1255,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       );
       const data = await response.json().catch(() => ({}));
 
+      if (response.status >= 500) throw new Error('Unknown upload outcome');
       if (
         !response.ok
         || !data.document?.id
@@ -1262,6 +1264,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         || !data.version?.id
         || typeof data.version?.version_number !== 'number'
       ) {
+        if (response.ok) throw new Error('Unknown upload outcome');
         setDocumentCreateState('error');
         return;
       }
@@ -1296,7 +1299,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setShowCreateDocument(false);
       setDocumentCreateState('idle');
     } catch {
-      setDocumentCreateState('error');
+      setCanManageDocuments(false);
+      setDocumentCreateState('uncertain');
     }
   }
 
@@ -1795,7 +1799,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                 )}
               </div>
 
-              {documentsState === 'ready' && canManageDocuments && showCreateDocument && (
+                {documentsState === 'ready' && (canManageDocuments || documentCreateState === 'uncertain') && showCreateDocument && (
                 <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
@@ -1857,7 +1861,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                       <button
                         type="button"
                         onClick={() => void createDocument()}
-                        disabled={documentCreateState === 'submitting'}
+                        disabled={documentCreateState === 'submitting' || documentCreateState === 'uncertain'}
                         {...saveDocumentButton}
                       >
                         {documentCreateState === 'submitting' ? 'Uploading…' : 'Upload document'}
@@ -1880,6 +1884,11 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                     {documentCreateState === 'error' && (
                       <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
                         Could not upload document.
+                      </div>
+                    )}
+                    {documentCreateState === 'uncertain' && (
+                      <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                        Upload outcome is unknown. Close and reopen this person to check saved documents before uploading again.
                       </div>
                     )}
                   </div>

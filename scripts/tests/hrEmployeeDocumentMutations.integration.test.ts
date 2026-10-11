@@ -150,7 +150,8 @@ describe('Employee document mutations against Postgres with in-memory storage', 
           const response = await route.fetch(); expect(response.status()).toBe(201); await route.abort('failed');
         });
         await page.getByRole('button', { name: 'Upload document', exact: true }).click();
-        await browserExpect(page.getByText('Could not upload document.', { exact: true })).toBeVisible();
+        await browserExpect(page.getByText(/Upload outcome is unknown/)).toBeVisible();
+        await browserExpect(page.getByRole('button', { name: 'Upload document', exact: true })).toBeDisabled();
         const committed = await snapshot(); expect(committed.documents).toHaveLength(1); expect(committed.versions).toHaveLength(1);
         expect(blobs.size).toBe(1); expect(writes).toEqual(['POST']);
         await page.reload(); await page.addScriptTag({ content: script });
