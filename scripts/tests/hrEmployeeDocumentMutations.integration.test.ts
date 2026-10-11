@@ -99,7 +99,7 @@ beforeEach(async () => {
 });
 afterAll(async () => { await pool.end(); });
 describe('Employee document mutations against Postgres with in-memory storage', () => {
-  it.each(['success', 'revoked', 'lost-response', 'lost-version'] as const)('real drawer document writes: %s', async scenario => {
+  it.each(['success', 'revoked', 'lost-response', 'lost-version', 'lost-delete'] as const)('real drawer document writes: %s', async scenario => {
     const status = await import('@/app/api/hr/people/[id]/documents/[documentId]/versions/[versionId]/assurance/route');
     const built = await build({ configFile: false, logLevel: 'error', resolve: { alias: { '@': process.cwd() } },
       define: { 'process.env.NODE_ENV': JSON.stringify('production'), 'process.env': '{}' }, oxc: { jsx: { runtime: 'automatic', development: false } },
@@ -209,7 +209,23 @@ describe('Employee document mutations against Postgres with in-memory storage', 
       routeUser = hr.userId;
       await page.reload(); await page.addScriptTag({ content: script });
       await browserExpect(page.getByText(/^Acknowledged \d/)).toBeVisible();
+      if (scenario === 'lost-delete') {
+        await page.route('**/documents/*', async route => {
+          if (route.request().method() !== 'DELETE') return route.continue();
+          const response = await route.fetch(); expect(response.status()).toBe(200); await route.abort('failed');
+        });
+      }
       await page.getByRole('button', { name: 'Delete', exact: true }).click(); await page.getByRole('button', { name: 'Confirm delete', exact: true }).click();
+      if (scenario === 'lost-delete') {
+        await browserExpect(page.getByText('Could not delete document.', { exact: true })).toBeVisible();
+        const committed = await snapshot(); expect(committed.documents[0].deleted_at).not.toBeNull();
+        expect(committed.versions).toHaveLength(2); expect(committed.acknowledgements).toHaveLength(1); expect(committed.verifications).toHaveLength(2);
+        const attempts = [...writes];
+        await page.reload(); await page.addScriptTag({ content: script });
+        await browserExpect(page.getByRole('button', { name: 'Add document', exact: true })).toBeVisible();
+        await browserExpect(page.getByText('Browser policy', { exact: true })).toHaveCount(0);
+        expect(await snapshot()).toEqual(committed); expect(writes).toEqual(attempts); expect(blobs.size).toBe(2); expect(errors).toEqual([]); return;
+      }
       await browserExpect(page.getByText('Browser policy', { exact: true })).toHaveCount(0);
       const saved = await snapshot(); expect(saved.documents[0].deleted_at).not.toBeNull(); expect(saved.versions).toHaveLength(2);
       expect(saved.acknowledgements).toHaveLength(1); expect(saved.verifications).toHaveLength(2);
