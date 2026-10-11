@@ -199,6 +199,7 @@ export default defineConfig({
       'scripts/tests/hrLifecycleTaskActionsApprovals.integration.test.ts',
       'scripts/tests/hrLifecycleWorkflowActions.integration.test.ts',
       'scripts/tests/hrAdministrationRoutes.integration.test.ts',
+      'scripts/tests/hrEmployeeDocumentMutations.integration.test.ts',
       'scripts/tests/dataHubStageWorksheetRoute.integration.test.ts',
       'scripts/tests/assuranceUi.integration.test.ts',
       'scripts/tests/assuranceRiskLevelSettings.integration.test.ts',
