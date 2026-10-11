@@ -275,3 +275,22 @@ intent composition, not a database transaction or permission to run a batch.
 Revision equality compares supplied metadata only; an authorized execution
 caller would still need fresh persisted review, lineage and permission checks.
 No statistics, raw values, API, UI or execution path are added.
+
+## Fixed bundle admission
+
+`validateProfileCountBundleInput` admits a closed data envelope before review
+snapshots are read. Its three required fields must be own enumerable data
+properties; inherited fields, accessors and any extra own string/symbol keys
+are invalid. It captures the revision and bounded request-list membership into
+a fresh envelope and list. The planner consumes that admitted list rather than
+rereading the caller's array after review preparation, so later source-list
+growth, replacement or reordering cannot expand or reorder the accepted work.
+
+List copying uses own index data descriptors without invoking a custom
+iterator or entry getter. Accessor entries return `PROFILE_BUNDLE_INVALID`;
+holes and inherited entries become undefined intents and retain the planner's
+indexed `INVALID_REQUEST`. Individual payload objects remain unknown and are
+validated by the governed request planner; admission alone does not claim they
+are valid requests. This is a shallow membership snapshot, not deep immutability,
+a freshness check, an execution quota or authorization. No new execution path
+or persistence is introduced.

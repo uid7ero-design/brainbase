@@ -3,9 +3,8 @@ import { type BuildReviewedProfileCountPlanResult,
 import { buildAnalysisReadiness } from "./buildAnalysisReadiness";
 import { buildScopedProfileCountPlan } from "./scopedProfileCountPlan";
 import { validateAnalysisDatasetContexts, type AnalysisDatasetContext } from "./scopedProfileCounts";
-
-export const PROFILE_COUNT_BUNDLE_VERSION = "v1" as const;
-export const MAX_PROFILE_COUNT_BUNDLE_REQUESTS = 20;
+import { PROFILE_COUNT_BUNDLE_VERSION, validateProfileCountBundleInput } from "./profileCountBundleInput";
+export { PROFILE_COUNT_BUNDLE_VERSION, MAX_PROFILE_COUNT_BUNDLE_REQUESTS } from "./profileCountBundleInput";
 
 type AcceptedPlan = Extract<BuildReviewedProfileCountPlanResult, { ok: true }>;
 type PlanningFailure = Extract<BuildReviewedProfileCountPlanResult, { ok: false }>;
@@ -27,18 +26,9 @@ export function buildReviewedProfileCountBundle(
   if (!Number.isSafeInteger(reviewRevision) || reviewRevision < 1) {
     return { ok: false, code: "REVIEW_REVISION_INVALID" };
   }
-  if (typeof input !== "object" || input === null || Array.isArray(input)) {
-    return { ok: false, code: "PROFILE_BUNDLE_INVALID" };
-  }
-  const bundle = input as Record<string, unknown>;
-  const keys = Object.keys(bundle);
-  if (keys.length !== 3 || !["bundleVersion", "expectedReviewRevision", "requests"].every(key => keys.includes(key)) ||
-      bundle.bundleVersion !== PROFILE_COUNT_BUNDLE_VERSION ||
-      !Number.isSafeInteger(bundle.expectedReviewRevision) || (bundle.expectedReviewRevision as number) < 1 ||
-      !Array.isArray(bundle.requests) || bundle.requests.length < 1 ||
-      bundle.requests.length > MAX_PROFILE_COUNT_BUNDLE_REQUESTS) {
-    return { ok: false, code: "PROFILE_BUNDLE_INVALID" };
-  }
+  const admitted = validateProfileCountBundleInput(input);
+  if (!admitted.ok) return admitted;
+  const bundle = admitted.bundle;
   if (bundle.expectedReviewRevision !== reviewRevision) {
     return { ok: false, code: "REVIEW_REVISION_MISMATCH" };
   }

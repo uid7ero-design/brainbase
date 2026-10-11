@@ -192,7 +192,7 @@ belongs to the predecessor candidates; those flows are not rerun for this pure
 contract addition. No database/API/UI/AI execution, migration or raw-value
 access is added. The existing Production release hold remains in force.
 
-The single-preparation bundle captures the admitted revision and reads review
+The single-preparation bundle on `eaf03b21` captures the admitted revision and reads review
 snapshots once per invocation, deriving common readiness before planning the
 ordered requests. It avoids repeated semantic catalog construction without
 adding a shared cache, persistent prepared state or execution. Regression
@@ -201,3 +201,13 @@ planner and preserve early admission failures and indexed request denials.
 All 324 focused contract/count/response/route tests pass, along with TypeScript,
 changed-file lint and diff checks.
 Earlier database/browser evidence remains separate; Production is untouched.
+
+The fixed-admission bundle captures a closed own-data envelope and bounded
+request-list membership before review preparation. Caller list mutation cannot
+expand or reorder admitted work. Envelope/entry accessors are rejected without
+invocation; list holes retain indexed request denial. Individual payloads still
+require governed planning. This adds no API/UI/database/AI execution or migration.
+Earlier disposable database/browser evidence remains separate, and the existing
+Production release hold remains in force.
+All 351 focused contract/count/response/route tests pass, along with TypeScript,
+changed-file lint and diff checks.

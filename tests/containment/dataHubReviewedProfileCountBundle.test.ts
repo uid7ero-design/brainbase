@@ -20,6 +20,20 @@ const bundle = (requests: unknown[] = [rows, present], expectedReviewRevision = 
   ({ bundleVersion: "v1", expectedReviewRevision, requests });
 
 describe("review-pinned profile planning bundles", () => {
+  it("uses the admitted fixed list when review loading changes the source requests", () => {
+    const metadata = review(); const schema = metadata.schema.snapshot;
+    const input = bundle([rows, present]);
+    Object.defineProperty(metadata.schema, "snapshot", { get() {
+      input.requests.reverse(); input.requests.push(...Array(30).fill(rows)); return schema;
+    } });
+    const result = buildReviewedProfileCountBundle(context(), metadata, input);
+    expect(input.requests).toHaveLength(32);
+    expect(result).toMatchObject({ ok: true, plans: [
+      { snapshot: { operation: "ROW_COUNT" } }, { snapshot: { operation: "COUNT_PRESENT" } },
+    ] });
+    if (!result.ok) throw new Error(result.code);
+    expect(result.plans).toHaveLength(2);
+  });
   it("reads the review revision and snapshots once for the largest accepted bundle", () => {
     const metadata = review();
     const schema = metadata.schema.snapshot; const quality = metadata.quality.snapshot;
