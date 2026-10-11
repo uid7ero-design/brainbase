@@ -99,7 +99,7 @@ beforeEach(async () => {
 });
 afterAll(async () => { await pool.end(); });
 describe('Employee document mutations against Postgres with in-memory storage', () => {
-  it.each(['success', 'revoked', 'lost-response'] as const)('real drawer document writes: %s', async scenario => {
+  it.each(['success', 'revoked', 'lost-response', 'lost-version'] as const)('real drawer document writes: %s', async scenario => {
     const status = await import('@/app/api/hr/people/[id]/documents/[documentId]/versions/[versionId]/assurance/route');
     const built = await build({ configFile: false, logLevel: 'error', resolve: { alias: { '@': process.cwd() } },
       define: { 'process.env.NODE_ENV': JSON.stringify('production'), 'process.env': '{}' }, oxc: { jsx: { runtime: 'automatic', development: false } },
@@ -176,6 +176,19 @@ describe('Employee document mutations against Postgres with in-memory storage', 
       expect((await snapshot()).versions).toHaveLength(1);
       await page.getByRole('button', { name: 'Add version', exact: true }).click();
       await page.getByLabel('New version file', { exact: true }).setInputFiles({ name: 'replacement.txt', mimeType: 'text/plain', buffer: Buffer.from('Replacement fixture') });
+      if (scenario === 'lost-version') {
+        await page.route('**/versions', async route => {
+          if (route.request().method() === 'GET') return route.continue();
+          const response = await route.fetch(); expect(response.status()).toBe(201); await route.abort('failed');
+        });
+        await page.getByRole('button', { name: 'Upload version', exact: true }).click();
+        await browserExpect(page.getByText('Could not upload document version.', { exact: true })).toBeVisible();
+        const committed = await snapshot(); expect(committed.versions).toHaveLength(2); expect(blobs.size).toBe(2);
+        expect(writes).toEqual(['POST', 'POST']);
+        await page.reload(); await page.addScriptTag({ content: script });
+        await browserExpect(page.getByText(/Version 2/).first()).toBeVisible();
+        expect(await snapshot()).toEqual(committed); expect(writes).toEqual(['POST', 'POST']); expect(errors).toEqual([]); return;
+      }
       await page.getByRole('button', { name: 'Upload version', exact: true }).click();
       await browserExpect(page.getByText(/Version 2/).first()).toBeVisible(); expect((await snapshot()).versions).toHaveLength(2);
       await page.getByRole('button', { name: 'Version history', exact: true }).click();
