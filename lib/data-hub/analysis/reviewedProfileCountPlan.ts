@@ -3,7 +3,8 @@ import type { DataQualityReviewResolution } from "../dataQuality/reviewResolutio
 import { buildAnalysisReadiness } from "./buildAnalysisReadiness";
 import type { AnalysisReadinessErrorCode } from "./contracts";
 import { buildScopedProfileCountPlan, type BuildScopedProfileCountPlanResult } from "./scopedProfileCountPlan";
-import { validateAnalysisDatasetContexts, type AnalysisDatasetContext,
+import { admitReviewPlanningScope } from "./reviewPlanningScope";
+import { type AnalysisDatasetContext,
   type ScopedAnalysisSnapshot } from "./scopedProfileCounts";
 
 export interface ReviewedPlanningSnapshot {
@@ -21,14 +22,11 @@ export type BuildReviewedProfileCountPlanResult =
 export function buildReviewedProfileCountPlan(
   expected: AnalysisDatasetContext, review: ReviewedPlanningSnapshot, input: unknown,
 ): BuildReviewedProfileCountPlanResult {
-  const checked = validateAnalysisDatasetContexts(expected, [review.schema.context, review.quality.context]);
+  const checked = admitReviewPlanningScope(expected, review);
   if (!checked.ok) return checked;
-  if (!Number.isSafeInteger(review.revision) || review.revision < 1) {
-    return { ok: false, code: "REVIEW_REVISION_INVALID" };
-  }
   const built = buildAnalysisReadiness(review.schema.snapshot, review.quality.snapshot);
   if (!built.ok) return built;
-  const planned = buildScopedProfileCountPlan(expected,
-    { context: review.schema.context, snapshot: built.readiness }, input);
-  return planned.ok ? { ...planned, reviewRevision: review.revision } : planned;
+  const planned = buildScopedProfileCountPlan(checked.context,
+    { context: checked.context, snapshot: built.readiness }, input);
+  return planned.ok ? { ...planned, reviewRevision: checked.reviewRevision } : planned;
 }

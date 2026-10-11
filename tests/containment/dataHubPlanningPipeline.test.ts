@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { profileDataset } from "@/lib/data-hub/profiling/profileDataset";
-import { buildAnalysisReviewSnapshots, buildReviewedProfileCountBundle, buildReviewedProfileCountRequestCatalog, type AnalysisDatasetContext } from "@/lib/data-hub/analysis";
+import { buildAnalysisReviewSnapshots, buildReviewedProfileCountBundle, buildReviewedProfileCountRequestCatalog, buildReviewedProfileCountSelection, type AnalysisDatasetContext } from "@/lib/data-hub/analysis";
 import type { SemanticClarificationChoice } from "@/lib/data-hub/semanticInference/resolution";
 import type { DataQualityReviewDecisionInput } from "@/lib/data-hub/dataQuality/reviewResolution";
 
@@ -28,6 +28,31 @@ function plan(f: ReturnType<typeof fixture>, requests: unknown[] = [rows, presen
 }
 
 describe("pure governed review-to-bundle acceptance", () => {
+  it("completes discovery, selected-intent planning and revision revalidation without evaluating counts", () => {
+    const f = fixture("DECIMAL", ["0", "5"]);
+    f.choices.snapshot.push({ sourceSchemaColumnId: "amount", role: "MEASURE" });
+    const built = buildAnalysisReviewSnapshots(f.context, f.profile, f.choices, f.decisions);
+    if (!built.ok) throw new Error(built.code);
+    const review = { revision: 6, schema: built.schema, quality: built.quality };
+    const discovered = buildReviewedProfileCountRequestCatalog(f.context, review);
+    if (!discovered.ok) throw new Error(discovered.code);
+    const input = { selectionVersion: "v1", expectedReviewRevision: discovered.catalog.reviewRevision,
+      includeRowCount: true, measureColumnIds: discovered.catalog.requests.flatMap(request =>
+        "sourceSchemaColumnId" in request ? [request.sourceSchemaColumnId] : []) };
+    const planned = buildReviewedProfileCountSelection(f.context, review, input);
+    expect(planned).toMatchObject({ ok: true, reviewRevision: 6, plans: [
+      { snapshot: { operation: "ROW_COUNT" } }, { snapshot: { operation: "COUNT_PRESENT", sourceSchemaColumnId: "amount" } },
+    ] });
+    if (!planned.ok) throw new Error(planned.code);
+    expect(planned.plans.every(plan => !("count" in plan.snapshot))).toBe(true);
+    review.revision = 7;
+    expect(buildReviewedProfileCountSelection(f.context, review, input))
+      .toEqual({ ok: false, code: "REVIEW_REVISION_MISMATCH" });
+    input.expectedReviewRevision = 7; review.quality.snapshot.state = "HOLD_FOR_REMEDIATION";
+    expect(buildReviewedProfileCountSelection(f.context, review, input))
+      .toEqual({ ok: false, code: "QUALITY_HOLD", requestIndex: 0 });
+    expect(planned.reviewRevision).toBe(6); // Prior intent is detached, not reusable authorization.
+  });
   it("discovers target-supported requests from actual reviewed meanings and replans them", () => {
     const f = fixture("DECIMAL", ["0", "5"]);
     f.choices.snapshot.push({ sourceSchemaColumnId: "amount", role: "MEASURE" });

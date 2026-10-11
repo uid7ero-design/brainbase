@@ -353,3 +353,20 @@ still must satisfy the existing 1–20 admission bound. Catalogs grant no access
 saved-review provenance, freshness or execution permission. A later authorized
 caller must load current review metadata and plan its selected requests again.
 No catalog API/UI, query execution or persistence is added.
+
+## Completed v1 discovery-to-selection planning
+
+`parseProfileCountSelectionInput` and `buildReviewedProfileCountSelection`
+complete the workflow from catalog discovery to selected measure plans. A
+closed v1 selection pins an expected review revision, chooses row count and
+supplies ordered distinct measure identities. It admits 1–20 total intents,
+copies scalar selections before review preparation and revalidates every
+selected field through the existing governed bundle planner. Catalogs never
+substitute for current trusted review metadata. All-or-nothing output and
+zero-based request indices retain the existing bundle contract.
+
+Shared internal scope admission now copies all eight expected identities and
+captures the supplied positive safe revision once for single plans, bundles,
+discovery and selections. No prepared state is persisted. See the complete
+[v1 planning contract](data-hub-profile-planning-contract.md) for format,
+denial ordering, limits, acceptance and the separate integration/release boundary.

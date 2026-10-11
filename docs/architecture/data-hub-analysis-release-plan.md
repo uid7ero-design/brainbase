@@ -233,7 +233,7 @@ browser/database evidence remains separate, and the release hold still applies.
 All 404 focused review/pipeline/contract/count/response/route tests pass, along
 with TypeScript, changed-file lint and diff checks.
 
-The profile-target discovery bundle exposes versioned row-count and explicit
+The profile-target discovery bundle on `89f3ed1a` exposes versioned row-count and explicit
 present-measure request templates from trusted review metadata. Scope, review
 revision, quality and target-version/catalog admission precede discovery.
 Templates round-trip through governed planning; the inventory retains every
@@ -243,3 +243,17 @@ and adds no DB/API/UI/AI execution, migration or raw-value access. Earlier
 database/browser evidence remains separate and the release hold is unchanged.
 All 430 focused discovery/review/pipeline/contract/count/response/route tests
 pass, along with TypeScript, changed-file lint and diff checks.
+
+The discovery-to-selection workflow bundle completes the pure v1 planning
+phase: shared context/revision admission, closed bounded selections, governed
+selected-field revalidation, safe failure references and cross-contract
+acceptance. Maximum-size selections, copied metadata, revision changes, holds,
+notices and no partial output are covered together. No new execution path,
+migration or raw-value access is added. The full contract and phase exit are
+documented in `data-hub-profile-planning-contract.md`; new integration/release
+work remains separately scoped and the Production hold remains in force.
+Local validation passes: 501 focused tests across 22 files, all 64 rerun
+disposable PostgreSQL service integration tests, TypeScript, changed-file lint
+and diff checks. The owned disposable container was removed. D4D5Q migration
+content remains unchanged; Production was untouched. Earlier built-app browser
+evidence is not claimed as rerun for this pure planning workflow bundle.

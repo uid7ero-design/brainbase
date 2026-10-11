@@ -9,6 +9,7 @@ export * from "./reviewedProfileCountPlan";
 export * from "./reviewedProfileCountBundle";
 export * from "./profileCountBundleInput";
 export * from "./reviewedProfileCountCatalog";
+export * from "./profileCountSelection";
 export * from "./fieldCatalogValidation";
 export * from "./profileCounts";
 export * from "./scopedProfileCounts";

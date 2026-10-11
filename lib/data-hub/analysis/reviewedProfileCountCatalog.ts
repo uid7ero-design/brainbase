@@ -2,7 +2,8 @@ import { buildAnalysisReadiness } from "./buildAnalysisReadiness";
 import { buildProfileCountPlan, type ProfileCountAnalysisPlan } from "./profileCountPlan";
 import type { AnalysisRequest } from "./requestValidation";
 import type { ReviewedPlanningSnapshot, BuildReviewedProfileCountPlanResult } from "./reviewedProfileCountPlan";
-import { copyAnalysisDatasetContext, validateAnalysisDatasetContexts, type AnalysisDatasetContext } from "./scopedProfileCounts";
+import { copyAnalysisDatasetContext, type AnalysisDatasetContext } from "./scopedProfileCounts";
+import { admitReviewPlanningScope } from "./reviewPlanningScope";
 
 export const PROFILE_COUNT_REQUEST_CATALOG_VERSION = "v1" as const;
 export type ProfileCountRequestTemplate =
@@ -24,12 +25,9 @@ export type BuildReviewedProfileCountRequestCatalogResult =
 export function buildReviewedProfileCountRequestCatalog(
   expected: AnalysisDatasetContext, review: ReviewedPlanningSnapshot,
 ): BuildReviewedProfileCountRequestCatalogResult {
-  const checked = validateAnalysisDatasetContexts(expected, [review.schema.context, review.quality.context]);
+  const checked = admitReviewPlanningScope(expected, review);
   if (!checked.ok) return checked;
-  const reviewRevision = review.revision;
-  if (!Number.isSafeInteger(reviewRevision) || reviewRevision < 1) {
-    return { ok: false, code: "REVIEW_REVISION_INVALID" };
-  }
+  const { reviewRevision } = checked;
   const built = buildAnalysisReadiness(review.schema.snapshot, review.quality.snapshot);
   if (!built.ok) return built;
   // Existing target admission checks holds, catalog structure and all supported
@@ -41,6 +39,6 @@ export function buildReviewedProfileCountRequestCatalog(
     requests.push({ requestVersion: "v1", kind: "AGGREGATE", sourceSchemaColumnId, operator: "COUNT_PRESENT" });
   }
   return { ok: true, catalog: { catalogVersion: PROFILE_COUNT_REQUEST_CATALOG_VERSION,
-    context: copyAnalysisDatasetContext(expected), reviewRevision,
+    context: copyAnalysisDatasetContext(checked.context), reviewRevision,
     readinessState: admitted.plan.readinessState, requests } };
 }
