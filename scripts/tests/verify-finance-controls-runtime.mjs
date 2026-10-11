@@ -494,6 +494,32 @@ try {
   await expect(mappingForm.getByLabel('Mapping account',{exact:false})).toHaveValue('');
   await expect(activationChecks).not.toContainText('Add a commitment mapping');
   const budgetState=(await pool.query("SELECT b.id,v.id AS version_id,l.id AS line_id FROM commercial_budgets b JOIN commercial_budget_versions v ON v.budget_id=b.id JOIN commercial_budget_lines l ON l.budget_version_id=v.id WHERE b.organisation_id='runtime-b'")).rows[0];
+  const snapshotBefore=(await pool.query("SELECT id,annual_budget_cents::text AS cents FROM commercial_budget_lines WHERE id=$1",[budgetState.line_id])).rows;
+  let snapshotRecoveryPosts=0;
+  const observeSnapshotRequest=request=>{if(request.method()==='POST'&&request.url().includes('/api/commercial/budgeting/budgets'))snapshotRecoveryPosts++;};
+  other.page.on('request',observeSnapshotRequest);
+  await other.page.route('**/api/commercial/budgeting/budgets',async route=>{
+    const response=await route.fetch();const payload=await response.json();
+    await route.fulfill({response,json:{...payload,versions:payload.versions.map(row=>({...row,allocations:null}))}});
+  });
+  await budgetSection.getByRole('button',{name:'Reload saved Budget',exact:true}).click();
+  await expect(budgetSection.getByRole('alert')).toContainText('The saved Budget view is incomplete.');
+  await expect(budgetSection.getByRole('button',{name:'Edit BUDGET-ACC / BUDGET-CC',exact:true})).toBeDisabled();
+  await expect(budgetSection.getByRole('button',{name:'Export Budget lines CSV',exact:true})).toBeDisabled();
+  await expect(budgetSection.getByRole('table',{name:'Budget lines and allocation checks',exact:true})).toContainText('AUD 100.00');
+  await lineForm.evaluate(form=>form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+  await other.page.setViewportSize({width:390,height:844});
+  await budgetSection.getByRole('button',{name:'Reload saved Budget',exact:true}).scrollIntoViewIfNeeded();
+  await other.page.screenshot({path:resolve(artifacts,'budget-incomplete-snapshot-mobile.png')});
+  await other.page.setViewportSize({width:1440,height:1000});
+  await other.page.unroute('**/api/commercial/budgeting/budgets');
+  await budgetSection.getByRole('button',{name:'Reload saved Budget',exact:true}).click();
+  await expect(budgetSection.getByRole('button',{name:'Edit BUDGET-ACC / BUDGET-CC',exact:true})).toBeEnabled();
+  if(snapshotRecoveryPosts!==0)throw new Error('Incomplete snapshot recovery repeated a Budget mutation');
+  other.page.off('request',observeSnapshotRequest);
+  const snapshotAfter=(await pool.query("SELECT id,annual_budget_cents::text AS cents FROM commercial_budget_lines WHERE id=$1",[budgetState.line_id])).rows;
+  if(JSON.stringify(snapshotBefore)!==JSON.stringify(snapshotAfter))throw new Error('Read-only incomplete snapshot recovery changed saved amounts');
+
   const setupPeriod=(await pool.query("SELECT id FROM commercial_financial_periods WHERE financial_year_id=$1 AND name='July'",[setupYearId])).rows[0].id;
   await budgetSection.getByText('Edit draft settings',{exact:true}).click();
   const settingsForm=budgetSection.getByRole('form',{name:'Draft Budget settings',exact:true});
@@ -1082,7 +1108,7 @@ try {
   evidence.importConcurrencyChecks=['database-gated overlapping identical requests return IMPORTED and IDEMPOTENT for one identity','concurrent changed facts return one import and one conflict','conflicting request does not overwrite the winning immutable fact'];
   evidence.calendarSetupChecks=['fresh organisation creates year and period through UI','exact dates persist and survive reload','audit retains session actor and dates','invalid dates, overlaps, duplicate names and outside-year periods rejected','concurrent year and period overlaps rejected','closed year rejects new periods','year close and new-period race preserves close invariants','unauthenticated, viewer, unentitled and foreign-tenant mutations denied','mobile setup fits viewport'];
   evidence.dimensionSetupChecks=['account and cost-centre creation through forms','lost create and deactivate responses recover through GET without resubmission','failed reload retains unsaved entries and mutation lock','recovery retains IDs and exactly one session-actor audit per mutation','tenant duplicate-code rejection','deactivation retains inactive records after reload','active Budget references prevent deactivation','viewer, unentitled and foreign mutations denied'];
-  evidence.budgetSetupChecks=['fresh Budget and DRAFT version created through form','draft line and commitment mapping through forms','period allocation mismatch blocks activation','correct allocation permits activation','ACTIVE version read-only and API rejects edits','active version pointer persisted','duplicate header rejected','unauthenticated, viewer, unentitled and foreign-tenant mutations denied'];
+  evidence.budgetSetupChecks=['fresh Budget and DRAFT version created through form','malformed API snapshot preserves last view and pauses editing and exports until GET-only recovery','snapshot recovery sends no POST and preserves database line identity and exact amount','draft line and commitment mapping through forms','period allocation mismatch blocks activation','correct allocation permits activation','ACTIVE version read-only and API rejects edits','active version pointer persisted','duplicate header rejected','unauthenticated, viewer, unentitled and foreign-tenant mutations denied'];
   evidence.budgetReviewChecks=['exact shortage and excess shown per line','corrected allocation marked balanced with remaining review guidance','saved allocation shown in named table','both review tables contained and scrollable on mobile','activation issue links focus line setup, allocation review and dimension headings','resolved issues remove corrective links'];
   evidence.budgetMappingManagementChecks=['saved mapping table shows codes and reference status','checklist link navigates to mapping form','saved account prefilled with fixed cost centre','cancel and version switch discard unsaved edit','update preserves mapping ID cost centre amounts and allocations','saved account reloads and original mapping restored','inactive references flagged','ACTIVE mappings readable without editing','mobile editor fits viewport'];
   evidence.draftSaveRecoveryChecks=['real line save persists once despite two simultaneous form events','failed refresh explicitly confirms saved outcome','lost response reports uncertain outcome','editing activation and exports paused while snapshot stale','failed reload keeps protections and does not repeat POST','successful GET reload restores authoritative amount and focus','audit count proves each interrupted save occurs only once','mobile recovery controls fit viewport'];

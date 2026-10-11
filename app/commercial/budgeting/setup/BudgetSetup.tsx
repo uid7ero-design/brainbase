@@ -14,21 +14,19 @@ import BudgetMappingReview from './BudgetMappingReview';
 import BudgetSetupExports from './BudgetSetupExports';
 import DraftBudgetLineRemoval from './DraftBudgetLineRemoval';
 import DraftBudgetEntryRemoval from './DraftBudgetEntryRemoval';
+import {parseBudgetSetupSnapshot,type BudgetSetupSnapshot} from '@/lib/commercial/budgetSetupSnapshot';
 type EntryRemoval={kind:'allocation';lineId:string;periodId:string}|{kind:'mapping';centreId:string};
-type Dimension={id:string;code:string;active:boolean};
-type Year={id:string;name:string;status:string;periods:{id:string;name:string;starts_on?:string;ends_on?:string}[]};
-type Version={budget_id:string;version_id:string;name:string;financial_year_id:string;currency:string;tax_basis:string;periodisation_mode:string;version_number:number;status:string;can_edit_settings:boolean;lines:{id:string;budget_account_id:string;cost_centre_id:string;annual_budget_cents:string}[];allocations:{budget_line_id:string;financial_period_id:string;amount_cents:string}[];mappings:{cost_centre_id:string;budget_account_id:string}[]};
 async function readSetup(){
   const responses=await Promise.all(['/api/commercial/budgeting/budgets','/api/commercial/budgeting/financial-periods','/api/commercial/budgeting/setup/accounts','/api/commercial/budgeting/setup/cost-centres'].map(url=>fetch(url)));
   if(responses.some(response=>!response.ok))throw new Error('Unable to load Budget setup.');
   const [budgets,calendar,accounts,centres]=await Promise.all(responses.map(response=>response.json()));
-  return {versions:budgets.versions as Version[],years:calendar.years as Year[],accounts:accounts.records as Dimension[],centres:centres.records as Dimension[]};
+  return parseBudgetSetupSnapshot(budgets,calendar,accounts,centres);
 }
 function SelectField({label,name,options}:{label:string;name:string;options:{id:string;label:string}[]}){
   return <Field label={label} required>{control=><select {...control} name={name} required defaultValue="" className={fieldControlClassName}><option value="">Choose…</option>{options.map(option=><option key={option.id} value={option.id}>{option.label}</option>)}</select>}</Field>;
 }
 export default function BudgetSetup({revision}:{revision:number}){
-  const [data,setData]=useState<{versions:Version[];years:Year[];accounts:Dimension[];centres:Dimension[]}>({versions:[],years:[],accounts:[],centres:[]});
+  const [data,setData]=useState<BudgetSetupSnapshot>({versions:[],years:[],accounts:[],centres:[]});
   const [versionId,setVersionId]=useState(''),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
   const [needsReload,setNeedsReload]=useState(false);
   const [editorRevision,setEditorRevision]=useState(0);

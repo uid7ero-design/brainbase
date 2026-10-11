@@ -497,6 +497,30 @@ It verifies retained IDs, exactly one audit event per mutation, actor attributio
 and existing access and active-Budget restrictions. These changes do not write
 Budget Actual or reconciliation records.
 
+## Complete saved Budget snapshots
+
+Budget setup validates all four read responses before replacing its saved view:
+versions and nested lines, allocations and mappings; the financial calendar; and
+account/cost-centre records. Missing collections, malformed references,
+numeric money values and invalid integer strings pause editing, activation and
+exports through the existing recovery flow. A failed reload retains the last
+complete view and requires another explicit reload. A committed save with an
+incomplete readback is recovered with GET rather than repeating the mutation.
+Amounts remain exact strings, including values beyond JavaScript's safe integers.
+Missing or inactive dimension references remain visible for corrective review.
+
+Component checks cover each response, malformed nested collections and amounts,
+readback recovery and large exact amounts. The disposable runtime corrupts a real
+Budget read response, verifies paused controls and retained saved amounts, then
+recovers through GET and proves no POST or database line change occurred.
+
+Snapshot recovery validation passed 13 focused checks and 2,470 Commercial tests,
+standalone TypeScript, targeted lint and the production build. The first complete
+browser run timed out after five seconds waiting for an existing allocation save
+at the Balanced check while the UI remained busy; its evidence is retained in
+`snapshot-recovery-runtime-first.log`. The unchanged rerun passed the full flow
+(`snapshot-recovery-runtime-retry.log` and `snapshot-recovery-adelaide-retry`).
+
 ## Repeatable runtime evidence
 
 Run `npx tsc --noEmit` separately before release verification. This checks the
