@@ -249,6 +249,9 @@ export default function BudgetCommitmentsPage() {
   const [sourceSystemIds, setSourceSystemIds] = useState<string[]>([]);
   const [sourceSystemsError, setSourceSystemsError] = useState<string | null>(null);
   const [sourceSystemsRefreshKey, setSourceSystemsRefreshKey] = useState(0);
+  const [reportRefreshKey, setReportRefreshKey] = useState(0);
+  const [completedReportRead, setCompletedReportRead] = useState<string | null>(null);
+  const [completedQueueRead, setCompletedQueueRead] = useState<string | null>(null);
   const [selectedSourceSystemId, setSelectedSourceSystemId] = useState('');
   const [reconciliationQueue, setReconciliationQueue] = useState<FinanceReconciliationQueueEntry[]>([]);
   const [reconciliationQueueLoading, setReconciliationQueueLoading] = useState(true);
@@ -257,23 +260,31 @@ export default function BudgetCommitmentsPage() {
     sourceSystemIds,
     selectedSourceSystemId,
   );
+  const requestKey = `${reportRefreshKey}:${activeSourceSystemId ?? ''}`;
+  const reportLoading = loading || completedReportRead !== requestKey;
+  const queueLoading = reconciliationQueueLoading || completedQueueRead !== requestKey;
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const res = await fetch('/api/commercial/budgeting/external-gl/sources');
-      if (cancelled) return;
-      if (!res.ok) {
-        setSourceSystemsError('Unable to load External GL sources.');
-        return;
+      try {
+        const res = await fetch('/api/commercial/budgeting/external-gl/sources');
+        if (cancelled) return;
+        if (!res.ok) {
+          setSourceSystemsError('Unable to load External GL sources.');
+          return;
+        }
+        const data = await res.json() as { sourceSystemIds?: unknown };
+        if (cancelled) return;
+        if (!Array.isArray(data?.sourceSystemIds) || !data.sourceSystemIds.every(value => typeof value === 'string')) {
+          setSourceSystemsError('Unable to load External GL sources.');
+          return;
+        }
+        setSourceSystemIds(data.sourceSystemIds.filter((value): value is string => typeof value === 'string'));
+        setSourceSystemsError(null);
+      } catch {
+        if (!cancelled) setSourceSystemsError('Unable to load External GL sources. Use Refresh sources to try again.');
       }
-      const data = await res.json() as { sourceSystemIds?: unknown };
-      if (!Array.isArray(data.sourceSystemIds)) {
-        setSourceSystemsError('Unable to load External GL sources.');
-        return;
-      }
-      setSourceSystemIds(data.sourceSystemIds.filter((value): value is string => typeof value === 'string'));
-      setSourceSystemsError(null);
     })();
     return () => {
       cancelled = true;
@@ -283,67 +294,100 @@ export default function BudgetCommitmentsPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const suffix = activeSourceSystemId
-        ? `?sourceSystemId=${encodeURIComponent(activeSourceSystemId)}`
-        : '';
-      const res = await fetch(`/api/commercial/budgeting/consumption${suffix}`);
-      if (cancelled) return;
-      if (!res.ok) {
-        setError(res.status === 403
-          ? 'Budgeting access is required to view Budget consumption.'
-          : 'Unable to load Budget vs Actual reporting.');
+      try {
+        const suffix = activeSourceSystemId
+          ? `?sourceSystemId=${encodeURIComponent(activeSourceSystemId)}`
+          : '';
+        const res = await fetch(`/api/commercial/budgeting/consumption${suffix}`, { cache: 'no-store' });
+        if (cancelled) return;
+        if (!res.ok) {
+          setError(res.status === 403
+            ? 'Budgeting access is required to view Budget consumption.'
+            : 'Unable to load Budget vs Actual reporting.');
+          setLoading(false);
+          return;
+        }
+        const data = await res.json();
+        if (cancelled) return;
+        const next = data?.report;
+        if (!next || !Array.isArray(next.rows) || !Array.isArray(next.financeRows) || !Array.isArray(next.exceptions)
+          || ![next.resolvedActualCount, next.resolvedCommitmentCount, next.unresolvedExceptionCount]
+            .every(value => Number.isSafeInteger(value) && value >= 0)) {
+          throw new Error('Incomplete report');
+        }
+        setReport(next);
+        setError(null);
         setLoading(false);
-        return;
+      } catch {
+        if (cancelled) return;
+        setError('Unable to load Budget vs Actual reporting. Reload the report to try again.');
+        setLoading(false);
+      } finally {
+        if (!cancelled) setCompletedReportRead(requestKey);
       }
-      const data = await res.json();
-      setReport(data.report ?? null);
-      setError(null);
-      setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [activeSourceSystemId]);
+  }, [activeSourceSystemId, reportRefreshKey, requestKey]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const suffix = activeSourceSystemId
-        ? `?sourceSystemId=${encodeURIComponent(activeSourceSystemId)}`
-        : '';
-      const res = await fetch(`/api/commercial/budgeting/reconciliations${suffix}`, {
-        cache: 'no-store',
-      });
-      if (cancelled) return;
-      if (!res.ok) {
-        setReconciliationQueueError(
-          res.status === 403
-            ? 'Budgeting access is required to view finance reconciliation items.'
-            : 'Unable to load the finance reconciliation queue.',
-        );
-        setReconciliationQueue([]);
-        setReconciliationQueueLoading(false);
-        return;
-      }
+      try {
+        const suffix = activeSourceSystemId
+          ? `?sourceSystemId=${encodeURIComponent(activeSourceSystemId)}`
+          : '';
+        const res = await fetch(`/api/commercial/budgeting/reconciliations${suffix}`, {
+          cache: 'no-store',
+        });
+        if (cancelled) return;
+        if (!res.ok) {
+          setReconciliationQueueError(
+            res.status === 403
+              ? 'Budgeting access is required to view finance reconciliation items.'
+              : 'Unable to load the finance reconciliation queue.',
+          );
+          setReconciliationQueue([]);
+          setReconciliationQueueLoading(false);
+          return;
+        }
 
-      const data = await res.json() as { reconciliations?: unknown };
-      if (!Array.isArray(data.reconciliations)) {
-        setReconciliationQueueError('Unable to load the finance reconciliation queue.');
-        setReconciliationQueue([]);
-        setReconciliationQueueLoading(false);
-        return;
-      }
+        const data = await res.json() as { reconciliations?: unknown };
+        if (cancelled) return;
+        if (!Array.isArray(data?.reconciliations) || !data.reconciliations.every(entry => entry && Array.isArray(entry.items))) {
+          setReconciliationQueueError('Unable to load the finance reconciliation queue.');
+          setReconciliationQueue([]);
+          setReconciliationQueueLoading(false);
+          return;
+        }
 
-      setReconciliationQueue(data.reconciliations as FinanceReconciliationQueueEntry[]);
-      setReconciliationQueueError(null);
-      setReconciliationQueueLoading(false);
+        setReconciliationQueue(data.reconciliations as FinanceReconciliationQueueEntry[]);
+        setReconciliationQueueError(null);
+        setReconciliationQueueLoading(false);
+      } catch {
+        if (cancelled) return;
+        setReconciliationQueueError('Unable to load the finance reconciliation queue. Reload the report to try again.');
+        setReconciliationQueueLoading(false);
+      } finally {
+        if (!cancelled) setCompletedQueueRead(requestKey);
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [activeSourceSystemId]);
+  }, [activeSourceSystemId, reportRefreshKey, requestKey]);
+
+  function reloadReport() {
+    setLoading(true);
+    setError(null);
+    setReconciliationQueueLoading(true);
+    setReconciliationQueueError(null);
+    setReportRefreshKey(current => current + 1);
+  }
 
   function selectSourceSystem(value: string) {
+    if (value === (activeSourceSystemId ?? '')) return;
     setLoading(true);
     setError(null);
     setReconciliationQueueLoading(true);
@@ -413,15 +457,26 @@ export default function BudgetCommitmentsPage() {
     });
   }
 
-  if (loading) return (
+  const sourceSelector = <FinanceSourceSelector
+    sourceSystemIds={sourceSystemIds}
+    selectedSourceSystemId={activeSourceSystemId ?? ''}
+    onChange={selectSourceSystem}
+    onRefresh={() => setSourceSystemsRefreshKey(current => current + 1)}
+    error={sourceSystemsError}
+  />;
+
+  if (reportLoading) return (
     <>
-      <div style={{ color: MUTED }}>Loading Budget vs Actual…</div>
+      {sourceSelector}
+      <div role="status" style={{ color: MUTED }}>Loading Budget vs Actual…</div>
       <BudgetExportControls legacyAvailable={false} financeAvailable={false} disabledReason="Report is still loading." />
     </>
   );
   if (error) return (
     <>
-      <div style={{ color: 'var(--status-danger)' }}>{error}</div>
+      {sourceSelector}
+      <div role="alert" style={{ color: 'var(--status-danger)' }}>{error}</div>
+      <button type="button" onClick={reloadReport} className={fieldControlClassName}>Reload report</button>
       <BudgetExportControls legacyAvailable={false} financeAvailable={false} disabledReason="Exports are unavailable because the report could not be loaded." />
     </>
   );
@@ -447,13 +502,8 @@ export default function BudgetCommitmentsPage() {
       </div>
 
       <FinanceWorkflow current="reporting" setupHint={rows.length === 0 && financeRows.length === 0 ? 'No Budget rows are available. Check Finance setup for an active Budget and its lines and commitment mappings. Operational activity or ledger imports may still need to be added separately.' : undefined} />
-      <FinanceSourceSelector
-        sourceSystemIds={sourceSystemIds}
-        selectedSourceSystemId={activeSourceSystemId ?? ''}
-        onChange={selectSourceSystem}
-        onRefresh={() => setSourceSystemsRefreshKey(current => current + 1)}
-        error={sourceSystemsError}
-      />
+      {sourceSelector}
+      <button type="button" onClick={reloadReport} className={fieldControlClassName} style={{ marginBottom: 12 }}>Reload report</button>
       <BudgetExportControls
         legacyAvailable={rows.length > 0}
         financeAvailable={financeRows.length > 0}
@@ -467,8 +517,8 @@ export default function BudgetCommitmentsPage() {
           tone={report.unresolvedExceptionCount ? 'var(--status-warning)' : 'var(--status-success)'} />
         <StateCard
           label="Finance reconciliation items"
-          value={financeReconciliationItemCount}
-          tone={financeReconciliationItemCount ? 'var(--status-warning)' : 'var(--status-success)'}
+          value={queueLoading ? 'Loading…' : reconciliationQueueError ? 'Unavailable' : financeReconciliationItemCount}
+          tone={queueLoading ? MUTED : reconciliationQueueError ? 'var(--status-danger)' : financeReconciliationItemCount ? 'var(--status-warning)' : 'var(--status-success)'}
         />
       </div>
       <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 16, marginBottom: 18 }}>
@@ -564,7 +614,7 @@ export default function BudgetCommitmentsPage() {
 
       <FinanceReconciliationQueue
         reconciliations={reconciliationQueue}
-        loading={reconciliationQueueLoading}
+        loading={queueLoading}
         error={reconciliationQueueError}
         sourceSystemId={activeSourceSystemId}
       />
@@ -1049,7 +1099,7 @@ function Filter({ label, value, onChange, options }: {
     </select>
   </label>;
 }
-function StateCard({ label, value, tone }: { label: string; value: number; tone: string }) {
+function StateCard({ label, value, tone }: { label: string; value: number | string; tone: string }) {
   return <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 14 }}>
     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{label}</div>
     <div style={{ fontSize: 26, fontWeight: 700, color: tone, marginTop: 4 }}>{value}</div>

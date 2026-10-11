@@ -548,6 +548,40 @@ hit the existing five-second test deadline; its output is retained separately in
 the final full-suite run. Runtime evidence and mobile capture are in
 `setup-coordination-runtime.log` and `setup-coordination-adelaide`.
 
+## Budget reporting read recovery
+
+Budget reporting now catches failed requests and undecodable responses for the
+report, External GL source list and reconciliation queue. A missing report,
+incomplete report collections/counts, malformed source collection or missing
+queue item collection is unavailable rather than an empty successful result.
+This is a collection-boundary check, not a new validator for every report row.
+
+`Reload report` reads both the report and queue again for the selected source.
+The source selector remains available during loading and failure. Results are
+associated with their source and reload, and cancelled reads are checked again
+after body decoding so delayed old-source responses cannot overwrite the current
+view. Exports are unavailable while the report is loading or failed. A failed
+queue displays an unavailable count rather than zero; a valid report remains
+independently usable. Source-list recovery uses the existing `Refresh sources`
+control and retains its last successful choices while unavailable.
+
+The bundle preserves operational payable recognition, numeric legacy reporting,
+exact-string finance amounts, source provenance, filters and full-report CSV
+semantics. It adds no mutation, migration or release action. Seven component
+checks cover report failure/retry, denied access, source recovery, independent
+queue recovery and delayed source responses. The disposable runtime interrupts
+real API responses, recovers both reads and checks that recovery sends only GET
+requests. Evidence uses the `report-recovery` prefix in the local finance-review
+artifact folder.
+
+Final validation passed 2,484 Commercial tests across 155 files, standalone
+TypeScript, targeted lint, the production build and the full disposable runtime.
+The first runtime assertion also matched Next's hidden route announcer. The
+assertion now selects the visible report error by its text; the complete rerun
+passed. Both outputs are retained as `report-recovery-runtime-first.log` and
+`report-recovery-runtime-retry.log`. The reviewed screenshot is
+`report-recovery-adelaide-retry/report-recovery.png`.
+
 ## Repeatable runtime evidence
 
 Run `npx tsc --noEmit` separately before release verification. This checks the

@@ -313,6 +313,37 @@ try {
   await viewer.page.goto(origin+'/commercial/budgeting/commitments');
   await expect(viewer.page.getByRole('heading',{name:'Budget vs Actual vs Committed',exact:true})).toBeVisible();
   await expect(viewer.page.getByRole('navigation',{name:'Finance workflow',exact:true})).toHaveCount(0);
+  // Reporting recovery reads the real API again without repeating any mutation.
+  let brokenReportRead=true;
+  let brokenQueueRead=true;
+  const reportingMethods=[];
+  await other.page.route('**/api/commercial/budgeting/consumption*',async route=>{
+    reportingMethods.push(route.request().method());
+    const response=await route.fetch();
+    if(brokenReportRead){await route.fulfill({response,body:'<html>interrupted report</html>'});return;}
+    await route.fulfill({response});
+  });
+  await other.page.route('**/api/commercial/budgeting/reconciliations*',async route=>{
+    reportingMethods.push(route.request().method());
+    const response=await route.fetch();
+    if(brokenQueueRead){await route.fulfill({response,json:{reconciliations:null}});return;}
+    await route.fulfill({response});
+  });
+  await other.page.goto(origin+'/commercial/budgeting/commitments');
+  await expect(other.page.getByRole('alert').filter({hasText:'Unable to load Budget vs Actual reporting.'})).toBeVisible();
+  await expect(other.page.locator('a[data-export-view]')).toHaveCount(0);
+  brokenReportRead=false;
+  await other.page.getByRole('button',{name:'Reload report',exact:true}).click();
+  await expect(other.page.getByRole('heading',{name:'Budget vs Actual vs Committed',exact:true})).toBeVisible();
+  await expect(other.page.getByText('Unavailable',{exact:true})).toBeVisible();
+  await expect(other.page.getByText('No unresolved finance reconciliation items in the latest snapshots.',{exact:true})).toHaveCount(0);
+  brokenQueueRead=false;
+  await other.page.getByRole('button',{name:'Reload report',exact:true}).click();
+  await expect(other.page.getByText('No unresolved finance reconciliation items in the latest snapshots.',{exact:true})).toBeVisible();
+  if(reportingMethods.length<6||reportingMethods.some(method=>method!=='GET'))throw new Error('Reporting recovery did not remain read-only');
+  await other.page.screenshot({path:resolve(artifacts,'report-recovery.png'),fullPage:true});
+  await other.page.unroute('**/api/commercial/budgeting/consumption*');
+  await other.page.unroute('**/api/commercial/budgeting/reconciliations*');
   const tenant=await other.page.evaluate(async()=>await(await fetch('/api/commercial/budgeting/financial-periods')).json());
   if(tenant.years.length)throw new Error('Foreign year exposed');
   const foreignMappings=await other.page.evaluate(async()=> (await(await fetch('/api/commercial/budgeting/external-gl/mappings')).json()).mappings);
