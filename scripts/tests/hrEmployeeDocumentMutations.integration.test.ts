@@ -99,6 +99,28 @@ beforeEach(async () => {
 });
 afterAll(async () => { await pool.end(); });
 describe('Employee document mutations against Postgres with in-memory storage', () => {
+  it('proves lifecycle start/read/cancel routes with current database authority in the shared fixture', async () => {
+    const workflows = await import('@/app/api/hr/lifecycle/workflows/route');
+    const cancel = await import('@/app/api/hr/lifecycle/workflows/[id]/cancel/route');
+    const templateId = '95555555-5555-4555-8555-555555555555';
+    await q(`INSERT INTO hr_lifecycle_templates(id,organisation_id,template_key,version_number,lifecycle_type,name,status,activated_at,created_by)
+      VALUES($1,$2,'route-proof',1,'onboarding','Route proof','ACTIVE',now(),$3)`, [templateId, org, hr.userId]);
+    await q(`INSERT INTO hr_lifecycle_template_tasks(organisation_id,template_id,sequence,title,responsibility_type,due_offset_days,requires_approval,approval_type,employee_visible,manager_visible,internal_only)
+      VALUES($1,$2,1,'Employee route task','EMPLOYEE',0,false,'NONE',true,false,false)`, [org, templateId]);
+    const request = new NextRequest('http://fixture.local/api/hr/lifecycle/workflows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ person_id: personId, template_id: templateId, anchor_date: '2026-10-12' }) });
+    authenticated = false; expect((await workflows.POST(request.clone() as NextRequest)).status).toBe(401); authenticated = true;
+    const started = await workflows.POST(request); expect(started.status).toBe(201); const result = await started.json();
+    expect(result.tasks).toHaveLength(1);
+    const read = () => workflows.GET(new NextRequest(`http://fixture.local/api/hr/lifecycle/workflows?person_id=${personId}`));
+    expect((await (await read()).json()).capabilities.can_start_workflow).toBe(true);
+    const params = { params: Promise.resolve({ id: result.workflow.id }) };
+    await q('DELETE FROM hr_administrators WHERE organisation_id=$1', [org]);
+    expect((await cancel.POST(routeRequest('POST'), params)).status).toBe(403);
+    expect((await q('SELECT status FROM hr_lifecycle_workflows WHERE id=$1', [result.workflow.id]))[0].status).toBe('ACTIVE');
+    await q('INSERT INTO hr_administrators(organisation_id,user_id) VALUES($1,$2)', [org, hr.userId]);
+    expect((await cancel.POST(routeRequest('POST'), params)).status).toBe(200);
+    const listed = await (await read()).json(); expect(listed.workflows[0].status).toBe('CANCELLED'); expect(listed.workflows[0].capabilities.can_cancel).toBe(false);
+  });
   it.each(['success', 'revoked', 'lost-response', 'lost-version', 'lost-delete', 'lost-verification', 'lost-acknowledgement'] as const)('real drawer document writes: %s', async scenario => {
     const status = await import('@/app/api/hr/people/[id]/documents/[documentId]/versions/[versionId]/assurance/route');
     const built = await build({ configFile: false, logLevel: 'error', resolve: { alias: { '@': process.cwd() } },
