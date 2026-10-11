@@ -116,3 +116,11 @@ echo "Running real Postgres lifecycle workflow start/cancel proof..."
 )
 
 echo "HR-7C lifecycle mutation proofs passed."
+
+echo "Running real Postgres administration route proof..."
+(
+  cd "$REPO_ROOT"
+  DATABASE_URL="postgresql://postgres:test@127.0.0.1:${HOST_PORT}/testdb" \
+    npx vitest run scripts/tests/hrAdministrationRoutes.integration.test.ts \
+      --config vitest.integration.config.ts
+)
