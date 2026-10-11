@@ -81,13 +81,13 @@ async function perform(action: typeof actions[number]) {
   return administrators.DELETE(request('administrators?userId=proof-candidate', 'DELETE'));
 }
 describe('HR administration real routes and Postgres', () => {
-  it('renders committed grant/revoke recovery through Chromium, HTTP routes and Postgres', async () => {
+  it.each(['administrators', 'teams'] as const)('renders committed %s recovery through Chromium, HTTP routes and Postgres', async mode => {
     const built = await build({ configFile: false, logLevel: 'error', resolve: { alias: { '@': process.cwd() } },
       define: { 'process.env.NODE_ENV': JSON.stringify('production'), 'process.env': '{}' }, oxc: { jsx: { runtime: 'automatic', development: false } },
       plugins: [{ name: 'admin-database-browser', resolveId(id) {
         if (id === 'hr-admin-entry' || id.replaceAll('\\', '/').endsWith('/hr-admin-entry')) return '\0hr-admin-entry';
       }, load(id) {
-        if (id === '\0hr-admin-entry') return `import {createElement} from 'react'; import {createRoot} from 'react-dom/client'; import Page from ${JSON.stringify(path.resolve('app/people/administrators/page.tsx').replaceAll('\\', '/'))}; createRoot(document.getElementById('root')).render(createElement(Page));`;
+        if (id === '\0hr-admin-entry') return `import {createElement} from 'react'; import {createRoot} from 'react-dom/client'; import Page from ${JSON.stringify(path.resolve(`app/people/${mode}/page.tsx`).replaceAll('\\', '/'))}; createRoot(document.getElementById('root')).render(createElement(Page));`;
       } }], build: { write: false, lib: { entry: 'hr-admin-entry', name: 'AdminProof', formats: ['iife'] } } });
     const output = Array.isArray(built) ? built[0] : built;
     if (!('output' in output)) throw new Error('Expected browser bundle');
@@ -97,16 +97,25 @@ describe('HR administration real routes and Postgres', () => {
       void (async () => {
         if (incoming.url === '/') { outgoing.writeHead(200, { 'Content-Type': 'text/html' }); outgoing.end('<div id="root"></div>'); return; }
         const url = new URL(incoming.url!, 'http://fixture.local');
-        if (url.pathname !== '/api/hr/administrators') { outgoing.writeHead(404); outgoing.end(); return; }
         let result: NextResponse;
-        if (incoming.method === 'GET') result = await administrators.GET();
+        if (mode === 'teams' && incoming.method === 'GET') {
+          // Manager choices are a fixture; the management flag comes from the current DB grant.
+          result = url.pathname === '/api/hr/teams' ? await teams.GET(request(`teams${url.search}`, 'GET'))
+            : NextResponse.json({ people: [], canManage: (await q('SELECT 1 FROM hr_administrators WHERE organisation_id=$1 AND user_id=$2', [org, session.userId])).length > 0 });
+        } else if (incoming.method === 'GET') result = await administrators.GET();
         else {
           writes.push(incoming.method!);
           let body = ''; for await (const chunk of incoming) body += chunk.toString();
-          result = incoming.method === 'POST'
+          if (mode === 'teams') {
+            const id = url.pathname.split('/')[4];
+            result = url.pathname.endsWith('/archive') ? await archive.POST(request(`teams/${id}/archive`, 'POST'), params(id))
+              : url.pathname.endsWith('/restore') ? await restore.POST(request(`teams/${id}/restore`, 'POST'), params(id))
+              : incoming.method === 'PATCH' ? await team.PATCH(request(`teams/${id}`, 'PATCH', JSON.parse(body)), params(id))
+              : await teams.POST(request('teams', 'POST', JSON.parse(body)));
+          } else result = incoming.method === 'POST'
             ? await administrators.POST(request('administrators', 'POST', JSON.parse(body)))
             : await administrators.DELETE(request(`administrators${url.search}`, 'DELETE'));
-          expect(result.status).toBe(incoming.method === 'POST' ? 201 : 200);
+          expect(result.status).toBe(incoming.method === 'POST' && !/\/(archive|restore)$/.test(url.pathname) ? 201 : 200);
         }
         outgoing.writeHead(result.status, { 'Content-Type': 'application/json' }); outgoing.end(await result.text());
       })().catch(error => { errors.push(String(error)); outgoing.destroy(error); });
@@ -119,12 +128,37 @@ describe('HR administration real routes and Postgres', () => {
       const page = await browser.newPage(); page.on('pageerror', error => errors.push(error.message));
       // Lose the response after actual HTTP completion. Raw socket resets can be retried
       // by Chromium itself, which would confound the application's no-retry proof.
-      await page.route('**/api/hr/administrators**', async route => {
+      await page.route('**/api/hr/**', async route => {
         if (route.request().method() === 'GET') return route.continue();
         await route.fetch();
         await route.abort('failed');
       });
       await page.goto(`http://127.0.0.1:${address.port}/`); await page.addScriptTag({ content: script });
+      if (mode === 'teams') {
+        await browserExpect(page.getByText('Delivery', { exact: true })).toBeVisible();
+        for (const action of ['create', 'edit', 'archive', 'restore'] as const) {
+          const label = action === 'edit' ? 'Delivery' : 'Created browser';
+          if (action === 'create' || action === 'edit') {
+            await page.getByRole('button', { name: action === 'create' ? '+ Create Team' : `Edit ${label}`, exact: true }).click();
+            await page.getByLabel(/^Name/).fill(action === 'create' ? 'Created browser' : 'Edited browser');
+            await page.getByRole('button', { name: action === 'create' ? 'Create Team' : 'Save changes', exact: true }).click();
+            await browserExpect(page.getByText(/Close this form and refresh Teams/)).toBeVisible();
+            await browserExpect(page.getByRole('button', { name: action === 'create' ? 'Create Team' : 'Save changes', exact: true })).toBeDisabled();
+            await page.keyboard.press('Escape');
+          } else {
+            await page.getByRole('button', { name: `${action === 'archive' ? 'Archive' : 'Restore'} ${label}`, exact: true }).click();
+            if (action === 'archive') await page.getByRole('button', { name: `Confirm archive ${label}`, exact: true }).click();
+          }
+          await browserExpect(page.getByText(/change outcome is unknown/)).toBeVisible();
+          const committed = await snapshot();
+          await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+          await browserExpect(page.getByText(action === 'create' ? 'Created browser' : 'Edited browser', { exact: true })).toBeVisible();
+          expect(await snapshot()).toEqual(committed);
+          expect(writes).toHaveLength(['create', 'edit', 'archive', 'restore'].indexOf(action) + 1);
+          if (action === 'archive') await page.getByLabel('Show archived').check();
+        }
+        expect(errors).toEqual([]); return;
+      }
       await page.getByLabel('User to grant HR administrator access').selectOption('proof-candidate', { timeout: 5000 }).catch(async error => {
         throw new Error(`${String(error)}; browser errors: ${JSON.stringify(errors)}; rendered: ${await page.locator('body').innerText()}`);
       });
