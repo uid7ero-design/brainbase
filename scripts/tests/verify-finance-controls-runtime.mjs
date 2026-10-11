@@ -745,7 +745,41 @@ try {
     if((await fetch(origin+path,{method:'POST'})).status!==401)throw new Error('Unauthenticated reactivation accepted');
     if((await viewer.page.evaluate(async path=>(await fetch(path,{method:'POST'})).status,path))!==403)throw new Error('Viewer reactivation accepted');
     if((await page.evaluate(async path=>(await fetch(path,{method:'POST'})).status,path))!==404)throw new Error('Foreign reactivation accepted');
+    let blockedBudgetPosts=0;
+    const observeRecovery=request=>{if(request.method()==='POST'&&request.url().includes('/api/commercial/budgeting/budgets'))blockedBudgetPosts++;};
+    other.page.on('request',observeRecovery);
+    await other.page.route('**'+path,async route=>{
+      const response=await route.fetch();if(response.status()!==200)throw new Error('Recovery reactivation did not persist');
+      await route.abort();
+    });
     await section.getByRole('button',{name:'Reactivate '+code,exact:true}).click();
+    await expect(section.getByRole('alert')).toContainText('The save outcome could not be confirmed.');
+    const recoveryNotice=budgetSection.getByRole('region',{name:'Finance setup recovery',exact:true});
+    await expect(recoveryNotice.getByRole('link',{name:title,exact:true})).toBeVisible();
+    await expect(budgetSection.getByRole('button',{name:'Activate Budget version',exact:true})).toBeDisabled();
+    await expect(budgetSection.getByRole('button',{name:'Export Budget lines CSV',exact:true})).toBeDisabled();
+    await lineForm.evaluate(form=>form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+    // Reloading Budget alone must not clear the source's uncertain outcome.
+    await budgetSection.getByRole('button',{name:'Reload saved Budget',exact:true}).click();
+    await expect(budgetSection.getByRole('status')).toContainText('Saved Budget reloaded.');
+    await expect(budgetSection.getByRole('button',{name:'Activate Budget version',exact:true})).toBeDisabled();
+    await recoveryNotice.getByRole('link',{name:title,exact:true}).click();
+    await expect(section.getByRole('heading',{name:title,exact:true})).toBeFocused();
+    if(kind==='accounts'){
+      await other.page.setViewportSize({width:390,height:844});
+      await recoveryNotice.scrollIntoViewIfNeeded();
+      await other.page.screenshot({path:resolve(artifacts,'setup-recovery-coordination-mobile.png')});
+      await other.page.setViewportSize({width:1440,height:1000});
+    }
+    await other.page.unroute('**'+path);
+    await section.getByRole('button',{name:'Reload '+title.toLowerCase(),exact:true}).click();
+    await expect(budgetSection.getByRole('button',{name:'Activate Budget version',exact:true})).toBeEnabled();
+    await expect(budgetSection.getByRole('button',{name:'Export Budget lines CSV',exact:true})).toBeEnabled();
+    await expect(recoveryNotice).toHaveCount(0);
+    other.page.off('request',observeRecovery);
+    if(blockedBudgetPosts!==0)throw new Error('Budget mutation crossed an unresolved setup recovery');
+    const recoveryLine=(await pool.query('SELECT annual_budget_cents::text AS cents,budget_account_id,cost_centre_id FROM commercial_budget_lines WHERE id=$1',[budgetState.line_id])).rows[0];
+    if(recoveryLine.cents!=='10000'||recoveryLine.budget_account_id!==budgetDimensions[0]||recoveryLine.cost_centre_id!==budgetDimensions[1])throw new Error('Setup recovery changed saved Budget amounts or references');
     await expect(section.getByRole('button',{name:'Deactivate '+code,exact:true})).toBeVisible();
     if((await setupPost(path,{})).status!==200)throw new Error('Repeated reactivation failed');
     const audit=(await pool.query("SELECT count(*)::int AS n FROM audit_logs WHERE organisation_id='runtime-b' AND resource_id=$1 AND action=$2 AND user_id='runtime-other'",[budgetDimensions[index],(kind==='accounts'?'commercial_budget_account':'commercial_cost_centre')+'.reactivated'])).rows[0];
@@ -1123,7 +1157,7 @@ try {
   evidence.financeWorkflowChecks=['empty finance controls directs administrator to setup','setup links to mappings, reporting and finance controls','empty mapping and reporting screens provide setup guidance','workflow links navigate between actual screens','new dimensions are available in mapping choices and completed guidance clears','new calendar is available in finance controls','activated Budget persists when returning through workflow links','viewer and unentitled users do not see administrator workflow links'];
   evidence.allocationCalendarChecks=['empty calendar cell selects exact line and period with blank focused amount','selection and cancellation leave database unchanged','explicit zero persists exactly once and differs from an empty cell','annual amount and original allocation retained','saved calendar totals reload from database','mobile calendar scroll stays contained','activated calendar exposes no mutation controls'];
   evidence.activationConfirmationChecks=['review focuses saved activation context and exact annual total','draft editors disabled during confirmation','cancelling returns focus and leaves persisted version DRAFT','confirmed activation persists ACTIVE and locks editing','server rejects unbalanced allocations and inactive references through confirmation','mobile activation confirmation rendered for visual review'];
-  evidence.draftRecoveryChecks=['both draft dimensions can be deactivated','inactive references still block activation','both dimensions restored through UI without replacing draft references','restored draft activates with original version pointer','reactivation retains session actor and audits transition once on retry','unauthenticated, viewer, unentitled and foreign reactivation denied','non-string Budget enums return 400'];
+  evidence.draftRecoveryChecks=['unresolved dimension recovery pauses Budget edits activation and exports','Budget-only reload cannot clear an unresolved source outcome','source recovery requires a fresh Budget snapshot before re-enabling changes','blocked Budget submits send no POST and preserve amounts and references','both draft dimensions can be deactivated','inactive references still block activation','both dimensions restored through UI without replacing draft references','restored draft activates with original version pointer','reactivation retains session actor and audits transition once on retry','unauthenticated, viewer, unentitled and foreign reactivation denied','non-string Budget enums return 400'];
   writeFileSync(resolve(artifacts,'evidence.json'),JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));
 } finally {
   await browser?.close();

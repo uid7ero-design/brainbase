@@ -30,7 +30,7 @@ function CalendarFields({ prefix }: { prefix: string }) {
   </>;
 }
 
-export default function CalendarSetup({ onChange }: { onChange?: () => void }) {
+export default function CalendarSetup({ onChange, onRecoveryChange }: { onChange?: () => void; onRecoveryChange?: (blocked: boolean) => void }) {
   const [years, setYears] = useState<Year[]>([]);
   const [yearId, setYearId] = useState('');
   const [loading, setLoading] = useState(true);
@@ -57,15 +57,15 @@ export default function CalendarSetup({ onChange }: { onChange?: () => void }) {
         if (controller.signal.aborted) return;
         const calendar = readYears(data.years);
         setYears(calendar);
-        setLoaded(true);
+        setLoaded(true); onRecoveryChange?.(false);
         setYearId(calendar.find((year: Year) => year.status === 'OPEN')?.id ?? '');
       } catch (failure) {
-        if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : 'Unable to load the financial calendar.');
+        if (!controller.signal.aborted) { onRecoveryChange?.(true); setError(failure instanceof Error ? failure.message : 'Unable to load the financial calendar.'); }
       } finally { if (!controller.signal.aborted) setLoading(false); }
     }
     void load();
     return () => controller.abort();
-  }, []);
+  }, [onRecoveryChange]);
 
   async function reload() {
     if (operation.current || loading) return;
@@ -82,9 +82,10 @@ export default function CalendarSetup({ onChange }: { onChange?: () => void }) {
       setLoaded(true); setNeedsReload(false); recoveryRequired.current = false; pendingYear.current = null;
       setEditorRevision(current => current + 1);
       setMessage('Financial calendar reloaded. Review the saved years and periods before continuing. Unsaved entries have been cleared.');
-      onChange?.();
+      onChange?.(); onRecoveryChange?.(false);
       review.current?.focus();
     } catch (failure) {
+      recoveryRequired.current = true; setNeedsReload(true); onRecoveryChange?.(true);
       setError(failure instanceof Error ? failure.message : 'Unable to reload the financial calendar.');
     } finally { operation.current = false; setBusy(false); }
   }
@@ -122,7 +123,7 @@ export default function CalendarSetup({ onChange }: { onChange?: () => void }) {
       setMessage(kind === 'year' ? 'Financial year created. Add its periods below.' : 'Financial period created.');
     } catch (failure) {
       if (outcome === 'sent' || outcome === 'confirmed') {
-        recoveryRequired.current = true; setNeedsReload(true);
+        recoveryRequired.current = true; setNeedsReload(true); onRecoveryChange?.(true);
         setError(outcome === 'confirmed' ? 'The calendar change was saved, but its response could not be read. Reload the financial calendar before continuing.' : 'The save outcome could not be confirmed. Reload the financial calendar before continuing.');
       } else {
         pendingYear.current = null;
@@ -152,7 +153,7 @@ export default function CalendarSetup({ onChange }: { onChange?: () => void }) {
       </form>
     </section>
     <section ref={review} tabIndex={-1} aria-labelledby="configure-periods" className={styles.panel}>
-      <h2 id="configure-periods" style={{ marginTop: 0, fontSize: 16 }}>Financial periods</h2>
+      <h2 tabIndex={-1} id="configure-periods" style={{ marginTop: 0, fontSize: 16 }}>Financial periods</h2>
       <Field label="Financial year">{control => <select {...control} className={fieldControlClassName} value={yearId} onChange={event => setYearId(event.target.value)} disabled={locked}>
         <option value="">Choose year</option>
         {years.map(year => <option key={year.id} value={year.id}>{year.name} · {year.status}</option>)}

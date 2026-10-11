@@ -521,6 +521,33 @@ at the Balanced check while the UI remained busy; its evidence is retained in
 `snapshot-recovery-runtime-first.log`. The unchanged rerun passed the full flow
 (`snapshot-recovery-runtime-retry.log` and `snapshot-recovery-adelaide-retry`).
 
+## Coordinated finance setup recovery
+
+An uncertain calendar, account or cost-centre save now pauses Budget editing,
+activation and exports as well as the affected setup editor. A named recovery
+region links to each unresolved section. Reloading Budget alone does not clear
+a source's uncertain outcome. Successful source recovery refreshes the Budget
+snapshot; changes remain paused until that snapshot matches the latest setup
+revision. Multiple unresolved sections must each recover. Authoritative rejected
+saves leave the unchanged Budget usable.
+
+The synchronous setup revision/recovery check also guards submissions before new
+props render. Revisions received during a Budget save are read after it finishes,
+preventing the view from remaining stale. Failed source reloads retain the lock.
+Role, tenant, lifecycle and active-Budget restrictions remain server-authoritative.
+The browser runtime loses real dimension reactivation responses, proves that a
+Budget-only reload cannot unlock changes, then recovers the source and checks
+fresh controls, retained exact line amounts/references, and one reactivation
+audit event. No Budget mutation is sent while source recovery is unresolved.
+
+Coordination validation passed seven focused checks on rerun, 2,477 Commercial
+tests on the final candidate, standalone TypeScript, targeted lint, the production
+build and the full disposable browser/PostgreSQL flow. The initial focused run
+hit the existing five-second test deadline; its output is retained separately in
+`setup-coordination-focused-first.log`. The unchanged focused rerun passed before
+the final full-suite run. Runtime evidence and mobile capture are in
+`setup-coordination-runtime.log` and `setup-coordination-adelaide`.
+
 ## Repeatable runtime evidence
 
 Run `npx tsc --noEmit` separately before release verification. This checks the

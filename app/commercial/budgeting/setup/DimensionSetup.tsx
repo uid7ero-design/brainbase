@@ -15,7 +15,7 @@ function readRecords(value: unknown): RecordRow[] {
   if (!Array.isArray(value) || !value.every(isRecord)) throw new Error('Unable to read saved records. Reload before continuing.');
   return value;
 }
-export default function DimensionSetup({ kind, title, onChange }: { kind: 'accounts' | 'cost-centres'; title: string; onChange?: () => void }) {
+export default function DimensionSetup({ kind, title, onChange, onRecoveryChange }: { kind: 'accounts' | 'cost-centres'; title: string; onChange?: () => void; onRecoveryChange?: (blocked: boolean) => void }) {
   const [records, setRecords] = useState<RecordRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -37,12 +37,12 @@ export default function DimensionSetup({ kind, title, onChange }: { kind: 'accou
         if (!response.ok) throw new Error('Unable to load ' + title.toLowerCase() + '.');
         const rows = readRecords((await response.json()).records);
         if (controller.signal.aborted) return;
-        setRecords(rows); setLoaded(true);
-      } catch (failure) { if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : 'Unable to load records.'); }
+        setRecords(rows); setLoaded(true); onRecoveryChange?.(false);
+      } catch (failure) { if (!controller.signal.aborted) { onRecoveryChange?.(true); setError(failure instanceof Error ? failure.message : 'Unable to load records.'); } }
       finally { if (!controller.signal.aborted) setLoading(false); }
     }
     void load(); return () => controller.abort();
-  }, [endpoint, title]);
+  }, [endpoint, title, onRecoveryChange]);
   async function reload() {
     if (operation.current || loading) return;
     operation.current = true; setBusy(true); setError(''); setMessage('');
@@ -53,8 +53,8 @@ export default function DimensionSetup({ kind, title, onChange }: { kind: 'accou
       setRecords(rows); setLoaded(true); setNeedsReload(false); recoveryRequired.current = false;
       setEditorRevision(current => current + 1);
       setMessage(title + ' reloaded. Review saved records before continuing. Unsaved entries have been cleared.');
-      onChange?.(); review.current?.focus();
-    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Unable to reload records.'); }
+      onChange?.(); onRecoveryChange?.(false); review.current?.focus();
+    } catch (failure) { recoveryRequired.current = true; setNeedsReload(true); onRecoveryChange?.(true); setError(failure instanceof Error ? failure.message : 'Unable to reload records.'); }
     finally { operation.current = false; setBusy(false); }
   }
   async function save(form?: HTMLFormElement, record?: RecordRow) {
@@ -76,7 +76,7 @@ export default function DimensionSetup({ kind, title, onChange }: { kind: 'accou
       onChange?.();
     } catch (failure) {
       if (outcome === 'sent' || outcome === 'confirmed') {
-        recoveryRequired.current = true; setNeedsReload(true);
+        recoveryRequired.current = true; setNeedsReload(true); onRecoveryChange?.(true);
         setError(outcome === 'confirmed' ? 'The change was saved, but its response could not be read. Reload saved records before continuing.' : 'The save outcome could not be confirmed. Reload saved records before continuing.');
       } else setError(failure instanceof Error ? failure.message : 'Unable to save record.');
     } finally { operation.current = false; setBusy(false); }
