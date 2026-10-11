@@ -258,7 +258,16 @@ reading semantic/quality snapshots. Malformed envelopes, unknown keys,
 unsupported envelope versions and out-of-bound lists return
 `PROFILE_BUNDLE_INVALID`. Sparse entries are invalid requests, not skipped.
 
-Every request uses the existing review-derived profile-target planner. Success
+The admitted review revision is captured once. Semantic and quality snapshots
+are read once to derive an owned readiness snapshot for the entire bundle;
+schema catalog construction is not repeated for each intent. Every request
+then uses the existing dataset-scoped profile-target planner with that common
+readiness. Accepted plans still have independent copied contexts and snapshots.
+Readiness derivation failures retain `requestIndex: 0`; request-specific
+failures retain the first failing position. This preparation is per invocation,
+with no shared cache or durable prepared state.
+
+Success
 retains request order, duplicate intents, detached scoped plans and one review
 revision. The first failed request returns its existing closed diagnostic and
 zero-based `requestIndex`, without any partial plans. This is all-or-nothing

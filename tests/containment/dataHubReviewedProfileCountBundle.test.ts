@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildReviewedProfileCountBundle, MAX_PROFILE_COUNT_BUNDLE_REQUESTS, type ReviewedPlanningSnapshot, type AnalysisDatasetContext } from "@/lib/data-hub/analysis";
+import { buildReviewedProfileCountBundle, buildReviewedProfileCountPlan, MAX_PROFILE_COUNT_BUNDLE_REQUESTS, type ReviewedPlanningSnapshot, type AnalysisDatasetContext } from "@/lib/data-hub/analysis";
 function context(): AnalysisDatasetContext {
   return { organisationId: "org", uploadId: "upload", importBatchId: "batch",
     normalizationRunId: "normalization", datasetProfileRunId: "profile", sourceSchemaVersionId: "schema",
@@ -20,6 +20,39 @@ const bundle = (requests: unknown[] = [rows, present], expectedReviewRevision = 
   ({ bundleVersion: "v1", expectedReviewRevision, requests });
 
 describe("review-pinned profile planning bundles", () => {
+  it("reads the review revision and snapshots once for the largest accepted bundle", () => {
+    const metadata = review();
+    const schema = metadata.schema.snapshot; const quality = metadata.quality.snapshot;
+    let revisions = 0; let schemas = 0; let qualities = 0;
+    Object.defineProperty(metadata, "revision", { get() { revisions++; return revisions === 1 ? 3 : 4; } });
+    Object.defineProperty(metadata.schema, "snapshot", { get() { schemas++; return schema; } });
+    Object.defineProperty(metadata.quality, "snapshot", { get() { qualities++; return quality; } });
+    const result = buildReviewedProfileCountBundle(context(), metadata, bundle(Array(MAX_PROFILE_COUNT_BUNDLE_REQUESTS).fill(present)));
+    expect(result).toMatchObject({ ok: true, reviewRevision: 3 });
+    expect({ revisions, schemas, qualities }).toEqual({ revisions: 1, schemas: 1, qualities: 1 });
+    if (!result.ok) throw new Error(result.code);
+    expect(result.plans).toHaveLength(MAX_PROFILE_COUNT_BUNDLE_REQUESTS);
+  });
+  it.each(["READY", "READY_WITH_ACKNOWLEDGED_NOTICES", "HOLD_FOR_REMEDIATION"] as const)
+    ("preserves single-request planner behavior for quality %s", state => {
+      const metadata = review(); metadata.quality.snapshot.state = state;
+      for (const request of [rows, present, { ...present, sourceSchemaColumnId: "missing" }, null]) {
+        const single = buildReviewedProfileCountPlan(context(), metadata, request);
+        const result = buildReviewedProfileCountBundle(context(), metadata, bundle([request]));
+        expect(result).toEqual(single.ok ? { ok: true, bundleVersion: "v1", reviewRevision: single.reviewRevision,
+          plans: [single.plan] } : { ...single, requestIndex: 0 });
+      }
+    });
+  it.each(["lineage", "quality", "catalog", "version"])("retains review admission denial %s without partial plans", kind => {
+    const metadata = review();
+    if (kind === "lineage") Object.assign(metadata.quality.snapshot, { schemaVersion: "v2" });
+    if (kind === "quality") Object.assign(metadata.quality.snapshot, { state: "UNKNOWN" });
+    if (kind === "catalog") metadata.schema.snapshot.fields.push(metadata.schema.snapshot.fields[0]);
+    if (kind === "version") Object.assign(metadata.quality.snapshot, { resolutionVersion: "v2" });
+    const single = buildReviewedProfileCountPlan(context(), metadata, rows);
+    expect(single.ok).toBe(false);
+    expect(buildReviewedProfileCountBundle(context(), metadata, bundle())).toEqual({ ...single, requestIndex: 0 });
+  });
   it("preserves order and duplicates with detached plans and no values", () => {
     const metadata = review(); const input = bundle([present, rows, present]);
     const before = structuredClone({ metadata, input });

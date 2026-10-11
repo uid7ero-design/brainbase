@@ -182,7 +182,7 @@ service tests pass, along with TypeScript, changed-file lint and diff checks.
 It adds no database/API/UI/AI execution or migration. Earlier workflow browser
 evidence remains separate from these pure planning tests.
 
-The bounded review-pinned planning bundle adds all-or-nothing composition for
+The bounded review-pinned planning bundle on `09600408` adds all-or-nothing composition for
 1–20 profile-count intents against one supplied review revision. It preserves
 request order and duplicates, checks revision equality before snapshot access,
 and returns no partial plans when a request fails. Revision matching does not
@@ -191,3 +191,13 @@ count/response/route tests pass. Disposable database and browser evidence above
 belongs to the predecessor candidates; those flows are not rerun for this pure
 contract addition. No database/API/UI/AI execution, migration or raw-value
 access is added. The existing Production release hold remains in force.
+
+The single-preparation bundle captures the admitted revision and reads review
+snapshots once per invocation, deriving common readiness before planning the
+ordered requests. It avoids repeated semantic catalog construction without
+adding a shared cache, persistent prepared state or execution. Regression
+checks compare supported ready/notice/hold behavior with the single-request
+planner and preserve early admission failures and indexed request denials.
+All 324 focused contract/count/response/route tests pass, along with TypeScript,
+changed-file lint and diff checks.
+Earlier database/browser evidence remains separate; Production is untouched.
