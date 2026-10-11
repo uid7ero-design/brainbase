@@ -99,7 +99,7 @@ beforeEach(async () => {
 });
 afterAll(async () => { await pool.end(); });
 describe('Employee document mutations against Postgres with in-memory storage', () => {
-  it.each([false, true])('real drawer document writes with grant revoked before upload: %s', async revokeBeforeUpload => {
+  it.each(['success', 'revoked', 'lost-response'] as const)('real drawer document writes: %s', async scenario => {
     const status = await import('@/app/api/hr/people/[id]/documents/[documentId]/versions/[versionId]/assurance/route');
     const built = await build({ configFile: false, logLevel: 'error', resolve: { alias: { '@': process.cwd() } },
       define: { 'process.env.NODE_ENV': JSON.stringify('production'), 'process.env': '{}' }, oxc: { jsx: { runtime: 'automatic', development: false } },
@@ -144,7 +144,20 @@ describe('Employee document mutations against Postgres with in-memory storage', 
       });
       await page.getByLabel('Document type', { exact: true }).fill('policy'); await page.getByLabel('Title', { exact: true }).fill('Browser policy');
       await page.locator('input[type=file]').setInputFiles({ name: 'synthetic.txt', mimeType: 'text/plain', buffer: Buffer.from('Synthetic fixture') });
-      if (revokeBeforeUpload) {
+      if (scenario === 'lost-response') {
+        await page.route('**/documents', async route => {
+          if (route.request().method() === 'GET') return route.continue();
+          const response = await route.fetch(); expect(response.status()).toBe(201); await route.abort('failed');
+        });
+        await page.getByRole('button', { name: 'Upload document', exact: true }).click();
+        await browserExpect(page.getByText('Could not upload document.', { exact: true })).toBeVisible();
+        const committed = await snapshot(); expect(committed.documents).toHaveLength(1); expect(committed.versions).toHaveLength(1);
+        expect(blobs.size).toBe(1); expect(writes).toEqual(['POST']);
+        await page.reload(); await page.addScriptTag({ content: script });
+        await browserExpect(page.getByText('Browser policy', { exact: true })).toBeVisible();
+        expect(await snapshot()).toEqual(committed); expect(writes).toEqual(['POST']); expect(errors).toEqual([]); return;
+      }
+      if (scenario === 'revoked') {
         await q('DELETE FROM hr_administrators WHERE organisation_id=$1', [org]);
         const before = await snapshot();
         const denied = page.waitForResponse(response => response.request().method() === 'POST');
