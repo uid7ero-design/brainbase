@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { Pool } from 'pg';
+import { NextRequest, NextResponse } from 'next/server';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl || !['localhost', '127.0.0.1'].includes(new URL(databaseUrl).hostname)) throw new Error('Document proof requires disposable loopback Postgres.');
@@ -32,6 +33,27 @@ const personId = '94444444-4444-4444-8444-444444444444';
 const hr = { organisationId: org, userId: 'document-hr', isSuperAdmin: false };
 const employee = { organisationId: org, userId: 'document-employee', isSuperAdmin: false };
 const outsider = { organisationId: org, userId: 'document-outsider', isSuperAdmin: false };
+let routeUser = hr.userId;
+let authenticated = true;
+vi.doMock('@/lib/org', () => ({
+  requireSession: async () => { if (!authenticated) throw new Error('Unauthenticated'); return { organisationId: org, userId: routeUser, role: 'viewer' }; },
+  unauthorized: () => NextResponse.json({ error: 'Unauthorized' }, { status: 401 }),
+  forbidden: () => NextResponse.json({ error: 'Forbidden' }, { status: 403 }),
+}));
+vi.doMock('@/lib/hr/capability', () => ({ requireHrCapability: async () => {} }));
+let routes: typeof import('@/app/api/hr/people/[id]/documents/route');
+let versions: typeof import('@/app/api/hr/people/[id]/documents/[documentId]/versions/route');
+let remove: typeof import('@/app/api/hr/people/[id]/documents/[documentId]/route');
+let acknowledge: typeof import('@/app/api/hr/people/[id]/documents/[documentId]/versions/[versionId]/acknowledgements/route');
+let verify: typeof import('@/app/api/hr/people/[id]/documents/[documentId]/versions/[versionId]/verifications/route');
+const routeParams = (documentId = '', versionId = '') => ({ params: Promise.resolve({ id: personId, documentId, versionId }) });
+const routeRequest = (method: string, body?: FormData | Record<string, unknown>) => new NextRequest('http://fixture.local/api/hr/documents', {
+  method, ...(body instanceof FormData ? { body } : body ? { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } } : {}),
+});
+const multipart = (create = false) => {
+  const form = new FormData(); form.set('file', new File(['Synthetic fixture'], 'synthetic.txt', { type: 'text/plain' }));
+  if (create) { form.set('document_type', 'policy'); form.set('title', 'HTTP policy'); } return form;
+};
 let documents: typeof import('@/lib/hr/employeeDocumentMutations');
 let assurance: typeof import('@/lib/hr/employeeDocumentAssuranceMutations');
 const q = async (text: string, values: unknown[] = []) => (await pool.query(text, values)).rows;
@@ -52,6 +74,11 @@ beforeAll(async () => {
   await q(readFileSync('scripts/create-hr-employee-documents.sql', 'utf8'));
   await q(readFileSync('scripts/create-hr-employee-document-assurance.sql', 'utf8'));
   documents = await import('@/lib/hr/employeeDocumentMutations'); assurance = await import('@/lib/hr/employeeDocumentAssuranceMutations');
+  routes = await import('@/app/api/hr/people/[id]/documents/route');
+  versions = await import('@/app/api/hr/people/[id]/documents/[documentId]/versions/route');
+  remove = await import('@/app/api/hr/people/[id]/documents/[documentId]/route');
+  acknowledge = await import('@/app/api/hr/people/[id]/documents/[documentId]/versions/[versionId]/acknowledgements/route');
+  verify = await import('@/app/api/hr/people/[id]/documents/[documentId]/versions/[versionId]/verifications/route');
   await q('INSERT INTO organisations(id,name,slug) VALUES ($1,$1,$1)', [org]);
   for (const userId of [hr.userId, employee.userId, outsider.userId]) {
     await q('INSERT INTO users(id,organisation_id,username,name) VALUES ($1,$2,$1,$1)', [userId, org]);
@@ -60,6 +87,7 @@ beforeAll(async () => {
 });
 beforeEach(async () => {
   blobs.clear();
+  routeUser = hr.userId; authenticated = true;
   for (const table of ['hr_employee_document_acknowledgements', 'hr_employee_document_verifications', 'hr_employee_document_versions', 'hr_employee_documents', 'audit_logs', 'hr_administrators']) {
     await q(`DELETE FROM ${table} WHERE organisation_id=$1`, [org]);
   }
@@ -67,6 +95,45 @@ beforeEach(async () => {
 });
 afterAll(async () => { await pool.end(); });
 describe('Employee document mutations against Postgres with in-memory storage', () => {
+  it('executes multipart upload, version history, acknowledgement, verification and deletion through real routes', async () => {
+    const uploaded = await routes.POST(routeRequest('POST', multipart(true)), routeParams());
+    expect(uploaded.status).toBe(201);
+    const first = await uploaded.json(); const documentId = first.document.id;
+    const replacement = await versions.POST(routeRequest('POST', multipart()), routeParams(documentId));
+    expect(replacement.status).toBe(201); const second = await replacement.json();
+    const history = await versions.GET(routeRequest('GET'), routeParams(documentId));
+    expect(history.status).toBe(200);
+    expect((await history.json()).versions.map((row: { version_number: number; is_current: boolean }) => [row.version_number, row.is_current]).sort())
+      .toEqual([[1, false], [2, true]]);
+    routeUser = employee.userId;
+    expect((await acknowledge.POST(routeRequest('POST'), routeParams(documentId, second.version.id))).status).toBe(201);
+    expect((await acknowledge.POST(routeRequest('POST'), routeParams(documentId, second.version.id))).status).toBe(200);
+    routeUser = hr.userId;
+    expect((await verify.POST(routeRequest('POST', { decision: 'VERIFIED' }), routeParams(documentId, second.version.id))).status).toBe(201);
+    const listed = await routes.GET(routeRequest('GET'), routeParams());
+    expect(listed.status).toBe(200); expect((await listed.json()).documents).toHaveLength(1);
+    const beforeDelete = await snapshot();
+    expect((await remove.DELETE(routeRequest('DELETE'), routeParams(documentId))).status).toBe(200);
+    expect((await (await routes.GET(routeRequest('GET'), routeParams())).json()).documents).toHaveLength(0);
+    const afterDelete = await snapshot(); expect(afterDelete.versions).toEqual(beforeDelete.versions);
+    expect(afterDelete.acknowledgements).toEqual(beforeDelete.acknowledgements); expect(afterDelete.verifications).toEqual(beforeDelete.verifications);
+    expect(blobs.size).toBe(2);
+  });
+  it('denies unauthenticated and revoked administration routes before multipart storage or database changes', async () => {
+    const created = await create(); const params = routeParams(created.document.id, created.version.id);
+    authenticated = false; const before = await snapshot();
+    expect((await routes.POST(routeRequest('POST', multipart(true)), routeParams())).status).toBe(401);
+    expect((await versions.POST(routeRequest('POST', multipart()), params)).status).toBe(401);
+    expect((await acknowledge.POST(routeRequest('POST'), params)).status).toBe(401);
+    expect((await verify.POST(routeRequest('POST', { decision: 'VERIFIED' }), params)).status).toBe(401);
+    expect((await remove.DELETE(routeRequest('DELETE'), params)).status).toBe(401);
+    expect(await snapshot()).toEqual(before);
+    authenticated = true; await q('DELETE FROM hr_administrators WHERE organisation_id=$1', [org]); const revoked = await snapshot();
+    expect((await routes.POST(routeRequest('POST', multipart(true)), routeParams())).status).toBe(403);
+    expect((await versions.POST(routeRequest('POST', multipart()), params)).status).toBe(403);
+    expect((await remove.DELETE(routeRequest('DELETE'), params)).status).toBe(403);
+    expect(await snapshot()).toEqual(revoked); expect(blobs.size).toBe(1);
+  });
   it('creates immutable versions and serializes competing version uploads to one current version', async () => {
     const created = await create();
     const outcomes = await Promise.all([1, 2].map(() => documents.addEmployeeDocumentVersion({ actor: hr, personId, documentId: created.document.id, ...upload })));
