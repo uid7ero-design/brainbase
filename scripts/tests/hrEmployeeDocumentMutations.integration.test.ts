@@ -99,7 +99,7 @@ beforeEach(async () => {
 });
 afterAll(async () => { await pool.end(); });
 describe('Employee document mutations against Postgres with in-memory storage', () => {
-  it('uploads, replaces and deletes through the real drawer, loopback HTTP and Postgres', async () => {
+  it.each([false, true])('real drawer document writes with grant revoked before upload: %s', async revokeBeforeUpload => {
     const status = await import('@/app/api/hr/people/[id]/documents/[documentId]/versions/[versionId]/assurance/route');
     const built = await build({ configFile: false, logLevel: 'error', resolve: { alias: { '@': process.cwd() } },
       define: { 'process.env.NODE_ENV': JSON.stringify('production'), 'process.env': '{}' }, oxc: { jsx: { runtime: 'automatic', development: false } },
@@ -144,6 +144,19 @@ describe('Employee document mutations against Postgres with in-memory storage', 
       });
       await page.getByLabel('Document type', { exact: true }).fill('policy'); await page.getByLabel('Title', { exact: true }).fill('Browser policy');
       await page.locator('input[type=file]').setInputFiles({ name: 'synthetic.txt', mimeType: 'text/plain', buffer: Buffer.from('Synthetic fixture') });
+      if (revokeBeforeUpload) {
+        await q('DELETE FROM hr_administrators WHERE organisation_id=$1', [org]);
+        const before = await snapshot();
+        const denied = page.waitForResponse(response => response.request().method() === 'POST');
+        await page.getByRole('button', { name: 'Upload document', exact: true }).click();
+        expect((await denied).status()).toBe(403);
+        await browserExpect(page.getByText('Could not upload document.', { exact: true })).toBeVisible();
+        expect(await snapshot()).toEqual(before); expect(blobs.size).toBe(0); expect(writes).toEqual(['POST']);
+        await page.reload(); await page.addScriptTag({ content: script });
+        await browserExpect(page.getByText('Synthetic Employee', { exact: true })).toBeVisible();
+        await browserExpect(page.getByRole('button', { name: 'Add document', exact: true })).toHaveCount(0);
+        expect(await snapshot()).toEqual(before); expect(errors).toEqual([]); return;
+      }
       await page.getByRole('button', { name: 'Upload document', exact: true }).click();
       await browserExpect(page.getByText('Browser policy', { exact: true })).toBeVisible();
       expect((await snapshot()).versions).toHaveLength(1);
