@@ -2,6 +2,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { readFileSync } from 'node:fs';
 import { Pool } from 'pg';
 import { NextRequest, NextResponse } from 'next/server';
+import { createServer } from 'node:http';
+import { chromium, expect as browserExpect } from '@playwright/test';
+import { build } from 'vite';
+import path from 'node:path';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl || !['localhost', '127.0.0.1'].includes(new URL(databaseUrl).hostname)) throw new Error('Document proof requires disposable loopback Postgres.');
@@ -95,6 +99,64 @@ beforeEach(async () => {
 });
 afterAll(async () => { await pool.end(); });
 describe('Employee document mutations against Postgres with in-memory storage', () => {
+  it('uploads, replaces and deletes through the real drawer, loopback HTTP and Postgres', async () => {
+    const status = await import('@/app/api/hr/people/[id]/documents/[documentId]/versions/[versionId]/assurance/route');
+    const built = await build({ configFile: false, logLevel: 'error', resolve: { alias: { '@': process.cwd() } },
+      define: { 'process.env.NODE_ENV': JSON.stringify('production'), 'process.env': '{}' }, oxc: { jsx: { runtime: 'automatic', development: false } },
+      plugins: [{ name: 'document-browser-proof', resolveId(id) {
+        if (id === 'document-entry' || id.replaceAll('\\', '/').endsWith('/document-entry')) return '\0document-entry';
+      }, load(id) {
+        if (id === '\0document-entry') return `import {createElement} from 'react'; import {createRoot} from 'react-dom/client'; import Drawer from ${JSON.stringify(path.resolve('app/people/_components/PersonDrawer.tsx').replaceAll('\\', '/'))}; createRoot(document.getElementById('root')).render(createElement(Drawer,{personId:${JSON.stringify(personId)},canManage:false,onClose:()=>{},onEdit:()=>{}}));`;
+      } }], build: { write: false, lib: { entry: 'document-entry', name: 'DocumentProof', formats: ['iife'] } } });
+    const output = Array.isArray(built) ? built[0] : built;
+    if (!('output' in output)) throw new Error('Expected browser bundle');
+    const script = output.output.filter(item => item.type === 'chunk').map(item => item.code).join('\n');
+    const errors: string[] = [], writes: string[] = [];
+    const server = createServer((incoming, outgoing) => { void (async () => {
+      if (incoming.url === '/') { outgoing.writeHead(200, { 'Content-Type': 'text/html' }); outgoing.end('<div id="root"></div>'); return; }
+      const url = new URL(incoming.url!, 'http://fixture.local'), segments = url.pathname.split('/');
+      const parts: Uint8Array[] = []; for await (const chunk of incoming) parts.push(chunk);
+      const body = Buffer.concat(parts);
+      const req = new NextRequest(url, { method: incoming.method, headers: { 'Content-Type': incoming.headers['content-type'] || 'application/json' }, ...(body.length ? { body } : {}) });
+      let result: Response;
+      if (url.pathname.startsWith('/api/hr/lifecycle/')) result = NextResponse.json({ workflows: [], capabilities: { can_start_workflow: false } });
+      else if (segments.length === 5) result = NextResponse.json({ person: { id: personId, first_name: 'Synthetic', last_name: 'Employee', job_title: null, employment_status: 'active', worker_type: 'employee' } });
+      else {
+        const params = routeParams(segments[6], segments[8]);
+        if (incoming.method !== 'GET') writes.push(incoming.method!);
+        if (segments.length === 6) result = incoming.method === 'GET' ? await routes.GET(req, params) : await routes.POST(req, params);
+        else if (segments.length === 7) result = await remove.DELETE(req, params);
+        else if (segments.length === 8) result = incoming.method === 'GET' ? await versions.GET(req, params) : await versions.POST(req, params);
+        else result = await status.GET(req, params);
+      }
+      outgoing.writeHead(result.status, { 'Content-Type': 'application/json' }); outgoing.end(await result.text());
+    })().catch(error => { errors.push(String(error)); outgoing.destroy(error); }); });
+    await new Promise<void>(resolve => { server.listen(0, '127.0.0.1', resolve); });
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('Expected loopback listener');
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage(); page.on('pageerror', error => errors.push(error.message));
+      await page.goto(`http://127.0.0.1:${address.port}/`); await page.addScriptTag({ content: script });
+      await page.getByRole('button', { name: 'Add document', exact: true }).click({ timeout: 5000 }).catch(async error => {
+        throw new Error(`${String(error)}; errors: ${JSON.stringify(errors)}; rendered: ${await page.locator('body').innerText()}`);
+      });
+      await page.getByLabel('Document type', { exact: true }).fill('policy'); await page.getByLabel('Title', { exact: true }).fill('Browser policy');
+      await page.locator('input[type=file]').setInputFiles({ name: 'synthetic.txt', mimeType: 'text/plain', buffer: Buffer.from('Synthetic fixture') });
+      await page.getByRole('button', { name: 'Upload document', exact: true }).click();
+      await browserExpect(page.getByText('Browser policy', { exact: true })).toBeVisible();
+      expect((await snapshot()).versions).toHaveLength(1);
+      await page.getByRole('button', { name: 'Add version', exact: true }).click();
+      await page.getByLabel('New version file', { exact: true }).setInputFiles({ name: 'replacement.txt', mimeType: 'text/plain', buffer: Buffer.from('Replacement fixture') });
+      await page.getByRole('button', { name: 'Upload version', exact: true }).click();
+      await browserExpect(page.getByText(/Version 2/).first()).toBeVisible(); expect((await snapshot()).versions).toHaveLength(2);
+      await page.getByRole('button', { name: 'Version history', exact: true }).click();
+      await browserExpect(page.getByRole('button', { name: 'Hide version history', exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Delete', exact: true }).click(); await page.getByRole('button', { name: 'Confirm delete', exact: true }).click();
+      await browserExpect(page.getByText('Browser policy', { exact: true })).toHaveCount(0);
+      const saved = await snapshot(); expect(saved.documents[0].deleted_at).not.toBeNull(); expect(saved.versions).toHaveLength(2);
+      expect(blobs.size).toBe(2); expect(writes).toEqual(['POST', 'POST', 'DELETE']); expect(errors).toEqual([]);
+    } finally { await browser.close(); server.closeAllConnections(); await new Promise<void>((resolve, reject) => { server.close(error => error ? reject(error) : resolve()); }); }
+  }, 60_000);
   it('executes multipart upload, version history, acknowledgement, verification and deletion through real routes', async () => {
     const uploaded = await routes.POST(routeRequest('POST', multipart(true)), routeParams());
     expect(uploaded.status).toBe(201);
