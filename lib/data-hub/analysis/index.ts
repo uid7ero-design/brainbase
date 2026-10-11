@@ -6,6 +6,7 @@ export * from "./plan";
 export * from "./profileCountPlan";
 export * from "./scopedProfileCountPlan";
 export * from "./reviewedProfileCountPlan";
+export * from "./reviewedProfileCountBundle";
 export * from "./fieldCatalogValidation";
 export * from "./profileCounts";
 export * from "./scopedProfileCounts";

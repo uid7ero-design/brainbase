@@ -174,10 +174,20 @@ failure-reference tests and 64 rerun disposable PostgreSQL service tests pass,
 as do TypeScript, changed-file lint and diff checks. Earlier browser/build
 evidence is not claimed as rerun by these pure contract tests.
 
-The review-derived planning bundle composes trusted semantic/quality snapshots
+The review-derived planning bundle on `c687d175` composes trusted semantic/quality snapshots
 and their revision into a scoped plan without caller-supplied readiness or
 profile statistics. It does not certify persistence or freshness. All 290
 focused contract/count/response/route tests and 64 rerun disposable PostgreSQL
 service tests pass, along with TypeScript, changed-file lint and diff checks.
 It adds no database/API/UI/AI execution or migration. Earlier workflow browser
 evidence remains separate from these pure planning tests.
+
+The bounded review-pinned planning bundle adds all-or-nothing composition for
+1–20 profile-count intents against one supplied review revision. It preserves
+request order and duplicates, checks revision equality before snapshot access,
+and returns no partial plans when a request fails. Revision matching does not
+prove persisted freshness or authorize execution. All 316 focused contract/
+count/response/route tests pass. Disposable database and browser evidence above
+belongs to the predecessor candidates; those flows are not rerun for this pure
+contract addition. No database/API/UI/AI execution, migration or raw-value
+access is added. The existing Production release hold remains in force.

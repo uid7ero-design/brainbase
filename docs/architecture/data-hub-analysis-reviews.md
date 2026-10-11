@@ -243,3 +243,26 @@ algorithm versions and unsupported field operations fail closed. The snapshots
 and revision must come from an authorized loader; this pure composition cannot
 prove persistence, fresh pointers or permissions. No API accepts caller-created
 review snapshots, and this bundle adds no database or analysis execution path.
+
+## Bounded review-pinned planning bundles
+
+`buildReviewedProfileCountBundle` accepts the same trusted review metadata plus
+a closed envelope: `bundleVersion: "v1"`, a positive safe integer
+`expectedReviewRevision`, and `requests`. The ordered request list contains
+between 1 and `MAX_PROFILE_COUNT_BUNDLE_REQUESTS` (20) intents. This explicit
+planning bound limits composition work; it is not an execution quota.
+
+Both dataset contexts and the supplied review revision are checked before
+request planning. Revision mismatch returns `REVIEW_REVISION_MISMATCH` before
+reading semantic/quality snapshots. Malformed envelopes, unknown keys,
+unsupported envelope versions and out-of-bound lists return
+`PROFILE_BUNDLE_INVALID`. Sparse entries are invalid requests, not skipped.
+
+Every request uses the existing review-derived profile-target planner. Success
+retains request order, duplicate intents, detached scoped plans and one review
+revision. The first failed request returns its existing closed diagnostic and
+zero-based `requestIndex`, without any partial plans. This is all-or-nothing
+intent composition, not a database transaction or permission to run a batch.
+Revision equality compares supplied metadata only; an authorized execution
+caller would still need fresh persisted review, lineage and permission checks.
+No statistics, raw values, API, UI or execution path are added.
