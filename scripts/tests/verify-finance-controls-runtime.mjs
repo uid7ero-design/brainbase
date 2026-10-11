@@ -194,8 +194,66 @@ try {
   }
   const storedMappings=(await pool.query("SELECT effective_from::text,effective_to::text,status FROM commercial_external_gl_account_mappings WHERE source_system_id='flow-ledger' UNION ALL SELECT effective_from::text,effective_to::text,status FROM commercial_external_gl_cost_centre_mappings WHERE source_system_id='flow-ledger'")).rows;
   if(storedMappings.length!==2||storedMappings.some(row=>row.effective_from!=='2026-09-01'||row.effective_to!=='2026-09-20'||row.status!=='RETIRED'))throw new Error('Mapping UI changes did not persist exactly');
+  // A committed mapping with a lost response must recover by GET, for both kinds.
+  for(const [section,kind,code,dimension,table,column] of [
+    [accountSection,'mappings','RECOVERY-ACCOUNT','00000000-0000-4000-8000-000000000404','commercial_external_gl_account_mappings','external_gl_account_code'],
+    [centreSection,'cost-centre-mappings','RECOVERY-CENTRE','00000000-0000-4000-8000-000000000403','commercial_external_gl_cost_centre_mappings','external_cost_centre_code'],
+  ]){
+    const form=section.locator('form');
+    await form.getByLabel('Source system',{exact:true}).fill('flow-ledger');
+    await form.getByLabel(kind==='mappings'?'External GL code':'External cost-centre code',{exact:true}).fill(code);
+    await form.getByRole('combobox').selectOption(dimension);
+    await form.getByLabel('Effective from',{exact:true}).fill('2026-09-01');
+    let createPosts=0;
+    const createPattern='**/api/commercial/budgeting/external-gl/'+kind;
+    await page.route(createPattern,async route=>{
+      if(route.request().method()!=='POST'){await route.continue();return;}
+      createPosts++;
+      const response=await route.fetch();
+      if(response.status()!==201)throw new Error('Recovery mapping creation did not commit');
+      await route.abort();
+    });
+    await form.getByRole('button',{name:'Create mapping',exact:true}).click();
+    await expect(page.getByRole('alert').filter({hasText:'mapping save outcome could not be confirmed'})).toBeVisible();
+    await expect(form.getByLabel('Source system',{exact:true})).toHaveValue('flow-ledger');
+    await form.evaluate(element=>element.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+    if(createPosts!==1)throw new Error('Uncertain mapping create was repeated');
+    await page.unroute(createPattern);
+    const referencePattern='**/api/commercial/budgeting/external-gl/reference-data';
+    await page.route(referencePattern,async route=>{const response=await route.fetch();await route.fulfill({response,json:{}});});
+    await page.getByRole('button',{name:'Reload saved mappings',exact:true}).click();
+    await expect(page.getByRole('alert').filter({hasText:'saved view is incomplete'})).toBeVisible();
+    await expect(form.getByLabel('Source system',{exact:true})).toHaveValue('flow-ledger');
+    await page.unroute(referencePattern);
+    await page.getByRole('button',{name:'Reload saved mappings',exact:true}).click();
+    await expect(page.getByRole('heading',{name:'External GL mappings',exact:true})).toBeFocused();
+    await expect(form.getByLabel('Source system',{exact:true})).toHaveValue('');
+    const row=section.locator('tbody tr').filter({hasText:code});
+    await expect(row).toHaveCount(1);
+    const saved=(await pool.query(`SELECT id,status,created_by FROM ${table} WHERE source_system_id='flow-ledger' AND ${column}=$1`,[code])).rows;
+    if(saved.length!==1||saved[0].created_by!=='runtime-admin'||saved[0].status!=='ACTIVE')throw new Error('Mapping recovery did not preserve one saved identity');
+    let retirePosts=0;
+    const retirePattern='**/api/commercial/budgeting/external-gl/'+kind+'/'+saved[0].id+'/retire';
+    await page.route(retirePattern,async route=>{
+      retirePosts++;
+      const response=await route.fetch();
+      if(response.status()!==200)throw new Error('Recovery mapping retirement did not commit');
+      await route.abort();
+    });
+    await row.getByLabel('Effective-to date',{exact:true}).fill('2026-09-20');
+    await row.getByRole('button',{name:'Retire',exact:true}).click();
+    await expect(page.getByRole('alert').filter({hasText:'mapping save outcome could not be confirmed'})).toBeVisible();
+    await expect(row.getByRole('button',{name:'Retire',exact:true})).toBeDisabled();
+    await page.unroute(retirePattern);
+    await page.getByRole('button',{name:'Reload saved mappings',exact:true}).click();
+    await expect(row).toContainText('RETIRED');
+    const retired=(await pool.query(`SELECT effective_to::text,status FROM ${table} WHERE id=$1`,[saved[0].id])).rows[0];
+    if(retirePosts!==1||retired.status!=='RETIRED'||retired.effective_to!=='2026-09-20')throw new Error('Retirement recovery repeated or altered the saved change');
+  }
   await page.screenshot({path:resolve(artifacts,'external-gl-desktop.png'),fullPage:true});
   await page.setViewportSize({width:390,height:844});
+  await page.getByRole('button',{name:'Reload saved mappings',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'External GL mappings',exact:true})).toBeFocused();
   await page.screenshot({path:resolve(artifacts,'external-gl-mobile.png'),fullPage:true});
   await page.setViewportSize({width:1440,height:1000});
   await page.goto(origin+'/commercial/budgeting/finance-controls');
@@ -1169,6 +1227,7 @@ try {
   const externalGlChecks=['mapping list calendar dates','account and cost-centre creation through real forms','exact create response dates','overlap rejection without duplicate facts','source filter','account and cost-centre retirement through real forms','exact retire response and persisted dates','viewer mutation denial','foreign mapping read and retirement denial'];
   const evidence={verified_at:new Date().toISOString(),serverTimezone,checks:['real login and production runtime','calendar dates preserved through API and screen','mobile metrics remain inside viewport','mobile history and reconciliation tables scroll to last column','exact $100 source and ledger match','prepare and review','sign-off blocked before close','period close and durable sign-off','year close and reopen','period reopen invalidates close and reconciliation','viewer denial','tenant isolation'],overflow,build_id:readFileSync('.next/BUILD_ID','utf8').trim()};
   evidence.externalGlChecks=externalGlChecks;
+  evidence.mappingRecoveryChecks=['account and cost-centre creates committed before response interruption','paused submissions do not repeat POST','failed GET retains inputs and recovery lock','complete GET clears inputs and focuses saved review','one durable mapping with authenticated actor','both retirement kinds recover without repeating POST'];
   evidence.importChecks=['real authenticated import API','exact BIGINT amount beyond JavaScript safe integers','date-only import response','exact duplicate idempotency','conflict preserves immutable facts','unsafe numeric, fractional and out-of-range amounts rejected','duplicate preserves signed-off reconciliation','conflict marks current reconciliation and close evidence stale','durable conflict event preserved','new ledger fact invalidates affected sign-off','new import stale event preserves source identity','viewer import denial','import identity and invalidation stay inside organisation'];
   evidence.importConcurrencyChecks=['database-gated overlapping identical requests return IMPORTED and IDEMPOTENT for one identity','concurrent changed facts return one import and one conflict','conflicting request does not overwrite the winning immutable fact'];
   evidence.calendarSetupChecks=['fresh organisation creates year and period through UI','exact dates persist and survive reload','audit retains session actor and dates','invalid dates, overlaps, duplicate names and outside-year periods rejected','concurrent year and period overlaps rejected','closed year rejects new periods','year close and new-period race preserves close invariants','unauthenticated, viewer, unentitled and foreign-tenant mutations denied','mobile setup fits viewport'];

@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { FinanceWorkflow } from '../../_components/FinanceWorkflow';
 import { buttonProps, fieldControlClassName, tableStyles } from '@/components/ui/app';
@@ -76,6 +76,22 @@ const EMPTY_COST_CENTRE: CostCentreDraft = {
   effectiveTo: '',
 };
 
+function validMapping(value: unknown, kind: 'account' | 'cost-centre', joined = true): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  const fields = kind === 'account'
+    ? ['external_gl_account_code', 'budget_account_id', ...(joined ? ['budget_account_code', 'budget_account_name'] : [])]
+    : ['external_cost_centre_code', 'cost_centre_id', ...(joined ? ['cost_centre_code', 'cost_centre_name'] : [])];
+  return ['id', 'source_system_id', ...fields].every(key => typeof row[key] === 'string' && row[key] !== '')
+    && typeof row.effective_from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.effective_from)
+    && (row.effective_to === null || (typeof row.effective_to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.effective_to)))
+    && (row.status === 'ACTIVE' || row.status === 'RETIRED')
+    && (kind !== 'account' || row.external_gl_account_name === null || typeof row.external_gl_account_name === 'string');
+}
+function validReferences(value: unknown): value is RefItem[] {
+  return Array.isArray(value) && value.every(row => row && ['id', 'code', 'name'].every(key => typeof row[key] === 'string' && row[key] !== ''));
+}
+
 export default function ExternalGlMappingsPage() {
   const [sources, setSources] = useState<string[]>([]);
   const [sourceFilter, setSourceFilter] = useState('');
@@ -90,6 +106,15 @@ export default function ExternalGlMappingsPage() {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [needsReload, setNeedsReload] = useState(false);
+  const requestSerial = useRef(0);
+  const operation = useRef(false);
+  const blocked = useRef(true);
+  const recoveryRequired = useRef(false);
+  const review = useRef<HTMLHeadingElement>(null);
+  const locked = loading || working || needsReload || !loaded;
+  const invalidateReads = useCallback(() => { requestSerial.current++; }, []);
 
   const mappingQuery = useMemo(() => {
     const params = new URLSearchParams();
@@ -100,69 +125,114 @@ export default function ExternalGlMappingsPage() {
   }, [sourceFilter, statusFilter]);
 
   const loadData = useCallback(async () => {
+    const serial = ++requestSerial.current;
+    blocked.current = true;
     setLoading(true);
     setError(null);
-    const [sourcesRes, accountsRes, costCentresRes, referenceRes] = await Promise.all([
-      fetch('/api/commercial/budgeting/external-gl/sources', { cache: 'no-store' }),
-      fetch(`/api/commercial/budgeting/external-gl/mappings${mappingQuery}`, { cache: 'no-store' }),
-      fetch(`/api/commercial/budgeting/external-gl/cost-centre-mappings${mappingQuery}`, { cache: 'no-store' }),
-      fetch('/api/commercial/budgeting/external-gl/reference-data', { cache: 'no-store' }),
-    ]);
-
-    if ([accountsRes, costCentresRes, referenceRes].some(response => response.status === 403)) {
-      setError('Budgeting administrator access is required to manage External GL mappings.');
-      setLoading(false);
-      return;
+    try {
+      const responses = await Promise.all([
+        fetch('/api/commercial/budgeting/external-gl/sources', { cache: 'no-store' }),
+        fetch(`/api/commercial/budgeting/external-gl/mappings${mappingQuery}`, { cache: 'no-store' }),
+        fetch(`/api/commercial/budgeting/external-gl/cost-centre-mappings${mappingQuery}`, { cache: 'no-store' }),
+        fetch('/api/commercial/budgeting/external-gl/reference-data', { cache: 'no-store' }),
+      ]);
+      if (serial !== requestSerial.current) return false;
+      if (responses.some(response => response.status === 403)) {
+        throw new Error('Budgeting administrator access is required to manage External GL mappings.');
+      }
+      if (responses.some(response => !response.ok)) throw new Error('Unable to load External GL mapping configuration.');
+      const [sourceData, accountData, costCentreData, refData] = await Promise.all(responses.map(response => response.json()));
+      if (serial !== requestSerial.current) return false;
+      if (!Array.isArray(sourceData?.sourceSystemIds) || !sourceData.sourceSystemIds.every((value: unknown) => typeof value === 'string')
+        || !Array.isArray(accountData?.mappings) || !accountData.mappings.every((row: unknown) => validMapping(row, 'account'))
+        || !Array.isArray(costCentreData?.mappings) || !costCentreData.mappings.every((row: unknown) => validMapping(row, 'cost-centre'))
+        || !validReferences(refData?.budgetAccounts) || !validReferences(refData?.costCentres)) {
+        throw new Error('Unable to load External GL mapping configuration. The saved view is incomplete.');
+      }
+      setSources(sourceData.sourceSystemIds);
+      setAccountMappings(accountData.mappings);
+      setCostCentreMappings(costCentreData.mappings);
+      setReferenceData({ budgetAccounts: refData.budgetAccounts, costCentres: refData.costCentres });
+      setLoaded(true);
+      setNeedsReload(false);
+      recoveryRequired.current = false;
+      blocked.current = false;
+      return true;
+    } catch (failure) {
+      if (serial !== requestSerial.current) return false;
+      setNeedsReload(true);
+      recoveryRequired.current = true;
+      setError(failure instanceof Error ? failure.message : 'Unable to load External GL mapping configuration.');
+      return false;
+    } finally {
+      if (serial === requestSerial.current) setLoading(false);
     }
-    if (!sourcesRes.ok || !accountsRes.ok || !costCentresRes.ok || !referenceRes.ok) {
-      setError('Unable to load External GL mapping configuration.');
-      setLoading(false);
-      return;
-    }
-
-    const [sourceData, accountData, costCentreData, refData] = await Promise.all([
-      sourcesRes.json(),
-      accountsRes.json(),
-      costCentresRes.json(),
-      referenceRes.json(),
-    ]);
-
-    setSources(Array.isArray(sourceData.sourceSystemIds) ? sourceData.sourceSystemIds : []);
-    setAccountMappings(Array.isArray(accountData.mappings) ? accountData.mappings : []);
-    setCostCentreMappings(Array.isArray(costCentreData.mappings) ? costCentreData.mappings : []);
-    setReferenceData({
-      budgetAccounts: Array.isArray(refData.budgetAccounts) ? refData.budgetAccounts : [],
-      costCentres: Array.isArray(refData.costCentres) ? refData.costCentres : [],
-    });
-    setLoading(false);
   }, [mappingQuery]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadData();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [loadData]);
+    const timer = window.setTimeout(() => { void loadData(); }, 0);
+    return () => { window.clearTimeout(timer); invalidateReads(); };
+  }, [loadData, invalidateReads]);
+
+  function changeFilters(change: () => void) {
+    if (operation.current || recoveryRequired.current) return;
+    requestSerial.current++;
+    blocked.current = true;
+    setLoading(true);
+    setNotice(null);
+    change();
+  }
+
+  async function reloadSavedMappings() {
+    if (operation.current || loading) return;
+    operation.current = true;
+    setWorking(true);
+    setNotice(null);
+    try {
+      if (!await loadData()) return;
+      setAccountDraft(EMPTY_ACCOUNT);
+      setCostCentreDraft(EMPTY_COST_CENTRE);
+      setRetireDates({});
+      setNotice('Saved mappings reloaded. Review the saved records before continuing. Unsaved entries have been cleared.');
+      review.current?.focus({ preventScroll: true });
+      review.current?.scrollIntoView({ block: 'start' });
+    } finally { operation.current = false; setWorking(false); }
+  }
 
   async function postJson(url: string, body: Record<string, unknown>) {
+    if (operation.current || blocked.current || locked) return false;
+    operation.current = true;
     setWorking(true);
     setError(null);
     setNotice(null);
+    let outcome: 'sent' | 'confirmed' | 'rejected' = 'sent';
     try {
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const payload = await response.json().catch(() => ({})) as { error?: string };
-      if (!response.ok) {
-        setError(payload.error || 'The External GL mapping change could not be saved.');
-        return false;
+      outcome = response.ok ? 'confirmed' : response.status < 500 ? 'rejected' : 'sent';
+      const payload = await response.json();
+      if (!response.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : 'The External GL mapping change could not be saved.');
+      const kind = url.includes('/cost-centre-mappings') ? 'cost-centre' : 'account';
+      if (!validMapping(payload?.mapping, kind, false)
+        || (url.endsWith('/retire') && (payload.mapping.id !== url.split('/').at(-2) || payload.mapping.status !== 'RETIRED'))) {
+        throw new Error('Incomplete mapping save response.');
       }
+      if (!await loadData()) throw new Error('Saved mapping readback unavailable.');
       return true;
-    } finally {
-      setWorking(false);
-    }
+    } catch (failure) {
+      if (outcome !== 'rejected') {
+        blocked.current = true;
+        setNeedsReload(true);
+        recoveryRequired.current = true;
+        setError(outcome === 'confirmed'
+          ? 'The mapping change was saved, but its saved view could not be confirmed. Reload saved mappings before continuing.'
+          : 'The mapping save outcome could not be confirmed. Reload saved mappings before continuing.');
+      } else setError(failure instanceof Error ? failure.message : 'The External GL mapping change could not be saved.');
+      return false;
+    } finally { operation.current = false; setWorking(false); }
   }
 
   async function createAccountMapping(event: FormEvent) {
@@ -178,7 +248,6 @@ export default function ExternalGlMappingsPage() {
     if (!ok) return;
     setAccountDraft(EMPTY_ACCOUNT);
     setNotice('GL account mapping created.');
-    await loadData();
   }
 
   async function createCostCentreMapping(event: FormEvent) {
@@ -193,10 +262,10 @@ export default function ExternalGlMappingsPage() {
     if (!ok) return;
     setCostCentreDraft(EMPTY_COST_CENTRE);
     setNotice('Cost-centre mapping created.');
-    await loadData();
   }
 
   async function retire(kind: 'account' | 'cost-centre', id: string) {
+    if (operation.current || blocked.current || locked) return;
     const effectiveTo = retireDates[id];
     if (!effectiveTo) {
       setError('Choose an effective-to date before retiring a mapping.');
@@ -213,7 +282,6 @@ export default function ExternalGlMappingsPage() {
       return next;
     });
     setNotice(kind === 'account' ? 'GL account mapping retired.' : 'Cost-centre mapping retired.');
-    await loadData();
   }
 
   return (
@@ -225,7 +293,7 @@ export default function ExternalGlMappingsPage() {
           <Link href="/commercial/budgeting/commitments" style={{ color: MUTED }}>Budgeting</Link>
           {' / External GL'}
         </div>
-        <h1 style={{ margin: 0, fontSize: 24 }}>External GL mappings</h1>
+        <h1 ref={review} tabIndex={-1} style={{ margin: 0, fontSize: 24, scrollMarginTop: 200 }}>External GL mappings</h1>
         <p style={{ margin: '8px 0 0', color: MUTED, fontSize: 13, lineHeight: 1.6 }}>
           Explicitly map external GL accounts and cost centres to BrainBase finance dimensions. No fuzzy or automatic matching is used.
         </p>
@@ -234,20 +302,20 @@ export default function ExternalGlMappingsPage() {
       <section style={{ ...panel, marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>
           <Field label="Source">
-            <select value={sourceFilter} onChange={event => setSourceFilter(event.target.value)} className={fieldControlClassName}>
+            <select value={sourceFilter} disabled={working || needsReload} onChange={event => { const value = event.target.value; if (value !== sourceFilter) changeFilters(() => setSourceFilter(value)); }} className={fieldControlClassName}>
               <option value="">All sources</option>
               {sources.map(source => <option key={source} value={source}>{source}</option>)}
             </select>
           </Field>
           <Field label="Status">
-            <select value={statusFilter} onChange={event => setStatusFilter(event.target.value as 'ALL' | MappingStatus)} className={fieldControlClassName}>
+            <select value={statusFilter} disabled={working || needsReload} onChange={event => { const value = event.target.value as 'ALL' | MappingStatus; if (value !== statusFilter) changeFilters(() => setStatusFilter(value)); }} className={fieldControlClassName}>
               <option value="ACTIVE">Active</option>
               <option value="RETIRED">Retired</option>
               <option value="ALL">All</option>
             </select>
           </Field>
-          <button type="button" onClick={() => void loadData()} disabled={loading || working} {...buttonProps('secondary', 'sm')}>
-            Refresh
+          <button type="button" onClick={() => void reloadSavedMappings()} disabled={loading || working} {...buttonProps('secondary', 'sm')}>
+            Reload saved mappings
           </button>
         </div>
       </section>
@@ -255,10 +323,12 @@ export default function ExternalGlMappingsPage() {
       {error ? <div role="alert" style={errorBox}>{error}</div> : null}
       {notice ? <div role="status" style={noticeBox}>{notice}</div> : null}
 
-      {!loading && !error && <FinanceWorkflow current="mappings" setupHint={referenceData.budgetAccounts.length === 0 || referenceData.costCentres.length === 0 ? 'Create active Budget accounts and cost centres in Finance setup before adding External GL mappings.' : undefined} />}
+      {loading ? <p role="status">Loading saved mappings…</p> : null}
+      {needsReload ? <p>Changes are paused until saved mappings can be checked. Previously loaded records may be out of date.</p> : null}
+      {!loading && !needsReload && !error && <FinanceWorkflow current="mappings" setupHint={referenceData.budgetAccounts.length === 0 || referenceData.costCentres.length === 0 ? 'Create active Budget accounts and cost centres in Finance setup before adding External GL mappings.' : undefined} />}
 
       <MappingSection title="GL account mappings" description="Map an external GL account code to one BrainBase Budget account.">
-        <form onSubmit={createAccountMapping} style={formGrid}>
+        <form aria-label="Create GL account mapping" onSubmit={createAccountMapping}><fieldset disabled={locked} style={{ ...formGrid, border: 0, padding: 0, margin: 0 }}>
           <TextInput label="Source system" value={accountDraft.sourceSystemId} onChange={value => setAccountDraft(current => ({ ...current, sourceSystemId: value }))} required />
           <TextInput label="External GL code" value={accountDraft.externalAccountCode} onChange={value => setAccountDraft(current => ({ ...current, externalAccountCode: value }))} required />
           <TextInput label="External name" value={accountDraft.externalAccountName} onChange={value => setAccountDraft(current => ({ ...current, externalAccountName: value }))} />
@@ -273,14 +343,14 @@ export default function ExternalGlMappingsPage() {
           <DateInput label="Effective from" value={accountDraft.effectiveFrom} onChange={value => setAccountDraft(current => ({ ...current, effectiveFrom: value }))} required />
           <DateInput label="Effective to" value={accountDraft.effectiveTo} onChange={value => setAccountDraft(current => ({ ...current, effectiveTo: value }))} />
           <div style={{ alignSelf: 'end' }}>
-            <button type="submit" disabled={working || loading} {...buttonProps('primary', 'sm')}>Create mapping</button>
+            <button type="submit" disabled={locked} {...buttonProps('primary', 'sm')}>Create mapping</button>
           </div>
-        </form>
-        <AccountMappingTable rows={accountMappings} retireDates={retireDates} setRetireDates={setRetireDates} onRetire={id => retire('account', id)} working={working} />
+        </fieldset></form>
+        {loaded ? <AccountMappingTable rows={accountMappings} retireDates={retireDates} setRetireDates={setRetireDates} onRetire={id => retire('account', id)} working={locked} /> : <p>Saved mappings are not available yet.</p>}
       </MappingSection>
 
       <MappingSection title="Cost-centre mappings" description="Map an external cost-centre code to one BrainBase cost centre.">
-        <form onSubmit={createCostCentreMapping} style={formGrid}>
+        <form aria-label="Create cost-centre mapping" onSubmit={createCostCentreMapping}><fieldset disabled={locked} style={{ ...formGrid, border: 0, padding: 0, margin: 0 }}>
           <TextInput label="Source system" value={costCentreDraft.sourceSystemId} onChange={value => setCostCentreDraft(current => ({ ...current, sourceSystemId: value }))} required />
           <TextInput label="External cost-centre code" value={costCentreDraft.externalCostCentreCode} onChange={value => setCostCentreDraft(current => ({ ...current, externalCostCentreCode: value }))} required />
           <Field label="BrainBase cost centre">
@@ -294,10 +364,10 @@ export default function ExternalGlMappingsPage() {
           <DateInput label="Effective from" value={costCentreDraft.effectiveFrom} onChange={value => setCostCentreDraft(current => ({ ...current, effectiveFrom: value }))} required />
           <DateInput label="Effective to" value={costCentreDraft.effectiveTo} onChange={value => setCostCentreDraft(current => ({ ...current, effectiveTo: value }))} />
           <div style={{ alignSelf: 'end' }}>
-            <button type="submit" disabled={working || loading} {...buttonProps('primary', 'sm')}>Create mapping</button>
+            <button type="submit" disabled={locked} {...buttonProps('primary', 'sm')}>Create mapping</button>
           </div>
-        </form>
-        <CostCentreMappingTable rows={costCentreMappings} retireDates={retireDates} setRetireDates={setRetireDates} onRetire={id => retire('cost-centre', id)} working={working} />
+        </fieldset></form>
+        {loaded ? <CostCentreMappingTable rows={costCentreMappings} retireDates={retireDates} setRetireDates={setRetireDates} onRetire={id => retire('cost-centre', id)} working={locked} /> : <p>Saved mappings are not available yet.</p>}
       </MappingSection>
     </div>
   );

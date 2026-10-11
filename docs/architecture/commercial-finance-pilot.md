@@ -582,6 +582,42 @@ passed. Both outputs are retained as `report-recovery-runtime-first.log` and
 `report-recovery-runtime-retry.log`. The reviewed screenshot is
 `report-recovery-adelaide-retry/report-recovery.png`.
 
+## External GL mapping recovery
+
+Account and cost-centre mapping editors now hold a synchronous operation lock
+through POST and complete readback. Lost responses, incomplete successful
+responses, server failures and failed readback pause further creates and
+retirements. Authoritative rejected saves retain editable inputs. No mapping
+is automatically resubmitted.
+
+`Reload saved mappings` checks all four governed GET responses: sources, account
+mappings, cost-centre mappings and active reference data. Incomplete collections
+or malformed records do not replace the previous saved view. A failed reload
+retains entered values and the recovery lock. A successful reload clears unsaved
+forms and retirement dates, then focuses the saved review heading. Initial read
+failure does not display fabricated empty mapping tables or setup guidance.
+Source/status changes invalidate previous reads before loading; delayed decoded
+bodies cannot replace the current filter's view. Filters are locked during an
+operation or unresolved recovery.
+
+The bundle preserves explicit dimension IDs, mapping dates, overlap rejection,
+retirement semantics, tenant boundaries and existing API contracts. It changes
+no database schema or reconciliation rules. Twelve component checks exercise
+incomplete reads, both uncertain creates, confirmed-response/readback failures,
+authoritative rejection, retirement recovery, duplicate submissions and delayed
+filter bodies. Disposable runtime checks commit both kinds of create and
+retirement before interrupting responses, then prove GET-only recovery, failed
+reload retention, one durable identity and authenticated actor ownership.
+Evidence uses the `mapping-recovery` prefix in the local finance-review folder.
+
+Final validation passed 2,496 Commercial tests across 156 files, standalone
+TypeScript, targeted lint, the production build and the disposable browser /
+PostgreSQL runtime (`mapping-recovery-runtime-final.log`). The first runtime
+also passed; its mobile capture exposed review focus beneath the fixed header.
+The final candidate adds explicit scrolling with header clearance and repeats
+all validation. The reviewed mobile capture is
+`mapping-recovery-final-adelaide/external-gl-mobile.png`.
+
 ## Repeatable runtime evidence
 
 Run `npx tsc --noEmit` separately before release verification. This checks the
