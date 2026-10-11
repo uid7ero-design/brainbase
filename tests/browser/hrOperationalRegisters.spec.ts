@@ -12,7 +12,7 @@ test.beforeAll(async () => {
       define: { 'process.env.NODE_ENV': JSON.stringify('production'), 'process.env': '{}' }, oxc: { jsx: { runtime: 'automatic' } },
       plugins: [{ name: 'hr-register-browser-harness', enforce: 'pre', resolveId(id) {
         if (id.replaceAll('\\', '/').endsWith('/hr-browser-entry')) return '\0hr-browser-entry';
-        if (mode !== 'people-drawer' && /\/_components\/SlidePanel(?:\.tsx)?$/.test(id.replaceAll('\\', '/'))) return '\0panel';
+        if (!['people-drawer', 'teams'].includes(mode) && /\/_components\/SlidePanel(?:\.tsx)?$/.test(id.replaceAll('\\', '/'))) return '\0panel';
         if (/\/_components\/PersonForm(?:\.tsx)?$/.test(id.replaceAll('\\', '/'))) return '\0form';
         if (id === 'hr-browser-entry' || id === 'next/link') return `\0${id}`;
         if (mode !== 'people-drawer' && /\/_components\/PersonDrawer(?:\.tsx)?$/.test(id.replaceAll('\\', '/'))) return '\0drawer';
@@ -133,6 +133,47 @@ for (const detailFailure of [false, true]) test(`real person drawer: ${detailFai
   await expect(selected).toBeFocused();
   await expect.poll(() => registerReads).toBe(detailFailure ? 3 : 2);
   expect(errors).toEqual([]); expect(methods.every(method => method === 'GET')).toBe(true);
+});
+
+for (const action of ['grant', 'revoke', 'create', 'edit', 'archive', 'restore']) test(`administration: uncertain ${action} requires reconciliation without repeating writes`, async ({ page }) => {
+  const mode = ['grant', 'revoke'].includes(action) ? 'administrators' : 'teams';
+  const errors: string[] = [], writes: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.route('http://brainbase.local/**', async route => {
+    const request = route.request(), url = new URL(request.url());
+    if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<div id="root"></div>' });
+    if (request.method() !== 'GET') { writes.push(`${request.method()} ${url.pathname}`); return route.abort('failed'); }
+    const body = mode === 'administrators'
+      ? { users: [{ id: 'admin', name: 'Alex Administrator', email: null, is_hr_administrator: true, grant_eligible: false }, { id: 'candidate', name: 'Morgan Candidate', email: null, is_hr_administrator: false, grant_eligible: true }] }
+      : url.pathname === '/api/hr/teams' ? { teams: [{ id: 'team', name: 'Delivery', description: null, manager_person_id: null, archived_at: action === 'restore' ? '2026-10-01' : null }] } : { people: [], canManage: true };
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
+  });
+  await page.goto('http://brainbase.local/'); await page.addScriptTag({ content: bundles.get(mode)! });
+  await expect(page.getByText(mode === 'teams' ? 'Delivery' : 'Alex Administrator', { exact: true })).toBeVisible();
+  if (action === 'grant') {
+    await page.getByLabel('User to grant HR administrator access').selectOption('candidate');
+    await page.getByRole('button', { name: 'Grant', exact: true }).click();
+  } else if (action === 'revoke') {
+    await page.getByRole('button', { name: 'Revoke HR administrator access for Alex Administrator', exact: true }).click();
+    await page.getByRole('button', { name: 'Confirm revoke HR administrator access for Alex Administrator', exact: true }).click();
+  } else if (action === 'archive') {
+    await page.getByRole('button', { name: 'Archive Delivery', exact: true }).click();
+    await page.getByRole('button', { name: 'Confirm archive Delivery', exact: true }).click();
+  } else if (action === 'restore') await page.getByRole('button', { name: 'Restore Delivery', exact: true }).click();
+  else {
+    await page.getByRole('button', { name: action === 'create' ? '+ Create Team' : 'Edit Delivery', exact: true }).click();
+    await page.getByLabel(/^Name/).fill('Preserved draft');
+    await page.getByRole('button', { name: action === 'create' ? 'Create Team' : 'Save changes', exact: true }).click();
+    await expect(page.getByText(/Close this form and refresh Teams/)).toBeVisible();
+    await expect(page.getByLabel(/^Name/)).toHaveValue('Preserved draft');
+    await expect(page.getByRole('button', { name: action === 'create' ? 'Create Team' : 'Save changes', exact: true })).toBeDisabled();
+    await page.keyboard.press('Escape');
+  }
+  await expect(page.getByText(/change outcome is unknown/)).toBeVisible();
+  expect(writes).toHaveLength(1);
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByText(mode === 'teams' ? 'Delivery' : 'Alex Administrator', { exact: true })).toBeVisible();
+  expect(writes).toHaveLength(1); expect(errors).toEqual([]);
 });
 
 for (const mode of ['teams', 'administrators']) test(`${mode} administration: denial clears controls and refresh recovers safely`, async ({ page }) => {

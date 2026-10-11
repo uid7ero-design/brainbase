@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import SlidePanel from '../_components/SlidePanel';
 import {
   Badge,
@@ -55,7 +55,8 @@ export default function TeamsPage() {
   const [actionError, setActionError] = useState('');
 
   const [refresh, setRefresh] = useState(0);
-  async function load() { setRefresh(value => value + 1); }
+  const uncertainRead = useRef(false);
+  async function load() { uncertainRead.current = false; setRefresh(value => value + 1); }
   useEffect(() => {
     const controller = new AbortController();
     queueMicrotask(async () => {
@@ -73,10 +74,10 @@ export default function TeamsPage() {
           && [team.description, team.manager_person_id, team.archived_at].every(value => value === null || typeof value === 'string'))
           || !Array.isArray(peopleData.people) || !peopleData.people.every((person: ManagerOption) => person && typeof person.id === 'string' && typeof person.first_name === 'string' && typeof person.last_name === 'string')
           || typeof peopleData.canManage !== 'boolean') throw new Error('Invalid Teams');
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && !uncertainRead.current) {
           setTeams(data.teams); setManagers(peopleData.people); setCanManage(peopleData.canManage);
         }
-      } catch { if (!controller.signal.aborted) setError('Could not load Teams. Please refresh to try again.'); }
+      } catch { if (!controller.signal.aborted && !uncertainRead.current) setError('Could not load Teams. Please refresh to try again.'); }
       finally { if (!controller.signal.aborted) setLoading(false); }
     });
     return () => controller.abort();
@@ -84,17 +85,30 @@ export default function TeamsPage() {
 
   async function archive(id: string) {
     setActionError('');
+    try {
     const res = await fetch(`/api/hr/teams/${id}/archive`, { method: 'POST' });
+    if (res.status >= 500) throw new Error('Unknown Team change outcome');
     if (res.ok) { setConfirmArchiveId(null); load(); return; }
     const data = await res.json().catch(() => ({}));
     setActionError(data.error ?? 'Could not archive team.');
+    } catch { unknownTeamWrite('archived'); }
   }
   async function restore(id: string) {
     setActionError('');
+    try {
     const res = await fetch(`/api/hr/teams/${id}/restore`, { method: 'POST' });
+    if (res.status >= 500) throw new Error('Unknown Team change outcome');
     if (res.ok) { load(); return; }
     const data = await res.json().catch(() => ({}));
     setActionError(data.error ?? 'Could not restore team.');
+    } catch { unknownTeamWrite('restored'); }
+  }
+
+  function unknownTeamWrite(action: string) {
+    uncertainRead.current = true;
+    setTeams([]); setManagers([]); setCanManage(false); setConfirmArchiveId(null);
+    setError('Team change outcome is unknown. Refresh to check current Teams before trying again.');
+    setActionError(`Could not confirm whether the team was ${action}.`);
   }
 
   function managerName(id: string | null) {
@@ -185,39 +199,47 @@ export default function TeamsPage() {
       </TableContainer>
 
       <SlidePanel open={showCreate} onClose={() => setShowCreate(false)} title="Create Team">
-        <TeamForm canManage={canManage} managers={managers} onSaved={() => { setShowCreate(false); load(); }} />
+        <TeamForm canManage={canManage} managers={managers} onUncertain={() => unknownTeamWrite('saved')} onSaved={() => { setShowCreate(false); load(); }} />
       </SlidePanel>
 
       <SlidePanel open={editingTeam !== null} onClose={() => setEditingTeam(null)} title="Edit Team">
         {editingTeam && (
-          <TeamForm canManage={canManage} initial={editingTeam} managers={managers} onSaved={() => { setEditingTeam(null); load(); }} />
+          <TeamForm canManage={canManage} initial={editingTeam} managers={managers} onUncertain={() => unknownTeamWrite('saved')} onSaved={() => { setEditingTeam(null); load(); }} />
         )}
       </SlidePanel>
     </div>
   );
 }
 
-function TeamForm({ initial, managers, onSaved, canManage }: {
-  initial?: Team; managers: ManagerOption[]; onSaved: () => void; canManage: boolean;
+function TeamForm({ initial, managers, onSaved, onUncertain, canManage }: {
+  initial?: Team; managers: ManagerOption[]; onSaved: () => void; onUncertain: () => void; canManage: boolean;
 }) {
   const [name, setName] = useState(initial?.name ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
   const [managerPersonId, setManagerPersonId] = useState(initial?.manager_person_id ?? '');
   const [saving, setSaving] = useState(false);
+  const [uncertain, setUncertain] = useState(false);
   const [error, setError] = useState('');
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!canManage || saving) return;
+    if (!canManage || saving || uncertain) return;
     setSaving(true); setError('');
     const isEdit = Boolean(initial?.id);
     const url = isEdit ? `/api/hr/teams/${initial!.id}` : '/api/hr/teams';
     const method = isEdit ? 'PATCH' : 'POST';
     const body = { name, description: description || null, manager_person_id: managerPersonId || null };
+    try {
     const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (res.status >= 500) throw new Error('Unknown Team change outcome');
     const data = await res.json().catch(() => ({}));
     if (!res.ok) { setError(data.error ?? 'Save failed.'); setSaving(false); return; }
     onSaved();
+    } catch {
+      setUncertain(true);
+      setError('Could not confirm whether this team was saved. Close this form and refresh Teams to check before trying again.');
+      onUncertain();
+    } finally { setSaving(false); }
   }
 
   return (
@@ -238,7 +260,7 @@ function TeamForm({ initial, managers, onSaved, canManage }: {
       </Field>
       {error && <FormError>{error}</FormError>}
       <FormActions align="stretch">
-        <button type="submit" disabled={saving || !canManage} {...buttonProps('primary')}>
+        <button type="submit" disabled={saving || !canManage || uncertain} {...buttonProps('primary')}>
           {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Team'}
         </button>
       </FormActions>
