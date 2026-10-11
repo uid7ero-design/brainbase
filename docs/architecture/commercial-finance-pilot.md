@@ -618,6 +618,46 @@ The final candidate adds explicit scrolling with header clearance and repeats
 all validation. The reviewed mobile capture is
 `mapping-recovery-final-adelaide/external-gl-mobile.png`.
 
+## Finance control lifecycle recovery
+
+Finance controls now loads one complete selected-scope view: calendar and close
+history, source choices and reconciliation control state. Failed or incomplete
+reads retain the previous view and pause actions; initial failure is not an empty
+calendar or queue. Reconciliation amounts remain exact integer strings, including
+values beyond JavaScript's safe numeric range. Scope changes invalidate previous
+reads before starting the replacement, including delayed body decoding.
+
+All seven lifecycle actions hold a synchronous lock through POST and readback.
+An uncertain response, incomplete success or failed readback requires read-only
+Refresh before further actions. Authoritative rejection preserves editable
+reasons. Failed recovery retains reasons and notes; successful Refresh clears
+them and focuses the saved heading with clearance for the fixed header. Scope
+choices and action inputs are locked during mutation and unresolved recovery.
+
+The bundle preserves server-governed close, reopen, review and sign-off rules,
+current-close identity, historical evidence, explicit source/currency scope and
+tenant authorization. No endpoint, database schema or finance calculation changes.
+Seventeen component checks cover unavailable versus empty state, exact amounts,
+all lifecycle actions, incomplete response/readback, rejected actions, duplicate
+submissions and scope races. The disposable runtime interrupts the committed
+response of each lifecycle action and proves recovery without repeat POSTs,
+including failed GET retention and unchanged durable event counts. Evidence uses
+the `controls-recovery` prefix in the local finance-review folder.
+
+Final validation passed 2,513 Commercial tests across 157 files, standalone
+TypeScript, targeted lint, the production build and the full disposable runtime.
+Two new assertions were corrected to supply administrator context and use the
+existing dollar formatter. A subsequent run hit an unchanged Budget focus
+assertion; the unchanged full rerun passed. Those outputs remain in
+`controls-recovery-commercial-first.log` and
+`controls-recovery-commercial-retry-first.log`.
+The first runtime reached the expected recovery state but its label selector
+could not find the disabled notes textarea. Selecting its accessible textbox
+name resolved the assertion; the complete rerun passed in
+`controls-recovery-runtime-retry.log`. The first output is retained in
+`controls-recovery-runtime-first.log`. Reviewed captures and structured evidence
+are in `controls-recovery-adelaide-retry`.
+
 ## Repeatable runtime evidence
 
 Run `npx tsc --noEmit` separately before release verification. This checks the

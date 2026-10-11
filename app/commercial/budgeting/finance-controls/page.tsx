@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { FinanceWorkflow } from '../../_components/FinanceWorkflow';
 import { buttonProps, fieldControlClassName, TableContainer, tableStyles } from '@/components/ui/app';
@@ -87,6 +87,29 @@ type ReconciliationState = {
   notes: string | null;
 };
 
+function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === 'object' && !Array.isArray(value); }
+function text(row: Record<string, unknown>, fields: string[]) { return fields.every(field => typeof row[field] === 'string'); }
+function validClose(value: unknown, year: boolean): boolean {
+  return record(value) && text(value, ['id', 'closed_at']) && value.id !== ''
+    && Number.isSafeInteger(value.close_sequence) && Number(value.close_sequence) > 0
+    && (value.status === 'CLOSED' || value.status === 'INVALIDATED')
+    && ['close_reason', 'invalidated_at', 'invalidation_reason'].every(field => value[field] === null || typeof value[field] === 'string')
+    && (year ? record(value.control_totals) : typeof value.reconciliation_status === 'string');
+}
+function validPeriod(value: unknown, year: boolean): boolean {
+  return record(value) && text(value, ['id', 'name', 'starts_on', 'ends_on']) && value.id !== ''
+    && (value.status === 'OPEN' || value.status === 'CLOSED')
+    && Array.isArray(value.closes) && value.closes.every(close => validClose(close, year))
+    && (!year || (Array.isArray(value.periods) && value.periods.every(period => validPeriod(period, false))));
+}
+function validReconciliation(value: unknown): boolean {
+  return record(value) && text(value, ['id', 'financialYearId', 'financialYearName', 'financialPeriodId', 'financialPeriodName', 'sourceSystemId', 'currency', 'snapshotAt', 'preparedAt'])
+    && value.id !== '' && ['PREPARED', 'REVIEWED', 'SIGNED_OFF', 'STALE'].includes(String(value.status))
+    && ['closeId', 'reviewedAt', 'notes'].every(field => value[field] === null || typeof value[field] === 'string')
+    && ['sourceActualCents', 'financeAdjustmentCents', 'brainbaseEffectiveActualCents', 'externalGlTotalCents', 'varianceCents'].every(field => typeof value[field] === 'string' && /^-?(0|[1-9]\d*)$/.test(value[field] as string))
+    && Number.isSafeInteger(value.unresolvedItemCount) && Number(value.unresolvedItemCount) >= 0;
+}
+
 export default function FinanceControlsPage() {
   const [years, setYears] = useState<FinancialYear[]>([]);
   const [sources, setSources] = useState<string[]>([]);
@@ -104,6 +127,18 @@ export default function FinanceControlsPage() {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [needsReload, setNeedsReload] = useState(false);
+  const serial = useRef(0);
+  const operation = useRef(false);
+  const blocked = useRef(true);
+  const recoveryRequired = useRef(false);
+  const loadedScope = useRef('');
+  const [savedScope, setSavedScope] = useState('');
+  const review = useRef<HTMLHeadingElement>(null);
+  const scopeKey = JSON.stringify([selectedYearId, selectedPeriodId, sourceSystemId, currency.trim().toUpperCase()]);
+  const locked = loading || working || needsReload || !loaded || savedScope !== scopeKey;
+  const invalidateReads = useCallback(() => { serial.current++; }, []);
 
   const selectedYear = useMemo(
     () => years.find(year => year.id === selectedYearId) ?? null,
@@ -121,113 +156,105 @@ export default function FinanceControlsPage() {
     [selectedPeriod],
   );
 
-  const loadCore = useCallback(async () => {
+  const loadSnapshot = useCallback(async () => {
+    const request = ++serial.current;
+    blocked.current = true;
     setLoading(true);
     setError(null);
-    const [periodResponse, sourceResponse] = await Promise.all([
-      fetch('/api/commercial/budgeting/financial-periods', { cache: 'no-store' }),
-      fetch('/api/commercial/budgeting/external-gl/sources', { cache: 'no-store' }),
-    ]);
-
-    if (periodResponse.status === 403) {
-      setError('Budgeting administrator access is required to operate finance controls.');
-      setLoading(false);
-      return;
-    }
-    if (!periodResponse.ok || !sourceResponse.ok) {
-      setError('Unable to load finance control configuration.');
-      setLoading(false);
-      return;
-    }
-
-    const [periodData, sourceData] = await Promise.all([
-      periodResponse.json() as Promise<{ years?: FinancialYear[] }>,
-      sourceResponse.json() as Promise<{ sourceSystemIds?: string[] }>,
-    ]);
-    const nextYears = Array.isArray(periodData.years) ? periodData.years : [];
-    const nextSources = Array.isArray(sourceData.sourceSystemIds)
-      ? sourceData.sourceSystemIds.filter(value => typeof value === 'string')
-      : [];
-
-    setYears(nextYears);
-    setSources(nextSources);
-    setSelectedYearId(current => {
-      if (current && nextYears.some(year => year.id === current)) return current;
-      return nextYears[0]?.id ?? '';
-    });
-    setSourceSystemId(current => {
-      if (current && nextSources.includes(current)) return current;
-      return nextSources[0] ?? '';
-    });
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadCore();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [loadCore]);
-
-  const loadReconciliations = useCallback(async () => {
-    if (!effectiveSelectedPeriodId) {
-      setReconciliations([]);
-      return;
-    }
-
-    const params = new URLSearchParams({ financialPeriodId: effectiveSelectedPeriodId });
-    if (sourceSystemId) params.set('sourceSystemId', sourceSystemId);
-    if (currency.trim()) params.set('currency', currency.trim().toUpperCase());
-
-    const response = await fetch(
-      `/api/commercial/budgeting/reconciliations/control-state?${params.toString()}`,
-      { cache: 'no-store' },
-    );
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({})) as { error?: string };
-      setError(payload.error || 'Unable to load reconciliation control state.');
-      setReconciliations([]);
-      return;
-    }
-    const payload = await response.json() as { reconciliations?: ReconciliationState[] };
-    setReconciliations(Array.isArray(payload.reconciliations) ? payload.reconciliations : []);
-  }, [currency, effectiveSelectedPeriodId, sourceSystemId]);
+    try {
+      const responses = await Promise.all([
+        fetch('/api/commercial/budgeting/financial-periods', { cache: 'no-store' }),
+        fetch('/api/commercial/budgeting/external-gl/sources', { cache: 'no-store' }),
+      ]);
+      if (request !== serial.current) return false;
+      if (responses.some(response => response.status === 403)) throw new Error('Budgeting administrator access is required to operate finance controls.');
+      if (responses.some(response => !response.ok)) throw new Error('Unable to load finance control configuration.');
+      const [periodData, sourceData] = await Promise.all(responses.map(response => response.json()));
+      if (request !== serial.current) return false;
+      if (!Array.isArray(periodData?.years) || !periodData.years.every((year: unknown) => validPeriod(year, true))
+        || !Array.isArray(sourceData?.sourceSystemIds) || !sourceData.sourceSystemIds.every((value: unknown) => typeof value === 'string')) throw new Error('The saved finance control view is incomplete.');
+      const nextYears = periodData.years as FinancialYear[];
+      const nextSources = sourceData.sourceSystemIds as string[];
+      const nextYear = !selectedYearId && loadedScope.current ? undefined : nextYears.find(year => year.id === selectedYearId) ?? nextYears[0];
+      const nextPeriod = nextYear?.periods.find(period => period.id === selectedPeriodId) ?? nextYear?.periods[0];
+      const nextSource = !sourceSystemId && loadedScope.current ? '' : nextSources.includes(sourceSystemId) ? sourceSystemId : nextSources[0] ?? '';
+      let nextReconciliations: ReconciliationState[] = [];
+      if (nextPeriod) {
+        const params = new URLSearchParams({ financialPeriodId: nextPeriod.id });
+        if (nextSource) params.set('sourceSystemId', nextSource);
+        if (currency.trim()) params.set('currency', currency.trim().toUpperCase());
+        const response = await fetch(`/api/commercial/budgeting/reconciliations/control-state?${params.toString()}`, { cache: 'no-store' });
+        if (request !== serial.current) return false;
+        if (!response.ok) throw new Error(response.status === 403 ? 'Budgeting administrator access is required to operate finance controls.' : 'Unable to load reconciliation control state.');
+        const payload = await response.json();
+        if (request !== serial.current) return false;
+        if (!Array.isArray(payload?.reconciliations) || !payload.reconciliations.every(validReconciliation)) throw new Error('The saved reconciliation control view is incomplete.');
+        nextReconciliations = payload.reconciliations;
+      }
+      loadedScope.current = JSON.stringify([nextYear?.id ?? '', nextPeriod?.id ?? '', nextSource, currency.trim().toUpperCase()]);
+      setSavedScope(loadedScope.current);
+      setYears(nextYears); setSources(nextSources); setReconciliations(nextReconciliations);
+      setSelectedYearId(nextYear?.id ?? ''); setSelectedPeriodId(nextPeriod?.id ?? ''); setSourceSystemId(nextSource);
+      setLoaded(true); setNeedsReload(false); blocked.current = false; recoveryRequired.current = false;
+      return true;
+    } catch (failure) {
+      if (request !== serial.current) return false;
+      recoveryRequired.current = true; setNeedsReload(true);
+      setError(failure instanceof Error ? failure.message : 'Unable to load finance control configuration.');
+      return false;
+    } finally { if (request === serial.current) setLoading(false); }
+  }, [currency, selectedYearId, selectedPeriodId, sourceSystemId]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadReconciliations();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [loadReconciliations]);
+    if (loadedScope.current === scopeKey && !blocked.current) return;
+    const timer = window.setTimeout(() => { void loadSnapshot(); }, 0);
+    return () => { window.clearTimeout(timer); invalidateReads(); };
+  }, [loadSnapshot, scopeKey, invalidateReads]);
+
+  function changeScope(change: () => void) {
+    if (operation.current || recoveryRequired.current) return;
+    invalidateReads(); blocked.current = true; setLoading(true); setNotice(null); change();
+  }
+
+  async function refreshControls() {
+    if (operation.current || loading) return;
+    operation.current = true; setWorking(true); setNotice(null);
+    try {
+      if (!await loadSnapshot()) return;
+      setYearCloseReason(''); setYearReopenReason(''); setCloseReason(''); setReopenReason(''); setNotes('');
+      setNotice('Finance controls refreshed. Review the saved state before continuing. Unsaved reasons and notes have been cleared.');
+      review.current?.focus({ preventScroll: true }); review.current?.scrollIntoView({ block: 'start' });
+    } finally { operation.current = false; setWorking(false); }
+  }
 
   async function postJson(url: string, body: Record<string, unknown>) {
-    setWorking(true);
-    setError(null);
-    setNotice(null);
+    if (operation.current || blocked.current || locked) return false;
+    operation.current = true; blocked.current = true; invalidateReads();
+    setWorking(true); setError(null); setNotice(null);
+    let outcome: 'sent' | 'confirmed' | 'rejected' = 'sent';
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const payload = await response.json().catch(() => ({})) as { error?: string };
-      if (!response.ok) {
-        setError(payload.error || 'The finance control action could not be completed.');
-        return false;
-      }
+      const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      outcome = response.ok ? 'confirmed' : response.status < 500 ? 'rejected' : 'sent';
+      const payload = await response.json();
+      if (!response.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : 'The finance control action could not be completed.');
+      const saved = payload?.year ?? payload?.close ?? payload?.reconciliation;
+      const expectedStatus = url.endsWith('/reopen') ? (payload?.year ? 'OPEN' : 'INVALIDATED') : url.endsWith('/close') ? 'CLOSED' : url.endsWith('/review') ? 'REVIEWED' : url.endsWith('/sign-off') ? 'SIGNED_OFF' : 'PREPARED';
+      if (!record(saved) || typeof saved.id !== 'string' || saved.id === '' || saved.status !== expectedStatus) throw new Error('Incomplete finance action response.');
+      if (!await loadSnapshot()) throw new Error('Saved finance readback unavailable.');
       return true;
-    } finally {
-      setWorking(false);
-    }
+    } catch (failure) {
+      if (outcome !== 'rejected') {
+        blocked.current = true; recoveryRequired.current = true; setNeedsReload(true);
+        setError(outcome === 'confirmed' ? 'The finance action was saved, but its saved state could not be confirmed. Refresh finance controls before continuing.' : 'The finance action outcome could not be confirmed. Refresh finance controls before continuing.');
+      } else { blocked.current = false; setError(failure instanceof Error ? failure.message : 'The finance control action could not be completed.'); }
+      return false;
+    } finally { operation.current = false; setWorking(false); }
   }
 
-  async function refreshAfterMutation(message: string) {
-    setNotice(message);
-    await loadCore();
-    await loadReconciliations();
-  }
+  function refreshAfterMutation(message: string) { setNotice(message); }
 
   async function closeYear() {
+    if (operation.current || blocked.current || locked) return;
     if (!selectedYear) return;
     const ok = await postJson(
       financeYearCloseHref(selectedYear.id),
@@ -240,6 +267,7 @@ export default function FinanceControlsPage() {
 
   async function reopenYear(event: FormEvent) {
     event.preventDefault();
+    if (operation.current || blocked.current || locked) return;
     if (!selectedYear || !yearReopenReason.trim()) {
       setError('A financial year reopen reason is required.');
       return;
@@ -254,6 +282,7 @@ export default function FinanceControlsPage() {
   }
 
   async function closePeriod() {
+    if (operation.current || blocked.current || locked) return;
     if (!selectedPeriod) return;
     const ok = await postJson(
       financePeriodCloseHref(selectedPeriod.id),
@@ -266,6 +295,7 @@ export default function FinanceControlsPage() {
 
   async function reopenPeriod(event: FormEvent) {
     event.preventDefault();
+    if (operation.current || blocked.current || locked) return;
     if (!selectedPeriod || !reopenReason.trim()) {
       setError('A reopen reason is required.');
       return;
@@ -281,6 +311,7 @@ export default function FinanceControlsPage() {
 
   async function prepareReconciliation(event: FormEvent) {
     event.preventDefault();
+    if (operation.current || blocked.current || locked) return;
     const cleanCurrency = currency.trim().toUpperCase();
     if (!effectiveSelectedPeriodId || !sourceSystemId || !/^[A-Z]{3}$/.test(cleanCurrency)) {
       setError('Choose a period and source, and enter a three-letter currency code.');
@@ -299,6 +330,7 @@ export default function FinanceControlsPage() {
   }
 
   async function reviewReconciliation(id: string) {
+    if (operation.current || blocked.current || locked) return;
     const ok = await postJson(
       financeReconciliationReviewHref(id),
       {},
@@ -308,6 +340,7 @@ export default function FinanceControlsPage() {
   }
 
   async function signOffReconciliation(id: string) {
+    if (operation.current || blocked.current || locked) return;
     if (!activeClose) {
       setError('A current CLOSED period record is required before sign-off.');
       return;
@@ -329,7 +362,7 @@ export default function FinanceControlsPage() {
           <Link href="/commercial/budgeting/commitments" style={{ color: MUTED }}>Budgeting</Link>
           {' / Finance controls'}
         </div>
-        <h1 style={{ margin: 0, fontSize: 24 }}>Finance controls</h1>
+        <h1 ref={review} tabIndex={-1} style={{ margin: 0, fontSize: 24, scrollMarginTop: 200 }}>Finance controls</h1>
         <p style={{ margin: '8px 0 0', color: MUTED, fontSize: 13, lineHeight: 1.6 }}>
           Operate financial-period close/reopen and the governed reconciliation lifecycle.
           Durable close and reconciliation history is preserved; these controls do not delete finance evidence.
@@ -339,13 +372,15 @@ export default function FinanceControlsPage() {
       {error ? <div role="alert" style={errorBox}>{error}</div> : null}
       {notice ? <div role="status" style={noticeBox}>{notice}</div> : null}
 
-      {!loading && !error && <FinanceWorkflow current="controls" setupHint={years.length === 0 ? 'Create your financial year and periods in Finance setup before using finance controls.' : selectedYear && selectedYear.periods.length === 0 ? 'This financial year has no periods. Add its periods in Finance setup before preparing a reconciliation.' : undefined} />}
+      {loading ? <p role="status">Loading saved finance controls…</p> : null}
+      {needsReload ? <p>Actions are paused until the complete saved state can be checked. Previously loaded controls may be out of date. Refresh uses read-only requests.</p> : null}
+      {!loading && !needsReload && !error && <FinanceWorkflow current="controls" setupHint={years.length === 0 ? 'Create your financial year and periods in Finance setup before using finance controls.' : selectedYear && selectedYear.periods.length === 0 ? 'This financial year has no periods. Add its periods in Finance setup before preparing a reconciliation.' : undefined} />}
 
       <section style={{ ...panel, marginBottom: 18 }}>
         <h2 style={heading}>Control scope</h2>
         <div style={formGrid}>
           <Field label="Financial year">
-            <select value={selectedYearId} onChange={event => setSelectedYearId(event.target.value)} className={fieldControlClassName} disabled={loading}>
+            <select value={selectedYearId} onChange={event => { const value = event.target.value; if (value !== selectedYearId) changeScope(() => { setSelectedYearId(value); setSelectedPeriodId(''); }); }} className={fieldControlClassName} disabled={working || needsReload || !loaded}>
               <option value="">Choose year</option>
               {years.map(year => (
                 <option key={year.id} value={year.id}>{year.name} — {year.status}</option>
@@ -353,7 +388,7 @@ export default function FinanceControlsPage() {
             </select>
           </Field>
           <Field label="Financial period">
-            <select value={effectiveSelectedPeriodId} onChange={event => setSelectedPeriodId(event.target.value)} className={fieldControlClassName} disabled={!selectedYear}>
+            <select value={effectiveSelectedPeriodId} onChange={event => { const value = event.target.value; if (value !== selectedPeriodId) changeScope(() => setSelectedPeriodId(value)); }} className={fieldControlClassName} disabled={working || needsReload || !selectedYear}>
               <option value="">Choose period</option>
               {(selectedYear?.periods ?? []).map(period => (
                 <option key={period.id} value={period.id}>{period.name} — {period.status}</option>
@@ -361,7 +396,7 @@ export default function FinanceControlsPage() {
             </select>
           </Field>
           <Field label="External GL source">
-            <select value={sourceSystemId} onChange={event => setSourceSystemId(event.target.value)} className={fieldControlClassName}>
+            <select value={sourceSystemId} disabled={working || needsReload || !loaded} onChange={event => { const value = event.target.value; if (value !== sourceSystemId) changeScope(() => setSourceSystemId(value)); }} className={fieldControlClassName}>
               <option value="">Choose source</option>
               {sources.map(source => <option key={source} value={source}>{source}</option>)}
             </select>
@@ -371,13 +406,13 @@ export default function FinanceControlsPage() {
               value={currency}
               maxLength={3}
               placeholder="AUD"
-              onChange={event => setCurrency(event.target.value.toUpperCase())}
+              disabled={working || needsReload || !loaded} onChange={event => { const value = event.target.value.toUpperCase(); if (value !== currency) changeScope(() => setCurrency(value)); }}
               className={fieldControlClassName}
               aria-label="Reconciliation currency"
             />
           </Field>
           <div style={{ alignSelf: 'end' }}>
-            <button type="button" {...buttonProps('secondary', 'sm')} disabled={loading || working} onClick={() => void refreshAfterMutation('Finance controls refreshed.')}>
+            <button type="button" {...buttonProps('secondary', 'sm')} disabled={loading || working} onClick={() => void refreshControls()}>
               Refresh
             </button>
           </div>
@@ -390,7 +425,7 @@ export default function FinanceControlsPage() {
         setCloseReason={setYearCloseReason}
         reopenReason={yearReopenReason}
         setReopenReason={setYearReopenReason}
-        working={working}
+        working={locked}
         onClose={closeYear}
         onReopen={reopenYear}
       />
@@ -402,7 +437,7 @@ export default function FinanceControlsPage() {
         setCloseReason={setCloseReason}
         reopenReason={reopenReason}
         setReopenReason={setReopenReason}
-        working={working}
+        working={locked}
         onClose={closePeriod}
         onReopen={reopenPeriod}
       />
@@ -412,25 +447,25 @@ export default function FinanceControlsPage() {
         <p style={description}>
           Snapshot BrainBase source actuals and finance adjustments against one explicit External GL source and currency.
         </p>
-        <form onSubmit={prepareReconciliation} style={{ display: 'grid', gap: 10 }}>
+        <form aria-label="Prepare reconciliation" onSubmit={prepareReconciliation} style={{ display: 'grid', gap: 10 }}>
           <Field label="Notes">
-            <textarea value={notes} onChange={event => setNotes(event.target.value)} rows={2} className={fieldControlClassName} />
+            <textarea disabled={locked} value={notes} onChange={event => setNotes(event.target.value)} rows={2} className={fieldControlClassName} />
           </Field>
           <div>
-            <button type="submit" {...buttonProps('primary', 'sm')} disabled={working || !effectiveSelectedPeriodId || !sourceSystemId}>
+            <button type="submit" {...buttonProps('primary', 'sm')} disabled={locked || !effectiveSelectedPeriodId || !sourceSystemId}>
               Prepare reconciliation
             </button>
           </div>
         </form>
       </section>
 
-      <ReconciliationControlTable
+      {loaded ? <ReconciliationControlTable
         reconciliations={reconciliations}
         activeClose={activeClose}
-        working={working}
+        working={locked}
         onReview={reviewReconciliation}
         onSignOff={signOffReconciliation}
-      />
+      /> : <p>Saved reconciliation controls are not available yet.</p>}
     </div>
   );
 }
@@ -474,7 +509,7 @@ function YearControlPanel({
           {year.status === 'OPEN' ? (
             <div style={formGrid}>
               <Field label="Year close reason (optional)">
-                <input value={closeReason} onChange={event => setCloseReason(event.target.value)} className={fieldControlClassName} />
+                <input disabled={working} value={closeReason} onChange={event => setCloseReason(event.target.value)} className={fieldControlClassName} />
               </Field>
               <div style={{ alignSelf: 'end' }}>
                 <button type="button" onClick={onClose} disabled={working} {...buttonProps('primary', 'sm')}>
@@ -485,7 +520,7 @@ function YearControlPanel({
           ) : (
             <form onSubmit={onReopen} style={formGrid}>
               <Field label="Year reopen reason (required)">
-                <input required value={reopenReason} onChange={event => setReopenReason(event.target.value)} className={fieldControlClassName} />
+                <input disabled={working} required value={reopenReason} onChange={event => setReopenReason(event.target.value)} className={fieldControlClassName} />
               </Field>
               <div style={{ alignSelf: 'end' }}>
                 <button type="submit" disabled={working || !reopenReason.trim()} {...buttonProps('danger', 'sm')}>
@@ -581,7 +616,7 @@ function PeriodControlPanel({
           {period.status === 'OPEN' ? (
             <div style={formGrid}>
               <Field label="Close reason (optional)">
-                <input value={closeReason} onChange={event => setCloseReason(event.target.value)} className={fieldControlClassName} />
+                <input disabled={working} value={closeReason} onChange={event => setCloseReason(event.target.value)} className={fieldControlClassName} />
               </Field>
               <div style={{ alignSelf: 'end' }}>
                 <button type="button" onClick={onClose} disabled={working} {...buttonProps('primary', 'sm')}>Close period</button>
@@ -590,7 +625,7 @@ function PeriodControlPanel({
           ) : (
             <form onSubmit={onReopen} style={formGrid}>
               <Field label="Reopen reason (required)">
-                <input required value={reopenReason} onChange={event => setReopenReason(event.target.value)} className={fieldControlClassName} />
+                <input disabled={working} required value={reopenReason} onChange={event => setReopenReason(event.target.value)} className={fieldControlClassName} />
               </Field>
               <div style={{ alignSelf: 'end' }}>
                 <button type="submit" disabled={working || !reopenReason.trim()} {...buttonProps('danger', 'sm')}>Reopen period</button>

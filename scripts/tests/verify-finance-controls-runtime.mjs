@@ -264,16 +264,49 @@ try {
   const calendar=await page.evaluate(async()=> (await(await fetch('/api/commercial/budgeting/financial-periods')).json()).years[0]);
   if(calendar.starts_on!=='2026-07-01'||calendar.ends_on!=='2027-06-30'||calendar.periods[0].starts_on!=='2026-09-01'||calendar.periods[0].ends_on!=='2026-09-30')throw new Error('Calendar boundaries shifted during API serialization');
   for(const date of ['2026-07-01','2027-06-30','2026-09-01','2026-09-30'])await expect(page.getByText(date,{exact:true})).toBeVisible();
-  await page.getByLabel('Reconciliation currency').fill('AUD'); console.log('Finance scope selected'); await page.getByRole('button',{name:'Prepare reconciliation',exact:true}).click();
-  await expect(page.getByRole('status')).toContainText('prepared');
+  const recoveredFinanceActions=[];
+  async function recoverFinanceAction(name,pattern,failReload=false){
+    let posts=0;
+    await page.route(pattern,async route=>{
+      if(route.request().method()!=='POST'){await route.continue();return;}
+      posts++;
+      const response=await route.fetch();
+      if(!response.ok())throw new Error('Finance recovery action did not commit: '+name);
+      await route.abort();
+    });
+    await page.getByRole('button',{name,exact:true}).click();
+    await expect(page.getByRole('alert').filter({hasText:'finance action outcome could not be confirmed'})).toBeVisible();
+    await expect(page.getByRole('button',{name,exact:true})).toBeDisabled();
+    if(name==='Prepare reconciliation')await page.getByRole('form',{name:'Prepare reconciliation',exact:true}).evaluate(element=>element.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+    if(posts!==1)throw new Error('Uncertain finance action was repeated');
+    await page.unroute(pattern);
+    if(failReload){
+      const readPattern='**/api/commercial/budgeting/reconciliations/control-state*';
+      await page.route(readPattern,async route=>{const response=await route.fetch();await route.fulfill({response,json:{}});});
+      await page.getByRole('button',{name:'Refresh',exact:true}).click();
+      await expect(page.getByRole('alert').filter({hasText:'saved reconciliation control view is incomplete'})).toBeVisible();
+      await expect(page.getByRole('textbox',{name:'Notes',exact:true})).toHaveValue('Recovery note');
+      await expect(page.getByRole('button',{name,exact:true})).toBeDisabled();
+      await page.unroute(readPattern);
+    }
+    await page.getByRole('button',{name:'Refresh',exact:true}).click();
+    await expect(page.getByRole('heading',{name:'Finance controls',exact:true})).toBeFocused();
+    await expect(page.getByRole('status')).toContainText('Finance controls refreshed.');
+    if(posts!==1)throw new Error('Finance recovery sent another POST');
+    recoveredFinanceActions.push(name);
+  }
+  await page.getByLabel('Reconciliation currency').fill('AUD'); console.log('Finance scope selected');
+  await page.getByLabel('Notes',{exact:true}).fill('Recovery note');
+  await recoverFinanceAction('Prepare reconciliation','**/api/commercial/budgeting/reconciliations/prepare',true);
+  await expect(page.getByRole('status')).toContainText('Finance controls refreshed.');
   await expect(page.locator('[data-reconciliation-id]')).toContainText('PREPARED');
   let recon=(await pool.query('SELECT * FROM commercial_finance_reconciliations')).rows[0];
   if(recon.source_actual_cents!=='10000'||recon.external_gl_total_cents!=='10000'||recon.variance_cents!=='0'||recon.unresolved_item_count!==0)throw new Error('Totals do not reconcile: '+JSON.stringify(recon));
-  await page.getByRole('button',{name:'Review',exact:true}).click();
+  await recoverFinanceAction('Review','**/api/commercial/budgeting/reconciliations/*/review');
   await expect(page.getByRole('button',{name:'Sign off',exact:true})).toBeDisabled();
-  await page.getByRole('button',{name:'Close period',exact:true}).click();
+  await recoverFinanceAction('Close period','**/api/commercial/budgeting/financial-periods/*/close');
   await expect(page.getByRole('button',{name:'Sign off',exact:true})).toBeEnabled();
-  await page.getByRole('button',{name:'Sign off',exact:true}).click();
+  await recoverFinanceAction('Sign off','**/api/commercial/budgeting/reconciliations/*/sign-off');
   await expect(page.locator('[data-reconciliation-id]')).toContainText('SIGNED_OFF');
   const signedImport={sourceSystemId:'review-ledger',externalEntryId:'entry-1',externalAccountCode:'600',externalCostCentreCode:'OPS-EXT',transactionDate:'2026-09-20',currency:'AUD',amountMinorUnits:'10000',sourcePayloadHash:'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',sourceLineageId:'review-batch'};
   const signedDuplicate=await importEntry(signedImport);
@@ -283,13 +316,13 @@ try {
   await page.screenshot({path:resolve(artifacts,'finance-signed-off-desktop.png'),fullPage:true});
   recon=(await pool.query('SELECT * FROM commercial_finance_reconciliations')).rows[0];
   if(!recon.close_id||recon.status!=='SIGNED_OFF')throw new Error('Sign-off not persisted');
-  await page.getByRole('button',{name:'Close financial year',exact:true}).click();
-  await expect(page.getByRole('status')).toContainText('Financial year closed.');
+  await recoverFinanceAction('Close financial year','**/api/commercial/budgeting/financial-years/*/close');
+  await expect(page.getByRole('status')).toContainText('Finance controls refreshed.');
   await page.getByLabel('Year reopen reason (required)',{exact:true}).fill('Isolated finance review');
-  await page.getByRole('button',{name:'Reopen financial year',exact:true}).click();
-  await expect(page.getByRole('status')).toContainText('Financial year reopened.');
+  await recoverFinanceAction('Reopen financial year','**/api/commercial/budgeting/financial-years/*/reopen');
+  await expect(page.getByRole('status')).toContainText('Finance controls refreshed.');
   await page.getByLabel('Reopen reason (required)',{exact:true}).fill('Isolated period review');
-  await page.getByRole('button',{name:'Reopen period',exact:true}).click();
+  await recoverFinanceAction('Reopen period','**/api/commercial/budgeting/financial-periods/*/reopen');
   await expect(page.locator('[data-reconciliation-id]')).toContainText('STALE');
   await expect(page.locator('[data-close-id]')).toContainText('INVALIDATED');
   await expect(page.locator('[data-year-close-id]')).toContainText('INVALIDATED');
@@ -1226,6 +1259,7 @@ try {
   if(errors.length||failedApi.length)throw new Error(JSON.stringify({errors,failedApi}));
   const externalGlChecks=['mapping list calendar dates','account and cost-centre creation through real forms','exact create response dates','overlap rejection without duplicate facts','source filter','account and cost-centre retirement through real forms','exact retire response and persisted dates','viewer mutation denial','foreign mapping read and retirement denial'];
   const evidence={verified_at:new Date().toISOString(),serverTimezone,checks:['real login and production runtime','calendar dates preserved through API and screen','mobile metrics remain inside viewport','mobile history and reconciliation tables scroll to last column','exact $100 source and ledger match','prepare and review','sign-off blocked before close','period close and durable sign-off','year close and reopen','period reopen invalidates close and reconciliation','viewer denial','tenant isolation'],overflow,build_id:readFileSync('.next/BUILD_ID','utf8').trim()};
+  evidence.financeControlRecoveryChecks=recoveredFinanceActions;
   evidence.externalGlChecks=externalGlChecks;
   evidence.mappingRecoveryChecks=['account and cost-centre creates committed before response interruption','paused submissions do not repeat POST','failed GET retains inputs and recovery lock','complete GET clears inputs and focuses saved review','one durable mapping with authenticated actor','both retirement kinds recover without repeating POST'];
   evidence.importChecks=['real authenticated import API','exact BIGINT amount beyond JavaScript safe integers','date-only import response','exact duplicate idempotency','conflict preserves immutable facts','unsafe numeric, fractional and out-of-range amounts rejected','duplicate preserves signed-off reconciliation','conflict marks current reconciliation and close evidence stale','durable conflict event preserved','new ledger fact invalidates affected sign-off','new import stale event preserves source identity','viewer import denial','import identity and invalidation stay inside organisation'];
