@@ -1,6 +1,22 @@
 # HR workflow audit and verification backlog
 
-This is an initial evidence inventory, not a declaration that the whole HR product is complete. Operational registers and drawer recovery were released in PRs #423 and #424. The next audit covers document management, lifecycle execution and HR administration, with restricted-case and reminder operations tracked separately. Source inspection and fixture tests cannot certify every authenticated browser-to-database workflow.
+This audit covers document management, lifecycle execution and HR administration. Operational registers and drawer recovery were released in PRs #423 and #424. The current fixture acceptance bundle is reviewable in PR #426; this is not a declaration that the whole HR product is complete or authorized for release.
+
+## Current acceptance checkpoint
+
+Application changes are at `52ffd2946e6eed55c8324464ecd5a24958305e1a`; subsequent work through `f62407b2dcc62fcb44260c1fbb5332653701964b` adds recovery-lock proof only. The worktree is clean, PR #426 remains open and main remains `aac48c575e471ca38b2290d42911f3089851fb96`. Exact proof-head CI run `38231780577` passed; GitGuardian/check runs and Vercel commit status are green. Reverify live state before release. This documentation checkpoint will itself require new-head hosted checks after publication.
+
+| Area | Current completed fixture evidence | Remaining limits |
+| --- | --- | --- |
+| Administration | 28 route/browser/Postgres checks: all six writes, committed-but-lost responses, fresh GET reconciliation, tenant/target/authentication/revocation denial and stale-read recovery. | Controlled login/module enablement, minimal administration schema and synthetic Teams manager/context choices do not certify full Next/login or complete production schema. |
+| Documents | 17 service/route/browser/Postgres checks: multipart creation/replacement/history/deletion, acknowledgement/rejection/verification, refreshed employee controls, grant revocation, tested audit rollback, version/acknowledgement concurrency and lost-response reconciliation. | Object storage is in memory; person/session/module fixtures do not certify live storage or real login. Every possible failure/race combination is not covered. |
+| Lifecycle | 29 service/route/browser/Postgres checks: workflow start/cancel, employee task start/submission, HR rejection/resubmission/approval, refreshed controls, current-manager changes, grant revocation, lost workflow/task/approval responses and tested atomic audit rollback. | Revocation after authorization and all read-refresh/concurrency combinations remain unverified. Controlled sessions/person/module fixtures are not production authentication acceptance. |
+
+All 74 disposable database tests passed with containers removed. All 53 drawer document/lifecycle component tests passed. Production build/TypeScript and changed-file ESLint/diff checks passed at the application change; subsequent proof changes passed TypeScript/lint. Independent document/assurance schema harnesses passed 30 and 33 checks. Standard CI and disposable test counts are separate; repository-wide lint retains pre-existing nonblocking findings.
+
+Administration and tested document/lifecycle mutations now report uncertain outcomes, lock affected submissions and require a fresh saved-state check. Document/lifecycle recovery uses closing/reopening the person. Known denials remain generic. Hiding/reopening task details cannot reset uncertainty, and workflow dismissal controls cannot unlock uncertain forms. HTTP responses are deliberately withheld after actual completion; Chromium can retry raw socket resets, so this establishes application no-retry recovery, not transport exactly-once delivery.
+
+No production, hosted database, real storage, email, live AI, environment or infrastructure actions occurred. Restricted cases/reminder delivery remain separately scoped. PR #426 must not merge without separate release authorization because main merges automatically deploy production. The scoped fixture acceptance work is ready for review; real-provider/authentication acceptance and whole-product HR completion remain separate.
 
 ## Administration recovery bundle
 
@@ -8,7 +24,7 @@ Teams previously retained `canManage` after a failed People/context read, and a 
 
 The existing create/edit/archive/restore/grant/revoke endpoints and write payloads are unchanged. Rejected network requests and server errors on create/edit/archive/restore/grant/revoke now produce an explicit unknown-outcome state, clear stale management controls and require a fresh read before another action. Grant/Save leave their busy state. Team drafts remain visible but locked until the form is closed and current Teams are checked; a refresh alone cannot resubmit the same uncertain draft. Reads already pending when the write becomes uncertain cannot restore controls. No write is automatically retried. This UI recovery proof does not establish whether a failed real request committed in the database.
 
-## Evidence and next work
+## Historical initial inventory (superseded by the checkpoint above)
 
 | Area | Existing implementation/evidence inspected | Remaining verification work |
 | --- | --- | --- |
