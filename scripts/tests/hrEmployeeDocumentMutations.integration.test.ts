@@ -138,11 +138,13 @@ describe('Employee document mutations against Postgres with in-memory storage', 
     expect((await cancel.POST(routeRequest('POST'), params)).status).toBe(200);
     const listed = await (await read()).json(); expect(listed.workflows[0].status).toBe('CANCELLED'); expect(listed.workflows[0].capabilities.can_cancel).toBe(false);
   });
-  it.each(['success', 'revoked', 'lost-response', 'lost-version', 'lost-delete', 'lost-verification', 'lost-acknowledgement', 'lifecycle'] as const)('real drawer document writes: %s', async scenario => {
+  it.each(['success', 'revoked', 'lost-response', 'lost-version', 'lost-delete', 'lost-verification', 'lost-acknowledgement', 'lifecycle', 'lifecycle-approval'] as const)('real drawer document writes: %s', async scenario => {
     const workflowRoutes = await import('@/app/api/hr/lifecycle/workflows/route');
     const workflowDetail = await import('@/app/api/hr/lifecycle/workflows/[id]/route');
     const workflowCancel = await import('@/app/api/hr/lifecycle/workflows/[id]/cancel/route');
     const templateRoutes = await import('@/app/api/hr/lifecycle/templates/route');
+    const taskRoutes = await import('@/app/api/hr/lifecycle/tasks/[id]/route');
+    const taskApprovals = await import('@/app/api/hr/lifecycle/tasks/[id]/approvals/route');
     const status = await import('@/app/api/hr/people/[id]/documents/[documentId]/versions/[versionId]/assurance/route');
     const built = await build({ configFile: false, logLevel: 'error', resolve: { alias: { '@': process.cwd() } },
       define: { 'process.env.NODE_ENV': JSON.stringify('production'), 'process.env': '{}' }, oxc: { jsx: { runtime: 'automatic', development: false } },
@@ -162,10 +164,11 @@ describe('Employee document mutations against Postgres with in-memory storage', 
       const body = Buffer.concat(parts);
       const req = new NextRequest(url, { method: incoming.method, headers: { 'Content-Type': incoming.headers['content-type'] || 'application/json' }, ...(body.length ? { body } : {}) });
       let result: Response;
-      if (url.pathname.startsWith('/api/hr/lifecycle/') && scenario === 'lifecycle') {
+      if (url.pathname.startsWith('/api/hr/lifecycle/') && scenario.startsWith('lifecycle')) {
         if (incoming.method !== 'GET') writes.push(incoming.method!);
         const params = { params: Promise.resolve({ id: segments[5] }) };
-        result = segments[4] === 'templates' ? await templateRoutes.GET(req)
+        result = segments[4] === 'tasks' ? (segments[6] === 'approvals' ? await taskApprovals.POST(req, params) : await taskRoutes.PATCH(req, params))
+          : segments[4] === 'templates' ? await templateRoutes.GET(req)
           : segments.length === 5 ? (incoming.method === 'GET' ? await workflowRoutes.GET(req) : await workflowRoutes.POST(req))
           : segments[6] === 'cancel' ? await workflowCancel.POST(req, params) : await workflowDetail.GET(req, params);
       } else if (url.pathname.startsWith('/api/hr/lifecycle/')) result = NextResponse.json({ workflows: [], capabilities: { can_start_workflow: false } });
@@ -188,15 +191,39 @@ describe('Employee document mutations against Postgres with in-memory storage', 
     try {
       const page = await browser.newPage(); page.on('pageerror', error => errors.push(error.message));
       await page.goto(`http://127.0.0.1:${address.port}/`); await page.addScriptTag({ content: script });
-      if (scenario === 'lifecycle') {
+      if (scenario.startsWith('lifecycle')) {
         await page.getByRole('button', { name: 'Start workflow', exact: true }).click();
-        await page.getByRole('combobox', { name: /^Template/ }).selectOption('95555555-5555-4555-8555-555555555555', { timeout: 5000 }).catch(async error => {
+        await page.getByRole('combobox', { name: /^Template/ }).selectOption(scenario === 'lifecycle' ? '95555555-5555-4555-8555-555555555555' : '95555555-5555-4555-8555-555555555556', { timeout: 5000 }).catch(async error => {
           throw new Error(`${String(error)}; errors: ${JSON.stringify(errors)}; rendered: ${await page.locator('body').innerText()}`);
         });
         await page.getByLabel('Anchor date', { exact: true }).fill('2026-10-12');
         await page.getByRole('button', { name: 'Start', exact: true }).click();
         await browserExpect(page.getByRole('button', { name: 'Cancel workflow', exact: true })).toBeVisible();
         const active = await q("SELECT id FROM hr_lifecycle_workflows WHERE organisation_id=$1 AND status='ACTIVE'", [org]); expect(active).toHaveLength(1);
+        if (scenario === 'lifecycle-approval') {
+          const task = (await q('SELECT id FROM hr_lifecycle_tasks WHERE workflow_id=$1', [active[0].id]))[0];
+          routeUser = employee.userId; await page.reload(); await page.addScriptTag({ content: script });
+          await page.getByRole('button', { name: 'View tasks', exact: true }).first().click();
+          await page.getByRole('button', { name: 'Start task', exact: true }).click();
+          await page.getByRole('button', { name: 'Complete task', exact: true }).click();
+          await browserExpect.poll(async () => (await q('SELECT status FROM hr_lifecycle_tasks WHERE id=$1', [task.id]))[0].status).toBe('AWAITING_APPROVAL');
+          await browserExpect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
+          routeUser = hr.userId; await page.reload(); await page.addScriptTag({ content: script });
+          await page.getByRole('button', { name: 'View tasks', exact: true }).first().click();
+          await page.getByRole('button', { name: 'Reject', exact: true }).click();
+          await browserExpect.poll(async () => (await q('SELECT count(*)::int AS count FROM hr_lifecycle_task_approvals WHERE task_id=$1', [task.id]))[0].count).toBe(1);
+          routeUser = employee.userId; await page.reload(); await page.addScriptTag({ content: script });
+          await page.getByRole('button', { name: 'View tasks', exact: true }).first().click();
+          await page.getByRole('button', { name: 'Complete task', exact: true }).click();
+          await browserExpect.poll(async () => (await q('SELECT status FROM hr_lifecycle_tasks WHERE id=$1', [task.id]))[0].status).toBe('AWAITING_APPROVAL');
+          routeUser = hr.userId; await page.reload(); await page.addScriptTag({ content: script });
+          await page.getByRole('button', { name: 'View tasks', exact: true }).first().click();
+          await page.getByRole('button', { name: 'Approve', exact: true }).click();
+          await browserExpect.poll(async () => (await q('SELECT status FROM hr_lifecycle_workflows WHERE id=$1', [active[0].id]))[0].status).toBe('COMPLETED');
+          expect((await q('SELECT decision FROM hr_lifecycle_task_approvals WHERE task_id=$1 ORDER BY decision', [task.id])).map(row => row.decision)).toEqual(['APPROVED', 'REJECTED']);
+          await browserExpect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
+          expect(writes).toEqual(['POST', 'PATCH', 'PATCH', 'POST', 'PATCH', 'POST']); expect(errors).toEqual([]); return;
+        }
         await page.getByRole('button', { name: 'Cancel workflow', exact: true }).click();
         await page.getByRole('button', { name: 'Confirm cancel', exact: true }).click();
         await browserExpect(page.getByRole('button', { name: 'Cancel workflow', exact: true })).toHaveCount(0);
