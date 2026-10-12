@@ -65,7 +65,7 @@ type DocumentVersionState = 'idle' | 'submitting' | 'error' | 'uncertain';
 type DocumentDeleteState = 'idle' | 'submitting' | 'error' | 'uncertain';
 type LifecycleTaskOptionsState = 'idle' | 'loading' | 'ready' | 'error';
 type LifecycleWorkflowsState = 'idle' | 'loading' | 'ready' | 'error';
-type LifecycleTaskActionState = 'idle' | 'submitting' | 'error';
+type LifecycleTaskActionState = 'idle' | 'submitting' | 'error' | 'uncertain';
 type LifecycleTaskApprovalState = 'idle' | 'approving' | 'rejecting' | 'error' | 'uncertain';
 type LifecycleWorkflowMutationState = 'idle' | 'submitting' | 'error';
 type LifecycleTemplatesState = 'idle' | 'loading' | 'ready' | 'error';
@@ -794,6 +794,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
     task: PersonLifecycleTaskSummary,
     action: 'start' | 'complete',
   ) {
+    if (['uncertain', 'submitting'].includes(lifecycleTaskActionById[task.id])) return;
     if (!task.capabilities.can_execute) return;
     if (action === 'start' && task.status !== 'NOT_STARTED') return;
     if (action === 'complete' && task.status !== 'IN_PROGRESS') return;
@@ -826,6 +827,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         || typeof data.task?.status !== 'string'
         || !allowedStatuses.has(data.task.status)
       ) {
+        if (response.ok || response.status >= 500) throw new Error('Unknown lifecycle task outcome');
         setLifecycleTaskActionById(current => ({
           ...current,
           [task.id]: 'error',
@@ -874,7 +876,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
     } catch {
       setLifecycleTaskActionById(current => ({
         ...current,
-        [task.id]: 'error',
+        [task.id]: 'uncertain',
       }));
     }
   }
@@ -1723,7 +1725,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                       <button
                                         type="button"
                                         onClick={() => void runLifecycleTaskAction(workflow, task, 'start')}
-                                        disabled={actionState === 'submitting'}
+                                        disabled={actionState === 'submitting' || actionState === 'uncertain'}
                                         {...lifecycleStartButton}
                                       >
                                         {actionState === 'submitting' ? 'Starting…' : 'Start task'}
@@ -1736,7 +1738,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                       <button
                                         type="button"
                                         onClick={() => void runLifecycleTaskAction(workflow, task, 'complete')}
-                                        disabled={actionState === 'submitting'}
+                                        disabled={actionState === 'submitting' || actionState === 'uncertain'}
                                         {...lifecycleCompleteButton}
                                       >
                                         {actionState === 'submitting' ? 'Completing…' : 'Complete task'}
@@ -1765,6 +1767,11 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                     </div>
                                   )}
 
+                                  {actionState === 'uncertain' && (
+                                    <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 5 }}>
+                                      Task outcome is unknown. Close and reopen this person to check saved task status before trying again.
+                                    </div>
+                                  )}
                                   {actionState === 'error' && (
                                     <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 5 }}>
                                       Could not update lifecycle task.

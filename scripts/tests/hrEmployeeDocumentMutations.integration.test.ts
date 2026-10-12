@@ -217,7 +217,8 @@ describe('Employee document mutations against Postgres with in-memory storage', 
           await page.getByRole('button', { name: 'Complete task', exact: true }).click();
           await browserExpect.poll(async () => (await q('SELECT status FROM hr_lifecycle_tasks WHERE id=$1', [task.id]))[0].status).toBe('AWAITING_APPROVAL');
           if (scenario === 'lifecycle-lost-task') {
-            await browserExpect(page.getByText('Could not update lifecycle task.', { exact: true })).toBeVisible();
+            await browserExpect(page.getByText(/Task outcome is unknown/)).toBeVisible();
+            await browserExpect(page.getByRole('button', { name: 'Complete task', exact: true })).toBeDisabled();
             const saved = await q('SELECT * FROM hr_lifecycle_tasks WHERE id=$1', [task.id]), audits = (await snapshot()).audits, attempts = [...writes];
             await page.reload(); await page.addScriptTag({ content: script });
             await page.getByRole('button', { name: 'View tasks', exact: true }).first().click();
