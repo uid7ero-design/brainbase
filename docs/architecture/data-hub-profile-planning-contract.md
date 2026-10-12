@@ -108,3 +108,8 @@ Production release remains a separate held decision: `main` auto-deploys, and
 the owner must verify/authorize the existing D4D5Q migration prerequisite before
 release. CI success does not satisfy that prerequisite. See the existing
 [release plan](data-hub-analysis-release-plan.md) for ordered rollout/rollback.
+
+The subsequent [planning exchange](data-hub-planning-exchange.md) specifies
+closed JSON catalog/plan admission and exact request correlations. It adds pure
+decoders and acceptance evidence; authenticated transport and controls remain
+separate from the completed planning and exchange contracts.

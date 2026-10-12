@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { profileDataset } from "@/lib/data-hub/profiling/profileDataset";
-import { buildAnalysisReviewSnapshots, buildReviewedProfileCountBundle, buildReviewedProfileCountRequestCatalog, buildReviewedProfileCountSelection, type AnalysisDatasetContext } from "@/lib/data-hub/analysis";
+import { buildAnalysisReviewSnapshots, buildReviewedProfileCountBundle, buildReviewedProfileCountRequestCatalog, buildReviewedProfileCountSelection,
+  parsePlanningCatalogJson, parsePlanningSelectionJson, type AnalysisDatasetContext } from "@/lib/data-hub/analysis";
 import type { SemanticClarificationChoice } from "@/lib/data-hub/semanticInference/resolution";
 import type { DataQualityReviewDecisionInput } from "@/lib/data-hub/dataQuality/reviewResolution";
 
@@ -28,6 +29,32 @@ function plan(f: ReturnType<typeof fixture>, requests: unknown[] = [rows, presen
 }
 
 describe("pure governed review-to-bundle acceptance", () => {
+  it("round-trips actual reviewed discovery and selected plans through the closed exchange", () => {
+    const f = fixture("DECIMAL", ["0", "5"]);
+    f.choices.snapshot.push({ sourceSchemaColumnId: "amount", role: "MEASURE" });
+    const built = buildAnalysisReviewSnapshots(f.context, f.profile, f.choices, f.decisions);
+    if (!built.ok) throw new Error(built.code);
+    const review = { revision: 6, schema: built.schema, quality: built.quality };
+    const discovered = buildReviewedProfileCountRequestCatalog(f.context, review);
+    const admitted = parsePlanningCatalogJson(JSON.stringify(discovered), { context: f.context, reviewRevision: 6 });
+    if (!admitted.ok || !admitted.response.ok) throw new Error("catalog exchange failed");
+    const catalog = admitted.response.catalog;
+    const selection = { selectionVersion: "v1" as const, expectedReviewRevision: catalog.reviewRevision,
+      includeRowCount: true, measureColumnIds: catalog.requests.flatMap(request =>
+        "sourceSchemaColumnId" in request ? [request.sourceSchemaColumnId] : []) };
+    const planned = buildReviewedProfileCountSelection(f.context, review, selection);
+    const decoded = parsePlanningSelectionJson(JSON.stringify(planned), {
+      context: catalog.context, readinessState: catalog.readinessState, selection,
+    });
+    expect(decoded).toEqual({ ok: true, response: planned });
+    if (!decoded.ok || !decoded.response.ok) throw new Error("plan exchange failed");
+    expect(decoded.response.plans.every(plan => !("count" in plan.snapshot))).toBe(true);
+    review.quality.snapshot.state = "HOLD_FOR_REMEDIATION";
+    const held = buildReviewedProfileCountSelection(f.context, review, selection);
+    expect(parsePlanningSelectionJson(JSON.stringify(held), {
+      context: catalog.context, readinessState: catalog.readinessState, selection,
+    })).toEqual({ ok: true, response: { ok: false, code: "QUALITY_HOLD", requestIndex: 0 } });
+  });
   it("completes discovery, selected-intent planning and revision revalidation without evaluating counts", () => {
     const f = fixture("DECIMAL", ["0", "5"]);
     f.choices.snapshot.push({ sourceSchemaColumnId: "amount", role: "MEASURE" });

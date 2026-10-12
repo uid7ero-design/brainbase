@@ -244,7 +244,7 @@ database/browser evidence remains separate and the release hold is unchanged.
 All 430 focused discovery/review/pipeline/contract/count/response/route tests
 pass, along with TypeScript, changed-file lint and diff checks.
 
-The discovery-to-selection workflow bundle completes the pure v1 planning
+The discovery-to-selection workflow bundle on `9f87d877` completes the pure v1 planning
 phase: shared context/revision admission, closed bounded selections, governed
 selected-field revalidation, safe failure references and cross-contract
 acceptance. Maximum-size selections, copied metadata, revision changes, holds,
@@ -257,3 +257,17 @@ disposable PostgreSQL service integration tests, TypeScript, changed-file lint
 and diff checks. The owned disposable container was removed. D4D5Q migration
 content remains unchanged; Production was untouched. Earlier built-app browser
 evidence is not claimed as rerun for this pure planning workflow bundle.
+
+The planning exchange bundle adds closed catalog/selected-plan response and JSON
+admission, exact full-context/revision/request matching, safe closed denials,
+detached output, and complete pure pipeline round-trip coverage. Unexpected
+statistics, diagnostics, versions and partial results are rejected without a
+decoded subset. Existing count-response semantics are unchanged. The exchange
+contract also records the complete authenticated integration acceptance package;
+that package is not implemented here. No new DB/API/UI/AI/query execution,
+migration or Production change is added. The release hold remains in force.
+Local validation passes: 578 focused tests across 23 files, all 64 rerun
+disposable PostgreSQL service tests, TypeScript, changed-file lint and diff
+checks. The owned disposable container was removed and the D4D5Q migration
+blob remains `cc7f948944b1f0bd772a140d33be901736c5ca26`. Earlier browser evidence
+remains separate; this bundle did not rerun a built-app browser journey.

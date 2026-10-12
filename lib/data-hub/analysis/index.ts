@@ -10,6 +10,7 @@ export * from "./reviewedProfileCountBundle";
 export * from "./profileCountBundleInput";
 export * from "./reviewedProfileCountCatalog";
 export * from "./profileCountSelection";
+export * from "./planningExchange";
 export * from "./fieldCatalogValidation";
 export * from "./profileCounts";
 export * from "./scopedProfileCounts";

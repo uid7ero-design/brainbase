@@ -370,3 +370,17 @@ captures the supplied positive safe revision once for single plans, bundles,
 discovery and selections. No prepared state is persisted. See the complete
 [v1 planning contract](data-hub-profile-planning-contract.md) for format,
 denial ordering, limits, acceptance and the separate integration/release boundary.
+
+## Planning exchange boundary
+
+Pure catalog and selected-plan response decoders now validate closed JSON/data
+envelopes before admitting descriptions. They pin full context and review
+revision, validate supported versions/readiness, and bind selected plans to the
+requested operations, identities and order. One invalid or mismatched entry
+rejects the complete response. Accepted outputs are detached scalar metadata;
+known closed denials remain denials, with bounded indices only where allowed.
+Malformed JSON and private diagnostics become fixed safe references.
+
+See the complete [exchange contract](data-hub-planning-exchange.md) for format,
+failure/result interpretation, acceptance and the full future integration work
+package. No route, UI, database execution or transport implementation is added.
