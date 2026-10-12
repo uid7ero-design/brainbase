@@ -1140,7 +1140,8 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel workflow' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirm cancel' }));
 
-    expect(await screen.findByText('Could not cancel lifecycle workflow.')).toBeTruthy();
+    expect(await screen.findByText(/Workflow cancellation outcome is unknown/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Confirm cancel' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('Onboarding · ACTIVE')).toBeTruthy();
     expect(document.body.textContent).not.toContain('sensitive cancellation database detail');
   });

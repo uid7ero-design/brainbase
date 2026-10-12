@@ -67,7 +67,7 @@ type LifecycleTaskOptionsState = 'idle' | 'loading' | 'ready' | 'error';
 type LifecycleWorkflowsState = 'idle' | 'loading' | 'ready' | 'error';
 type LifecycleTaskActionState = 'idle' | 'submitting' | 'error' | 'uncertain';
 type LifecycleTaskApprovalState = 'idle' | 'approving' | 'rejecting' | 'error' | 'uncertain';
-type LifecycleWorkflowMutationState = 'idle' | 'submitting' | 'error';
+type LifecycleWorkflowMutationState = 'idle' | 'submitting' | 'error' | 'uncertain';
 type LifecycleTemplatesState = 'idle' | 'loading' | 'ready' | 'error';
 
 type LifecycleTaskOption = {
@@ -614,6 +614,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   }
 
   async function startLifecycleWorkflow() {
+    if (['uncertain', 'submitting'].includes(lifecycleStartState)) return;
     if (
       !personId
       || !canStartLifecycleWorkflow
@@ -639,13 +640,13 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok || typeof data.workflow?.id !== 'string') {
+        if (response.ok || response.status >= 500) throw new Error('Unknown workflow start outcome');
         setLifecycleStartState('error');
         return;
       }
 
       if (!await refreshLifecycleWorkflows()) {
-        setLifecycleStartState('error');
-        return;
+        throw new Error('Unable to reconcile started workflow');
       }
 
       setLifecycleTaskWorkflowId(null);
@@ -659,11 +660,12 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setNewLifecycleAnchorDate('');
       setLifecycleStartState('idle');
     } catch {
-      setLifecycleStartState('error');
+      setLifecycleStartState('uncertain');
     }
   }
 
   async function cancelLifecycleWorkflow(workflow: PersonLifecycleWorkflowSummary) {
+    if (['uncertain', 'submitting'].includes(lifecycleCancelState)) return;
     if (!workflow.capabilities.can_cancel || workflow.status !== 'ACTIVE') return;
 
     setLifecycleCancelState('submitting');
@@ -680,13 +682,13 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         || data.workflow?.id !== workflow.id
         || data.workflow?.status !== 'CANCELLED'
       ) {
+        if (response.ok || response.status >= 500) throw new Error('Unknown cancellation outcome');
         setLifecycleCancelState('error');
         return;
       }
 
       if (!await refreshLifecycleWorkflows()) {
-        setLifecycleCancelState('error');
-        return;
+        throw new Error('Unable to reconcile cancelled workflow');
       }
 
       setLifecycleTaskWorkflowId(current => (
@@ -700,7 +702,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setCancelLifecycleWorkflowId(null);
       setLifecycleCancelState('idle');
     } catch {
-      setLifecycleCancelState('error');
+      setLifecycleCancelState('uncertain');
     }
   }
 
@@ -1559,7 +1561,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                       <button
                         type="button"
                         onClick={() => void startLifecycleWorkflow()}
-                        disabled={lifecycleStartState === 'submitting'}
+                        disabled={lifecycleStartState === 'submitting' || lifecycleStartState === 'uncertain'}
                         {...lifecycleStartWorkflowButton}
                       >
                         {lifecycleStartState === 'submitting' ? 'Starting…' : 'Start'}
@@ -1574,12 +1576,17 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                           setNewLifecycleAnchorDate('');
                           setLifecycleStartState('idle');
                         }}
-                        disabled={lifecycleStartState === 'submitting'}
+                        disabled={lifecycleStartState === 'submitting' || lifecycleStartState === 'uncertain'}
                         {...lifecycleCancelConfirmButton}
                       >
                         Cancel
                       </button>
                     </div>
+                    {lifecycleStartState === 'uncertain' && (
+                      <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                        Workflow start outcome is unknown. Close and reopen this person to check saved workflows before trying again.
+                      </div>
+                    )}
                     {lifecycleStartState === 'error' && (
                       <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
                         Could not start lifecycle workflow.
@@ -1661,7 +1668,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                               <button
                                 type="button"
                                 onClick={() => void cancelLifecycleWorkflow(workflow)}
-                                disabled={lifecycleCancelState === 'submitting'}
+                                disabled={lifecycleCancelState === 'submitting' || lifecycleCancelState === 'uncertain'}
                                 {...lifecycleConfirmCancelWorkflowButton}
                               >
                                 {lifecycleCancelState === 'submitting' ? 'Cancelling…' : 'Confirm cancel'}
@@ -1672,12 +1679,17 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                   setCancelLifecycleWorkflowId(null);
                                   setLifecycleCancelState('idle');
                                 }}
-                                disabled={lifecycleCancelState === 'submitting'}
+                                disabled={lifecycleCancelState === 'submitting' || lifecycleCancelState === 'uncertain'}
                                 {...lifecycleCancelConfirmButton}
                               >
                                 Keep workflow
                               </button>
                             </div>
+                            {lifecycleCancelState === 'uncertain' && (
+                              <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                                Workflow cancellation outcome is unknown. Close and reopen this person to check saved status before trying again.
+                              </div>
+                            )}
                             {lifecycleCancelState === 'error' && (
                               <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 6 }}>
                                 Could not cancel lifecycle workflow.
