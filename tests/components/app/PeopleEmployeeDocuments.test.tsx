@@ -883,7 +883,9 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
 
-    expect(await screen.findByText('Could not record lifecycle task approval.')).toBeTruthy();
+    expect(await screen.findByText(/Approval outcome is unknown/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Approve' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Reject' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('Manager sign-off · AWAITING_APPROVAL')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Approve' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Reject' })).toBeTruthy();

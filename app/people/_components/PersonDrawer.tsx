@@ -66,7 +66,7 @@ type DocumentDeleteState = 'idle' | 'submitting' | 'error' | 'uncertain';
 type LifecycleTaskOptionsState = 'idle' | 'loading' | 'ready' | 'error';
 type LifecycleWorkflowsState = 'idle' | 'loading' | 'ready' | 'error';
 type LifecycleTaskActionState = 'idle' | 'submitting' | 'error';
-type LifecycleTaskApprovalState = 'idle' | 'approving' | 'rejecting' | 'error';
+type LifecycleTaskApprovalState = 'idle' | 'approving' | 'rejecting' | 'error' | 'uncertain';
 type LifecycleWorkflowMutationState = 'idle' | 'submitting' | 'error';
 type LifecycleTemplatesState = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -884,6 +884,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
     task: PersonLifecycleTaskSummary,
     decision: 'APPROVED' | 'REJECTED',
   ) {
+    if (['uncertain', 'approving', 'rejecting'].includes(lifecycleTaskApprovalById[task.id])) return;
     if (!task.capabilities.can_approve || task.status !== 'AWAITING_APPROVAL') return;
 
     setLifecycleTaskApprovalById(current => ({
@@ -914,6 +915,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         || typeof data.task?.status !== 'string'
         || !allowedStatuses.has(data.task.status)
       ) {
+        if (response.ok || response.status >= 500) throw new Error('Unknown lifecycle approval outcome');
         setLifecycleTaskApprovalById(current => ({
           ...current,
           [task.id]: 'error',
@@ -962,7 +964,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
     } catch {
       setLifecycleTaskApprovalById(current => ({
         ...current,
-        [task.id]: 'error',
+        [task.id]: 'uncertain',
       }));
     }
   }
@@ -1747,7 +1749,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                       <button
                                         type="button"
                                         onClick={() => void runLifecycleTaskApproval(workflow, task, 'APPROVED')}
-                                        disabled={approvalState === 'approving' || approvalState === 'rejecting'}
+                                        disabled={approvalState === 'approving' || approvalState === 'rejecting' || approvalState === 'uncertain'}
                                         {...lifecycleApproveButton}
                                       >
                                         {approvalState === 'approving' ? 'Approving…' : 'Approve'}
@@ -1755,7 +1757,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                       <button
                                         type="button"
                                         onClick={() => void runLifecycleTaskApproval(workflow, task, 'REJECTED')}
-                                        disabled={approvalState === 'approving' || approvalState === 'rejecting'}
+                                        disabled={approvalState === 'approving' || approvalState === 'rejecting' || approvalState === 'uncertain'}
                                         {...lifecycleRejectButton}
                                       >
                                         {approvalState === 'rejecting' ? 'Rejecting…' : 'Reject'}
@@ -1769,6 +1771,11 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                     </div>
                                   )}
 
+                                  {approvalState === 'uncertain' && (
+                                    <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 5 }}>
+                                      Approval outcome is unknown. Close and reopen this person to check saved task status before trying again.
+                                    </div>
+                                  )}
                                   {approvalState === 'error' && (
                                     <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 5 }}>
                                       Could not record lifecycle task approval.

@@ -249,7 +249,9 @@ describe('Employee document mutations against Postgres with in-memory storage', 
           await browserExpect.poll(async () => (await q('SELECT status FROM hr_lifecycle_workflows WHERE id=$1', [active[0].id]))[0].status).toBe('COMPLETED');
           expect((await q('SELECT decision FROM hr_lifecycle_task_approvals WHERE task_id=$1 ORDER BY decision', [task.id])).map(row => row.decision)).toEqual(['APPROVED', 'REJECTED']);
           if (scenario === 'lifecycle-lost') {
-            await browserExpect(page.getByText('Could not record lifecycle task approval.', { exact: true })).toBeVisible();
+            await browserExpect(page.getByText(/Approval outcome is unknown/)).toBeVisible();
+            await browserExpect(page.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
+            await browserExpect(page.getByRole('button', { name: 'Reject', exact: true })).toBeDisabled();
             const committed = {
               approvals: await q('SELECT * FROM hr_lifecycle_task_approvals WHERE task_id=$1 ORDER BY id', [task.id]),
               audits: (await snapshot()).audits,
