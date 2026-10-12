@@ -141,7 +141,7 @@ describe('Employee document mutations against Postgres with in-memory storage', 
     expect((await cancel.POST(routeRequest('POST'), params)).status).toBe(200);
     const listed = await (await read()).json(); expect(listed.workflows[0].status).toBe('CANCELLED'); expect(listed.workflows[0].capabilities.can_cancel).toBe(false);
   });
-  it.each(['success', 'revoked', 'lost-response', 'lost-version', 'lost-delete', 'lost-verification', 'lost-acknowledgement', 'lifecycle', 'lifecycle-approval', 'lifecycle-revoked', 'lifecycle-lost', 'lifecycle-lost-task'] as const)('real drawer document writes: %s', async scenario => {
+  it.each(['success', 'revoked', 'lost-response', 'lost-version', 'lost-delete', 'lost-verification', 'lost-acknowledgement', 'lifecycle', 'lifecycle-approval', 'lifecycle-revoked', 'lifecycle-lost', 'lifecycle-lost-task', 'lifecycle-lost-start', 'lifecycle-lost-cancel'] as const)('real drawer document writes: %s', async scenario => {
     const workflowRoutes = await import('@/app/api/hr/lifecycle/workflows/route');
     const workflowDetail = await import('@/app/api/hr/lifecycle/workflows/[id]/route');
     const workflowCancel = await import('@/app/api/hr/lifecycle/workflows/[id]/cancel/route');
@@ -200,10 +200,25 @@ describe('Employee document mutations against Postgres with in-memory storage', 
           throw new Error(`${String(error)}; errors: ${JSON.stringify(errors)}; rendered: ${await page.locator('body').innerText()}`);
         });
         await page.getByLabel('Anchor date', { exact: true }).fill('2026-10-12');
+        if (scenario === 'lifecycle-lost-start') {
+          await page.route('**/workflows', async route => {
+            if (route.request().method() === 'GET') return route.continue();
+            const response = await route.fetch(); expect(response.status()).toBe(201); await route.abort('failed');
+          });
+        }
         await page.getByRole('button', { name: 'Start', exact: true }).click();
+        if (scenario === 'lifecycle-lost-start') {
+          await browserExpect(page.getByText('Could not start lifecycle workflow.', { exact: true })).toBeVisible();
+          const saved = await q('SELECT * FROM hr_lifecycle_workflows WHERE organisation_id=$1', [org]), audits = (await snapshot()).audits;
+          expect(saved).toHaveLength(1); expect(saved[0].status).toBe('ACTIVE'); expect(writes).toEqual(['POST']);
+          await page.reload(); await page.addScriptTag({ content: script });
+          await browserExpect(page.getByRole('button', { name: 'Cancel workflow', exact: true })).toBeVisible();
+          expect(await q('SELECT * FROM hr_lifecycle_workflows WHERE organisation_id=$1', [org])).toEqual(saved);
+          expect((await snapshot()).audits).toEqual(audits); expect(writes).toEqual(['POST']); expect(errors).toEqual([]); return;
+        }
         await browserExpect(page.getByRole('button', { name: 'Cancel workflow', exact: true })).toBeVisible();
         const active = await q("SELECT id FROM hr_lifecycle_workflows WHERE organisation_id=$1 AND status='ACTIVE'", [org]); expect(active).toHaveLength(1);
-        if (scenario !== 'lifecycle') {
+        if (scenario !== 'lifecycle' && scenario !== 'lifecycle-lost-cancel') {
           const task = (await q('SELECT id FROM hr_lifecycle_tasks WHERE workflow_id=$1', [active[0].id]))[0];
           routeUser = employee.userId; await page.reload(); await page.addScriptTag({ content: script });
           await page.getByRole('button', { name: 'View tasks', exact: true }).first().click();
@@ -282,8 +297,21 @@ describe('Employee document mutations against Postgres with in-memory storage', 
           await browserExpect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
           expect(writes).toEqual(['POST', 'PATCH', 'PATCH', 'POST', 'PATCH', 'POST']); expect(errors).toEqual([]); return;
         }
+        if (scenario === 'lifecycle-lost-cancel') {
+          await page.route('**/cancel', async route => { const response = await route.fetch(); expect(response.status()).toBe(200); await route.abort('failed'); });
+        }
         await page.getByRole('button', { name: 'Cancel workflow', exact: true }).click();
         await page.getByRole('button', { name: 'Confirm cancel', exact: true }).click();
+        if (scenario === 'lifecycle-lost-cancel') {
+          await browserExpect(page.getByText('Could not cancel lifecycle workflow.', { exact: true })).toBeVisible();
+          const saved = await q('SELECT * FROM hr_lifecycle_workflows WHERE id=$1', [active[0].id]), audits = (await snapshot()).audits;
+          expect(saved[0].status).toBe('CANCELLED'); expect(writes).toEqual(['POST', 'POST']);
+          await page.reload(); await page.addScriptTag({ content: script });
+          await browserExpect(page.getByRole('button', { name: 'Start workflow', exact: true })).toBeVisible();
+          await browserExpect(page.getByRole('button', { name: 'Cancel workflow', exact: true })).toHaveCount(0);
+          expect(await q('SELECT * FROM hr_lifecycle_workflows WHERE id=$1', [active[0].id])).toEqual(saved);
+          expect((await snapshot()).audits).toEqual(audits); expect(writes).toEqual(['POST', 'POST']); expect(errors).toEqual([]); return;
+        }
         await browserExpect(page.getByRole('button', { name: 'Cancel workflow', exact: true })).toHaveCount(0);
         await browserExpect.poll(async () => (await q('SELECT status FROM hr_lifecycle_workflows WHERE id=$1', [active[0].id]))[0].status).toBe('CANCELLED');
         await browserExpect(page.getByRole('button', { name: 'Confirm cancel', exact: true })).toHaveCount(0);
