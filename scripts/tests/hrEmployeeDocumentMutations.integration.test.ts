@@ -138,7 +138,7 @@ describe('Employee document mutations against Postgres with in-memory storage', 
     expect((await cancel.POST(routeRequest('POST'), params)).status).toBe(200);
     const listed = await (await read()).json(); expect(listed.workflows[0].status).toBe('CANCELLED'); expect(listed.workflows[0].capabilities.can_cancel).toBe(false);
   });
-  it.each(['success', 'revoked', 'lost-response', 'lost-version', 'lost-delete', 'lost-verification', 'lost-acknowledgement', 'lifecycle', 'lifecycle-approval'] as const)('real drawer document writes: %s', async scenario => {
+  it.each(['success', 'revoked', 'lost-response', 'lost-version', 'lost-delete', 'lost-verification', 'lost-acknowledgement', 'lifecycle', 'lifecycle-approval', 'lifecycle-revoked'] as const)('real drawer document writes: %s', async scenario => {
     const workflowRoutes = await import('@/app/api/hr/lifecycle/workflows/route');
     const workflowDetail = await import('@/app/api/hr/lifecycle/workflows/[id]/route');
     const workflowCancel = await import('@/app/api/hr/lifecycle/workflows/[id]/cancel/route');
@@ -200,7 +200,7 @@ describe('Employee document mutations against Postgres with in-memory storage', 
         await page.getByRole('button', { name: 'Start', exact: true }).click();
         await browserExpect(page.getByRole('button', { name: 'Cancel workflow', exact: true })).toBeVisible();
         const active = await q("SELECT id FROM hr_lifecycle_workflows WHERE organisation_id=$1 AND status='ACTIVE'", [org]); expect(active).toHaveLength(1);
-        if (scenario === 'lifecycle-approval') {
+        if (scenario === 'lifecycle-approval' || scenario === 'lifecycle-revoked') {
           const task = (await q('SELECT id FROM hr_lifecycle_tasks WHERE workflow_id=$1', [active[0].id]))[0];
           routeUser = employee.userId; await page.reload(); await page.addScriptTag({ content: script });
           await page.getByRole('button', { name: 'View tasks', exact: true }).first().click();
@@ -210,6 +210,27 @@ describe('Employee document mutations against Postgres with in-memory storage', 
           await browserExpect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
           routeUser = hr.userId; await page.reload(); await page.addScriptTag({ content: script });
           await page.getByRole('button', { name: 'View tasks', exact: true }).first().click();
+          if (scenario === 'lifecycle-revoked') {
+            await browserExpect(page.getByRole('button', { name: 'Approve', exact: true })).toBeVisible();
+            await q('DELETE FROM hr_administrators WHERE organisation_id=$1', [org]);
+            const lifeSnapshot = async () => ({
+              workflow: await q('SELECT * FROM hr_lifecycle_workflows WHERE id=$1', [active[0].id]),
+              task: await q('SELECT * FROM hr_lifecycle_tasks WHERE id=$1', [task.id]),
+              approvals: await q('SELECT * FROM hr_lifecycle_task_approvals WHERE task_id=$1 ORDER BY id', [task.id]),
+              audit: (await snapshot()).audits,
+            });
+            const before = await lifeSnapshot(); const attempts = writes.length;
+            const denied = page.waitForResponse(response => response.url().endsWith('/approvals'));
+            await page.getByRole('button', { name: 'Approve', exact: true }).click();
+            expect((await denied).status()).toBe(404);
+            await browserExpect(page.getByText('Could not record lifecycle task approval.', { exact: true })).toBeVisible();
+            expect(await lifeSnapshot()).toEqual(before); expect(writes).toHaveLength(attempts + 1);
+            await page.reload(); const read = page.waitForResponse(response => response.url().includes('/workflows?'));
+            await page.addScriptTag({ content: script }); await read;
+            await browserExpect(page.getByText('Synthetic Employee', { exact: true })).toBeVisible();
+            await browserExpect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
+            expect(await lifeSnapshot()).toEqual(before); expect(writes).toHaveLength(attempts + 1); expect(errors).toEqual([]); return;
+          }
           await page.getByRole('button', { name: 'Reject', exact: true }).click();
           await browserExpect.poll(async () => (await q('SELECT count(*)::int AS count FROM hr_lifecycle_task_approvals WHERE task_id=$1', [task.id]))[0].count).toBe(1);
           routeUser = employee.userId; await page.reload(); await page.addScriptTag({ content: script });
