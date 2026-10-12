@@ -96,6 +96,9 @@ beforeEach(async () => {
     await q(`DELETE FROM ${table} WHERE organisation_id=$1`, [org]);
   }
   await q('INSERT INTO hr_administrators(organisation_id,user_id) VALUES ($1,$2)', [org, hr.userId]);
+  for (const table of ['hr_lifecycle_task_approvals', 'hr_lifecycle_tasks', 'hr_lifecycle_workflows']) {
+    await q(`DELETE FROM ${table} WHERE organisation_id=$1`, [org]);
+  }
 });
 afterAll(async () => { await pool.end(); });
 describe('Employee document mutations against Postgres with in-memory storage', () => {
@@ -138,7 +141,7 @@ describe('Employee document mutations against Postgres with in-memory storage', 
     expect((await cancel.POST(routeRequest('POST'), params)).status).toBe(200);
     const listed = await (await read()).json(); expect(listed.workflows[0].status).toBe('CANCELLED'); expect(listed.workflows[0].capabilities.can_cancel).toBe(false);
   });
-  it.each(['success', 'revoked', 'lost-response', 'lost-version', 'lost-delete', 'lost-verification', 'lost-acknowledgement', 'lifecycle', 'lifecycle-approval', 'lifecycle-revoked'] as const)('real drawer document writes: %s', async scenario => {
+  it.each(['success', 'revoked', 'lost-response', 'lost-version', 'lost-delete', 'lost-verification', 'lost-acknowledgement', 'lifecycle', 'lifecycle-approval', 'lifecycle-revoked', 'lifecycle-lost'] as const)('real drawer document writes: %s', async scenario => {
     const workflowRoutes = await import('@/app/api/hr/lifecycle/workflows/route');
     const workflowDetail = await import('@/app/api/hr/lifecycle/workflows/[id]/route');
     const workflowCancel = await import('@/app/api/hr/lifecycle/workflows/[id]/cancel/route');
@@ -200,7 +203,7 @@ describe('Employee document mutations against Postgres with in-memory storage', 
         await page.getByRole('button', { name: 'Start', exact: true }).click();
         await browserExpect(page.getByRole('button', { name: 'Cancel workflow', exact: true })).toBeVisible();
         const active = await q("SELECT id FROM hr_lifecycle_workflows WHERE organisation_id=$1 AND status='ACTIVE'", [org]); expect(active).toHaveLength(1);
-        if (scenario === 'lifecycle-approval' || scenario === 'lifecycle-revoked') {
+        if (scenario !== 'lifecycle') {
           const task = (await q('SELECT id FROM hr_lifecycle_tasks WHERE workflow_id=$1', [active[0].id]))[0];
           routeUser = employee.userId; await page.reload(); await page.addScriptTag({ content: script });
           await page.getByRole('button', { name: 'View tasks', exact: true }).first().click();
@@ -239,9 +242,24 @@ describe('Employee document mutations against Postgres with in-memory storage', 
           await browserExpect.poll(async () => (await q('SELECT status FROM hr_lifecycle_tasks WHERE id=$1', [task.id]))[0].status).toBe('AWAITING_APPROVAL');
           routeUser = hr.userId; await page.reload(); await page.addScriptTag({ content: script });
           await page.getByRole('button', { name: 'View tasks', exact: true }).first().click();
+          if (scenario === 'lifecycle-lost') {
+            await page.route('**/approvals', async route => { const response = await route.fetch(); expect(response.status()).toBe(201); await route.abort('failed'); });
+          }
           await page.getByRole('button', { name: 'Approve', exact: true }).click();
           await browserExpect.poll(async () => (await q('SELECT status FROM hr_lifecycle_workflows WHERE id=$1', [active[0].id]))[0].status).toBe('COMPLETED');
           expect((await q('SELECT decision FROM hr_lifecycle_task_approvals WHERE task_id=$1 ORDER BY decision', [task.id])).map(row => row.decision)).toEqual(['APPROVED', 'REJECTED']);
+          if (scenario === 'lifecycle-lost') {
+            await browserExpect(page.getByText('Could not record lifecycle task approval.', { exact: true })).toBeVisible();
+            const committed = {
+              approvals: await q('SELECT * FROM hr_lifecycle_task_approvals WHERE task_id=$1 ORDER BY id', [task.id]),
+              audits: (await snapshot()).audits,
+            };
+            const attempts = [...writes]; await page.reload(); await page.addScriptTag({ content: script });
+            await page.getByRole('button', { name: 'View tasks', exact: true }).first().click();
+            await browserExpect(page.getByText('Employee route task · COMPLETED', { exact: true }).first()).toBeVisible();
+            expect(await q('SELECT * FROM hr_lifecycle_task_approvals WHERE task_id=$1 ORDER BY id', [task.id])).toEqual(committed.approvals);
+            expect((await snapshot()).audits).toEqual(committed.audits); expect(writes).toEqual(attempts);
+          }
           await browserExpect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
           expect(writes).toEqual(['POST', 'PATCH', 'PATCH', 'POST', 'PATCH', 'POST']); expect(errors).toEqual([]); return;
         }
