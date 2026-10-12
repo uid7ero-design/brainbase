@@ -418,6 +418,75 @@ try {
   await expect(page.locator('[data-reconciliation-id]')).toContainText('STALE');
   const newFactEvent=(await pool.query("SELECT details FROM commercial_finance_reconciliation_events WHERE event_type='STALE' ORDER BY event_at DESC LIMIT 1")).rows[0].details;
   if(newFactEvent.cause!=='EXTERNAL_GL_NEW_ENTRY'||newFactEvent.externalEntryId!=='entry-2')throw new Error('New import stale event lost its source identity');
+  // Prepare the new variance through the UI, then verify report integrity without writes.
+  await page.getByRole('button',{name:'Prepare reconciliation',exact:true}).click();
+  await expect(page.getByRole('status')).toContainText('Finance reconciliation prepared.');
+  const reportBefore=(await pool.query('SELECT count(*)::int AS count FROM commercial_finance_reconciliation_events')).rows[0].count;
+  const reportSnapshot=(await pool.query('SELECT id,variance_cents::text FROM commercial_finance_reconciliations ORDER BY prepared_at DESC LIMIT 1')).rows[0];
+  await page.goto(origin+'/commercial/budgeting/commitments');
+  await page.getByLabel('Finance source',{exact:true}).selectOption('review-ledger');
+  await expect(page.getByRole('region',{name:'Finance-adjusted report',exact:true})).toBeVisible();
+  const queueRegion=page.getByRole('region',{name:'Reconciliation details September review-ledger AUD',exact:true});
+  await expect(queueRegion).toBeVisible();
+  const reportQueue=await page.evaluate(async()=> (await(await fetch('/api/commercial/budgeting/reconciliations?sourceSystemId=review-ledger')).json()).reconciliations);
+  if(reportQueue.length!==1||reportQueue[0].id!==reportSnapshot.id||reportQueue[0].varianceCents!==reportSnapshot.variance_cents||!reportQueue[0].items.length)throw new Error('Reporting queue did not retain persisted variance identity');
+  const financeExportHref=await page.locator('a[data-export-view="finance"]').getAttribute('href');
+  if(!financeExportHref?.includes('sourceSystemId=review-ledger'))throw new Error('Finance export lost explicit source scope');
+  const exportProof=await page.evaluate(async href=>{
+    const [csv,report]=await Promise.all([fetch(href),fetch('/api/commercial/budgeting/consumption?sourceSystemId=review-ledger')]);
+    return {status:csv.status,csv:await csv.text(),report:(await report.json()).report};
+  },financeExportHref);
+  const financeCsv=parse(exportProof.csv,{columns:true,skip_empty_lines:true});
+  if(exportProof.status!==200||financeCsv.length!==exportProof.report.financeRows.length)throw new Error('Finance CSV does not cover the saved report');
+  for(const row of exportProof.report.financeRows){
+    const exported=financeCsv.find(value=>value['Budget account code']===row.budgetAccountCode&&value['Financial period']===row.financialPeriodName&&value.Currency===row.currency);
+    if(!exported||exported['Source Actual cents']!==row.sourceActualCents||exported['Finance Adjustments cents']!==row.financeAdjustmentCents||exported['Effective Actual cents']!==row.effectiveActualCents||exported['External GL Actual cents']!==(row.externalGlActualCents??'')||exported['Source system']!==(row.sourceSystemId??''))throw new Error('Finance CSV lost exact saved values or source provenance');
+  }
+  writeFileSync(resolve(artifacts,'report-finance.csv'),exportProof.csv);
+  const integrityMethods=[];
+  const integrityPattern='**/api/commercial/budgeting/consumption*';
+  for(const invalidPart of ['rows','financeRows','exceptions','source']){
+    await page.route(integrityPattern,async route=>{
+      integrityMethods.push(route.request().method());const response=await route.fetch();const payload=await response.json();
+      if(invalidPart==='source')payload.report.financeRows[0].sourceSystemId='OTHER';
+      else payload.report[invalidPart]=[null];
+      await route.fulfill({response,json:payload});
+    });
+    await page.getByRole('button',{name:'Reload report',exact:true}).click();
+    await expect(page.getByRole('alert').filter({hasText:'Unable to load Budget vs Actual reporting.'})).toBeVisible();
+    await expect(page.locator('a[data-export-view]')).toHaveCount(0);
+    await expect(page.getByLabel('Finance source',{exact:true})).toHaveValue('review-ledger');
+    await page.unroute(integrityPattern);
+    await page.getByRole('button',{name:'Reload report',exact:true}).click();
+    await expect(page.getByRole('region',{name:'Finance-adjusted report',exact:true})).toBeVisible();
+    await expect(queueRegion).toBeVisible();
+  }
+  const queueIntegrityPattern='**/api/commercial/budgeting/reconciliations*';
+  await page.route(queueIntegrityPattern,async route=>{
+    integrityMethods.push(route.request().method());const response=await route.fetch();const payload=await response.json();
+    payload.reconciliations[0].items[0].currency='USD';await route.fulfill({response,json:payload});
+  });
+  await page.getByRole('button',{name:'Reload report',exact:true}).click();
+  await expect(page.getByText('Unavailable',{exact:true})).toBeVisible();
+  await expect(page.getByRole('region',{name:'Finance-adjusted report',exact:true})).toBeVisible();
+  if(await page.locator('a[data-export-view]').count()===0)throw new Error('Queue failure hid a valid report export');
+  await page.unroute(queueIntegrityPattern);
+  await page.getByRole('button',{name:'Reload report',exact:true}).click();await expect(queueRegion).toBeVisible();
+  await page.setViewportSize({width:390,height:844});
+  const reportWidth=await page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth}));
+  if(reportWidth.scrollWidth!==reportWidth.width)throw new Error('Budget reporting overflows mobile viewport: '+JSON.stringify(reportWidth));
+  for(const region of [page.getByRole('region',{name:'Finance-adjusted report',exact:true}),queueRegion]){
+    await region.scrollIntoViewIfNeeded();const position=await region.evaluate(element=>{element.scrollLeft=element.scrollWidth;return element.scrollLeft;});
+    if(position<=0)throw new Error('Reporting details cannot scroll on mobile');
+    await expect(region.locator('tbody tr').first().locator('td').last()).toBeInViewport();
+    await region.evaluate(element=>{element.scrollLeft=0;});
+  }
+  await page.evaluate(()=>window.scrollTo(0,0));
+  await page.screenshot({path:resolve(artifacts,'report-integrity-mobile.png'),fullPage:true});
+  await page.setViewportSize({width:1440,height:1000});
+  await page.evaluate(()=>window.scrollTo(0,0));
+  await page.screenshot({path:resolve(artifacts,'report-integrity-desktop.png'),fullPage:true});
+  if(integrityMethods.some(method=>method!=='GET')||(await pool.query('SELECT count(*)::int AS count FROM commercial_finance_reconciliation_events')).rows[0].count!==reportBefore)throw new Error('Reporting integrity recovery changed durable finance state');
   const viewer=await login('runtime-viewer');
   const denial=await viewer.page.evaluate(async()=> (await fetch('/api/commercial/budgeting/financial-periods')).status);
   if(denial!==403)throw new Error('Viewer finance controls accepted');
@@ -1294,6 +1363,7 @@ try {
   const externalGlChecks=['mapping list calendar dates','account and cost-centre creation through real forms','exact create response dates','overlap rejection without duplicate facts','source filter','account and cost-centre retirement through real forms','exact retire response and persisted dates','viewer mutation denial','foreign mapping read and retirement denial'];
   const evidence={verified_at:new Date().toISOString(),serverTimezone,checks:['real login and production runtime','calendar dates preserved through API and screen','mobile metrics remain inside viewport','mobile history and reconciliation tables scroll to last column','exact $100 source and ledger match','prepare and review','sign-off blocked before close','period close and durable sign-off','year close and reopen','period reopen invalidates close and reconciliation','viewer denial','tenant isolation'],overflow,build_id:readFileSync('.next/BUILD_ID','utf8').trim()};
   evidence.financeControlRecoveryChecks=recoveredFinanceActions;
+  evidence.reportingIntegrityChecks={malformedCollections:['rows','financeRows','exceptions'],wrongSourceRead:true,wrongCurrencyItem:true,readOnlyRecovery:true,exactScopedCsv:true,persistedVarianceId:reportSnapshot.id,mobile:reportWidth};
   evidence.financeConsistencyChecks={invalidDatePosts,wrongScopeReadRecovery:true,wrongAcknowledgementRecovery:['Review','Close period','Close financial year'],displayLocale:'en-AU',calendarEntry:'DD/MM/YYYY'};
   evidence.externalGlChecks=externalGlChecks;
   evidence.mappingRecoveryChecks=['account and cost-centre creates committed before response interruption','paused submissions do not repeat POST','failed GET retains inputs and recovery lock','complete GET clears inputs and focuses saved review','one durable mapping with authenticated actor','both retirement kinds recover without repeating POST'];

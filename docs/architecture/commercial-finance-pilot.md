@@ -709,6 +709,58 @@ Reviewed screenshots and structured evidence are in
 `finance-consistency-adelaide-final`. Mobile page width remains 390px at a 390px
 viewport, with mapping forms stacked and history tables contained for scrolling.
 
+## Complete Budget reporting snapshots and mobile review
+
+Budget reporting now validates every consumption row, exact finance row, Actual
+and Commitment exception, reconciliation snapshot and nested unresolved item
+before it can render as a saved result. Legacy cents remain safe integer numbers;
+finance cents remain signed integer strings, including values beyond JavaScript's
+safe numeric range. Nullable unknown measures remain null, distinct from zero.
+Required provenance, counts, statuses, currency and audit/calendar dates are
+checked without recalculating amounts or changing recognition/settlement rules.
+
+A malformed report prevents all report exports until a complete GET succeeds.
+An unavailable reconciliation queue leaves a separately valid report and its
+exports usable, and shows Unavailable rather than a zero count. Finance rows can
+carry ledger evidence only for an explicitly selected matching source; the queue
+retains its documented all-source scope when none is selected. Malformed source
+choices preserve the last valid choices and selection. Source refreshes now read
+without cache, as the report and queue already do. Delayed prior-scope bodies
+remain unable to replace the current response.
+
+Summary cards stack on small screens. Currency summaries can shrink below their
+previous minimum width, and the source selector stays within its container.
+Resolved consumption, finance-adjusted reporting, exception tables and each
+reconciliation detail table are named keyboard-focusable scroll regions. Queue
+summaries also show the prepared timestamp using Australian notation and an
+explicit timezone label. UI table filters continue to leave CSV export scope
+unchanged; export values still come from the governed server endpoints.
+
+Focused checks cover malformed rows/items/amounts/counts/dates/provenance,
+source mismatches, nullable measures, exact large strings, export availability,
+GET-only recovery and failed source-choice refresh retention. The disposable
+runtime prepares an actual new reconciliation variance, compares its API snapshot
+identity and variance with PostgreSQL, corrupts each report collection and a
+selected-source response, then corrupts an item's currency. Browser verification
+also downloads the finance CSV through its scoped UI link and compares its exact
+amounts and source provenance with the same saved report. Recovery must retain
+the selected source, distinguish unavailable detail from a valid report, and send
+only GET requests without adding durable finance events. Mobile checks verify page width and scrolling to the last detail column. Evidence uses
+the `report-integrity` prefix in the local finance-review artifact folder.
+
+Final validation passed 2,585 Commercial tests across 158 files, standalone
+TypeScript, targeted lint, the production build and the full expanded disposable
+runtime. The initial 55 focused checks and both full Commercial runs were green;
+the second full run includes the completed source-refresh retention checks.
+Evidence is in `report-integrity-commercial-final.log`,
+`report-integrity-types-final.log`, `report-integrity-lint-final.log`,
+`report-integrity-build.log` and `report-integrity-runtime-final.log`.
+The first runtime also passed; a screenshot-positioning adjustment was verified
+by the complete final rerun. Reviewed desktop/mobile captures, the exact CSV and
+structured evidence are in `report-integrity-adelaide-final`. The new report snapshot remains separate from older
+STALE finance-adjusted evidence: a PREPARED queue variance does not grant sign-off
+or overwrite the report's governed reconciliation basis.
+
 ## Repeatable runtime evidence
 
 Run `npx tsc --noEmit` separately before release verification. This checks the

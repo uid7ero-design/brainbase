@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { validBudgetReport, validFinanceQueue, validFinanceSources } from '@/lib/commercial/budgetReportingSnapshot';
+import { formatAustralianTimestamp } from '@/lib/commercial/financeSetupDisplay';
+import styles from './page.module.css';
 import { FinanceWorkflow } from '../../_components/FinanceWorkflow';
 import { fieldControlClassName, tableStyles } from '@/components/ui/app';
 import { formatMoneyCents, formatMoneyCentsExact } from '@/lib/commercial/money';
@@ -268,7 +271,7 @@ export default function BudgetCommitmentsPage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/commercial/budgeting/external-gl/sources');
+        const res = await fetch('/api/commercial/budgeting/external-gl/sources', { cache: 'no-store' });
         if (cancelled) return;
         if (!res.ok) {
           setSourceSystemsError('Unable to load External GL sources.');
@@ -276,11 +279,11 @@ export default function BudgetCommitmentsPage() {
         }
         const data = await res.json() as { sourceSystemIds?: unknown };
         if (cancelled) return;
-        if (!Array.isArray(data?.sourceSystemIds) || !data.sourceSystemIds.every(value => typeof value === 'string')) {
+        if (!validFinanceSources(data?.sourceSystemIds)) {
           setSourceSystemsError('Unable to load External GL sources.');
           return;
         }
-        setSourceSystemIds(data.sourceSystemIds.filter((value): value is string => typeof value === 'string'));
+        setSourceSystemIds(data.sourceSystemIds);
         setSourceSystemsError(null);
       } catch {
         if (!cancelled) setSourceSystemsError('Unable to load External GL sources. Use Refresh sources to try again.');
@@ -310,9 +313,7 @@ export default function BudgetCommitmentsPage() {
         const data = await res.json();
         if (cancelled) return;
         const next = data?.report;
-        if (!next || !Array.isArray(next.rows) || !Array.isArray(next.financeRows) || !Array.isArray(next.exceptions)
-          || ![next.resolvedActualCount, next.resolvedCommitmentCount, next.unresolvedExceptionCount]
-            .every(value => Number.isSafeInteger(value) && value >= 0)) {
+        if (!validBudgetReport(next, activeSourceSystemId)) {
           throw new Error('Incomplete report');
         }
         setReport(next);
@@ -355,7 +356,7 @@ export default function BudgetCommitmentsPage() {
 
         const data = await res.json() as { reconciliations?: unknown };
         if (cancelled) return;
-        if (!Array.isArray(data?.reconciliations) || !data.reconciliations.every(entry => entry && Array.isArray(entry.items))) {
+        if (!validFinanceQueue(data?.reconciliations, activeSourceSystemId)) {
           setReconciliationQueueError('Unable to load the finance reconciliation queue.');
           setReconciliationQueue([]);
           setReconciliationQueueLoading(false);
@@ -510,7 +511,7 @@ export default function BudgetCommitmentsPage() {
         sourceSystemId={activeSourceSystemId}
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(180px, 1fr))', gap: 10, marginBottom: 18 }}>
+      <div className={styles.stateGrid}>
         <StateCard label="Resolved Actual lines" value={report.resolvedActualCount} tone="var(--status-info)" />
         <StateCard label="Resolved commitment lines" value={report.resolvedCommitmentCount} tone="var(--status-success)" />
         <StateCard label="Actual/Commitment exceptions" value={report.unresolvedExceptionCount}
@@ -550,7 +551,7 @@ export default function BudgetCommitmentsPage() {
           </div>
         ) : (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(270px, 1fr))', gap: 12, marginBottom: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(270px, 100%), 1fr))', gap: 12, marginBottom: 14 }}>
               {summaries.map(summary => (
                 <div key={summary.currency} style={{
                   background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 16,
@@ -567,7 +568,7 @@ export default function BudgetCommitmentsPage() {
               ))}
             </div>
 
-            <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', overflowX: 'auto' }}>
+            <div role="region" aria-label="Resolved Budget consumption" tabIndex={0} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', overflowX: 'auto' }}>
               <table className={tableStyles.table} style={{ minWidth: 1360 }}>
                 <thead><tr>
                   {[
@@ -629,7 +630,7 @@ export default function BudgetCommitmentsPage() {
             No unresolved Actual or Commitment exceptions.
           </div>
         ) : (
-          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', overflowX: 'auto' }}>
+          <div role="region" aria-label="Actual and commitment exceptions" tabIndex={0} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', overflowX: 'auto' }}>
             <table className={tableStyles.table} style={{ minWidth: 1180 }}>
               <thead><tr>
                 {['Source', 'Exception', 'Purchase order', 'Source line', 'Period', 'Cost centre', 'Currency',
@@ -689,6 +690,7 @@ export function FinanceSourceSelector({
       </label>
       <select
         id="budget-finance-source"
+        className={styles.sourceSelect}
         value={selectedSourceSystemId}
         onChange={event => onChange(event.target.value)}
         style={{
@@ -813,7 +815,7 @@ export function FinanceAdjustedTable({ rows }: { rows: FinanceRow[] }) {
           No finance-adjusted rows are available.
         </div>
       ) : (
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', overflowX: 'auto' }}>
+        <div role="region" aria-label="Finance-adjusted report" tabIndex={0} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', overflowX: 'auto' }}>
           <table className={tableStyles.table} style={{ minWidth: 1450 }}>
             <thead><tr>
               {[
@@ -953,9 +955,10 @@ export function FinanceReconciliationQueue({
                 <SnapshotMeasure label="Effective Actual" value={financeMoney(reconciliation.brainbaseEffectiveActualCents, reconciliation.currency)} />
                 <SnapshotMeasure label="External GL" value={financeMoney(reconciliation.externalGlTotalCents, reconciliation.currency)} />
                 <SnapshotMeasure label="Variance" value={financeMoney(reconciliation.varianceCents, reconciliation.currency)} />
+                <SnapshotMeasure label="Prepared" value={formatAustralianTimestamp(reconciliation.preparedAt)} />
               </div>
 
-              <div style={{ overflowX: 'auto' }}>
+              <div role="region" aria-label={`Reconciliation details ${reconciliation.financialPeriodName} ${reconciliation.sourceSystemId} ${reconciliation.currency}`} tabIndex={0} style={{ overflowX: 'auto' }}>
                 <table className={tableStyles.table} style={{ minWidth: 1320 }}>
                   <thead><tr>
                     {[

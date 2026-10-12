@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { completeReport, queueEntry } from '../../fixtures/commercialBudgetReport';
 import BudgetCommitmentsPage from '@/app/commercial/budgeting/commitments/BudgetCommitmentsPage';
 
 const report = (count = 0) => ({ rows: [], financeRows: [], exceptions: [], resolvedActualCount: count, resolvedCommitmentCount: 0, unresolvedExceptionCount: 0 });
@@ -7,6 +8,31 @@ const response = (body: unknown) => Response.json(body);
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('Budget reporting read recovery', () => {
+  it.each(['rows', 'financeRows', 'exceptions'])('blocks malformed %s and its exports, then recovers the full saved report', async key => {
+    let broken = true;
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => response(url.includes('/sources') ? { sourceSystemIds: ['XERO'] }
+      : url.includes('/reconciliations') ? { reconciliations: [] }
+      : { report: broken ? { ...completeReport, [key]: [null] } : completeReport })));
+    render(<BudgetCommitmentsPage />); await screen.findByRole('alert');
+    expect(document.querySelectorAll('a[data-export-view]')).toHaveLength(0);
+    broken = false; fireEvent.click(screen.getByRole('button', { name: 'Reload report' }));
+    await screen.findByRole('region', { name: 'Resolved Budget consumption' });
+    expect(screen.getByRole('region', { name: 'Actual and commitment exceptions' })).toBeVisible();
+    expect(document.querySelectorAll('a[data-export-view]').length).toBeGreaterThan(0);
+  });
+  it('rejects malformed queue details without losing a valid report or exact amounts on recovery', async () => {
+    let broken = true;
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => response(url.includes('/sources') ? { sourceSystemIds: ['XERO'] }
+      : url.includes('/reconciliations') ? { reconciliations: [{ ...queueEntry, items: broken ? [null] : queueEntry.items }] }
+      : { report: completeReport })));
+    render(<BudgetCommitmentsPage />); await screen.findByText('Unavailable');
+    expect(document.querySelectorAll('a[data-export-view]').length).toBeGreaterThan(0);
+    broken = false; fireEvent.click(screen.getByRole('button', { name: 'Reload report' }));
+    await screen.findByRole('region', { name: 'Reconciliation details QTR 1 XERO AUD' });
+    expect(screen.getAllByText('$9,007,199,254,740,993.12').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Unavailable')).not.toBeInTheDocument();
+  });
+
   it.each(['network', 'json', 'incomplete', 'denied'])('recovers a %s report failure through GET only', async failure => {
     let broken = true;
     const fetcher = vi.fn(async (url: string, _options?: RequestInit) => {
@@ -80,6 +106,20 @@ describe('Budget reporting read recovery', () => {
     expect(screen.getByLabelText('Finance source')).toHaveValue('NEW');
     expect(screen.getByText('7')).toBeVisible();
     expect(screen.getByText('No unresolved finance reconciliation items in the latest snapshots.')).toBeVisible();
+  });
+
+  it.each([{ values: [''] }, { values: ['XERO', 'XERO'] }, { values: [null] }])('retains the selected saved source when refreshed choices are malformed: %j', async ({ values: invalid }) => {
+    let malformed = false;
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => response(url.includes('/sources') ? { sourceSystemIds: malformed ? invalid : ['XERO'] }
+      : url.includes('/reconciliations') ? { reconciliations: [] } : { report: completeReport })));
+    render(<BudgetCommitmentsPage />); await screen.findByRole('option', { name: 'XERO' });
+    fireEvent.change(screen.getByLabelText('Finance source'), { target: { value: 'XERO' } });
+    await screen.findByRole('region', { name: 'Finance-adjusted report' });
+    malformed = true; fireEvent.click(screen.getByRole('button', { name: 'Refresh sources' }));
+    await screen.findByText('Unable to load External GL sources.');
+    expect(screen.getByLabelText('Finance source')).toHaveValue('XERO');
+    expect(screen.getByRole('region', { name: 'Finance-adjusted report' })).toBeVisible();
+    expect(document.querySelector('a[data-export-view="finance"]')).toHaveAttribute('href', expect.stringContaining('sourceSystemId=XERO'));
   });
 
   it('recovers a failed sources read using Refresh sources', async () => {
