@@ -548,3 +548,36 @@ describe('Employee document mutations against Postgres with in-memory storage', 
     expect((await perform()).outcome).toBe('recorded');
   });
 });
+
+describe('reminder current-version and recipient entitlement SQL', () => {
+  it('uses real SQL to suppress superseded, unlinked, revoked, inactive and foreign-tenant recipients', async () => {
+    await q(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email text,
+      ADD COLUMN IF NOT EXISTS display_name text, ADD COLUMN IF NOT EXISTS status text DEFAULT 'ACTIVE',
+      ADD COLUMN IF NOT EXISTS role text DEFAULT 'VIEWER'`);
+    await q("UPDATE users SET email='synthetic@example.invalid', status='ACTIVE', role='VIEWER' WHERE organisation_id=$1", [org]);
+    await q('UPDATE hr_people SET linked_user_id=$1 WHERE id=$2', [employee.userId, personId]);
+    const created = await create();
+    const { createEmployeeDocumentReminderEmailTransport } = await import('@/lib/hr/employeeDocumentReminderEmailTransport');
+    const sender = vi.fn().mockResolvedValue({ status: 'sent', id: 'synthetic' });
+    const delivery = { id: '96666666-6666-4666-8666-666666666666', documentVersionId: created.version.id,
+      recipientUserId: employee.userId, reminderType: 'acknowledgement_due', scheduledFor: '2026-10-13',
+      deliveryStatus: 'CLAIMED' as const, claimedAt: '2026-10-13', sentAt: null, failedAt: null, failureCode: null };
+    const transport = createEmployeeDocumentReminderEmailTransport({ organisationId: org, sender });
+    expect((await transport(delivery)).outcome).toBe('sent');
+    await q('UPDATE hr_employee_document_versions SET is_current=false WHERE id=$1', [created.version.id]);
+    sender.mockClear(); expect((await transport(delivery)).outcome).toBe('definite_failure'); expect(sender).not.toHaveBeenCalled();
+    await q('UPDATE hr_employee_document_versions SET is_current=true WHERE id=$1', [created.version.id]);
+    await q('UPDATE hr_people SET linked_user_id=NULL WHERE id=$1', [personId]);
+    expect((await transport(delivery)).outcome).toBe('definite_failure'); expect(sender).not.toHaveBeenCalled();
+    const hrDelivery = { ...delivery, recipientUserId: hr.userId };
+    expect((await transport(hrDelivery)).outcome).toBe('sent');
+    await q('DELETE FROM hr_administrators WHERE organisation_id=$1 AND user_id=$2', [org, hr.userId]);
+    sender.mockClear(); expect((await transport(hrDelivery)).outcome).toBe('definite_failure'); expect(sender).not.toHaveBeenCalled();
+    await q("UPDATE users SET role='SUPER_ADMIN' WHERE id=$1", [hr.userId]);
+    expect((await transport(hrDelivery)).outcome).toBe('sent');
+    await q("UPDATE users SET status='DISABLED' WHERE id=$1", [hr.userId]);
+    sender.mockClear(); expect((await transport(hrDelivery)).outcome).toBe('definite_failure'); expect(sender).not.toHaveBeenCalled();
+    const otherTenant = createEmployeeDocumentReminderEmailTransport({ organisationId: 'other-fixture-org', sender });
+    expect((await otherTenant(delivery)).outcome).toBe('definite_failure'); expect(sender).not.toHaveBeenCalled();
+  });
+});

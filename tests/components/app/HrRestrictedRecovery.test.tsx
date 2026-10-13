@@ -124,10 +124,10 @@ it('preserves a case draft and prevents replay after a lost creation response', 
   await act(async () => { renderBrainbase(<ListPage />); });
   fireEvent.click(await screen.findByRole('button', { name: '+ Open Case' }));
   fireEvent.change(screen.getByRole('textbox', { name: /Title/ }), { target: { value: 'Synthetic draft' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Open Case', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: /^Open Case$/ }));
   expect(await screen.findByText('The change could not be confirmed. Do not open this case again until its creation and access have been checked.')).toBeTruthy();
   expect((screen.getByRole('textbox', { name: /Title/ }) as HTMLInputElement).value).toBe('Synthetic draft');
-  expect((screen.getByRole('button', { name: 'Open Case', exact: true }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('button', { name: /^Open Case$/ }) as HTMLButtonElement).disabled).toBe(true);
   expect(writes).toBe(1);
   fireEvent.click(screen.getByRole('button', { name: 'Close Open Restricted Case' }));
   expect((screen.getByRole('button', { name: '+ Open Case' }) as HTMLButtonElement).disabled).toBe(true);
