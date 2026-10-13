@@ -692,8 +692,8 @@ describe("T29 — no raw storage locator exposure", () => {
 // route without updating this list.
 // ---------------------------------------------------------------------------
 
-describe("T30 — no new backend route was introduced", () => {
-  it("the app/api/data-hub route.ts file set matches the known 5A.3D.0 + 5B.2 baseline exactly", () => {
+describe("T30 — explicit inventory of authorized backend routes", () => {
+  it("the app/api/data-hub route.ts file set matches the known authorized baseline exactly", () => {
     const apiDir = path.join(process.cwd(), "app", "api", "data-hub");
     const found: string[] = [];
     const walk = (dir: string) => {
@@ -710,6 +710,7 @@ describe("T30 — no new backend route was introduced", () => {
         "worksheets/[id]/analysis-review/plan/route.ts", // D4D5X review planning
         "worksheets/[id]/analysis-review/route.ts", // D4D5U authenticated review API
         "worksheets/[id]/analysis-count/route.ts", // D4D5W authenticated count API
+        "worksheets/[id]/analysis-planning/route.ts", // Separately authorized read-only catalog/selection integration
         "import-batches/route.ts",
         "import-batches/[id]/route.ts",
         "import-batches/[id]/finalize/route.ts",

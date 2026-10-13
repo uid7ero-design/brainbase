@@ -28,6 +28,22 @@ function toBytes(buf: Buffer): Uint8Array {
 }
 
 describe("readWorksheetDataRows — physical row identity + non-contiguous governed ordinals", () => {
+  it("materializes absent governed cells as explicit null while retaining zero, false, empty strings and leading zeros", async () => {
+    const bytes = toBytes(buildSpreadsheet([{ name: "Data", rows: [
+      ["Id", "Zero", "False", "Empty", "Absent", "Null"],
+      ["0001", 0, false, "", undefined, null],
+    ] }]));
+    const result = await readWorksheetDataRows(bytes, { filename: "missing-cells.xlsx" }, {
+      index: 0, headerRowOneBased: 1, maxRowsToRead: 10,
+      governedColumns: [0, 1, 2, 3, 4, 5, 7].map(ordinal => ({ id: `column-${ordinal}`, ordinal,
+        sourceHeader: `Header ${ordinal}`, sensitivityClass: "INTERNAL" })),
+    });
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].cells.map(cell => cell.value)).toEqual(["0001", 0, false, "", null, null, null]);
+    const serialized = JSON.parse(JSON.stringify(result.rows[0].cells));
+    expect(serialized.every((cell: object) => Object.hasOwn(cell, "value"))).toBe(true);
+    expect(serialized.slice(4).map((cell: { value: unknown }) => cell.value)).toEqual([null, null, null]);
+  });
   it("preserves the true 1-based physical row number across interspersed blank rows", async () => {
     // Row 1 (1-based) = header. Row 2 = data. Row 3 = BLANK. Row 4 = data.
     // Row 5 = BLANK. Row 6 = data.

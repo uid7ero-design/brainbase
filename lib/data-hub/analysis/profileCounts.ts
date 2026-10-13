@@ -1,7 +1,7 @@
 import type { DatasetProfile } from "../profiling/contracts";
 import type { AnalysisReadiness } from "./contracts";
-import { buildAnalysisPlan, type BuildAnalysisPlanResult,
-  type RowCountAnalysisPlan, type CountPresentAnalysisPlan } from "./plan";
+import { buildProfileCountPlan, type BuildProfileCountPlanResult,
+  type ProfileCountAnalysisPlan } from "./profileCountPlan";
 
 export const PROFILE_COUNT_RESULT_VERSION = "v1" as const;
 
@@ -14,14 +14,14 @@ export interface ProfileCountEvidence {
 
 export interface ProfileCountResult {
   resultVersion: typeof PROFILE_COUNT_RESULT_VERSION;
-  plan: RowCountAnalysisPlan | CountPresentAnalysisPlan;
+  plan: ProfileCountAnalysisPlan;
   count: number;
 }
 
 export type EvaluateProfileCountResult =
   | { ok: true; result: ProfileCountResult }
-  | Extract<BuildAnalysisPlanResult, { ok: false }>
-  | { ok: false; code: "PROFILE_LINEAGE_MISMATCH" | "PROFILE_COUNTS_INVALID" | "PROFILE_OPERATION_NOT_SUPPORTED" };
+  | Extract<BuildProfileCountPlanResult, { ok: false }>
+  | { ok: false; code: "PROFILE_LINEAGE_MISMATCH" | "PROFILE_COUNTS_INVALID" };
 
 function validCount(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 0;
@@ -43,11 +43,8 @@ export function evaluateProfileCount(
   input: unknown,
   profile: ProfileCountEvidence,
 ): EvaluateProfileCountResult {
-  const planned = buildAnalysisPlan(readiness, input);
+  const planned = buildProfileCountPlan(readiness, input);
   if (!planned.ok) return planned;
-  if (planned.plan.operation === "GROUPED_ROW_COUNT") {
-    return { ok: false, code: "PROFILE_OPERATION_NOT_SUPPORTED" };
-  }
   const ids = Object.values(readiness.catalog).flat();
   const expected = new Set(ids);
   const actual = new Set(profile.columns.map((column) => column.sourceSchemaColumnId));

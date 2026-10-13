@@ -111,6 +111,13 @@ echo "=== Running dataset-profile execution and D4D5N upload count integration p
 npx vitest run --config vitest.integration.config.ts scripts/tests/dataHubDatasetProfileExecution.integration.test.ts
 RESULT=$?
 
+# Opt-in full browser proof uses the same freshly provisioned disposable DB.
+# Build the application first; no mocks are installed in the browser flow.
+if [ $RESULT -eq 0 ] && [ "${DATAHUB_BROWSER_PROOF:-}" = "1" ]; then
+  node scripts/tests/verify-datahub-analysis-runtime.mjs
+  RESULT=$?
+fi
+
 # Reapply with actual stored history, proving reruns preserve every record.
 if [ $RESULT -eq 0 ]; then
   REVIEW_DIGEST=$(docker exec "$CONTAINER" psql -X -A -t -U postgres -d testdb -v ON_ERROR_STOP=1 -c \

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useHrDrawerFocusReturn } from '../../_components/useHrDrawerFocusReturn';
 import { validateRegisterPagination, type RegisterPagination } from '@/lib/hr/registerPaging';
 import { HrOperationsNav, HrRegisterReset, HrRegisterSearch, HrRegisterPagination } from '../../_components/HrRegisterControls';
 import PersonDrawer from '../../_components/PersonDrawer';
@@ -36,6 +37,7 @@ export default function LifecycleTaskQueuePage() {
   const [lifecycle, setLifecycle] = useState('all');
   const [page, setPage] = useState(1);
   const [personId, setPersonId] = useState<string | null>(null);
+  useHrDrawerFocusReturn(personId, state !== 'loading');
   useEffect(() => {
     const controller = new AbortController();
     queueMicrotask(async () => {
@@ -56,7 +58,7 @@ export default function LifecycleTaskQueuePage() {
   return <div style={{ maxWidth: 1100 }}>
     <PageHeader title="Lifecycle task queue" description="Visible outstanding tasks from active workflows, with overdue work first." actions={<>
       <HrOperationsNav current="/people/lifecycle/tasks" />
-      <button type="button" {...buttonProps('secondary')} disabled={state === 'loading'} onClick={() => setRefresh(value => value + 1)}>Refresh</button>
+      <button type="button" data-hr-register-refresh {...buttonProps('secondary')} disabled={state === 'loading'} onClick={() => setRefresh(value => value + 1)}>Refresh</button>
     </>} />
     <HrRegisterSearch label="Search people or tasks" value={search} onChange={value => { setSearch(value); setPage(1); }} />
     <label>Lifecycle{' '}<select value={lifecycle} onChange={event => { setLifecycle(event.target.value); setPage(1); }}>
@@ -75,7 +77,7 @@ export default function LifecycleTaskQueuePage() {
           {state === 'error' && <TableStateRow colSpan={6} kind="error">Unable to load lifecycle task queue. Please refresh to try again.</TableStateRow>}
           {state === 'ready' && tasks.length === 0 && <TableStateRow colSpan={6} kind="empty">No visible outstanding tasks match this view.</TableStateRow>}
           {state === 'ready' && tasks.map(task => <tr key={task.task_id}>
-            <td className={tableStyles.primary}><button type="button" onClick={() => setPersonId(task.person_id)}>{names.get(task.person_id) ?? 'Open person'}</button></td>
+            <td className={tableStyles.primary}><button type="button" data-hr-person-id={task.person_id} onClick={() => setPersonId(task.person_id)}>{names.get(task.person_id) ?? 'Open person'}</button></td>
             <td>{task.lifecycle_type === 'onboarding' ? 'Onboarding' : 'Offboarding'}</td><td>{task.title}</td><td>{STATUSES[task.status]}</td>
             <td>{task.due_at ? `${task.due_at.slice(0, 10)} ${task.due_at.slice(11, 16)}` : 'No due date'}</td><td>{task.overdue ? 'Yes' : 'No'}</td>
           </tr>)}

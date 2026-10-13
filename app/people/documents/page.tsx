@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useHrDrawerFocusReturn } from '../_components/useHrDrawerFocusReturn';
 import { validateRegisterPagination, type RegisterPagination } from '@/lib/hr/registerPaging';
 import { HrOperationsNav, HrRegisterReset, HrRegisterSearch, HrRegisterPagination } from '../_components/HrRegisterControls';
 import PersonDrawer from '../_components/PersonDrawer';
@@ -34,6 +35,7 @@ export default function DocumentOverviewPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [personId, setPersonId] = useState<string | null>(null);
+  useHrDrawerFocusReturn(personId, state !== 'loading');
   useEffect(() => {
     const controller = new AbortController();
     queueMicrotask(async () => {
@@ -53,7 +55,7 @@ export default function DocumentOverviewPage() {
   return <div style={{ maxWidth: 1300 }}>
     <PageHeader title="Document assurance overview" description="Current employee-document assurance and expiry work within your document access." actions={<>
       <HrOperationsNav current="/people/documents" />
-      <button type="button" {...buttonProps('secondary')} disabled={state === 'loading'} onClick={() => setRefresh(value => value + 1)}>Refresh</button>
+      <button type="button" data-hr-register-refresh {...buttonProps('secondary')} disabled={state === 'loading'} onClick={() => setRefresh(value => value + 1)}>Refresh</button>
     </>} />
     <HrRegisterSearch value={search} onChange={value => { setSearch(value); setPage(1); }} />
     <label>Show documents{' '}<select value={filter} onChange={event => { setFilter(event.target.value); setPage(1); }}>
@@ -69,7 +71,7 @@ export default function DocumentOverviewPage() {
           {state === 'error' && <TableStateRow colSpan={9} kind="error">Unable to load document overview. Please refresh to try again.</TableStateRow>}
           {state === 'ready' && rows.length === 0 && <TableStateRow colSpan={9} kind="empty">No visible employee documents match this view.</TableStateRow>}
           {state === 'ready' && rows.map(person => <tr key={person.person_id}>
-            <td className={tableStyles.primary}><button type="button" onClick={() => setPersonId(person.person_id)}>{person.first_name} {person.last_name}</button></td>
+            <td className={tableStyles.primary}><button type="button" data-hr-person-id={person.person_id} onClick={() => setPersonId(person.person_id)}>{person.first_name} {person.last_name}</button></td>
             {Object.keys(COLUMNS).map(key => <td key={key}>{person[key as keyof Counts]}</td>)}
           </tr>)}
         </tbody>

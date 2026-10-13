@@ -98,3 +98,289 @@ This slice provides row counts only. Present-value count controls, friendly
 governed field labels, authenticated browser-to-database verification and the
 Production migration/deployment sequence remain outstanding. The prepared
 analysis-review migration has not been applied to Production by this work.
+
+## D4D5Z — authenticated route-to-database proof
+
+The disposable Postgres harness now runs signed-session planning, review save,
+review reload, row count and present-value count through the actual route
+handlers. JWT verification, session user revalidation, role checks, review
+engines, Prisma and SQL triggers run unchanged. The harness supplies the Next
+cookie adapter and adapts the Neon SQL transport to local Postgres. It verifies
+missing/tampered sessions, demotion, inactivity, moved accounts, foreign
+worksheets and stale profile pins, including no unauthorized review insertion.
+
+This is authenticated route-to-database proof, not an HTTP server or browser
+journey. A full browser journey and Production rollout remain unverified.
+
+## Governed count workflow bundle
+
+Planning now returns governed field labels from the same RepeatableRead
+snapshot as profile evidence. The screen offers present-value counts only for
+measure fields in the saved review matching that planning profile. Counts still
+come from the existing reviewed server service and show their actual revision
+and profile identity; zero is present and missing values are excluded. Holds
+block both count controls. An uncertain save requires an explicit reload before
+another save, including when the append succeeded but the following read failed.
+
+The opt-in disposable browser harness starts the built application, signs in
+through the real form and exercises review and count APIs against real
+PostgreSQL with the migration chain installed. Only the Neon HTTP transport is
+adapted to loopback PostgreSQL. It starts with already-profiled synthetic
+worksheets; it does not prove file upload/inspection or hosted Neon transport.
+Production schema and deployment acceptance remain separate. See
+`data-hub-analysis-release-plan.md` for rollout prerequisites and recovery.
+
+## Reviewed count response contract
+
+`parseReviewedCountResponse` validates the closed v1 successful count envelope
+before the screen displays it. Counts are nonnegative safe integers and review
+revisions are positive safe integers. All plan/result algorithm versions and
+eight lineage identities are required. Only ready row-count and present-count
+plans are accepted; present counts retain `EXCLUDE_MISSING`. Unexpected fields,
+grouped operations, holds, malformed values and incompatible versions fail
+closed. The returned worksheet, operation and measure must match the request.
+
+The parser is pure and returns copied validated records. It does not execute,
+recompute counts, authenticate, establish organization access or prove current
+database pointers. A valid server result can use a newer profile/review than
+the screen load; that actual lineage is retained. The existing server remains
+responsible for authorization and fresh review/capability evaluation. Rejected
+responses clear the prior count; retry remains an explicit user action.
+
+The browser proof additionally corrupts nine otherwise genuine count responses
+to check rejection, clearing prior results, hiding unexpected response contents,
+no extra request during the observed recovery interval and explicit valid retry.
+Only these contract probes intercept response bodies; baseline workflow,
+authorization and persistence recovery still use genuine responses. Invalid JSON
+and non-object envelopes yield `RESPONSE_INVALID`, never decoding snippets.
+
+## Failure display contract
+
+`analysisFailureReference` is a pure closed projection of review/count failure
+references. Recognized codes retain their recovery meaning; unknown codes,
+non-string values and unexpected exception messages become `REQUEST_FAILED`.
+Neither server diagnostics nor connection messages are displayed. This is a
+display boundary, not authorization, error-envelope validation or permission to
+retry. The existing save uncertainty guard still requires explicit reload;
+count failures still clear results and await an explicit retry.
+
+## Profile-statistics planning target
+
+`buildAnalysisPlan` can describe a governed grouped-row-count intent without
+making grouping executable. `buildProfileCountPlan` narrows that description to
+the existing profile-statistics target: row count and present-value count only.
+Grouped intent retains `PROFILE_OPERATION_NOT_SUPPORTED`; generic aggregate
+intent retains `PLAN_KIND_NOT_SUPPORTED`. Holds and capability denials remain
+checked before target acceptance. Supported schema, profiler and quality
+resolution versions are required; incompatible versions return
+`PROFILE_PLAN_VERSION_UNSUPPORTED` before profile statistics are read.
+
+The existing pure evaluator uses this target planner. No database/API/UI/AI
+execution is added. The target plan establishes neither dataset provenance nor
+freshness, access authorization or sufficient profile evidence; the existing
+scoped evaluator and server loaders retain those responsibilities.
+
+## Catalog admission before planning
+
+The general planner now requires a complete structural field catalog before
+deriving capabilities. Its seven role lists must be arrays of nonblank string
+identities, with no repeats within or across roles. Their total must equal a
+nonnegative safe integer field count; missing or additional role lists fail.
+An empty catalog remains valid for row counts. Original identities are retained,
+never normalized or silently deduplicated.
+
+Malformed catalog metadata returns `READINESS_CATALOG_INVALID` from general
+planning, profile-target planning and evaluation before profile evidence is
+read. This replaces the later `PROFILE_LINEAGE_MISMATCH` diagnostic for duplicate
+readiness identities; mismatched profile evidence retains its lineage error.
+Quality holds retain precedence even when catalog metadata is unavailable.
+The guard validates structural consistency only, not provenance, freshness,
+algorithm support or access. Those existing version/scoped/server checks remain.
+
+## Closed readiness state admission
+
+Readiness derivation accepts only the three known reviewed-quality states.
+An unknown state returns `QUALITY_STATE_INVALID` instead of defaulting to ready.
+Direct capability derivation accepts only supported readiness-version metadata,
+a valid structural catalog and either ready state. Unknown readiness states,
+incompatible readiness versions and malformed catalogs produce
+`UNAVAILABLE_INVALID_READINESS` with no dataset or field capabilities. Request
+validation rejects that capability state using its existing unsupported-state
+failure. A genuine quality hold retains `BLOCKED_QUALITY_HOLD`; invalid metadata
+is never relabeled as a reviewed hold or permission to proceed.
+
+These pure admission checks add no execution or access authority. The existing
+profile-target version checks, scoped evidence checks and server authorization
+remain required. Valid empty datasets and acknowledged notices remain supported.
+
+## Dataset-scoped intent planning
+
+`buildScopedProfileCountPlan` compares the readiness snapshot's eight lineage
+identities against the context supplied by the trusted caller before accessing
+readiness or planning the request. Invalid and mismatched contexts retain their
+existing distinct errors. Matching metadata then passes through the existing
+profile-target planner, preserving holds, catalog/version denials and supported
+operations. The accepted result is a scoped snapshot of the plan with a copied,
+closed context. Unknown context metadata is omitted; later input mutation cannot
+relabel the accepted description.
+
+No profile statistics are required or read. Matching context does not prove
+authorization, fresh database pointers, saved-review status or sufficient
+evidence for a count. A later execution caller must load and revalidate those
+facts; this contract is neither a replay token nor a durable execution grant.
+
+## Review-derived planning composition
+
+`buildReviewedProfileCountPlan` accepts trusted loaded semantic and quality
+snapshots plus their review revision. It first compares both full contexts
+against the expected dataset, validates a positive safe integer revision,
+derives readiness and then invokes the dataset-scoped profile-target planner.
+Callers do not supply readiness or profile statistics. An accepted result
+retains the actual supplied review revision and a detached scoped plan.
+
+Scope mismatches, invalid revisions, unknown quality states, holds, incompatible
+algorithm versions and unsupported field operations fail closed. The snapshots
+and revision must come from an authorized loader; this pure composition cannot
+prove persistence, fresh pointers or permissions. No API accepts caller-created
+review snapshots, and this bundle adds no database or analysis execution path.
+
+## Bounded review-pinned planning bundles
+
+`buildReviewedProfileCountBundle` accepts the same trusted review metadata plus
+a closed envelope: `bundleVersion: "v1"`, a positive safe integer
+`expectedReviewRevision`, and `requests`. The ordered request list contains
+between 1 and `MAX_PROFILE_COUNT_BUNDLE_REQUESTS` (20) intents. This explicit
+planning bound limits composition work; it is not an execution quota.
+
+Both dataset contexts and the supplied review revision are checked before
+request planning. Revision mismatch returns `REVIEW_REVISION_MISMATCH` before
+reading semantic/quality snapshots. Malformed envelopes, unknown keys,
+unsupported envelope versions and out-of-bound lists return
+`PROFILE_BUNDLE_INVALID`. Sparse entries are invalid requests, not skipped.
+
+The admitted review revision is captured once. Semantic and quality snapshots
+are read once to derive an owned readiness snapshot for the entire bundle;
+schema catalog construction is not repeated for each intent. Every request
+then uses the existing dataset-scoped profile-target planner with that common
+readiness. Accepted plans still have independent copied contexts and snapshots.
+Readiness derivation failures retain `requestIndex: 0`; request-specific
+failures retain the first failing position. This preparation is per invocation,
+with no shared cache or durable prepared state.
+
+Success
+retains request order, duplicate intents, detached scoped plans and one review
+revision. The first failed request returns its existing closed diagnostic and
+zero-based `requestIndex`, without any partial plans. This is all-or-nothing
+intent composition, not a database transaction or permission to run a batch.
+Revision equality compares supplied metadata only; an authorized execution
+caller would still need fresh persisted review, lineage and permission checks.
+No statistics, raw values, API, UI or execution path are added.
+
+## Fixed bundle admission
+
+`validateProfileCountBundleInput` admits a closed data envelope before review
+snapshots are read. Its three required fields must be own enumerable data
+properties; inherited fields, accessors and any extra own string/symbol keys
+are invalid. It captures the revision and bounded request-list membership into
+a fresh envelope and list. The planner consumes that admitted list rather than
+rereading the caller's array after review preparation, so later source-list
+growth, replacement or reordering cannot expand or reorder the accepted work.
+
+List copying uses own index data descriptors without invoking a custom
+iterator or entry getter. Accessor entries return `PROFILE_BUNDLE_INVALID`;
+holes and inherited entries become undefined intents and retain the planner's
+indexed `INVALID_REQUEST`. Individual intents now use structural admission
+before review preparation, as described below. Neither envelope nor structural
+admission establishes available capabilities, fresh review state or execution
+authority. No new execution path or persistence is introduced.
+
+## Detached structural intents
+
+`parseAnalysisRequestInput` accepts the closed v1 row, grouping and aggregate
+intent shapes using own enumerable data properties. Accessors, inherited
+required fields, hidden/symbol extras and unsupported operators return
+`INVALID_REQUEST` without invoking request property getters. Success projects
+a fresh intent containing only scalar version, kind, field identity and the
+supported operator; identities are preserved exactly. Structurally valid generic
+aggregates and grouping remain subject to the existing planner's restrictions.
+
+The capability validator uses this shared parser after its hold/state/version
+checks, retaining denial precedence. Bundle admission uses it to copy intents
+before review preparation; malformed payloads become undefined entries so the
+governed planner retains indexed `INVALID_REQUEST` and quality-hold precedence.
+Later payload mutation cannot relabel admitted valid intents. Structural
+admission proves neither field availability nor dataset/review provenance,
+permission or support for executing the operation. No capability is granted by
+parsing and no API accepts prepared bundles.
+
+## Pure pipeline acceptance
+
+`dataHubPlanningPipeline.test.ts` composes the real profiler, semantic review,
+quality review and review-pinned bundle planner using synthetic fixtures. The
+test revision is supplied explicitly and makes no persistence claim. The path
+ends at detached intent plans: no count evaluator, database, API, UI or AI is
+invoked. Synthetic cells are used only to construct fixture profile metadata;
+plans omit cells, numeric statistics and count values.
+
+Acceptance covers explicit ambiguous meanings, generated constant-column
+notices and acknowledgement, empty-profile CONTINUE/HOLD decisions, all eight
+lineage identities across profile/choices/decisions, invented decisions,
+automatic flag semantics, unsupported grouping/generic aggregates, revision
+mismatches and inconsistent profile counts. A valid first intent never survives
+a later bundle denial. This proves compatibility of the pure contracts; it
+does not establish authenticated loading, saved review provenance, current
+database pointers, hosted transport or Production readiness.
+
+## Profile-target request discovery
+
+`buildReviewedProfileCountRequestCatalog` derives a versioned request inventory
+from trusted scoped semantic/quality review metadata. Both contexts and a
+positive safe review revision are admitted before readiness derivation. The
+existing profile-target row planner checks quality holds, catalog structure and
+supported algorithm versions before any templates are exposed. Denials return
+their existing closed diagnostic with no partial inventory.
+
+Success carries copied closed dataset context, actual supplied review revision,
+ready/acknowledged state, one ROW_COUNT template and explicit COUNT_PRESENT
+templates for reviewed measures in catalog order. Other field classes do not
+produce measure templates; grouping and generic aggregates are not advertised.
+Templates contain copied scalar identities, with no labels, statistics, counts
+or raw values. Accepted templates round-trip through the existing planners.
+
+This inventory is metadata discovery, not a submitted batch: it retains all
+measure templates even when there are more than 20. A caller selecting a bundle
+still must satisfy the existing 1–20 admission bound. Catalogs grant no access,
+saved-review provenance, freshness or execution permission. A later authorized
+caller must load current review metadata and plan its selected requests again.
+No catalog API/UI, query execution or persistence is added.
+
+## Completed v1 discovery-to-selection planning
+
+`parseProfileCountSelectionInput` and `buildReviewedProfileCountSelection`
+complete the workflow from catalog discovery to selected measure plans. A
+closed v1 selection pins an expected review revision, chooses row count and
+supplies ordered distinct measure identities. It admits 1–20 total intents,
+copies scalar selections before review preparation and revalidates every
+selected field through the existing governed bundle planner. Catalogs never
+substitute for current trusted review metadata. All-or-nothing output and
+zero-based request indices retain the existing bundle contract.
+
+Shared internal scope admission now copies all eight expected identities and
+captures the supplied positive safe revision once for single plans, bundles,
+discovery and selections. No prepared state is persisted. See the complete
+[v1 planning contract](data-hub-profile-planning-contract.md) for format,
+denial ordering, limits, acceptance and the separate integration/release boundary.
+
+## Planning exchange boundary
+
+Pure catalog and selected-plan response decoders now validate closed JSON/data
+envelopes before admitting descriptions. They pin full context and review
+revision, validate supported versions/readiness, and bind selected plans to the
+requested operations, identities and order. One invalid or mismatched entry
+rejects the complete response. Accepted outputs are detached scalar metadata;
+known closed denials remain denials, with bounded indices only where allowed.
+Malformed JSON and private diagnostics become fixed safe references.
+
+See the complete [exchange contract](data-hub-planning-exchange.md) for format,
+failure/result interpretation, acceptance and the full future integration work
+package. No route, UI, database execution or transport implementation is added.

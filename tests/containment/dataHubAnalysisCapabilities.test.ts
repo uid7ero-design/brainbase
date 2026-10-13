@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   buildAnalysisCapabilities,
+  validateAnalysisRequest,
   type AnalysisReadiness,
 } from "@/lib/data-hub/analysis";
 
@@ -30,6 +31,24 @@ function readiness(
 }
 
 describe("D4D5B analysis capabilities", () => {
+  it.each([undefined, null, "", "UNKNOWN", "READY "])("exposes no capabilities for an unknown readiness state: %s", state => {
+    const input = readiness(); Object.assign(input, { state });
+    expect(buildAnalysisCapabilities(input)).toMatchObject({ state: "UNAVAILABLE_INVALID_READINESS",
+      datasetCapabilities: [], fieldCapabilities: [] });
+    expect(validateAnalysisRequest(buildAnalysisCapabilities(input), { requestVersion: "v1", kind: "ROW_COUNT" }))
+      .toEqual({ ok: false, code: "UNSUPPORTED_CAPABILITY_VERSION" });
+  });
+  it.each(["version", "duplicate", "missing", "count"])("exposes no capabilities for invalid readiness metadata: %s", kind => {
+    const input = readiness();
+    if (kind === "version") Object.assign(input, { readinessVersion: "v2" });
+    if (kind === "duplicate") { input.catalog.measures = ["amount", "amount"]; input.fieldCount = 2; }
+    if (kind === "missing") Reflect.deleteProperty(input.catalog, "measures");
+    if (kind === "count") input.fieldCount = 1;
+    expect(buildAnalysisCapabilities(input)).toMatchObject({ state: "UNAVAILABLE_INVALID_READINESS",
+      datasetCapabilities: [], fieldCapabilities: [] });
+    expect(validateAnalysisRequest(buildAnalysisCapabilities(input), { requestVersion: "v1", kind: "ROW_COUNT" }))
+      .toEqual({ ok: false, code: "UNSUPPORTED_CAPABILITY_VERSION" });
+  });
   it("exposes ROW_COUNT for a ready dataset", () => {
     expect(buildAnalysisCapabilities(readiness())).toEqual({
       capabilityVersion: "v1",

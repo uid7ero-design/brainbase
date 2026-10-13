@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useHrDrawerFocusReturn } from './_components/useHrDrawerFocusReturn';
 import Link from 'next/link';
 import SlidePanel from './_components/SlidePanel';
 import PersonForm from './_components/PersonForm';
@@ -50,6 +51,8 @@ export default function PeoplePage() {
   // the security boundary.
   const [canManage, setCanManage] = useState(false);
 
+  useHrDrawerFocusReturn(openPersonId, !loading);
+
   function load() { setRefresh(value => value + 1); }
   useEffect(() => {
     const controller = new AbortController();
@@ -82,7 +85,7 @@ export default function PeoplePage() {
         actions={
           <>
             <HrOperationsNav current="/people" />
-            <button type="button" {...secondaryAction} disabled={loading} onClick={load}>Refresh</button>
+            <button type="button" data-hr-register-refresh {...secondaryAction} disabled={loading} onClick={load}>Refresh</button>
             <Link href="/people/restricted-cases" {...secondaryAction}>Restricted Cases</Link>
             {canManage && (
               <>
@@ -143,7 +146,7 @@ export default function PeoplePage() {
             {!loading && !error && people.map(p => (
               <tr key={p.id}>
                 <td className={tableStyles.primary}>
-                  <button type="button" onClick={() => setOpenPersonId(p.id)}>
+                  <button type="button" data-hr-person-id={p.id} onClick={() => setOpenPersonId(p.id)}>
                     {p.first_name} {p.last_name}
                   </button>
                 </td>

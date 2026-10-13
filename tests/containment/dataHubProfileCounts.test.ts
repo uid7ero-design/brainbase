@@ -45,7 +45,7 @@ describe("D4D5G profile count results", () => {
   it("rejects duplicate readiness identities", () => {
     const input = readiness(); input.catalog.measures.push("amount"); input.fieldCount = 2;
     expect(evaluateProfileCount(input, rows, profile()))
-      .toEqual({ ok: false, code: "PROFILE_LINEAGE_MISMATCH" });
+      .toEqual({ ok: false, code: "READINESS_CATALOG_INVALID" });
   });
   it("revalidates request input before producing results", () => {
     expect(evaluateProfileCount(readiness(), { ...rows, query: "select *" }, profile()))

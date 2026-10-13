@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useHrDrawerFocusReturn } from '../_components/useHrDrawerFocusReturn';
 import { validateRegisterPagination, type RegisterPagination } from '@/lib/hr/registerPaging';
 import { HrOperationsNav, HrRegisterReset, HrRegisterSearch, HrRegisterPagination } from '../_components/HrRegisterControls';
 import PersonDrawer from '../_components/PersonDrawer';
@@ -37,6 +38,7 @@ export default function LifecycleOverviewPage() {
   const [lifecycle, setLifecycle] = useState('all');
   const [page, setPage] = useState(1);
   const [personId, setPersonId] = useState<string | null>(null);
+  useHrDrawerFocusReturn(personId, state !== 'loading');
 
   useEffect(() => {
     const controller = new AbortController();
@@ -60,7 +62,7 @@ export default function LifecycleOverviewPage() {
   return (
     <div style={{ maxWidth: 1100 }}>
       <PageHeader title="Lifecycle overview" description="Active workflows and visible outstanding work. Hidden tasks are excluded from all counts." actions={
-        <><HrOperationsNav current="/people/lifecycle" /><button type="button" {...buttonProps('secondary')} onClick={() => setRefresh(value => value + 1)} disabled={state === 'loading'}>Refresh</button></>
+        <><HrOperationsNav current="/people/lifecycle" /><button type="button" data-hr-register-refresh {...buttonProps('secondary')} onClick={() => setRefresh(value => value + 1)} disabled={state === 'loading'}>Refresh</button></>
       } />
       <HrRegisterSearch value={search} onChange={value => { setSearch(value); setPage(1); }} />
       <label>Lifecycle{' '}<select value={lifecycle} onChange={event => { setLifecycle(event.target.value); setPage(1); }}>
@@ -80,7 +82,7 @@ export default function LifecycleOverviewPage() {
             {state === 'error' && <TableStateRow colSpan={6} kind="error">Unable to load lifecycle overview. Please refresh to try again.</TableStateRow>}
             {state === 'ready' && rows.length === 0 && <TableStateRow colSpan={6} kind="empty">No active workflows match this view.</TableStateRow>}
             {state === 'ready' && rows.map(row => <tr key={row.workflow_id}>
-              <td className={tableStyles.primary}><button type="button" onClick={() => setPersonId(row.person_id)}>{people.get(row.person_id) ?? 'Open person'}</button></td>
+              <td className={tableStyles.primary}><button type="button" data-hr-person-id={row.person_id} onClick={() => setPersonId(row.person_id)}>{people.get(row.person_id) ?? 'Open person'}</button></td>
               <td>{row.lifecycle_type === 'onboarding' ? 'Onboarding' : 'Offboarding'}</td>
               <td>{row.visible_tasks}</td><td>{row.outstanding_tasks}</td><td>{row.awaiting_approval}</td><td>{row.overdue_tasks}</td>
             </tr>)}
