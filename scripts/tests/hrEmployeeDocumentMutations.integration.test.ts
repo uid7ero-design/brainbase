@@ -25,6 +25,11 @@ vi.doMock('@/lib/db', () => ({ default: Object.assign(async (strings: TemplateSt
   } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
 } }) }));
 const blobs = new Map<string, Uint8Array>();
+vi.doMock('@/lib/hr/restrictedDocumentStorage', async () => ({
+  ...await vi.importActual<typeof import('@/lib/hr/restrictedDocumentStorage')>('@/lib/hr/restrictedDocumentStorage'),
+  createRestrictedHrDocumentStore: () => ({ put: async (key: string, bytes: Uint8Array) => { blobs.set(key, bytes); }, delete: async (key: string) => { blobs.delete(key); } }),
+}));
+
 vi.doMock('@/lib/hr/employeeDocumentStorage', async () => ({
   ...await vi.importActual<typeof import('@/lib/hr/employeeDocumentStorage')>('@/lib/hr/employeeDocumentStorage'),
   createEmployeeHrDocumentStore: () => ({
@@ -744,5 +749,27 @@ describe('reminder batch real ledger failure isolation', () => {
       await q('DROP TRIGGER proof_reminder_terminal_failure ON hr_employee_document_reminder_deliveries; DROP FUNCTION proof_reminder_terminal_failure()');
       await q('DELETE FROM hr_employee_document_reminder_deliveries WHERE organisation_id=$1', [org]);
     }
+  });
+});
+
+describe('restricted document actual routes with isolated storage', () => {
+  it('uploads and logically deletes while preserving metadata and requiring live case access', async () => {
+    await q(readFileSync('scripts/add-hr-people-tenant-unique.sql', 'utf8'));
+    await q(readFileSync('scripts/create-hr-restricted-cases.sql', 'utf8'));
+    const caseId='98888888-8888-4888-8888-888888888895';
+    await q("INSERT INTO hr_restricted_cases(id,organisation_id,case_type,title,opened_by) VALUES($1,$2,'other','Synthetic document case',$3)", [caseId, org, hr.userId]);
+    await q('INSERT INTO hr_restricted_case_access(organisation_id,case_id,user_id,granted_by) VALUES($1,$2,$3,$4)', [org, caseId, employee.userId, hr.userId]);
+    routeUser=employee.userId;
+    const upload=await import('@/app/api/hr/restricted-cases/[id]/documents/route');
+    const removal=await import('@/app/api/hr/restricted-cases/[id]/documents/[documentId]/route');
+    const form=new FormData(); form.set('file',new File(['Synthetic PDF fixture'],'synthetic.pdf',{type:'application/pdf'}));
+    const params={params:Promise.resolve({id:caseId})};
+    const response=await upload.POST(routeRequest('POST',form),params);
+    expect(response.status).toBe(201);
+    const rows=await q('SELECT id FROM hr_restricted_case_documents WHERE case_id=$1',[caseId]); expect(rows).toHaveLength(1); expect(blobs.size).toBe(1);
+    expect((await removal.DELETE(routeRequest('DELETE'),{params:Promise.resolve({id:caseId,documentId:rows[0].id})})).status).toBe(200);
+    expect((await q('SELECT deleted_at FROM hr_restricted_case_documents WHERE case_id=$1',[caseId]))[0].deleted_at).not.toBeNull();
+    await q('UPDATE hr_restricted_case_access SET revoked_at=now(),revoked_by=$1 WHERE case_id=$2',[hr.userId,caseId]);
+    expect((await upload.GET(routeRequest('GET'),params)).status).toBe(404);
   });
 });

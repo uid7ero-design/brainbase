@@ -201,7 +201,7 @@ export async function uploadRestrictedCaseDocument(params: {
           inserted.id::text,
           NULL::jsonb,
           jsonb_build_object(
-            'case_id', ${params.caseId},
+            'case_id', ${params.caseId}::text,
             'uploaded_by', inserted.uploaded_by,
             'original_filename', '[redacted]',
             'content_type', inserted.content_type,
