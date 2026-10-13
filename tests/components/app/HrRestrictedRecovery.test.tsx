@@ -82,3 +82,33 @@ it('does not commit a late restricted read into a remounted page', async () => {
   await act(async () => { release(new Response(JSON.stringify({ cases: [{ id, title: 'Obsolete sensitive case', case_type: 'other', reference: null }] }))); });
   expect(screen.queryByText('Obsolete sensitive case')).toBeNull();
 });
+
+it.each(['lost', 'server', 'malformed'] as const)('locks an uncertain %s note write until a fresh read without replay', async failure => {
+  let writes = 0;
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (init?.method === 'POST') {
+      writes++;
+      if (failure === 'server') return new Response('{}', { status: 500 });
+      if (failure === 'malformed') return new Response('broken');
+      throw new Error('Lost response after commit');
+    }
+    const body = url.endsWith('/participants') ? { participants: [] }
+      : url.endsWith('/notes') ? { notes: writes ? [{ id: 'note', body: 'Synthetic note', author_id: id, created_at: '2026-10-13' }] : [] }
+      : url.endsWith('/documents') ? { documents: [] } : url.endsWith('/people') ? { people: [] }
+      : url.endsWith('/administrators') ? { users: [] }
+      : { case: { id, title: 'Synthetic case', case_type: 'other', status: 'open', reference: null } };
+    return new Response(JSON.stringify(body));
+  }));
+  await renderPage();
+  fireEvent.change(await screen.findByRole('textbox', { name: 'New case note' }), { target: { value: 'Synthetic note' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Add note' }));
+  expect(await screen.findByText('The change could not be confirmed. Refresh and review the case before trying again.')).toBeTruthy();
+  expect((screen.getByRole('button', { name: 'Add note' }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('textbox', { name: 'New case note' }) as HTMLTextAreaElement).value).toBe('Synthetic note');
+  fireEvent.click(screen.getByRole('button', { name: 'Add note' }));
+  expect(writes).toBe(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+  expect(await screen.findByText('Synthetic note')).toBeTruthy();
+  expect(writes).toBe(1);
+});
