@@ -129,4 +129,10 @@ it('preserves a case draft and prevents replay after a lost creation response', 
   expect((screen.getByRole('textbox', { name: /Title/ }) as HTMLInputElement).value).toBe('Synthetic draft');
   expect((screen.getByRole('button', { name: 'Open Case', exact: true }) as HTMLButtonElement).disabled).toBe(true);
   expect(writes).toBe(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Close Open Restricted Case' }));
+  expect((screen.getByRole('button', { name: '+ Open Case' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+  await screen.findByText('No restricted cases are currently available to you.');
+  expect((screen.getByRole('button', { name: '+ Open Case' }) as HTMLButtonElement).disabled).toBe(true);
+  expect(writes).toBe(1);
 });

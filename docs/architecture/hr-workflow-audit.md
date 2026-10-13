@@ -2,6 +2,14 @@
 
 This audit covers document management, lifecycle execution and HR administration. Operational registers and drawer recovery were released in PRs #423 and #424. The current fixture acceptance bundle is reviewable in PR #426; this is not a declaration that the whole HR product is complete or authorized for release.
 
+## Release and ongoing bundle checkpoint (13 October 2026)
+
+PR #426 was authorized and merged as `7afb08ea23a0ead1a21092999d15b53fcad9eeef`. Production deployment `dpl_4vjSt3B629Z1viZ6MCov19MiKVtS` reached READY with aliases assigned; post-merge CI `38392793357` passed. Earlier open-PR and unreleased statements below describe historical checkpoints.
+
+The separate restricted-case/reminder bundle is local and reconciled with that release. Restricted list/detail read recovery, detail uncertain writes, creation/initial-grant locks and reminder batch transition isolation are implemented. Reminder delivery now requires the current version and existing recipient document access, as selected by the user. The latest pre-integration validation passed 246 focused checks, lint, TypeScript and a production build. Integration with main requires fresh validation.
+
+Remaining acceptance work includes uncertainty across creation drawer close/reopen, real restricted routes and reminder SQL against disposable Postgres, browser recovery/denial/history flows, and exact-head hosted checks before release. Controlled fixtures cannot certify real login, live object storage, email delivery, every race, or revocation after authorization. No live provider calls or real HR data are needed for this local bundle.
+
 ## Current acceptance checkpoint
 
 Application changes are at `52ffd2946e6eed55c8324464ecd5a24958305e1a`; subsequent work through `f62407b2dcc62fcb44260c1fbb5332653701964b` adds recovery-lock proof only. The worktree is clean, PR #426 remains open and main remains `aac48c575e471ca38b2290d42911f3089851fb96`. Exact proof-head CI run `38231780577` passed; GitGuardian/check runs and Vercel commit status are green. Reverify live state before release. This documentation checkpoint will itself require new-head hosted checks after publication.

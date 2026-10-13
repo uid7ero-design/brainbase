@@ -42,6 +42,8 @@ export default function RestrictedCasesPage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [accessCandidates, setAccessCandidates] = useState<UserCandidate[]>([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [creationUncertain, setCreationUncertain] = useState(false);
+  const [creationPending, setCreationPending] = useState(false);
 
   const readGeneration = useRef(0);
 
@@ -107,9 +109,10 @@ export default function RestrictedCasesPage() {
         title="Restricted Cases"
         eyebrow={<Link href="/people">← People</Link>}
         description="Sensitive HR matters. Only cases you are explicitly authorised to read are shown here."
-        actions={canManage && <button onClick={() => setShowCreate(true)} type="button" {...buttonProps('primary')}>+ Open Case</button>}
+        actions={canManage && <button disabled={creationUncertain || creationPending} onClick={() => { if (!creationUncertain && !creationPending) setShowCreate(true); }} type="button" {...buttonProps('primary')}>+ Open Case</button>}
       />
 
+      {creationUncertain && <FormError>A case change could not be confirmed. Check its creation and access before opening another case. Refreshing the list does not repeat or unlock that submission.</FormError>}
       <WorkToolbar>
         <button type="button" disabled={loading} onClick={() => void load()} {...buttonProps('secondary')}>Refresh</button>
         <ToolbarSearch
@@ -162,6 +165,8 @@ export default function RestrictedCasesPage() {
 
       <SlidePanel open={showCreate} onClose={() => setShowCreate(false)} title="Open Restricted Case">
         <CreateCaseForm
+          onUncertain={() => setCreationUncertain(true)}
+          onPending={setCreationPending}
           currentUserId={currentUserId}
           users={accessCandidates}
           onCreated={() => { setShowCreate(false); load(); }}
@@ -171,7 +176,7 @@ export default function RestrictedCasesPage() {
   );
 }
 
-function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: string | null; users: UserCandidate[]; onCreated: () => void }) {
+function CreateCaseForm({ currentUserId, users, onCreated, onUncertain, onPending }: { currentUserId: string | null; users: UserCandidate[]; onCreated: () => void; onUncertain: () => void; onPending: (pending: boolean) => void }) {
   const defaultReader = currentUserId && users.some(user => user.id === currentUserId) ? currentUserId : '';
   const [caseType, setCaseType] = useState('investigation');
   const [title, setTitle] = useState('');
@@ -204,6 +209,7 @@ function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: st
     event.preventDefault();
     if (mutationPending.current || uncertain || createdCaseId) return;
     mutationPending.current = true;
+    onPending(true);
     setSaving(true);
     try {
     setError('');
@@ -239,9 +245,11 @@ function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: st
     onCreated();
     } catch {
       setUncertain(true);
+      onUncertain();
       setError('The change could not be confirmed. Do not open this case again until its creation and access have been checked.');
     } finally {
       mutationPending.current = false;
+      onPending(false);
       setSaving(false);
     }
   }
@@ -249,6 +257,7 @@ function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: st
   async function retryGrant() {
     if (!createdCaseId || !readerUserId || mutationPending.current || uncertain) return;
     mutationPending.current = true;
+    onPending(true);
     try {
     setSaving(true);
     setNotice('');
@@ -257,9 +266,11 @@ function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: st
     if (granted) onCreated();
     } catch {
       setUncertain(true);
+      onUncertain();
       setError('The access change could not be confirmed. Check the case access before retrying.');
     } finally {
       mutationPending.current = false;
+      onPending(false);
       setSaving(false);
     }
   }
