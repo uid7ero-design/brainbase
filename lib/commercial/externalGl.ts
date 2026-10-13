@@ -572,6 +572,21 @@ export async function retireExternalGlCostCentreMapping(params: {
   throw new ExternalGlError('NOT_FOUND', 'Active cost-centre mapping not found.');
 }
 
+/** Exact identity lookup for administrator import review and read-only recovery. */
+export async function getExternalGlEntryByIdentity(organisationId: string, sourceSystemId: string, externalEntryId: string): Promise<ExternalGlEntry | null> {
+  const source = cleanRequired(sourceSystemId, 'sourceSystemId');
+  const identity = cleanRequired(externalEntryId, 'externalEntryId');
+  const rows = await sql`
+    SELECT id,organisation_id,source_system_id,external_entry_id,external_journal_id,
+      external_account_code,external_cost_centre_code,transaction_date::text AS transaction_date,
+      accounting_period_key,description,currency,amount_minor_units::text AS amount_minor_units,
+      source_payload_hash,source_lineage_id,imported_by,imported_at
+    FROM commercial_external_gl_entries
+    WHERE organisation_id=${organisationId} AND source_system_id=${source} AND external_entry_id=${identity}
+  ` as ExternalGlEntry[];
+  return rows[0] ?? null;
+}
+
 export async function importExternalGlEntry(params: {
   organisationId: string; userId: string; sourceSystemId: string;
   externalEntryId: string; externalJournalId?: string | null;
@@ -589,6 +604,7 @@ export async function importExternalGlEntry(params: {
   const externalEntryId = cleanRequired(params.externalEntryId, 'externalEntryId');
   const externalAccountCode = cleanRequired(params.externalAccountCode, 'externalAccountCode');
   const sourcePayloadHash = cleanRequired(params.sourcePayloadHash, 'sourcePayloadHash');
+  if (sourcePayloadHash.length < 32) throw new ExternalGlError('INVALID_INPUT', 'Source evidence hash must contain at least 32 characters.');
   const sourceLineageId = cleanRequired(params.sourceLineageId, 'sourceLineageId');
   const currency = cleanCurrency(params.currency);
   const externalJournalId = params.externalJournalId?.trim() || null;

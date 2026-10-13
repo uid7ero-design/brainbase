@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 're
 import Link from 'next/link';
 import { australianDateToIso, formatAustralianDate, isFinanceCalendarDate } from '@/lib/commercial/financeSetupDisplay';
 import styles from './page.module.css';
+import { ExternalGlEntryImport } from './ExternalGlEntryImport';
 import { FinanceWorkflow } from '../../_components/FinanceWorkflow';
 import { buttonProps, fieldControlClassName, tableStyles } from '@/components/ui/app';
 
@@ -363,6 +364,8 @@ export default function ExternalGlMappingsPage() {
       {loading ? <p role="status">Loading saved mappings…</p> : null}
       {needsReload ? <p>Changes are paused until saved mappings can be checked. Previously loaded records may be out of date.</p> : null}
       {!loading && !needsReload && !error && <FinanceWorkflow current="mappings" setupHint={referenceData.budgetAccounts.length === 0 || referenceData.costCentres.length === 0 ? 'Create active Budget accounts and cost centres in Finance setup before adding External GL mappings.' : undefined} />}
+
+      <ExternalGlEntryImport disabled={locked} onSaved={() => { void loadData(); }} />
 
       <MappingSection title="GL account mappings" description="Map an external GL account code to one BrainBase Budget account. Dates use DD/MM/YYYY; leave Effective to blank for an ongoing mapping.">
         <form aria-label="Create GL account mapping" onSubmit={createAccountMapping}><fieldset disabled={locked} className={styles.mappingGrid}>

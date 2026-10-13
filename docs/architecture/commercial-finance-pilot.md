@@ -916,6 +916,70 @@ assertions and time limits. Its initial output is retained in
 distinct cost-centre identities to avoid duplicate React keys. No push,
 deployment, schema or production-data change was performed.
 
+## Administrator ledger entry import and identity recovery
+
+The External GL screen now includes a single-entry administrator import form.
+It takes the original ledger source and external entry identity, account code,
+transaction date, currency, signed decimal amount, evidence hash and lineage.
+Optional journal, cost centre, period and description references are retained.
+Dates use DD/MM/YYYY, and signed amounts convert directly to exact integer
+strings within PostgreSQL's signed BIGINT range. Source evidence is supplied
+by the administrator; this screen does not fabricate hashes or lineage. Preview
+and the import service enforce the existing database minimum of 32 hash
+characters, returning useful validation instead of a constraint-driven 500.
+
+Review displays every submitted fact before confirmation. Cancelling preserves
+the form and writes nothing. Import uses the established immutable domain
+function and tenant/session actor. Exact duplicates return the saved entry;
+changed immutable facts retain the original entry and follow the existing
+conflict/staleness rules. Receipts must include matching immutable facts,
+an exact amount, calendar date, import timestamp and complete outcome metadata.
+Any affected stale snapshot count directs the user back to Finance controls.
+
+An unconfirmed response pauses imports with the original reviewed facts intact.
+Check saved entry performs an administrator, tenant-scoped, uncached identity
+GET and compares every immutable fact. It never resends the POST. A missing,
+incomplete or wrong-scope readback cannot unlock an uncertain attempt; a late
+commit can become visible on a later check. Matching saved facts confirm
+persistence without claiming the original import outcome or stale-event count.
+A different saved fact is shown as an immutable conflict, and the administrator
+can explicitly start a separate entry with its own identity.
+
+Lookup requires budgeting entitlement and administrator access, binds source
+and entry identity as query parameters, derives the tenant only from session,
+and returns explicit null for an entry outside that tenant. Dates and amounts
+are selected as text to preserve calendar and cent precision. It introduces no
+schema, migration, posting/settlement change or accounting-system connector.
+The existing import endpoint and server reconciliation rules remain authoritative.
+
+Tests cover signed bounds, malformed precision and dates, all immutable fields,
+preview/cancel, duplicates, conflicts, uncertain receipts, failed/absent/foreign
+readback, duplicate-click prevention and authorization. Disposable runtime
+acceptance imports through the real form/API, verifies persisted exact signed
+amounts and actor, replays a duplicate, checks a conflict and interrupts a
+committed response before recovering through GET-only reads. It also exercises
+viewer/tenant/entitlement denial and mobile review containment.
+
+Final validation passed 2,697 Commercial checks across 165 files, standalone
+TypeScript, targeted lint, the final production build and the full disposable
+browser/database runtime. This bundle adds 59 checks. Final logs are
+`ledger-import-commercial-complete.log`, `ledger-import-types-final-complete.log`,
+`ledger-import-lint-complete.log`, `ledger-import-lint-fixtures.log`,
+`ledger-import-build-complete.log` and `ledger-import-runtime-final.log` under
+the local `brainbase-finance-review` artifact directory. A typed test-mock cleanup
+is covered by the additional `ledger-import-lint-final.log` and focused final run.
+Reviewed mobile/desktop captures and structured evidence are in
+`ledger-import-adelaide-final`. The mobile document fits its 390-pixel viewport.
+
+The first runtime attempt exposed a short evidence hash reaching the existing
+database CHECK constraint. The new preview/service validation fixes that gap,
+and the final runtime verifies HTTP 400 for a short hash. The initial output
+remains in `ledger-import-runtime.log`. The intermediate full suite exposed
+seven supported-amount cases using an unrealistically short hash fixture; those
+fixtures now satisfy the database minimum so the cases exercise money validation
+again. Its receipt remains in `ledger-import-commercial-final.log`; the complete
+rerun passed. No schema, production data, push or deployment action was performed.
+
 ## Repeatable runtime evidence
 
 Run `npx tsc --noEmit` separately before release verification. This checks the

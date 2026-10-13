@@ -68,6 +68,7 @@ try {
   for(let attempt=0;attempt<60;attempt++){if(next.exitCode!==null) throw new Error(`Next startup failed: ${nextLog}`);try{await fetch(`${origin}/login`);break;}catch{await pause(500);}}
   const unauthorized=await fetch(`${origin}/api/commercial/purchasing/ap-overview?aging_date=2026-10-03`,{redirect:'manual'});
   if(unauthorized.status!==401) throw new Error('API must deny unauthenticated requests');
+  if((await fetch(`${origin}/api/commercial/budgeting/external-gl/entries?sourceSystemId=ui-import-review&externalEntryId=ui-entry-1`)).status!==401)throw new Error('Unauthenticated ledger identity lookup accepted');
   const protectedPage=await fetch(`${origin}/commercial/purchasing/ap-overview`,{redirect:'manual'});
   if(protectedPage.status!==307 || !protectedPage.headers.get('location')?.includes('/login')) throw new Error('Middleware must redirect unauthenticated pages');
   const expired=await new SignJWT({userId:'runtime-admin',organisationId:'runtime-a',role:'admin',expiresAt:'2000-01-01'}).setProtectedHeader({alg:'HS256'}).setExpirationTime(1).sign(new TextEncoder().encode(secret));
@@ -120,8 +121,57 @@ try {
     const invalid=await importEntry({...importPayload,externalEntryId:'invalid-amount',amountMinorUnits});
     if(invalid.status!==400)throw new Error('Unsafe or invalid ledger amount accepted');
   }
+  const shortHash=await importEntry({...importPayload,externalEntryId:'invalid-hash',sourcePayloadHash:'short'});
+  if(shortHash.status!==400)throw new Error('Short source evidence hash did not return validation');
   const exactStored=(await pool.query("SELECT amount_minor_units::text,transaction_date::text FROM commercial_external_gl_entries WHERE source_system_id='import-review'")).rows;
   if(exactStored.length!==1||exactStored[0].amount_minor_units!=='9007199254740993'||exactStored[0].transaction_date!=='2026-09-10')throw new Error('Import retry/conflict changed immutable ledger facts');
+  // Administrator UI imports through the real API, then recovers by identity GET.
+  await page.goto(origin+'/commercial/budgeting/external-gl');
+  const importPanel=page.getByRole('region',{name:'Ledger entry import',exact:true});
+  const prepareLedger=async identity=>{
+    await expect(importPanel.getByRole('button',{name:'Review ledger entry',exact:true})).toBeEnabled();
+    for(const [label,value] of [['Ledger source','ui-import-review'],['External entry identity',identity],['External account code','600'],['Transaction date','10/09/2026'],['Entry currency','AUD'],['Signed entry amount','-90,071,992,547,409.93'],['Source evidence hash','d'.repeat(64)],['Source lineage reference','ui-import-batch']])await importPanel.getByLabel(label,{exact:false}).fill(value);
+    await importPanel.getByRole('button',{name:'Review ledger entry',exact:true}).click();
+    await expect(importPanel.getByRole('region',{name:'Review ledger import',exact:true})).toContainText('-$90,071,992,547,409.93');
+  };
+  await prepareLedger('ui-entry-1');
+  await page.setViewportSize({width:390,height:844});
+  const importWidth=await page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth}));
+  if(importWidth.width!==importWidth.scrollWidth)throw new Error('Ledger import review overflows mobile viewport');
+  await page.screenshot({path:resolve(artifacts,'ledger-import-review-mobile.png'),fullPage:true});
+  await page.setViewportSize({width:1440,height:1000});
+  await importPanel.getByRole('button',{name:'Cancel import review',exact:true}).click();
+  if((await pool.query("SELECT count(*)::int AS count FROM commercial_external_gl_entries WHERE source_system_id='ui-import-review'")).rows[0].count!==0)throw new Error('Ledger review wrote an entry before confirmation');
+  await prepareLedger('ui-entry-1');await importPanel.getByRole('button',{name:'Confirm entry import',exact:true}).click();
+  await expect(importPanel.getByRole('status')).toContainText('Ledger entry saved.');
+  await prepareLedger('ui-entry-1');await importPanel.getByRole('button',{name:'Confirm entry import',exact:true}).click();
+  await expect(importPanel.getByRole('status')).toContainText('No duplicate was created.');
+  await expect(importPanel.getByRole('button',{name:'Review ledger entry',exact:true})).toBeEnabled();
+  await importPanel.getByLabel('Signed entry amount',{exact:false}).fill('1.00');
+  await importPanel.getByRole('button',{name:'Review ledger entry',exact:true}).click();await importPanel.getByRole('button',{name:'Confirm entry import',exact:true}).click();
+  await expect(importPanel).toContainText('import outcome is unconfirmed');
+  await importPanel.getByRole('button',{name:'Check saved entry',exact:true}).click();
+  await expect(importPanel).toContainText('already has different saved facts');
+  await importPanel.getByRole('button',{name:'Start another entry',exact:true}).click();
+  await prepareLedger('ui-entry-2');
+  const ledgerUiMethods=[];let failedLedgerRead=true;
+  const ledgerUiPattern='**/api/commercial/budgeting/external-gl/entries*';
+  await page.route(ledgerUiPattern,async route=>{
+    ledgerUiMethods.push(route.request().method());const response=await route.fetch();
+    if(route.request().method()==='POST'){if(response.status()!==201)throw new Error('Uncertain ledger fixture did not commit');await route.fulfill({response,body:'<html>interrupted receipt</html>'});return;}
+    if(failedLedgerRead){await route.fulfill({response,json:{entry:{id:'incomplete'}}});return;}
+    await route.fulfill({response});
+  });
+  await importPanel.getByRole('button',{name:'Confirm entry import',exact:true}).click();await expect(importPanel).toContainText('import outcome is unconfirmed');
+  await importPanel.getByRole('button',{name:'Check saved entry',exact:true}).click();await expect(importPanel).toContainText('Unable to check a complete saved entry');
+  await expect(importPanel.getByRole('button',{name:'Confirm entry import',exact:true})).toBeDisabled();
+  failedLedgerRead=false;
+  await importPanel.getByRole('button',{name:'Check saved entry',exact:true}).click();await expect(importPanel).toContainText('exact entry is confirmed');
+  await page.unroute(ledgerUiPattern);
+  if(ledgerUiMethods.filter(method=>method==='POST').length!==1||ledgerUiMethods.filter(method=>method==='GET').length!==2)throw new Error('Ledger recovery resent a committed import');
+  const uiStored=(await pool.query("SELECT amount_minor_units::text,transaction_date::text,imported_by FROM commercial_external_gl_entries WHERE organisation_id='runtime-a' AND source_system_id='ui-import-review' ORDER BY external_entry_id")).rows;
+  if(uiStored.length!==2||uiStored.some(row=>row.amount_minor_units!=='-9007199254740993'||row.transaction_date!=='2026-09-10'||row.imported_by!=='runtime-admin'))throw new Error('Ledger UI lost immutable signed evidence or actor');
+  await page.screenshot({path:resolve(artifacts,'ledger-import-saved-desktop.png'),fullPage:true});
   // Hold both requests inside the database before insertion. This forces the
   // overlapping-import race without depending on network timing.
   await pool.query(`CREATE FUNCTION runtime_import_gate() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(81054177); RETURN NEW; END $$;
@@ -606,7 +656,10 @@ try {
   if(mappingDenial!==403)throw new Error('Viewer mapping mutation accepted');
   const importDenial=await viewer.page.evaluate(async body=>(await fetch('/api/commercial/budgeting/external-gl/entries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).status,importPayload);
   if(importDenial!==403)throw new Error('Viewer ledger import accepted');
+  if(await viewer.page.evaluate(async()=> (await fetch('/api/commercial/budgeting/external-gl/entries?sourceSystemId=ui-import-review&externalEntryId=ui-entry-1')).status)!==403)throw new Error('Viewer ledger identity lookup accepted');
   const other=await login('runtime-other');
+  const foreignLedger=await other.page.evaluate(async()=>{const response=await fetch('/api/commercial/budgeting/external-gl/entries?sourceSystemId=ui-import-review&externalEntryId=ui-entry-1');return {status:response.status,body:await response.json()};});
+  if(foreignLedger.status!==200||foreignLedger.body.entry!==null)throw new Error('Ledger lookup exposed another tenant entry');
   await other.page.goto(origin+'/commercial/budgeting/finance-controls');
   await expect(other.page.getByText('Create your financial year and periods in Finance setup before using finance controls.',{exact:true})).toBeVisible();
   await other.page.getByRole('navigation',{name:'Finance workflow',exact:true}).getByRole('link',{name:'Finance setup',exact:true}).click();
@@ -1462,6 +1515,7 @@ try {
   if((await setupPost(evidencePath,{action:'remove-line',budgetLineId:evidenceLine,reason:'Must retain history'})).status!==409)throw new Error('SUPERSEDED removal accepted');
   if((await setupPost(removalPath,{...removalBody,budgetLineId:budgetState.line_id})).status!==409)throw new Error('ACTIVE line removal accepted');
   await pool.query("UPDATE organisation_modules SET enabled=false WHERE organisation_id='runtime-b' AND module_key='budgeting'");
+  if(await other.page.evaluate(async()=> (await fetch('/api/commercial/budgeting/external-gl/entries?sourceSystemId=ui-import-review&externalEntryId=ui-entry-1')).status)!==403)throw new Error('Unentitled ledger lookup accepted');
   if((await setupPost('/api/commercial/budgeting/financial-years',{name:'Denied',startsOn:'2029-07-01',endsOn:'2030-06-30'})).status!==403)throw new Error('Unentitled calendar creation accepted');
   if((await setupPost('/api/commercial/budgeting/setup/accounts',{code:'DENIED',name:'Denied'})).status!==403)throw new Error('Unentitled dimension creation accepted');
   for(const action of ['remove-allocation','remove-mapping']){if((await setupPost(removalPath,{action,budgetLineId:budgetState.line_id,financialPeriodId:setupPeriod,costCentreId:budgetDimensions[1],reason:'Denied'})).status!==403)throw new Error('Unentitled correction accepted');}
@@ -1474,6 +1528,7 @@ try {
   if(errors.length||failedApi.length)throw new Error(JSON.stringify({errors,failedApi}));
   const externalGlChecks=['mapping list calendar dates','account and cost-centre creation through real forms','exact create response dates','overlap rejection without duplicate facts','source filter','account and cost-centre retirement through real forms','exact retire response and persisted dates','viewer mutation denial','foreign mapping read and retirement denial'];
   const evidence={verified_at:new Date().toISOString(),serverTimezone,checks:['real login and production runtime','calendar dates preserved through API and screen','mobile metrics remain inside viewport','mobile history and reconciliation tables scroll to last column','exact $100 source and ledger match','prepare and review','sign-off blocked before close','period close and durable sign-off','year close and reopen','period reopen invalidates close and reconciliation','viewer denial','tenant isolation'],overflow,build_id:readFileSync('.next/BUILD_ID','utf8').trim()};
+  evidence.ledgerImportUiChecks={reviewWithoutWrite:true,exactSignedCents:'-9007199254740993',duplicateWithoutNewFact:true,conflictPreservesOriginal:true,readOnlyRecoveryMethods:ledgerUiMethods,mobile:importWidth,viewerDenied:true,foreignTenantAbsent:true,unentitledDenied:true};
   evidence.financeControlRecoveryChecks=recoveredFinanceActions;
   evidence.reportingTotalChecks={exactLegacyAggregate:'9007199254740993',separateTaxBases:true,unknownBudgetPreserved:true,incompleteEvidenceNotZero:true,staleEvidenceExplicit:true,mobile:totalsWidth};
   evidence.reportingRowEvidenceChecks={exactSafeRowCents:'9007199254740991',unknownBudgetPreserved:true,incompleteEvidenceConsistent:true,staleStatusRetained:true,mobileLastColumn:detailScroll};

@@ -1,6 +1,17 @@
 import { NextResponse } from 'next/server';
 import { authorizeCommercialRequest, COMMERCIAL_MIN_ROLE } from '@/lib/commercial/authorize';
-import { importExternalGlEntry, ExternalGlError } from '@/lib/commercial/externalGl';
+import { getExternalGlEntryByIdentity, importExternalGlEntry, ExternalGlError } from '@/lib/commercial/externalGl';
+
+export async function GET(req: Request) {
+  const auth = await authorizeCommercialRequest('budgeting', COMMERCIAL_MIN_ROLE.administer);
+  if (!auth.ok) return auth.response;
+  const query = new URL(req.url).searchParams;
+  const source = query.get('sourceSystemId')?.trim();
+  const identity = query.get('externalEntryId')?.trim();
+  if (!source || !identity || source.length > 300 || identity.length > 300) return NextResponse.json({ error: 'Choose a source and external entry identity of up to 300 characters.' }, { status: 400 });
+  const entry = await getExternalGlEntryByIdentity(auth.session.organisationId, source, identity);
+  return NextResponse.json({ entry }, { headers: { 'Cache-Control': 'no-store' } });
+}
 
 export async function POST(req: Request) {
   const auth = await authorizeCommercialRequest('budgeting', COMMERCIAL_MIN_ROLE.administer);
