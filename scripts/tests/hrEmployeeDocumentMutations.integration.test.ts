@@ -683,3 +683,30 @@ describe('restricted detail browser to actual route', () => {
     } finally { await browser.close(); await new Promise<void>((resolve,reject) => server.close(error => error ? reject(error) : resolve())); }
   });
 });
+
+describe('reminder batch real ledger failure isolation', () => {
+  it('leaves an accepted send CLAIMED after terminal SQL failure and processes later rows without replay', async () => {
+    const created = await create();
+    const ids = ['99999999-9999-4999-8999-999999999991', '99999999-9999-4999-8999-999999999992', '99999999-9999-4999-8999-999999999993'];
+    for (let i=0;i<ids.length;i++) await q(`INSERT INTO hr_employee_document_reminder_deliveries(id,organisation_id,document_version_id,recipient_user_id,reminder_type,scheduled_for)
+      VALUES($1,$2,$3,$4,'acknowledgement_due',$5::date)`, [ids[i], org, created.version.id, employee.userId, `2026-10-0${i+1}`]);
+    await q(`CREATE FUNCTION proof_reminder_terminal_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF NEW.id='99999999-9999-4999-8999-999999999991'::uuid AND NEW.delivery_status='SENT' THEN RAISE EXCEPTION 'synthetic terminal failure'; END IF;
+      RETURN NEW; END $$;
+      CREATE TRIGGER proof_reminder_terminal_failure BEFORE UPDATE ON hr_employee_document_reminder_deliveries FOR EACH ROW EXECUTE FUNCTION proof_reminder_terminal_failure()`);
+    try {
+      const { processDueEmployeeDocumentReminders } = await import('@/lib/hr/employeeDocumentReminderWorker');
+      const transport = vi.fn().mockResolvedValue({ outcome: 'sent' });
+      const params = { actor: { organisationId: org, userId: hr.userId }, scheduledThrough: '2026-10-13', transport };
+      const result = await processDueEmployeeDocumentReminders(params);
+      expect(result).toMatchObject({ claimed: 3, sent: 2, transitionSkipped: 1 });
+      expect(transport).toHaveBeenCalledTimes(3);
+      expect((await q('SELECT delivery_status FROM hr_employee_document_reminder_deliveries WHERE id=$1', [ids[0]]))[0].delivery_status).toBe('CLAIMED');
+      expect((await processDueEmployeeDocumentReminders(params)).claimed).toBe(0);
+      expect(transport).toHaveBeenCalledTimes(3);
+    } finally {
+      await q('DROP TRIGGER proof_reminder_terminal_failure ON hr_employee_document_reminder_deliveries; DROP FUNCTION proof_reminder_terminal_failure()');
+      await q('DELETE FROM hr_employee_document_reminder_deliveries WHERE organisation_id=$1', [org]);
+    }
+  });
+});
