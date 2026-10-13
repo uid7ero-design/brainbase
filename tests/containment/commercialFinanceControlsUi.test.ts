@@ -22,7 +22,7 @@ describe('C7.9 — Finance Controls admin UI', () => {
     expect(page).toContain("fetch('/api/commercial/budgeting/financial-periods'");
     expect(page).toContain("fetch('/api/commercial/budgeting/external-gl/sources'");
     expect(page).toContain('/api/commercial/budgeting/reconciliations/control-state?');
-    expect(page).toContain("params.set('sourceSystemId', sourceSystemId)");
+    expect(page).toContain("params.set('sourceSystemId', nextSource)");
     expect(page).toContain("params.set('currency', currency.trim().toUpperCase())");
     expect(page).not.toMatch(/organisationId=/);
   });
