@@ -528,7 +528,7 @@ try {
     payload.reconciliations[0].items[0].currency='USD';await route.fulfill({response,json:payload});
   });
   await page.getByRole('button',{name:'Reload report',exact:true}).click();
-  await expect(page.getByText('Unavailable',{exact:true})).toBeVisible();
+  await expect(page.getByRole('group',{name:'Finance reconciliation items',exact:true}).getByText('Unavailable',{exact:true})).toBeVisible();
   await expect(page.getByRole('region',{name:'Finance-adjusted report',exact:true})).toBeVisible();
   if(await page.locator('a[data-export-view]').count()===0)throw new Error('Queue failure hid a valid report export');
   await page.unroute(queueIntegrityPattern);
@@ -548,6 +548,41 @@ try {
   await page.evaluate(()=>window.scrollTo(0,0));
   await page.screenshot({path:resolve(artifacts,'report-integrity-desktop.png'),fullPage:true});
   if(integrityMethods.some(method=>method!=='GET')||(await pool.query('SELECT count(*)::int AS count FROM commercial_finance_reconciliation_events')).rows[0].count!==reportBefore)throw new Error('Reporting integrity recovery changed durable finance state');
+  const legacyTotals=page.getByRole('region',{name:'Resolved totals AUD Tax inclusive',exact:true});
+  await expect(legacyTotals).toContainText('$10,000.00');
+  const financeTotals=page.getByRole('region',{name:'Finance totals AUD Budget basis unavailable',exact:true});
+  await expect(financeTotals).toContainText('Ledger evidence covers 1 of 1 row. Snapshot row statuses: 0 signed off, 1 stale.');
+  await expect(financeTotals).toContainText('Stale snapshot rows are present.');
+  await expect(financeTotals).toContainText('Unavailable');
+  // Individually safe legacy rows can produce an unsafe Number aggregate.
+  const totalsPattern='**/api/commercial/budgeting/consumption*';
+  await page.route(totalsPattern,async route=>{
+    const response=await route.fetch();const payload=await response.json();const original=payload.report.rows[0];
+    const makeRow=(budget,index,basis)=>({...original,costCentreId:`00000000-0000-4000-8000-00000000090${index}`,costCentreCode:`TOTAL-${index}`,costCentreName:`Summary fixture ${index}`,taxBasis:basis,annualBudgetCents:budget,periodBudgetCents:null,budgetCents:budget,actualCents:0,committedCents:0,exposureCents:0,budgetLessActualCents:budget,budgetLessActualAndCommittedCents:budget,actualLineCount:0,commitmentCount:0});
+    payload.report.rows=[makeRow(Number.MAX_SAFE_INTEGER,1,'INCLUSIVE'),makeRow(2,2,'INCLUSIVE'),makeRow(50000,3,'EXCLUSIVE')];
+    await route.fulfill({response,json:payload});
+  });
+  await page.getByRole('button',{name:'Reload report',exact:true}).click();
+  await expect(legacyTotals).toContainText('$90,071,992,547,409.93');
+  await expect(page.getByRole('region',{name:'Resolved totals AUD Tax exclusive',exact:true})).toContainText('$500.00');
+  await page.setViewportSize({width:390,height:844});await page.evaluate(()=>window.scrollTo(0,0));
+  const totalsWidth=await page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth}));
+  if(totalsWidth.width!==totalsWidth.scrollWidth)throw new Error('Exact report totals overflow mobile viewport');
+  await page.screenshot({path:resolve(artifacts,'report-totals-mobile.png'),fullPage:true});
+  await page.setViewportSize({width:1440,height:1000});await page.evaluate(()=>window.scrollTo(0,0));
+  await page.screenshot({path:resolve(artifacts,'report-totals-desktop.png'),fullPage:true});
+  await page.unroute(totalsPattern);
+  await page.getByRole('button',{name:'Reload report',exact:true}).click();await expect(legacyTotals).toContainText('$10,000.00');
+  // Missing variance evidence is not a zero finance ledger total.
+  await page.route(totalsPattern,async route=>{const response=await route.fetch();const payload=await response.json();payload.report.financeRows[0].reconciliationVarianceCents=null;await route.fulfill({response,json:payload});});
+  await page.getByRole('button',{name:'Reload report',exact:true}).click();
+  await expect(financeTotals).toContainText('Ledger evidence covers 0 of 1 row. Snapshot row statuses: 0 signed off, 1 stale.');
+  await expect(financeTotals).toContainText('Incomplete evidence is not a zero ledger total.');
+  if(await financeTotals.getByText('Unavailable',{exact:true}).count()!==3)throw new Error('Unknown Budget and incomplete ledger measures were collapsed into zero');
+  await page.screenshot({path:resolve(artifacts,'report-totals-incomplete.png'),fullPage:true});
+  await page.unroute(totalsPattern);await page.getByRole('button',{name:'Reload report',exact:true}).click();
+  await expect(financeTotals).toContainText('Ledger evidence covers 1 of 1 row. Snapshot row statuses: 0 signed off, 1 stale.');
+  if((await pool.query('SELECT count(*)::int AS count FROM commercial_finance_reconciliation_events')).rows[0].count!==reportBefore)throw new Error('Report total review changed finance events');
   const viewer=await login('runtime-viewer');
   const denial=await viewer.page.evaluate(async()=> (await fetch('/api/commercial/budgeting/financial-periods')).status);
   if(denial!==403)throw new Error('Viewer finance controls accepted');
@@ -590,7 +625,7 @@ try {
   brokenReportRead=false;
   await other.page.getByRole('button',{name:'Reload report',exact:true}).click();
   await expect(other.page.getByRole('heading',{name:'Budget vs Actual vs Committed',exact:true})).toBeVisible();
-  await expect(other.page.getByText('Unavailable',{exact:true})).toBeVisible();
+  await expect(other.page.getByRole('group',{name:'Finance reconciliation items',exact:true}).getByText('Unavailable',{exact:true})).toBeVisible();
   await expect(other.page.getByText('No unresolved finance reconciliation items in the latest snapshots.',{exact:true})).toHaveCount(0);
   brokenQueueRead=false;
   await other.page.getByRole('button',{name:'Reload report',exact:true}).click();
@@ -1424,6 +1459,7 @@ try {
   const externalGlChecks=['mapping list calendar dates','account and cost-centre creation through real forms','exact create response dates','overlap rejection without duplicate facts','source filter','account and cost-centre retirement through real forms','exact retire response and persisted dates','viewer mutation denial','foreign mapping read and retirement denial'];
   const evidence={verified_at:new Date().toISOString(),serverTimezone,checks:['real login and production runtime','calendar dates preserved through API and screen','mobile metrics remain inside viewport','mobile history and reconciliation tables scroll to last column','exact $100 source and ledger match','prepare and review','sign-off blocked before close','period close and durable sign-off','year close and reopen','period reopen invalidates close and reconciliation','viewer denial','tenant isolation'],overflow,build_id:readFileSync('.next/BUILD_ID','utf8').trim()};
   evidence.financeControlRecoveryChecks=recoveredFinanceActions;
+  evidence.reportingTotalChecks={exactLegacyAggregate:'9007199254740993',separateTaxBases:true,unknownBudgetPreserved:true,incompleteEvidenceNotZero:true,staleEvidenceExplicit:true,mobile:totalsWidth};
   evidence.reportingReviewChecks={missingSourcePaused:true,noImplicitFallbackRead:true,returnedSourceFreshReads:true,explicitBrainBaseChoice:true,onlyUnavailableFiltersCleared:true,readOnly:true,focusRecovery:true};
   evidence.reportingIntegrityChecks={malformedCollections:['rows','financeRows','exceptions'],wrongSourceRead:true,wrongCurrencyItem:true,readOnlyRecovery:true,exactScopedCsv:true,persistedVarianceId:reportSnapshot.id,mobile:reportWidth};
   evidence.financeConsistencyChecks={invalidDatePosts,wrongScopeReadRecovery:true,wrongAcknowledgementRecovery:['Review','Close period','Close financial year'],displayLocale:'en-AU',calendarEntry:'DD/MM/YYYY'};

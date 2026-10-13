@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { buildLegacyBudgetSummaries, budgetBasisLabel } from '@/lib/commercial/budgetReportSummaries';
+import { FinanceReportSummaries } from './FinanceReportSummaries';
 import { validBudgetReport, validFinanceQueue, validFinanceSources } from '@/lib/commercial/budgetReportingSnapshot';
 import { formatAustralianTimestamp } from '@/lib/commercial/financeSetupDisplay';
 import styles from './page.module.css';
@@ -426,29 +428,7 @@ export default function BudgetCommitmentsPage() {
     [reconciliationQueue],
   );
 
-  const summaries = useMemo(() => {
-    const byCurrency = new Map<string, {
-      budgetCents: number;
-      actualCents: number;
-      committedCents: number;
-      exposureCents: number;
-      remainingCents: number;
-    }>();
-    for (const row of filteredRows) {
-      const current = byCurrency.get(row.currency) ?? {
-        budgetCents: 0, actualCents: 0, committedCents: 0, exposureCents: 0, remainingCents: 0,
-      };
-      current.budgetCents += row.budgetCents;
-      current.actualCents += row.actualCents;
-      current.committedCents += row.committedCents;
-      current.exposureCents += row.exposureCents;
-      current.remainingCents += row.budgetLessActualAndCommittedCents;
-      byCurrency.set(row.currency, current);
-    }
-    return [...byCurrency.entries()]
-      .map(([currency, values]) => ({ currency, ...values }))
-      .sort((a, b) => a.currency.localeCompare(b.currency));
-  }, [filteredRows]);
+  const summaries = useMemo(() => buildLegacyBudgetSummaries(filteredRows), [filteredRows]);
 
   const filterOptions = useMemo(
     () => buildBudgetFilterOptions(rows, financeRows, filters.financialYearId),
@@ -605,10 +585,10 @@ export default function BudgetCommitmentsPage() {
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(270px, 100%), 1fr))', gap: 12, marginBottom: 14 }}>
               {summaries.map(summary => (
-                <div key={summary.currency} style={{
+                <div role="region" aria-label={`Resolved totals ${summary.currency} ${budgetBasisLabel(summary.taxBasis)}`} key={JSON.stringify([summary.currency, summary.taxBasis])} style={{
                   background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 16,
                 }}>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>{summary.currency}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>{summary.currency} · {budgetBasisLabel(summary.taxBasis)} · {summary.rowCount} report {summary.rowCount === 1 ? 'row' : 'rows'}</div>
                   <MoneyRow label="Budget" cents={summary.budgetCents} currency={summary.currency} />
                   <MoneyRow label="Actual" cents={summary.actualCents} currency={summary.currency} />
                   <MoneyRow label="Committed" cents={summary.committedCents} currency={summary.currency} />
@@ -663,6 +643,7 @@ export default function BudgetCommitmentsPage() {
         )}
       </section>
 
+      <FinanceReportSummaries rows={filteredFinanceRows} />
       <FinanceAdjustedTable rows={filteredFinanceRows} />
 
       <FinanceReconciliationQueue
@@ -1160,7 +1141,7 @@ function Filter({ label, value, onChange, options }: {
   </label>;
 }
 function StateCard({ label, value, tone }: { label: string; value: number | string; tone: string }) {
-  return <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 14 }}>
+  return <div role="group" aria-label={label} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 14 }}>
     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{label}</div>
     <div style={{ fontSize: 26, fontWeight: 700, color: tone, marginTop: 4 }}>{value}</div>
   </div>;
@@ -1181,11 +1162,11 @@ function ExceptionBadge({ code }: { code: string }) {
 }
 
 function MoneyRow({ label, cents, currency, emphasis = false }: {
-  label: string; cents: number; currency: string; emphasis?: boolean;
+  label: string; cents: string; currency: string; emphasis?: boolean;
 }) {
-  return <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 7, fontSize: 13 }}>
+  return <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginTop: 7, fontSize: 13 }}>
     <span style={{ color: MUTED }}>{label}</span>
-    <span style={{ fontWeight: emphasis ? 700 : 500 }}>{formatMoneyCents(cents, currency)}</span>
+    <span style={{ fontWeight: emphasis ? 700 : 500, overflowWrap: 'anywhere' }}>{formatMoneyCentsExact(cents, currency)}</span>
   </div>;
 }
 const sub = { color: MUTED, fontSize: 10, marginTop: 3 };

@@ -815,6 +815,61 @@ in `report-review-runtime.log`. Reviewed mobile captures and structured evidence
 are in `report-review-adelaide-final`. No domain behaviour was changed to satisfy
 the test, and no release action was performed.
 
+## Exact totals and finance evidence coverage
+
+Resolved Budget summaries now group by currency and tax basis and accumulate
+validated safe numeric row amounts with BigInt. A sum can exceed JavaScript's
+safe integer range even when each row is safe; the display retains exact cents
+instead of rounding the aggregate. Inclusive and exclusive bases do not share a
+summary card. Legacy row/API/export contracts remain numeric and unchanged.
+
+Finance-adjusted summaries add exact Budget, Source Actual, Finance Adjustments,
+Effective Actual, Committed and Exposure totals for the filtered account, period
+and currency rows. Cost-centre filters remain inapplicable to this finance grain.
+Amounts group separately by currency and known or unavailable Budget tax basis.
+An unavailable Budget basis yields an unavailable summary Budget measure rather
+than presenting an unqualified zero allocation.
+
+External GL and variance totals appear only when every included row has both
+monetary measures and an identified signed-off or stale snapshot from a source.
+Incomplete coverage yields Unavailable, never a partial or fabricated zero total.
+Identified snapshot row statuses are counted separately from complete monetary
+coverage, so a stale row remains flagged even if its variance is unavailable.
+These are row counts, not unique reconciliation counts or a new approval status.
+A fully qualified zero ledger total remains zero. Stale rows are explicitly
+flagged, and no totals card grants sign-off or replaces the reconciliation queue.
+
+Summary cards wrap on mobile, including long exact amounts. Report count cards
+have named accessibility groups so unavailable queue counts remain distinguishable
+from unavailable ledger measures. CSV scope and contents remain governed by the
+existing server exports; this bundle adds display summaries without changing any
+server finance calculation, database schema, posting/settlement or authorization rule.
+
+Focused checks exercise safe-row/unsafe-total aggregation, exact signed strings,
+separate currencies/bases, unknown Budget basis, real zero evidence, partial
+provenance, stale status with missing measures, input immutability and filter scope.
+The disposable runtime checks actual saved legacy and stale finance summary values,
+then intercepts read responses for large individually safe rows, mixed tax bases
+and missing variance evidence. It verifies exact display, mobile containment and
+recovery to the real saved view without changing finance events. Synthetic read
+cases are display proof; they are not acceptance of unsafe legacy row amounts by
+the database or the API. Evidence uses the `report-totals` artifact prefix.
+
+Final validation passed 2,623 Commercial tests across 161 files, standalone
+TypeScript, targeted lint, the production build and the complete disposable
+browser/database runtime. Desktop, mobile and incomplete-evidence captures were
+reviewed; the mobile document remained 390 pixels wide at a 390-pixel viewport.
+Logs are `report-totals-commercial-final.log`, `report-totals-types-final.log`,
+`report-totals-lint-final.log`, `report-totals-build.log` and
+`report-totals-runtime.log` under the local `brainbase-finance-review` artifact
+directory. Structured evidence and captures are in `report-totals-adelaide`.
+
+The first full suite exposed an existing global Unavailable selector that also
+matched the new, correctly unavailable ledger measures. The queue count assertion
+now targets its named accessibility group; its recovery checks remain intact.
+The initial result is retained in `report-totals-commercial.log`. This bundle
+adds 23 checks and makes no push, deployment or production-data change.
+
 ## Repeatable runtime evidence
 
 Run `npx tsc --noEmit` separately before release verification. This checks the

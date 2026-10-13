@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { completeReport, queueEntry } from '../../fixtures/commercialBudgetReport';
 import BudgetCommitmentsPage from '@/app/commercial/budgeting/commitments/BudgetCommitmentsPage';
@@ -25,12 +25,13 @@ describe('Budget reporting read recovery', () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => response(url.includes('/sources') ? { sourceSystemIds: ['XERO'] }
       : url.includes('/reconciliations') ? { reconciliations: [{ ...queueEntry, items: broken ? [null] : queueEntry.items }] }
       : { report: completeReport })));
-    render(<BudgetCommitmentsPage />); await screen.findByText('Unavailable');
+    render(<BudgetCommitmentsPage />);
+    await within(await screen.findByRole('group', { name: 'Finance reconciliation items' })).findByText('Unavailable');
     expect(document.querySelectorAll('a[data-export-view]').length).toBeGreaterThan(0);
     broken = false; fireEvent.click(screen.getByRole('button', { name: 'Reload report' }));
     await screen.findByRole('region', { name: 'Reconciliation details QTR 1 XERO AUD' });
     expect(screen.getAllByText('$9,007,199,254,740,993.12').length).toBeGreaterThan(0);
-    expect(screen.queryByText('Unavailable')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('group', { name: 'Finance reconciliation items' })).queryByText('Unavailable')).not.toBeInTheDocument();
   });
 
   it.each(['network', 'json', 'incomplete', 'denied'])('recovers a %s report failure through GET only', async failure => {
@@ -71,7 +72,7 @@ describe('Budget reporting read recovery', () => {
     }));
     render(<BudgetCommitmentsPage />);
     await screen.findByRole('alert');
-    expect(screen.getByText('Unavailable')).toBeVisible();
+    expect(within(screen.getByRole('group', { name: 'Finance reconciliation items' })).getByText('Unavailable')).toBeVisible();
     expect(screen.queryByText('No unresolved finance reconciliation items in the latest snapshots.')).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Finance source'), { target: { value: 'XERO' } });
     await screen.findByRole('alert');

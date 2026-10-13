@@ -35,7 +35,7 @@ describe('C7.8D — Budget vs Actual vs Committed UI contract', () => {
   });
 
   it('keeps monetary summaries separated by currency', () => {
-    expect(page).toContain('const byCurrency = new Map');
+    expect(page).toContain('buildLegacyBudgetSummaries(filteredRows)');
     expect(page).toContain('summary.currency');
     expect(page).toContain('summary.actualCents');
     expect(page).toContain('summary.committedCents');
