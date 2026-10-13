@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import SlidePanel from '../_components/SlidePanel';
 import {
   Badge,
@@ -43,38 +43,53 @@ export default function RestrictedCasesPage() {
   const [accessCandidates, setAccessCandidates] = useState<UserCandidate[]>([]);
   const [showCreate, setShowCreate] = useState(false);
 
+  const readGeneration = useRef(0);
+
   async function load() {
+    const generation = ++readGeneration.current;
     setLoading(true);
     setError('');
-    const [casesRes, adminsRes, meRes] = await Promise.all([
-      fetch('/api/hr/restricted-cases'),
-      fetch('/api/hr/administrators'),
-      fetch('/api/me'),
-    ]);
-
-    if (casesRes.ok) {
-      const data = await casesRes.json();
-      setCases(data.cases ?? []);
-    } else {
-      const data = await casesRes.json().catch(() => ({}));
-      setError(data.error ?? 'Could not load restricted HR cases.');
+    setCases([]);
+    setCanManage(false);
+    setAccessCandidates([]);
+    setCurrentUserId(null);
+    try {
+      const [casesRes, adminsRes, meRes] = await Promise.all([
+        fetch('/api/hr/restricted-cases'),
+        fetch('/api/hr/administrators'),
+        fetch('/api/me'),
+      ]);
+      if (!casesRes.ok) throw new Error('Restricted read failed');
+      const [data, adminData, me] = await Promise.all([
+        casesRes.json(),
+        adminsRes.ok ? adminsRes.json() : Promise.resolve({ users: [] }),
+        meRes.ok ? meRes.json() : Promise.resolve({}),
+      ]);
+      if (!Array.isArray(data.cases) || !Array.isArray(adminData.users)
+        || data.cases.some((item: RestrictedCase) => !item || typeof item.id !== 'string'
+          || typeof item.title !== 'string' || typeof item.case_type !== 'string'
+          || (item.reference !== null && typeof item.reference !== 'string'))) {
+        throw new Error('Invalid restricted response');
+      }
+      if (generation !== readGeneration.current) return;
+      setCases(data.cases);
+      setCanManage(adminsRes.ok);
+      setAccessCandidates(adminData.users.filter((user: UserCandidate) => user.grant_eligible === true));
+      setCurrentUserId(typeof (me as Me).userId === 'string' ? (me as Me).userId! : null);
+    } catch {
+      if (generation === readGeneration.current) setError('Could not load restricted HR cases. Refresh to try again.');
+    } finally {
+      if (generation === readGeneration.current) setLoading(false);
     }
-
-    setCanManage(adminsRes.ok);
-    if (adminsRes.ok) {
-      const adminData = await adminsRes.json();
-      setAccessCandidates((adminData.users ?? []).filter((user: UserCandidate) => user.grant_eligible));
-    } else {
-      setAccessCandidates([]);
-    }
-    if (meRes.ok) {
-      const me = await meRes.json() as Me;
-      setCurrentUserId(typeof me.userId === 'string' ? me.userId : null);
-    }
-    setLoading(false);
   }
 
-  useEffect(() => { queueMicrotask(() => { load(); }); }, []);
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => { if (active) void load(); });
+    const generation = readGeneration;
+    return () => { active = false; generation.current++; };
+    // load reads no changing props or state.
+  }, []);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -96,6 +111,7 @@ export default function RestrictedCasesPage() {
       />
 
       <WorkToolbar>
+        <button type="button" disabled={loading} onClick={() => void load()} {...buttonProps('secondary')}>Refresh</button>
         <ToolbarSearch
           label="Search cases"
           value={search}

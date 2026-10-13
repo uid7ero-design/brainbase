@@ -3,8 +3,25 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen } from '@testing-library/react';
 import { renderBrainbase } from '../../a11y/render';
 import Page from '@/app/people/restricted-cases/[id]/page';
+import ListPage from '@/app/people/restricted-cases/page';
 
 afterEach(() => vi.unstubAllGlobals());
+it('recovers the restricted list after a network failure without exposing the failure', async () => {
+  let fail = true;
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    if (fail) throw new Error('sensitive connection detail');
+    const url = String(input);
+    return new Response(JSON.stringify(url.endsWith('/restricted-cases') ? { cases: [] }
+      : url.endsWith('/administrators') ? { users: [] } : {}));
+  }));
+  await act(async () => { renderBrainbase(<ListPage />); });
+  expect(await screen.findByText('Could not load restricted HR cases. Refresh to try again.')).toBeTruthy();
+  expect(document.body.textContent).not.toContain('sensitive');
+  expect(screen.queryByRole('button', { name: '+ Open Case' })).toBeNull();
+  fail = false;
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+  expect(await screen.findByText('No restricted cases are currently available to you.')).toBeTruthy();
+});
 const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 async function renderPage() {
   await act(async () => {
@@ -29,4 +46,39 @@ it.each(['network', 'partial'] as const)('recovers safely from %s restricted rea
   expect(document.body.textContent).not.toContain('sensitive');
   fail = false; fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
   expect(await screen.findByText('Synthetic restricted case')).toBeTruthy();
+});
+
+it.each(['denied', 'malformed'] as const)('keeps restricted list capabilities closed after %s response', async failure => {
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith('/restricted-cases')) return failure === 'denied'
+      ? new Response('{"error":"sensitive denial"}', { status: 403 })
+      : new Response('{"cases":[{}]}');
+    return new Response(JSON.stringify(url.endsWith('/administrators') ? { users: [] } : { userId: id }));
+  }));
+  await act(async () => { renderBrainbase(<ListPage />); });
+  expect(await screen.findByText('Could not load restricted HR cases. Refresh to try again.')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: '+ Open Case' })).toBeNull();
+  expect(document.body.textContent).not.toContain('sensitive');
+});
+
+it('does not commit a late restricted read into a remounted page', async () => {
+  let release!: (response: Response) => void;
+  let first = true;
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith('/restricted-cases') && first) {
+      first = false;
+      return new Promise<Response>(resolve => { release = resolve; });
+    }
+    return new Response(JSON.stringify(url.endsWith('/restricted-cases') ? { cases: [] }
+      : url.endsWith('/administrators') ? { users: [] } : {}));
+  }));
+  let firstPage!: ReturnType<typeof renderBrainbase>;
+  await act(async () => { firstPage = renderBrainbase(<ListPage />); });
+  firstPage.unmount();
+  await act(async () => { renderBrainbase(<ListPage />); });
+  expect(await screen.findByText('No restricted cases are currently available to you.')).toBeTruthy();
+  await act(async () => { release(new Response(JSON.stringify({ cases: [{ id, title: 'Obsolete sensitive case', case_type: 'other', reference: null }] }))); });
+  expect(screen.queryByText('Obsolete sensitive case')).toBeNull();
 });
