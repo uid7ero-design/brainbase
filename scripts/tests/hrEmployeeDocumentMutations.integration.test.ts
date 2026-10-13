@@ -606,16 +606,17 @@ describe('restricted case real route access and history', () => {
 });
 
 describe('restricted detail browser to actual route', () => {
-  it.each(['revoked', 'lost-note', 'lost-participant'] as const)('restricted detail actual-route recovery: %s', async scenario => {
+  it.each(['revoked', 'lost-note', 'lost-participant', 'lost-grant'] as const)('restricted detail actual-route recovery: %s', async scenario => {
     await q(readFileSync('scripts/add-hr-people-tenant-unique.sql', 'utf8'));
     await q(readFileSync('scripts/create-hr-restricted-cases.sql', 'utf8'));
-    const caseId = scenario === 'revoked' ? '98888888-8888-4888-8888-888888888888' : scenario === 'lost-note' ? '98888888-8888-4888-8888-888888888889' : '98888888-8888-4888-8888-888888888890';
+    const caseId = scenario === 'revoked' ? '98888888-8888-4888-8888-888888888888' : scenario === 'lost-note' ? '98888888-8888-4888-8888-888888888889' : scenario === 'lost-participant' ? '98888888-8888-4888-8888-888888888890' : '98888888-8888-4888-8888-888888888891';
     await q("INSERT INTO hr_restricted_cases(id,organisation_id,case_type,title,opened_by) VALUES($1,$2,'other','Browser synthetic restricted case',$3)", [caseId, org, hr.userId]);
     await q('INSERT INTO hr_restricted_case_access(organisation_id,case_id,user_id,granted_by) VALUES($1,$2,$3,$4)', [org, caseId, employee.userId, hr.userId]);
-    routeUser = scenario === 'lost-participant' ? hr.userId : employee.userId;
-    if (scenario === 'lost-participant') await q('INSERT INTO hr_restricted_case_access(organisation_id,case_id,user_id,granted_by) VALUES($1,$2,$3,$3)', [org, caseId, hr.userId]);
+    routeUser = ['lost-participant', 'lost-grant'].includes(scenario) ? hr.userId : employee.userId;
+    if (['lost-participant', 'lost-grant'].includes(scenario)) await q('INSERT INTO hr_restricted_case_access(organisation_id,case_id,user_id,granted_by) VALUES($1,$2,$3,$3)', [org, caseId, hr.userId]);
     const detail = await import('@/app/api/hr/restricted-cases/[id]/route');
     const noteRoutes = await import('@/app/api/hr/restricted-cases/[id]/notes/route');
+    const grantRoute = await import('@/app/api/hr/restricted-cases/[id]/access/route');
     const participantRoutes = await import('@/app/api/hr/restricted-cases/[id]/participants/route');
     const built = await build({ configFile: false, logLevel: 'error', resolve: { alias: { '@': process.cwd() } },
       define: { 'process.env.NODE_ENV': JSON.stringify('production'), 'process.env': '{}' }, oxc: { jsx: { runtime: 'automatic', development: false } },
@@ -639,6 +640,11 @@ describe('restricted detail browser to actual route', () => {
           const response = await detail.GET(new NextRequest(url), { params: Promise.resolve({ id: caseId }) });
           res.statusCode = response.status; res.end(await response.text()); return;
         }
+        if (url.pathname === `/api/hr/restricted-cases/${caseId}/access`) {
+          actualWrites++; const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
+          const response = await grantRoute.POST(new NextRequest(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: Buffer.concat(chunks).toString() }), { params: Promise.resolve({ id: caseId }) });
+          res.statusCode=response.status; res.end(await response.text()); return;
+        }
         if (url.pathname === `/api/hr/restricted-cases/${caseId}/notes` || url.pathname === `/api/hr/restricted-cases/${caseId}/participants`) {
           const handlers = url.pathname.endsWith('/participants') ? participantRoutes : noteRoutes;
           const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
@@ -648,7 +654,7 @@ describe('restricted detail browser to actual route', () => {
           const response = method === 'POST' ? await handlers.POST(request, { params: Promise.resolve({ id: caseId }) }) : await handlers.GET(request, { params: Promise.resolve({ id: caseId }) });
           res.statusCode = response.status; res.end(await response.text()); return;
         }
-        if (url.pathname.endsWith('/administrators')) { res.statusCode=scenario === 'lost-participant' ? 200 : 403; res.end(JSON.stringify({ users: [] })); return; }
+        if (url.pathname.endsWith('/administrators')) { res.statusCode=['lost-participant', 'lost-grant'].includes(scenario) ? 200 : 403; res.end(JSON.stringify({ users: [{ id: outsider.userId, name: 'Synthetic recipient', email: null, grant_eligible: true }] })); return; }
         const body = url.pathname.endsWith('/participants') ? { participants: [] }
           : url.pathname.endsWith('/notes') ? { notes: [] } : url.pathname.endsWith('/documents') ? { documents: [] } : { people: [{ id: personId, first_name: 'Synthetic', last_name: 'Participant' }] };
         res.end(JSON.stringify(body));
@@ -662,6 +668,18 @@ describe('restricted detail browser to actual route', () => {
       page.on('pageerror', error => errors.push(error.message));
       await page.goto(`http://127.0.0.1:${address.port}/`); await page.addScriptTag({ content: output.output[0].code });
       await browserExpect(page.getByRole('heading', { name: 'Browser synthetic restricted case' })).toBeVisible();
+      if (scenario === 'lost-grant') {
+        await page.route('**/access', async route => { const response=await route.fetch(); expect(response.status()).toBe(201); await route.abort('failed'); });
+        await page.getByRole('combobox', { name: 'User', exact: true }).selectOption(outsider.userId);
+        await page.getByRole('button', { name: 'Grant access', exact: true }).click();
+        await browserExpect(page.getByText('The change could not be confirmed. Refresh and review the case before trying again.')).toBeVisible();
+        await browserExpect(page.getByRole('button', { name: 'Grant access', exact: true })).toBeDisabled();
+        await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+        await browserExpect(page.getByRole('heading', { name: 'Browser synthetic restricted case' })).toBeVisible();
+        expect(actualWrites).toBe(1);
+        expect((await q('SELECT count(*)::int AS count FROM hr_restricted_case_access WHERE case_id=$1 AND user_id=$2 AND revoked_at IS NULL', [caseId, outsider.userId]))[0].count).toBe(1);
+        expect(errors).toEqual([]); return;
+      }
       if (scenario === 'lost-participant') {
         await page.route('**/participants', async route => {
           if (route.request().method() !== 'POST') return route.continue();
