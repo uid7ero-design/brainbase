@@ -581,3 +581,26 @@ describe('reminder current-version and recipient entitlement SQL', () => {
     expect((await otherTenant(delivery)).outcome).toBe('definite_failure'); expect(sender).not.toHaveBeenCalled();
   });
 });
+
+describe('restricted case real route access and history', () => {
+  it('requires an explicit live grant even for HR and preserves revocation history', async () => {
+    await q(readFileSync('scripts/add-hr-people-tenant-unique.sql', 'utf8'));
+    await q(readFileSync('scripts/create-hr-restricted-cases.sql', 'utf8'));
+    const caseId = '97777777-7777-4777-8777-777777777777';
+    await q("INSERT INTO hr_restricted_cases(id,organisation_id,case_type,title,opened_by) VALUES($1,$2,'other','Synthetic restricted case',$3)", [caseId, org, hr.userId]);
+    const detail = await import('@/app/api/hr/restricted-cases/[id]/route');
+    const params = { params: Promise.resolve({ id: caseId }) };
+    routeUser = hr.userId;
+    expect((await detail.GET(routeRequest('GET'), params)).status).toBe(404);
+    await q('INSERT INTO hr_restricted_case_access(organisation_id,case_id,user_id,granted_by) VALUES($1,$2,$3,$4)', [org, caseId, employee.userId, hr.userId]);
+    routeUser = employee.userId;
+    expect((await detail.GET(routeRequest('GET'), params)).status).toBe(200);
+    await q('UPDATE hr_restricted_case_access SET revoked_at=now(),revoked_by=$1 WHERE case_id=$2', [hr.userId, caseId]);
+    expect((await detail.GET(routeRequest('GET'), params)).status).toBe(404);
+    routeUser = outsider.userId;
+    expect((await detail.GET(routeRequest('GET'), params)).status).toBe(404);
+    authenticated = false;
+    expect((await detail.GET(routeRequest('GET'), params)).status).toBe(401);
+    expect((await q('SELECT count(*)::int AS count FROM hr_restricted_case_access WHERE case_id=$1 AND revoked_at IS NOT NULL', [caseId]))[0].count).toBe(1);
+  });
+});
