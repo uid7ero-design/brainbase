@@ -3,6 +3,7 @@ import { buildReviewedProfileCountRequestCatalog, type ReviewedProfileCountReque
 import { buildReviewedProfileCountSelection } from "../analysis/profileCountSelection";
 import { parsePlanningSelectionRequest } from "../analysis/planningSelectionRequest";
 import { isPlanningFailureCode, type PlanningExchangeFailure, type PlanningSelectionResponse } from "../analysis/planningExchange";
+import { buildReviewedPlanningCatalogPage, parsePlanningPageRequest, type PlanningPageResult } from "../analysis/planningCatalogPage";
 
 type Scope = { organisationId: string; uploadId: string };
 type CatalogResult = { ok: true; catalog: ReviewedProfileCountRequestCatalog } | PlanningExchangeFailure;
@@ -36,6 +37,16 @@ export async function planUploadSelection(scope: Scope, input: unknown): Promise
       return { ok: false, code: "REVIEW_PROFILE_CHANGED" };
     }
     const built = buildReviewedProfileCountSelection(loaded.schema.context, loaded, parsed.input.selection);
+    return built.ok ? built : denial(built);
+  } catch { return { ok: false, code: "REVIEW_READ_FAILED" }; }
+}
+export async function loadUploadPlanningPage(scope: Scope, input: unknown): Promise<PlanningPageResult> {
+  if (!validScope(scope)) return { ok: false, code: "CONTEXT_INPUT_INVALID" };
+  const parsed = parsePlanningPageRequest(input); if (!parsed.ok) return parsed;
+  try {
+    const loaded = await loadAnalysisReview(scope);
+    if (!loaded.ok) return denial(loaded);
+    const built = buildReviewedPlanningCatalogPage(loaded.schema.context, loaded, parsed.request);
     return built.ok ? built : denial(built);
   } catch { return { ok: false, code: "REVIEW_READ_FAILED" }; }
 }

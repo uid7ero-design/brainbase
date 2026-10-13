@@ -25,6 +25,23 @@ export type BuildReviewedProfileCountRequestCatalogResult =
 export function buildReviewedProfileCountRequestCatalog(
   expected: AnalysisDatasetContext, review: ReviewedPlanningSnapshot,
 ): BuildReviewedProfileCountRequestCatalogResult {
+  const prepared = prepareReviewedProfileCountCatalog(expected, review);
+  if (!prepared.ok) return prepared;
+  const { context, reviewRevision, readinessState, measureColumnIds } = prepared;
+  const requests: ProfileCountRequestTemplate[] = [{ requestVersion: "v1", kind: "ROW_COUNT" }];
+  for (const sourceSchemaColumnId of measureColumnIds) {
+    requests.push({ requestVersion: "v1", kind: "AGGREGATE", sourceSchemaColumnId, operator: "COUNT_PRESENT" });
+  }
+  return { ok: true, catalog: { catalogVersion: PROFILE_COUNT_REQUEST_CATALOG_VERSION,
+    context, reviewRevision, readinessState, requests } };
+}
+
+// Shared pure admission for full and paged descriptions; never a persisted
+// preparation, cache, fresh-state proof, or execution/permission grant.
+export function prepareReviewedProfileCountCatalog(expected: AnalysisDatasetContext, review: ReviewedPlanningSnapshot):
+  | { ok: true; context: AnalysisDatasetContext; reviewRevision: number;
+      readinessState: ProfileCountAnalysisPlan["readinessState"]; measureColumnIds: readonly string[] }
+  | Extract<BuildReviewedProfileCountPlanResult, { ok: false }> {
   const checked = admitReviewPlanningScope(expected, review);
   if (!checked.ok) return checked;
   const { reviewRevision } = checked;
@@ -34,11 +51,6 @@ export function buildReviewedProfileCountRequestCatalog(
   // algorithm versions before exposing any request template.
   const admitted = buildProfileCountPlan(built.readiness, { requestVersion: "v1", kind: "ROW_COUNT" });
   if (!admitted.ok) return admitted;
-  const requests: ProfileCountRequestTemplate[] = [{ requestVersion: "v1", kind: "ROW_COUNT" }];
-  for (const sourceSchemaColumnId of built.readiness.catalog.measures) {
-    requests.push({ requestVersion: "v1", kind: "AGGREGATE", sourceSchemaColumnId, operator: "COUNT_PRESENT" });
-  }
-  return { ok: true, catalog: { catalogVersion: PROFILE_COUNT_REQUEST_CATALOG_VERSION,
-    context: copyAnalysisDatasetContext(checked.context), reviewRevision,
-    readinessState: admitted.plan.readinessState, requests } };
+  return { ok: true, context: copyAnalysisDatasetContext(checked.context), reviewRevision,
+    readinessState: admitted.plan.readinessState, measureColumnIds: [...built.readiness.catalog.measures] };
 }

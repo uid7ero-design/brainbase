@@ -1,8 +1,8 @@
 // Inherits the client boundary of AnalysisReviewClient; never imports server I/O.
 import { useEffect, useRef, useState } from "react";
 import type { LoadAnalysisReviewResult } from "@/lib/data-hub/analysisExecution/loadAnalysisReview";
-import type { ReviewedProfileCountRequestCatalog } from "@/lib/data-hub/analysis/reviewedProfileCountCatalog";
-import { parsePlanningCatalogJson, parsePlanningSelectionJson, type PlanningSelectionResponse } from "@/lib/data-hub/analysis/planningExchange";
+import { parsePlanningSelectionJson, type PlanningSelectionResponse } from "@/lib/data-hub/analysis/planningExchange";
+import { MAX_PLANNING_PAGE_MEASURES, parsePlanningCatalogPageJson, type PlanningCatalogPage } from "@/lib/data-hub/analysis/planningCatalogPage";
 import { analysisFailureReference } from "@/lib/data-hub/analysis/failureReference";
 import { fetchPlanningText } from "@/lib/data-hub/client/planningTransport";
 
@@ -11,7 +11,7 @@ type Props = { uploadId: string; review: Review; fieldLabels: { sourceSchemaColu
   disabled: boolean; onBusyChange: (busy: boolean) => void };
 
 export default function ProfilePlanningClient({ uploadId, review, fieldLabels, disabled, onBusyChange }: Props) {
-  const [catalog, setCatalog] = useState<ReviewedProfileCountRequestCatalog | null>(null);
+  const [catalog, setCatalog] = useState<PlanningCatalogPage | null>(null);
   const [ids, setIds] = useState<string[]>([]);
   const [rows, setRows] = useState(true);
   const [plans, setPlans] = useState<PlanningSelectionResponse | null>(null);
@@ -27,14 +27,16 @@ export default function ProfilePlanningClient({ uploadId, review, fieldLabels, d
   const label = (id: string, index: number) => {
     const field = labels.get(id); return field ? `${field.label} (field ${field.position})` : `Measure ${index + 1}`;
   };
-  const measureIds = catalog?.requests.flatMap(request => "sourceSchemaColumnId" in request ? [request.sourceSchemaColumnId] : []) ?? [];
+  const measureIds = catalog?.requests.map(request => request.sourceSchemaColumnId) ?? [];
+  const reviewedMeasures = review.schema.snapshot.fields.filter(field => field.fieldClass === "MEASURE").map(field => field.sourceSchemaColumnId);
   const requestCount = ids.length + (rows ? 1 : 0);
   const locked = disabled || busy;
   const held = review.quality.snapshot.state === "HOLD_FOR_REMEDIATION";
   function clearFailure(code: unknown) {
     setCatalog(null); setPlans(null); setIds([]); setRows(true); setError(analysisFailureReference(code));
   }
-  async function request(kind: "catalog" | "selection") {
+  async function request(kind: "catalog" | "selection" | "page", offset = 0) {
+    if (kind === "page" && !catalog) return;
     if (disabled || held || pending.current || (kind === "selection" && (!catalog || requestCount < 1 || requestCount > 20))) return;
     const controller = new AbortController(); pending.current = controller;
     const token = ++generation.current;
@@ -44,21 +46,24 @@ export default function ProfilePlanningClient({ uploadId, review, fieldLabels, d
     setPlans(null); setError(""); setBusy(true); onBusyChange(true);
     if (kind === "catalog") { setCatalog(null); setIds([]); setRows(true); }
     try {
-      const response = await fetchPlanningText(`/api/data-hub/worksheets/${encodeURIComponent(uploadId)}/analysis-planning`, {
-        method: kind === "catalog" ? "GET" : "POST", cache: "no-store",
+      const query = kind === "selection" ? "" : "?" + new URLSearchParams({ pageVersion: "v1",
+        datasetProfileRunId: review.schema.context.datasetProfileRunId, expectedReviewRevision: String(review.revision),
+        pageSize: String(MAX_PLANNING_PAGE_MEASURES), offset: String(offset) });
+      const response = await fetchPlanningText(`/api/data-hub/worksheets/${encodeURIComponent(uploadId)}/analysis-planning${query}`, {
+        method: kind === "selection" ? "POST" : "GET", cache: "no-store",
         ...(kind === "selection" ? { headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ datasetProfileRunId: review.schema.context.datasetProfileRunId, selection }) } : {}),
       }, controller);
       if (!current()) return;
       if (!response.ok) { clearFailure(response.code); return; }
       const text = response.text;
-      if (kind === "catalog") {
-        const decoded = parsePlanningCatalogJson(text, { context: review.schema.context, reviewRevision: review.revision });
+      if (kind !== "selection") {
+        const decoded = parsePlanningCatalogPageJson(text, { context: review.schema.context, reviewRevision: review.revision,
+          readinessState: review.quality.snapshot.state, pageSize: MAX_PLANNING_PAGE_MEASURES, offset, measureColumnIds: reviewedMeasures });
         if (!decoded.ok) clearFailure(decoded.code);
         else if (!decoded.response.ok) clearFailure(decoded.response.code);
         else if (!response.httpOk) clearFailure("REQUEST_FAILED");
-        else if (decoded.response.catalog.readinessState !== review.quality.snapshot.state) clearFailure("PLANNING_RESPONSE_MISMATCH");
-        else setCatalog(decoded.response.catalog);
+        else setCatalog(decoded.response.page);
       } else {
         const decoded = parsePlanningSelectionJson(text, { context: review.schema.context,
           readinessState: catalog!.readinessState, selection });
@@ -90,6 +95,14 @@ export default function ProfilePlanningClient({ uploadId, review, fieldLabels, d
             setIds(current => checked ? current.includes(id) ? current : [...current, id] : current.filter(value => value !== id));
             setPlans(null); setError(""); }} /> Present values — {label(id, index)}
       </label>)}
+      <p>Measures {catalog.totalMeasures === 0 ? 0 : catalog.offset + 1}–{catalog.offset + measureIds.length} of {catalog.totalMeasures}. Selections are kept across pages.</p>
+      <button disabled={locked || catalog.offset === 0} onClick={() => void request("page", catalog.offset - catalog.pageSize)}>Previous measures</button>{" "}
+      <button disabled={locked || catalog.nextOffset === null} onClick={() => void request("page", catalog.nextOffset!)}>Next measures</button>
+      {ids.length ? <section aria-label="Selected measures"><h3>Selected measures</h3><ul>{ids.map((id, index) => <li key={id}>
+        {label(id, index)}{" "}<button disabled={locked} aria-label={`Remove ${label(id, index)}`} onClick={() => {
+          setIds(current => current.filter(value => value !== id)); setPlans(null); setError("");
+        }}>Remove</button>
+      </li>)}</ul></section> : null}
       <p>{requestCount} of 20 requests selected. Present values include zero; missing values are excluded.</p>
       <button disabled={locked || requestCount === 0} onClick={() => void request("selection")}>Plan selected requests</button>
     </fieldset> : null}

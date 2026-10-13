@@ -75,8 +75,9 @@ The browser transport requires JSON content type and fatal UTF-8 decoding,
 counting actual streamed bytes up to 1 MiB. An oversized or non-JSON response
 is rejected as a whole; catalog entries are never silently truncated. Content-
 Length cannot override the limit. Very large catalogs may therefore require a
-separately designed pagination contract; this package adds no pagination or
-performance guarantee.
+separately designed pagination contract. The subsequent
+[planning pages](data-hub-planning-pages.md) add bounded discovery windows;
+they do not add a database/readiness performance guarantee.
 
 One 15-second deadline covers both response headers and body consumption. A
 visible Cancel planning action aborts pending work. Deadline/cancellation races

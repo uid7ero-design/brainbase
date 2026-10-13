@@ -326,3 +326,15 @@ Automated accessibility checks cover five states; screen-reader/color-contrast,
 hosted authenticated transport, real ingestion and larger workloads remain
 separate. Owned test resources are removed, D4D5Q is unchanged, and the existing
 Production release hold still applies. Planning remains descriptions only.
+
+The subsequent [planning pages](data-hub-planning-pages.md) bundle bounds
+discovery responses and rendered choices to 50 reviewed measures per page.
+Each page revalidates session scope, profile, revision, readiness and lineage;
+offsets grant no authority. Cross-page choices retain exact click order under
+the same global 20-request limit and are revalidated together on submission.
+Off-page removal and explicit navigation add no automatic execution. Bad/stale
+pages clear the whole selection. Legacy full discovery remains compatible.
+Loading/readiness still use full metadata; this is not database pagination or
+large-workload qualification. The acceptance package adds a real 51-measure
+fixture and paging mobile artifact, binding six artifacts in its receipt.
+The existing Production/migration-owner release hold remains in force.

@@ -47,7 +47,7 @@ try {
     await pause(500);
   }
   if (!started) throw new Error(`Next startup timeout: ${nextLog}`);
-  const ready = worlds.find(world => !world.held), held = worlds.find(world => world.held);
+  const ready = worlds.find(world => !world.held && !world.wide), held = worlds.find(world => world.held), wide = worlds.find(world => world.wide);
   const endpoint = uploadId => `/api/data-hub/worksheets/${uploadId}`;
   if ((await fetch(origin + endpoint(ready.uploadId) + '/analysis-review/plan')).status !== 401) throw new Error('Unauthenticated planning accepted');
   browser = await chromium.launch();
@@ -124,6 +124,7 @@ try {
   await expect(page.getByText(`Present values: 2. Based on review 1, profile ${ready.datasetProfileRunId}.`, { exact: true })).toBeVisible();
   evidence.checks.push('Plan, explicit semantic and quality choices, append, reload, row count 3, present count 2 including zero and excluding null, session actor');
   const planningUrl = origin + endpoint(ready.uploadId) + '/analysis-planning';
+  const planningPattern = planningUrl + '**';
   const planningSection = page.getByRole('region', { name: 'Analysis planning', exact: true });
   const selection = { datasetProfileRunId: ready.datasetProfileRunId,
     selection: { selectionVersion: 'v1', expectedReviewRevision: 1, includeRowCount: true, measureColumnIds: [ready.col2] } };
@@ -146,7 +147,7 @@ try {
     const actual = await route.fetch(); planArrived(); await heldResponse;
     await route.fulfill({ response: actual });
   };
-  await page.route(planningUrl, delayPlan);
+  await page.route(planningPattern, delayPlan);
   try {
     await planningSection.getByRole('button', { name: 'Plan selected requests', exact: true }).click();
     await waitForProbe(arrival);
@@ -154,7 +155,7 @@ try {
     await expect(page.getByRole('button', { name: 'Save review', exact: true })).toBeDisabled();
   } finally { releasePlan(); }
   await expect(planningSection.getByText(plannedMessage, { exact: true })).toBeVisible();
-  await page.unroute(planningUrl, delayPlan);
+  await page.unroute(planningPattern, delayPlan);
   if (executions !== 0) throw new Error('Planning called count or save');
   if (JSON.stringify((await pool.query('SELECT * FROM data_hub_analysis_reviews WHERE upload_id=$1 ORDER BY revision', [ready.uploadId])).rows) !== JSON.stringify(beforePlanning)) throw new Error('Planning changed review history');
   await page.setViewportSize({ width: 390, height: 844 });
@@ -180,7 +181,7 @@ try {
       if (kind === 'extra') payload.privateValues = ['private-planning-probe'];
       await route.fulfill({ response: actual, json: payload });
     };
-    await page.route(planningUrl, corruptPlan);
+    await page.route(planningPattern, corruptPlan);
     try {
       await planningSection.getByRole('button', { name: 'Plan selected requests', exact: true }).click();
       await expect(planningSection.getByRole('alert')).toContainText(/PLANNING_RESPONSE_INVALID|PLANNING_RESPONSE_MISMATCH/);
@@ -189,7 +190,7 @@ try {
       await expect(planningSection).not.toContainText('private-');
       await expect(planningSection.getByRole('button', { name: 'Load planning choices', exact: true })).toBeEnabled();
       await pause(200); if (requests !== 1) throw new Error('Planning failure automatically retried');
-    } finally { await page.unroute(planningUrl, corruptPlan); }
+    } finally { await page.unroute(planningPattern, corruptPlan); }
     await planningSection.getByRole('button', { name: 'Load planning choices', exact: true }).click();
     await planningSection.getByRole('checkbox', { name: 'Present values — Amount (field 2)', exact: true }).check();
     await planningSection.getByRole('button', { name: 'Plan selected requests', exact: true }).click();
@@ -204,7 +205,7 @@ try {
       // A browser may have discarded the interception after explicit abort.
       await route.fulfill({ response: actual }).catch(() => {});
     };
-    await page.route(planningUrl, delayCatalog);
+    await page.route(planningPattern, delayCatalog);
     try {
       await planningSection.getByRole('button', { name: 'Load planning choices', exact: true }).click(); await waitForProbe(arrived);
       if (kind === 'navigate') {
@@ -223,7 +224,7 @@ try {
         }
       }
       if (requests !== 1) throw new Error('Aborted planning automatically retried');
-    } finally { releaseResponse(); await page.unroute(planningUrl, delayCatalog); }
+    } finally { releaseResponse(); await page.unroute(planningPattern, delayCatalog); }
     if (kind === 'navigate') await open(ready.uploadId);
     await planningSection.getByRole('button', { name: 'Load planning choices', exact: true }).click();
     await planningSection.getByRole('checkbox', { name: 'Present values — Amount (field 2)', exact: true }).check();
@@ -343,6 +344,63 @@ try {
   if ((await pool.query('SELECT count(*)::int AS n FROM data_hub_analysis_reviews WHERE upload_id=$1', [ready.uploadId])).rows[0].n !== 2) throw new Error('Planning after review change appended history');
   evidence.checks.push('Real review advances after discovery: stale selection denied, choices clear, explicit review/catalog refresh plans revision 2 without extra append');
 
+  // Wide metadata is prepared by the same real normalization/profiling path.
+  // Only discovery replies are paged; selected requests still replan as one
+  // current-review-pinned bundle, preserving exact click order across pages.
+  if (!wide?.extraColumnIds?.length) throw new Error('Wide fixture missing');
+  await open(wide.uploadId); await chooseMeanings(); await chooseQuality();
+  await page.getByRole('button', { name: 'Save review', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Saved review 1', exact: true })).toBeVisible();
+  const widePlanning = page.getByRole('region', { name: 'Analysis planning', exact: true });
+  const wideUrl = origin + endpoint(wide.uploadId) + '/analysis-planning';
+  let wideExecutions = 0; let selectedBody;
+  const observeWide = request => {
+    if (request.method() === 'POST' && /\/analysis-(count|review)$/.test(new URL(request.url()).pathname)) wideExecutions++;
+    if (request.url() === wideUrl && request.method() === 'POST') selectedBody = request.postDataJSON();
+  };
+  page.on('request', observeWide);
+  await widePlanning.getByRole('button', { name: 'Load planning choices', exact: true }).click();
+  await expect(widePlanning.getByText('Measures 1–50 of 51. Selections are kept across pages.', { exact: true })).toBeVisible();
+  if (await widePlanning.getByRole('checkbox').count() !== 51) throw new Error('Discovery rendered an unbounded inventory');
+  await widePlanning.getByRole('checkbox', { name: 'Present values — Amount (field 2)', exact: true }).check();
+  for (let position = 5; position <= 22; position++) await widePlanning.getByRole('checkbox', { name: `Present values — Amount (field ${position})`, exact: true }).check();
+  await widePlanning.getByRole('button', { name: 'Next measures', exact: true }).click();
+  await expect(widePlanning.getByText('Measures 51–51 of 51. Selections are kept across pages.', { exact: true })).toBeVisible();
+  const lastMeasure = widePlanning.getByRole('checkbox', { name: 'Present values — Amount (field 54)', exact: true });
+  await expect(lastMeasure).toBeDisabled();
+  await widePlanning.getByRole('button', { name: 'Remove Amount (field 2)', exact: true }).click();
+  await lastMeasure.check();
+  await expect(widePlanning.getByText('20 of 20 requests selected. Present values include zero; missing values are excluded.', { exact: true })).toBeVisible();
+  await widePlanning.getByRole('button', { name: 'Plan selected requests', exact: true }).click();
+  await expect(widePlanning.getByText('20 requests planned from saved review 1. Counts have not been calculated.', { exact: true })).toBeVisible();
+  const expectedSelection = [...wide.extraColumnIds.slice(0, 18), wide.extraColumnIds.at(-1)];
+  if (JSON.stringify(selectedBody) !== JSON.stringify({ datasetProfileRunId: wide.datasetProfileRunId,
+    selection: { selectionVersion: 'v1', expectedReviewRevision: 1, includeRowCount: true, measureColumnIds: expectedSelection } })) throw new Error('Cross-page selection order changed');
+  if (wideExecutions !== 0) throw new Error('Paged planning executed count/save');
+  await page.setViewportSize({ width: 390, height: 844 });
+  if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error('Paged planning overflows mobile viewport');
+  await widePlanning.screenshot({ path: resolve(directory, 'planning-paging-mobile.png') });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const widePattern = wideUrl + '**';
+  const corruptPage = async route => {
+    const actual = await route.fetch(); if (actual.status() !== 200) throw new Error('Page probe requires genuine success');
+    const payload = await actual.json(); payload.page.nextOffset = 0;
+    await route.fulfill({ response: actual, json: payload });
+  };
+  await page.route(widePattern, corruptPage);
+  try {
+    await widePlanning.getByRole('button', { name: 'Previous measures', exact: true }).click();
+    await expect(widePlanning.getByRole('alert')).toContainText('PLANNING_RESPONSE_INVALID');
+    await expect(widePlanning.getByRole('region', { name: 'Selected measures', exact: true })).toHaveCount(0);
+    await expect(widePlanning.getByRole('region', { name: 'Planned requests', exact: true })).toHaveCount(0);
+  } finally { await page.unroute(widePattern, corruptPage); }
+  await widePlanning.getByRole('button', { name: 'Load planning choices', exact: true }).click();
+  await expect(widePlanning.getByText('Measures 1–50 of 51. Selections are kept across pages.', { exact: true })).toBeVisible();
+  page.off('request', observeWide);
+  if (wideExecutions !== 0 || (await pool.query('SELECT count(*)::int AS n FROM data_hub_analysis_reviews WHERE upload_id=$1', [wide.uploadId])).rows[0].n !== 1) throw new Error('Paged planning changed review history');
+  evidence.checks.push('51 real reviewed measures: bounded 50/1 pages, off-page removal, global 20-request limit and exact cross-page order; no count/save calls or extra review, mobile fit');
+  evidence.checks.push('One deliberate invalid page cursor rejects the whole reply, clearing selections/plans; explicit genuine reload recovers');
+
   await open(held.uploadId); await chooseMeanings(); await chooseQuality(true);
   await page.getByRole('button', { name: 'Save review', exact: true }).click();
   await expect(page.getByText('On hold for correction. Counts are unavailable.', { exact: true })).toBeVisible();
@@ -350,6 +408,9 @@ try {
   await expect(page.getByRole('button', { name: 'Count present values', exact: true })).toBeDisabled();
   const heldCount = await api(endpoint(held.uploadId) + '/analysis-count', { requestVersion: 'v1', kind: 'ROW_COUNT' });
   if (heldCount.status !== 422 || heldCount.body.code !== 'QUALITY_HOLD') throw new Error('Hold bypassed by direct request');
+  const heldPage = await api(endpoint(held.uploadId) + '/analysis-planning?' + new URLSearchParams({ pageVersion: 'v1', datasetProfileRunId: held.datasetProfileRunId,
+    expectedReviewRevision: '1', pageSize: '50', offset: '0' }));
+  if (heldPage.status !== 422 || heldPage.body.code !== 'QUALITY_HOLD') throw new Error('Paged hold bypassed');
   await expect(page.getByRole('button', { name: 'Load planning choices', exact: true })).toBeDisabled();
   for (const body of [undefined, { ...selection, datasetProfileRunId: held.datasetProfileRunId,
     selection: { ...selection.selection, measureColumnIds: [] } }]) {

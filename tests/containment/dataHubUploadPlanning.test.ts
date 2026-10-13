@@ -2,11 +2,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { planningFixture } from "../helpers/dataHubPlanningFixture";
 const seams = vi.hoisted(() => ({ load: vi.fn() }));
 vi.mock("@/lib/data-hub/analysisExecution/loadAnalysisReview", () => ({ loadAnalysisReview: seams.load }));
-import { loadUploadPlanningCatalog, planUploadSelection } from "@/lib/data-hub/analysisExecution/uploadPlanning";
+import { loadUploadPlanningCatalog, loadUploadPlanningPage, planUploadSelection } from "@/lib/data-hub/analysisExecution/uploadPlanning";
 const scope = { organisationId: "org", uploadId: "upload" };
 beforeEach(() => { vi.resetAllMocks(); });
 
 describe("upload planning over the existing scoped review loader", () => {
+  it("loads each page from current metadata and rejects malformed input before reading", async () => {
+    const f = planningFixture(121); seams.load.mockResolvedValue(f.review);
+    const input = { pageVersion: "v1", datasetProfileRunId: "profile", expectedReviewRevision: 3, pageSize: 50, offset: 50 };
+    expect(await loadUploadPlanningPage(scope, input)).toEqual(f.page(50));
+    f.review.revision = 4;
+    expect(await loadUploadPlanningPage(scope, input)).toEqual({ ok: false, code: "REVIEW_REVISION_MISMATCH" });
+    seams.load.mockClear();
+    expect(await loadUploadPlanningPage(scope, { ...input, organisationId: "other" })).toEqual({ ok: false, code: "PLANNING_PAGE_INVALID" });
+    expect(seams.load).not.toHaveBeenCalled();
+  });
   it("loads authoritative review metadata and produces closed descriptions without mutating it", async () => {
     const f = planningFixture(); const before = structuredClone(f.review); seams.load.mockResolvedValue(f.review);
     expect(await loadUploadPlanningCatalog(scope)).toEqual(f.catalog());

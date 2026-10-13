@@ -1,6 +1,7 @@
 import type { LoadAnalysisReviewResult } from "@/lib/data-hub/analysisExecution/loadAnalysisReview";
 import { buildReviewedProfileCountRequestCatalog } from "@/lib/data-hub/analysis/reviewedProfileCountCatalog";
 import { buildReviewedProfileCountSelection } from "@/lib/data-hub/analysis/profileCountSelection";
+import { buildReviewedPlanningCatalogPage } from "@/lib/data-hub/analysis/planningCatalogPage";
 
 export function planningFixture(measures = 1) {
   const context = { organisationId: "org", uploadId: "upload", importBatchId: "batch", normalizationRunId: "norm",
@@ -17,5 +18,7 @@ export function planningFixture(measures = 1) {
   return { context, review, selection, body: { datasetProfileRunId: "profile", selection },
     labels: review.schema.snapshot.fields.map(field => ({ sourceSchemaColumnId: field.sourceSchemaColumnId, label: "Amount" })),
     catalog: () => buildReviewedProfileCountRequestCatalog(context, review),
+    page: (offset = 0, pageSize = 50) => buildReviewedPlanningCatalogPage(context, review, { pageVersion: "v1",
+      datasetProfileRunId: context.datasetProfileRunId, expectedReviewRevision: review.revision, pageSize, offset }),
     planned: () => buildReviewedProfileCountSelection(context, review, selection) };
 }

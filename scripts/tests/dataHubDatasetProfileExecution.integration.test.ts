@@ -90,13 +90,14 @@ afterAll(async () => {
     const { randomBytes } = await import("node:crypto");
     const password = randomBytes(24).toString("hex");
     const worlds = [];
-    for (const held of [false, true]) {
+    for (const fixture of [{ held: false, wide: false }, { held: true, wide: false }, { held: false, wide: true }]) {
+      const { held, wide } = fixture;
       const suffix = nextSuffix(held ? "browserhold" : "browserready");
       const ids = await seedWorld(suffix, ORG_A, [
         { id: `${suffix}-r1`, sourceRowNumber: 4, col1: "ID-1", col2: held ? null : "0", col3: "2024-01-01", col4: "first" },
         { id: `${suffix}-r2`, sourceRowNumber: 5, col1: "ID-2", col2: null, col3: "2024-01-02", col4: "second" },
         { id: `${suffix}-r3`, sourceRowNumber: 6, col1: "ID-3", col2: held ? null : "5", col3: "2024-01-03", col4: "third" },
-      ], { rawOnly: true });
+      ], { rawOnly: true, extraMeasures: wide ? 50 : 0 });
       // Complete the persisted inventory metadata needed by the real listing
       // API; seedWorld's analysis-only fixtures intentionally omit it.
       await prisma.upload.update({ where: { id: ids.uploadId }, data: {
@@ -107,8 +108,8 @@ afterAll(async () => {
       const profiled = await profileUploadDataset({ organisationId: ORG_A, uploadId: ids.uploadId, actorId: ids.userId });
       if (!profiled.ok) throw new Error("browser fixture profiling failed");
       await prisma.user.update({ where: { id: ids.userId }, data: { password_hash: await hash(password, 4) } });
-      await prisma.importBatch.update({ where: { id: ids.batchId }, data: { original_filename: held ? "analysis-held.xlsx" : "analysis-ready.xlsx" } });
-      worlds.push({ ...ids, datasetProfileRunId: profiled.profileRunId, held });
+      await prisma.importBatch.update({ where: { id: ids.batchId }, data: { original_filename: wide ? "analysis-many-measures.xlsx" : held ? "analysis-held.xlsx" : "analysis-ready.xlsx" } });
+      worlds.push({ ...ids, datasetProfileRunId: profiled.profileRunId, held, wide });
     }
     mkdirSync("test-results/datahub-runtime", { recursive: true });
     writeFileSync("test-results/datahub-runtime/fixture.json", JSON.stringify({ worlds, password }));
@@ -141,7 +142,7 @@ interface SeedRow {
   col4: string; // STRING
 }
 
-async function seedWorld(suffix: string, org: string, rows: SeedRow[], opts: { corruptCol2NormalizedValueForRowId?: string; rawOnly?: boolean } = {}) {
+async function seedWorld(suffix: string, org: string, rows: SeedRow[], opts: { corruptCol2NormalizedValueForRowId?: string; rawOnly?: boolean; extraMeasures?: number } = {}) {
   const userId = `user-${suffix}`;
   const wsId = `ws-${suffix}`;
   const svId = `sv-${suffix}`;
@@ -155,6 +156,8 @@ async function seedWorld(suffix: string, org: string, rows: SeedRow[], opts: { c
   const uploadId = `up-${suffix}`;
   const rawRunId = `raw-${suffix}`;
   const normRunId = `norm-${suffix}`;
+  const extraColumnIds = Array.from({ length: opts.extraMeasures ?? 0 }, (_, index) => `extra-${suffix}-${index}`);
+  if (extraColumnIds.length && !opts.rawOnly) throw new Error("wide fixture requires real normalization");
 
   await prisma.$executeRawUnsafe(`INSERT INTO users (id, organisation_id, username, email, name, password_hash, role, updated_at) VALUES ('${userId}','${org}','${userId}','${userId}@x.com','User ${suffix}','x','MANAGER', now()) ON CONFLICT (id) DO NOTHING`);
   await prisma.$executeRawUnsafe(`INSERT INTO source_systems (id, organisation_id, name, updated_at) VALUES ('ss-${suffix}','${org}','SS ${suffix}', now())`);
@@ -169,6 +172,10 @@ async function seedWorld(suffix: string, org: string, rows: SeedRow[], opts: { c
      ('${col4}','${org}','${wsId}',3,'Notes','REQUIRED','UNKNOWN','PERSONALLY_IDENTIFIABLE')`
   );
   await prisma.$executeRawUnsafe(`INSERT INTO worksheet_mapping_profiles (id, organisation_id, source_schema_worksheet_id, name, active, updated_at) VALUES ('${profileId}','${org}','${wsId}','profile-${suffix}', true, now())`);
+  for (const [index, id] of extraColumnIds.entries()) {
+    await prisma.$executeRawUnsafe(`INSERT INTO source_schema_columns (id, organisation_id, source_schema_worksheet_id, ordinal, source_header, presence, declared_type, sensitivity_class)
+      VALUES ('${id}','${org}','${wsId}',${index + 4},'Amount','REQUIRED','UNKNOWN','INTERNAL')`);
+  }
 
   const profileDocument = JSON.stringify({
     documentVersion: 2,
@@ -179,6 +186,7 @@ async function seedWorld(suffix: string, org: string, rows: SeedRow[], opts: { c
       { sourceSchemaColumnId: col2, valueKind: "DECIMAL" },
       { sourceSchemaColumnId: col3, valueKind: "DATE", datePolicy: "ISO_8601" },
       { sourceSchemaColumnId: col4, valueKind: "STRING" },
+      ...extraColumnIds.map(sourceSchemaColumnId => ({ sourceSchemaColumnId, valueKind: "DECIMAL" })),
     ],
   }).replace(/'/g, "''");
   await prisma.$executeRawUnsafe(`INSERT INTO worksheet_mapping_profile_versions (id, organisation_id, worksheet_mapping_profile_id, version_number, disposition, profile_document) VALUES ('${pvId}','${org}','${profileId}',1,'STAGING_DATASET','${profileDocument}')`);
@@ -189,7 +197,7 @@ async function seedWorld(suffix: string, org: string, rows: SeedRow[], opts: { c
   await prisma.$executeRawUnsafe(`INSERT INTO uploads (id, organisation_id, original_name, stored_path, mimetype, size_bytes, import_batch_id, worksheet_index, worksheet_name, lineage_kind, updated_at) VALUES ('${uploadId}','${org}','f.xlsx','p','x',1,'${batchId}',0,'Data','DATA_HUB', now())`);
 
   const rowCount = rows.length;
-  const cellCount = rowCount * 4;
+  const cellCount = rowCount * (4 + extraColumnIds.length);
 
   await prisma.$executeRawUnsafe(
     `INSERT INTO data_hub_raw_staging_runs (id, organisation_id, import_batch_id, upload_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_id, worksheet_mapping_profile_version_id, attempt_number, source_sha256, parser_version, status, execution_token, lease_expires_at, last_progress_at, expected_row_count, expected_cell_count, persisted_row_count, persisted_cell_count, completed_at)
@@ -210,11 +218,15 @@ async function seedWorld(suffix: string, org: string, rows: SeedRow[], opts: { c
        ('${row.id}-c3','${org}','${row.id}','${wsId}','${col3}',2,'Date','${JSON.stringify(row.col3)}','STRING','INTERNAL', NULL),
        ('${row.id}-c4','${org}','${row.id}','${wsId}','${col4}',3,'Notes','${JSON.stringify(row.col4)}','STRING','PERSONALLY_IDENTIFIABLE', NULL)`
     );
+    for (const [index, id] of extraColumnIds.entries()) {
+      await prisma.$executeRawUnsafe(`INSERT INTO data_hub_raw_cells (id, organisation_id, raw_row_id, source_schema_worksheet_id, source_schema_column_id, column_ordinal, source_header, raw_value, raw_value_type, sensitivity_class, original_unit)
+        VALUES ('${row.id}-extra-${index}','${org}','${row.id}','${wsId}','${id}',${index + 4},'Amount','${JSON.stringify(row.col2)}','${row.col2 === null ? "NULL" : "STRING"}','INTERNAL',NULL)`);
+    }
   }
 
   // In lifecycle proof, normalization must be performed by the real executor.
   // normRunId is only a reserved fixture name here; read Upload's real pointer.
-  if (opts.rawOnly) return { userId, wsId, svId, col1, col2, col3, col4, profileId, pvId, batchId, uploadId, rawRunId, normRunId };
+  if (opts.rawOnly) return { userId, wsId, svId, col1, col2, col3, col4, profileId, pvId, batchId, uploadId, rawRunId, normRunId, extraColumnIds };
 
   // Real transform via the pure B2A transformRow -- never hand-computed,
   // so I/J's exact-value-preservation proofs are grounded in the REAL
@@ -264,7 +276,7 @@ async function seedWorld(suffix: string, org: string, rows: SeedRow[], opts: { c
 
   await prisma.$executeRawUnsafe(`UPDATE uploads SET normalized_at=now(), normalized_by='${userId}', normalized_profile_version_id='${pvId}', normalized_row_count=${rowCount}, normalized_cell_count=${cellCount}, normalization_run_id='${normRunId}' WHERE id='${uploadId}'`);
 
-  return { userId, wsId, svId, col1, col2, col3, col4, profileId, pvId, batchId, uploadId, rawRunId, normRunId };
+  return { userId, wsId, svId, col1, col2, col3, col4, profileId, pvId, batchId, uploadId, rawRunId, normRunId, extraColumnIds };
 }
 
 async function normalizeRawFixture(ids: { userId: string; uploadId: string }) {
@@ -893,11 +905,13 @@ describe("D4D5Z authenticated review/count routes with real Postgres", () => {
     const planning = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/plan/route");
     const count = await import("@/app/api/data-hub/worksheets/[id]/analysis-count/route");
     const requests = await import("@/app/api/data-hub/worksheets/[id]/analysis-planning/route");
+    const pagedGet = (pin: string, revision = 1, offset = 0) => new Request("http://localhost?" + new URLSearchParams({ pageVersion: "v1", datasetProfileRunId: pin,
+      expectedReviewRevision: String(revision), pageSize: "50", offset: String(offset) }));
     const context = { params: Promise.resolve({ id: f.ids.uploadId }) };
     const choices = [{ sourceSchemaColumnId: f.ids.col1, role: "IDENTIFIER" }, { sourceSchemaColumnId: f.ids.col2, role: "MEASURE" }];
     const body = { reviewVersion: "v1", datasetProfileRunId: f.context.datasetProfileRunId, semanticChoices: choices, qualityDecisions: [] as unknown[] };
     const post = (value: unknown) => new Request("http://localhost/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) });
-    return { f, token, review, planning, count, requests, context, body, post };
+    return { f, token, review, planning, count, requests, context, body, post, pagedGet };
   }
   it("plans, saves, reloads and counts through signed manager sessions", async () => {
     const w = await routeWorld();
@@ -932,6 +946,9 @@ describe("D4D5Z authenticated review/count routes with real Postgres", () => {
     expect(catalog.status).toBe(200);
     expect(catalog.headers.get("Cache-Control")).toBe("private, no-store");
     expect(await catalog.json()).toMatchObject({ ok: true, catalog: { reviewRevision: 1, context: w.f.context } });
+    const page = await w.requests.GET(w.pagedGet(w.f.context.datasetProfileRunId), w.context);
+    expect(page.status).toBe(200); expect(page.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(await page.json()).toMatchObject({ ok: true, page: { reviewRevision: 1, context: w.f.context, totalMeasures: 1, offset: 0, nextOffset: null } });
     const selection = { datasetProfileRunId: w.f.context.datasetProfileRunId,
       selection: { selectionVersion: "v1", expectedReviewRevision: 1, includeRowCount: true, measureColumnIds: [w.f.ids.col2] } };
     const selected = await w.requests.POST(w.post(selection), w.context);
@@ -951,6 +968,9 @@ describe("D4D5Z authenticated review/count routes with real Postgres", () => {
     // A real append between discovery and selection invalidates the old pin.
     const updated = await w.review.POST(w.post(w.body), w.context);
     expect(updated.status).toBe(201); expect(await updated.json()).toEqual({ ok: true, revision: 2 });
+    expect((await w.requests.GET(w.pagedGet(w.f.context.datasetProfileRunId), w.context)).status).toBe(409);
+    expect((await w.requests.GET(w.pagedGet("old-profile", 2), w.context)).status).toBe(409);
+    expect((await w.requests.GET(w.pagedGet(w.f.context.datasetProfileRunId, 2, 50), w.context)).status).toBe(400);
     const oldSelection = await w.requests.POST(w.post(selection), w.context);
     expect(oldSelection.status).toBe(409); expect(await oldSelection.json()).toEqual({ ok: false, code: "REVIEW_REVISION_MISMATCH" });
     const refreshed = await w.requests.POST(w.post({ ...selection, selection: { ...selection.selection, expectedReviewRevision: 2 } }), w.context);
@@ -967,6 +987,7 @@ describe("D4D5Z authenticated review/count routes with real Postgres", () => {
     if (kind === "moved") await prisma.user.update({ where: { id: w.f.ids.userId }, data: { organisation_id: ORG_B } });
     for (const result of [await w.planning.GET(new Request("http://localhost/test"), w.context),
       await w.requests.GET(new Request("http://localhost/test"), w.context), await w.requests.POST(w.post({}), w.context),
+      await w.requests.GET(w.pagedGet(w.f.context.datasetProfileRunId), w.context),
       await w.review.POST(w.post(w.body), w.context), await w.count.POST(w.post({ requestVersion: "v1", kind: "ROW_COUNT" }), w.context)]) {
       expect(result.status).toBe(kind === "demoted" ? 403 : 401);
       expect(result.headers.get("Cache-Control")).toBe("private, no-store");
@@ -981,6 +1002,7 @@ describe("D4D5Z authenticated review/count routes with real Postgres", () => {
     routeSessionToken = await encrypt({ userId: foreign.ids.userId, organisationId: ORG_B, role: "manager", name: "Other manager", expiresAt: new Date(Date.now() + 60_000).toISOString() });
     expect((await w.planning.GET(new Request("http://localhost/test"), w.context)).status).toBe(404);
     expect((await w.requests.GET(new Request("http://localhost/test"), w.context)).status).toBe(404);
+    expect((await w.requests.GET(w.pagedGet(w.f.context.datasetProfileRunId), w.context)).status).toBe(404);
     expect((await w.requests.POST(w.post({ datasetProfileRunId: w.f.context.datasetProfileRunId, selection: { selectionVersion: "v1", expectedReviewRevision: 1, includeRowCount: true, measureColumnIds: [] } }), w.context)).status).toBe(404);
     expect((await w.review.POST(w.post(w.body), w.context)).status).toBe(404);
     expect((await w.count.POST(w.post({ requestVersion: "v1", kind: "ROW_COUNT" }), w.context)).status).toBe(404);

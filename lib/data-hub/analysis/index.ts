@@ -12,6 +12,7 @@ export * from "./reviewedProfileCountCatalog";
 export * from "./profileCountSelection";
 export * from "./planningExchange";
 export * from "./planningSelectionRequest";
+export * from "./planningCatalogPage";
 export * from "./fieldCatalogValidation";
 export * from "./profileCounts";
 export * from "./scopedProfileCounts";

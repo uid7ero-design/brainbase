@@ -70,12 +70,13 @@ Generated output stays in ignored `test-results/datahub-runtime`:
 | `counts-mobile.png` | Existing count screen |
 | `planning-mobile.png` | Governed planning screen |
 | `planning-timeout-mobile.png` | Explicit timeout recovery |
+| `planning-paging-mobile.png` | Cross-page selection and bounded measure choices |
 
 Each invocation replaces the latest receipt with `running`, then `passed` or
 `failed`. A failed run cannot leave an old passing receipt looking current.
 Failure records contain fixed stage/code metadata, not captured exception text
 or credentials. A just-generated login fixture is removed on failure; an
-earlier pending fixture is preserved. Successful receipts bind the five evidence
+earlier pending fixture is preserved. Successful receipts bind the six evidence
 artifacts by hash and deliberately project away diagnostics and actor data.
 
 A passed receipt means this command's build and owned harness succeeded. It

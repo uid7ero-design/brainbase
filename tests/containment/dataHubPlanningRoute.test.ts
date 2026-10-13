@@ -1,14 +1,33 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { planningFixture } from "../helpers/dataHubPlanningFixture";
-const seams = vi.hoisted(() => ({ auth: vi.fn(), catalog: vi.fn(), plan: vi.fn() }));
+const seams = vi.hoisted(() => ({ auth: vi.fn(), catalog: vi.fn(), page: vi.fn(), plan: vi.fn() }));
 vi.mock("@/lib/org", () => ({ requireRole: seams.auth }));
-vi.mock("@/lib/data-hub/analysisExecution/uploadPlanning", () => ({ loadUploadPlanningCatalog: seams.catalog, planUploadSelection: seams.plan }));
+vi.mock("@/lib/data-hub/analysisExecution/uploadPlanning", () => ({ loadUploadPlanningCatalog: seams.catalog, loadUploadPlanningPage: seams.page, planUploadSelection: seams.plan }));
 import { GET, POST } from "@/app/api/data-hub/worksheets/[id]/analysis-planning/route";
 const context = { params: Promise.resolve({ id: "upload" }) };
 const post = (body = JSON.stringify(planningFixture().body), contentType = "application/json") =>
   new Request("http://localhost?organisationId=other", { method: "POST", headers: { "Content-Type": contentType }, body });
 beforeEach(() => { vi.resetAllMocks(); seams.auth.mockResolvedValue({ organisationId: "org", userId: "actor" }); });
 describe("authenticated planning route", () => {
+  it("serves the closed pinned page query using session scope and no-store", async () => {
+    const f = planningFixture(); seams.page.mockResolvedValue(f.page());
+    const response = await GET(new Request("http://localhost?" + new URLSearchParams({ pageVersion: "v1", datasetProfileRunId: "profile", expectedReviewRevision: "3", pageSize: "50", offset: "0" })), context);
+    expect(response.status).toBe(200); expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(seams.page).toHaveBeenCalledWith({ organisationId: "org", uploadId: "upload" },
+      { pageVersion: "v1", datasetProfileRunId: "profile", expectedReviewRevision: 3, pageSize: 50, offset: 0 });
+    expect(seams.catalog).not.toHaveBeenCalled();
+  });
+  it.each(["pageVersion=v1", "pageVersion=v1&offset=0&offset=0", "pageVersion=v1&organisationId=other"])
+    ("rejects malformed/injected pages before reading metadata %#", async query => {
+      const response = await GET(new Request("http://localhost?" + query), context);
+      expect(response.status).toBe(400); expect(await response.json()).toEqual({ ok: false, code: "PLANNING_PAGE_INVALID" });
+      expect(seams.page).not.toHaveBeenCalled(); expect(seams.catalog).not.toHaveBeenCalled();
+    });
+  it("requires manager authorization before page input admission", async () => {
+    seams.auth.mockRejectedValue(new Error("Forbidden"));
+    expect((await GET(new Request("http://localhost?pageVersion=v1"), context)).status).toBe(403);
+    expect(seams.page).not.toHaveBeenCalled();
+  });
   it("uses only session/path scope and no-store responses for both methods", async () => {
     const f = planningFixture(); seams.catalog.mockResolvedValue(f.catalog()); seams.plan.mockResolvedValue(f.planned());
     const responses = [await GET(new Request("http://localhost?organisationId=other"), context), await POST(post(), context)];
