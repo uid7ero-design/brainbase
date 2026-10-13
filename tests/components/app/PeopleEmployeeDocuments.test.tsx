@@ -614,7 +614,8 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Start task' }));
 
-    expect(await screen.findByText('Could not update lifecycle task.')).toBeTruthy();
+    expect(await screen.findByText(/Task outcome is unknown/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Start task' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('Complete induction · NOT_STARTED')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Start task' })).toBeTruthy();
     expect(document.body.textContent).not.toContain('sensitive lifecycle mutation detail');
@@ -883,7 +884,9 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'View tasks' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
 
-    expect(await screen.findByText('Could not record lifecycle task approval.')).toBeTruthy();
+    expect(await screen.findByText(/Approval outcome is unknown/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Approve' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Reject' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('Manager sign-off · AWAITING_APPROVAL')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Approve' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Reject' })).toBeTruthy();
@@ -1137,7 +1140,8 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel workflow' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirm cancel' }));
 
-    expect(await screen.findByText('Could not cancel lifecycle workflow.')).toBeTruthy();
+    expect(await screen.findByText(/Workflow cancellation outcome is unknown/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Confirm cancel' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('Onboarding · ACTIVE')).toBeTruthy();
     expect(document.body.textContent).not.toContain('sensitive cancellation database detail');
   });
@@ -1497,7 +1501,8 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     fireEvent.change(screen.getByLabelText('File'), { target: { files: [file] } });
     fireEvent.click(screen.getByRole('button', { name: 'Upload document' }));
 
-    expect(await screen.findByText('Could not upload document.')).toBeTruthy();
+    expect(await screen.findByText(/Upload outcome is unknown/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Upload document' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByLabelText('Document type')).toBeTruthy();
     expect(document.body.textContent).not.toContain('sensitive upload detail');
   });
@@ -1658,7 +1663,8 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Upload version' }));
 
-    expect(await screen.findByText('Could not upload document version.')).toBeTruthy();
+    expect(await screen.findByText(/Version upload outcome is unknown/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Upload version' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByLabelText('New version file')).toBeTruthy();
     expect(screen.getByText('policy · Version 2')).toBeTruthy();
     expect(document.body.textContent).not.toContain('sensitive version upload detail');
@@ -1946,7 +1952,8 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
 
-    expect(await screen.findByText('Could not delete document.')).toBeTruthy();
+    expect(await screen.findByText(/Deletion outcome is unknown/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Confirm delete' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('Safety policy')).toBeTruthy();
     expect(screen.getByText('Delete this document?')).toBeTruthy();
     expect(document.body.textContent).not.toContain('sensitive delete detail');
@@ -2022,7 +2029,8 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Acknowledge' }));
 
-    expect(await screen.findByText('Could not acknowledge document.')).toBeTruthy();
+    expect(await screen.findByText(/Assurance outcome is unknown/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Acknowledge' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('Safety policy')).toBeTruthy();
     expect(screen.getByText('Not acknowledged')).toBeTruthy();
     expect(document.body.textContent).not.toContain('sensitive mutation detail');
@@ -2185,7 +2193,8 @@ describe('HR-7E6C/6D PersonDrawer employee documents', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Verify' }));
 
-    expect(await screen.findByText('Could not record verification.')).toBeTruthy();
+    expect(await screen.findByText(/Assurance outcome is unknown/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Verify' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('Not verified')).toBeTruthy();
     expect(document.body.textContent).not.toContain('sensitive verification detail');
   });

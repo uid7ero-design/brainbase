@@ -168,7 +168,9 @@ beforeEach(async () => {
   await q(`UPDATE hr_lifecycle_tasks SET status='IN_PROGRESS', completed_by=NULL, completed_at=NULL, waived_by=NULL, waived_at=NULL, waiver_reason=NULL WHERE organisation_id=$1 AND id=$2`, [ORG_ID, WAIVE_TASK]);
   await q(`UPDATE hr_lifecycle_tasks SET status='AWAITING_APPROVAL', completed_by=NULL, completed_at=NULL, waived_by=NULL, waived_at=NULL, waiver_reason=NULL WHERE organisation_id=$1 AND id=$2`, [ORG_ID, APPROVAL_TASK]);
   await q(`DELETE FROM hr_lifecycle_task_approvals WHERE organisation_id=$1 AND workflow_id=$2`, [ORG_ID, WORKFLOW_ID]);
-  await q(`DELETE FROM audit_logs WHERE organisation_id=$1 AND resource_id IN ($2,$3,$4,$5)`, [ORG_ID, START_TASK, WAIVE_TASK, APPROVAL_TASK, WORKFLOW_ID]);
+  // Approval audit resources are newly generated approval IDs, not task IDs.
+  // Clear this suite's isolated organisation so earlier decisions cannot leak into counts.
+  await q(`DELETE FROM audit_logs WHERE organisation_id=$1`, [ORG_ID]);
 });
 
 afterAll(async () => {
@@ -176,6 +178,44 @@ afterAll(async () => {
 });
 
 describe('HR-7C task actions and approvals against real Postgres', () => {
+  it.each([
+    ['start', 'hr_lifecycle_task.started', 'started'],
+    ['waive', 'hr_lifecycle_task.waived', 'waived'],
+    ['complete', 'hr_lifecycle_task.completed', 'completed'],
+    ['approve', 'hr_lifecycle_task_approval.recorded', 'recorded'],
+    ['reject', 'hr_lifecycle_task_approval.recorded', 'recorded'],
+    ['final approval', 'hr_lifecycle_workflow.completed', 'recorded'],
+  ])('rolls back %s when its audit insert fails and recovers afterward', async (operation, auditAction, outcome) => {
+    if (operation === 'final approval') {
+      await q(`UPDATE hr_lifecycle_tasks SET status='COMPLETED', completed_by=$1, completed_at=now()
+        WHERE organisation_id=$2 AND id IN ($3,$4)`, [EMPLOYEE_USER, ORG_ID, START_TASK, WAIVE_TASK]);
+    }
+    const snapshot = async () => ({
+      workflows: await q('SELECT * FROM hr_lifecycle_workflows WHERE organisation_id=$1 ORDER BY id', [ORG_ID]),
+      tasks: await q('SELECT * FROM hr_lifecycle_tasks WHERE organisation_id=$1 ORDER BY id', [ORG_ID]),
+      approvals: await q('SELECT * FROM hr_lifecycle_task_approvals WHERE organisation_id=$1 ORDER BY id', [ORG_ID]),
+      audits: await q('SELECT * FROM audit_logs WHERE organisation_id=$1 ORDER BY id', [ORG_ID]),
+    });
+    const perform = () => {
+      if (operation === 'start') return startLifecycleTask({ actor: employeeActor, taskId: START_TASK });
+      if (operation === 'waive') return waiveLifecycleTask({ actor: hrActor, taskId: WAIVE_TASK, reason: 'Synthetic reason' });
+      if (operation === 'complete') return completeLifecycleTask({ actor: employeeActor, taskId: WAIVE_TASK });
+      return recordLifecycleTaskApproval({ actor: managerActor, taskId: APPROVAL_TASK,
+        decision: operation === 'reject' ? 'REJECTED' : 'APPROVED', comment: 'Synthetic decision' });
+    };
+    const before = await snapshot();
+    // auditAction comes only from the fixed cases above; no application input is interpolated.
+    await q(`ALTER TABLE audit_logs ADD CONSTRAINT hr_task_proof_reject_audit
+      CHECK (action <> '${auditAction}') NOT VALID`);
+    try {
+      await expect(perform()).rejects.toMatchObject({ code: '23514', constraint: 'hr_task_proof_reject_audit' });
+      expect(await snapshot()).toEqual(before);
+    } finally {
+      await q('ALTER TABLE audit_logs DROP CONSTRAINT hr_task_proof_reject_audit');
+    }
+    expect((await perform()).outcome).toBe(outcome);
+  });
+
   it('starts a task once with one audit row', async () => {
     await expect(startLifecycleTask({ actor: employeeActor, taskId: START_TASK })).resolves.toEqual({
       outcome: 'started',
