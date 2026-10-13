@@ -604,3 +604,57 @@ describe('restricted case real route access and history', () => {
     expect((await q('SELECT count(*)::int AS count FROM hr_restricted_case_access WHERE case_id=$1 AND revoked_at IS NOT NULL', [caseId]))[0].count).toBe(1);
   });
 });
+
+describe('restricted detail browser to actual route', () => {
+  it('removes sensitive rendered case content when its live grant is revoked', async () => {
+    await q(readFileSync('scripts/add-hr-people-tenant-unique.sql', 'utf8'));
+    await q(readFileSync('scripts/create-hr-restricted-cases.sql', 'utf8'));
+    const caseId = '98888888-8888-4888-8888-888888888888';
+    await q("INSERT INTO hr_restricted_cases(id,organisation_id,case_type,title,opened_by) VALUES($1,$2,'other','Browser synthetic restricted case',$3)", [caseId, org, hr.userId]);
+    await q('INSERT INTO hr_restricted_case_access(organisation_id,case_id,user_id,granted_by) VALUES($1,$2,$3,$4)', [org, caseId, employee.userId, hr.userId]);
+    routeUser = employee.userId;
+    const detail = await import('@/app/api/hr/restricted-cases/[id]/route');
+    const built = await build({ configFile: false, logLevel: 'error', resolve: { alias: { '@': process.cwd() } },
+      define: { 'process.env.NODE_ENV': JSON.stringify('production'), 'process.env': '{}' }, oxc: { jsx: { runtime: 'automatic', development: false } },
+      plugins: [{ name: 'restricted-browser-proof', resolveId(id) {
+        if (id === 'restricted-entry' || id.replaceAll('\\', '/').endsWith('/restricted-entry')) return '\0restricted-entry';
+        if (id === 'next/link') return '\0restricted-link';
+      }, load(id) {
+        if (id === '\0restricted-link') return "import {createElement} from 'react'; export default function Link(props){return createElement('a',props)}";
+        if (id === '\0restricted-entry') return `import {createElement,Suspense} from 'react'; import {createRoot} from 'react-dom/client'; import Page from ${JSON.stringify(path.resolve('app/people/restricted-cases/[id]/page.tsx').replaceAll('\\', '/'))}; createRoot(document.getElementById('root')).render(createElement(Suspense,{fallback:'Loading'},createElement(Page,{params:Promise.resolve({id:${JSON.stringify(caseId)}})})));`;
+      } }], build: { write: false, lib: { entry: 'restricted-entry', name: 'RestrictedProof', formats: ['iife'] } } });
+    const output = Array.isArray(built) ? built[0] : built;
+    if (!('output' in output)) throw new Error('Expected browser output');
+    let actualReads = 0;
+    const server = createServer(async (req, res) => {
+      try {
+        const url = new URL(req.url!, 'http://fixture.local');
+        if (url.pathname === '/') { res.setHeader('Content-Type', 'text/html'); res.end('<div id="root"></div>'); return; }
+        res.setHeader('Content-Type', 'application/json');
+        if (url.pathname === `/api/hr/restricted-cases/${caseId}`) {
+          actualReads++;
+          const response = await detail.GET(new NextRequest(url), { params: Promise.resolve({ id: caseId }) });
+          res.statusCode = response.status; res.end(await response.text()); return;
+        }
+        if (url.pathname.endsWith('/administrators')) { res.statusCode=403; res.end('{}'); return; }
+        const body = url.pathname.endsWith('/participants') ? { participants: [] }
+          : url.pathname.endsWith('/notes') ? { notes: [] } : url.pathname.endsWith('/documents') ? { documents: [] } : { people: [] };
+        res.end(JSON.stringify(body));
+      } catch { res.statusCode=500; res.end('{}'); }
+    });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('Missing loopback address');
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage(); const errors: string[] = [];
+      page.on('pageerror', error => errors.push(error.message));
+      await page.goto(`http://127.0.0.1:${address.port}/`); await page.addScriptTag({ content: output.output[0].code });
+      await browserExpect(page.getByRole('heading', { name: 'Browser synthetic restricted case' })).toBeVisible();
+      await q('UPDATE hr_restricted_case_access SET revoked_at=now(),revoked_by=$1 WHERE case_id=$2', [hr.userId, caseId]);
+      await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+      await browserExpect(page.getByText('Could not load restricted HR case. Refresh to try again.')).toBeVisible();
+      await browserExpect(page.getByRole('heading', { name: 'Browser synthetic restricted case' })).toHaveCount(0);
+      expect(actualReads).toBe(2); expect(errors).toEqual([]);
+    } finally { await browser.close(); await new Promise<void>((resolve,reject) => server.close(error => error ? reject(error) : resolve())); }
+  });
+});
