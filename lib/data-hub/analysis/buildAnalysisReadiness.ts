@@ -82,6 +82,10 @@ export function buildAnalysisReadiness(
   if (!lineageMatches(schema, quality)) {
     return { ok: false, code: "SCHEMA_QUALITY_LINEAGE_MISMATCH" };
   }
+  if (quality.state !== "READY" && quality.state !== "READY_WITH_ACKNOWLEDGED_NOTICES" &&
+      quality.state !== "HOLD_FOR_REMEDIATION") {
+    return { ok: false, code: "QUALITY_STATE_INVALID" };
+  }
 
   return {
     ok: true,
