@@ -13,6 +13,7 @@ afterAll(() => {
   else delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
 });
 const fetcher = async (url: string, options?: RequestInit) => {
+  if (url.includes('/entry-history')) { const query=new URL(url,'http://localhost').searchParams; return Response.json({report:{scope:{source:query.get('source')??'',account:query.get('account')??'',currency:query.get('currency')??'',from:query.get('from')??'',to:query.get('to')??''},page:Number(query.get('page')??1),pageSize:25,totalCount:0,entries:[],totals:[]}}); }
   const kind = url.includes('/cost-centre-mappings') ? 'centre' : 'account';
   if (options?.method === 'POST') {
     posts++;

@@ -980,6 +980,67 @@ fixtures now satisfy the database minimum so the cases exercise money validation
 again. Its receipt remains in `ledger-import-commercial-final.log`; the complete
 rerun passed. No schema, production data, push or deployment action was performed.
 
+## Saved ledger history, scope and page exports
+
+External GL now includes administrator ledger history, refreshed after a
+confirmed import or identity recovery. History filters are independent of the
+mapping filters: exact source and account code, currency and inclusive transaction
+date boundaries. Browser dates use DD/MM/YYYY and convert to validated ISO
+calendar values before the read. Invalid dates, reversed ranges and unbounded
+filter/page inputs are rejected without a database query.
+
+The history endpoint applies the session tenant and administrator/budgeting
+authorization. One SQL statement provides a stable page, matching count and
+currency-grouped totals from the same filtered statement snapshot. Pagination
+uses 25 rows and deterministic transaction-date/import-time/ID ordering. Signed
+SUM results are text, retaining precision even above a single BIGINT's range.
+These totals sum matching imported entry amounts; they confer no reconciliation,
+posting, settlement or Budget Actual status. No schema change is needed.
+
+The client validates all saved fields, requested scope, page size/count,
+currency totals and each row's filter membership. A superseded response cannot
+replace a newer request. Loading, failed, incomplete or wrong-scope reads hide
+details and disable export until a fresh complete read succeeds. Empty results
+are distinct from unavailable results. An empty page beyond the latest matching
+count offers a return to page one.
+
+Evidence details retain saved identity, hash, lineage, journal, external cost
+centre, period reference and description. The CSV export contains only the
+confirmed displayed page, explicitly labelled in both the screen and filename;
+the aggregate cards cover all matching rows across pages. Changed filter fields
+disable export until applied. CSV uses exact integer strings and ISO dates and
+protects spreadsheet text from formula prefixes, including leading whitespace.
+Negative cent strings follow the existing serializer's text-protection convention.
+
+Focused checks cover filter/date boundaries, tenant authorization, a one-statement
+query, snapshot incompleteness, page sizes, separate currencies, exact large sums,
+CSV lineage/text protection, applied scope, details, recovery and superseded reads.
+Disposable browser acceptance imports 27 synthetic facts through the existing
+API, reviews 25/2 pagination and currency totals, checks inclusive dates and page
+CSV, interrupts history reads, verifies GET-only recovery without finance events,
+and checks mobile scrolling plus viewer/tenant/entitlement boundaries.
+
+Final validation passed 2,740 Commercial checks across 167 files, standalone
+TypeScript, targeted lint, the final production build and complete disposable
+browser/database runtime. This bundle adds 43 checks. Final receipts use the
+`ledger-history` artifact prefix under `brainbase-finance-review`:
+`ledger-history-commercial-complete.log`, `ledger-history-types-verified.log`,
+`ledger-history-lint-verified.log`, `ledger-history-build-final.log` and
+`ledger-history-runtime-final.log`. Reviewed desktop/mobile captures, the exact
+page-two CSV and structured evidence are in `ledger-history-adelaide-final`.
+The mobile document remains 390 pixels wide and the final evidence column is
+reachable by scrolling its table rather than overflowing the document.
+
+The first complete runtime passed; a subsequent refinement ensures Apply and
+Clear invalidate the prior read even when filter values are unchanged. The final
+runtime holds that read in flight and confirms export remains unavailable until
+the fresh response is verified. It records three recovery/refresh GET requests
+and no added finance events. An intermediate full suite caught an existing
+source-loss focus assertion checking before the passive focus effect completed.
+The assertion now waits for the same focus result; its original failure remains
+in `ledger-history-commercial-final.log`. The complete rerun passed. No schema,
+production-data, push or deployment action was performed.
+
 ## Repeatable runtime evidence
 
 Run `npx tsc --noEmit` separately before release verification. This checks the

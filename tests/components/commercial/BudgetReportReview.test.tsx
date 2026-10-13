@@ -32,7 +32,7 @@ describe('Budget report source and review recovery', () => {
     await loseSource();
     expect(screen.getByLabelText('Finance source')).toHaveValue('XERO');
     expect(screen.getByRole('option', { name: 'XERO (unavailable)' })).toBeDisabled();
-    expect(screen.getByLabelText('Finance source')).toHaveFocus();
+    await waitFor(() => expect(screen.getByLabelText('Finance source')).toHaveFocus());
     expect(screen.queryByRole('region', { name: 'Finance-adjusted report' })).not.toBeInTheDocument();
     expect(document.querySelectorAll('a[data-export-view]')).toHaveLength(0);
     expect([reportReads(), queueReads()]).toEqual(reads);

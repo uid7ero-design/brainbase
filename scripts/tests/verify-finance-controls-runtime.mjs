@@ -171,7 +171,53 @@ try {
   if(ledgerUiMethods.filter(method=>method==='POST').length!==1||ledgerUiMethods.filter(method=>method==='GET').length!==2)throw new Error('Ledger recovery resent a committed import');
   const uiStored=(await pool.query("SELECT amount_minor_units::text,transaction_date::text,imported_by FROM commercial_external_gl_entries WHERE organisation_id='runtime-a' AND source_system_id='ui-import-review' ORDER BY external_entry_id")).rows;
   if(uiStored.length!==2||uiStored.some(row=>row.amount_minor_units!=='-9007199254740993'||row.transaction_date!=='2026-09-10'||row.imported_by!=='runtime-admin'))throw new Error('Ledger UI lost immutable signed evidence or actor');
+  await page.evaluate(()=>window.scrollTo(0,0));
   await page.screenshot({path:resolve(artifacts,'ledger-import-saved-desktop.png'),fullPage:true});
+  // Ledger history uses one saved filter scope for page, count and currency totals.
+  for(let index=0;index<24;index++){
+    const result=await importEntry({...importPayload,sourceSystemId:'ui-import-review',externalEntryId:`history-${index}`,transactionDate:'2026-09-11',amountMinorUnits:'1'});
+    if(result.status!==201)throw new Error('Ledger history fixture import failed');
+  }
+  if((await importEntry({...importPayload,sourceSystemId:'ui-import-review',externalEntryId:'history-usd',transactionDate:'2026-09-12',currency:'USD',amountMinorUnits:'250'})).status!==201)throw new Error('Ledger history currency fixture failed');
+  const historyPanel=page.getByRole('region',{name:'Ledger entry history',exact:true});
+  await historyPanel.getByLabel('History ledger source',{exact:true}).fill('ui-import-review');
+  await historyPanel.getByRole('button',{name:'Apply history filters',exact:true}).click();
+  await expect(historyPanel).toContainText('25 displayed of 27 matching entries');
+  const historyTotals=historyPanel.getByRole('region',{name:'Matching ledger totals',exact:true});
+  await expect(historyTotals).toContainText('AUD -$180,143,985,094,819.62');await expect(historyTotals).toContainText('26 matching entries');await expect(historyTotals).toContainText('USD USD 2.50');
+  await historyPanel.getByRole('button',{name:'Next ledger page',exact:true}).click();await expect(historyPanel).toContainText('2 displayed of 27 matching entries');
+  await expect(historyTotals).toContainText('AUD -$180,143,985,094,819.62');
+  const pageCsv=await historyPanel.getByRole('link',{name:'Export displayed page CSV',exact:true}).getAttribute('href');
+  const pageCsvRows=parse(decodeURIComponent(pageCsv.slice(pageCsv.indexOf(',')+1)),{columns:true,bom:true});
+  if(pageCsvRows.length!==2||pageCsvRows.some(row=>row.Page!=='2'||row.Source!=='ui-import-review'||row['Amount cents'].replace(/^'/,'')!=='-9007199254740993'))throw new Error('Ledger page export lost scope, pagination or exact cents');
+  writeFileSync(resolve(artifacts,'ledger-history-page-2.csv'),decodeURIComponent(pageCsv.slice(pageCsv.indexOf(',')+1)));
+  await historyPanel.getByRole('button',{name:'View evidence ui-entry-1',exact:true}).click();await expect(historyPanel.getByRole('region',{name:'Ledger source evidence',exact:true})).toContainText('ui-import-batch');
+  await historyPanel.getByLabel('History currency',{exact:true}).fill('AUD');await historyPanel.getByLabel('Transaction date from',{exact:true}).fill('10/09/2026');await historyPanel.getByLabel('Transaction date to',{exact:true}).fill('10/09/2026');
+  await expect(historyPanel.getByRole('link',{name:'Export displayed page CSV',exact:true})).toHaveCount(0);
+  await historyPanel.getByRole('button',{name:'Apply history filters',exact:true}).click();await expect(historyPanel).toContainText('2 displayed of 2 matching entries');
+  await expect(historyTotals).toContainText('AUD -$180,143,985,094,819.86');
+  await page.setViewportSize({width:390,height:844});
+  const ledgerHistoryWidth=await page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth}));
+  if(ledgerHistoryWidth.width!==ledgerHistoryWidth.scrollWidth)throw new Error('Ledger history overflows mobile viewport');
+  const historyTable=historyPanel.getByRole('region',{name:'Saved ledger history table',exact:true});
+  await historyTable.focus();await historyTable.evaluate(element=>{element.scrollLeft=element.scrollWidth;});
+  const historyScroll=await historyTable.evaluate(element=>({left:element.scrollLeft,width:element.clientWidth,scrollWidth:element.scrollWidth}));
+  if(historyScroll.left===0||Math.abs(historyScroll.left+historyScroll.width-historyScroll.scrollWidth)>2)throw new Error('Ledger evidence action inaccessible on mobile');
+  await historyPanel.getByRole('button',{name:'View evidence ui-entry-1',exact:true}).click();await page.evaluate(()=>window.scrollTo(0,0));
+  await page.screenshot({path:resolve(artifacts,'ledger-history-mobile.png'),fullPage:true});await page.setViewportSize({width:1440,height:1000});
+  const historyEventCount=(await pool.query('SELECT count(*)::int AS count FROM commercial_finance_reconciliation_events')).rows[0].count;
+  const historyMethods=[];let historyBroken=true;let holdHistoryRead=false;let releaseHistoryRead;
+  const historyPattern='**/api/commercial/budgeting/external-gl/entry-history*';
+  await page.route(historyPattern,async route=>{historyMethods.push(route.request().method());const response=await route.fetch();const payload=await response.json();if(holdHistoryRead)await new Promise(done=>{releaseHistoryRead=done;});if(historyBroken)payload.report.totals=null;await route.fulfill({response,json:payload});});
+  await historyPanel.getByRole('button',{name:'Reload ledger history',exact:true}).click();await expect(historyPanel.getByRole('alert')).toContainText('incomplete or belongs to a different filter scope');
+  await expect(historyPanel.getByRole('link',{name:'Export displayed page CSV',exact:true})).toHaveCount(0);await expect(historyPanel.getByRole('region',{name:'Ledger source evidence',exact:true})).toHaveCount(0);
+  historyBroken=false;await historyPanel.getByRole('button',{name:'Reload ledger history',exact:true}).click();await expect(historyPanel).toContainText('2 displayed of 2 matching entries');
+  holdHistoryRead=true;await historyPanel.getByRole('button',{name:'Apply history filters',exact:true}).click();
+  await expect(historyPanel.getByRole('status')).toContainText('Loading saved ledger history');await expect(historyPanel.getByRole('link',{name:'Export displayed page CSV',exact:true})).toHaveCount(0);
+  for(let attempt=0;attempt<100&&!releaseHistoryRead;attempt++)await pause(10);if(!releaseHistoryRead)throw new Error('Same-filter refresh did not reach read gate');
+  releaseHistoryRead();await expect(historyPanel).toContainText('2 displayed of 2 matching entries');await page.unroute(historyPattern);
+  if(historyMethods.some(method=>method!=='GET')||(await pool.query('SELECT count(*)::int AS count FROM commercial_finance_reconciliation_events')).rows[0].count!==historyEventCount)throw new Error('Ledger history recovery mutated finance state');
+  await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:resolve(artifacts,'ledger-history-desktop.png'),fullPage:true});
   // Hold both requests inside the database before insertion. This forces the
   // overlapping-import race without depending on network timing.
   await pool.query(`CREATE FUNCTION runtime_import_gate() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(81054177); RETURN NEW; END $$;
@@ -657,7 +703,10 @@ try {
   const importDenial=await viewer.page.evaluate(async body=>(await fetch('/api/commercial/budgeting/external-gl/entries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).status,importPayload);
   if(importDenial!==403)throw new Error('Viewer ledger import accepted');
   if(await viewer.page.evaluate(async()=> (await fetch('/api/commercial/budgeting/external-gl/entries?sourceSystemId=ui-import-review&externalEntryId=ui-entry-1')).status)!==403)throw new Error('Viewer ledger identity lookup accepted');
+  if(await viewer.page.evaluate(async()=> (await fetch('/api/commercial/budgeting/external-gl/entry-history')).status)!==403)throw new Error('Viewer ledger history accepted');
   const other=await login('runtime-other');
+  const foreignHistory=await other.page.evaluate(async()=>{const response=await fetch('/api/commercial/budgeting/external-gl/entry-history?source=ui-import-review');return response.json();});
+  if(foreignHistory.report?.totalCount!==0||foreignHistory.report.entries.length!==0||foreignHistory.report.totals.length!==0)throw new Error('Ledger history exposed another tenant records');
   const foreignLedger=await other.page.evaluate(async()=>{const response=await fetch('/api/commercial/budgeting/external-gl/entries?sourceSystemId=ui-import-review&externalEntryId=ui-entry-1');return {status:response.status,body:await response.json()};});
   if(foreignLedger.status!==200||foreignLedger.body.entry!==null)throw new Error('Ledger lookup exposed another tenant entry');
   await other.page.goto(origin+'/commercial/budgeting/finance-controls');
@@ -1515,6 +1564,7 @@ try {
   if((await setupPost(evidencePath,{action:'remove-line',budgetLineId:evidenceLine,reason:'Must retain history'})).status!==409)throw new Error('SUPERSEDED removal accepted');
   if((await setupPost(removalPath,{...removalBody,budgetLineId:budgetState.line_id})).status!==409)throw new Error('ACTIVE line removal accepted');
   await pool.query("UPDATE organisation_modules SET enabled=false WHERE organisation_id='runtime-b' AND module_key='budgeting'");
+  if(await other.page.evaluate(async()=> (await fetch('/api/commercial/budgeting/external-gl/entry-history')).status)!==403)throw new Error('Unentitled ledger history accepted');
   if(await other.page.evaluate(async()=> (await fetch('/api/commercial/budgeting/external-gl/entries?sourceSystemId=ui-import-review&externalEntryId=ui-entry-1')).status)!==403)throw new Error('Unentitled ledger lookup accepted');
   if((await setupPost('/api/commercial/budgeting/financial-years',{name:'Denied',startsOn:'2029-07-01',endsOn:'2030-06-30'})).status!==403)throw new Error('Unentitled calendar creation accepted');
   if((await setupPost('/api/commercial/budgeting/setup/accounts',{code:'DENIED',name:'Denied'})).status!==403)throw new Error('Unentitled dimension creation accepted');
@@ -1528,6 +1578,7 @@ try {
   if(errors.length||failedApi.length)throw new Error(JSON.stringify({errors,failedApi}));
   const externalGlChecks=['mapping list calendar dates','account and cost-centre creation through real forms','exact create response dates','overlap rejection without duplicate facts','source filter','account and cost-centre retirement through real forms','exact retire response and persisted dates','viewer mutation denial','foreign mapping read and retirement denial'];
   const evidence={verified_at:new Date().toISOString(),serverTimezone,checks:['real login and production runtime','calendar dates preserved through API and screen','mobile metrics remain inside viewport','mobile history and reconciliation tables scroll to last column','exact $100 source and ledger match','prepare and review','sign-off blocked before close','period close and durable sign-off','year close and reopen','period reopen invalidates close and reconciliation','viewer denial','tenant isolation'],overflow,build_id:readFileSync('.next/BUILD_ID','utf8').trim()};
+  evidence.ledgerHistoryChecks={matchingCount:27,displayedPage2:2,exactAudTotal:'-18014398509481962',currencySeparation:true,inclusiveDateFilters:true,pageScopedCsv:true,readOnlyRecovery:historyMethods,mobile:ledgerHistoryWidth,lastColumn:historyScroll,viewerDenied:true,foreignTenantEmpty:true,unentitledDenied:true};
   evidence.ledgerImportUiChecks={reviewWithoutWrite:true,exactSignedCents:'-9007199254740993',duplicateWithoutNewFact:true,conflictPreservesOriginal:true,readOnlyRecoveryMethods:ledgerUiMethods,mobile:importWidth,viewerDenied:true,foreignTenantAbsent:true,unentitledDenied:true};
   evidence.financeControlRecoveryChecks=recoveredFinanceActions;
   evidence.reportingTotalChecks={exactLegacyAggregate:'9007199254740993',separateTaxBases:true,unknownBudgetPreserved:true,incompleteEvidenceNotZero:true,staleEvidenceExplicit:true,mobile:totalsWidth};
