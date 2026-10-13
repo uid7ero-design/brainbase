@@ -806,11 +806,12 @@ describe("D4D5Z authenticated review/count routes with real Postgres", () => {
     const review = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/route");
     const planning = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/plan/route");
     const count = await import("@/app/api/data-hub/worksheets/[id]/analysis-count/route");
+    const requests = await import("@/app/api/data-hub/worksheets/[id]/analysis-planning/route");
     const context = { params: Promise.resolve({ id: f.ids.uploadId }) };
     const choices = [{ sourceSchemaColumnId: f.ids.col1, role: "IDENTIFIER" }, { sourceSchemaColumnId: f.ids.col2, role: "MEASURE" }];
     const body = { reviewVersion: "v1", datasetProfileRunId: f.context.datasetProfileRunId, semanticChoices: choices, qualityDecisions: [] as unknown[] };
     const post = (value: unknown) => new Request("http://localhost/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) });
-    return { f, token, review, planning, count, context, body, post };
+    return { f, token, review, planning, count, requests, context, body, post };
   }
   it("plans, saves, reloads and counts through signed manager sessions", async () => {
     const w = await routeWorld();
@@ -839,6 +840,26 @@ describe("D4D5Z authenticated review/count routes with real Postgres", () => {
         { uploadId: w.f.ids.uploadId, operation: "ROW_COUNT" } :
         { uploadId: w.f.ids.uploadId, operation: "COUNT_PRESENT", sourceSchemaColumnId: w.f.ids.col2 })).toEqual({ ok: true, response: payload });
     }
+    // Planning uses authoritative metadata and appends nothing.
+    const beforePlanning = await prisma.dataHubAnalysisReview.findMany({ where: { profile_run_id: w.f.context.datasetProfileRunId } });
+    const catalog = await w.requests.GET(new Request("http://localhost/test"), w.context);
+    expect(catalog.status).toBe(200);
+    expect(catalog.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(await catalog.json()).toMatchObject({ ok: true, catalog: { reviewRevision: 1, context: w.f.context } });
+    const selection = { datasetProfileRunId: w.f.context.datasetProfileRunId,
+      selection: { selectionVersion: "v1", expectedReviewRevision: 1, includeRowCount: true, measureColumnIds: [w.f.ids.col2] } };
+    const selected = await w.requests.POST(w.post(selection), w.context);
+    expect(selected.status).toBe(200);
+    const selectedBody = await selected.json();
+    expect(selectedBody).toMatchObject({ ok: true, reviewRevision: 1, plans: [
+      { snapshot: { operation: "ROW_COUNT" } }, { snapshot: { operation: "COUNT_PRESENT", sourceSchemaColumnId: w.f.ids.col2 } },
+    ] });
+    expect(JSON.stringify(selectedBody)).not.toContain('"count":');
+    const staleProfile = await w.requests.POST(w.post({ ...selection, datasetProfileRunId: "obsolete-profile" }), w.context);
+    expect(staleProfile.status).toBe(409); expect(await staleProfile.json()).toEqual({ ok: false, code: "REVIEW_PROFILE_CHANGED" });
+    const staleReview = await w.requests.POST(w.post({ ...selection, selection: { ...selection.selection, expectedReviewRevision: 2 } }), w.context);
+    expect(staleReview.status).toBe(409); expect(await staleReview.json()).toEqual({ ok: false, code: "REVIEW_REVISION_MISMATCH" });
+    expect(await prisma.dataHubAnalysisReview.findMany({ where: { profile_run_id: w.f.context.datasetProfileRunId } })).toEqual(beforePlanning);
     const records = await prisma.dataHubAnalysisReview.findMany({ where: { profile_run_id: w.f.context.datasetProfileRunId } });
     expect(records).toHaveLength(1); expect(records[0].reviewed_by_id).toBe(w.f.ids.userId);
   });
@@ -850,6 +871,7 @@ describe("D4D5Z authenticated review/count routes with real Postgres", () => {
     if (kind === "inactive") await prisma.user.update({ where: { id: w.f.ids.userId }, data: { status: "INACTIVE" } });
     if (kind === "moved") await prisma.user.update({ where: { id: w.f.ids.userId }, data: { organisation_id: ORG_B } });
     for (const result of [await w.planning.GET(new Request("http://localhost/test"), w.context),
+      await w.requests.GET(new Request("http://localhost/test"), w.context), await w.requests.POST(w.post({}), w.context),
       await w.review.POST(w.post(w.body), w.context), await w.count.POST(w.post({ requestVersion: "v1", kind: "ROW_COUNT" }), w.context)]) {
       expect(result.status).toBe(kind === "demoted" ? 403 : 401);
       expect(result.headers.get("Cache-Control")).toBe("private, no-store");
@@ -863,6 +885,8 @@ describe("D4D5Z authenticated review/count routes with real Postgres", () => {
     await prisma.user.update({ where: { id: foreign.ids.userId }, data: { organisation_id: ORG_B } });
     routeSessionToken = await encrypt({ userId: foreign.ids.userId, organisationId: ORG_B, role: "manager", name: "Other manager", expiresAt: new Date(Date.now() + 60_000).toISOString() });
     expect((await w.planning.GET(new Request("http://localhost/test"), w.context)).status).toBe(404);
+    expect((await w.requests.GET(new Request("http://localhost/test"), w.context)).status).toBe(404);
+    expect((await w.requests.POST(w.post({ datasetProfileRunId: w.f.context.datasetProfileRunId, selection: { selectionVersion: "v1", expectedReviewRevision: 1, includeRowCount: true, measureColumnIds: [] } }), w.context)).status).toBe(404);
     expect((await w.review.POST(w.post(w.body), w.context)).status).toBe(404);
     expect((await w.count.POST(w.post({ requestVersion: "v1", kind: "ROW_COUNT" }), w.context)).status).toBe(404);
     routeSessionToken = w.token;

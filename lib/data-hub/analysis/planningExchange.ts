@@ -16,7 +16,7 @@ const contextKeys = ["organisationId", "uploadId", "importBatchId", "normalizati
 const planKeys = ["planVersion", "readinessVersion", "schemaVersion", "profilerVersion", "qualityResolutionVersion", "readinessState", "operation"];
 const loadingCodes = ["UNAUTHORIZED", "FORBIDDEN", "UPLOAD_NOT_FOUND", "REVIEW_NOT_FOUND", "REVIEW_RECORD_INVALID",
   "REVIEW_READ_FAILED", "CONTEXT_INPUT_INVALID", "CONTEXT_READ_FAILED", "PROFILE_NOT_COMPLETE",
-  "PROFILE_LINEAGE_MISMATCH", "PROFILE_EVIDENCE_INVALID", "PROFILER_VERSION_UNSUPPORTED"] as const;
+  "PROFILE_LINEAGE_MISMATCH", "PROFILE_EVIDENCE_INVALID", "PROFILER_VERSION_UNSUPPORTED", "REVIEW_PROFILE_CHANGED"] as const;
 const failureCodes = ["DATASET_CONTEXT_INVALID", "DATASET_CONTEXT_MISMATCH", "REVIEW_REVISION_INVALID",
   "REVIEW_REVISION_MISMATCH", "PROFILE_SELECTION_INVALID", "PROFILE_BUNDLE_INVALID", "QUALITY_HOLD",
   "SCHEMA_QUALITY_LINEAGE_MISMATCH", "QUALITY_STATE_INVALID", "READINESS_CATALOG_INVALID",
@@ -26,6 +26,9 @@ const admissionCodes = new Set<string>(["DATASET_CONTEXT_INVALID", "DATASET_CONT
   "REVIEW_REVISION_MISMATCH", "PROFILE_SELECTION_INVALID", "PROFILE_BUNDLE_INVALID", ...loadingCodes]);
 
 export interface PlanningExchangeFailure { ok: false; code: (typeof failureCodes)[number]; requestIndex?: number }
+export function isPlanningFailureCode(value: unknown): value is PlanningExchangeFailure["code"] {
+  return typeof value === "string" && failureCodes.some(code => code === value);
+}
 export interface PlanningCatalogExpectation { context: AnalysisDatasetContext; reviewRevision: number }
 export interface PlanningSelectionExpectation {
   context: AnalysisDatasetContext;
@@ -76,7 +79,7 @@ function context(input: unknown): AnalysisDatasetContext | null {
 function failure(input: unknown, requestCount?: number): PlanningExchangeFailure | null {
   const base = record(input, ["ok", "code"]);
   const value = base ?? (requestCount === undefined ? null : record(input, ["ok", "code", "requestIndex"]));
-  if (!value || value.ok !== false || !failureCodes.some(code => code === value.code)) return null;
+  if (!value || value.ok !== false || !isPlanningFailureCode(value.code)) return null;
   if (!base && (requestCount === undefined || admissionCodes.has(value.code as string) || typeof value.requestIndex !== "number" ||
       !Number.isSafeInteger(value.requestIndex) || value.requestIndex < 0 || value.requestIndex >= requestCount)) return null;
   return { ok: false, code: value.code as PlanningExchangeFailure["code"],

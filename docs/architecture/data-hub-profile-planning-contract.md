@@ -112,4 +112,7 @@ release. CI success does not satisfy that prerequisite. See the existing
 The subsequent [planning exchange](data-hub-planning-exchange.md) specifies
 closed JSON catalog/plan admission and exact request correlations. It adds pure
 decoders and acceptance evidence; authenticated transport and controls remain
-separate from the completed planning and exchange contracts.
+separate from the completed planning and exchange contracts. The subsequent
+[authenticated integration](data-hub-planning-integration.md) connects these
+contracts to manager-scoped endpoints and explicit selection controls under
+isolated development authority. It adds no analytical execution or release.

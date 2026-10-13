@@ -36,12 +36,15 @@ describe("Data Hub review screen", () => {
     fireEvent.change(screen.getByLabelText("partial null values — Amount"), { target: { value: "ACKNOWLEDGE" } });
     fireEvent.click(screen.getByText("Save review"));
     await screen.findByText("Saved review 2");
+    expect(screen.getByRole("region", { name: "Analysis planning" })).toBeInTheDocument();
     const body = JSON.parse(fetcher.mock.calls[3][1].body);
     expect(body).toEqual({ reviewVersion: "v1", datasetProfileRunId: "profile-1", semanticChoices: [{ sourceSchemaColumnId: "amount", role: "MEASURE" }],
       qualityDecisions: [{ code: "PARTIAL_NULL_VALUES", scope: "COLUMN", sourceSchemaColumnId: "amount", decision: "ACKNOWLEDGE" }] });
     expect(fetcher.mock.calls[0][0]).toContain("upload%2Fa/analysis-review/plan");
     fireEvent.click(screen.getByText("Count rows"));
     await screen.findByText("Rows: 7. Based on review 3, profile profile-2.");
+    expect(screen.queryByRole("region", { name: "Analysis planning" })).not.toBeInTheDocument();
+    expect(screen.getByText(/Reload the current review before planning/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Amount (field 1)"), { target: { value: "CURRENCY" } });
     expect(screen.queryByText("Data quality")).not.toBeInTheDocument();
     expect(screen.queryByText("Count rows")).not.toBeInTheDocument();

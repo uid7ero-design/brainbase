@@ -37,7 +37,8 @@ lists are detached copies containing validated scalar metadata.
 The JSON helpers convert malformed text, non-object envelopes and format errors
 to `PLANNING_RESPONSE_INVALID`. They return no source snippets, exception message,
 HTML or other diagnostic content. HTTP status, authentication, request cancellation,
-body limits and transport failures remain future adapter duties. This is not a
+body limits and transport failures belong to the separately scoped
+[authenticated integration](data-hub-planning-integration.md). This is not a
 general JavaScript sandbox or transport implementation.
 
 ## Catalog success
@@ -111,7 +112,8 @@ mismatch, no partial output, malformed JSON, unexpected statistics/diagnostics,
 accessors, sparse lists and indexed denials. A real derived hold remains a denial
 through the same exchange. No count evaluator is used in the new round-trip path.
 
-The next integration package must separately establish:
+The separate [authenticated integration package](data-hub-planning-integration.md)
+implements these duties; they are not established by pure exchange tests:
 
 1. An authenticated manager/tenant boundary with identities derived server-side.
 2. Authoritative current profile and saved review loading in one consistent
@@ -125,5 +127,5 @@ The next integration package must separately establish:
    prerequisite before any Production release. Main auto-deploys and PR #419
    remains under its release hold.
 
-These duties are specified, not implemented or claimed as verified by pure
-exchange tests. Production and hosted authenticated transport remain untouched.
+Production and hosted authenticated transport remain untouched. Integration
+acceptance and its proof limits are recorded separately from pure exchange proof.

@@ -116,6 +116,78 @@ try {
   await page.getByRole('button', { name: 'Count present values', exact: true }).click();
   await expect(page.getByText(`Present values: 2. Based on review 1, profile ${ready.datasetProfileRunId}.`, { exact: true })).toBeVisible();
   evidence.checks.push('Plan, explicit semantic and quality choices, append, reload, row count 3, present count 2 including zero and excluding null, session actor');
+  const planningUrl = origin + endpoint(ready.uploadId) + '/analysis-planning';
+  const planningSection = page.getByRole('region', { name: 'Analysis planning', exact: true });
+  const selection = { datasetProfileRunId: ready.datasetProfileRunId,
+    selection: { selectionVersion: 'v1', expectedReviewRevision: 1, includeRowCount: true, measureColumnIds: [ready.col2] } };
+  const beforePlanning = (await pool.query('SELECT * FROM data_hub_analysis_reviews WHERE upload_id=$1 ORDER BY revision', [ready.uploadId])).rows;
+  const plannedMessage = '2 requests planned from saved review 1. Counts have not been calculated.';
+  let executions = 0;
+  const observeExecution = request => {
+    if (request.method() === 'POST' && /\/analysis-(count|review)$/.test(new URL(request.url()).pathname)) executions++;
+  };
+  page.on('request', observeExecution);
+  await planningSection.getByRole('button', { name: 'Load planning choices', exact: true }).click();
+  await planningSection.getByRole('checkbox', { name: 'Present values — Amount (field 2)', exact: true }).check();
+  // Delay an otherwise genuine response to prove sibling save/count controls lock.
+  let releasePlan, planArrived;
+  const heldResponse = new Promise(done => { releasePlan = done; });
+  const arrival = new Promise(done => { planArrived = done; });
+  const delayPlan = async route => {
+    if (route.request().method() !== 'POST') { await route.continue(); return; }
+    const actual = await route.fetch(); planArrived(); await heldResponse;
+    await route.fulfill({ response: actual });
+  };
+  await page.route(planningUrl, delayPlan);
+  try {
+    await planningSection.getByRole('button', { name: 'Plan selected requests', exact: true }).click();
+    await arrival;
+    await expect(page.getByRole('button', { name: 'Count rows', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Save review', exact: true })).toBeDisabled();
+  } finally { releasePlan(); }
+  await expect(planningSection.getByText(plannedMessage, { exact: true })).toBeVisible();
+  await page.unroute(planningUrl, delayPlan);
+  if (executions !== 0) throw new Error('Planning called count or save');
+  if (JSON.stringify((await pool.query('SELECT * FROM data_hub_analysis_reviews WHERE upload_id=$1 ORDER BY revision', [ready.uploadId])).rows) !== JSON.stringify(beforePlanning)) throw new Error('Planning changed review history');
+  await page.setViewportSize({ width: 390, height: 844 });
+  if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error('Planning controls overflow mobile viewport');
+  await page.screenshot({ path: resolve(directory, 'planning-mobile.png'), fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  evidence.checks.push('Real catalog GET and selected-plan POST: row and present descriptions, session scope, sibling control lock, no count/save calls, identical review history, mobile fit');
+  // These are deliberate transport contract probes after the genuine flow above.
+  for (const kind of ['invalid-json', 'foreign', 'revision', 'extra', 'unknown-error']) {
+    let requests = 0;
+    const corruptPlan = async route => {
+      if (route.request().method() !== 'POST') { await route.continue(); return; }
+      requests++;
+      const actual = await route.fetch();
+      if (actual.status() !== 200) throw new Error('Planning probe requires genuine success');
+      if (kind === 'invalid-json') { await route.fulfill({ response: actual, body: 'private-planning-probe' }); return; }
+      if (kind === 'unknown-error') { await route.fulfill({ response: actual, status: 503, json: { ok: false, code: 'private-planning-probe' } }); return; }
+      const payload = await actual.json();
+      if (kind === 'foreign') payload.plans[0].context.uploadId = 'other-worksheet';
+      if (kind === 'revision') payload.reviewRevision = 2;
+      if (kind === 'extra') payload.privateValues = ['private-planning-probe'];
+      await route.fulfill({ response: actual, json: payload });
+    };
+    await page.route(planningUrl, corruptPlan);
+    try {
+      await planningSection.getByRole('button', { name: 'Plan selected requests', exact: true }).click();
+      await expect(planningSection.getByRole('alert')).toContainText(/PLANNING_RESPONSE_INVALID|PLANNING_RESPONSE_MISMATCH/);
+      await expect(planningSection.getByRole('region', { name: 'Planned requests', exact: true })).toHaveCount(0);
+      await expect(planningSection.getByRole('group', { name: 'Requests to plan', exact: true })).toHaveCount(0);
+      await expect(planningSection).not.toContainText('private-');
+      await expect(planningSection.getByRole('button', { name: 'Load planning choices', exact: true })).toBeEnabled();
+      await pause(200); if (requests !== 1) throw new Error('Planning failure automatically retried');
+    } finally { await page.unroute(planningUrl, corruptPlan); }
+    await planningSection.getByRole('button', { name: 'Load planning choices', exact: true }).click();
+    await planningSection.getByRole('checkbox', { name: 'Present values — Amount (field 2)', exact: true }).check();
+    await planningSection.getByRole('button', { name: 'Plan selected requests', exact: true }).click();
+    await expect(planningSection.getByText(plannedMessage, { exact: true })).toBeVisible();
+  }
+  page.off('request', observeExecution);
+  if (executions !== 0) throw new Error('Planning probes called count or save');
+  evidence.checks.push('Five deliberately corrupted planning replies rejected; previous choices/plans cleared, no diagnostics or automatic retry, explicit genuine reload and selection recover');
   await page.setViewportSize({ width: 390, height: 844 });
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error('Review screen overflows mobile viewport');
   await page.screenshot({ path: resolve(directory, 'counts-mobile.png'), fullPage: true });
@@ -204,16 +276,29 @@ try {
   await expect(page.getByRole('button', { name: 'Count present values', exact: true })).toBeDisabled();
   const heldCount = await api(endpoint(held.uploadId) + '/analysis-count', { requestVersion: 'v1', kind: 'ROW_COUNT' });
   if (heldCount.status !== 422 || heldCount.body.code !== 'QUALITY_HOLD') throw new Error('Hold bypassed by direct request');
+  await expect(page.getByRole('button', { name: 'Load planning choices', exact: true })).toBeDisabled();
+  for (const body of [undefined, { ...selection, datasetProfileRunId: held.datasetProfileRunId,
+    selection: { ...selection.selection, measureColumnIds: [] } }]) {
+    const result = await api(endpoint(held.uploadId) + '/analysis-planning', body);
+    if (result.status !== 422 || result.body.code !== 'QUALITY_HOLD') throw new Error('Planning hold bypassed');
+  }
   evidence.checks.push('Explicit HOLD persisted and blocks both UI counts and direct API');
 
   const stale = await api(endpoint(ready.uploadId) + '/analysis-review', { reviewVersion: 'v1', datasetProfileRunId: 'stale-profile', semanticChoices: [], qualityDecisions: [] });
   if (stale.status !== 409) throw new Error('Stale profile pin accepted');
+  for (const body of [{ ...selection, datasetProfileRunId: 'obsolete-profile' },
+    { ...selection, selection: { ...selection.selection, expectedReviewRevision: 2 } }]) {
+    if ((await api(endpoint(ready.uploadId) + '/analysis-planning', body)).status !== 409) throw new Error('Stale planning pin accepted');
+  }
+  evidence.checks.push('Planning UI and direct requests enforce quality hold; obsolete profile and review pins return 409');
   evidence.checks.push('Obsolete profile pin sent through authenticated browser returns 409 without appending');
   await pool.query('UPDATE users SET role=\'VIEWER\' WHERE id=$1', [ready.userId]);
   const denied = await api(endpoint(ready.uploadId) + '/analysis-review/plan');
   if (denied.status !== 403) throw new Error('Live role demotion failed');
+  for (const body of [undefined, selection]) if ((await api(endpoint(ready.uploadId) + '/analysis-planning', body)).status !== 403) throw new Error('Planning demotion failed');
   await pool.query('UPDATE users SET role=\'MANAGER\',organisation_id=\'org-b\' WHERE id=$1', [ready.userId]);
   if ((await api(endpoint(ready.uploadId) + '/analysis-review/plan')).status !== 401) throw new Error('Moved account retained session');
+  for (const body of [undefined, selection]) if ((await api(endpoint(ready.uploadId) + '/analysis-planning', body)).status !== 401) throw new Error('Planning moved session accepted');
   await pool.query('UPDATE users SET organisation_id=\'org-a\' WHERE id=$1', [ready.userId]);
   const foreignUser = 'browser-foreign-manager';
   await pool.query('INSERT INTO users(id,organisation_id,username,email,name,password_hash,role,updated_at) SELECT $1,\'org-b\',$1,$1||\'@example.test\',\'Other manager\',password_hash,\'MANAGER\',now() FROM users WHERE id=$2', [foreignUser, ready.userId]);
@@ -222,6 +307,7 @@ try {
   const foreignLogin = page.waitForResponse(response => new URL(response.url()).pathname === '/login' && response.request().method() === 'POST');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click(); await foreignLogin;
   if ((await api(endpoint(ready.uploadId) + '/analysis-review/plan')).status !== 404) throw new Error('Foreign worksheet exposed');
+  for (const body of [undefined, selection]) if ((await api(endpoint(ready.uploadId) + '/analysis-planning', body)).status !== 404) throw new Error('Planning foreign worksheet exposed');
   evidence.checks.push('DB role demotion 403, moved session 401, separately logged-in foreign organisation 404');
   if (errors.length) throw new Error(`Browser exceptions: ${errors.join('; ')}`);
   evidence.checks.push('No browser page exceptions');

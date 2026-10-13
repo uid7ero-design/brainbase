@@ -9,6 +9,8 @@ import type { SemanticRole } from "@/lib/data-hub/semanticInference/contracts";
 import type { DataQualityReviewDecision } from "@/lib/data-hub/dataQuality/reviewResolution";
 import { parseReviewedCountResponse, type CountResponseExpectation } from "@/lib/data-hub/analysis/countResponse";
 import { analysisFailureReference } from "@/lib/data-hub/analysis/failureReference";
+import { validateAnalysisDatasetContexts } from "@/lib/data-hub/analysis/scopedProfileCounts";
+import ProfilePlanningClient from "../_components/ProfilePlanningClient";
 
 type Plan = Extract<PlanAnalysisReviewResult, { ok: true }>;
 type Review = Extract<LoadAnalysisReviewResult, { ok: true }>;
@@ -31,6 +33,8 @@ export default function AnalysisReviewClient({ uploadId }: { uploadId: string })
   const [measure, setMeasure] = useState("");
   const [saveNeedsReload, setSaveNeedsReload] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [planningBusy, setPlanningBusy] = useState(false);
+  const allBusy = busy || planningBusy;
   const [error, setError] = useState("");
   const pending = useRef(false);
   const endpoint = `/api/data-hub/worksheets/${encodeURIComponent(uploadId)}`;
@@ -45,7 +49,7 @@ export default function AnalysisReviewClient({ uploadId }: { uploadId: string })
     return data as T;
   }
   async function run(action: () => Promise<void>) {
-    if (pending.current) return;
+    if (pending.current || planningBusy) return;
     pending.current = true; setBusy(true); setError("");
     try { await action(); } catch (failure) {
       setError(analysisFailureReference(failure instanceof Error ? failure.message : undefined));
@@ -67,6 +71,8 @@ export default function AnalysisReviewClient({ uploadId }: { uploadId: string })
   const qualityComplete = !!plan?.quality && plan.quality.items.every((_, index) => !!decisions[index]);
   const held = review?.quality.snapshot.state === "HOLD_FOR_REMEDIATION";
   const matchingProfile = !!plan && review?.schema.context.datasetProfileRunId === plan.datasetProfileRunId;
+  const planningStale = !!review && !!count && (count.reviewRevision !== review.revision ||
+    !validateAnalysisDatasetContexts(review.schema.context, [count.result.context]).ok);
   const measures = matchingProfile ? review.schema.snapshot.fields.filter(field => field.fieldClass === "MEASURE") : [];
   const fieldLabel = (id: string) => plan?.fieldLabels.find(field => field.sourceSchemaColumnId === id)?.label ?? "Field";
   function restoredRoles(currentPlan: Plan, saved: Review) {
@@ -85,7 +91,7 @@ export default function AnalysisReviewClient({ uploadId }: { uploadId: string })
     <h1>Review dataset and count</h1>
     <p>Review field meanings and data quality before calculating counts from the current dataset profile.</p>
     <p>Worksheet: {uploadId}</p>
-    <button disabled={busy} onClick={() => void run(async () => {
+    <button disabled={allBusy} onClick={() => void run(async () => {
       setPlan(null); setRoles({}); setDecisions({}); setReview(null); setCount(null); setMeasure("");
       const currentPlan = await request<Plan>("/analysis-review/plan"); setPlan(currentPlan);
       try {
@@ -104,14 +110,14 @@ export default function AnalysisReviewClient({ uploadId }: { uploadId: string })
         <label htmlFor={`field-${index}`}>{fieldLabel(column.sourceSchemaColumnId)} (field {index + 1})</label>
         {column.resolutionState === "RESOLVED" ? <p>{words(column.candidateRoles[0])} — resolved by the profile</p> : <>
           <p>{column.reasons.map(words).join(", ")}</p>
-          <select id={`field-${index}`} disabled={busy} value={roles[column.sourceSchemaColumnId] ?? ""} onChange={event => {
+          <select id={`field-${index}`} disabled={allBusy} value={roles[column.sourceSchemaColumnId] ?? ""} onChange={event => {
             const next = { ...roles }; if (event.target.value) next[column.sourceSchemaColumnId] = event.target.value as SemanticRole;
             else delete next[column.sourceSchemaColumnId];
             setRoles(next); setPlan({ ...plan, quality: null }); setDecisions({}); setReview(null); setCount(null); setMeasure("");
           }}><option value="">Choose meaning</option>{column.candidateRoles.map(role => <option key={role} value={role}>{words(role)}</option>)}</select>
         </>}
       </div>)}
-      <button disabled={busy || !rolesComplete} onClick={() => void run(async () => {
+      <button disabled={allBusy || !rolesComplete} onClick={() => void run(async () => {
         const saved = review;
         setReview(null); setCount(null); setDecisions({}); setPlan({ ...plan, quality: null });
         const preview = await request<Plan>("/analysis-review/plan", envelope(false)); setPlan(preview);
@@ -130,7 +136,7 @@ export default function AnalysisReviewClient({ uploadId }: { uploadId: string })
         {plan.quality.items.length === 0 ? <p>No quality decisions required.</p> : null}
         {plan.quality.items.map((item, index) => <div key={`${item.code}-${item.sourceSchemaColumnId ?? "dataset"}`} style={{ marginBottom: 16 }}>
           <label htmlFor={`quality-${index}`}>{words(item.code)} — {item.sourceSchemaColumnId ? fieldLabel(item.sourceSchemaColumnId) : "whole dataset"}</label>
-          <select id={`quality-${index}`} disabled={busy} value={decisions[index] ?? ""} onChange={event => {
+          <select id={`quality-${index}`} disabled={allBusy} value={decisions[index] ?? ""} onChange={event => {
             const next = { ...decisions }; if (event.target.value) next[index] = event.target.value as DataQualityReviewDecision;
             else delete next[index]; setDecisions(next); setReview(null); setCount(null); setMeasure("");
           }}><option value="">Choose decision</option>
@@ -138,7 +144,7 @@ export default function AnalysisReviewClient({ uploadId }: { uploadId: string })
               <option value="CONTINUE">Reviewed — continue</option><option value="HOLD">Hold for correction</option></>}
           </select>
         </div>)}
-        <button disabled={busy || !qualityComplete || saveNeedsReload} onClick={() => void run(async () => {
+        <button disabled={allBusy || !qualityComplete || saveNeedsReload} onClick={() => void run(async () => {
           setReview(null); setCount(null);
           setSaveNeedsReload(true);
           await request("/analysis-review", envelope(true));
@@ -149,19 +155,19 @@ export default function AnalysisReviewClient({ uploadId }: { uploadId: string })
     </section> : null}
     {review ? <section aria-label="Saved review results"><h2>Saved review {review.revision}</h2>
       <p>{held ? "On hold for correction. Counts are unavailable." : "Review complete. Counts are available."}</p>
-      <button disabled={busy || held} onClick={() => void run(async () => {
+      <button disabled={allBusy || held} onClick={() => void run(async () => {
         setCount(null); setCount(await requestCount({ requestVersion: "v1", kind: "ROW_COUNT" }, { uploadId, operation: "ROW_COUNT" }));
       })}>Count rows</button>
       {matchingProfile && measures.length > 0 ? <div>
         <label htmlFor="count-field">Measure to count</label>
-        <select id="count-field" disabled={busy || held} value={measure} onChange={event => { setMeasure(event.target.value); setCount(null); }}>
+        <select id="count-field" disabled={allBusy || held} value={measure} onChange={event => { setMeasure(event.target.value); setCount(null); }}>
           <option value="">Choose measure</option>
           {measures.map(field => <option key={field.sourceSchemaColumnId} value={field.sourceSchemaColumnId}>
             {fieldLabel(field.sourceSchemaColumnId)} (field {(plan?.fieldLabels.findIndex(label => label.sourceSchemaColumnId === field.sourceSchemaColumnId) ?? -1) + 1})
           </option>)}
         </select>
         <p>Present values include zero. Missing values are excluded.</p>
-        <button disabled={busy || held || !measures.some(field => field.sourceSchemaColumnId === measure)} onClick={() => void run(async () => {
+        <button disabled={allBusy || held || !measures.some(field => field.sourceSchemaColumnId === measure)} onClick={() => void run(async () => {
           setCount(null); setCount(await requestCount({ requestVersion: "v1", kind: "AGGREGATE", operator: "COUNT_PRESENT", sourceSchemaColumnId: measure },
             { uploadId, operation: "COUNT_PRESENT", sourceSchemaColumnId: measure }));
         })}>Count present values</button>
@@ -169,5 +175,9 @@ export default function AnalysisReviewClient({ uploadId }: { uploadId: string })
       {!matchingProfile ? <p>Reload the current review to load field choices for this profile.</p> : null}
       {count ? <p role="status">{count.result.plan.operation === "COUNT_PRESENT" ? "Present values" : "Rows"}: {count.result.count}. Based on review {count.reviewRevision}, profile {count.result.context.datasetProfileRunId}.</p> : null}
     </section> : null}
+    {review && matchingProfile && !saveNeedsReload && !planningStale ? <ProfilePlanningClient
+      key={JSON.stringify([review.revision, review.schema.context])} uploadId={uploadId} review={review}
+      fieldLabels={plan!.fieldLabels} disabled={busy || held} onBusyChange={setPlanningBusy} /> : null}
+    {planningStale ? <p>Reload the current review before planning: the returned count used a different review or profile.</p> : null}
   </main>;
 }

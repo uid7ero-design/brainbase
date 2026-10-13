@@ -271,3 +271,29 @@ disposable PostgreSQL service tests, TypeScript, changed-file lint and diff
 checks. The owned disposable container was removed and the D4D5Q migration
 blob remains `cc7f948944b1f0bd772a140d33be901736c5ca26`. Earlier browser evidence
 remains separate; this bundle did not rerun a built-app browser journey.
+
+The subsequently authorized authenticated planning integration connects the
+pure contracts to manager-scoped catalog GET and selected-plan POST endpoints
+and explicit review-screen selection controls. Tenant identity is session-owned;
+the existing RepeatableRead loader owns current profile/review metadata. Profile
+and revision pins are independently compared, fields/holds are revalidated, and
+request JSON is bounded by actual bytes. No new analytical query, count
+execution, raw-value access, review append, AI or migration is introduced.
+Failures clear prior choices/plans, pending work is canceled on replacement,
+late replies are discarded, and planning never starts count/save actions.
+
+Local integration acceptance passes 1,021 focused tests in 47 files, all 64
+disposable PostgreSQL tests with new route assertions, TypeScript, changed-file
+lint, an optimized build and a fresh built-app browser journey using real form
+login and local PostgreSQL. Genuine planning produces selected descriptions,
+locks sibling controls and preserves review history. Five intentional planning
+reply-corruption probes clear prior plans with explicit genuine recovery;
+existing review/count journeys and nine count probes also pass. Holds, stale
+profile/revision pins, demotion, moved sessions and foreign tenant requests are
+denied. The mobile planning screen fits, with no browser page exceptions.
+The owned database was removed and the unchanged D4D5Q blob remains
+`cc7f948944b1f0bd772a140d33be901736c5ca26`. The proof adapts only Neon HTTP
+transport to local PostgreSQL and uses synthetic already-profiled worksheets;
+hosted authenticated transport, ingestion and large-tenant load remain separate.
+See [integration contract](data-hub-planning-integration.md). PR #419 remains
+unmerged under the existing Production/D4D5Q owner-verification release hold.
