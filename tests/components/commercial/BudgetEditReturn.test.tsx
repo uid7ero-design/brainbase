@@ -78,7 +78,7 @@ describe('Saved Budget editor return navigation', () => {
     failRead=false;
     fireEvent.click(screen.getByRole('button',{name:'Reload saved Budget'}));
     await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent('Saved Budget reloaded.'));
-    expect(screen.getByRole('region',{name:'Budget amount review'})).toHaveFocus();
+    await waitFor(()=>expect(screen.getByRole('region',{name:'Budget amount review'})).toHaveFocus());
     expect(screen.getByRole('region',{name:'Budget amount review'})).toHaveTextContent('AUD 123.45');
     expect(screen.getByRole('button',{name:'Export Budget lines CSV'})).toBeEnabled();
     expect(screen.queryByRole('button',{name:'Cancel editing'})).not.toBeInTheDocument();
@@ -148,7 +148,7 @@ describe('Saved Budget editor return navigation', () => {
     expect(form.getByLabelText('Period amount (AUD)',{exact:false})).toHaveValue('');
     fireEvent.click(form.getByRole('button',{name:'Cancel allocation editing'}));
     expect(mutations).toHaveLength(0);expect(version.allocations).toHaveLength(0);
-    expect(screen.getByRole('region',{name:'Budget amount review'})).toHaveFocus();
+    await waitFor(()=>expect(screen.getByRole('region',{name:'Budget amount review'})).toHaveFocus());
   });
   it('saves a zero from the calendar, returns to review and reloads it as a saved allocation',async()=>{
     version.allocations=[];render(<BudgetSetup revision={0}/>);
@@ -159,7 +159,7 @@ describe('Saved Budget editor return navigation', () => {
     fireEvent.click(screen.getByRole('button',{name:'Save allocation'}));
     await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent('Budget setup saved.'));
     expect(mutations).toEqual([{action:'allocation',budgetLineId:'line',financialPeriodId:'period',amountCents:'0'}]);
-    expect(screen.getByRole('region',{name:'Budget amount review'})).toHaveFocus();
+    await waitFor(()=>expect(screen.getByRole('region',{name:'Budget amount review'})).toHaveFocus());
     expect(screen.getByRole('button',{name:'Edit calendar allocation SOFTWARE / GENERAL / QTR 1'})).toBeVisible();
     fireEvent.click(screen.getByRole('button',{name:'Reload saved Budget'}));
     await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent('Saved Budget reloaded.'));
