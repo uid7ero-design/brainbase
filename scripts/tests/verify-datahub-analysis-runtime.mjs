@@ -97,6 +97,12 @@ try {
       return { status: response.status, cache: response.headers.get('Cache-Control'), body: await response.json() };
     }, { path, body });
   }
+  async function waitForProbe(signal) {
+    let timer;
+    try { await Promise.race([signal, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Genuine planning probe response did not arrive')), 20_000);
+    })]); } finally { clearTimeout(timer); }
+  }
   await page.goto(origin + '/data-hub/import');
   await page.getByRole('button', { name: 'Review worksheets in analysis-ready.xlsx', exact: true }).click();
   await page.getByRole('link', { name: 'Data (worksheet 1) — review and count', exact: true }).click();
@@ -128,7 +134,8 @@ try {
   };
   page.on('request', observeExecution);
   await planningSection.getByRole('button', { name: 'Load planning choices', exact: true }).click();
-  await planningSection.getByRole('checkbox', { name: 'Present values — Amount (field 2)', exact: true }).check();
+  const planningMeasure = planningSection.getByRole('checkbox', { name: 'Present values — Amount (field 2)', exact: true });
+  await planningMeasure.focus(); await planningMeasure.press('Space'); await expect(planningMeasure).toBeChecked();
   // Delay an otherwise genuine response to prove sibling save/count controls lock.
   let releasePlan, planArrived;
   const heldResponse = new Promise(done => { releasePlan = done; });
@@ -141,7 +148,7 @@ try {
   await page.route(planningUrl, delayPlan);
   try {
     await planningSection.getByRole('button', { name: 'Plan selected requests', exact: true }).click();
-    await arrival;
+    await waitForProbe(arrival);
     await expect(page.getByRole('button', { name: 'Count rows', exact: true })).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Save review', exact: true })).toBeDisabled();
   } finally { releasePlan(); }
@@ -155,7 +162,7 @@ try {
   await page.setViewportSize({ width: 1280, height: 900 });
   evidence.checks.push('Real catalog GET and selected-plan POST: row and present descriptions, session scope, sibling control lock, no count/save calls, identical review history, mobile fit');
   // These are deliberate transport contract probes after the genuine flow above.
-  for (const kind of ['invalid-json', 'foreign', 'revision', 'extra', 'unknown-error']) {
+  for (const kind of ['invalid-json', 'foreign', 'revision', 'extra', 'unknown-error', 'too-large', 'wrong-content-type']) {
     let requests = 0;
     const corruptPlan = async route => {
       if (route.request().method() !== 'POST') { await route.continue(); return; }
@@ -163,6 +170,8 @@ try {
       const actual = await route.fetch();
       if (actual.status() !== 200) throw new Error('Planning probe requires genuine success');
       if (kind === 'invalid-json') { await route.fulfill({ response: actual, body: 'private-planning-probe' }); return; }
+      if (kind === 'too-large') { await route.fulfill({ response: actual, body: ' '.repeat(1_048_577) }); return; }
+      if (kind === 'wrong-content-type') { await route.fulfill({ response: actual, contentType: 'text/html', body: 'private-planning-probe' }); return; }
       if (kind === 'unknown-error') { await route.fulfill({ response: actual, status: 503, json: { ok: false, code: 'private-planning-probe' } }); return; }
       const payload = await actual.json();
       if (kind === 'foreign') payload.plans[0].context.uploadId = 'other-worksheet';
@@ -185,9 +194,49 @@ try {
     await planningSection.getByRole('button', { name: 'Plan selected requests', exact: true }).click();
     await expect(planningSection.getByText(plannedMessage, { exact: true })).toBeVisible();
   }
+  for (const kind of ['cancel', 'timeout', 'navigate']) {
+    let releaseResponse, responseArrived; let requests = 0;
+    const waiting = new Promise(done => { releaseResponse = done; });
+    const arrived = new Promise(done => { responseArrived = done; });
+    const delayCatalog = async route => {
+      requests++; const actual = await route.fetch(); responseArrived(); await waiting;
+      // A browser may have discarded the interception after explicit abort.
+      await route.fulfill({ response: actual }).catch(() => {});
+    };
+    await page.route(planningUrl, delayCatalog);
+    try {
+      await planningSection.getByRole('button', { name: 'Load planning choices', exact: true }).click(); await waitForProbe(arrived);
+      if (kind === 'navigate') {
+        await page.getByRole('link', { name: 'Back to Data Hub imports', exact: true }).click();
+        await expect(page).toHaveURL(origin + '/data-hub/import');
+      } else {
+        if (kind === 'cancel') await planningSection.getByRole('button', { name: 'Cancel planning', exact: true }).click();
+        await expect(planningSection.getByRole('alert')).toContainText(kind === 'cancel' ? 'REQUEST_CANCELLED' : 'REQUEST_TIMED_OUT', { timeout: 20_000 });
+        await expect(page.getByRole('button', { name: 'Count rows', exact: true })).toBeEnabled();
+        await expect(planningSection.getByRole('region', { name: 'Planned requests', exact: true })).toHaveCount(0);
+        if (kind === 'timeout') {
+          await page.setViewportSize({ width: 390, height: 844 });
+          if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error('Timeout recovery overflows mobile viewport');
+          await page.screenshot({ path: resolve(directory, 'planning-timeout-mobile.png'), fullPage: true });
+          await page.setViewportSize({ width: 1280, height: 900 });
+        }
+      }
+      if (requests !== 1) throw new Error('Aborted planning automatically retried');
+    } finally { releaseResponse(); await page.unroute(planningUrl, delayCatalog); }
+    if (kind === 'navigate') await open(ready.uploadId);
+    await planningSection.getByRole('button', { name: 'Load planning choices', exact: true }).click();
+    await planningSection.getByRole('checkbox', { name: 'Present values — Amount (field 2)', exact: true }).check();
+    const planButton = planningSection.getByRole('button', { name: 'Plan selected requests', exact: true });
+    await planButton.focus(); await planButton.press('Enter');
+    await expect(planningSection.getByText(plannedMessage, { exact: true })).toBeVisible();
+  }
   page.off('request', observeExecution);
   if (executions !== 0) throw new Error('Planning probes called count or save');
-  evidence.checks.push('Five deliberately corrupted planning replies rejected; previous choices/plans cleared, no diagnostics or automatic retry, explicit genuine reload and selection recover');
+  evidence.checks.push('Seven deliberately corrupted planning replies rejected, including oversized and non-JSON bodies; prior choices/plans clear, explicit genuine recovery');
+  evidence.checks.push('Genuine catalog responses delayed for cancellation, 15-second timeout and navigation: locks release, late replies discarded, no automatic retry/count/save; keyboard selections and Enter submission recover');
+  // Navigation clears the pre-existing measure choice; restore it for the
+  // independent count-response probes below.
+  await page.getByLabel('Measure to count', { exact: true }).selectOption(ready.col2);
   await page.setViewportSize({ width: 390, height: 844 });
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error('Review screen overflows mobile viewport');
   await page.screenshot({ path: resolve(directory, 'counts-mobile.png'), fullPage: true });
@@ -269,6 +318,30 @@ try {
   await expect(page.getByRole('heading', { name: 'Saved review 1', exact: true })).toBeVisible();
   evidence.checks.push('Real timed-out database save: no duplicate append, retry disabled until reload, saved review recovered');
 
+  // Another explicit review append after discovery must invalidate the open
+  // screen's selection, rather than silently adopting a newer revision.
+  await planningSection.getByRole('button', { name: 'Load planning choices', exact: true }).click();
+  await planningSection.getByRole('checkbox', { name: 'Present values — Amount (field 2)', exact: true }).check();
+  const reviewBody = { reviewVersion: 'v1', datasetProfileRunId: ready.datasetProfileRunId,
+    semanticChoices: [{ sourceSchemaColumnId: ready.col1, role: 'IDENTIFIER' }, { sourceSchemaColumnId: ready.col2, role: 'MEASURE' }], qualityDecisions: [] };
+  const previewUpdate = await api(endpoint(ready.uploadId) + '/analysis-review/plan', reviewBody);
+  if (previewUpdate.status !== 200) throw new Error('Concurrent review fixture preview failed');
+  reviewBody.qualityDecisions = previewUpdate.body.quality.items.map(item => ({ code: item.code, scope: item.scope,
+    ...(item.sourceSchemaColumnId ? { sourceSchemaColumnId: item.sourceSchemaColumnId } : {}),
+    decision: item.action === 'ACKNOWLEDGE_NOTICE' ? 'ACKNOWLEDGE' : 'CONTINUE' }));
+  const advanced = await api(endpoint(ready.uploadId) + '/analysis-review', reviewBody);
+  if (advanced.status !== 201 || advanced.body.revision !== 2) throw new Error('Concurrent explicit review did not advance');
+  await planningSection.getByRole('button', { name: 'Plan selected requests', exact: true }).click();
+  await expect(planningSection.getByRole('alert')).toContainText('REVIEW_REVISION_MISMATCH');
+  await expect(planningSection.getByRole('group', { name: 'Requests to plan', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Load current review', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Saved review 2', exact: true })).toBeVisible();
+  await planningSection.getByRole('button', { name: 'Load planning choices', exact: true }).click();
+  await planningSection.getByRole('button', { name: 'Plan selected requests', exact: true }).click();
+  await expect(planningSection.getByText('1 request planned from saved review 2. Counts have not been calculated.', { exact: true })).toBeVisible();
+  if ((await pool.query('SELECT count(*)::int AS n FROM data_hub_analysis_reviews WHERE upload_id=$1', [ready.uploadId])).rows[0].n !== 2) throw new Error('Planning after review change appended history');
+  evidence.checks.push('Real review advances after discovery: stale selection denied, choices clear, explicit review/catalog refresh plans revision 2 without extra append');
+
   await open(held.uploadId); await chooseMeanings(); await chooseQuality(true);
   await page.getByRole('button', { name: 'Save review', exact: true }).click();
   await expect(page.getByText('On hold for correction. Counts are unavailable.', { exact: true })).toBeVisible();
@@ -287,7 +360,7 @@ try {
   const stale = await api(endpoint(ready.uploadId) + '/analysis-review', { reviewVersion: 'v1', datasetProfileRunId: 'stale-profile', semanticChoices: [], qualityDecisions: [] });
   if (stale.status !== 409) throw new Error('Stale profile pin accepted');
   for (const body of [{ ...selection, datasetProfileRunId: 'obsolete-profile' },
-    { ...selection, selection: { ...selection.selection, expectedReviewRevision: 2 } }]) {
+    { ...selection, selection: { ...selection.selection, expectedReviewRevision: 999 } }]) {
     if ((await api(endpoint(ready.uploadId) + '/analysis-planning', body)).status !== 409) throw new Error('Stale planning pin accepted');
   }
   evidence.checks.push('Planning UI and direct requests enforce quality hold; obsolete profile and review pins return 409');

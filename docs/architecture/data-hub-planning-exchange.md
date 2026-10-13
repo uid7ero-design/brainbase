@@ -41,6 +41,11 @@ body limits and transport failures belong to the separately scoped
 [authenticated integration](data-hub-planning-integration.md). This is not a
 general JavaScript sandbox or transport implementation.
 
+The current browser adapter bounds decoded response bytes and request lifetime,
+and supports explicit cancellation. Its timeout/cancellation references are
+local transport outcomes. They are deliberately outside the wire-denial
+allowlist; an unexpected server code still fails closed JSON admission.
+
 ## Catalog success
 
 The root is exactly `{ ok: true, catalog }`. The catalog contains only

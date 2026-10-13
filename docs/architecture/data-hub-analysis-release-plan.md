@@ -297,3 +297,23 @@ transport to local PostgreSQL and uses synthetic already-profiled worksheets;
 hosted authenticated transport, ingestion and large-tenant load remain separate.
 See [integration contract](data-hub-planning-integration.md). PR #419 remains
 unmerged under the existing Production/D4D5Q owner-verification release hold.
+
+The transport/recovery hardening bundle adds a browser-only one-MiB streamed
+JSON/UTF-8 limit, a 15-second deadline covering headers/body, explicit cancel,
+safe local feedback and cleanup of late response bodies. Deadline/cancel races
+release controls even when a transport ignores abort. Responses are rejected
+whole, with no truncated catalog or automatic retry/execution; very large
+catalogs need a separately scoped pagination design. Wire-denial admission is
+unchanged by the local timeout/cancel references.
+
+Acceptance passes 1,140 focused tests in 51 files, all 64 disposable PostgreSQL
+tests, TypeScript, changed-file lint, an optimized build and the fresh built-app
+journey. Genuine delayed responses prove cancellation, timeout and navigation
+recovery; keyboard selection/submission, mobile timeout feedback and seven
+intentional planning corruption probes also pass. A real review append between
+discovery/submission rejects the old selection, then explicit refresh plans the
+new revision without another append. Original history survives unchanged.
+Automated accessibility checks cover five states; screen-reader/color-contrast,
+hosted authenticated transport, real ingestion and larger workloads remain
+separate. Owned test resources are removed, D4D5Q is unchanged, and the existing
+Production release hold still applies. Planning remains descriptions only.

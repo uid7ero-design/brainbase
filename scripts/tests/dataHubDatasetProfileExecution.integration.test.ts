@@ -862,6 +862,15 @@ describe("D4D5Z authenticated review/count routes with real Postgres", () => {
     expect(await prisma.dataHubAnalysisReview.findMany({ where: { profile_run_id: w.f.context.datasetProfileRunId } })).toEqual(beforePlanning);
     const records = await prisma.dataHubAnalysisReview.findMany({ where: { profile_run_id: w.f.context.datasetProfileRunId } });
     expect(records).toHaveLength(1); expect(records[0].reviewed_by_id).toBe(w.f.ids.userId);
+    // A real append between discovery and selection invalidates the old pin.
+    const updated = await w.review.POST(w.post(w.body), w.context);
+    expect(updated.status).toBe(201); expect(await updated.json()).toEqual({ ok: true, revision: 2 });
+    const oldSelection = await w.requests.POST(w.post(selection), w.context);
+    expect(oldSelection.status).toBe(409); expect(await oldSelection.json()).toEqual({ ok: false, code: "REVIEW_REVISION_MISMATCH" });
+    const refreshed = await w.requests.POST(w.post({ ...selection, selection: { ...selection.selection, expectedReviewRevision: 2 } }), w.context);
+    expect(refreshed.status).toBe(200); expect(await refreshed.json()).toMatchObject({ ok: true, reviewRevision: 2 });
+    const afterUpdate = await prisma.dataHubAnalysisReview.findMany({ where: { profile_run_id: w.f.context.datasetProfileRunId }, orderBy: { revision: "asc" } });
+    expect(afterUpdate).toHaveLength(2); expect(afterUpdate[0]).toEqual(records[0]);
   });
   it.each(["missing", "tampered", "demoted", "inactive", "moved"])("denies %s sessions before planning, saving or counting", async kind => {
     const w = await routeWorld();

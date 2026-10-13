@@ -4,6 +4,7 @@ import type { LoadAnalysisReviewResult } from "@/lib/data-hub/analysisExecution/
 import type { ReviewedProfileCountRequestCatalog } from "@/lib/data-hub/analysis/reviewedProfileCountCatalog";
 import { parsePlanningCatalogJson, parsePlanningSelectionJson, type PlanningSelectionResponse } from "@/lib/data-hub/analysis/planningExchange";
 import { analysisFailureReference } from "@/lib/data-hub/analysis/failureReference";
+import { fetchPlanningText } from "@/lib/data-hub/client/planningTransport";
 
 type Review = Extract<LoadAnalysisReviewResult, { ok: true }>;
 type Props = { uploadId: string; review: Review; fieldLabels: { sourceSchemaColumnId: string; label: string }[];
@@ -43,17 +44,19 @@ export default function ProfilePlanningClient({ uploadId, review, fieldLabels, d
     setPlans(null); setError(""); setBusy(true); onBusyChange(true);
     if (kind === "catalog") { setCatalog(null); setIds([]); setRows(true); }
     try {
-      const response = await fetch(`/api/data-hub/worksheets/${encodeURIComponent(uploadId)}/analysis-planning`, {
-        method: kind === "catalog" ? "GET" : "POST", cache: "no-store", signal: controller.signal,
+      const response = await fetchPlanningText(`/api/data-hub/worksheets/${encodeURIComponent(uploadId)}/analysis-planning`, {
+        method: kind === "catalog" ? "GET" : "POST", cache: "no-store",
         ...(kind === "selection" ? { headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ datasetProfileRunId: review.schema.context.datasetProfileRunId, selection }) } : {}),
-      });
-      const text = await response.text(); if (!current()) return;
+      }, controller);
+      if (!current()) return;
+      if (!response.ok) { clearFailure(response.code); return; }
+      const text = response.text;
       if (kind === "catalog") {
         const decoded = parsePlanningCatalogJson(text, { context: review.schema.context, reviewRevision: review.revision });
         if (!decoded.ok) clearFailure(decoded.code);
         else if (!decoded.response.ok) clearFailure(decoded.response.code);
-        else if (!response.ok) clearFailure("REQUEST_FAILED");
+        else if (!response.httpOk) clearFailure("REQUEST_FAILED");
         else if (decoded.response.catalog.readinessState !== review.quality.snapshot.state) clearFailure("PLANNING_RESPONSE_MISMATCH");
         else setCatalog(decoded.response.catalog);
       } else {
@@ -61,7 +64,7 @@ export default function ProfilePlanningClient({ uploadId, review, fieldLabels, d
           readinessState: catalog!.readinessState, selection });
         if (!decoded.ok) clearFailure(decoded.code);
         else if (!decoded.response.ok) clearFailure(decoded.response.code);
-        else if (!response.ok) clearFailure("REQUEST_FAILED");
+        else if (!response.httpOk) clearFailure("REQUEST_FAILED");
         else setPlans(decoded.response);
       }
     } catch { if (current()) clearFailure("REQUEST_FAILED"); }
@@ -72,8 +75,11 @@ export default function ProfilePlanningClient({ uploadId, review, fieldLabels, d
     <p>Choose the counts you intend to request. Planning does not calculate results or save a review.</p>
     {held ? <p>The saved review is on hold. Review the required corrections before planning.</p> : null}
     <button disabled={locked || held} onClick={() => void request("catalog")}>Load planning choices</button>
-    <p role="status" aria-live="polite">{busy ? "Preparing planning choices…" : ""}</p>
-    {error ? <div role="alert"><p>Planning could not be completed. Reload the current review and planning choices before trying again.</p>
+    <p role="status" aria-live="polite">{busy ? "Preparing planning requests…" : ""}</p>
+    {busy ? <button onClick={() => pending.current?.abort()}>Cancel planning</button> : null}
+    {error ? <div role="alert"><p>{error === "REQUEST_TIMED_OUT" ? "Planning took too long. Reload choices before trying again."
+      : error === "REQUEST_CANCELLED" ? "Planning was canceled. Reload choices to continue."
+      : "Planning could not be completed. Reload the current review and planning choices before trying again."}</p>
       <p>Reference: {error}</p></div> : null}
     {!disabled && catalog ? <fieldset disabled={locked}><legend>Requests to plan</legend>
       <label style={{ display: "block", margin: "8px 0" }}><input type="checkbox" checked={rows}
@@ -88,7 +94,7 @@ export default function ProfilePlanningClient({ uploadId, review, fieldLabels, d
       <button disabled={locked || requestCount === 0} onClick={() => void request("selection")}>Plan selected requests</button>
     </fieldset> : null}
     {!disabled && plans ? <section aria-label="Planned requests"><h3>Planned requests</h3>
-      <p role="status">{plans.plans.length} requests planned from saved review {plans.reviewRevision}. Counts have not been calculated.</p>
+      <p role="status">{plans.plans.length} {plans.plans.length === 1 ? "request" : "requests"} planned from saved review {plans.reviewRevision}. Counts have not been calculated.</p>
       <ol>{plans.plans.map((plan, index) => <li key={index}>{plan.snapshot.operation === "ROW_COUNT" ? "Row count"
         : `Present values — ${label(plan.snapshot.sourceSchemaColumnId, index)}`}</li>)}</ol>
     </section> : null}

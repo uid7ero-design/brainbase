@@ -6,7 +6,7 @@ describe("analysis failure display boundary", () => {
     "QUALITY_HOLD", "COUNT_RESPONSE_INVALID", "COUNT_RESPONSE_MISMATCH", "RESPONSE_INVALID",
     "REVIEW_SAVE_FAILED", "PROFILE_COUNTS_INVALID", "PROFILE_PLAN_VERSION_UNSUPPORTED", "READINESS_CATALOG_INVALID", "REVIEW_REVISION_INVALID",
     "REVIEW_REVISION_MISMATCH", "PROFILE_BUNDLE_INVALID", "PROFILE_SELECTION_INVALID",
-    "PLANNING_RESPONSE_INVALID", "PLANNING_RESPONSE_MISMATCH"])("preserves recognized reference %s", code => {
+    "PLANNING_RESPONSE_INVALID", "PLANNING_RESPONSE_MISMATCH", "REQUEST_CANCELLED", "REQUEST_TIMED_OUT"])("preserves recognized reference %s", code => {
     expect(analysisFailureReference(code)).toBe(code);
   });
   it.each([undefined, null, false, 503, {}, [], new Error("private-diagnostic"),

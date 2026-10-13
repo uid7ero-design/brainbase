@@ -71,8 +71,23 @@ and prevent an older request from unlocking newer work. Save/count/review
 controls are locked during planning. A newer count lineage hides old planning
 until the saved review is refreshed.
 
+The browser transport requires JSON content type and fatal UTF-8 decoding,
+counting actual streamed bytes up to 1 MiB. An oversized or non-JSON response
+is rejected as a whole; catalog entries are never silently truncated. Content-
+Length cannot override the limit. Very large catalogs may therefore require a
+separately designed pagination contract; this package adds no pagination or
+performance guarantee.
+
+One 15-second deadline covers both response headers and body consumption. A
+visible Cancel planning action aborts pending work. Deadline/cancellation races
+release controls even if a transport ignores abort; late work has no UI callback
+and cannot replace recovered choices. Timeout and cancellation clear prior
+choices/plans and require explicit recovery, with no retry, count or save. Safe
+local references are `REQUEST_TIMED_OUT` and `REQUEST_CANCELLED`; these are
+transport outcomes, not new wire-planner denials or execution authority.
+
 The child inherits the existing client boundary and imports server result types
-only. Runtime imports are pure contracts. Controls use labels, a fieldset,
+only. Runtime imports are pure contracts and a browser transport module. Controls use labels, a fieldset,
 status/alert regions, and wrapping layout for narrow screens.
 
 ## Acceptance and release boundary
@@ -95,7 +110,7 @@ PR #419 stays unmerged because main auto-deploys. Production, migration executio
 outside the owned test database, AI, new analytical execution and release require
 separate authority. See [release plan](data-hub-analysis-release-plan.md).
 
-Local acceptance for this integration candidate passed: 1,021 focused tests in
+The initial integration candidate passed: 1,021 focused tests in
 47 files; all 64 disposable PostgreSQL tests, including extended signed-session
 route assertions; TypeScript; changed-file lint; the optimized local Next.js
 build; and the built-app browser journey described above. The browser reported
@@ -104,3 +119,22 @@ planning and nine existing count response-corruption probes were deliberate;
 the baseline and recovery journeys used genuine HTTP replies. The owned test
 container was removed, and D4D5Q remains blob
 `cc7f948944b1f0bd772a140d33be901736c5ca26`.
+
+The transport/recovery hardening bundle passes 1,140 focused tests in 51 files,
+all 64 rerun disposable PostgreSQL tests, TypeScript, changed-file lint and an
+optimized build. The fresh built-app journey verifies genuine responses delayed
+through cancel, the 15-second deadline and navigation; late replies cannot
+replace explicitly recovered choices, and no automatic retry/count/save occurs.
+Seven deliberate planning corruption probes now include oversized and non-JSON
+bodies. Keyboard Space selects a measure and Enter submits its plan. Automated
+accessibility checks cover idle, selection, planned, pending and canceled states;
+they do not establish screen-reader or color-contrast acceptance. Planning and
+timeout recovery fit a 390-pixel viewport, with no browser page exceptions.
+
+A real explicit review append after discovery rejects the open screen's old
+selection. Refreshing review/catalog then plans revision 2 without another
+append; the original record remains unchanged. The owned container and
+disposable login fixture are removed, and D4D5Q content remains unchanged.
+Existing review/count/authorization/save-timeout regressions also pass. These
+receipts retain the isolated transport, ingestion, performance and release
+limits above.

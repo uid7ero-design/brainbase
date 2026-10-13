@@ -4,11 +4,13 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import ProfilePlanningClient from "@/app/data-hub/analysis/_components/ProfilePlanningClient";
 import { planningFixture } from "../helpers/dataHubPlanningFixture";
 import { buildReviewedProfileCountSelection } from "@/lib/data-hub/analysis/profileCountSelection";
+import { PLANNING_REQUEST_TIMEOUT_MS } from "@/lib/data-hub/client/planningTransport";
+import { axe } from "jest-axe";
 
 const fetchMock = vi.fn(); const busy = vi.fn();
 beforeEach(() => { vi.resetAllMocks(); vi.stubGlobal("fetch", fetchMock); });
-afterEach(() => { vi.unstubAllGlobals(); });
-const response = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+const response = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
 function view(f = planningFixture(), key = "initial") {
   return <ProfilePlanningClient key={key} uploadId="upload" review={f.review} fieldLabels={f.labels} disabled={false} onBusyChange={busy} />;
 }
@@ -18,6 +20,42 @@ async function load() {
   await waitFor(() => expect(screen.getByRole("button", { name: "Plan selected requests" })).toBeEnabled());
 }
 describe("planning controls and request lifetimes", () => {
+  it("releases busy controls on timeout without requiring the network to honor abort", async () => {
+    vi.useFakeTimers(); fetchMock.mockImplementationOnce(() => new Promise(() => {}));
+    render(view()); fireEvent.click(screen.getByRole("button", { name: "Load planning choices" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(PLANNING_REQUEST_TIMEOUT_MS); });
+    expect(screen.getByRole("alert")).toHaveTextContent("REQUEST_TIMED_OUT");
+    expect(screen.getByRole("button", { name: "Load planning choices" })).toBeEnabled();
+    expect(busy).toHaveBeenLastCalledWith(false); expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it("cancels pending work immediately and ignores its late response after explicit recovery", async () => {
+    const f = planningFixture(); let done!: (value: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>(resolve => { done = resolve; }));
+    render(view(f)); fireEvent.click(screen.getByRole("button", { name: "Load planning choices" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel planning" }));
+    await screen.findByRole("alert"); expect(screen.getByRole("alert")).toHaveTextContent("REQUEST_CANCELLED");
+    expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true); expect(busy).toHaveBeenLastCalledWith(false);
+    fetchMock.mockResolvedValueOnce(response(f.catalog())); await load();
+    const foreign = f.catalog(); if (foreign.ok) foreign.catalog.context.uploadId = "foreign";
+    await act(async () => { done(response(foreign)); });
+    expect(screen.getByRole("group", { name: "Requests to plan" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument(); expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+  it("has accessible idle, selection and planned states", async () => {
+    const f = planningFixture(); fetchMock.mockResolvedValueOnce(response(f.catalog())).mockResolvedValueOnce(response(f.planned()));
+    const { container } = render(view(f)); expect(await axe(container)).toHaveNoViolations();
+    await load(); expect(await axe(container)).toHaveNoViolations();
+    fireEvent.click(screen.getByLabelText("Present values — Amount (field 1)"));
+    fireEvent.click(screen.getByRole("button", { name: "Plan selected requests" }));
+    await screen.findByRole("region", { name: "Planned requests" }); expect(await axe(container)).toHaveNoViolations();
+  });
+  it("has accessible pending cancellation and recovery feedback", async () => {
+    fetchMock.mockImplementationOnce(() => new Promise(() => {}));
+    const { container } = render(view()); fireEvent.click(screen.getByRole("button", { name: "Load planning choices" }));
+    expect(await axe(container)).toHaveNoViolations();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel planning" }));
+    await screen.findByRole("alert"); expect(await axe(container)).toHaveNoViolations();
+  });
   it("loads choices and submits only the profile pin/selection; planning never calls counts or saves", async () => {
     const f = planningFixture(); fetchMock.mockResolvedValueOnce(response(f.catalog())).mockResolvedValueOnce(response(f.planned()));
     render(view(f)); expect(fetchMock).not.toHaveBeenCalled();
