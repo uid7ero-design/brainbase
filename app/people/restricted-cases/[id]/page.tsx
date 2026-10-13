@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { use, useEffect, useMemo, useState } from 'react';
+import { use, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Badge,
   FormError,
@@ -40,10 +40,15 @@ export default function RestrictedCaseDetailPage({ params }: { params: Promise<{
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionError, setActionError] = useState('');
+  const readGeneration = useRef(0);
 
   async function load() {
+    const generation = ++readGeneration.current;
     setLoading(true);
     setError('');
+    setCaseRecord(null); setParticipants([]); setNotes([]); setDocuments([]);
+    setPeople([]); setUsers([]); setCanManage(false);
+    try {
     const [caseRes, participantsRes, notesRes, docsRes, peopleRes, adminsRes] = await Promise.all([
       fetch(`/api/hr/restricted-cases/${id}`),
       fetch(`/api/hr/restricted-cases/${id}/participants`),
@@ -53,39 +58,47 @@ export default function RestrictedCaseDetailPage({ params }: { params: Promise<{
       fetch('/api/hr/administrators'),
     ]);
 
-    if (!caseRes.ok) {
-      const data = await caseRes.json().catch(() => ({}));
-      setError(data.error ?? 'Could not load restricted HR case.');
-      setLoading(false);
-      return;
-    }
+    if (!caseRes.ok || !participantsRes.ok || !notesRes.ok || !docsRes.ok) throw new Error('Unavailable');
 
     const caseData = await caseRes.json();
-    setCaseRecord(caseData.case ?? null);
-
-    if (participantsRes.ok) setParticipants((await participantsRes.json()).participants ?? []);
-    if (notesRes.ok) setNotes((await notesRes.json()).notes ?? []);
-    if (docsRes.ok) setDocuments((await docsRes.json()).documents ?? []);
-    if (peopleRes.ok) setPeople((await peopleRes.json()).people ?? []);
+    const participantData = await participantsRes.json(), noteData = await notesRes.json(), documentData = await docsRes.json();
+    const peopleData = peopleRes.ok ? await peopleRes.json() : { people: [] };
+    const adminData = adminsRes.ok ? await adminsRes.json() : { users: [] };
+    if (caseData.case?.id !== id || typeof caseData.case?.title !== 'string'
+      || !Array.isArray(participantData.participants) || !Array.isArray(noteData.notes)
+      || !Array.isArray(documentData.documents) || !Array.isArray(peopleData.people) || !Array.isArray(adminData.users)) throw new Error('Invalid response');
+    if (generation !== readGeneration.current) return;
+    setCaseRecord(caseData.case); setParticipants(participantData.participants); setNotes(noteData.notes); setDocuments(documentData.documents); setPeople(peopleData.people);
     if (adminsRes.ok) {
-      const adminData = await adminsRes.json();
       setCanManage(true);
-      setUsers((adminData.users ?? []).filter((user: UserCandidate) => user.grant_eligible));
+      setUsers(adminData.users.filter((user: UserCandidate) => user.grant_eligible === true));
     } else {
       setCanManage(false);
       setUsers([]);
     }
-    setLoading(false);
+    } catch {
+      if (generation === readGeneration.current) setError('Could not load restricted HR case. Refresh to try again.');
+    } finally {
+      if (generation === readGeneration.current) setLoading(false);
+    }
   }
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when the case route id changes; load is intentionally local.
-  useEffect(() => { queueMicrotask(() => { load(); }); }, [id]);
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => { if (active) void load(); });
+    return () => {
+      active = false;
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- generation counter, not a DOM ref; invalidate every pending read.
+      readGeneration.current++;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when the case route id changes; load is intentionally local.
+  }, [id]);
 
   const personNames = useMemo(() => new Map(people.map(person => [person.id, `${person.first_name} ${person.last_name}`])), [people]);
 
   if (loading) return <StateMessage kind="loading" title="Loading restricted case…" size="page" />;
   if (error || !caseRecord) {
-    return <div style={{ maxWidth: 800 }}><Link href="/people/restricted-cases" style={backLink}>← Restricted Cases</Link><StateMessage kind="error" title={error || 'Restricted HR case not found.'} /></div>;
+    return <div style={{ maxWidth: 800 }}><Link href="/people/restricted-cases" style={backLink}>← Restricted Cases</Link><StateMessage kind="error" title={error || 'Restricted HR case not found.'} /><button type="button" {...buttonProps('secondary')} onClick={() => void load()}>Refresh</button></div>;
   }
 
   return (
