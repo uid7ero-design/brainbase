@@ -93,15 +93,17 @@ afterAll(async () => {
     for (const held of [false, true]) {
       const suffix = nextSuffix(held ? "browserhold" : "browserready");
       const ids = await seedWorld(suffix, ORG_A, [
-        { id: `${suffix}-r1`, sourceRowNumber: 2, col1: "ID-1", col2: held ? null : "0", col3: "2024-01-01", col4: "first" },
-        { id: `${suffix}-r2`, sourceRowNumber: 3, col1: "ID-2", col2: null, col3: "2024-01-02", col4: "second" },
-        { id: `${suffix}-r3`, sourceRowNumber: 4, col1: "ID-3", col2: held ? null : "5", col3: "2024-01-03", col4: "third" },
-      ]);
+        { id: `${suffix}-r1`, sourceRowNumber: 4, col1: "ID-1", col2: held ? null : "0", col3: "2024-01-01", col4: "first" },
+        { id: `${suffix}-r2`, sourceRowNumber: 5, col1: "ID-2", col2: null, col3: "2024-01-02", col4: "second" },
+        { id: `${suffix}-r3`, sourceRowNumber: 6, col1: "ID-3", col2: held ? null : "5", col3: "2024-01-03", col4: "third" },
+      ], { rawOnly: true });
       // Complete the persisted inventory metadata needed by the real listing
       // API; seedWorld's analysis-only fixtures intentionally omit it.
       await prisma.upload.update({ where: { id: ids.uploadId }, data: {
         worksheet_visibility: "visible", worksheet_is_empty: false, canonical_status: "AWAITING_CONFIRMATION",
       } });
+      const normalized = await normalizeRawFixture(ids);
+      if (normalized.status !== 200) throw new Error("browser fixture normalization failed");
       const profiled = await profileUploadDataset({ organisationId: ORG_A, uploadId: ids.uploadId, actorId: ids.userId });
       if (!profiled.ok) throw new Error("browser fixture profiling failed");
       await prisma.user.update({ where: { id: ids.userId }, data: { password_hash: await hash(password, 4) } });
@@ -139,7 +141,7 @@ interface SeedRow {
   col4: string; // STRING
 }
 
-async function seedWorld(suffix: string, org: string, rows: SeedRow[], opts: { corruptCol2NormalizedValueForRowId?: string } = {}) {
+async function seedWorld(suffix: string, org: string, rows: SeedRow[], opts: { corruptCol2NormalizedValueForRowId?: string; rawOnly?: boolean } = {}) {
   const userId = `user-${suffix}`;
   const wsId = `ws-${suffix}`;
   const svId = `sv-${suffix}`;
@@ -210,6 +212,10 @@ async function seedWorld(suffix: string, org: string, rows: SeedRow[], opts: { c
     );
   }
 
+  // In lifecycle proof, normalization must be performed by the real executor.
+  // normRunId is only a reserved fixture name here; read Upload's real pointer.
+  if (opts.rawOnly) return { userId, wsId, svId, col1, col2, col3, col4, profileId, pvId, batchId, uploadId, rawRunId, normRunId };
+
   // Real transform via the pure B2A transformRow -- never hand-computed,
   // so I/J's exact-value-preservation proofs are grounded in the REAL
   // normalization transform, not a test-only re-derivation.
@@ -260,6 +266,86 @@ async function seedWorld(suffix: string, org: string, rows: SeedRow[], opts: { c
 
   return { userId, wsId, svId, col1, col2, col3, col4, profileId, pvId, batchId, uploadId, rawRunId, normRunId };
 }
+
+async function normalizeRawFixture(ids: { userId: string; uploadId: string }) {
+  const { encrypt } = await import("@/lib/session");
+  const { NextRequest } = await import("next/server");
+  routeSessionToken = await encrypt({ userId: ids.userId, organisationId: ORG_A, role: "manager", name: "Lifecycle manager",
+    expiresAt: new Date(Date.now() + 60_000).toISOString() });
+  const route = await import("@/app/api/data-hub/worksheets/[id]/normalize/route");
+  return route.POST(new NextRequest("http://localhost/test", { method: "POST" }), { params: Promise.resolve({ id: ids.uploadId }) });
+}
+
+describe("Raw evidence to governed planning lifecycle", () => {
+  it("executes normalization, profiles, saves and plans with preserved raw evidence and replay-safe pointers", async () => {
+    const suffix = nextSuffix("lifecycle");
+    const ids = await seedWorld(suffix, ORG_A, [
+      { id: `${suffix}-r1`, sourceRowNumber: 4, col1: "0001", col2: "0", col3: "2024-01-01", col4: "PRIVATE_LIFECYCLE_MARKER" },
+      { id: `${suffix}-r2`, sourceRowNumber: 5, col1: "0002", col2: null, col3: "2024-01-02", col4: "second" },
+      { id: `${suffix}-r3`, sourceRowNumber: 6, col1: "0003", col2: "5", col3: "2024-01-03", col4: "third" },
+    ], { rawOnly: true });
+    const raw = await prisma.dataHubRawCell.findMany({ where: { organisation_id: ORG_A, raw_row: { upload_id: ids.uploadId } }, orderBy: { id: "asc" } });
+    expect((await prisma.upload.findUniqueOrThrow({ where: { id: ids.uploadId } })).normalization_run_id).toBeNull();
+    const normalized = await normalizeRawFixture(ids);
+    expect(normalized.status).toBe(200); expect(await normalized.json()).toMatchObject({ ok: true, status: "SUCCEEDED", rowCount: 3, cellCount: 12 });
+    const upload = await prisma.upload.findUniqueOrThrow({ where: { id: ids.uploadId } });
+    expect(upload.normalization_run_id).toBeTruthy(); expect(upload.normalized_by).toBe(ids.userId);
+    expect(await prisma.dataHubNormalizedCell.findFirst({ where: { raw_row_id: `${suffix}-r1`, source_schema_column_id: ids.col1 }, select: { normalized_value: true } }))
+      .toEqual({ normalized_value: "0001" });
+    expect(await prisma.dataHubNormalizedCell.findFirst({ where: { raw_row_id: `${suffix}-r1`, source_schema_column_id: ids.col2 }, select: { normalized_value: true } }))
+      .toEqual({ normalized_value: "0" });
+    const profiled = await profileUploadDataset({ organisationId: ORG_A, uploadId: ids.uploadId, actorId: ids.userId });
+    expect(profiled).toMatchObject({ ok: true, status: "SUCCEEDED", normalizationRunId: upload.normalization_run_id, rowCount: 3, columnCount: 4 });
+    if (!profiled.ok) throw new Error("lifecycle profile failed");
+    const context = { params: Promise.resolve({ id: ids.uploadId }) };
+    const review = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/route");
+    const preview = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/plan/route");
+    const planning = await import("@/app/api/data-hub/worksheets/[id]/analysis-planning/route");
+    const post = (value: unknown) => new Request("http://localhost/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) });
+    expect((await planning.GET(new Request("http://localhost/test"), context)).status).toBe(404);
+    const body = { reviewVersion: "v1", datasetProfileRunId: profiled.profileRunId,
+      semanticChoices: [{ sourceSchemaColumnId: ids.col1, role: "IDENTIFIER" }, { sourceSchemaColumnId: ids.col2, role: "MEASURE" }], qualityDecisions: [] as unknown[] };
+    const previewed = await preview.POST(post(body), context); expect(previewed.status).toBe(200);
+    const quality = await previewed.json();
+    body.qualityDecisions = quality.quality.items.map((item: { code: string; scope: string; sourceSchemaColumnId?: string; action: string }) => ({
+      code: item.code, scope: item.scope, ...(item.sourceSchemaColumnId ? { sourceSchemaColumnId: item.sourceSchemaColumnId } : {}),
+      decision: item.action === "ACKNOWLEDGE_NOTICE" ? "ACKNOWLEDGE" : "CONTINUE",
+    }));
+    expect((await review.POST(post(body), context)).status).toBe(201);
+    const planned = await planning.POST(post({ datasetProfileRunId: profiled.profileRunId,
+      selection: { selectionVersion: "v1", expectedReviewRevision: 1, includeRowCount: true, measureColumnIds: [ids.col2] } }), context);
+    expect(planned.status).toBe(200); const payload = await planned.json();
+    expect(payload).toMatchObject({ ok: true, reviewRevision: 1, plans: [
+      { context: { normalizationRunId: upload.normalization_run_id, datasetProfileRunId: profiled.profileRunId }, snapshot: { operation: "ROW_COUNT" } },
+      { snapshot: { operation: "COUNT_PRESENT", sourceSchemaColumnId: ids.col2 } },
+    ] });
+    expect(JSON.stringify(payload)).not.toContain("PRIVATE_LIFECYCLE_MARKER"); expect(JSON.stringify(payload)).not.toContain('"count":');
+    expect((await normalizeRawFixture(ids)).status).toBe(200);
+    expect(await profileUploadDataset({ organisationId: ORG_A, uploadId: ids.uploadId, actorId: ids.userId }))
+      .toMatchObject({ ok: true, reused: true, profileRunId: profiled.profileRunId });
+    expect(await prisma.dataHubNormalizationRun.count({ where: { upload_id: ids.uploadId } })).toBe(1);
+    expect(await prisma.dataHubDatasetProfileRun.count({ where: { upload_id: ids.uploadId } })).toBe(1);
+    expect(await prisma.dataHubAnalysisReview.count({ where: { upload_id: ids.uploadId } })).toBe(1);
+    expect(await prisma.dataHubRawCell.findMany({ where: { organisation_id: ORG_A, raw_row: { upload_id: ids.uploadId } }, orderBy: { id: "asc" } })).toEqual(raw);
+  });
+  it("stops failed normalization before profile, review or planning and hides source diagnostics", async () => {
+    const suffix = nextSuffix("lifecyclestop");
+    const ids = await seedWorld(suffix, ORG_A, [
+      { id: `${suffix}-r1`, sourceRowNumber: 4, col1: "ID-1", col2: "PRIVATE_INVALID_DECIMAL", col3: "2024-01-01", col4: "private" },
+    ], { rawOnly: true });
+    const normalized = await normalizeRawFixture(ids); expect(normalized.status).toBe(422);
+    const denied = await normalized.json(); expect(denied).toMatchObject({ ok: false, status: "FAILED", code: "NORMALIZATION_BLOCKED" });
+    expect(JSON.stringify(denied)).not.toContain("PRIVATE_INVALID_DECIMAL");
+    expect(await prisma.dataHubNormalizationRun.findFirst({ where: { upload_id: ids.uploadId }, select: { status: true } })).toEqual({ status: "FAILED" });
+    expect(await profileUploadDataset({ organisationId: ORG_A, uploadId: ids.uploadId, actorId: ids.userId }))
+      .toEqual({ ok: false, code: "NORMALIZATION_NOT_COMPLETE" });
+    const planning = await import("@/app/api/data-hub/worksheets/[id]/analysis-planning/route");
+    const result = await planning.GET(new Request("http://localhost/test"), { params: Promise.resolve({ id: ids.uploadId }) });
+    expect((await result.json()).ok).toBe(false);
+    expect(await prisma.dataHubDatasetProfileRun.count({ where: { upload_id: ids.uploadId } })).toBe(0);
+    expect(await prisma.dataHubAnalysisReview.count({ where: { upload_id: ids.uploadId } })).toBe(0);
+  });
+});
 
 // ═══════════════════════════════════════════════════════════════════════
 // A. HAPPY PATH

@@ -102,6 +102,15 @@ append a correction.
 
 ## Verification and limits
 
+The repeatable [isolated acceptance package](data-hub-isolated-acceptance.md)
+builds a clean candidate, runs the owned database/browser proof and records
+commit/build/migration/artifact identities with confirmed cleanup. Its lifecycle
+fixtures now execute the existing normalization route and profiler from
+synthetic raw staging. It does not certify file upload/raw-staging execution,
+hosted transport or Production, and its receipt never grants release authority.
+Use `node scripts/tests/verify-datahub-analysis-acceptance.mjs` on a committed,
+clean checkout for the complete local package.
+
 Workflow validation on predecessor `d271fc52` passed: 49 failure-contract/review-screen tests, all 64
 disposable-Postgres integration tests, the built-app browser journey, TypeScript,
 changed-file lint and diff checks. The wider 2,265-test suite encountered

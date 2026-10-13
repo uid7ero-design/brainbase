@@ -138,3 +138,10 @@ disposable login fixture are removed, and D4D5Q content remains unchanged.
 Existing review/count/authorization/save-timeout regressions also pass. These
 receipts retain the isolated transport, ingestion, performance and release
 limits above.
+
+The subsequent [isolated acceptance package](data-hub-isolated-acceptance.md)
+extends fixtures through the real normalization executor before profiling and
+records a clean candidate's build, harness, artifacts and cleanup. This is
+synthetic raw evidence to planning acceptance; file ingestion and hosted
+transport remain unverified, and a local passing receipt does not authorize
+release.

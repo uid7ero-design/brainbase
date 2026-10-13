@@ -27,7 +27,8 @@ const freePort = () => new Promise((done, reject) => {
 });
 const pause = ms => new Promise(done => setTimeout(done, ms));
 let next, browser, nextLog = '';
-const evidence = { checks: [], transport: 'Local Neon transport; real application and PostgreSQL', productionTouched: false };
+const evidence = { checks: [], transport: 'Local Neon transport; real application and PostgreSQL', productionTouched: false,
+  fixturePreparation: 'Synthetic raw staging; existing normalization route and profiler service' };
 try {
   const port = await freePort();
   const origin = `http://127.0.0.1:${port}`;
