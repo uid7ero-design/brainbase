@@ -40,3 +40,27 @@ export function formatAustralianDate(iso: string): string {
   const [year, month, day] = iso.slice(0, 10).split('-');
   return `${day}/${month}/${year}`;
 }
+
+/** Validate API calendar text without normalising impossible dates or shifting timezones. */
+export function isFinanceCalendarDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  try { return australianDateToIso(formatAustralianDate(value)) === value; }
+  catch { return false; }
+}
+
+export function isFinanceAuditTimestamp(value: unknown): value is string {
+  return typeof value === 'string' && isFinanceCalendarDate(value.slice(0, 10))
+    && /^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.test(value)
+    && !Number.isNaN(new Date(value).getTime());
+}
+
+/** Audit instants retain the viewer's timezone and use Australian day-first notation. */
+export function formatAustralianTimestamp(value: string): string {
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return '—';
+  return instant.toLocaleString('en-AU', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+    timeZoneName: 'short',
+  });
+}

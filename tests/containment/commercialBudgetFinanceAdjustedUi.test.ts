@@ -125,7 +125,9 @@ describe('C7.9F — finance-adjusted Budgeting UI', () => {
     expect(html).toContain('$30.00');
     expect(html).toContain('$75.00');
     expect(html).toContain('$105.00');
-    expect((html.match(/—/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect((html.match(/Unavailable/g) ?? []).length).toBe(2);
+    expect(html).toContain('No identified snapshot');
+    expect(html).toContain('Ledger evidence incomplete');
     expect(html).not.toContain('data-reconciliation-status="STALE"');
   });
 

@@ -7,7 +7,7 @@ const overview = fs.readFileSync(path.resolve(process.cwd(), 'app/commercial/pag
 
 describe('C7.8D — Budget vs Actual vs Committed UI contract', () => {
   it('loads the governed combined consumption endpoint with only an explicit finance-source query', () => {
-    expect(page).toContain('fetch(`/api/commercial/budgeting/consumption${suffix}`)');
+    expect(page).toContain("fetch(`/api/commercial/budgeting/consumption${suffix}`, { cache: 'no-store' })");
     expect(page).toContain('?sourceSystemId=${encodeURIComponent(activeSourceSystemId)}');
     expect(page).not.toContain("fetch('/api/commercial/budgeting/commitments')");
   });
@@ -35,7 +35,7 @@ describe('C7.8D — Budget vs Actual vs Committed UI contract', () => {
   });
 
   it('keeps monetary summaries separated by currency', () => {
-    expect(page).toContain('const byCurrency = new Map');
+    expect(page).toContain('buildLegacyBudgetSummaries(filteredRows)');
     expect(page).toContain('summary.currency');
     expect(page).toContain('summary.actualCents');
     expect(page).toContain('summary.committedCents');

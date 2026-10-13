@@ -1,0 +1,20 @@
+.stateGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.stateGrid > * { min-width: 0; }
+@media (max-width: 1000px) { .stateGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .stateGrid { grid-template-columns: minmax(0, 1fr); } }
+
+.sourceSelect { min-width: 0; max-width: 100%; }
+
+.reviewNotice { margin-bottom: 12px; color: var(--text-muted); font-size: 12px; }
+.filterNotice { color: var(--status-warning); font-size: 12px; margin: 12px 0 0; }
+
+.summaryGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 12px; }
+.summaryCard { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; min-width: 0; }
+.summaryMeasure { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; margin-top: 8px; font-size: 12px; }
+.summaryMeasure span { color: var(--text-muted); }
+.summaryMeasure strong { overflow-wrap: anywhere; }

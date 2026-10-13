@@ -50,6 +50,22 @@
   margin: 24px 0 16px;
 }
 
+.activationConfirmation {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+.activationConfirmation p {
+  margin: 12px 0;
+}
+
+.activationConfirmation h3 {
+  margin-top: 0;
+  font-size: 0.875rem;
+}
+
 .mappingSetup {
   margin-top: 24px;
   scroll-margin-top: 96px;
@@ -85,6 +101,17 @@
 
 .activationReview li + li {
   margin-top: 8px;
+}
+
+.activationLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 8px;
+}
+
+.navigationTarget {
+  scroll-margin-top: 96px;
 }
 
 .budgetReview {
@@ -218,4 +245,28 @@
     width: 100%;
     min-width: 0;
   }
+}
+
+.reviewActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.reloadControls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0;
+}
+.reloadControls p {
+  flex: 1 1 240px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.allocationCalendar p {
+  margin: 12px 0;
 }

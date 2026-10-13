@@ -1,7 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { buildLegacyBudgetSummaries, budgetBasisLabel, hasFinanceSnapshotIdentity, hasCompleteFinanceEvidence } from '@/lib/commercial/budgetReportSummaries';
+import { FinanceReportSummaries } from './FinanceReportSummaries';
+import { validBudgetReport, validFinanceQueue, validFinanceSources } from '@/lib/commercial/budgetReportingSnapshot';
+import { formatAustralianTimestamp } from '@/lib/commercial/financeSetupDisplay';
+import styles from './page.module.css';
 import { FinanceWorkflow } from '../../_components/FinanceWorkflow';
 import { fieldControlClassName, tableStyles } from '@/components/ui/app';
 import { formatMoneyCents, formatMoneyCentsExact } from '@/lib/commercial/money';
@@ -249,31 +254,48 @@ export default function BudgetCommitmentsPage() {
   const [sourceSystemIds, setSourceSystemIds] = useState<string[]>([]);
   const [sourceSystemsError, setSourceSystemsError] = useState<string | null>(null);
   const [sourceSystemsRefreshKey, setSourceSystemsRefreshKey] = useState(0);
+  const [reportRefreshKey, setReportRefreshKey] = useState(0);
+  const [completedReportRead, setCompletedReportRead] = useState<string | null>(null);
+  const [completedQueueRead, setCompletedQueueRead] = useState<string | null>(null);
   const [selectedSourceSystemId, setSelectedSourceSystemId] = useState('');
   const [reconciliationQueue, setReconciliationQueue] = useState<FinanceReconciliationQueueEntry[]>([]);
   const [reconciliationQueueLoading, setReconciliationQueueLoading] = useState(true);
   const [reconciliationQueueError, setReconciliationQueueError] = useState<string | null>(null);
+  const sourceControl = useRef<HTMLSelectElement>(null);
+  const resultHeading = useRef<HTMLHeadingElement>(null);
+  const resultError = useRef<HTMLDivElement>(null);
+  const reviewRequested = useRef(false);
+  const sourceMissing = selectedSourceSystemId !== '' && !sourceSystemIds.includes(selectedSourceSystemId);
   const activeSourceSystemId = resolveBudgetFinanceSourceSystemId(
     sourceSystemIds,
     selectedSourceSystemId,
   );
+  const requestKey = `${reportRefreshKey}:${activeSourceSystemId ?? ''}:${sourceMissing}`;
+  const reportLoading = loading || completedReportRead !== requestKey;
+  const queueLoading = reconciliationQueueLoading || completedQueueRead !== requestKey;
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const res = await fetch('/api/commercial/budgeting/external-gl/sources');
-      if (cancelled) return;
-      if (!res.ok) {
-        setSourceSystemsError('Unable to load External GL sources.');
-        return;
+      try {
+        const res = await fetch('/api/commercial/budgeting/external-gl/sources', { cache: 'no-store' });
+        if (cancelled) return;
+        if (!res.ok) {
+          setSourceSystemsError('Unable to load External GL sources.');
+          return;
+        }
+        const data = await res.json() as { sourceSystemIds?: unknown };
+        if (cancelled) return;
+        if (!validFinanceSources(data?.sourceSystemIds)) {
+          setSourceSystemsError('Unable to load External GL sources.');
+          return;
+        }
+        setSourceSystemIds(data.sourceSystemIds);
+        setSourceSystemsError(null);
+        if (sourceSystemsRefreshKey > 0) setReportRefreshKey(current => current + 1);
+      } catch {
+        if (!cancelled) setSourceSystemsError('Unable to load External GL sources. Use Refresh sources to try again.');
       }
-      const data = await res.json() as { sourceSystemIds?: unknown };
-      if (!Array.isArray(data.sourceSystemIds)) {
-        setSourceSystemsError('Unable to load External GL sources.');
-        return;
-      }
-      setSourceSystemIds(data.sourceSystemIds.filter((value): value is string => typeof value === 'string'));
-      setSourceSystemsError(null);
     })();
     return () => {
       cancelled = true;
@@ -281,69 +303,105 @@ export default function BudgetCommitmentsPage() {
   }, [sourceSystemsRefreshKey]);
 
   useEffect(() => {
+    if (sourceMissing) return;
     let cancelled = false;
     (async () => {
-      const suffix = activeSourceSystemId
-        ? `?sourceSystemId=${encodeURIComponent(activeSourceSystemId)}`
-        : '';
-      const res = await fetch(`/api/commercial/budgeting/consumption${suffix}`);
-      if (cancelled) return;
-      if (!res.ok) {
-        setError(res.status === 403
-          ? 'Budgeting access is required to view Budget consumption.'
-          : 'Unable to load Budget vs Actual reporting.');
+      try {
+        const suffix = activeSourceSystemId
+          ? `?sourceSystemId=${encodeURIComponent(activeSourceSystemId)}`
+          : '';
+        const res = await fetch(`/api/commercial/budgeting/consumption${suffix}`, { cache: 'no-store' });
+        if (cancelled) return;
+        if (!res.ok) {
+          setError(res.status === 403
+            ? 'Budgeting access is required to view Budget consumption.'
+            : 'Unable to load Budget vs Actual reporting.');
+          setLoading(false);
+          return;
+        }
+        const data = await res.json();
+        if (cancelled) return;
+        const next = data?.report;
+        if (!validBudgetReport(next, activeSourceSystemId)) {
+          throw new Error('Incomplete report');
+        }
+        setReport(next);
+        setError(null);
         setLoading(false);
-        return;
+      } catch {
+        if (cancelled) return;
+        setError('Unable to load Budget vs Actual reporting. Reload the report to try again.');
+        setLoading(false);
+      } finally {
+        if (!cancelled) setCompletedReportRead(requestKey);
       }
-      const data = await res.json();
-      setReport(data.report ?? null);
-      setError(null);
-      setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [activeSourceSystemId]);
+  }, [activeSourceSystemId, reportRefreshKey, requestKey, sourceMissing]);
 
   useEffect(() => {
+    if (sourceMissing) return;
     let cancelled = false;
     (async () => {
-      const suffix = activeSourceSystemId
-        ? `?sourceSystemId=${encodeURIComponent(activeSourceSystemId)}`
-        : '';
-      const res = await fetch(`/api/commercial/budgeting/reconciliations${suffix}`, {
-        cache: 'no-store',
-      });
-      if (cancelled) return;
-      if (!res.ok) {
-        setReconciliationQueueError(
-          res.status === 403
-            ? 'Budgeting access is required to view finance reconciliation items.'
-            : 'Unable to load the finance reconciliation queue.',
-        );
-        setReconciliationQueue([]);
-        setReconciliationQueueLoading(false);
-        return;
-      }
+      try {
+        const suffix = activeSourceSystemId
+          ? `?sourceSystemId=${encodeURIComponent(activeSourceSystemId)}`
+          : '';
+        const res = await fetch(`/api/commercial/budgeting/reconciliations${suffix}`, {
+          cache: 'no-store',
+        });
+        if (cancelled) return;
+        if (!res.ok) {
+          setReconciliationQueueError(
+            res.status === 403
+              ? 'Budgeting access is required to view finance reconciliation items.'
+              : 'Unable to load the finance reconciliation queue.',
+          );
+          setReconciliationQueue([]);
+          setReconciliationQueueLoading(false);
+          return;
+        }
 
-      const data = await res.json() as { reconciliations?: unknown };
-      if (!Array.isArray(data.reconciliations)) {
-        setReconciliationQueueError('Unable to load the finance reconciliation queue.');
-        setReconciliationQueue([]);
-        setReconciliationQueueLoading(false);
-        return;
-      }
+        const data = await res.json() as { reconciliations?: unknown };
+        if (cancelled) return;
+        if (!validFinanceQueue(data?.reconciliations, activeSourceSystemId)) {
+          setReconciliationQueueError('Unable to load the finance reconciliation queue.');
+          setReconciliationQueue([]);
+          setReconciliationQueueLoading(false);
+          return;
+        }
 
-      setReconciliationQueue(data.reconciliations as FinanceReconciliationQueueEntry[]);
-      setReconciliationQueueError(null);
-      setReconciliationQueueLoading(false);
+        setReconciliationQueue(data.reconciliations as FinanceReconciliationQueueEntry[]);
+        setReconciliationQueueError(null);
+        setReconciliationQueueLoading(false);
+      } catch {
+        if (cancelled) return;
+        setReconciliationQueueError('Unable to load the finance reconciliation queue. Reload the report to try again.');
+        setReconciliationQueueLoading(false);
+      } finally {
+        if (!cancelled) setCompletedQueueRead(requestKey);
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [activeSourceSystemId]);
+  }, [activeSourceSystemId, reportRefreshKey, requestKey, sourceMissing]);
+
+  function reloadReport() {
+    if (sourceMissing) return;
+    reviewRequested.current = true;
+    setLoading(true);
+    setError(null);
+    setReconciliationQueueLoading(true);
+    setReconciliationQueueError(null);
+    setReportRefreshKey(current => current + 1);
+  }
 
   function selectSourceSystem(value: string) {
+    if (value === selectedSourceSystemId || (value !== '' && !sourceSystemIds.includes(value))) return;
+    reviewRequested.current = true;
     setLoading(true);
     setError(null);
     setReconciliationQueueLoading(true);
@@ -370,29 +428,7 @@ export default function BudgetCommitmentsPage() {
     [reconciliationQueue],
   );
 
-  const summaries = useMemo(() => {
-    const byCurrency = new Map<string, {
-      budgetCents: number;
-      actualCents: number;
-      committedCents: number;
-      exposureCents: number;
-      remainingCents: number;
-    }>();
-    for (const row of filteredRows) {
-      const current = byCurrency.get(row.currency) ?? {
-        budgetCents: 0, actualCents: 0, committedCents: 0, exposureCents: 0, remainingCents: 0,
-      };
-      current.budgetCents += row.budgetCents;
-      current.actualCents += row.actualCents;
-      current.committedCents += row.committedCents;
-      current.exposureCents += row.exposureCents;
-      current.remainingCents += row.budgetLessActualAndCommittedCents;
-      byCurrency.set(row.currency, current);
-    }
-    return [...byCurrency.entries()]
-      .map(([currency, values]) => ({ currency, ...values }))
-      .sort((a, b) => a.currency.localeCompare(b.currency));
-  }, [filteredRows]);
+  const summaries = useMemo(() => buildLegacyBudgetSummaries(filteredRows), [filteredRows]);
 
   const filterOptions = useMemo(
     () => buildBudgetFilterOptions(rows, financeRows, filters.financialYearId),
@@ -413,15 +449,65 @@ export default function BudgetCommitmentsPage() {
     });
   }
 
-  if (loading) return (
+  const filterAvailability: Array<[keyof Filters, string, string[]]> = [
+    ['financialYearId', 'Financial year', financialYears.map(([id]) => id)],
+    ['financialPeriodId', 'Financial period', financialPeriods.map(([id]) => id)],
+    ['budgetAccountId', 'Budget account', accounts.map(([id]) => id)],
+    ['costCentreId', 'Cost centre', costCentres.map(([id]) => id)],
+    ['currency', 'Currency', currencies],
+  ];
+  const unavailableFilters = filterAvailability.filter(([key, , available]) =>
+    filters[key] !== 'ALL' && !available.includes(filters[key]));
+  function clearUnavailableFilters() {
+    setFilters(current => {
+      const next = { ...current };
+      for (const [key] of unavailableFilters) next[key] = 'ALL';
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    if (sourceMissing) sourceControl.current?.focus();
+  }, [sourceMissing]);
+
+  useEffect(() => {
+    if (reportLoading || sourceMissing || !reviewRequested.current) return;
+    reviewRequested.current = false;
+    const target = error ? resultError.current : resultHeading.current;
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView?.({ block: 'start' });
+  }, [reportLoading, sourceMissing, error]);
+
+  const sourceSelector = <FinanceSourceSelector
+    sourceSystemIds={sourceSystemIds}
+    selectedSourceSystemId={selectedSourceSystemId}
+    onChange={selectSourceSystem}
+    controlRef={sourceControl}
+    onRefresh={() => { reviewRequested.current = true; setSourceSystemsRefreshKey(current => current + 1); }}
+    error={sourceSystemsError}
+  />;
+
+  if (sourceMissing) return (
     <>
-      <div style={{ color: MUTED }}>Loading Budget vs Actual…</div>
+      {sourceSelector}
+      <div role="alert" style={{ color: 'var(--status-warning)', marginBottom: 12 }}>
+        The selected source is no longer available. Choose another source or BrainBase only, or refresh sources.
+      </div>
+      <BudgetExportControls legacyAvailable={false} financeAvailable={false} disabledReason="Choose an available source before reviewing or exporting this report." />
+    </>
+  );
+  if (reportLoading) return (
+    <>
+      {sourceSelector}
+      <div role="status" style={{ color: MUTED }}>Loading Budget vs Actual…</div>
       <BudgetExportControls legacyAvailable={false} financeAvailable={false} disabledReason="Report is still loading." />
     </>
   );
   if (error) return (
     <>
-      <div style={{ color: 'var(--status-danger)' }}>{error}</div>
+      {sourceSelector}
+      <div ref={resultError} tabIndex={-1} role="alert" style={{ color: 'var(--status-danger)', scrollMarginTop: 200 }}>{error}</div>
+      <button type="button" onClick={reloadReport} className={fieldControlClassName}>Reload report</button>
       <BudgetExportControls legacyAvailable={false} financeAvailable={false} disabledReason="Exports are unavailable because the report could not be loaded." />
     </>
   );
@@ -439,7 +525,7 @@ export default function BudgetCommitmentsPage() {
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
           <Link href="/commercial" style={{ color: 'var(--text-muted)' }}>Commercial</Link> / Budgeting
         </div>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Budget vs Actual vs Committed</h1>
+        <h1 ref={resultHeading} tabIndex={-1} style={{ fontSize: 24, fontWeight: 700, margin: 0, scrollMarginTop: 200 }}>Budget vs Actual vs Committed</h1>
         <p style={{ fontSize: 13, color: MUTED, margin: '7px 0 0' }}>
           Actuals use BrainBase&apos;s operational payable basis: POSTED supplier-bill lines recognised on posted_at.
           This is a Budget-management view, not statutory ledger or cash accounting.
@@ -447,28 +533,24 @@ export default function BudgetCommitmentsPage() {
       </div>
 
       <FinanceWorkflow current="reporting" setupHint={rows.length === 0 && financeRows.length === 0 ? 'No Budget rows are available. Check Finance setup for an active Budget and its lines and commitment mappings. Operational activity or ledger imports may still need to be added separately.' : undefined} />
-      <FinanceSourceSelector
-        sourceSystemIds={sourceSystemIds}
-        selectedSourceSystemId={activeSourceSystemId ?? ''}
-        onChange={selectSourceSystem}
-        onRefresh={() => setSourceSystemsRefreshKey(current => current + 1)}
-        error={sourceSystemsError}
-      />
+      {sourceSelector}
+      <button type="button" onClick={reloadReport} className={fieldControlClassName} style={{ marginBottom: 12 }}>Reload report</button>
       <BudgetExportControls
         legacyAvailable={rows.length > 0}
         financeAvailable={financeRows.length > 0}
         sourceSystemId={activeSourceSystemId}
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(180px, 1fr))', gap: 10, marginBottom: 18 }}>
+      <div role="status" className={styles.reviewNotice}>Report loaded. {activeSourceSystemId ? `Finance source: ${activeSourceSystemId}.` : 'BrainBase only; finance-adjusted rows exclude External GL evidence.'}</div>
+      <div className={styles.stateGrid}>
         <StateCard label="Resolved Actual lines" value={report.resolvedActualCount} tone="var(--status-info)" />
         <StateCard label="Resolved commitment lines" value={report.resolvedCommitmentCount} tone="var(--status-success)" />
         <StateCard label="Actual/Commitment exceptions" value={report.unresolvedExceptionCount}
           tone={report.unresolvedExceptionCount ? 'var(--status-warning)' : 'var(--status-success)'} />
         <StateCard
           label="Finance reconciliation items"
-          value={financeReconciliationItemCount}
-          tone={financeReconciliationItemCount ? 'var(--status-warning)' : 'var(--status-success)'}
+          value={queueLoading ? 'Loading…' : reconciliationQueueError ? 'Unavailable' : financeReconciliationItemCount}
+          tone={queueLoading ? MUTED : reconciliationQueueError ? 'var(--status-danger)' : financeReconciliationItemCount ? 'var(--status-warning)' : 'var(--status-success)'}
         />
       </div>
       <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 16, marginBottom: 18 }}>
@@ -484,6 +566,7 @@ export default function BudgetCommitmentsPage() {
           <Filter label="Currency" value={filters.currency}
             onChange={v => setFilter('currency', v)} options={currencies.map(v => [v, v])} />
         </div>
+        {unavailableFilters.length > 0 ? <p role="status" className={styles.filterNotice}>Some filters are no longer available in this report: {unavailableFilters.map(([, label]) => label).join(', ')}. <button type="button" onClick={clearUnavailableFilters} className={fieldControlClassName}>Clear unavailable filters</button></p> : null}
         <button onClick={() => setFilters(DEFAULT_FILTERS)} style={{
           marginTop: 12, border: `1px solid ${BORDER}`, background: 'transparent',
           color: MUTED, borderRadius: 7, padding: '6px 10px', cursor: 'pointer',
@@ -500,12 +583,12 @@ export default function BudgetCommitmentsPage() {
           </div>
         ) : (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(270px, 1fr))', gap: 12, marginBottom: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(270px, 100%), 1fr))', gap: 12, marginBottom: 14 }}>
               {summaries.map(summary => (
-                <div key={summary.currency} style={{
+                <div role="region" aria-label={`Resolved totals ${summary.currency} ${budgetBasisLabel(summary.taxBasis)}`} key={JSON.stringify([summary.currency, summary.taxBasis])} style={{
                   background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 16,
                 }}>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>{summary.currency}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>{summary.currency} · {budgetBasisLabel(summary.taxBasis)} · {summary.rowCount} report {summary.rowCount === 1 ? 'row' : 'rows'}</div>
                   <MoneyRow label="Budget" cents={summary.budgetCents} currency={summary.currency} />
                   <MoneyRow label="Actual" cents={summary.actualCents} currency={summary.currency} />
                   <MoneyRow label="Committed" cents={summary.committedCents} currency={summary.currency} />
@@ -517,7 +600,7 @@ export default function BudgetCommitmentsPage() {
               ))}
             </div>
 
-            <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', overflowX: 'auto' }}>
+            <div role="region" aria-label="Resolved Budget consumption" tabIndex={0} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', overflowX: 'auto' }}>
               <table className={tableStyles.table} style={{ minWidth: 1360 }}>
                 <thead><tr>
                   {[
@@ -536,13 +619,13 @@ export default function BudgetCommitmentsPage() {
                         <div style={sub}>{row.periodisationMode === 'PERIODISED'
                           ? row.financialPeriodName ?? row.financialPeriodId : 'Annual only'}</div></td>
                       <td><div>{row.currency}</div><div style={sub}>{row.taxBasis}</div></td>
-                      <td className={tableStyles.num}>{formatMoneyCents(row.budgetCents, row.currency)}</td>
-                      <td className={tableStyles.num}>{formatMoneyCents(row.actualCents, row.currency)}</td>
-                      <td className={tableStyles.num}>{formatMoneyCents(row.committedCents, row.currency)}</td>
-                      <td className={tableStyles.num} style={{ fontWeight: 700 }}>{formatMoneyCents(row.exposureCents, row.currency)}</td>
-                      <td className={tableStyles.num}>{formatMoneyCents(row.budgetLessActualCents, row.currency)}</td>
+                      <td className={tableStyles.num}>{formatMoneyCentsExact(BigInt(row.budgetCents), row.currency)}</td>
+                      <td className={tableStyles.num}>{formatMoneyCentsExact(BigInt(row.actualCents), row.currency)}</td>
+                      <td className={tableStyles.num}>{formatMoneyCentsExact(BigInt(row.committedCents), row.currency)}</td>
+                      <td className={tableStyles.num} style={{ fontWeight: 700 }}>{formatMoneyCentsExact(BigInt(row.exposureCents), row.currency)}</td>
+                      <td className={tableStyles.num}>{formatMoneyCentsExact(BigInt(row.budgetLessActualCents), row.currency)}</td>
                       <td className={tableStyles.num} style={{ fontWeight: 700 }}>
-                        {formatMoneyCents(row.budgetLessActualAndCommittedCents, row.currency)}
+                        {formatMoneyCentsExact(BigInt(row.budgetLessActualAndCommittedCents), row.currency)}
                       </td>
                       <td className={tableStyles.num}>
                         {row.actualLineCount} actual / {row.commitmentCount} committed
@@ -560,11 +643,12 @@ export default function BudgetCommitmentsPage() {
         )}
       </section>
 
+      <FinanceReportSummaries rows={filteredFinanceRows} />
       <FinanceAdjustedTable rows={filteredFinanceRows} />
 
       <FinanceReconciliationQueue
         reconciliations={reconciliationQueue}
-        loading={reconciliationQueueLoading}
+        loading={queueLoading}
         error={reconciliationQueueError}
         sourceSystemId={activeSourceSystemId}
       />
@@ -579,7 +663,7 @@ export default function BudgetCommitmentsPage() {
             No unresolved Actual or Commitment exceptions.
           </div>
         ) : (
-          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', overflowX: 'auto' }}>
+          <div role="region" aria-label="Actual and commitment exceptions" tabIndex={0} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', overflowX: 'auto' }}>
             <table className={tableStyles.table} style={{ minWidth: 1180 }}>
               <thead><tr>
                 {['Source', 'Exception', 'Purchase order', 'Source line', 'Period', 'Cost centre', 'Currency',
@@ -622,7 +706,9 @@ export function FinanceSourceSelector({
   onChange,
   onRefresh,
   error = null,
+  controlRef,
 }: {
+  controlRef?: React.Ref<HTMLSelectElement>;
   sourceSystemIds: string[];
   selectedSourceSystemId: string;
   onChange: (value: string) => void;
@@ -638,7 +724,9 @@ export function FinanceSourceSelector({
         Finance source
       </label>
       <select
+        ref={controlRef}
         id="budget-finance-source"
+        className={styles.sourceSelect}
         value={selectedSourceSystemId}
         onChange={event => onChange(event.target.value)}
         style={{
@@ -651,6 +739,7 @@ export function FinanceSourceSelector({
         }}
       >
         <option value="">BrainBase only (no External GL)</option>
+        {selectedSourceSystemId && !sourceSystemIds.includes(selectedSourceSystemId) ? <option value={selectedSourceSystemId} disabled>{selectedSourceSystemId} (unavailable)</option> : null}
         {sourceSystemIds.map(sourceSystemId => (
           <option key={sourceSystemId} value={sourceSystemId}>{sourceSystemId}</option>
         ))}
@@ -763,11 +852,11 @@ export function FinanceAdjustedTable({ rows }: { rows: FinanceRow[] }) {
           No finance-adjusted rows are available.
         </div>
       ) : (
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', overflowX: 'auto' }}>
+        <div role="region" aria-label="Finance-adjusted report" tabIndex={0} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', overflowX: 'auto' }}>
           <table className={tableStyles.table} style={{ minWidth: 1450 }}>
             <thead><tr>
               {[
-                'Budget account', 'Period', 'Currency', 'Budget', 'Source Actual', 'Finance Adjustments',
+                'Budget account', 'Period', 'Currency', 'Budget basis', 'Budget', 'Source Actual', 'Finance Adjustments',
                 'Effective Actual', 'Committed', 'Exposure', 'External GL Actual',
                 'Reconciliation Variance', 'Reconciliation',
               ].map(label => <th key={label} scope="col">{label}</th>)}
@@ -784,16 +873,17 @@ export function FinanceAdjustedTable({ rows }: { rows: FinanceRow[] }) {
                     <div style={sub}>{row.financialPeriodName}</div>
                   </td>
                   <td>{row.currency}</td>
-                  <td className={tableStyles.num}>{financeMoney(row.budgetCents, row.currency)}</td>
+                  <td>{budgetBasisLabel(row.taxBasis)}</td>
+                  <td className={tableStyles.num}>{row.taxBasis === null ? 'Unavailable' : financeMoney(row.budgetCents, row.currency)}</td>
                   <td className={tableStyles.num}>{financeMoney(row.sourceActualCents, row.currency)}</td>
                   <td className={tableStyles.num}>{financeMoney(row.financeAdjustmentCents, row.currency)}</td>
                   <td className={tableStyles.num} style={{ fontWeight: 700 }}>{financeMoney(row.effectiveActualCents, row.currency)}</td>
                   <td className={tableStyles.num}>{financeMoney(row.committedCents, row.currency)}</td>
                   <td className={tableStyles.num} style={{ fontWeight: 700 }}>{financeMoney(row.exposureCents, row.currency)}</td>
-                  <td className={tableStyles.num}>{nullableFinanceMoney(row.externalGlActualCents, row.currency)}</td>
-                  <td className={tableStyles.num}>{nullableFinanceMoney(row.reconciliationVarianceCents, row.currency)}</td>
+                  <td className={tableStyles.num}>{hasCompleteFinanceEvidence(row) ? nullableFinanceMoney(row.externalGlActualCents, row.currency) : 'Unavailable'}</td>
+                  <td className={tableStyles.num}>{hasCompleteFinanceEvidence(row) ? nullableFinanceMoney(row.reconciliationVarianceCents, row.currency) : 'Unavailable'}</td>
                   <td>
-                    {row.reconciliationStatus ? (
+                    {hasFinanceSnapshotIdentity(row) ? (
                       <span
                         data-reconciliation-status={row.reconciliationStatus}
                         style={{
@@ -808,7 +898,8 @@ export function FinanceAdjustedTable({ rows }: { rows: FinanceRow[] }) {
                       >
                         {row.reconciliationStatus}
                       </span>
-                    ) : '—'}
+                    ) : 'No identified snapshot'}
+                    {!hasCompleteFinanceEvidence(row) ? <div style={sub}>Ledger evidence incomplete</div> : null}
                     {row.reconciliationId ? (
                       <div data-reconciliation-id={row.reconciliationId} style={sub}>
                         Reconciliation {row.reconciliationId}
@@ -903,9 +994,10 @@ export function FinanceReconciliationQueue({
                 <SnapshotMeasure label="Effective Actual" value={financeMoney(reconciliation.brainbaseEffectiveActualCents, reconciliation.currency)} />
                 <SnapshotMeasure label="External GL" value={financeMoney(reconciliation.externalGlTotalCents, reconciliation.currency)} />
                 <SnapshotMeasure label="Variance" value={financeMoney(reconciliation.varianceCents, reconciliation.currency)} />
+                <SnapshotMeasure label="Prepared" value={formatAustralianTimestamp(reconciliation.preparedAt)} />
               </div>
 
-              <div style={{ overflowX: 'auto' }}>
+              <div role="region" aria-label={`Reconciliation details ${reconciliation.financialPeriodName} ${reconciliation.sourceSystemId} ${reconciliation.currency}`} tabIndex={0} style={{ overflowX: 'auto' }}>
                 <table className={tableStyles.table} style={{ minWidth: 1320 }}>
                   <thead><tr>
                     {[
@@ -1045,12 +1137,13 @@ function Filter({ label, value, onChange, options }: {
       borderRadius: 7, padding: '8px 9px',
     }}>
       <option value="ALL">All</option>
+      {value !== 'ALL' && !options.some(([id]) => id === value) ? <option value={value} disabled>Previously selected (unavailable)</option> : null}
       {options.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
     </select>
   </label>;
 }
-function StateCard({ label, value, tone }: { label: string; value: number; tone: string }) {
-  return <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 14 }}>
+function StateCard({ label, value, tone }: { label: string; value: number | string; tone: string }) {
+  return <div role="group" aria-label={label} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', padding: 14 }}>
     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{label}</div>
     <div style={{ fontSize: 26, fontWeight: 700, color: tone, marginTop: 4 }}>{value}</div>
   </div>;
@@ -1071,11 +1164,11 @@ function ExceptionBadge({ code }: { code: string }) {
 }
 
 function MoneyRow({ label, cents, currency, emphasis = false }: {
-  label: string; cents: number; currency: string; emphasis?: boolean;
+  label: string; cents: string; currency: string; emphasis?: boolean;
 }) {
-  return <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 7, fontSize: 13 }}>
+  return <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginTop: 7, fontSize: 13 }}>
     <span style={{ color: MUTED }}>{label}</span>
-    <span style={{ fontWeight: emphasis ? 700 : 500 }}>{formatMoneyCents(cents, currency)}</span>
+    <span style={{ fontWeight: emphasis ? 700 : 500, overflowWrap: 'anywhere' }}>{formatMoneyCentsExact(cents, currency)}</span>
   </div>;
 }
 const sub = { color: MUTED, fontSize: 10, marginTop: 3 };

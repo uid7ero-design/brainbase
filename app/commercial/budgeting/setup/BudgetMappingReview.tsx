@@ -8,10 +8,11 @@ type Props = {
   centres: Dimension[];
   draft: boolean;
   busy: boolean;
+  onRemove?: (centreId: string) => void;
   onEdit: (centreId: string) => void;
 };
 
-export default function BudgetMappingReview({ mappings, accounts, centres, draft, busy, onEdit }: Props) {
+export default function BudgetMappingReview({ mappings, accounts, centres, draft, busy, onEdit, onRemove }: Props) {
   const accountById = new Map(accounts.map(row => [row.id, row]));
   const centreById = new Map(centres.map(row => [row.id, row]));
   return <TableContainer label="Saved commitment mappings" minWidth={600} className={styles.mappingReview}>
@@ -23,7 +24,9 @@ export default function BudgetMappingReview({ mappings, accounts, centres, draft
         const issues = [!centre ? 'Cost centre unavailable' : !centre.active ? 'Cost centre inactive' : '', !account ? 'Account unavailable' : !account.active ? 'Account inactive' : ''].filter(Boolean);
         return <tr key={mapping.cost_centre_id}>
           <td>{centre?.code ?? 'Unavailable cost centre'}</td><td>{account?.code ?? 'Unavailable account'}</td><td>{issues.length ? issues.join('; ') : 'Active references'}</td>
-          {draft && <td><button {...buttonProps('secondary')} type="button" disabled={busy} aria-label={`Edit mapping ${centre?.code ?? 'unavailable cost centre'}`} onClick={() => onEdit(mapping.cost_centre_id)}>Edit</button></td>}
+          {draft && <td><div className={styles.reviewActions}><button {...buttonProps('secondary')} type="button" disabled={busy} aria-label={`Edit mapping ${centre?.code ?? 'unavailable cost centre'}`} onClick={() => onEdit(mapping.cost_centre_id)}>Edit</button>
+            {onRemove && <button {...buttonProps('secondary')} type="button" disabled={busy} aria-label={`Remove mapping ${centre?.code ?? 'unavailable cost centre'}`} onClick={() => onRemove(mapping.cost_centre_id)}>Remove</button>}
+          </div></td>}
         </tr>;
       }) : <tr><td colSpan={draft ? 4 : 3}>No commitment mappings saved.</td></tr>}</tbody>
     </table>
