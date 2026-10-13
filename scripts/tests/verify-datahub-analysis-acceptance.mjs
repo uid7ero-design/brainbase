@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from '
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createConnection } from 'node:net';
-import { ARTIFACTS, D4D5Q_BLOB, createAcceptanceReceipt } from './helpers/dataHubAcceptanceReceipt.mjs';
+import { ARTIFACTS, D4D5Q_BLOB, RECEIPT_VERSION, createAcceptanceReceipt } from './helpers/dataHubAcceptanceReceipt.mjs';
 
 // Fixed local target only. No env pull, configurable DB, deployment or release.
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -45,7 +45,7 @@ async function listenerClosed(log) {
 }
 try {
   mkdirSync(directory, { recursive: true });
-  record({ receiptVersion: 'v1', status: 'running', stage, startedAt, releaseAuthorized: false });
+  record({ receiptVersion: RECEIPT_VERSION, status: 'running', stage, startedAt, releaseAuthorized: false });
   if (process.argv.length !== 2) throw new Error('UNSUPPORTED_ARGUMENTS');
   if (!clean()) throw new Error('WORKTREE_DIRTY');
   if (existsSync(fixturePath)) throw new Error('TEST_FIXTURE_PENDING');
@@ -79,6 +79,6 @@ try {
   if (['owned-postgres-browser', 'cleanup-and-receipt'].includes(stage) && existsSync(fixturePath)) unlinkSync(fixturePath);
   const codes = ['UNSUPPORTED_ARGUMENTS', 'WORKTREE_DIRTY', 'TEST_FIXTURE_PENDING', 'MIGRATION_CONTENT_CHANGED', 'LOCAL_COMMAND_FAILED', 'CLEANUP_UNCONFIRMED', 'ACCEPTANCE_RECEIPT_INVALID'];
   const code = codes.includes(error?.message) ? error.message : 'ACCEPTANCE_FAILED';
-  record({ receiptVersion: 'v1', status: 'failed', candidateCommit, startedAt, completedAt: new Date().toISOString(), stage, code, releaseAuthorized: false });
+  record({ receiptVersion: RECEIPT_VERSION, status: 'failed', candidateCommit, startedAt, completedAt: new Date().toISOString(), stage, code, releaseAuthorized: false });
   console.error(`FAIL: isolated acceptance (${stage}, ${code}).`); process.exitCode = 1;
 }

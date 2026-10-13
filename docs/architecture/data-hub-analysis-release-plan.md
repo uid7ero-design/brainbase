@@ -105,9 +105,11 @@ append a correction.
 The repeatable [isolated acceptance package](data-hub-isolated-acceptance.md)
 builds a clean candidate, runs the owned database/browser proof and records
 commit/build/migration/artifact identities with confirmed cleanup. Its lifecycle
-fixtures now execute the existing normalization route and profiler from
-synthetic raw staging. It does not certify file upload/raw-staging execution,
-hosted transport or Production, and its receipt never grants release authority.
+fixtures now execute inspection and raw staging from synthetic XLSX bytes,
+then the existing normalization route and profiler. Setup storage is adapted
+to `InMemoryFileStore`; READY batches and governing metadata are seeded. It
+does not certify hosted upload/finalization, storage, schema selection, database
+transport or Production, and its receipt never grants release authority.
 Use `node scripts/tests/verify-datahub-analysis-acceptance.mjs` on a committed,
 clean checkout for the complete local package.
 
@@ -338,3 +340,15 @@ Loading/readiness still use full metadata; this is not database pagination or
 large-workload qualification. The acceptance package adds a real 51-measure
 fixture and paging mobile artifact, binding six artifacts in its receipt.
 The existing Production/migration-owner release hold remains in force.
+
+The subsequent [workbook lifecycle acceptance](data-hub-workbook-lifecycle-acceptance.md)
+bundle closes the synthetic raw-insert gap using actual XLSX parsing, inspection
+and staging before normalization/profiling. It corrects absent governed cells
+to explicit null without changing zero/false/empty-string semantics or any
+migration. Replay, physical blank rows, pinned continuation, storage/parser
+failures and pre-storage authorization are verified in the disposable database.
+Ready, held and wide browser fixtures now use this same chain, with persisted
+lineage verified before use. The v2 receipt records the setup storage seam and
+requires all three fixture worlds; earlier v1 raw-insert proof remains historical.
+The browser still starts after profiling. Hosted ingestion/transport and owner
+release prerequisites remain separate, and the Production hold is unchanged.

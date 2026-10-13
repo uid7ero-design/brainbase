@@ -1,31 +1,42 @@
 # Reproducible isolated Data Hub acceptance
 
-This package extends planning acceptance upstream through the existing
-normalization executor and profiler. It also records a repeatable local result
+This package extends planning acceptance upstream through workbook inspection,
+raw staging, the existing normalization executor and profiler. It records a repeatable local result
 against a clean candidate commit. It adds test/operational tooling, not an
 application endpoint, migration, analytical operation or release permission.
 
 ## What is exercised
 
-The fixture begins with governed schema/mapping metadata and synthetic raw
-staging records in the owned disposable database. A real signed manager session
-invokes the existing normalization route, including its executor, batch
+The fixture begins with seeded schema/mapping metadata, a READY import batch
+and synthetic XLSX bytes held in the setup-only `InMemoryFileStore`. A real
+signed manager session invokes the existing structural inspection route, which
+creates the canonical worksheet. The existing staging route verifies the byte
+hash, reads actual physical worksheet rows and commits raw evidence through the
+real batch/completion SQL functions. It then invokes normalization, including its executor, batch
 persistence and completion guards. The existing profiler then reads those real
 normalized records. Explicit semantic/quality decisions are saved through the
 review routes, and selected governed descriptions are planned with matching
 normalization/profile lineage.
 
 Acceptance checks preserved raw evidence, authenticated actor attribution,
-zero/null data, leading-zero identifiers, one normalization/profile run on
-replay, and one saved review. A blocking invalid decimal durably stops
+zero/null data, leading-zero identifiers, blank-row physical addresses, one
+staging/normalization/profile run on replay, and one saved review. Immediate
+continuation keeps the original mapping after its active pointer changes.
+Missing, changed and malformed bytes stop before downstream work; changed bytes
+on a resumed run retain partial evidence with a failed run and no completed
+upload pointer. Missing storage can recover explicitly. A blocking invalid decimal durably stops
 normalization; profiling/review/planning do not proceed and responses omit source
-diagnostics. Browser-ready/held fixtures now use these same real executor and
-profiler paths instead of directly inserting normalized records. The browser
+diagnostics. Browser-ready/held/wide fixtures use these same inspection,
+staging, executor and profiler paths. Before starting the browser, the runtime
+checks all three fixtures' persisted tenant, actor, mapping and run lineage,
+successful statuses and reconciled row/cell/column totals. The browser
 journey still begins after profiling; setup-time route/service proof and browser
 proof are distinct.
 
-The raw staging records are synthetic inserts. File upload, storage, workbook
-inspection, raw-staging execution and hosted Neon transport are not certified.
+File upload/finalization, hosted object storage, schema/mapping selection and
+hosted Neon transport are not certified. READY batches and governing metadata
+are seeded; their creation/activation flows are not exercised. Setup-only
+inspection/staging adapt the existing storage factory to in-memory bytes.
 No customer source values are used. Existing review/count/planning, timeout,
 cancellation, stale-pin, quality-hold and tenant/session acceptance still runs.
 
@@ -72,12 +83,15 @@ Generated output stays in ignored `test-results/datahub-runtime`:
 | `planning-timeout-mobile.png` | Explicit timeout recovery |
 | `planning-paging-mobile.png` | Cross-page selection and bounded measure choices |
 
-Each invocation replaces the latest receipt with `running`, then `passed` or
+Each invocation replaces the latest v2 receipt with `running`, then `passed` or
 `failed`. A failed run cannot leave an old passing receipt looking current.
 Failure records contain fixed stage/code metadata, not captured exception text
 or credentials. A just-generated login fixture is removed on failure; an
 earlier pending fixture is preserved. Successful receipts bind the six evidence
 artifacts by hash and deliberately project away diagnostics and actor data.
+The v2 receipt requires the current workbook preparation description, setup
+storage seam, verified fixture lineage and exactly three fixture worlds. Earlier
+raw-insert v1 receipts cannot satisfy the new acceptance input requirements.
 
 A passed receipt means this command's build and owned harness succeeded. It
 does not prove repository-wide CI, hosted behavior, tamper-proof provenance,
@@ -99,3 +113,8 @@ readiness, hosted authenticated acceptance and explicit release authorization.
 Main auto-deploys. PR #419 remains unmerged under that separate release hold.
 Rollback restores the approved application while retaining additive schema and
 append-only review history. See [release plan](data-hub-analysis-release-plan.md).
+
+The workbook reader now projects absent governed cells to explicit `null`,
+matching its declared scalar contract and the raw-evidence SQL shape. Zero,
+false and empty strings retain their values. See
+[workbook lifecycle acceptance](data-hub-workbook-lifecycle-acceptance.md).

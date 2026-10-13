@@ -4,6 +4,8 @@ import type { AnalysisDatasetContext } from "@/lib/data-hub/analysis";
 import type { SemanticDatasetSchemaDraft } from "@/lib/data-hub/semanticInference/schemaSynthesis";
 import type { DataQualityReviewResolution } from "@/lib/data-hub/dataQuality/reviewResolution";
 import { SEMANTIC_ROLES } from "@/lib/data-hub/semanticInference/contracts";
+import { createHash } from "node:crypto";
+import * as XLSX from "xlsx";
 
 // Data Hub 6.2D4D1B2 -- real disposable-Postgres proof for the dataset
 // profile execution service (profileUploadDataset, and its own
@@ -14,8 +16,9 @@ import { SEMANTIC_ROLES } from "@/lib/data-hub/semanticInference/contracts";
 // service takes already-trusted {organisationId, uploadId, actorId}
 // directly.
 // D4D5Z additionally exercises the review/planning/count route handlers with
-// real signed sessions and DB-backed requireRole. Only the Next cookie adapter
-// and Neon transport are replaced; the authorization and services are real.
+// real signed sessions and DB-backed requireRole. The Next cookie adapter,
+// Neon transport and setup-only workbook storage factory are replaced;
+// authorization, parsing, persistence and services are real.
 //
 // WHY REAL POSTGRES: the one-RUNNING-per-normalization-run partial unique
 // index, the completion reconciliation trigger, and the Upload pointer
@@ -51,6 +54,14 @@ async function neonCompatibleSql(strings: TemplateStringsArray, ...values: unkno
 
 vi.doMock("@/lib/db", () => ({ default: neonCompatibleSql }));
 
+// Setup-only storage seam. Actual inspection/parser/staging SQL run unchanged;
+// the built browser never uses this in-memory provider or receives source bytes.
+let workbookStore: InstanceType<typeof import("@/lib/data-hub/storage/inMemoryFileStore").InMemoryFileStore>;
+vi.doMock("@/lib/data-hub/importBatch/compositionRoot", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/data-hub/importBatch/compositionRoot")>(),
+  createImportBatchStorage: () => workbookStore,
+}));
+
 // Local test signing key only. The Next request cookie adapter is supplied by
 // the harness; JWT verification, requireRole, DB users and route services run
 // unchanged. This is route-to-DB proof, not a hosted browser/session proof.
@@ -74,6 +85,8 @@ let batchSeq = 0;
 const RUN_SALT = Date.now().toString(36).slice(-6);
 
 beforeAll(async () => {
+  const { InMemoryFileStore } = await import("@/lib/data-hub/storage/inMemoryFileStore");
+  workbookStore = new InMemoryFileStore();
   ({ profileUploadDataset } = await import("@/lib/data-hub/profileExecution/profileUploadDataset"));
   ({ createDatasetProfileRunAttempt, resolveAuthoritativeNormalizationContext, markDatasetProfileRunFailed, getDatasetProfileRunById } = await import("@/lib/data-hub/profileExecution/dataHubDatasetProfileRun"));
   ({ completeDatasetProfileRun } = await import("@/lib/data-hub/profileExecution/completeDatasetProfileRun"));
@@ -97,19 +110,17 @@ afterAll(async () => {
         { id: `${suffix}-r1`, sourceRowNumber: 4, col1: "ID-1", col2: held ? null : "0", col3: "2024-01-01", col4: "first" },
         { id: `${suffix}-r2`, sourceRowNumber: 5, col1: "ID-2", col2: null, col3: "2024-01-02", col4: "second" },
         { id: `${suffix}-r3`, sourceRowNumber: 6, col1: "ID-3", col2: held ? null : "5", col3: "2024-01-03", col4: "third" },
-      ], { rawOnly: true, extraMeasures: wide ? 50 : 0 });
-      // Complete the persisted inventory metadata needed by the real listing
-      // API; seedWorld's analysis-only fixtures intentionally omit it.
-      await prisma.upload.update({ where: { id: ids.uploadId }, data: {
-        worksheet_visibility: "visible", worksheet_is_empty: false, canonical_status: "AWAITING_CONFIRMATION",
-      } });
+      ], { rawOnly: true, workbook: true, extraMeasures: wide ? 50 : 0 });
+      if ((await stageWorkbookFixture(ids)).status !== 200) throw new Error("browser fixture staging failed");
       const normalized = await normalizeRawFixture(ids);
       if (normalized.status !== 200) throw new Error("browser fixture normalization failed");
       const profiled = await profileUploadDataset({ organisationId: ORG_A, uploadId: ids.uploadId, actorId: ids.userId });
       if (!profiled.ok) throw new Error("browser fixture profiling failed");
       await prisma.user.update({ where: { id: ids.userId }, data: { password_hash: await hash(password, 4) } });
       await prisma.importBatch.update({ where: { id: ids.batchId }, data: { original_filename: wide ? "analysis-many-measures.xlsx" : held ? "analysis-held.xlsx" : "analysis-ready.xlsx" } });
-      worlds.push({ ...ids, datasetProfileRunId: profiled.profileRunId, held, wide });
+      const upload = await prisma.upload.findUniqueOrThrow({ where: { id: ids.uploadId } });
+      worlds.push({ ...ids, rawRunId: upload.raw_staging_run_id, normRunId: upload.normalization_run_id,
+        datasetProfileRunId: profiled.profileRunId, held, wide });
     }
     mkdirSync("test-results/datahub-runtime", { recursive: true });
     writeFileSync("test-results/datahub-runtime/fixture.json", JSON.stringify({ worlds, password }));
@@ -142,7 +153,7 @@ interface SeedRow {
   col4: string; // STRING
 }
 
-async function seedWorld(suffix: string, org: string, rows: SeedRow[], opts: { corruptCol2NormalizedValueForRowId?: string; rawOnly?: boolean; extraMeasures?: number } = {}) {
+async function seedWorld(suffix: string, org: string, rows: SeedRow[], opts: { corruptCol2NormalizedValueForRowId?: string; rawOnly?: boolean; workbook?: boolean; extraMeasures?: number } = {}) {
   const userId = `user-${suffix}`;
   const wsId = `ws-${suffix}`;
   const svId = `sv-${suffix}`;
@@ -191,6 +202,34 @@ async function seedWorld(suffix: string, org: string, rows: SeedRow[], opts: { c
   }).replace(/'/g, "''");
   await prisma.$executeRawUnsafe(`INSERT INTO worksheet_mapping_profile_versions (id, organisation_id, worksheet_mapping_profile_id, version_number, disposition, profile_document) VALUES ('${pvId}','${org}','${profileId}',1,'STAGING_DATASET','${profileDocument}')`);
   await prisma.$executeRawUnsafe(`UPDATE worksheet_mapping_profiles SET active_profile_version_id='${pvId}' WHERE id='${profileId}'`);
+
+  if (opts.workbook) {
+    if (!opts.rawOnly || org !== ORG_A) throw new Error("workbook fixture requires isolated lifecycle mode");
+    const sheet: unknown[][] = [["Synthetic workbook acceptance"], [], ["Id", "Amount", "Date", "Notes", ...extraColumnIds.map(() => "Amount")]];
+    for (const row of rows) {
+      if (!Number.isSafeInteger(row.sourceRowNumber) || row.sourceRowNumber < 4 || sheet[row.sourceRowNumber - 1]) throw new Error("invalid workbook fixture row");
+      while (sheet.length < row.sourceRowNumber) sheet.push([]);
+      const amount = row.col2 === "0" ? 0 : row.col2 === "5" ? 5 : row.col2;
+      sheet[row.sourceRowNumber - 1] = [row.col1, amount, row.col3, row.col4, ...extraColumnIds.map(() => amount)];
+    }
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(sheet), "Data");
+    const bytes = new Uint8Array(XLSX.write(book, { type: "buffer", bookType: "xlsx" }) as Buffer);
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    const { buildImportBatchKey } = await import("@/lib/data-hub/storage/rawFileStore");
+    const key = buildImportBatchKey(org, batchId);
+    await workbookStore.put(key, bytes);
+    await prisma.importBatch.create({ data: { id: batchId, organisation_id: org, uploaded_by: userId,
+      original_filename: "f.xlsx", content_type: "xlsx", size_bytes: bytes.byteLength, storage_provider: "memory", storage_key: key,
+      status: "READY", sha256, source_schema_version_id: svId } });
+    await signFixtureSession({ userId, organisationId: org });
+    const route = await import("@/app/api/data-hub/import-batches/[id]/inspect/route");
+    const { NextRequest } = await import("next/server");
+    const inspected = await route.POST(new NextRequest("http://localhost/test", { method: "POST" }), { params: Promise.resolve({ id: batchId }) });
+    if (inspected.status !== 200) throw new Error("workbook fixture inspection failed");
+    const upload = await prisma.upload.findFirstOrThrow({ where: { organisation_id: org, import_batch_id: batchId, worksheet_index: 0 } });
+    return { userId, wsId, svId, col1, col2, col3, col4, profileId, pvId, batchId, uploadId: upload.id, rawRunId, normRunId, extraColumnIds };
+  }
 
   const sha = suffix.padEnd(64, "0").slice(0, 64);
   await prisma.$executeRawUnsafe(`INSERT INTO import_batches (id, organisation_id, uploaded_by, original_filename, content_type, size_bytes, storage_provider, storage_key, status, sha256, source_schema_version_id, updated_at) VALUES ('${batchId}','${org}','${userId}','f.xlsx','xlsx',1,'vercel-blob','k-${suffix}','READY', '${sha}', '${svId}', now())`);
@@ -279,32 +318,50 @@ async function seedWorld(suffix: string, org: string, rows: SeedRow[], opts: { c
   return { userId, wsId, svId, col1, col2, col3, col4, profileId, pvId, batchId, uploadId, rawRunId, normRunId, extraColumnIds };
 }
 
-async function normalizeRawFixture(ids: { userId: string; uploadId: string }) {
+async function signFixtureSession(ids: { userId: string; organisationId?: string }) {
   const { encrypt } = await import("@/lib/session");
-  const { NextRequest } = await import("next/server");
-  routeSessionToken = await encrypt({ userId: ids.userId, organisationId: ORG_A, role: "manager", name: "Lifecycle manager",
+  routeSessionToken = await encrypt({ userId: ids.userId, organisationId: ids.organisationId ?? ORG_A, role: "manager", name: "Lifecycle manager",
     expiresAt: new Date(Date.now() + 60_000).toISOString() });
+}
+async function stageWorkbookFixture(ids: { userId: string; uploadId: string }) {
+  await signFixtureSession(ids);
+  const { NextRequest } = await import("next/server");
+  const route = await import("@/app/api/data-hub/worksheets/[id]/stage/route");
+  return route.POST(new NextRequest("http://localhost/test", { method: "POST" }), { params: Promise.resolve({ id: ids.uploadId }) });
+}
+async function normalizeRawFixture(ids: { userId: string; uploadId: string }) {
+  await signFixtureSession(ids);
+  const { NextRequest } = await import("next/server");
   const route = await import("@/app/api/data-hub/worksheets/[id]/normalize/route");
   return route.POST(new NextRequest("http://localhost/test", { method: "POST" }), { params: Promise.resolve({ id: ids.uploadId }) });
 }
 
-describe("Raw evidence to governed planning lifecycle", () => {
-  it("executes normalization, profiles, saves and plans with preserved raw evidence and replay-safe pointers", async () => {
+describe("Workbook bytes to governed planning lifecycle", () => {
+  it("inspects and stages physical workbook rows, normalizes, profiles, saves and plans with preserved evidence and replay-safe pointers", async () => {
     const suffix = nextSuffix("lifecycle");
     const ids = await seedWorld(suffix, ORG_A, [
       { id: `${suffix}-r1`, sourceRowNumber: 4, col1: "0001", col2: "0", col3: "2024-01-01", col4: "PRIVATE_LIFECYCLE_MARKER" },
-      { id: `${suffix}-r2`, sourceRowNumber: 5, col1: "0002", col2: null, col3: "2024-01-02", col4: "second" },
-      { id: `${suffix}-r3`, sourceRowNumber: 6, col1: "0003", col2: "5", col3: "2024-01-03", col4: "third" },
-    ], { rawOnly: true });
+      { id: `${suffix}-r2`, sourceRowNumber: 6, col1: "0002", col2: null, col3: "2024-01-02", col4: "second" },
+      { id: `${suffix}-r3`, sourceRowNumber: 8, col1: "0003", col2: "5", col3: "2024-01-03", col4: "third" },
+    ], { rawOnly: true, workbook: true });
+    expect(await prisma.dataHubRawStagingRun.count({ where: { upload_id: ids.uploadId } })).toBe(0);
+    const staged = await stageWorkbookFixture(ids);
+    expect(staged.status).toBe(200); expect(await staged.json()).toMatchObject({ ok: true, status: "SUCCEEDED", rowCount: 3, cellCount: 12 });
+    const rawRows = await prisma.dataHubRawRow.findMany({ where: { upload_id: ids.uploadId }, orderBy: { source_row_number: "asc" } });
+    expect(rawRows.map(row => row.source_row_number)).toEqual([4, 6, 8]);
     const raw = await prisma.dataHubRawCell.findMany({ where: { organisation_id: ORG_A, raw_row: { upload_id: ids.uploadId } }, orderBy: { id: "asc" } });
+    expect(raw.find(cell => cell.raw_row_id === rawRows[0].id && cell.source_schema_column_id === ids.col2))
+      .toMatchObject({ raw_value_type: "NUMBER", raw_value: 0 });
+    expect(raw.find(cell => cell.raw_row_id === rawRows[1].id && cell.source_schema_column_id === ids.col2))
+      .toMatchObject({ raw_value_type: "NULL", raw_value: null });
     expect((await prisma.upload.findUniqueOrThrow({ where: { id: ids.uploadId } })).normalization_run_id).toBeNull();
     const normalized = await normalizeRawFixture(ids);
     expect(normalized.status).toBe(200); expect(await normalized.json()).toMatchObject({ ok: true, status: "SUCCEEDED", rowCount: 3, cellCount: 12 });
     const upload = await prisma.upload.findUniqueOrThrow({ where: { id: ids.uploadId } });
     expect(upload.normalization_run_id).toBeTruthy(); expect(upload.normalized_by).toBe(ids.userId);
-    expect(await prisma.dataHubNormalizedCell.findFirst({ where: { raw_row_id: `${suffix}-r1`, source_schema_column_id: ids.col1 }, select: { normalized_value: true } }))
+    expect(await prisma.dataHubNormalizedCell.findFirst({ where: { raw_row_id: rawRows[0].id, source_schema_column_id: ids.col1 }, select: { normalized_value: true } }))
       .toEqual({ normalized_value: "0001" });
-    expect(await prisma.dataHubNormalizedCell.findFirst({ where: { raw_row_id: `${suffix}-r1`, source_schema_column_id: ids.col2 }, select: { normalized_value: true } }))
+    expect(await prisma.dataHubNormalizedCell.findFirst({ where: { raw_row_id: rawRows[0].id, source_schema_column_id: ids.col2 }, select: { normalized_value: true } }))
       .toEqual({ normalized_value: "0" });
     const profiled = await profileUploadDataset({ organisationId: ORG_A, uploadId: ids.uploadId, actorId: ids.userId });
     expect(profiled).toMatchObject({ ok: true, status: "SUCCEEDED", normalizationRunId: upload.normalization_run_id, rowCount: 3, columnCount: 4 });
@@ -332,10 +389,17 @@ describe("Raw evidence to governed planning lifecycle", () => {
       { snapshot: { operation: "COUNT_PRESENT", sourceSchemaColumnId: ids.col2 } },
     ] });
     expect(JSON.stringify(payload)).not.toContain("PRIVATE_LIFECYCLE_MARKER"); expect(JSON.stringify(payload)).not.toContain('"count":');
+    expect((await stageWorkbookFixture(ids)).status).toBe(200);
     expect((await normalizeRawFixture(ids)).status).toBe(200);
     expect(await profileUploadDataset({ organisationId: ORG_A, uploadId: ids.uploadId, actorId: ids.userId }))
       .toMatchObject({ ok: true, reused: true, profileRunId: profiled.profileRunId });
     expect(await prisma.dataHubNormalizationRun.count({ where: { upload_id: ids.uploadId } })).toBe(1);
+    expect(await prisma.dataHubRawStagingRun.count({ where: { upload_id: ids.uploadId } })).toBe(1);
+    const replayed = await prisma.upload.findUniqueOrThrow({ where: { id: ids.uploadId } });
+    expect(replayed.raw_staging_run_id).toBe(upload.raw_staging_run_id);
+    expect(replayed.normalization_run_id).toBe(upload.normalization_run_id);
+    expect(replayed.dataset_profile_run_id).toBe(profiled.profileRunId);
+    expect(replayed.raw_staged_by).toBe(ids.userId);
     expect(await prisma.dataHubDatasetProfileRun.count({ where: { upload_id: ids.uploadId } })).toBe(1);
     expect(await prisma.dataHubAnalysisReview.count({ where: { upload_id: ids.uploadId } })).toBe(1);
     expect(await prisma.dataHubRawCell.findMany({ where: { organisation_id: ORG_A, raw_row: { upload_id: ids.uploadId } }, orderBy: { id: "asc" } })).toEqual(raw);
@@ -344,7 +408,8 @@ describe("Raw evidence to governed planning lifecycle", () => {
     const suffix = nextSuffix("lifecyclestop");
     const ids = await seedWorld(suffix, ORG_A, [
       { id: `${suffix}-r1`, sourceRowNumber: 4, col1: "ID-1", col2: "PRIVATE_INVALID_DECIMAL", col3: "2024-01-01", col4: "private" },
-    ], { rawOnly: true });
+    ], { rawOnly: true, workbook: true });
+    expect((await stageWorkbookFixture(ids)).status).toBe(200);
     const normalized = await normalizeRawFixture(ids); expect(normalized.status).toBe(422);
     const denied = await normalized.json(); expect(denied).toMatchObject({ ok: false, status: "FAILED", code: "NORMALIZATION_BLOCKED" });
     expect(JSON.stringify(denied)).not.toContain("PRIVATE_INVALID_DECIMAL");
@@ -356,6 +421,139 @@ describe("Raw evidence to governed planning lifecycle", () => {
     expect((await result.json()).ok).toBe(false);
     expect(await prisma.dataHubDatasetProfileRun.count({ where: { upload_id: ids.uploadId } })).toBe(0);
     expect(await prisma.dataHubAnalysisReview.count({ where: { upload_id: ids.uploadId } })).toBe(0);
+  });
+});
+
+async function workbookWorld(prefix: string, gapped = false) {
+  const suffix = nextSuffix(prefix);
+  return seedWorld(suffix, ORG_A, [
+    { id: `${suffix}-r1`, sourceRowNumber: 4, col1: "0001", col2: "0", col3: "2024-01-01", col4: "PRIVATE_WORKBOOK_SOURCE" },
+    ...(gapped ? [
+      { id: `${suffix}-r2`, sourceRowNumber: 7, col1: "0002", col2: null, col3: "2024-01-02", col4: "second" },
+      { id: `${suffix}-r3`, sourceRowNumber: 10, col1: "0003", col2: "5", col3: "2024-01-03", col4: "third" },
+    ] : []),
+  ], { rawOnly: true, workbook: true });
+}
+async function assertNoAnalysis(ids: { uploadId: string }) {
+  const upload = await prisma.upload.findUniqueOrThrow({ where: { id: ids.uploadId } });
+  expect(upload.raw_staging_run_id).toBeNull(); expect(upload.normalization_run_id).toBeNull(); expect(upload.dataset_profile_run_id).toBeNull();
+  expect(await prisma.dataHubNormalizationRun.count({ where: { upload_id: ids.uploadId } })).toBe(0);
+  expect(await prisma.dataHubDatasetProfileRun.count({ where: { upload_id: ids.uploadId } })).toBe(0);
+  expect(await prisma.dataHubAnalysisReview.count({ where: { upload_id: ids.uploadId } })).toBe(0);
+}
+describe("Workbook lifecycle gates and recovery", () => {
+  it("reinspects structural metadata without duplicate worksheets, source values or lineage changes", async () => {
+    const ids = await workbookWorld("inspectreplay");
+    const original = await prisma.importBatch.findUniqueOrThrow({ where: { id: ids.batchId } });
+    const upload = await prisma.upload.findUniqueOrThrow({ where: { id: ids.uploadId } });
+    const { POST } = await import("@/app/api/data-hub/import-batches/[id]/inspect/route");
+    const { NextRequest } = await import("next/server");
+    const response = await POST(new NextRequest("http://localhost/test", { method: "POST" }), { params: Promise.resolve({ id: ids.batchId }) });
+    expect(response.status).toBe(200); expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(await response.json()).toEqual({ ok: true, worksheets: [{ worksheetIndex: 0, worksheetName: "Data",
+      worksheetVisibility: "visible", worksheetIsEmpty: false, canonicalStatus: "AWAITING_CONFIRMATION" }] });
+    expect(await prisma.importBatch.findUniqueOrThrow({ where: { id: ids.batchId } })).toEqual(original);
+    expect(await prisma.upload.findUniqueOrThrow({ where: { id: ids.uploadId } })).toEqual(upload);
+    expect(await prisma.upload.count({ where: { import_batch_id: ids.batchId } })).toBe(1);
+    await assertNoAnalysis(ids);
+  });
+  it("resumes immediately across physical blank rows with the pinned mapping after the active pointer changes", async () => {
+    const ids = await workbookWorld("stageresume", true);
+    process.env.DATAHUB_STAGE_TARGET_CELLS_PER_BATCH_TEST_OVERRIDE = "4";
+    process.env.DATAHUB_STAGE_MAX_DURATION_MS_TEST_OVERRIDE = "0.000001";
+    try {
+      const first = await stageWorkbookFixture(ids); expect(first.status).toBe(202);
+      expect(await first.json()).toEqual({ ok: true, status: "RUNNING", persistedRowCount: 1, persistedCellCount: 4 });
+    } finally {
+      delete process.env.DATAHUB_STAGE_TARGET_CELLS_PER_BATCH_TEST_OVERRIDE;
+      delete process.env.DATAHUB_STAGE_MAX_DURATION_MS_TEST_OVERRIDE;
+    }
+    await assertNoAnalysis(ids);
+    const run = await prisma.dataHubRawStagingRun.findFirstOrThrow({ where: { upload_id: ids.uploadId } });
+    const firstRows = await prisma.dataHubRawRow.findMany({ where: { staging_run_id: run.id } });
+    expect(firstRows.map(row => row.source_row_number)).toEqual([4]);
+    expect(run.lease_expires_at.getTime()).toBeLessThanOrEqual(Date.now());
+    const version = await prisma.worksheetMappingProfileVersion.findUniqueOrThrow({ where: { id: ids.pvId } });
+    await prisma.worksheetMappingProfileVersion.create({ data: { id: `${ids.pvId}-new`, organisation_id: ORG_A,
+      worksheet_mapping_profile_id: ids.profileId, version_number: 2, disposition: "IGNORE",
+      profile_document: { ...version.profile_document as Record<string, unknown>, headerRowOneBased: 1 } } });
+    await prisma.worksheetMappingProfile.update({ where: { id: ids.profileId }, data: { active_profile_version_id: `${ids.pvId}-new` } });
+    expect((await normalizeRawFixture(ids)).status).not.toBe(200);
+    expect(await profileUploadDataset({ organisationId: ORG_A, uploadId: ids.uploadId, actorId: ids.userId }))
+      .toEqual({ ok: false, code: "NORMALIZATION_NOT_COMPLETE" });
+    const resumed = await stageWorkbookFixture(ids); expect(resumed.status).toBe(200);
+    expect(await resumed.json()).toMatchObject({ status: "SUCCEEDED", rowCount: 3, cellCount: 12 });
+    const rows = await prisma.dataHubRawRow.findMany({ where: { upload_id: ids.uploadId }, orderBy: { source_row_number: "asc" } });
+    expect(rows.map(row => row.source_row_number)).toEqual([4, 7, 10]); expect(rows[0]).toEqual(firstRows[0]);
+    const upload = await prisma.upload.findUniqueOrThrow({ where: { id: ids.uploadId } });
+    expect(upload.raw_staging_run_id).toBe(run.id); expect(upload.raw_profile_version_id).toBe(ids.pvId);
+    expect((await normalizeRawFixture(ids)).status).toBe(200);
+    expect(await profileUploadDataset({ organisationId: ORG_A, uploadId: ids.uploadId, actorId: ids.userId }))
+      .toMatchObject({ ok: true, status: "SUCCEEDED", rowCount: 3, columnCount: 4 });
+    expect(await prisma.dataHubRawStagingRun.count({ where: { upload_id: ids.uploadId } })).toBe(1);
+  });
+  it.each(["missing", "tampered", "malformed"] as const)("rejects %s source bytes before raw evidence or downstream work", async kind => {
+    const ids = await workbookWorld(`source${kind}`);
+    const { buildImportBatchKey } = await import("@/lib/data-hub/storage/rawFileStore");
+    const key = buildImportBatchKey(ORG_A, ids.batchId), original = await workbookStore.get(key);
+    await workbookStore.delete(key);
+    if (kind !== "missing") {
+      const bytes = new TextEncoder().encode("PRIVATE_WORKBOOK_SOURCE");
+      await workbookStore.put(key, bytes);
+      if (kind === "malformed") await prisma.importBatch.update({ where: { id: ids.batchId },
+        data: { sha256: createHash("sha256").update(bytes).digest("hex") } });
+    }
+    const response = await stageWorkbookFixture(ids); expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body).toMatchObject({ ok: false, code: kind === "missing" ? "STORAGE_NOT_FOUND" : kind === "tampered" ? "STORAGE_INTEGRITY_MISMATCH" : "PARSER_REJECTED" });
+    expect(JSON.stringify(body)).not.toContain("PRIVATE_WORKBOOK_SOURCE"); expect(JSON.stringify(body)).not.toMatch(/executionToken|execution_token/);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(await prisma.dataHubRawStagingRun.count({ where: { upload_id: ids.uploadId } })).toBe(0);
+    expect(await prisma.dataHubRawRow.count({ where: { upload_id: ids.uploadId } })).toBe(0);
+    await assertNoAnalysis(ids);
+    if (kind === "missing") {
+      await workbookStore.put(key, original.body);
+      expect((await stageWorkbookFixture(ids)).status).toBe(200);
+      expect(await prisma.dataHubRawStagingRun.count({ where: { upload_id: ids.uploadId } })).toBe(1);
+    }
+  });
+  it("marks a resumed run failed when bytes change, retaining partial evidence without publishing a completed pointer", async () => {
+    const ids = await workbookWorld("resumetamper", true);
+    process.env.DATAHUB_STAGE_TARGET_CELLS_PER_BATCH_TEST_OVERRIDE = "4";
+    process.env.DATAHUB_STAGE_MAX_DURATION_MS_TEST_OVERRIDE = "0.000001";
+    try { expect((await stageWorkbookFixture(ids)).status).toBe(202); }
+    finally { delete process.env.DATAHUB_STAGE_TARGET_CELLS_PER_BATCH_TEST_OVERRIDE; delete process.env.DATAHUB_STAGE_MAX_DURATION_MS_TEST_OVERRIDE; }
+    const run = await prisma.dataHubRawStagingRun.findFirstOrThrow({ where: { upload_id: ids.uploadId } });
+    const before = await prisma.dataHubRawRow.findMany({ where: { staging_run_id: run.id } });
+    const { buildImportBatchKey } = await import("@/lib/data-hub/storage/rawFileStore");
+    const key = buildImportBatchKey(ORG_A, ids.batchId);
+    await workbookStore.delete(key); await workbookStore.put(key, new TextEncoder().encode("PRIVATE_CHANGED_BYTES"));
+    const denied = await stageWorkbookFixture(ids); expect(denied.status).toBe(500);
+    expect(await denied.json()).toMatchObject({ ok: false, status: "FAILED", code: "STORAGE_INTEGRITY_MISMATCH" });
+    expect(await prisma.dataHubRawStagingRun.findUniqueOrThrow({ where: { id: run.id } })).toMatchObject({ status: "FAILED", persisted_row_count: 1 });
+    expect(await prisma.dataHubRawRow.findMany({ where: { staging_run_id: run.id } })).toEqual(before);
+    await assertNoAnalysis(ids);
+  });
+  it("rejects missing sessions, live demotion and foreign scope before storage access or execution", async () => {
+    const ids = await workbookWorld("sourceauth");
+    const { NextRequest } = await import("next/server");
+    const inspect = await import("@/app/api/data-hub/import-batches/[id]/inspect/route");
+    const stage = await import("@/app/api/data-hub/worksheets/[id]/stage/route");
+    const reads = vi.spyOn(workbookStore, "get");
+    try {
+      routeSessionToken = undefined;
+      expect((await stage.POST(new NextRequest("http://localhost/test", { method: "POST" }), { params: Promise.resolve({ id: ids.uploadId }) })).status).toBe(401);
+      await signFixtureSession(ids);
+      await prisma.user.update({ where: { id: ids.userId }, data: { role: "VIEWER" } });
+      expect((await inspect.POST(new NextRequest("http://localhost/test", { method: "POST" }), { params: Promise.resolve({ id: ids.batchId }) })).status).toBe(403);
+      expect((await stage.POST(new NextRequest("http://localhost/test", { method: "POST" }), { params: Promise.resolve({ id: ids.uploadId }) })).status).toBe(403);
+      const foreign = await seedWorld(nextSuffix("sourceforeign"), ORG_B, []);
+      await signFixtureSession({ userId: foreign.userId, organisationId: ORG_B });
+      expect((await inspect.POST(new NextRequest("http://localhost/test", { method: "POST" }), { params: Promise.resolve({ id: ids.batchId }) })).status).toBe(404);
+      const denied = await stage.POST(new NextRequest("http://localhost/test", { method: "POST" }), { params: Promise.resolve({ id: ids.uploadId }) });
+      expect((await denied.json()).code).toBe("INVALID_STATE");
+      expect(reads).not.toHaveBeenCalled(); await assertNoAnalysis(ids);
+    } finally { reads.mockRestore(); }
   });
 });
 

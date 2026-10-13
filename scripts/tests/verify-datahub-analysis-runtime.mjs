@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { Pool } from 'pg';
 import { chromium, expect } from '@playwright/test';
+import { FIXTURE_PREPARATION, SETUP_STORAGE } from './helpers/dataHubAcceptanceReceipt.mjs';
 
 // Invoked only by verify-datahub-profile-execution.sh after provisioning its
 // disposable Docker database and seeding real profile evidence. The build,
@@ -28,8 +29,38 @@ const freePort = () => new Promise((done, reject) => {
 const pause = ms => new Promise(done => setTimeout(done, ms));
 let next, browser, nextLog = '';
 const evidence = { checks: [], transport: 'Local Neon transport; real application and PostgreSQL', productionTouched: false,
-  fixturePreparation: 'Synthetic raw staging; existing normalization route and profiler service' };
+  fixturePreparation: FIXTURE_PREPARATION, setupStorage: SETUP_STORAGE, fixtureLineageVerified: false, fixtureWorldCount: 0 };
 try {
+  if (worlds.length !== 3 || new Set(worlds.map(world => world.uploadId)).size !== 3) throw new Error('Lifecycle fixtures incomplete');
+  for (const world of worlds) {
+    const { rows } = await pool.query(`SELECT b.storage_provider, b.sha256, r.status AS raw_status,
+      n.status AS normalized_status, p.status AS profile_status, r.persisted_row_count, r.persisted_cell_count,
+      n.persisted_row_count AS normalized_rows, n.persisted_cell_count AS normalized_cells,
+      p.row_count::text AS profile_rows, p.column_count::text AS profile_columns
+      FROM uploads u JOIN import_batches b ON b.id=u.import_batch_id AND b.organisation_id=u.organisation_id
+      JOIN data_hub_raw_staging_runs r ON r.id=u.raw_staging_run_id AND r.organisation_id=u.organisation_id AND r.upload_id=u.id AND r.import_batch_id=b.id
+      JOIN data_hub_normalization_runs n ON n.id=u.normalization_run_id AND n.organisation_id=u.organisation_id AND n.upload_id=u.id
+        AND n.raw_staging_run_id=r.id AND n.worksheet_mapping_profile_version_id=r.worksheet_mapping_profile_version_id
+        AND n.import_batch_id=b.id AND n.source_schema_version_id=r.source_schema_version_id AND n.source_schema_worksheet_id=r.source_schema_worksheet_id
+        AND n.worksheet_mapping_profile_id=r.worksheet_mapping_profile_id
+      JOIN data_hub_dataset_profile_runs p ON p.id=u.dataset_profile_run_id AND p.organisation_id=u.organisation_id AND p.upload_id=u.id
+        AND p.normalization_run_id=n.id AND p.worksheet_mapping_profile_version_id=r.worksheet_mapping_profile_version_id
+        AND p.import_batch_id=b.id AND p.source_schema_version_id=r.source_schema_version_id AND p.source_schema_worksheet_id=r.source_schema_worksheet_id
+        AND p.worksheet_mapping_profile_id=r.worksheet_mapping_profile_id
+      WHERE u.id=$1 AND u.organisation_id=$2 AND u.raw_staged_by=$3 AND u.normalized_by=$3 AND u.profiled_by=$3
+        AND r.source_schema_version_id=$4 AND r.source_schema_worksheet_id=$5 AND r.worksheet_mapping_profile_id=$6
+        AND r.worksheet_mapping_profile_version_id=$7 AND p.id=$8 AND r.id=$9 AND n.id=$10`,
+    [world.uploadId, 'org-a', world.userId, world.svId, world.wsId, world.profileId, world.pvId, world.datasetProfileRunId, world.rawRunId, world.normRunId]);
+    const lineage = rows[0], columns = world.wide ? 54 : 4;
+    if (rows.length !== 1 || lineage.storage_provider !== 'memory' || !/^[a-f0-9]{64}$/.test(lineage.sha256) ||
+        [lineage.raw_status, lineage.normalized_status, lineage.profile_status].some(status => status !== 'SUCCEEDED') ||
+        lineage.persisted_row_count !== 3 || lineage.normalized_rows !== 3 || lineage.profile_rows !== '3' ||
+        lineage.persisted_cell_count !== columns * 3 || lineage.normalized_cells !== columns * 3 || lineage.profile_columns !== String(columns)) {
+      throw new Error('Workbook lifecycle lineage mismatch');
+    }
+  }
+  evidence.fixtureLineageVerified = true; evidence.fixtureWorldCount = worlds.length;
+  evidence.checks.push('Three synthetic XLSX fixtures inspected and raw-staged through real routes before normalization/profiling; durable tenant, actor, mapping and run lineage verified before browser use');
   const port = await freePort();
   const origin = `http://127.0.0.1:${port}`;
   next = spawn(process.execPath, [resolve('node_modules/next/dist/bin/next'), 'start', '-p', String(port), '-H', '127.0.0.1'], {
