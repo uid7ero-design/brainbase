@@ -181,6 +181,8 @@ function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: st
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const mutationPending = useRef(false);
+  const [uncertain, setUncertain] = useState(false);
 
   async function grantInitialReader(caseId: string, userId: string) {
     const grantRes = await fetch(`/api/hr/restricted-cases/${caseId}/access`, {
@@ -188,7 +190,8 @@ function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: st
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user_id: userId }),
     });
-    const grantData = await grantRes.json().catch(() => ({}));
+    if (grantRes.status >= 500) throw new Error('Uncertain grant');
+    const grantData = await grantRes.json();
     if (!grantRes.ok) {
       setCreatedCaseId(caseId);
       setNotice(`Case ${caseId} was created, but the initial access grant failed: ${grantData.error ?? 'grant failed'}`);
@@ -199,7 +202,10 @@ function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: st
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (mutationPending.current || uncertain || createdCaseId) return;
+    mutationPending.current = true;
     setSaving(true);
+    try {
     setError('');
     setNotice('');
 
@@ -208,7 +214,8 @@ function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: st
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ case_type: caseType, title, reference: reference.trim() || null }),
     });
-    const created = await createRes.json().catch(() => ({}));
+    if (createRes.status >= 500) throw new Error('Uncertain create');
+    const created = await createRes.json();
     if (!createRes.ok) {
       setError(created.error ?? 'Could not create restricted HR case.');
       setSaving(false);
@@ -217,11 +224,10 @@ function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: st
 
     const caseId = created.case?.id as string | undefined;
     if (!caseId) {
-      setError('Case was created but no case identifier was returned.');
-      setSaving(false);
-      return;
+      throw new Error('Missing created identifier');
     }
 
+    setCreatedCaseId(caseId);
     if (readerUserId) {
       const granted = await grantInitialReader(caseId, readerUserId);
       setSaving(false);
@@ -231,15 +237,31 @@ function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: st
     }
 
     onCreated();
+    } catch {
+      setUncertain(true);
+      setError('The change could not be confirmed. Do not open this case again until its creation and access have been checked.');
+    } finally {
+      mutationPending.current = false;
+      setSaving(false);
+    }
   }
 
   async function retryGrant() {
-    if (!createdCaseId || !readerUserId) return;
+    if (!createdCaseId || !readerUserId || mutationPending.current || uncertain) return;
+    mutationPending.current = true;
+    try {
     setSaving(true);
     setNotice('');
     const granted = await grantInitialReader(createdCaseId, readerUserId);
     setSaving(false);
     if (granted) onCreated();
+    } catch {
+      setUncertain(true);
+      setError('The access change could not be confirmed. Check the case access before retrying.');
+    } finally {
+      mutationPending.current = false;
+      setSaving(false);
+    }
   }
 
   return (
@@ -275,11 +297,11 @@ function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: st
       {notice && <p role="status" style={warningNotice}>{notice}</p>}
       <FormActions align="stretch">
         {createdCaseId ? (
-          <button disabled={saving || !readerUserId} type="button" onClick={retryGrant} {...buttonProps('primary')}>
+          <button disabled={saving || uncertain || !readerUserId} type="button" onClick={retryGrant} {...buttonProps('primary')}>
             {saving ? 'Retrying…' : 'Retry access grant'}
           </button>
         ) : (
-          <button disabled={saving} type="submit" {...buttonProps('primary')}>
+          <button disabled={saving || uncertain} type="submit" {...buttonProps('primary')}>
             {saving ? 'Opening…' : 'Open Case'}
           </button>
         )}

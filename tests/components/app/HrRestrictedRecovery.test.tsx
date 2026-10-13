@@ -112,3 +112,21 @@ it.each(['lost', 'server', 'malformed'] as const)('locks an uncertain %s note wr
   expect(await screen.findByText('Synthetic note')).toBeTruthy();
   expect(writes).toBe(1);
 });
+
+it('preserves a case draft and prevents replay after a lost creation response', async () => {
+  let writes = 0;
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === 'POST') { writes++; throw new Error('Lost creation response'); }
+    const url = String(input);
+    return new Response(JSON.stringify(url.endsWith('/restricted-cases') ? { cases: [] }
+      : url.endsWith('/administrators') ? { users: [] } : {}));
+  }));
+  await act(async () => { renderBrainbase(<ListPage />); });
+  fireEvent.click(await screen.findByRole('button', { name: '+ Open Case' }));
+  fireEvent.change(screen.getByRole('textbox', { name: /Title/ }), { target: { value: 'Synthetic draft' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Open Case', exact: true }));
+  expect(await screen.findByText('The change could not be confirmed. Do not open this case again until its creation and access have been checked.')).toBeTruthy();
+  expect((screen.getByRole('textbox', { name: /Title/ }) as HTMLInputElement).value).toBe('Synthetic draft');
+  expect((screen.getByRole('button', { name: 'Open Case', exact: true }) as HTMLButtonElement).disabled).toBe(true);
+  expect(writes).toBe(1);
+});
