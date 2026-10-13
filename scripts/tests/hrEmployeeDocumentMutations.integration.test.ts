@@ -606,14 +606,15 @@ describe('restricted case real route access and history', () => {
 });
 
 describe('restricted detail browser to actual route', () => {
-  it('removes sensitive rendered case content when its live grant is revoked', async () => {
+  it.each(['revoked', 'lost-note'] as const)('restricted detail actual-route recovery: %s', async scenario => {
     await q(readFileSync('scripts/add-hr-people-tenant-unique.sql', 'utf8'));
     await q(readFileSync('scripts/create-hr-restricted-cases.sql', 'utf8'));
-    const caseId = '98888888-8888-4888-8888-888888888888';
+    const caseId = scenario === 'revoked' ? '98888888-8888-4888-8888-888888888888' : '98888888-8888-4888-8888-888888888889';
     await q("INSERT INTO hr_restricted_cases(id,organisation_id,case_type,title,opened_by) VALUES($1,$2,'other','Browser synthetic restricted case',$3)", [caseId, org, hr.userId]);
     await q('INSERT INTO hr_restricted_case_access(organisation_id,case_id,user_id,granted_by) VALUES($1,$2,$3,$4)', [org, caseId, employee.userId, hr.userId]);
     routeUser = employee.userId;
     const detail = await import('@/app/api/hr/restricted-cases/[id]/route');
+    const noteRoutes = await import('@/app/api/hr/restricted-cases/[id]/notes/route');
     const built = await build({ configFile: false, logLevel: 'error', resolve: { alias: { '@': process.cwd() } },
       define: { 'process.env.NODE_ENV': JSON.stringify('production'), 'process.env': '{}' }, oxc: { jsx: { runtime: 'automatic', development: false } },
       plugins: [{ name: 'restricted-browser-proof', resolveId(id) {
@@ -625,7 +626,7 @@ describe('restricted detail browser to actual route', () => {
       } }], build: { write: false, lib: { entry: 'restricted-entry', name: 'RestrictedProof', formats: ['iife'] } } });
     const output = Array.isArray(built) ? built[0] : built;
     if (!('output' in output)) throw new Error('Expected browser output');
-    let actualReads = 0;
+    let actualReads = 0; let actualWrites = 0;
     const server = createServer(async (req, res) => {
       try {
         const url = new URL(req.url!, 'http://fixture.local');
@@ -634,6 +635,14 @@ describe('restricted detail browser to actual route', () => {
         if (url.pathname === `/api/hr/restricted-cases/${caseId}`) {
           actualReads++;
           const response = await detail.GET(new NextRequest(url), { params: Promise.resolve({ id: caseId }) });
+          res.statusCode = response.status; res.end(await response.text()); return;
+        }
+        if (url.pathname === `/api/hr/restricted-cases/${caseId}/notes`) {
+          const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
+          const method = req.method ?? 'GET';
+          if (method === 'POST') actualWrites++;
+          const request = new NextRequest(url, { method, ...(method === 'POST' ? { headers: { 'Content-Type': 'application/json' }, body: Buffer.concat(chunks).toString() } : {}) });
+          const response = method === 'POST' ? await noteRoutes.POST(request, { params: Promise.resolve({ id: caseId }) }) : await noteRoutes.GET(request, { params: Promise.resolve({ id: caseId }) });
           res.statusCode = response.status; res.end(await response.text()); return;
         }
         if (url.pathname.endsWith('/administrators')) { res.statusCode=403; res.end('{}'); return; }
@@ -650,6 +659,22 @@ describe('restricted detail browser to actual route', () => {
       page.on('pageerror', error => errors.push(error.message));
       await page.goto(`http://127.0.0.1:${address.port}/`); await page.addScriptTag({ content: output.output[0].code });
       await browserExpect(page.getByRole('heading', { name: 'Browser synthetic restricted case' })).toBeVisible();
+      if (scenario === 'lost-note') {
+        await page.route('**/notes', async route => {
+          if (route.request().method() !== 'POST') return route.continue();
+          const response = await route.fetch(); expect(response.status()).toBe(201);
+          await route.abort('failed');
+        });
+        await page.getByRole('textbox', { name: 'New case note' }).fill('Committed synthetic restricted note');
+        await page.getByRole('button', { name: 'Add note', exact: true }).click();
+        await browserExpect(page.getByText('The change could not be confirmed. Refresh and review the case before trying again.')).toBeVisible();
+        await browserExpect(page.getByRole('button', { name: 'Add note', exact: true })).toBeDisabled();
+        await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+        await browserExpect(page.getByText('Committed synthetic restricted note', { exact: true })).toBeVisible();
+        expect(actualWrites).toBe(1);
+        expect((await q('SELECT count(*)::int AS count FROM hr_restricted_case_notes WHERE case_id=$1', [caseId]))[0].count).toBe(1);
+        expect(errors).toEqual([]); return;
+      }
       await q('UPDATE hr_restricted_case_access SET revoked_at=now(),revoked_by=$1 WHERE case_id=$2', [hr.userId, caseId]);
       await page.getByRole('button', { name: 'Refresh', exact: true }).click();
       await browserExpect(page.getByText('Could not load restricted HR case. Refresh to try again.')).toBeVisible();
