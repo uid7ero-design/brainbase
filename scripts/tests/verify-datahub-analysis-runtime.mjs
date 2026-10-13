@@ -46,7 +46,8 @@ try {
       JOIN data_hub_dataset_profile_runs p ON p.id=u.dataset_profile_run_id AND p.organisation_id=u.organisation_id AND p.upload_id=u.id
         AND p.normalization_run_id=n.id AND p.worksheet_mapping_profile_version_id=r.worksheet_mapping_profile_version_id
         AND p.import_batch_id=b.id AND p.source_schema_version_id=r.source_schema_version_id AND p.source_schema_worksheet_id=r.source_schema_worksheet_id
-        AND p.worksheet_mapping_profile_id=r.worksheet_mapping_profile_id
+      JOIN worksheet_mapping_profile_versions v ON v.id=p.worksheet_mapping_profile_version_id AND v.organisation_id=u.organisation_id
+        AND v.worksheet_mapping_profile_id=r.worksheet_mapping_profile_id
       WHERE u.id=$1 AND u.organisation_id=$2 AND u.raw_staged_by=$3 AND u.normalized_by=$3 AND u.profiled_by=$3
         AND r.source_schema_version_id=$4 AND r.source_schema_worksheet_id=$5 AND r.worksheet_mapping_profile_id=$6
         AND r.worksheet_mapping_profile_version_id=$7 AND p.id=$8 AND r.id=$9 AND n.id=$10`,
