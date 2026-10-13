@@ -761,6 +761,60 @@ structured evidence are in `report-integrity-adelaide-final`. The new report sna
 STALE finance-adjusted evidence: a PREPARED queue variance does not grant sign-off
 or overwrite the report's governed reconciliation basis.
 
+## Explicit report scope and filter recovery
+
+A successfully refreshed source list can no longer silently change a selected
+finance source into BrainBase-only reporting. If the selected source disappears,
+the selector retains a disabled unavailable option, focuses the control, pauses
+report/queue reads and hides both CSV links. The administrator or viewer must
+choose an available source, explicitly choose BrainBase only, or refresh sources
+until the original choice returns. A failed or malformed source refresh preserves
+the previous choices and report. Source choices reject surrounding whitespace so
+the visible selection agrees with the exact resolved source identity. Every
+successful manual source refresh requires fresh report and queue reads; restored choices cannot re-enable an older snapshot.
+Delayed responses from a removed scope remain cancelled through body decoding.
+
+Refreshed report dimensions can leave a previously chosen table filter absent.
+Each such selector keeps a clearly labelled unavailable option, with a notice
+identifying the affected filters. Clear unavailable filters resets only those
+selections and retains valid account/currency/other choices. The existing Clear
+filters action still resets all filters when deliberately selected. No filters
+are silently discarded. Queue scope and governed CSV scope remain independent
+of these table filters, including while a table-filter correction is needed.
+
+Manual reloads and explicit source choices focus the failed report alert or the
+successfully loaded heading, with clearance for the fixed header. A loaded report
+announces the resolved source scope of its finance-adjusted rows; the independent
+all-source queue remains explicit when BrainBase only is selected. Source loss
+focuses the selector, while an unconfirmed report or missing source never becomes an authoritative empty view.
+
+The bundle changes client review behaviour only. It adds no endpoint, schema,
+mutation, calculation, recognition or settlement rule. Focused checks cover each
+filter dimension, selective clearing, missing/restored/failed source choices,
+fresh-read requirements, stale response cancellation, source-scoped export links
+and error/success focus. The expanded disposable runtime reuses real saved
+finance data and intercepts only read responses to simulate removed source and
+period choices. It verifies no implicit fallback requests, fresh restored reads,
+explicit BrainBase-only export scope, retained valid filters, CSV scope independent
+of table filters, keyboard focus and GET-only recovery without new finance events.
+Evidence uses the `report-review` prefix in the local finance-review folder.
+
+Final validation passed 2,600 Commercial tests across 159 files, standalone
+TypeScript, targeted lint and the final production build. Fourteen focused review
+checks plus the malformed whitespace-source case were added in this bundle.
+The scope-message refinement was checked again in the focused review file before
+the final build. Logs are `report-review-commercial-final.log`,
+`report-review-types-complete.log`, `report-review-lint-complete.log`,
+`report-review-build-complete.log` and `report-review-runtime-final.log`.
+
+The first browser run reached the correct BrainBase-only result but assumed an
+annual-only fixture would have finance-adjusted rows. The assertion was corrected
+to compare the real API result and require an empty section with disabled finance
+export when no rows exist; the complete rerun passed. The initial output remains
+in `report-review-runtime.log`. Reviewed mobile captures and structured evidence
+are in `report-review-adelaide-final`. No domain behaviour was changed to satisfy
+the test, and no release action was performed.
+
 ## Repeatable runtime evidence
 
 Run `npx tsc --noEmit` separately before release verification. This checks the

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { validBudgetReport, validFinanceQueue, validFinanceSources } from '@/lib/commercial/budgetReportingSnapshot';
 import { formatAustralianTimestamp } from '@/lib/commercial/financeSetupDisplay';
@@ -259,11 +259,16 @@ export default function BudgetCommitmentsPage() {
   const [reconciliationQueue, setReconciliationQueue] = useState<FinanceReconciliationQueueEntry[]>([]);
   const [reconciliationQueueLoading, setReconciliationQueueLoading] = useState(true);
   const [reconciliationQueueError, setReconciliationQueueError] = useState<string | null>(null);
+  const sourceControl = useRef<HTMLSelectElement>(null);
+  const resultHeading = useRef<HTMLHeadingElement>(null);
+  const resultError = useRef<HTMLDivElement>(null);
+  const reviewRequested = useRef(false);
+  const sourceMissing = selectedSourceSystemId !== '' && !sourceSystemIds.includes(selectedSourceSystemId);
   const activeSourceSystemId = resolveBudgetFinanceSourceSystemId(
     sourceSystemIds,
     selectedSourceSystemId,
   );
-  const requestKey = `${reportRefreshKey}:${activeSourceSystemId ?? ''}`;
+  const requestKey = `${reportRefreshKey}:${activeSourceSystemId ?? ''}:${sourceMissing}`;
   const reportLoading = loading || completedReportRead !== requestKey;
   const queueLoading = reconciliationQueueLoading || completedQueueRead !== requestKey;
 
@@ -285,6 +290,7 @@ export default function BudgetCommitmentsPage() {
         }
         setSourceSystemIds(data.sourceSystemIds);
         setSourceSystemsError(null);
+        if (sourceSystemsRefreshKey > 0) setReportRefreshKey(current => current + 1);
       } catch {
         if (!cancelled) setSourceSystemsError('Unable to load External GL sources. Use Refresh sources to try again.');
       }
@@ -295,6 +301,7 @@ export default function BudgetCommitmentsPage() {
   }, [sourceSystemsRefreshKey]);
 
   useEffect(() => {
+    if (sourceMissing) return;
     let cancelled = false;
     (async () => {
       try {
@@ -330,9 +337,10 @@ export default function BudgetCommitmentsPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeSourceSystemId, reportRefreshKey, requestKey]);
+  }, [activeSourceSystemId, reportRefreshKey, requestKey, sourceMissing]);
 
   useEffect(() => {
+    if (sourceMissing) return;
     let cancelled = false;
     (async () => {
       try {
@@ -377,9 +385,11 @@ export default function BudgetCommitmentsPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeSourceSystemId, reportRefreshKey, requestKey]);
+  }, [activeSourceSystemId, reportRefreshKey, requestKey, sourceMissing]);
 
   function reloadReport() {
+    if (sourceMissing) return;
+    reviewRequested.current = true;
     setLoading(true);
     setError(null);
     setReconciliationQueueLoading(true);
@@ -388,7 +398,8 @@ export default function BudgetCommitmentsPage() {
   }
 
   function selectSourceSystem(value: string) {
-    if (value === (activeSourceSystemId ?? '')) return;
+    if (value === selectedSourceSystemId || (value !== '' && !sourceSystemIds.includes(value))) return;
+    reviewRequested.current = true;
     setLoading(true);
     setError(null);
     setReconciliationQueueLoading(true);
@@ -458,14 +469,53 @@ export default function BudgetCommitmentsPage() {
     });
   }
 
+  const filterAvailability: Array<[keyof Filters, string, string[]]> = [
+    ['financialYearId', 'Financial year', financialYears.map(([id]) => id)],
+    ['financialPeriodId', 'Financial period', financialPeriods.map(([id]) => id)],
+    ['budgetAccountId', 'Budget account', accounts.map(([id]) => id)],
+    ['costCentreId', 'Cost centre', costCentres.map(([id]) => id)],
+    ['currency', 'Currency', currencies],
+  ];
+  const unavailableFilters = filterAvailability.filter(([key, , available]) =>
+    filters[key] !== 'ALL' && !available.includes(filters[key]));
+  function clearUnavailableFilters() {
+    setFilters(current => {
+      const next = { ...current };
+      for (const [key] of unavailableFilters) next[key] = 'ALL';
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    if (sourceMissing) sourceControl.current?.focus();
+  }, [sourceMissing]);
+
+  useEffect(() => {
+    if (reportLoading || sourceMissing || !reviewRequested.current) return;
+    reviewRequested.current = false;
+    const target = error ? resultError.current : resultHeading.current;
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView?.({ block: 'start' });
+  }, [reportLoading, sourceMissing, error]);
+
   const sourceSelector = <FinanceSourceSelector
     sourceSystemIds={sourceSystemIds}
-    selectedSourceSystemId={activeSourceSystemId ?? ''}
+    selectedSourceSystemId={selectedSourceSystemId}
     onChange={selectSourceSystem}
-    onRefresh={() => setSourceSystemsRefreshKey(current => current + 1)}
+    controlRef={sourceControl}
+    onRefresh={() => { reviewRequested.current = true; setSourceSystemsRefreshKey(current => current + 1); }}
     error={sourceSystemsError}
   />;
 
+  if (sourceMissing) return (
+    <>
+      {sourceSelector}
+      <div role="alert" style={{ color: 'var(--status-warning)', marginBottom: 12 }}>
+        The selected source is no longer available. Choose another source or BrainBase only, or refresh sources.
+      </div>
+      <BudgetExportControls legacyAvailable={false} financeAvailable={false} disabledReason="Choose an available source before reviewing or exporting this report." />
+    </>
+  );
   if (reportLoading) return (
     <>
       {sourceSelector}
@@ -476,7 +526,7 @@ export default function BudgetCommitmentsPage() {
   if (error) return (
     <>
       {sourceSelector}
-      <div role="alert" style={{ color: 'var(--status-danger)' }}>{error}</div>
+      <div ref={resultError} tabIndex={-1} role="alert" style={{ color: 'var(--status-danger)', scrollMarginTop: 200 }}>{error}</div>
       <button type="button" onClick={reloadReport} className={fieldControlClassName}>Reload report</button>
       <BudgetExportControls legacyAvailable={false} financeAvailable={false} disabledReason="Exports are unavailable because the report could not be loaded." />
     </>
@@ -495,7 +545,7 @@ export default function BudgetCommitmentsPage() {
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
           <Link href="/commercial" style={{ color: 'var(--text-muted)' }}>Commercial</Link> / Budgeting
         </div>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Budget vs Actual vs Committed</h1>
+        <h1 ref={resultHeading} tabIndex={-1} style={{ fontSize: 24, fontWeight: 700, margin: 0, scrollMarginTop: 200 }}>Budget vs Actual vs Committed</h1>
         <p style={{ fontSize: 13, color: MUTED, margin: '7px 0 0' }}>
           Actuals use BrainBase&apos;s operational payable basis: POSTED supplier-bill lines recognised on posted_at.
           This is a Budget-management view, not statutory ledger or cash accounting.
@@ -511,6 +561,7 @@ export default function BudgetCommitmentsPage() {
         sourceSystemId={activeSourceSystemId}
       />
 
+      <div role="status" className={styles.reviewNotice}>Report loaded. {activeSourceSystemId ? `Finance source: ${activeSourceSystemId}.` : 'BrainBase only; finance-adjusted rows exclude External GL evidence.'}</div>
       <div className={styles.stateGrid}>
         <StateCard label="Resolved Actual lines" value={report.resolvedActualCount} tone="var(--status-info)" />
         <StateCard label="Resolved commitment lines" value={report.resolvedCommitmentCount} tone="var(--status-success)" />
@@ -535,6 +586,7 @@ export default function BudgetCommitmentsPage() {
           <Filter label="Currency" value={filters.currency}
             onChange={v => setFilter('currency', v)} options={currencies.map(v => [v, v])} />
         </div>
+        {unavailableFilters.length > 0 ? <p role="status" className={styles.filterNotice}>Some filters are no longer available in this report: {unavailableFilters.map(([, label]) => label).join(', ')}. <button type="button" onClick={clearUnavailableFilters} className={fieldControlClassName}>Clear unavailable filters</button></p> : null}
         <button onClick={() => setFilters(DEFAULT_FILTERS)} style={{
           marginTop: 12, border: `1px solid ${BORDER}`, background: 'transparent',
           color: MUTED, borderRadius: 7, padding: '6px 10px', cursor: 'pointer',
@@ -673,7 +725,9 @@ export function FinanceSourceSelector({
   onChange,
   onRefresh,
   error = null,
+  controlRef,
 }: {
+  controlRef?: React.Ref<HTMLSelectElement>;
   sourceSystemIds: string[];
   selectedSourceSystemId: string;
   onChange: (value: string) => void;
@@ -689,6 +743,7 @@ export function FinanceSourceSelector({
         Finance source
       </label>
       <select
+        ref={controlRef}
         id="budget-finance-source"
         className={styles.sourceSelect}
         value={selectedSourceSystemId}
@@ -703,6 +758,7 @@ export function FinanceSourceSelector({
         }}
       >
         <option value="">BrainBase only (no External GL)</option>
+        {selectedSourceSystemId && !sourceSystemIds.includes(selectedSourceSystemId) ? <option value={selectedSourceSystemId} disabled>{selectedSourceSystemId} (unavailable)</option> : null}
         {sourceSystemIds.map(sourceSystemId => (
           <option key={sourceSystemId} value={sourceSystemId}>{sourceSystemId}</option>
         ))}
@@ -1098,6 +1154,7 @@ function Filter({ label, value, onChange, options }: {
       borderRadius: 7, padding: '8px 9px',
     }}>
       <option value="ALL">All</option>
+      {value !== 'ALL' && !options.some(([id]) => id === value) ? <option value={value} disabled>Previously selected (unavailable)</option> : null}
       {options.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
     </select>
   </label>;

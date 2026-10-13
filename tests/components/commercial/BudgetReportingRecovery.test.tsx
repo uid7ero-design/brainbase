@@ -108,7 +108,7 @@ describe('Budget reporting read recovery', () => {
     expect(screen.getByText('No unresolved finance reconciliation items in the latest snapshots.')).toBeVisible();
   });
 
-  it.each([{ values: [''] }, { values: ['XERO', 'XERO'] }, { values: [null] }])('retains the selected saved source when refreshed choices are malformed: %j', async ({ values: invalid }) => {
+  it.each([{ values: [''] }, { values: ['XERO', 'XERO'] }, { values: [null] }, { values: [' XERO '] }])('retains the selected saved source when refreshed choices are malformed: %j', async ({ values: invalid }) => {
     let malformed = false;
     vi.stubGlobal('fetch', vi.fn(async (url: string) => response(url.includes('/sources') ? { sourceSystemIds: malformed ? invalid : ['XERO'] }
       : url.includes('/reconciliations') ? { reconciliations: [] } : { report: completeReport })));

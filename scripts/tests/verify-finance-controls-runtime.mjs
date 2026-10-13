@@ -454,6 +454,7 @@ try {
     });
     await page.getByRole('button',{name:'Reload report',exact:true}).click();
     await expect(page.getByRole('alert').filter({hasText:'Unable to load Budget vs Actual reporting.'})).toBeVisible();
+    await expect(page.getByRole('alert').filter({hasText:'Unable to load Budget vs Actual reporting.'})).toBeFocused();
     await expect(page.locator('a[data-export-view]')).toHaveCount(0);
     await expect(page.getByLabel('Finance source',{exact:true})).toHaveValue('review-ledger');
     await page.unroute(integrityPattern);
@@ -461,6 +462,66 @@ try {
     await expect(page.getByRole('region',{name:'Finance-adjusted report',exact:true})).toBeVisible();
     await expect(queueRegion).toBeVisible();
   }
+  // Source removal must not silently read or export a different scope.
+  const reviewRequests=[];
+  const recordReviewRequest=request=>{
+    const path=new URL(request.url()).pathname;
+    if(path.includes('/api/commercial/budgeting/consumption')||path.includes('/api/commercial/budgeting/reconciliations')||path.endsWith('/external-gl/sources'))reviewRequests.push({path,method:request.method()});
+  };
+  page.on('request',recordReviewRequest);
+  const sourceReadPattern='**/api/commercial/budgeting/external-gl/sources';
+  const withoutSelectedSource=async route=>{const response=await route.fetch();const payload=await response.json();payload.sourceSystemIds=payload.sourceSystemIds.filter(source=>source!=='review-ledger');await route.fulfill({response,json:payload});};
+  await page.route(sourceReadPattern,withoutSelectedSource);
+  await page.getByRole('button',{name:'Refresh sources',exact:true}).click();
+  await expect(page.getByRole('alert').filter({hasText:'The selected source is no longer available.'})).toBeVisible();
+  await expect(page.getByLabel('Finance source',{exact:true})).toHaveValue('review-ledger');
+  await expect(page.getByLabel('Finance source',{exact:true})).toBeFocused();
+  await expect(page.locator('a[data-export-view]')).toHaveCount(0);
+  if(reviewRequests.some(request=>!request.path.endsWith('/external-gl/sources')))throw new Error('Missing source silently triggered a fallback report');
+  await page.setViewportSize({width:390,height:844});await page.evaluate(()=>window.scrollTo(0,0));
+  await page.screenshot({path:resolve(artifacts,'report-source-unavailable-mobile.png'),fullPage:true});
+  await page.unroute(sourceReadPattern);
+  await page.getByRole('button',{name:'Refresh sources',exact:true}).click();
+  await expect(queueRegion).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Budget vs Actual vs Committed',exact:true})).toBeFocused();
+  if(reviewRequests.filter(request=>request.path.includes('/consumption')).length!==1||reviewRequests.filter(request=>request.path.includes('/reconciliations')).length!==1)throw new Error('Returned source did not require fresh report and queue reads');
+  await page.route(sourceReadPattern,withoutSelectedSource);
+  await page.getByRole('button',{name:'Refresh sources',exact:true}).click();
+  await expect(page.getByRole('alert').filter({hasText:'The selected source is no longer available.'})).toBeVisible();
+  await page.getByLabel('Finance source',{exact:true}).selectOption('');
+  await expect(page.getByRole('heading',{name:'Budget vs Actual vs Committed',exact:true})).toBeFocused();
+  await expect(page.getByText('Report loaded. BrainBase only; finance-adjusted rows exclude External GL evidence.',{exact:true})).toBeVisible();
+  const brainBaseReport=await page.evaluate(async()=> (await(await fetch('/api/commercial/budgeting/consumption')).json()).report);
+  if(brainBaseReport.financeRows.length===0){
+    await expect(page.getByText('No finance-adjusted rows are available.',{exact:true})).toBeVisible();
+    await expect(page.locator('a[data-export-view="finance"]')).toHaveCount(0);
+  }else{
+    await expect(page.getByRole('region',{name:'Finance-adjusted report',exact:true})).toBeVisible();
+    const unscopedExport=await page.locator('a[data-export-view="finance"]').getAttribute('href');
+    if(!unscopedExport||unscopedExport.includes('sourceSystemId='))throw new Error('Explicit BrainBase choice retained old ledger scope');
+  }
+  await page.unroute(sourceReadPattern);
+  await page.getByRole('button',{name:'Refresh sources',exact:true}).click();
+  await page.getByLabel('Finance source',{exact:true}).selectOption('review-ledger');await expect(queueRegion).toBeVisible();
+  await page.getByRole('combobox',{name:'Budget account',exact:true}).selectOption('00000000-0000-4000-8000-000000000404');
+  await page.getByRole('combobox',{name:'Currency',exact:true}).selectOption('AUD');
+  await page.getByRole('combobox',{name:'Financial period',exact:true}).selectOption('00000000-0000-4000-8000-000000000402');
+  await page.route(integrityPattern,async route=>{const response=await route.fetch();const payload=await response.json();payload.report.financeRows.forEach(row=>{row.financialPeriodId='00000000-0000-4000-8000-999999999999';row.financialPeriodName='Replacement period';});await route.fulfill({response,json:payload});});
+  await page.getByRole('button',{name:'Reload report',exact:true}).click();
+  await expect(page.getByText('Some filters are no longer available in this report:',{exact:false})).toBeVisible();
+  await expect(page.getByRole('combobox',{name:'Financial period',exact:true})).toHaveValue('00000000-0000-4000-8000-000000000402');
+  const retainedExport=await page.locator('a[data-export-view="finance"]').getAttribute('href');
+  if(!retainedExport?.includes('sourceSystemId=review-ledger')||retainedExport.includes('financialPeriodId='))throw new Error('Table filter changed governed CSV scope');
+  await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:resolve(artifacts,'report-filter-review-mobile.png'),fullPage:true});
+  await page.getByRole('button',{name:'Clear unavailable filters',exact:true}).click();
+  await expect(page.getByRole('combobox',{name:'Financial period',exact:true})).toHaveValue('ALL');
+  await expect(page.getByRole('combobox',{name:'Budget account',exact:true})).toHaveValue('00000000-0000-4000-8000-000000000404');
+  await expect(page.getByRole('combobox',{name:'Currency',exact:true})).toHaveValue('AUD');
+  await page.unroute(integrityPattern);
+  await page.getByRole('button',{name:'Reload report',exact:true}).click();await expect(queueRegion).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Budget vs Actual vs Committed',exact:true})).toBeFocused();
+  if(reviewRequests.some(request=>request.method!=='GET'))throw new Error('Report review recovery sent a mutation');
+  page.off('request',recordReviewRequest);await page.setViewportSize({width:1440,height:1000});
   const queueIntegrityPattern='**/api/commercial/budgeting/reconciliations*';
   await page.route(queueIntegrityPattern,async route=>{
     integrityMethods.push(route.request().method());const response=await route.fetch();const payload=await response.json();
@@ -1363,6 +1424,7 @@ try {
   const externalGlChecks=['mapping list calendar dates','account and cost-centre creation through real forms','exact create response dates','overlap rejection without duplicate facts','source filter','account and cost-centre retirement through real forms','exact retire response and persisted dates','viewer mutation denial','foreign mapping read and retirement denial'];
   const evidence={verified_at:new Date().toISOString(),serverTimezone,checks:['real login and production runtime','calendar dates preserved through API and screen','mobile metrics remain inside viewport','mobile history and reconciliation tables scroll to last column','exact $100 source and ledger match','prepare and review','sign-off blocked before close','period close and durable sign-off','year close and reopen','period reopen invalidates close and reconciliation','viewer denial','tenant isolation'],overflow,build_id:readFileSync('.next/BUILD_ID','utf8').trim()};
   evidence.financeControlRecoveryChecks=recoveredFinanceActions;
+  evidence.reportingReviewChecks={missingSourcePaused:true,noImplicitFallbackRead:true,returnedSourceFreshReads:true,explicitBrainBaseChoice:true,onlyUnavailableFiltersCleared:true,readOnly:true,focusRecovery:true};
   evidence.reportingIntegrityChecks={malformedCollections:['rows','financeRows','exceptions'],wrongSourceRead:true,wrongCurrencyItem:true,readOnlyRecovery:true,exactScopedCsv:true,persistedVarianceId:reportSnapshot.id,mobile:reportWidth};
   evidence.financeConsistencyChecks={invalidDatePosts,wrongScopeReadRecovery:true,wrongAcknowledgementRecovery:['Review','Close period','Close financial year'],displayLocale:'en-AU',calendarEntry:'DD/MM/YYYY'};
   evidence.externalGlChecks=externalGlChecks;

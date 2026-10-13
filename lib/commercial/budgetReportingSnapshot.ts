@@ -78,5 +78,5 @@ export function validFinanceQueue(value: unknown, source: string | null): boolea
 
 
 export function validFinanceSources(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every(identity) && new Set(value).size === value.length;
+  return Array.isArray(value) && value.every(source => typeof source === 'string' && source !== '' && source.trim() === source) && new Set(value).size === value.length;
 }
