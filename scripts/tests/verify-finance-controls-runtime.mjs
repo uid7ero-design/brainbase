@@ -554,6 +554,10 @@ try {
   await expect(financeTotals).toContainText('Ledger evidence covers 1 of 1 row. Snapshot row statuses: 0 signed off, 1 stale.');
   await expect(financeTotals).toContainText('Stale snapshot rows are present.');
   await expect(financeTotals).toContainText('Unavailable');
+  const financeDetail=page.getByRole('region',{name:'Finance-adjusted report',exact:true});
+  await expect(financeDetail.getByRole('columnheader',{name:'Budget basis',exact:true})).toBeVisible();
+  await expect(financeDetail.locator('tbody tr').first().locator('td').nth(3)).toHaveText('Budget basis unavailable');
+  await expect(financeDetail.locator('tbody tr').first().locator('td').nth(4)).toHaveText('Unavailable');
   // Individually safe legacy rows can produce an unsafe Number aggregate.
   const totalsPattern='**/api/commercial/budgeting/consumption*';
   await page.route(totalsPattern,async route=>{
@@ -564,10 +568,19 @@ try {
   });
   await page.getByRole('button',{name:'Reload report',exact:true}).click();
   await expect(legacyTotals).toContainText('$90,071,992,547,409.93');
+  const resolvedDetail=page.getByRole('region',{name:'Resolved Budget consumption',exact:true});
+  if(await resolvedDetail.getByText('$90,071,992,547,409.91',{exact:true}).count()!==3)throw new Error('Legacy row lost a cent in Budget or remaining measures');
+  if(await resolvedDetail.getByText('$90,071,992,547,409.90',{exact:true}).count()!==0)throw new Error('Legacy row displays a rounded cent');
   await expect(page.getByRole('region',{name:'Resolved totals AUD Tax exclusive',exact:true})).toContainText('$500.00');
   await page.setViewportSize({width:390,height:844});await page.evaluate(()=>window.scrollTo(0,0));
   const totalsWidth=await page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth}));
   if(totalsWidth.width!==totalsWidth.scrollWidth)throw new Error('Exact report totals overflow mobile viewport');
+  await financeDetail.focus();await financeDetail.evaluate(element=>{element.scrollLeft=element.scrollWidth;});
+  const detailScroll=await financeDetail.evaluate(element=>({left:element.scrollLeft,width:element.clientWidth,scrollWidth:element.scrollWidth}));
+  if(detailScroll.left===0||Math.abs(detailScroll.left+detailScroll.width-detailScroll.scrollWidth)>2)throw new Error('Finance evidence columns inaccessible on mobile');
+  await page.screenshot({path:resolve(artifacts,'report-row-evidence-mobile.png'),fullPage:true});
+  await financeDetail.evaluate(element=>{element.scrollLeft=0;});
+  await page.evaluate(()=>window.scrollTo(0,0));
   await page.screenshot({path:resolve(artifacts,'report-totals-mobile.png'),fullPage:true});
   await page.setViewportSize({width:1440,height:1000});await page.evaluate(()=>window.scrollTo(0,0));
   await page.screenshot({path:resolve(artifacts,'report-totals-desktop.png'),fullPage:true});
@@ -578,6 +591,9 @@ try {
   await page.getByRole('button',{name:'Reload report',exact:true}).click();
   await expect(financeTotals).toContainText('Ledger evidence covers 0 of 1 row. Snapshot row statuses: 0 signed off, 1 stale.');
   await expect(financeTotals).toContainText('Incomplete evidence is not a zero ledger total.');
+  await expect(financeDetail.locator('tbody tr').first().locator('td').nth(10)).toHaveText('Unavailable');
+  await expect(financeDetail.locator('tbody tr').first().locator('td').nth(11)).toHaveText('Unavailable');
+  await expect(financeDetail).toContainText('STALE');await expect(financeDetail).toContainText('Ledger evidence incomplete');
   if(await financeTotals.getByText('Unavailable',{exact:true}).count()!==3)throw new Error('Unknown Budget and incomplete ledger measures were collapsed into zero');
   await page.screenshot({path:resolve(artifacts,'report-totals-incomplete.png'),fullPage:true});
   await page.unroute(totalsPattern);await page.getByRole('button',{name:'Reload report',exact:true}).click();
@@ -1460,6 +1476,7 @@ try {
   const evidence={verified_at:new Date().toISOString(),serverTimezone,checks:['real login and production runtime','calendar dates preserved through API and screen','mobile metrics remain inside viewport','mobile history and reconciliation tables scroll to last column','exact $100 source and ledger match','prepare and review','sign-off blocked before close','period close and durable sign-off','year close and reopen','period reopen invalidates close and reconciliation','viewer denial','tenant isolation'],overflow,build_id:readFileSync('.next/BUILD_ID','utf8').trim()};
   evidence.financeControlRecoveryChecks=recoveredFinanceActions;
   evidence.reportingTotalChecks={exactLegacyAggregate:'9007199254740993',separateTaxBases:true,unknownBudgetPreserved:true,incompleteEvidenceNotZero:true,staleEvidenceExplicit:true,mobile:totalsWidth};
+  evidence.reportingRowEvidenceChecks={exactSafeRowCents:'9007199254740991',unknownBudgetPreserved:true,incompleteEvidenceConsistent:true,staleStatusRetained:true,mobileLastColumn:detailScroll};
   evidence.reportingReviewChecks={missingSourcePaused:true,noImplicitFallbackRead:true,returnedSourceFreshReads:true,explicitBrainBaseChoice:true,onlyUnavailableFiltersCleared:true,readOnly:true,focusRecovery:true};
   evidence.reportingIntegrityChecks={malformedCollections:['rows','financeRows','exceptions'],wrongSourceRead:true,wrongCurrencyItem:true,readOnlyRecovery:true,exactScopedCsv:true,persistedVarianceId:reportSnapshot.id,mobile:reportWidth};
   evidence.financeConsistencyChecks={invalidDatePosts,wrongScopeReadRecovery:true,wrongAcknowledgementRecovery:['Review','Close period','Close financial year'],displayLocale:'en-AU',calendarEntry:'DD/MM/YYYY'};

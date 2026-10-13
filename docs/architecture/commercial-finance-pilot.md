@@ -870,6 +870,52 @@ now targets its named accessibility group; its recovery checks remain intact.
 The initial result is retained in `report-totals-commercial.log`. This bundle
 adds 23 checks and makes no push, deployment or production-data change.
 
+## Consistent row precision and finance evidence
+
+Resolved Budget table amounts now use the same exact-cent formatter as their
+summary cards. Safe numeric cents can still lose a cent when divided into a
+floating-point dollar amount near the safe-integer boundary. All six monetary
+columns retain the original cent value, including negative planning measures.
+The numeric wire and existing CSV contracts remain unchanged.
+
+The finance table now states each row's Budget basis and shows Unavailable for
+the Budget measure when that basis is unknown. A known allocation of zero
+continues to display as money. Source Actual, adjustments and other operational
+measures remain independent of Budget availability.
+
+Table rows and summaries share display qualification for reconciliation
+evidence: a nonblank snapshot identity, source, SIGNED_OFF or STALE status, and
+both ledger amount and variance are required to present the pair as complete
+evidence. Incomplete rows show Unavailable for both ledger measures and explain
+that evidence is incomplete. An identified stale status remains visible even
+when money is unavailable; a row without an identified snapshot says so.
+Qualified stale values retain their historical amounts and status. These
+display checks do not approve, refresh or mutate any finance record.
+
+Rendered tests compare table and summary evidence, known zero versus unknown
+Budget basis, both snapshot statuses, incomplete identity and monetary pairs,
+and positive/negative safe-integer boundaries. The disposable runtime verifies
+real saved unknown-basis and stale rows, intercepted exact safe row amounts,
+partial monetary evidence, last-column mobile scrolling and recovery to the
+saved view without adding finance events. Synthetic intercepted responses
+remain display proof rather than database acceptance of those amounts.
+
+Final validation passed 2,638 Commercial checks across 162 files, standalone
+TypeScript, targeted lint, the production build and the full disposable runtime.
+The bundle adds 15 rendered checks. Desktop and mobile captures were reviewed;
+the finance table's final evidence columns remain reachable at mobile width.
+Logs use the `report-row-evidence` prefix under the local
+`brainbase-finance-review` artifact directory. The final suite receipt is
+`report-row-evidence-commercial-final.log`; runtime evidence and captures are
+in `report-row-evidence-adelaide`.
+
+An initial full-suite run alongside the build timed out in two existing
+repository-scan checks. The complete rerun passed with two workers and the same
+assertions and time limits. Its initial output is retained in
+`report-row-evidence-commercial-full.log`. A mixed-basis test fixture now uses
+distinct cost-centre identities to avoid duplicate React keys. No push,
+deployment, schema or production-data change was performed.
+
 ## Repeatable runtime evidence
 
 Run `npx tsc --noEmit` separately before release verification. This checks the

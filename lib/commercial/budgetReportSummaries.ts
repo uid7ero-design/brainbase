@@ -39,6 +39,16 @@ export function buildLegacyBudgetSummaries(rows: readonly LegacyInput[]) {
     committedCents: row.committedCents.toString(), exposureCents: row.exposureCents.toString(), remainingCents: row.remainingCents.toString() }));
 }
 
+/** Display qualification only; it does not approve or refresh a stored snapshot. */
+export function hasFinanceSnapshotIdentity(row: Pick<FinanceInput, 'reconciliationId' | 'sourceSystemId' | 'reconciliationStatus'>): boolean {
+  return !!row.reconciliationId?.trim() && !!row.sourceSystemId?.trim()
+    && (row.reconciliationStatus === 'SIGNED_OFF' || row.reconciliationStatus === 'STALE');
+}
+
+export function hasCompleteFinanceEvidence(row: Pick<FinanceInput, 'reconciliationId' | 'sourceSystemId' | 'reconciliationStatus' | 'externalGlActualCents' | 'reconciliationVarianceCents'>): boolean {
+  return hasFinanceSnapshotIdentity(row) && row.externalGlActualCents !== null && row.reconciliationVarianceCents !== null;
+}
+
 export function buildFinanceBudgetSummaries(rows: readonly FinanceInput[]) {
   const byCurrency = new Map<string, {
     currency: string; taxBasis: Basis | null; rowCount: number; evidenceRowCount: number; signedOffRowCount: number; staleRowCount: number;
@@ -53,12 +63,11 @@ export function buildFinanceBudgetSummaries(rows: readonly FinanceInput[]) {
       externalGlActualCents: zero, reconciliationVarianceCents: zero };
     total.rowCount++;
     for (const field of ['budgetCents', 'sourceActualCents', 'financeAdjustmentCents', 'effectiveActualCents', 'committedCents', 'exposureCents'] as const) total[field] += BigInt(row[field]);
-    const identified = !!row.reconciliationId && !!row.sourceSystemId
-      && (row.reconciliationStatus === 'SIGNED_OFF' || row.reconciliationStatus === 'STALE');
+    const identified = hasFinanceSnapshotIdentity(row);
     if (identified) {
       if (row.reconciliationStatus === 'STALE') total.staleRowCount++; else total.signedOffRowCount++;
     }
-    const evidence = identified && row.externalGlActualCents !== null && row.reconciliationVarianceCents !== null;
+    const evidence = hasCompleteFinanceEvidence(row);
     if (evidence) {
       total.evidenceRowCount++;
       total.externalGlActualCents += BigInt(row.externalGlActualCents!);

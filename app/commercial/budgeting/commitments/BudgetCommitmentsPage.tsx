@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { buildLegacyBudgetSummaries, budgetBasisLabel } from '@/lib/commercial/budgetReportSummaries';
+import { buildLegacyBudgetSummaries, budgetBasisLabel, hasFinanceSnapshotIdentity, hasCompleteFinanceEvidence } from '@/lib/commercial/budgetReportSummaries';
 import { FinanceReportSummaries } from './FinanceReportSummaries';
 import { validBudgetReport, validFinanceQueue, validFinanceSources } from '@/lib/commercial/budgetReportingSnapshot';
 import { formatAustralianTimestamp } from '@/lib/commercial/financeSetupDisplay';
@@ -619,13 +619,13 @@ export default function BudgetCommitmentsPage() {
                         <div style={sub}>{row.periodisationMode === 'PERIODISED'
                           ? row.financialPeriodName ?? row.financialPeriodId : 'Annual only'}</div></td>
                       <td><div>{row.currency}</div><div style={sub}>{row.taxBasis}</div></td>
-                      <td className={tableStyles.num}>{formatMoneyCents(row.budgetCents, row.currency)}</td>
-                      <td className={tableStyles.num}>{formatMoneyCents(row.actualCents, row.currency)}</td>
-                      <td className={tableStyles.num}>{formatMoneyCents(row.committedCents, row.currency)}</td>
-                      <td className={tableStyles.num} style={{ fontWeight: 700 }}>{formatMoneyCents(row.exposureCents, row.currency)}</td>
-                      <td className={tableStyles.num}>{formatMoneyCents(row.budgetLessActualCents, row.currency)}</td>
+                      <td className={tableStyles.num}>{formatMoneyCentsExact(BigInt(row.budgetCents), row.currency)}</td>
+                      <td className={tableStyles.num}>{formatMoneyCentsExact(BigInt(row.actualCents), row.currency)}</td>
+                      <td className={tableStyles.num}>{formatMoneyCentsExact(BigInt(row.committedCents), row.currency)}</td>
+                      <td className={tableStyles.num} style={{ fontWeight: 700 }}>{formatMoneyCentsExact(BigInt(row.exposureCents), row.currency)}</td>
+                      <td className={tableStyles.num}>{formatMoneyCentsExact(BigInt(row.budgetLessActualCents), row.currency)}</td>
                       <td className={tableStyles.num} style={{ fontWeight: 700 }}>
-                        {formatMoneyCents(row.budgetLessActualAndCommittedCents, row.currency)}
+                        {formatMoneyCentsExact(BigInt(row.budgetLessActualAndCommittedCents), row.currency)}
                       </td>
                       <td className={tableStyles.num}>
                         {row.actualLineCount} actual / {row.commitmentCount} committed
@@ -856,7 +856,7 @@ export function FinanceAdjustedTable({ rows }: { rows: FinanceRow[] }) {
           <table className={tableStyles.table} style={{ minWidth: 1450 }}>
             <thead><tr>
               {[
-                'Budget account', 'Period', 'Currency', 'Budget', 'Source Actual', 'Finance Adjustments',
+                'Budget account', 'Period', 'Currency', 'Budget basis', 'Budget', 'Source Actual', 'Finance Adjustments',
                 'Effective Actual', 'Committed', 'Exposure', 'External GL Actual',
                 'Reconciliation Variance', 'Reconciliation',
               ].map(label => <th key={label} scope="col">{label}</th>)}
@@ -873,16 +873,17 @@ export function FinanceAdjustedTable({ rows }: { rows: FinanceRow[] }) {
                     <div style={sub}>{row.financialPeriodName}</div>
                   </td>
                   <td>{row.currency}</td>
-                  <td className={tableStyles.num}>{financeMoney(row.budgetCents, row.currency)}</td>
+                  <td>{budgetBasisLabel(row.taxBasis)}</td>
+                  <td className={tableStyles.num}>{row.taxBasis === null ? 'Unavailable' : financeMoney(row.budgetCents, row.currency)}</td>
                   <td className={tableStyles.num}>{financeMoney(row.sourceActualCents, row.currency)}</td>
                   <td className={tableStyles.num}>{financeMoney(row.financeAdjustmentCents, row.currency)}</td>
                   <td className={tableStyles.num} style={{ fontWeight: 700 }}>{financeMoney(row.effectiveActualCents, row.currency)}</td>
                   <td className={tableStyles.num}>{financeMoney(row.committedCents, row.currency)}</td>
                   <td className={tableStyles.num} style={{ fontWeight: 700 }}>{financeMoney(row.exposureCents, row.currency)}</td>
-                  <td className={tableStyles.num}>{nullableFinanceMoney(row.externalGlActualCents, row.currency)}</td>
-                  <td className={tableStyles.num}>{nullableFinanceMoney(row.reconciliationVarianceCents, row.currency)}</td>
+                  <td className={tableStyles.num}>{hasCompleteFinanceEvidence(row) ? nullableFinanceMoney(row.externalGlActualCents, row.currency) : 'Unavailable'}</td>
+                  <td className={tableStyles.num}>{hasCompleteFinanceEvidence(row) ? nullableFinanceMoney(row.reconciliationVarianceCents, row.currency) : 'Unavailable'}</td>
                   <td>
-                    {row.reconciliationStatus ? (
+                    {hasFinanceSnapshotIdentity(row) ? (
                       <span
                         data-reconciliation-status={row.reconciliationStatus}
                         style={{
@@ -897,7 +898,8 @@ export function FinanceAdjustedTable({ rows }: { rows: FinanceRow[] }) {
                       >
                         {row.reconciliationStatus}
                       </span>
-                    ) : '—'}
+                    ) : 'No identified snapshot'}
+                    {!hasCompleteFinanceEvidence(row) ? <div style={sub}>Ledger evidence incomplete</div> : null}
                     {row.reconciliationId ? (
                       <div data-reconciliation-id={row.reconciliationId} style={sub}>
                         Reconciliation {row.reconciliationId}

@@ -24,7 +24,7 @@ describe('Finance report summary review', () => {
   });
   it('keeps legacy mixed bases separate while rendering a large aggregate exactly', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.includes('/sources') ? { sourceSystemIds: [] } : url.includes('/reconciliations') ? { reconciliations: [] } : { report: { ...completeReport, rows: [
-      { ...consumptionRow, budgetCents: Number.MAX_SAFE_INTEGER }, { ...consumptionRow, budgetCents: 2 }, { ...consumptionRow, taxBasis: 'INCLUSIVE' },
+      { ...consumptionRow, budgetCents: Number.MAX_SAFE_INTEGER }, { ...consumptionRow, costCentreId: 'centre-2', budgetCents: 2 }, { ...consumptionRow, costCentreId: 'centre-3', taxBasis: 'INCLUSIVE' },
     ] } })));
     render(<BudgetCommitmentsPage />);
     const exclusive = within(await screen.findByRole('region', { name: 'Resolved totals AUD Tax exclusive' }));
