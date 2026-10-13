@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   FormError,
   PageHeader,
@@ -48,31 +48,42 @@ export default function AdministratorsPage() {
   const [granting, setGranting] = useState(false);
   const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null);
 
-  async function load() {
-    setLoading(true); setError('');
-    const res = await fetch('/api/hr/administrators');
-    if (res.ok) {
-      const data = await res.json();
-      setUsers(data.users ?? []);
-    } else {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error ?? 'Could not load HR administrators.');
-    }
-    setLoading(false);
-  }
-  useEffect(() => { queueMicrotask(() => { load(); }); }, []);
+  const [refresh, setRefresh] = useState(0);
+  const uncertainRead = useRef(false);
+
+  async function load() { uncertainRead.current = false; setRefresh(value => value + 1); }
+  useEffect(() => {
+    const controller = new AbortController();
+    queueMicrotask(async () => {
+      if (controller.signal.aborted) return;
+      setLoading(true); setError(''); setUsers([]); setSelectedUserId(''); setConfirmRevokeId(null);
+      try {
+        const res = await fetch('/api/hr/administrators', { signal: controller.signal, cache: 'no-store' });
+        if (!res.ok) throw new Error('Unavailable');
+        const data = await res.json();
+        if (!Array.isArray(data.users) || !data.users.every((user: AdminUser) => user && typeof user.id === 'string' && typeof user.name === 'string'
+          && (user.email === null || typeof user.email === 'string') && typeof user.is_hr_administrator === 'boolean' && typeof user.grant_eligible === 'boolean')) throw new Error('Invalid administrators');
+        if (!controller.signal.aborted && !uncertainRead.current) setUsers(data.users);
+      } catch { if (!controller.signal.aborted && !uncertainRead.current) setError('Could not load HR administrators. Please refresh to try again.'); }
+      finally { if (!controller.signal.aborted) setLoading(false); }
+    });
+    return () => controller.abort();
+  }, [refresh]);
+
 
   const administrators = users.filter(u => u.is_hr_administrator);
   const candidates = users.filter(u => !u.is_hr_administrator && u.grant_eligible);
 
   async function grant() {
-    if (!selectedUserId) return;
+    if (!selectedUserId || granting) return;
     setGranting(true); setActionError('');
+    try {
     const res = await fetch('/api/hr/administrators', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user_id: selectedUserId }),
     });
+    if (res.status >= 500) throw new Error('Unknown access change outcome');
     if (res.ok) {
       setSelectedUserId('');
       await load();
@@ -80,12 +91,19 @@ export default function AdministratorsPage() {
       const data = await res.json().catch(() => ({}));
       setActionError(data.error ?? 'Could not grant HR administrator access.');
     }
-    setGranting(false);
+    } catch {
+      uncertainRead.current = true;
+      setUsers([]); setSelectedUserId(''); setConfirmRevokeId(null);
+      setError('Access change outcome is unknown. Refresh to check current access before trying again.');
+      setActionError('Could not confirm whether HR administrator access was granted.');
+    } finally { setGranting(false); }
   }
 
   async function revoke(userId: string) {
     setActionError('');
+    try {
     const res = await fetch(`/api/hr/administrators?userId=${userId}`, { method: 'DELETE' });
+    if (res.status >= 500) throw new Error('Unknown access change outcome');
     if (res.ok) {
       setConfirmRevokeId(null);
       await load();
@@ -93,12 +111,19 @@ export default function AdministratorsPage() {
       const data = await res.json().catch(() => ({}));
       setActionError(data.error ?? 'Could not revoke HR administrator access.');
     }
+    } catch {
+      uncertainRead.current = true;
+      setUsers([]); setSelectedUserId(''); setConfirmRevokeId(null);
+      setError('Access change outcome is unknown. Refresh to check current access before trying again.');
+      setActionError('Could not confirm whether HR administrator access was revoked.');
+    }
   }
 
   return (
     <div style={{ maxWidth: 900 }}>
       <PageHeader
         title="HR Administrators"
+        actions={<button type="button" {...buttonProps('secondary')} disabled={loading} onClick={load}>Refresh</button>}
         description="Grant or revoke HR administrator access for your organisation."
       />
 

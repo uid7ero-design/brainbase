@@ -31,7 +31,7 @@ describe('app/people/administrators/page.tsx — HR administrator grant/revoke U
   });
 
   it('fetches the dedicated /api/hr/administrators endpoint, never a broader one', () => {
-    expect(src).toContain("fetch('/api/hr/administrators')");
+    expect(src).toContain("fetch('/api/hr/administrators',");
     expect(src).not.toMatch(/\/api\/admin\/users/);
   });
 
