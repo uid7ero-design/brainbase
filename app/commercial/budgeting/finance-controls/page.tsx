@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { FinanceAdjustmentReview } from './FinanceAdjustmentReview';
 import { formatAustralianDate, formatAustralianTimestamp, isFinanceCalendarDate, isFinanceAuditTimestamp } from '@/lib/commercial/financeSetupDisplay';
 import { FinanceWorkflow } from '../../_components/FinanceWorkflow';
 import { buttonProps, fieldControlClassName, TableContainer, tableStyles } from '@/components/ui/app';
@@ -116,6 +117,7 @@ function validReconciliation(value: unknown): boolean {
 }
 
 export default function FinanceControlsPage() {
+  const [adjustmentRevision,setAdjustmentRevision]=useState(0);
   const [years, setYears] = useState<FinancialYear[]>([]);
   const [sources, setSources] = useState<string[]>([]);
   const [selectedYearId, setSelectedYearId] = useState('');
@@ -203,6 +205,7 @@ export default function FinanceControlsPage() {
       setSavedScope(loadedScope.current);
       setYears(nextYears); setSources(nextSources); setReconciliations(nextReconciliations);
       setSelectedYearId(nextYear?.id ?? ''); setSelectedPeriodId(nextPeriod?.id ?? ''); setSourceSystemId(nextSource);
+      setAdjustmentRevision(value=>value+1);
       setLoaded(true); setNeedsReload(false); blocked.current = false; recoveryRequired.current = false;
       return true;
     } catch (failure) {
@@ -482,6 +485,8 @@ export default function FinanceControlsPage() {
           </div>
         </form>
       </section>
+
+      <FinanceAdjustmentReview periodId={effectiveSelectedPeriodId} currency={currency.trim().toUpperCase()} enabled={!locked} revision={adjustmentRevision} />
 
       {loaded ? <ReconciliationControlTable
         reconciliations={reconciliations}

@@ -33,6 +33,7 @@ async function fetcher(url: string, options?: RequestInit) {
     }
     return Response.json(saved);
   }
+  if (url.includes('/finance-adjustments/review')) { const query=new URL(url,'http://localhost').searchParams; return Response.json({report:{scope:{periodId:query.get('periodId'),currency:query.get('currency'),status:query.get('status')??''},page:Number(query.get('page')??1),pageSize:25,totalCount:0,adjustments:[]}}); }
   if (broken && url.includes(broken)) return Response.json({});
   if (url.includes('/financial-periods')) return Response.json({ years: [year] });
   if (url.includes('/sources')) return Response.json({ sourceSystemIds: ['OLD', 'NEW'] });

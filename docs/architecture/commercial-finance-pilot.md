@@ -1041,6 +1041,78 @@ The assertion now waits for the same focus result; its original failure remains
 in `ledger-history-commercial-final.log`. The complete rerun passed. No schema,
 production-data, push or deployment action was performed.
 
+## Finance adjustment register and lifecycle review
+
+Finance controls now includes a read-only administrator adjustment register for
+the confirmed selected financial period and currency. The External GL source
+selector does not filter adjustments. Status filtering keeps DRAFT, POSTED and
+REVERSED records distinct. A bounded, deterministic 25-row register and its
+matching count share one statement snapshot. Adjustment numbers are text so
+large generated identities cannot round in the browser.
+
+Selecting an adjustment reads its header, signed lines, saved classification
+and immutable lifecycle events in one statement. Session-derived tenant joins
+cover header, period, lines, account/cost-centre labels and events. A detail
+outside the requested tenant/period/currency/status scope returns 404. The reads
+require budgeting entitlement and administrator access, are uncached, and expose
+no mutation. Existing create/post/reverse routes and domain rules remain
+authoritative. The real reversal walkthrough exposed untyped JSON event
+parameters in the existing Neon transport; explicit text bindings now retain
+the same related identities and reason without a PostgreSQL 42P18 error.
+
+Line displays retain exclusive, tax and inclusive cents exactly. Saved line
+totals use BigInt and are explicitly separate from posting/classification.
+An unresolved DRAFT Budget classification is Unavailable; a resolved zero is
+shown as money. Posted and reversed evidence must retain complete classification,
+nonempty lines and their required lifecycle events. Partial classification,
+inconsistent tax arithmetic, mismatched scope or missing/duplicate event stages
+cannot become a trusted detail view. No roll-up combines original and reversal
+records into a new approval or recalculates Budget Actual.
+
+Lifecycle review retains actor IDs, timestamps, reversal reasons and related
+adjustment identities. Timestamp ties order CREATED before POSTED before
+REVERSED. Related corrections can belong to another financial period; their
+identity remains visible without silently changing the current scope. Closing
+detail returns keyboard focus to its originating register button. Status changes,
+control locks and successful control refreshes invalidate prior evidence reads;
+superseded responses cannot restore an older selection. Failed reads remain
+unavailable until a fresh register/detail read succeeds.
+
+Focused checks cover header/line/event completeness, exact values, zero versus
+unknown, original/reversal lifecycle, tenant/role/input boundaries, status scope,
+read recovery and focus. Disposable acceptance creates a separate synthetic
+tenant/calendar/active Budget fixture, then uses the real adjustment APIs to
+create a large unresolved draft, post a known zero, and post/reverse an original.
+The browser reviews all four saved records, signed totals, classification,
+reason/history, status filters, mobile scrolling and GET-only recovery without
+new journal events. Fixture setup is isolated test configuration, not a customer
+setup walkthrough or release proof. No schema migration is introduced.
+
+Acceptance passed 2,784 Commercial checks across 169 files, standalone TypeScript,
+targeted lint, the final production build and the complete disposable runtime.
+This bundle adds 44 checks. After visual review, numeric cells adopted the
+existing nonwrapping money-column style; focused checks, lint, a new production
+build and the full browser/database run passed for that final display refinement.
+Final receipts are `adjustment-review-commercial-complete.log`,
+`adjustment-review-focused-accepted.log`, `adjustment-review-types-complete.log`,
+`adjustment-review-lint-final.log`, `adjustment-review-lint-complete.log`,
+`adjustment-review-lint-accepted.log`, `adjustment-review-build-accepted.log` and
+`adjustment-review-runtime-final-accepted.log` under `brainbase-finance-review`.
+Reviewed captures and structured evidence are in
+`adjustment-review-adelaide-final-accepted`. The mobile document fits 390 pixels,
+and register/line/event tables scroll to their final evidence columns.
+
+The initial runtime fixture used nonexistent calendar creator columns; its setup
+was corrected to the existing schema. The next attempt exposed the reversal
+transport's 42P18 event-binding error and led to the explicit text bindings above.
+Further browser checks corrected an existing currency-field selector, replaced
+the status selector with the standard labelled Field, and scoped old finance
+notice assertions so the new adjustment loading status cannot make them ambiguous.
+These initial outputs remain in the `adjustment-review-runtime*` logs; the final
+complete walkthrough passed. Read-only recovery records only GET requests and
+retains the adjustment event count. No production data, schema migration, push
+or deployment action was performed.
+
 ## Repeatable runtime evidence
 
 Run `npx tsc --noEmit` separately before release verification. This checks the

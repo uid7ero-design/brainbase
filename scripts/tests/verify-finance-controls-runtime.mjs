@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
 import { SignJWT } from 'jose';
@@ -108,6 +108,48 @@ try {
     INSERT INTO commercial_external_gl_cost_centre_mappings(organisation_id,source_system_id,external_cost_centre_code,cost_centre_id,effective_from,status,created_by) VALUES ('runtime-a','review-ledger','OPS-EXT','00000000-0000-4000-8000-000000000403','2026-07-01','ACTIVE','runtime-admin');
     INSERT INTO commercial_external_gl_entries(organisation_id,source_system_id,external_entry_id,external_account_code,external_cost_centre_code,transaction_date,currency,amount_minor_units,source_payload_hash,source_lineage_id,imported_by) VALUES ('runtime-a','review-ledger','entry-1','600','OPS-EXT','2026-09-20','AUD',10000,'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','review-batch','runtime-admin');`);
   const {page}=await login('runtime-admin');
+  // Adjustment review gets its own tenant so posting/reversal evidence cannot
+  // change the established reporting fixtures or their unknown Budget basis.
+  const auditYear=randomUUID(),auditPeriod=randomUUID(),auditAccount=randomUUID(),auditCentre=randomUUID(),auditBudget=randomUUID(),auditVersion=randomUUID();
+  await pool.query("INSERT INTO organisations VALUES ('runtime-audit','Adjustment review tenant','adjustment-audit',NULL,NULL); INSERT INTO organisation_modules VALUES('runtime-audit','purchasing',true,'{}'),('runtime-audit','budgeting',true,'{}');");
+  await pool.query("INSERT INTO users(id,organisation_id,role,status,name,username,password_hash,preferences) VALUES('runtime-audit-admin','runtime-audit','ADMIN','ACTIVE','runtime-audit-admin','runtime-audit-admin',$1,'{}')",[hash]);
+  await pool.query(`INSERT INTO commercial_financial_years(id,organisation_id,name,starts_on,ends_on,status) VALUES('${auditYear}','runtime-audit','Audit FY','2026-07-01','2027-06-30','OPEN');
+    INSERT INTO commercial_financial_periods(id,organisation_id,financial_year_id,name,starts_on,ends_on,status) VALUES('${auditPeriod}','runtime-audit','${auditYear}','Audit September','2026-09-01','2026-09-30','OPEN');
+    INSERT INTO commercial_budget_accounts(id,organisation_id,code,name,active,created_by) VALUES('${auditAccount}','runtime-audit','AUDIT','Audit account',true,'runtime-audit-admin');
+    INSERT INTO commercial_cost_centres(id,organisation_id,code,name,active) VALUES('${auditCentre}','runtime-audit','AUDIT','Audit centre',true);
+    INSERT INTO commercial_budgets(id,organisation_id,financial_year_id,name,currency,tax_basis,periodisation_mode,created_by) VALUES('${auditBudget}','runtime-audit','${auditYear}','Audit budget','AUD','EXCLUSIVE','ANNUAL_ONLY','runtime-audit-admin');
+    INSERT INTO commercial_budget_versions(id,organisation_id,budget_id,version_number,status,created_by,activated_by,activated_at) VALUES('${auditVersion}','runtime-audit','${auditBudget}',1,'ACTIVE','runtime-audit-admin','runtime-audit-admin',now());
+    INSERT INTO commercial_budget_lines(organisation_id,budget_version_id,budget_account_id,cost_centre_id,annual_budget_cents) VALUES('runtime-audit','${auditVersion}','${auditAccount}','${auditCentre}',1000000);
+    UPDATE commercial_budgets SET active_version_id='${auditVersion}' WHERE id='${auditBudget}';`);
+  const auditor=await login('runtime-audit-admin');
+  const auditPost=(path,body)=>auditor.page.evaluate(async({path,body})=>{const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return {status:response.status,body:await response.json()};},{path,body});
+  const auditLine=amount=>({budgetAccountId:auditAccount,costCentreId:auditCentre,amountExclusiveCents:amount,taxCents:'0',amountInclusiveCents:amount,narrative:'Exact saved audit line'});
+  const createAudit=async(description,lines)=>{const result=await auditPost('/api/commercial/budgeting/finance-adjustments',{adjustmentType:'MANUAL_FINANCE_ADJUSTMENT',effectiveFinancialPeriodId:auditPeriod,currency:'AUD',description,reasonCode:'AUDIT_REVIEW',lines});if(result.status!==201)throw new Error('Adjustment review fixture create failed: '+JSON.stringify(result));return result.body.adjustment;};
+  const originalAudit=await createAudit('Original audit correction',[auditLine('100')]);
+  if((await auditPost(`/api/commercial/budgeting/finance-adjustments/${originalAudit.id}/post`,{})).status!==200)throw new Error('Audit fixture posting failed');
+  const auditReversal=await auditPost(`/api/commercial/budgeting/finance-adjustments/${originalAudit.id}/reverse`,{reversalFinancialPeriodId:auditPeriod,reason:'Audit reversal reason'});if(auditReversal.status!==200)throw new Error('Audit fixture reversal failed');
+  const zeroAudit=await createAudit('Known zero audit correction',[auditLine('0')]);if((await auditPost(`/api/commercial/budgeting/finance-adjustments/${zeroAudit.id}/post`,{})).status!==200)throw new Error('Zero audit fixture posting failed');
+  const draftAudit=await createAudit('Exact draft audit',[auditLine('9007199254740993'),auditLine('9007199254740993')]);
+  const auditBefore=(await pool.query("SELECT count(*)::int AS count FROM commercial_finance_adjustment_events WHERE organisation_id='runtime-audit'")).rows[0].count;
+  await auditor.page.goto(origin+'/commercial/budgeting/finance-controls');await auditor.page.getByLabel('Reconciliation currency',{exact:true}).fill('AUD');
+  const adjustmentPanel=auditor.page.getByRole('region',{name:'Finance adjustment review',exact:true});await expect(adjustmentPanel).toContainText('4 matching adjustments');
+  const inspectAudit=async header=>{await adjustmentPanel.getByRole('button',{name:`Review adjustment ${header.adjustment_number}`,exact:true}).click();return adjustmentPanel.getByRole('region',{name:'Saved adjustment evidence',exact:true});};
+  let auditDetail=await inspectAudit(draftAudit);await expect(auditDetail).toContainText('$180,143,985,094,819.86');await expect(auditDetail).toContainText('Unavailable');await expect(auditDetail).toContainText('Unresolved');
+  await adjustmentPanel.getByRole('button',{name:'Close adjustment evidence',exact:true}).click();await expect(adjustmentPanel.getByRole('button',{name:`Review adjustment ${draftAudit.adjustment_number}`,exact:true})).toBeFocused();
+  auditDetail=await inspectAudit(originalAudit);await expect(auditDetail.getByRole('region',{name:'Adjustment lifecycle history',exact:true})).toContainText('REVERSED');await expect(auditDetail).toContainText('Audit reversal reason');
+  auditDetail=await inspectAudit(auditReversal.body.adjustment);await expect(auditDetail).toContainText('-$1.00');await expect(auditDetail).toContainText(originalAudit.id);await expect(auditDetail.getByRole('region',{name:'Adjustment lifecycle history',exact:true}).locator('tbody tr').filter({hasText:'CREATED'}).locator('td').last()).toHaveText(originalAudit.id);
+  auditDetail=await inspectAudit(zeroAudit);await expect(auditDetail.getByRole('region',{name:'Adjustment line evidence',exact:true})).toContainText('$0.00');await expect(auditDetail.getByRole('region',{name:'Adjustment line evidence',exact:true})).not.toContainText('Unavailable');
+  await auditor.page.setViewportSize({width:390,height:844});const adjustmentWidth=await auditor.page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth}));if(adjustmentWidth.width!==adjustmentWidth.scrollWidth)throw new Error('Adjustment review overflows mobile viewport');
+  for(const name of ['Adjustment register table','Adjustment line evidence','Adjustment lifecycle history']){const region=adjustmentPanel.getByRole('region',{name,exact:true});await region.focus();await region.evaluate(element=>{element.scrollLeft=element.scrollWidth;});if(await region.evaluate(element=>element.scrollLeft===0||Math.abs(element.scrollLeft+element.clientWidth-element.scrollWidth)>2))throw new Error('Adjustment evidence last column inaccessible');}
+  await auditor.page.evaluate(()=>window.scrollTo(0,0));await auditor.page.screenshot({path:resolve(artifacts,'adjustment-review-mobile.png'),fullPage:true});await auditor.page.setViewportSize({width:1440,height:1000});
+  const adjustmentMethods=[];let brokenAdjustmentRead=true;const adjustmentPattern='**/api/commercial/budgeting/finance-adjustments/review*';
+  await auditor.page.route(adjustmentPattern,async route=>{adjustmentMethods.push(route.request().method());const response=await route.fetch();const payload=await response.json();if(brokenAdjustmentRead&&payload.report)payload.report.adjustments=null;await route.fulfill({response,json:payload});});
+  await adjustmentPanel.getByRole('button',{name:'Reload adjustment register',exact:true}).click();await expect(adjustmentPanel.getByRole('alert')).toContainText('incomplete or belongs to a different');await expect(adjustmentPanel.getByRole('region',{name:'Saved adjustment evidence',exact:true})).toHaveCount(0);
+  brokenAdjustmentRead=false;await adjustmentPanel.getByRole('button',{name:'Reload adjustment register',exact:true}).click();await expect(adjustmentPanel).toContainText('4 matching adjustments');await auditor.page.unroute(adjustmentPattern);
+  await adjustmentPanel.getByLabel('Adjustment status',{exact:true}).selectOption('DRAFT');await expect(adjustmentPanel).toContainText('1 matching adjustments');await expect(adjustmentPanel.getByRole('button',{name:`Review adjustment ${originalAudit.adjustment_number}`,exact:true})).toHaveCount(0);
+  await adjustmentPanel.getByLabel('Adjustment status',{exact:true}).selectOption('');await expect(adjustmentPanel).toContainText('4 matching adjustments');await inspectAudit(originalAudit);await auditor.page.evaluate(()=>window.scrollTo(0,0));await auditor.page.screenshot({path:resolve(artifacts,'adjustment-review-desktop.png'),fullPage:true});
+  if(adjustmentMethods.some(method=>method!=='GET')||(await pool.query("SELECT count(*)::int AS count FROM commercial_finance_adjustment_events WHERE organisation_id='runtime-audit'")).rows[0].count!==auditBefore)throw new Error('Adjustment review mutated lifecycle evidence');
+  const foreignAdjustmentRead=await page.evaluate(async({period,id})=>{const list=await fetch(`/api/commercial/budgeting/finance-adjustments/review?periodId=${period}&currency=AUD`);const detail=await fetch(`/api/commercial/budgeting/finance-adjustments/review?periodId=${period}&currency=AUD&id=${id}`);return {list:await list.json(),detail:detail.status};},{period:auditPeriod,id:originalAudit.id});if(foreignAdjustmentRead.list.report?.totalCount!==0||foreignAdjustmentRead.detail!==404)throw new Error('Adjustment review leaked tenant evidence');
   const importPayload={sourceSystemId:'import-review',externalEntryId:'exact-large-entry',externalAccountCode:'600',transactionDate:'2026-09-10',currency:'AUD',amountMinorUnits:'9007199254740993',sourcePayloadHash:'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',sourceLineageId:'import-review-batch'};
   const importEntry=body=>page.evaluate(async body=>{const response=await fetch('/api/commercial/budgeting/external-gl/entries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return {status:response.status,payload:await response.json().catch(()=>null)};},body);
   const imported=await importEntry(importPayload);
@@ -406,14 +448,14 @@ try {
     }
     await page.getByRole('button',{name:'Refresh',exact:true}).click();
     await expect(page.getByRole('heading',{name:'Finance controls',exact:true})).toBeFocused();
-    await expect(page.getByRole('status')).toContainText('Finance controls refreshed.');
+    await expect(page.getByRole('status').filter({hasText:'Finance controls refreshed.'})).toContainText('Finance controls refreshed.');
     if(posts!==1)throw new Error('Finance recovery sent another POST');
     recoveredFinanceActions.push(name);
   }
   await page.getByLabel('Reconciliation currency').fill('AUD'); console.log('Finance scope selected');
   await page.getByLabel('Notes',{exact:true}).fill('Recovery note');
   await recoverFinanceAction('Prepare reconciliation','**/api/commercial/budgeting/reconciliations/prepare',true);
-  await expect(page.getByRole('status')).toContainText('Finance controls refreshed.');
+  await expect(page.getByRole('status').filter({hasText:'Finance controls refreshed.'})).toContainText('Finance controls refreshed.');
   await expect(page.locator('[data-reconciliation-id]')).toContainText('PREPARED');
   let recon=(await pool.query('SELECT * FROM commercial_finance_reconciliations')).rows[0];
   if(recon.source_actual_cents!=='10000'||recon.external_gl_total_cents!=='10000'||recon.variance_cents!=='0'||recon.unresolved_item_count!==0)throw new Error('Totals do not reconcile: '+JSON.stringify(recon));
@@ -447,10 +489,10 @@ try {
   recon=(await pool.query('SELECT * FROM commercial_finance_reconciliations')).rows[0];
   if(!recon.close_id||recon.status!=='SIGNED_OFF')throw new Error('Sign-off not persisted');
   await recoverFinanceAction('Close financial year','**/api/commercial/budgeting/financial-years/*/close',false,true);
-  await expect(page.getByRole('status')).toContainText('Finance controls refreshed.');
+  await expect(page.getByRole('status').filter({hasText:'Finance controls refreshed.'})).toContainText('Finance controls refreshed.');
   await page.getByLabel('Year reopen reason (required)',{exact:true}).fill('Isolated finance review');
   await recoverFinanceAction('Reopen financial year','**/api/commercial/budgeting/financial-years/*/reopen');
-  await expect(page.getByRole('status')).toContainText('Finance controls refreshed.');
+  await expect(page.getByRole('status').filter({hasText:'Finance controls refreshed.'})).toContainText('Finance controls refreshed.');
   await page.getByLabel('Reopen reason (required)',{exact:true}).fill('Isolated period review');
   await recoverFinanceAction('Reopen period','**/api/commercial/budgeting/financial-periods/*/reopen');
   await expect(page.locator('[data-reconciliation-id]')).toContainText('STALE');
@@ -481,7 +523,7 @@ try {
   // invalidating the current sign-off and retaining its durable history.
   await page.setViewportSize({width:1440,height:1000});
   await page.getByRole('button',{name:'Close period',exact:true}).click();
-  await expect(page.getByRole('status')).toContainText('Financial period closed.');
+  await expect(page.getByRole('status').filter({hasText:'Financial period closed.'})).toContainText('Financial period closed.');
   await page.getByRole('button',{name:'Prepare reconciliation',exact:true}).click();
   await expect(page.locator('[data-reconciliation-id]')).toContainText('PREPARED');
   await page.getByRole('button',{name:'Review',exact:true}).click();
@@ -501,7 +543,7 @@ try {
   await page.getByRole('button',{name:'Reopen period',exact:true}).click();
   await expect(page.getByRole('button',{name:'Close period',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Close period',exact:true}).click();
-  await expect(page.getByRole('status')).toContainText('Financial period closed.');
+  await expect(page.getByRole('status').filter({hasText:'Financial period closed.'})).toContainText('Financial period closed.');
   await page.getByRole('button',{name:'Prepare reconciliation',exact:true}).click();
   await expect(page.locator('[data-reconciliation-id]')).toContainText('PREPARED');
   await page.getByRole('button',{name:'Review',exact:true}).click();
@@ -516,7 +558,7 @@ try {
   if(newFactEvent.cause!=='EXTERNAL_GL_NEW_ENTRY'||newFactEvent.externalEntryId!=='entry-2')throw new Error('New import stale event lost its source identity');
   // Prepare the new variance through the UI, then verify report integrity without writes.
   await page.getByRole('button',{name:'Prepare reconciliation',exact:true}).click();
-  await expect(page.getByRole('status')).toContainText('Finance reconciliation prepared.');
+  await expect(page.getByRole('status').filter({hasText:'Finance reconciliation prepared.'})).toContainText('Finance reconciliation prepared.');
   const reportBefore=(await pool.query('SELECT count(*)::int AS count FROM commercial_finance_reconciliation_events')).rows[0].count;
   const reportSnapshot=(await pool.query('SELECT id,variance_cents::text FROM commercial_finance_reconciliations ORDER BY prepared_at DESC LIMIT 1')).rows[0];
   await page.goto(origin+'/commercial/budgeting/commitments');
@@ -696,6 +738,7 @@ try {
   await expect(financeTotals).toContainText('Ledger evidence covers 1 of 1 row. Snapshot row statuses: 0 signed off, 1 stale.');
   if((await pool.query('SELECT count(*)::int AS count FROM commercial_finance_reconciliation_events')).rows[0].count!==reportBefore)throw new Error('Report total review changed finance events');
   const viewer=await login('runtime-viewer');
+  if(await viewer.page.evaluate(async period=>(await fetch(`/api/commercial/budgeting/finance-adjustments/review?periodId=${period}&currency=AUD`)).status,auditPeriod)!==403)throw new Error('Viewer adjustment review accepted');
   const denial=await viewer.page.evaluate(async()=> (await fetch('/api/commercial/budgeting/financial-periods')).status);
   if(denial!==403)throw new Error('Viewer finance controls accepted');
   const mappingDenial=await viewer.page.evaluate(async()=> (await fetch('/api/commercial/budgeting/external-gl/mappings',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status);
@@ -1575,9 +1618,12 @@ try {
   await other.page.goto(origin+'/commercial/budgeting/commitments');
   await expect(other.page.getByText('Budgeting access is required to view Budget consumption.',{exact:true})).toBeVisible();
   await expect(other.page.getByRole('navigation',{name:'Finance workflow',exact:true})).toHaveCount(0);
+  await pool.query("UPDATE organisation_modules SET enabled=false WHERE organisation_id='runtime-audit' AND module_key='budgeting'");
+  if(await auditor.page.evaluate(async period=>(await fetch(`/api/commercial/budgeting/finance-adjustments/review?periodId=${period}&currency=AUD`)).status,auditPeriod)!==403)throw new Error('Unentitled adjustment review accepted');
   if(errors.length||failedApi.length)throw new Error(JSON.stringify({errors,failedApi}));
   const externalGlChecks=['mapping list calendar dates','account and cost-centre creation through real forms','exact create response dates','overlap rejection without duplicate facts','source filter','account and cost-centre retirement through real forms','exact retire response and persisted dates','viewer mutation denial','foreign mapping read and retirement denial'];
   const evidence={verified_at:new Date().toISOString(),serverTimezone,checks:['real login and production runtime','calendar dates preserved through API and screen','mobile metrics remain inside viewport','mobile history and reconciliation tables scroll to last column','exact $100 source and ledger match','prepare and review','sign-off blocked before close','period close and durable sign-off','year close and reopen','period reopen invalidates close and reconciliation','viewer denial','tenant isolation'],overflow,build_id:readFileSync('.next/BUILD_ID','utf8').trim()};
+  evidence.adjustmentReviewChecks={isolatedTenant:true,draftUnresolved:true,exactDraftTotal:'18014398509481986',knownZeroResolved:true,originalAndReversalDistinct:true,lifecycleReasonPreserved:true,readOnlyRecovery:adjustmentMethods,mobile:adjustmentWidth,viewerDenied:true,foreignTenantEmpty:true,foreignDetailNotFound:true,unentitledDenied:true};
   evidence.ledgerHistoryChecks={matchingCount:27,displayedPage2:2,exactAudTotal:'-18014398509481962',currencySeparation:true,inclusiveDateFilters:true,pageScopedCsv:true,readOnlyRecovery:historyMethods,mobile:ledgerHistoryWidth,lastColumn:historyScroll,viewerDenied:true,foreignTenantEmpty:true,unentitledDenied:true};
   evidence.ledgerImportUiChecks={reviewWithoutWrite:true,exactSignedCents:'-9007199254740993',duplicateWithoutNewFact:true,conflictPreservesOriginal:true,readOnlyRecoveryMethods:ledgerUiMethods,mobile:importWidth,viewerDenied:true,foreignTenantAbsent:true,unentitledDenied:true};
   evidence.financeControlRecoveryChecks=recoveredFinanceActions;

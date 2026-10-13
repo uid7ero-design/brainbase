@@ -571,7 +571,7 @@ export async function reverseFinanceAdjustment(params: {
           organisation_id, adjustment_id, event_type, actor_user_id, details
         )
         SELECT rh.organisation_id, rh.id, 'CREATED', ${params.userId},
-               jsonb_build_object('generatedByReversalOf', ${params.financeAdjustmentId})
+               jsonb_build_object('generatedByReversalOf', ${params.financeAdjustmentId}::text)
         FROM reversal_header rh
       ),
       posted_event AS (
@@ -579,7 +579,7 @@ export async function reverseFinanceAdjustment(params: {
           organisation_id, adjustment_id, event_type, actor_user_id, details
         )
         SELECT rh.organisation_id, rh.id, 'POSTED', ${params.userId},
-               jsonb_build_object('reversalOf', ${params.financeAdjustmentId})
+               jsonb_build_object('reversalOf', ${params.financeAdjustmentId}::text)
         FROM reversal_header rh
       ),
       reversed_event AS (
@@ -587,7 +587,7 @@ export async function reverseFinanceAdjustment(params: {
           organisation_id, adjustment_id, event_type, actor_user_id, details
         )
         SELECT ${params.organisationId}, original_reversed.id, 'REVERSED', ${params.userId},
-               jsonb_build_object('reversalAdjustmentId', ${reversalId}, 'reason', ${reason})
+               jsonb_build_object('reversalAdjustmentId', ${reversalId}::text, 'reason', ${reason}::text)
         FROM original_reversed
       )
       SELECT rh.*
