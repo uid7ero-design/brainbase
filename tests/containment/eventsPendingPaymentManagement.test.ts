@@ -275,14 +275,17 @@ describe('Retry payment route — revalidation, capacity, and permissions', () =
   })
 
   it('creates no new order, order item, or attendee row anywhere — reuses the existing order exclusively (no duplicate attendee/entitlement records)', () => {
-    const code = stripComments(read('app/api/events/[id]/orders/[orderId]/retry/route.ts'))
-    expect(code).not.toMatch(/INSERT INTO event_orders/)
-    expect(code).not.toMatch(/INSERT INTO event_order_items/)
-    expect(code).not.toMatch(/INSERT INTO event_attendees/)
+    // Eve Phase 1: checked on both the HTTP adapter and the shared retry
+    // service it delegates to.
+    for (const code of [stripComments(read('app/api/events/[id]/orders/[orderId]/retry/route.ts')), stripComments(read('lib/events/services/retryCheckout.ts'))]) {
+      expect(code).not.toMatch(/INSERT INTO event_orders/)
+      expect(code).not.toMatch(/INSERT INTO event_order_items/)
+      expect(code).not.toMatch(/INSERT INTO event_attendees/)
+    }
   })
 
   it('the capacity-reacquisition UPDATE excludes the order\'s own existing quantity from the "sold" aggregate — the mechanism that makes retry safe for both a still-valid and an already-expired hold', () => {
-    const code = stripComments(read('app/api/events/[id]/orders/[orderId]/retry/route.ts'))
+    const code = stripComments(read('lib/events/services/retryCheckout.ts'))
     expect(code).toMatch(/eo\.id <> \$\{orderId\}/)
   })
 
@@ -447,7 +450,7 @@ describe('Retry payment route — double-charge guard (Stripe-state pre-flight c
   // this mocked suite can only prove the guard clause exists in the
   // statement text, which it does here.
   it('M. the capacity-reacquisition UPDATE ties itself to the exact prior session id this request verified (the concurrency guard) — real-Postgres proof lives in scripts/tests/verify-events-phase4-payment-concurrency.sh section H', () => {
-    const code = stripComments(read('app/api/events/[id]/orders/[orderId]/retry/route.ts'))
+    const code = stripComments(read('lib/events/services/retryCheckout.ts'))
     expect(code).toMatch(/eo\.stripe_checkout_session_id IS NOT DISTINCT FROM \$\{verifiedSessionId\}/)
   })
 
@@ -512,7 +515,9 @@ describe('Retry payment route — double-charge guard (Stripe-state pre-flight c
 // and J (a later legitimate retry remains possible).
 
 describe('Retry payment route — NULL-session concurrency closure (PR #231 follow-up)', () => {
-  const routeSrc = () => stripComments(read('app/api/events/[id]/orders/[orderId]/retry/route.ts'))
+  // Eve Phase 1: the retry flow moved verbatim into the shared service
+  // lib/events/services/retryCheckout.ts; the route is a thin adapter.
+  const routeSrc = () => stripComments(read('lib/events/services/retryCheckout.ts'))
 
   it('P. both capacity-reacquisition UPDATE branches (session-bound and non-session-bound) include the new expires_at compare-and-set guard', () => {
     const code = routeSrc()
@@ -584,14 +589,16 @@ describe('Retry payment route — NULL-session concurrency closure (PR #231 foll
 // otherwise overwrite this request's just-established session.
 
 describe('Retry payment route — write-back guard (checkout-vs-retry race closure, PR #231 follow-up)', () => {
-  const routeSrc = () => stripComments(read('app/api/events/[id]/orders/[orderId]/retry/route.ts'))
+  // Eve Phase 1: the retry flow moved verbatim into the shared service
+  // lib/events/services/retryCheckout.ts; the route is a thin adapter.
+  const routeSrc = () => stripComments(read('lib/events/services/retryCheckout.ts'))
   const ORDER_ROW = { id: 'order-1', payment_status: 'PENDING', purchaser_email: 'p@example.com', total_cents: 2500, currency: 'AUD', stripe_account_id: 'acct_org_a' }
   const ITEM_ROW = { ticket_type_id: 'tt-1', event_session_id: null, quantity: 1 }
   const TT_ROW = { id: 'tt-1', name: 'Premium Guest', active: true, price_cents: 2500, currency: 'AUD' }
 
   it('the write-back UPDATE is guarded on BOTH stripe_checkout_session_id IS NULL and expires_at IS NOT DISTINCT FROM the reacquired generation marker — no longer unconditional', () => {
     const code = routeSrc()
-    expect(code).toMatch(/WHERE id = \$\{orderId\} AND organisation_id = \$\{session\.organisationId\}\s*\n\s*AND stripe_checkout_session_id IS NULL AND expires_at IS NOT DISTINCT FROM \$\{reacquiredExpiresAt\}/)
+    expect(code).toMatch(/WHERE id = \$\{orderId\} AND organisation_id = \$\{organisationId\}\s*\n\s*AND stripe_checkout_session_id IS NULL AND expires_at IS NOT DISTINCT FROM \$\{reacquiredExpiresAt\}/)
   })
 
   it('reacquiredExpiresAt comes straight from the reacquisition UPDATE\'s own RETURNING clause (both branches) — no extra round trip, and always the value THIS request\'s own successful reacquisition just set', () => {

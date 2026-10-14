@@ -271,7 +271,9 @@ describe('Paid checkout route — validation and price integrity', () => {
 // guarded statements and handles a loss safely.
 
 describe('Checkout-vs-Retry race closure (PR #231 follow-up)', () => {
-  const routeSrc = () => stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
+  // Eve Phase 1: the guarded reservation/write-back flow moved verbatim
+  // into lib/events/services/paidCheckout.ts, which the route calls.
+  const routeSrc = () => stripComments(read('lib/events/services/paidCheckout.ts'))
   const ORG_ROW = [{ id: 'org-a' }]
   const EVENT_ROW = [{
     id: 'event-1', organisation_id: 'org-a', name: 'Formal', slug: 'formal', description: null, venue: null,
@@ -828,8 +830,10 @@ describe('processStripeWebhookEvent — checkout.session.async_payment_succeeded
 
 describe('Phase 3E.3 — paid order ticket-email scheduling: containment', () => {
   const STRIPE_SOURCE = stripComments(read('lib/events/stripe.ts'))
-  const CHECKOUT_ROUTE_SOURCE = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
-  const REFUND_ROUTE_SOURCE = stripComments(read('app/api/events/[id]/orders/[orderId]/refund/route.ts'))
+  // Eve Phase 1: the reservation INSERT and the refund transition moved
+  // verbatim into the shared services the routes call.
+  const CHECKOUT_ROUTE_SOURCE = stripComments(read('lib/events/services/paidCheckout.ts'))
+  const REFUND_ROUTE_SOURCE = stripComments(read('app/api/events/[id]/orders/[orderId]/refund/route.ts')) + '\n' + stripComments(read('lib/events/services/orderTransitions.ts'))
   const WEBHOOK_ROUTE_SOURCE = stripComments(read('app/api/public/events/webhooks/stripe/route.ts'))
 
   function handlerBody(fnName: string): string {
@@ -971,7 +975,7 @@ describe('Refund route — permissions and provider-confirms-first ordering', ()
   })
 
   it('refund also cancels the order — REFUNDED tickets are never left as a valid scannable ticket (§23/§24)', () => {
-    const code = stripComments(read('app/api/events/[id]/orders/[orderId]/refund/route.ts'))
+    const code = stripComments(read('lib/events/services/orderTransitions.ts'))
     expect(code).toMatch(/status = 'CANCELLED'/)
     expect(code).toMatch(/payment_status = 'REFUNDED'/)
   })
@@ -1023,6 +1027,9 @@ describe('Phase 4 — architecture containment (no scope creep beyond the brief)
     'app/api/public/events/webhooks/stripe/route.ts',
     'app/api/events/[id]/orders/[orderId]/refund/route.ts',
     'lib/events/stripe.ts',
+    // Eve Phase 1: shared services the checkout/refund routes delegate to.
+    'lib/events/services/paidCheckout.ts',
+    'lib/events/services/orderTransitions.ts',
   ]
 
   for (const file of PHASE4_FILES) {
@@ -1070,7 +1077,7 @@ describe('Phase 4 — architecture containment (no scope creep beyond the brief)
   })
 
   it('the checkout route reuses the Phase 2 R1 lock-order discipline — FOR UPDATE on ticket_type before session, every code path', () => {
-    const code = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
+    const code = stripComments(read('lib/events/services/paidCheckout.ts'))
     expect(code).toMatch(/FOR UPDATE/)
     const ttLockIdx = code.indexOf('event_ticket_types')
     const sessLockIdx = code.indexOf('event_sessions WHERE id')
@@ -1093,9 +1100,10 @@ describe('Phase 4 — architecture containment (no scope creep beyond the brief)
   // before) — it only READS them, in one WHERE-clause exclusion, to
   // decide what already counts against capacity.
   it('the free registration route\'s capacity-gate SQL shape is otherwise preserved, still never calls Stripe or writes payment/Stripe columns — the only change is a narrow, read-only stale-reservation exclusion mirroring the paid route', () => {
-    const code = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))
+    const code = stripComments(read('lib/events/services/freeRegistration.ts'))
     expect(code).toMatch(/FOR UPDATE/)
     expect(code).toMatch(/sold_tt\.qty \+ \$\{validated\.quantity\} <=/)
+    expect(stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))).not.toMatch(/stripe/i)
     // Still architecturally separate from Stripe entirely.
     expect(code).not.toMatch(/stripe/i)
     // Still never WRITES payment_status/expires_at — every event_orders

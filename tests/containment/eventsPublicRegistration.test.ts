@@ -142,6 +142,12 @@ describe('Public registration — no authentication surface', () => {
       'utf8',
     ))
     expect(src).not.toMatch(/requireSession|requireRole|getSession|getAuthSession|cookies\(\)/)
+    // Eve Phase 1: equally true of the shared service the route calls.
+    const serviceSrc = stripLineComments(fs.readFileSync(
+      path.join(process.cwd(), 'lib/events/services/freeRegistration.ts'),
+      'utf8',
+    ))
+    expect(serviceSrc).not.toMatch(/requireSession|requireRole|getSession|getAuthSession|cookies\(\)/)
   })
 })
 
@@ -480,12 +486,14 @@ describe('Public registration — stale-reservation capacity parity with paid Ch
   })
 
   it('mirrors the paid Checkout route\'s own stale-reservation predicate BYTE FOR BYTE — one established rule, not a second, independently-invented interpretation', () => {
+    // Eve Phase 1: both capacity transactions moved verbatim into the
+    // shared services the register/checkout routes call.
     const registerSrc = fs.readFileSync(
-      path.join(process.cwd(), 'app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'),
+      path.join(process.cwd(), 'lib/events/services/freeRegistration.ts'),
       'utf8',
     )
     const checkoutSrc = fs.readFileSync(
-      path.join(process.cwd(), 'app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'),
+      path.join(process.cwd(), 'lib/events/services/paidCheckout.ts'),
       'utf8',
     )
     expect(checkoutSrc).toContain(STALE_PREDICATE)
@@ -533,17 +541,21 @@ describe('Public registration — transaction failure handling (R1 section 17)',
 
 describe('Public registration — architecture containment', () => {
   it('the route file never imports lib/tennisSchedule or any tennis env var', () => {
-    const src = fs.readFileSync(
+    for (const src of [fs.readFileSync(
       path.join(process.cwd(), 'app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'),
       'utf8',
-    )
-    expect(src).not.toMatch(/LD_TENNIS_ORG_ID|lib\/tennisSchedule/)
-    expect(src).not.toMatch(/::uuid/i)
+    ), fs.readFileSync(
+      path.join(process.cwd(), 'lib/events/services/freeRegistration.ts'),
+      'utf8',
+    )]) {
+      expect(src).not.toMatch(/LD_TENNIS_ORG_ID|lib\/tennisSchedule/)
+      expect(src).not.toMatch(/::uuid/i)
+    }
   })
 
   it('capacity-bearing rows are locked via sql.transaction, never via a standalone non-transactional FOR UPDATE call', () => {
     const src = fs.readFileSync(
-      path.join(process.cwd(), 'app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'),
+      path.join(process.cwd(), 'lib/events/services/freeRegistration.ts'),
       'utf8',
     )
     expect(src).toMatch(/sql\.transaction\(/)

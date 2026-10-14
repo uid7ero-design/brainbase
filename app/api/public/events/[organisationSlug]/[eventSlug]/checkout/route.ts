@@ -1,20 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
-import sql from '@/lib/db';
 import { resolvePublicEvent } from '@/lib/events/publicResolve';
 import { validatePublicRegistrationInput, type PublicRegistrationInput } from '@/lib/events/publicValidation';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { getClientIp } from '@/lib/clientIp';
-import { createCheckoutSession, RESERVATION_WINDOW_SECONDS, StripeNotConfiguredError, expireCheckoutSession } from '@/lib/events/stripe';
-import { checkPaidTicketingEligibility } from '@/lib/events/stripeConnect';
-import { listActiveQuestions, validateSubmittedResponses, writeRegistrationResponses } from '@/lib/events/registrationQuestions';
+import { startPaidCheckout, type PaidCheckoutResult } from '@/lib/events/services/paidCheckout';
 import { syncEventOrderContact } from '@/lib/crm/eventSync';
 
 type Ctx = { params: Promise<{ organisationSlug: string; eventSlug: string }> };
 
+// HTTP adapter for the paid public checkout. Rate limiting, body
+// parsing/shape validation and slug -> event resolution happen here;
+// every business rule, the capacity-reserving transaction, the
+// Checkout-vs-Retry race closure and Stripe Checkout Session creation
+// live in lib/events/services/paidCheckout.ts (extracted unchanged —
+// Eve Phase 1). This route translates that service's result into the
+// exact same status codes and response bodies it has always returned.
+//
 // ── When attendees are created (§14) ─────────────────────────────────
 //
-// Chosen approach: attendee rows are created HERE, at reservation time,
+// Chosen approach: attendee rows are created at reservation time,
 // inside the same capacity-gated transaction as the free-registration
 // route — WITHOUT a ticket_token (left NULL). The webhook issues
 // ticket_token for each row only once payment_status flips to PAID
@@ -22,15 +27,15 @@ type Ctx = { params: Promise<{ organisationSlug: string; eventSlug: string }> };
 //
 // This is a deliberate choice over creating attendees only inside the
 // webhook (the brief's option B), for one overriding reason: it lets
-// this route reuse the EXACT same R1-fixed, harness-proven
-// capacity-gated transaction shape as the free registration route
-// (see that route's own extensive comment on the lock-order/fresh-
-// snapshot technique), with the only changes being the extra payment
-// columns and passing NULL for ticket_token — no new transaction shape
-// needs independent concurrency proof from scratch. It also needs no
-// new schema to hold attendee names between reservation and payment
-// (no pending-attendees table, no Stripe metadata size risk for
-// several attendees' names).
+// this flow reuse the EXACT same R1-fixed, harness-proven
+// capacity-gated transaction shape as the free registration flow
+// (see lib/events/services/freeRegistration.ts's extensive comment on
+// the lock-order/fresh-snapshot technique), with the only changes being
+// the extra payment columns and passing NULL for ticket_token — no new
+// transaction shape needs independent concurrency proof from scratch.
+// It also needs no new schema to hold attendee names between
+// reservation and payment (no pending-attendees table, no Stripe
+// metadata size risk for several attendees' names).
 //
 // The trade-off the brief names — "prefer the option that creates the
 // fewest partial records" — is accepted deliberately: an abandoned
@@ -42,6 +47,41 @@ type Ctx = { params: Promise<{ organisationSlug: string; eventSlug: string }> };
 // already-payment-valid order), and the backend orders panel shows the
 // owning order as Cancelled/Expired, not a live registration. They are
 // not a functional half-issued ticket at any point.
+const CHECKOUT_FAILED = 'Checkout could not be started. Please try again.';
+
+function toResponse(result: PaidCheckoutResult): NextResponse {
+  if (result.ok) return NextResponse.json({ checkout_url: result.checkoutUrl }, { status: 201 });
+  switch (result.code) {
+    // Generic rejection for an anonymous purchaser — never Brainbase's
+    // own internal Connect-status wording (that belongs only in the
+    // authenticated backend UI).
+    case 'NOT_ELIGIBLE':
+      return NextResponse.json({ error: 'Paid tickets are not currently available for this event.' }, { status: 503 });
+    case 'TICKET_TYPE_NOT_FOUND':
+      return NextResponse.json({ error: 'Selected ticket type is not available for this event.' }, { status: 400 });
+    case 'TICKET_TYPE_INACTIVE':
+      return NextResponse.json({ error: 'Selected ticket type is not currently available.' }, { status: 400 });
+    case 'TICKET_TYPE_FREE':
+      return NextResponse.json({ error: 'This ticket type is free. Use the registration flow instead.' }, { status: 400 });
+    case 'SESSION_NOT_FOUND':
+      return NextResponse.json({ error: 'Selected session is not available for this event.' }, { status: 400 });
+    case 'RESPONSES_INVALID':
+      return NextResponse.json({ error: result.message }, { status: 400 });
+    case 'CAPACITY_UNAVAILABLE':
+      return NextResponse.json(
+        { error: 'This ticket type is no longer available in the requested quantity.' },
+        { status: 409 },
+      );
+    case 'STRIPE_NOT_CONFIGURED':
+      return NextResponse.json({ error: 'Paid checkout is not currently available.' }, { status: 503 });
+    case 'RESERVATION_FAILED':
+    case 'RESPONSE_WRITE_FAILED':
+    case 'WRITE_BACK_RACE_LOST':
+    case 'STRIPE_FAILED':
+      return NextResponse.json({ error: CHECKOUT_FAILED }, { status: 500 });
+  }
+}
+
 export async function POST(req: NextRequest, { params }: Ctx) {
   const { organisationSlug, eventSlug } = await params;
 
@@ -67,295 +107,42 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   if (!resolved.ok) return NextResponse.json({ error: 'Event not available.' }, { status: 404 });
   const { organisationId, event } = resolved;
 
-  // Phase 4A paid-ticketing gate (§10): checked before anything else
-  // that would consume capacity — an anonymous purchaser gets a clean,
-  // generic rejection (never Brainbase's own internal Connect-status
-  // wording; that belongs only in the authenticated backend UI) rather
-  // than a reservation that could never actually be paid for.
-  const eligibility = await checkPaidTicketingEligibility(organisationId);
-  if (!eligibility.eligible) {
-    return NextResponse.json({ error: 'Paid tickets are not currently available for this event.' }, { status: 503 });
-  }
-  const connectedAccountId = eligibility.accountId;
-
-  // This route is the PAID path only — price must be > 0. A free
-  // ticket type must go through the free-registration route instead
-  // (see that route's own updated comment); this is not merely a
-  // mirror-image check, it is the thing that keeps free orders from
-  // ever touching Stripe at all (§6).
-  const ticketTypeRows = await sql`
-    SELECT id, active, price_cents, currency, name FROM event_ticket_types
-    WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId} AND event_id = ${event.id}
-    LIMIT 1
-  `;
-  const ticketType = ticketTypeRows[0] as { id: string; active: boolean; price_cents: number; currency: string; name: string } | undefined;
-  if (!ticketType) {
-    return NextResponse.json({ error: 'Selected ticket type is not available for this event.' }, { status: 400 });
-  }
-  if (!ticketType.active) {
-    return NextResponse.json({ error: 'Selected ticket type is not currently available.' }, { status: 400 });
-  }
-  if (ticketType.price_cents === 0) {
-    return NextResponse.json({ error: 'This ticket type is free. Use the registration flow instead.' }, { status: 400 });
-  }
-
-  if (validated.event_session_id) {
-    const sessionRows = await sql`
-      SELECT id FROM event_sessions
-      WHERE id = ${validated.event_session_id} AND organisation_id = ${organisationId} AND event_id = ${event.id}
-      LIMIT 1
-    `;
-    if (!sessionRows.length) {
-      return NextResponse.json({ error: 'Selected session is not available for this event.' }, { status: 400 });
-    }
-  }
-
-  // Phase 4B §5/§8 — identical server-authoritative validation as the
-  // free registration route (see that file's own comment), run before
-  // any capacity is reserved for this paid attempt either.
-  const activeQuestions = await listActiveQuestions(organisationId, event.id);
-  const validatedResponses = validateSubmittedResponses(
-    activeQuestions,
-    validated.order_responses,
-    validated.attendees.map(a => a.responses),
-  );
-  if (typeof validatedResponses === 'string') {
-    return NextResponse.json({ error: validatedResponses }, { status: 400 });
-  }
-
-  const attendeeNames = validated.attendees.map(a => a.name);
-  const attendeeEmails = validated.attendees.map(a => a.email ?? '');
-  const totalCents = ticketType.price_cents * validated.quantity;
-
-  // ── Capacity-reserving transaction (§8/§9) ──────────────────────────
-  //
-  // Identical lock order and statement-sequencing discipline as the
-  // free registration route's own R1-fixed transaction (see that
-  // file's extensive comment — not reproduced here verbatim, but every
-  // invariant it documents applies unchanged): lock ticket_type (then
-  // session, if any) FOR UPDATE first; only after that lock is granted
-  // does the capacity-gated INSERT run as its own statement, so it
-  // observes a fresh, post-lock snapshot of sold quantity under READ
-  // COMMITTED.
-  //
-  // The one substantive difference: the "sold" aggregate now also
-  // excludes a PENDING paid reservation whose expires_at has passed —
-  // `AND (payment_status <> 'PENDING' OR expires_at > NOW())`. A free/
-  // NOT_REQUIRED order (payment_status never 'PENDING') and a
-  // currently-valid pending paid reservation both still count, exactly
-  // preserving existing behaviour; only a STALE pending reservation is
-  // excluded, and it is excluded by a plain time comparison evaluated
-  // fresh inside this same post-lock statement — not dependent on the
-  // `checkout.session.expired` webhook ever having arrived (§17).
-  let transactionResults: unknown[];
-  try {
-    transactionResults = validated.event_session_id
-      ? await sql.transaction([
-          sql`SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId} FOR UPDATE`,
-          sql`SELECT capacity FROM event_sessions WHERE id = ${validated.event_session_id} AND organisation_id = ${organisationId} FOR UPDATE`,
-          sql`
-            WITH sold_tt AS (
-              SELECT COALESCE(SUM(oi.quantity), 0) AS qty
-              FROM event_order_items oi
-              JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-              WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId}
-                AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
-            ),
-            sold_sess AS (
-              SELECT COALESCE(SUM(oi.quantity), 0) AS qty
-              FROM event_order_items oi
-              JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-              WHERE oi.event_session_id = ${validated.event_session_id} AND oi.organisation_id = ${organisationId}
-                AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
-            ),
-            ins_order AS (
-              INSERT INTO event_orders (
-                organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone,
-                status, total_cents, payment_status, payment_provider, currency, expires_at, stripe_account_id
-              )
-              SELECT
-                ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone},
-                'PENDING', ${totalCents}, 'PENDING', 'stripe', ${ticketType.currency}, NOW() + make_interval(secs => ${RESERVATION_WINDOW_SECONDS}), ${connectedAccountId}
-              FROM sold_tt, sold_sess
-              WHERE sold_tt.qty + ${validated.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId})
-                AND sold_sess.qty + ${validated.quantity} <= (SELECT capacity FROM event_sessions WHERE id = ${validated.event_session_id} AND organisation_id = ${organisationId})
-              RETURNING id
-            ),
-            ins_item AS (
-              INSERT INTO event_order_items (organisation_id, order_id, event_id, ticket_type_id, event_session_id, quantity, unit_price_cents)
-              SELECT ${organisationId}, ins_order.id, ${event.id}, ${validated.ticket_type_id}, ${validated.event_session_id}, ${validated.quantity}, ${ticketType.price_cents}
-              FROM ins_order
-              RETURNING id, order_id
-            )
-            INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email)
-            SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, '')
-            FROM ins_item, UNNEST(${attendeeNames}::text[], ${attendeeEmails}::text[]) AS a(name, email)
-            RETURNING id, order_id
-          `,
-        ])
-      : await sql.transaction([
-          sql`SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId} FOR UPDATE`,
-          sql`
-            WITH sold_tt AS (
-              SELECT COALESCE(SUM(oi.quantity), 0) AS qty
-              FROM event_order_items oi
-              JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-              WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId}
-                AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
-            ),
-            ins_order AS (
-              INSERT INTO event_orders (
-                organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone,
-                status, total_cents, payment_status, payment_provider, currency, expires_at, stripe_account_id
-              )
-              SELECT
-                ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone},
-                'PENDING', ${totalCents}, 'PENDING', 'stripe', ${ticketType.currency}, NOW() + make_interval(secs => ${RESERVATION_WINDOW_SECONDS}), ${connectedAccountId}
-              FROM sold_tt
-              WHERE sold_tt.qty + ${validated.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId})
-              RETURNING id
-            ),
-            ins_item AS (
-              INSERT INTO event_order_items (organisation_id, order_id, event_id, ticket_type_id, event_session_id, quantity, unit_price_cents)
-              SELECT ${organisationId}, ins_order.id, ${event.id}, ${validated.ticket_type_id}, NULL, ${validated.quantity}, ${ticketType.price_cents}
-              FROM ins_order
-              RETURNING id, order_id
-            )
-            INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email)
-            SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, '')
-            FROM ins_item, UNNEST(${attendeeNames}::text[], ${attendeeEmails}::text[]) AS a(name, email)
-            RETURNING id, order_id
-          `,
-        ]);
-  } catch (err) {
-    console.error('[public checkout] reservation transaction failed', err);
-    return NextResponse.json({ error: 'Checkout could not be started. Please try again.' }, { status: 500 });
-  }
-
-  const insertResult = transactionResults[transactionResults.length - 1] as { id: string; order_id: string }[];
-  if (!insertResult.length) {
-    return NextResponse.json(
-      { error: 'This ticket type is no longer available in the requested quantity.' },
-      { status: 409 },
-    );
-  }
-  const orderId = insertResult[0].order_id;
-
-  // ── Checkout-vs-Retry race closure (PR #231 follow-up) ──────────────
-  // Captured as early as practical after the order becomes visible (and
-  // therefore already Retry-able by a manager) — this order's own
-  // `expires_at`, exactly as the reservation transaction above just set
-  // it, acts as a generation/version stamp for the SAME compare-and-set
-  // mechanism the retry route uses (see that route's own header
-  // comment). It is what makes the guarded write-back below safe: if a
-  // manager Retry reacquires this SAME order (and therefore advances
-  // its expires_at) before this request's own Stripe call returns, the
-  // write-back below will correctly detect that and fail closed rather
-  // than overwrite a newer, already-active session.
-  const [orderGenRow] = await sql`SELECT expires_at FROM event_orders WHERE id = ${orderId}`;
-  const capturedExpiresAt = (orderGenRow as { expires_at: string } | undefined)?.expires_at ?? null;
-
-  // Phase 4B §8 — responses MUST be persisted before the Stripe
-  // redirect: they need to survive the browser leaving and coming back,
-  // and retry payment (which never re-touches attendees/responses, see
-  // that route) must never need to recreate them. Unlike the free
-  // route, a write failure here is treated as fatal — the reservation
-  // is released with the exact same compensating-cancellation pattern
-  // already used below for a Stripe Checkout Session creation failure,
-  // rather than sending an anonymous purchaser into a paid checkout
-  // whose attendee-requirement answers are already lost.
-  try {
-    await writeRegistrationResponses(organisationId, event.id, orderId, insertResult.map(row => row.id), validatedResponses);
-  } catch (err) {
-    console.error('[public checkout] response write failed, releasing reservation', err, { orderId });
-    // Guarded the same way as the Stripe-creation write-back below
-    // (PR #231 follow-up): if a manager Retry has already reacquired
-    // this order (advancing expires_at) in the time this request took
-    // to fail, that generation is no longer this request's to cancel —
-    // the guard makes this a safe no-op instead of destroying Retry's
-    // already-active reservation out from under it.
-    await sql`UPDATE event_orders SET status = 'CANCELLED', payment_status = 'FAILED' WHERE id = ${orderId} AND payment_status = 'PENDING' AND expires_at IS NOT DISTINCT FROM ${capturedExpiresAt}`;
-    return NextResponse.json({ error: 'Checkout could not be started. Please try again.' }, { status: 500 });
-  }
-
-  // Events -> CRM sync (Phase 5) — after the order + responses have
-  // committed, BEFORE the Stripe redirect. Payment is still PENDING at
-  // this point (matching Phase 5's paid-registration behaviour spec:
-  // "create/update/reuse purchaser CRM contact if safe to do so...
-  // payment may still be PENDING"). Deliberately NOT recording a
-  // booking activity here yet — that happens once Stripe actually
-  // confirms payment (see lib/events/stripe.ts's webhook handlers),
-  // so the activity reflects a real payment outcome rather than an
-  // as-yet-unpaid reservation. Best-effort and never throws (see
-  // lib/crm/eventSync.ts) — a CRM failure here must never cancel the
-  // reservation or block the Stripe redirect below.
-  await syncEventOrderContact({
+  const result = await startPaidCheckout({
     organisationId,
-    orderId,
-    purchaserName: validated.purchaser_name,
-    purchaserEmail: validated.purchaser_email,
-    purchaserPhone: validated.purchaser_phone,
+    event,
+    validated,
+    // Events -> CRM sync (Phase 5) — invoked by the service after the
+    // order + responses have committed, BEFORE the Stripe redirect.
+    // Payment is still PENDING at this point (matching Phase 5's
+    // paid-registration behaviour spec: "create/update/reuse purchaser
+    // CRM contact if safe to do so... payment may still be PENDING").
+    // Deliberately NOT recording a booking activity here yet — that
+    // happens once Stripe actually confirms payment (see
+    // lib/events/stripe.ts's webhook handlers), so the activity reflects
+    // a real payment outcome rather than an as-yet-unpaid reservation.
+    // Best-effort and never throws (see lib/crm/eventSync.ts) — a CRM
+    // failure here must never cancel the reservation or block the
+    // Stripe redirect.
+    onReserved: async (orderId) => {
+      await syncEventOrderContact({
+        organisationId,
+        orderId,
+        purchaserName: validated.purchaser_name,
+        purchaserEmail: validated.purchaser_email,
+        purchaserPhone: validated.purchaser_phone,
+      });
+    },
+    buildReturnUrls: async () => {
+      const h = await headers();
+      const host = h.get('x-forwarded-host') ?? h.get('host') ?? 'localhost:3000';
+      const proto = h.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
+      const origin = `${proto}://${host}`;
+      return {
+        successUrl: `${origin}/e/${organisationSlug}/${eventSlug}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancelUrl: `${origin}/e/${organisationSlug}/${eventSlug}?checkout=cancelled`,
+      };
+    },
   });
 
-  // ── Stripe Checkout Session creation ────────────────────────────────
-  //
-  // If this fails (network error, misconfiguration), the reservation
-  // just created must not be left as an indefinite hold — release it
-  // immediately rather than waiting 30 minutes for expiry.
-  const h = await headers();
-  const host = h.get('x-forwarded-host') ?? h.get('host') ?? 'localhost:3000';
-  const proto = h.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
-  const origin = `${proto}://${host}`;
-
-  try {
-    const { sessionId, url } = await createCheckoutSession({
-      organisationId,
-      eventId: event.id,
-      orderId,
-      ticketTypeName: ticketType.name,
-      unitAmountCents: ticketType.price_cents,
-      currency: ticketType.currency,
-      quantity: validated.quantity,
-      purchaserEmail: validated.purchaser_email,
-      successUrl: `${origin}/e/${organisationSlug}/${eventSlug}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancelUrl: `${origin}/e/${organisationSlug}/${eventSlug}?checkout=cancelled`,
-      connectedAccountId,
-    });
-
-    // ── Checkout-vs-Retry race closure (PR #231 follow-up) ────────────
-    // No longer unconditional: a manager Retry could have reacquired
-    // this SAME order (advancing its expires_at) while the Stripe call
-    // above was in flight. The guard requires BOTH the column still
-    // being NULL and expires_at still matching exactly what this
-    // request captured before calling Stripe — either condition failing
-    // means someone else has already claimed this order's active
-    // session, and the session just created here (`sessionId`) must be
-    // treated as an orphan: never written to the DB, never returned to
-    // this purchaser, best-effort expired in Stripe immediately (see
-    // expireCheckoutSession's own comment for why best-effort is safe
-    // even on failure).
-    const writeBack = await sql`
-      UPDATE event_orders SET stripe_checkout_session_id = ${sessionId}
-      WHERE id = ${orderId} AND stripe_checkout_session_id IS NULL
-        AND expires_at IS NOT DISTINCT FROM ${capturedExpiresAt}
-      RETURNING id
-    `;
-    if (!writeBack.length) {
-      console.error('[public checkout] lost the write-back race to a concurrent Retry — expiring orphaned Checkout Session', { orderId, sessionId });
-      await expireCheckoutSession(sessionId, connectedAccountId);
-      return NextResponse.json({ error: 'Checkout could not be started. Please try again.' }, { status: 500 });
-    }
-    return NextResponse.json({ checkout_url: url }, { status: 201 });
-  } catch (err) {
-    // Guarded the same way as the write-back above and the
-    // writeRegistrationResponses failure branch further up (PR #231
-    // follow-up) — see that branch's own comment for why.
-    await sql`UPDATE event_orders SET status = 'CANCELLED', payment_status = 'FAILED' WHERE id = ${orderId} AND payment_status = 'PENDING' AND expires_at IS NOT DISTINCT FROM ${capturedExpiresAt}`;
-    if (err instanceof StripeNotConfiguredError) {
-      console.error('[public checkout] Stripe is not configured', err);
-      return NextResponse.json({ error: 'Paid checkout is not currently available.' }, { status: 503 });
-    }
-    console.error('[public checkout] Stripe Checkout Session creation failed', err);
-    return NextResponse.json({ error: 'Checkout could not be started. Please try again.' }, { status: 500 });
-  }
+  return toResponse(result);
 }

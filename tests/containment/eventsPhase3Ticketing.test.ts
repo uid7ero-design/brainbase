@@ -181,8 +181,12 @@ describe('Ticket identity — server-generated, unique, never client-supplied', 
   })
 })
 
+// Eve Phase 1: the register route's transaction and token minting moved
+// verbatim into lib/events/services/freeRegistration.ts, which the route
+// now calls; these containment checks follow the code there.
 describe('Ticket identity — architecture containment (register route)', () => {
-  const routeSrc = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))
+  const routeSrc = stripComments(read('lib/events/services/freeRegistration.ts'))
+  const httpRouteSrc = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))
 
   // Phase 4: the generator itself moved to lib/events/ticketToken.ts (a
   // small extraction so the Stripe webhook's paid-order token issuance
@@ -204,6 +208,7 @@ describe('Ticket identity — architecture containment (register route)', () => 
     // it be the ONLY one.
     expect(routeSrc).toMatch(/import \{[^}]*\bgenerateTicketToken\b[^}]*\} from '@\/lib\/events\/ticketToken'/)
     expect(routeSrc).not.toMatch(/randomBytes/)
+    expect(httpRouteSrc).not.toMatch(/randomBytes|generateTicketToken/)
   })
 
   it('the R1 concurrency-safe capacity gate is textually unchanged — lock statements and capacity WHERE clauses are still present', () => {
