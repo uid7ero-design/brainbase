@@ -63,7 +63,9 @@ describe('computeSelectionTotalCents — integer cents, no floating point', () =
   })
 
   it('matches the exact formula the checkout route computes server-side — never a second, independently-drifting implementation', () => {
-    const checkoutSrc = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
+    // Eve Phase 1: the server-side total now lives in the shared paid
+    // checkout service the route calls.
+    const checkoutSrc = stripComments(read('lib/events/services/paidCheckout.ts'))
     expect(checkoutSrc).toMatch(/ticketType\.price_cents \* validated\.quantity/)
     // Same shape: unitPriceCents * quantity, integer multiplication only.
     expect(computeSelectionTotalCents(1234, 5)).toBe(1234 * 5)

@@ -138,9 +138,13 @@ describe('Public registration API — booking_token in the success response', ()
   })
 
   it('no generateBookingToken/generateTicketToken call was added beyond what the route already made — source-level containment', () => {
-    const code = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))
+    // Eve Phase 1: minting moved verbatim into the shared service the
+    // register route calls; the route itself mints nothing.
+    const code = stripComments(read('lib/events/services/freeRegistration.ts'))
     const occurrences = (code.match(/generateBookingToken\(\)/g) ?? []).length
     expect(occurrences).toBe(1) // the one, pre-existing call — this fix reuses its result, never adds a second call
+    const route = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))
+    expect(route).not.toMatch(/generateBookingToken|generateTicketToken/)
   })
 
   it('never exposes organisationId, raw settings, or purchaser email in the response', async () => {

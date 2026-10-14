@@ -425,6 +425,11 @@ describe('Retry payment — never touches responses (§8: "retry does not duplic
     expect(src).not.toMatch(/registrationQuestions/)
     expect(src).not.toMatch(/event_registration_responses/)
     expect(src).not.toMatch(/INSERT INTO event_orders|INSERT INTO event_order_items|INSERT INTO event_attendees/)
+    // Eve Phase 1: equally true of the shared retry service the route calls.
+    const serviceSrc = fs.readFileSync(path.join(process.cwd(), 'lib/events/services/retryCheckout.ts'), 'utf8')
+    expect(serviceSrc).not.toMatch(/registrationQuestions/)
+    expect(serviceSrc).not.toMatch(/event_registration_responses/)
+    expect(serviceSrc).not.toMatch(/INSERT INTO event_orders|INSERT INTO event_order_items|INSERT INTO event_attendees/)
   })
 })
 
@@ -446,8 +451,10 @@ describe('Privacy (§6) — response data never reaches ticket URLs, QR payloads
   }
 
   it('the paid checkout route never passes order_responses/attendee responses into createCheckoutSession\'s Stripe metadata call', () => {
+    // Eve Phase 1: the Stripe call moved verbatim into the shared paid
+    // checkout service the route calls.
     const src = fs.readFileSync(
-      path.join(process.cwd(), 'app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'),
+      path.join(process.cwd(), 'lib/events/services/paidCheckout.ts'),
       'utf8',
     )
     const callIndex = src.indexOf('createCheckoutSession({')

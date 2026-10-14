@@ -70,8 +70,18 @@ describe('Schema — event_orders.booking_token', () => {
   })
 })
 
-describe('Free-order minting — app/api/public/events/.../register/route.ts', () => {
-  const source = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))
+// Eve Phase 1: the free-registration transaction (and its token
+// minting) moved verbatim from the register route into the shared
+// service lib/events/services/freeRegistration.ts; the route is now a
+// thin HTTP adapter that must not mint anything itself.
+describe('Free-order minting — lib/events/services/freeRegistration.ts (called by the register route)', () => {
+  const source = stripComments(read('lib/events/services/freeRegistration.ts'))
+
+  it('the register route itself no longer mints booking or ticket tokens — the shared service is the single minting site', () => {
+    const route = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))
+    expect(route).not.toMatch(/generateBookingToken|generateTicketToken/)
+    expect(route).toMatch(/registerFreeOrder\(/)
+  })
 
   it('imports generateBookingToken from the shared module', () => {
     expect(source).toMatch(/import \{[^}]*\bgenerateBookingToken\b[^}]*\} from '@\/lib\/events\/ticketToken'/)
