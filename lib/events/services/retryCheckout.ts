@@ -8,6 +8,10 @@ import {
 type OrderRow = {
   id: string; payment_status: string; purchaser_email: string; total_cents: number; currency: string; stripe_account_id: string | null;
   stripe_checkout_session_id: string | null; expires_at: string | null;
+  // expires_at as integer epoch-microseconds (text) — the generation
+  // stamp the compare-and-set guards below compare against, at full
+  // timestamptz precision (see the expiry CAS precision note below).
+  expires_at_stamp: string | null;
 };
 type ItemRow = { ticket_type_id: string; event_session_id: string | null; quantity: number };
 type TicketTypeRow = { id: string; name: string; active: boolean; price_cents: number; currency: string };
@@ -104,10 +108,15 @@ type TicketTypeRow = { id: string; name: string; active: boolean; price_cents: n
 // Fixed with a second, independent compare-and-set guard on the SAME
 // UPDATE, reusing `expires_at` — a column that already exists purely
 // for reservation-window bookkeeping — as a generation/version stamp:
-// `verifiedExpiresAt` captures the order's expires_at at the exact same
-// moment as `verifiedSessionId` above, and the guarded UPDATE requires
-// `eo.expires_at IS NOT DISTINCT FROM ${verifiedExpiresAt}` in addition
-// to the session guard. Critically, every successful reacquisition
+// `verifiedExpiresAtStamp` captures the order's expires_at at the exact
+// same moment as `verifiedSessionId` above, and the guarded UPDATE
+// requires the row's current expires_at to equal it, in addition to the
+// session guard. (Expiry CAS precision hotfix: the stamp is expires_at
+// as integer epoch-microseconds, read and compared inside Postgres —
+// `(extract(epoch FROM eo.expires_at) * 1000000)::bigint IS NOT
+// DISTINCT FROM ${verifiedExpiresAtStamp}::bigint` — because a JS Date
+// only keeps milliseconds and the original Date-valued comparison
+// almost never matched a microsecond timestamptz.) Critically, every successful reacquisition
 // (including a first-ever one on a NULL-session order) sets expires_at
 // to a brand-new `NOW() + RESERVATION_WINDOW_SECONDS` — so it changes
 // on every winning retry regardless of whether the session guard was
@@ -177,7 +186,8 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
   }
 
   const orderRows = await sql`
-    SELECT id, payment_status, purchaser_email, total_cents, currency, stripe_account_id, stripe_checkout_session_id, expires_at
+    SELECT id, payment_status, purchaser_email, total_cents, currency, stripe_account_id, stripe_checkout_session_id, expires_at,
+      (extract(epoch FROM expires_at) * 1000000)::bigint::text AS expires_at_stamp
     FROM event_orders WHERE id = ${orderId} AND event_id = ${eventId} AND organisation_id = ${organisationId} LIMIT 1
   `;
   const order = orderRows[0] as OrderRow | undefined;
@@ -222,7 +232,14 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
   // concurrency guard below, and a NULL-session order needs it just as
   // much as a session-bearing one does. See the header comment's
   // "NULL-session concurrency closure" section.
-  const verifiedExpiresAt = order.expires_at ?? null;
+  //
+  // Expiry CAS precision hotfix: captured as the database-normalised
+  // epoch-microsecond stamp, never as a JS Date. expires_at is
+  // timestamptz (microseconds); the driver parses it into a millisecond
+  // Date, so comparing `expires_at IS NOT DISTINCT FROM ${Date}` almost
+  // never matched a NOW()-derived value and every reacquisition silently
+  // failed. Same column, same guard semantics, exact precision.
+  const verifiedExpiresAtStamp = order.expires_at_stamp ?? null;
   if (verifiedSessionId) {
     let attempt;
     try {
@@ -267,10 +284,10 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
             FROM sold_tt, sold_sess
             WHERE eo.id = ${orderId} AND eo.organisation_id = ${organisationId} AND eo.payment_status = 'PENDING'
               AND eo.stripe_checkout_session_id IS NOT DISTINCT FROM ${verifiedSessionId}
-              AND eo.expires_at IS NOT DISTINCT FROM ${verifiedExpiresAt}
+              AND (extract(epoch FROM eo.expires_at) * 1000000)::bigint IS NOT DISTINCT FROM ${verifiedExpiresAtStamp}::bigint
               AND sold_tt.qty + ${item.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${item.ticket_type_id} AND organisation_id = ${organisationId})
               AND sold_sess.qty + ${item.quantity} <= (SELECT capacity FROM event_sessions WHERE id = ${item.event_session_id} AND organisation_id = ${organisationId})
-            RETURNING eo.id, eo.expires_at
+            RETURNING eo.id, eo.expires_at, (extract(epoch FROM eo.expires_at) * 1000000)::bigint::text AS expires_at_stamp
           `,
         ])
       : await sql.transaction([
@@ -286,9 +303,9 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
             FROM sold_tt
             WHERE eo.id = ${orderId} AND eo.organisation_id = ${organisationId} AND eo.payment_status = 'PENDING'
               AND eo.stripe_checkout_session_id IS NOT DISTINCT FROM ${verifiedSessionId}
-              AND eo.expires_at IS NOT DISTINCT FROM ${verifiedExpiresAt}
+              AND (extract(epoch FROM eo.expires_at) * 1000000)::bigint IS NOT DISTINCT FROM ${verifiedExpiresAtStamp}::bigint
               AND sold_tt.qty + ${item.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${item.ticket_type_id} AND organisation_id = ${organisationId})
-            RETURNING eo.id, eo.expires_at
+            RETURNING eo.id, eo.expires_at, (extract(epoch FROM eo.expires_at) * 1000000)::bigint::text AS expires_at_stamp
           `,
         ]);
   } catch (err) {
@@ -296,7 +313,7 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
     return { ok: false, code: 'REACQUISITION_FAILED' };
   }
 
-  const reacquired = transactionResults[transactionResults.length - 1] as { id: string; expires_at: string }[];
+  const reacquired = transactionResults[transactionResults.length - 1] as { id: string; expires_at: string; expires_at_stamp: string }[];
   if (!reacquired.length) {
     // Zero rows now has three possible causes, all correctly reported
     // with the same message: genuine capacity exhaustion (the
@@ -321,7 +338,7 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
   // this request's own Stripe call returns, the write-back will
   // correctly detect that and fail closed rather than overwrite a
   // newer, already-active session.
-  const reacquiredExpiresAt = reacquired[0].expires_at;
+  const reacquiredExpiresAtStamp = reacquired[0].expires_at_stamp;
 
 
   // Always the branded public return flow (§7) — event.org_slug/
@@ -361,7 +378,7 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
     const writeBack = await sql`
       UPDATE event_orders SET stripe_checkout_session_id = ${sessionId}
       WHERE id = ${orderId} AND organisation_id = ${organisationId}
-        AND stripe_checkout_session_id IS NULL AND expires_at IS NOT DISTINCT FROM ${reacquiredExpiresAt}
+        AND stripe_checkout_session_id IS NULL AND (extract(epoch FROM expires_at) * 1000000)::bigint IS NOT DISTINCT FROM ${reacquiredExpiresAtStamp}::bigint
       RETURNING id
     `;
     if (!writeBack.length) {

@@ -238,8 +238,17 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
   // its expires_at) before this request's own Stripe call returns, the
   // write-back below will correctly detect that and fail closed rather
   // than overwrite a newer, already-active session.
-  const [orderGenRow] = await sql`SELECT expires_at FROM event_orders WHERE id = ${orderId}`;
-  const capturedExpiresAt = (orderGenRow as { expires_at: string } | undefined)?.expires_at ?? null;
+  //
+  // Expiry CAS precision hotfix: the stamp is read and compared INSIDE
+  // Postgres as integer epoch-microseconds (expires_at_stamp), never as
+  // a JS Date. expires_at is timestamptz (microsecond precision) but the
+  // driver parses it into a millisecond Date, so the previous
+  // `expires_at IS NOT DISTINCT FROM ${Date}` guard almost never matched
+  // a NOW()-derived value — the write-back and both compensating cancels
+  // silently matched zero rows. The stamp is the exact same column, at
+  // full precision on both sides; the guard semantics are unchanged.
+  const [orderGenRow] = await sql`SELECT (extract(epoch FROM expires_at) * 1000000)::bigint::text AS expires_at_stamp FROM event_orders WHERE id = ${orderId}`;
+  const capturedExpiresAtStamp = (orderGenRow as { expires_at_stamp: string | null } | undefined)?.expires_at_stamp ?? null;
 
   // Phase 4B §8 — responses MUST be persisted before the Stripe
   // redirect: they need to survive the browser leaving and coming back,
@@ -260,7 +269,7 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
     // to fail, that generation is no longer this request's to cancel —
     // the guard makes this a safe no-op instead of destroying Retry's
     // already-active reservation out from under it.
-    await sql`UPDATE event_orders SET status = 'CANCELLED', payment_status = 'FAILED' WHERE id = ${orderId} AND payment_status = 'PENDING' AND expires_at IS NOT DISTINCT FROM ${capturedExpiresAt}`;
+    await sql`UPDATE event_orders SET status = 'CANCELLED', payment_status = 'FAILED' WHERE id = ${orderId} AND payment_status = 'PENDING' AND (extract(epoch FROM expires_at) * 1000000)::bigint IS NOT DISTINCT FROM ${capturedExpiresAtStamp}::bigint`;
     return { ok: false, code: 'RESPONSE_WRITE_FAILED' };
   }
 
@@ -312,7 +321,7 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
     const writeBack = await sql`
       UPDATE event_orders SET stripe_checkout_session_id = ${sessionId}
       WHERE id = ${orderId} AND stripe_checkout_session_id IS NULL
-        AND expires_at IS NOT DISTINCT FROM ${capturedExpiresAt}
+        AND (extract(epoch FROM expires_at) * 1000000)::bigint IS NOT DISTINCT FROM ${capturedExpiresAtStamp}::bigint
       RETURNING id
     `;
     if (!writeBack.length) {
@@ -325,7 +334,7 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
     // Guarded the same way as the write-back above and the
     // writeRegistrationResponses failure branch further up (PR #231
     // follow-up) — see that branch's own comment for why.
-    await sql`UPDATE event_orders SET status = 'CANCELLED', payment_status = 'FAILED' WHERE id = ${orderId} AND payment_status = 'PENDING' AND expires_at IS NOT DISTINCT FROM ${capturedExpiresAt}`;
+    await sql`UPDATE event_orders SET status = 'CANCELLED', payment_status = 'FAILED' WHERE id = ${orderId} AND payment_status = 'PENDING' AND (extract(epoch FROM expires_at) * 1000000)::bigint IS NOT DISTINCT FROM ${capturedExpiresAtStamp}::bigint`;
     if (err instanceof StripeNotConfiguredError) {
       console.error('[public checkout] Stripe is not configured', err);
       return { ok: false, code: 'STRIPE_NOT_CONFIGURED' };
