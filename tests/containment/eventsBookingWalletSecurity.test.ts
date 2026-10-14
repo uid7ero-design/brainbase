@@ -17,8 +17,14 @@ function stripComments(src: string): string {
 
 describe('orderId remains a non-secret confirmation reference only', () => {
   it('the register route still exposes confirmation_reference: orderId exactly as before — this feature does not change that field\'s meaning or remove it', () => {
+    // Eve Phase 1: the order id now comes back from the shared
+    // registerFreeOrder service (straight from its own insert result)
+    // and the route maps it onto the same wire field.
     const code = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))
-    expect(code).toMatch(/confirmation_reference: orderId/)
+    expect(code).toMatch(/confirmation_reference: result\.orderId/)
+    const service = stripComments(read('lib/events/services/freeRegistration.ts'))
+    expect(service).toMatch(/const orderId = insertResult\[0\]\.order_id;/)
+    expect(service).toMatch(/return \{ ok: true, orderId, /)
   })
 
   it('no new code path treats event_orders.id as a bearer credential — getPublicBookingDetail looks up by booking_token only', () => {

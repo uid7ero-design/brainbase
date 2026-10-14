@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
-import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
+import { cancelOrder } from '@/lib/events/services/orderTransitions';
 import { recordEventBookingActivityForOrder } from '@/lib/crm/eventSync';
-import { logCancelled } from '@/lib/events/auditLog';
 
 type Ctx = { params: Promise<{ id: string; orderId: string }> };
 
@@ -59,78 +58,46 @@ type Ctx = { params: Promise<{ id: string; orderId: string }> };
 // check-in history is preserved (§A.1's explicit requirement, and
 // Phase L1's own explicit "preserve historical attendee/check-in
 // data").
+//
+// HTTP adapter only — both conditional UPDATEs and the audit entry live
+// in lib/events/services/orderTransitions.ts's cancelOrder (extracted
+// unchanged — Eve Phase 1).
 export async function POST(_req: Request, { params }: Ctx) {
   const auth = await authorizeEventsRequest('manager');
   if (!auth.ok) return auth.response;
   const { session } = auth;
   const { id: eventId, orderId } = await params;
 
-  const eventRows = await sql`SELECT id FROM events WHERE id = ${eventId} AND organisation_id = ${session.organisationId} LIMIT 1`;
-  if (!eventRows.length) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
-
-  const orderRows = await sql`SELECT id, status, payment_status FROM event_orders WHERE id = ${orderId} AND event_id = ${eventId} AND organisation_id = ${session.organisationId} LIMIT 1`;
-  const order = orderRows[0] as { id: string; status: string; payment_status: string } | undefined;
-  if (!order) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
-
-  const isPendingPaidReservation = order.payment_status === 'PENDING';
-  const isConfirmedFreeOrder = order.status === 'CONFIRMED' && order.payment_status === 'NOT_REQUIRED';
-
-  if (!isPendingPaidReservation && !isConfirmedFreeOrder) {
-    return NextResponse.json({ error: 'Only a pending payment or a confirmed free order can be cancelled this way.' }, { status: 409 });
-  }
-
-  // No Stripe call in either branch — a PENDING reservation was never
-  // charged (that's what makes it cancellable here rather than
-  // refundable), and a free order was never a Stripe concern at all.
-  const updated = isPendingPaidReservation
-    ? await sql`
-        UPDATE event_orders
-        SET status = 'CANCELLED', payment_status = 'EXPIRED'
-        WHERE id = ${orderId} AND organisation_id = ${session.organisationId} AND payment_status = 'PENDING'
-        RETURNING id
-      `
-    : await sql`
-        UPDATE event_orders
-        SET status = 'CANCELLED'
-        WHERE id = ${orderId} AND organisation_id = ${session.organisationId} AND status = 'CONFIRMED' AND payment_status = 'NOT_REQUIRED'
-        RETURNING id
-      `;
-  if (!updated.length) {
-    // Already resolved by a concurrent request (webhook expiry, another
-    // manager double-clicking) between the read above and this UPDATE
-    // — not an error, and exactly what makes a repeat cancel click on
-    // an already-cancelled free order idempotent too (Phase L1).
-    return NextResponse.json({ ok: true, note: 'Order was already resolved by a concurrent update.' });
-  }
-
-  // Events -> CRM sync (Phase 5) — best-effort, never throws (see
-  // lib/crm/eventSync.ts, wrapped in its own try/catch). Reads the
-  // order's own now-updated row and updates its existing booking
-  // activity, if one exists, to reflect that — never deletes the CRM
-  // contact itself, and no-ops silently if CRM is disabled or the
-  // order was never linked to a contact. Every CRM-related sql call
-  // this phase introduces lives behind lib/crm/eventSync.ts's own
-  // boundary — this route does not run its own separate lookup query.
-  // Called AFTER the order UPDATE has already committed, so a CRM
-  // failure can never roll back or block the cancellation itself.
-  await recordEventBookingActivityForOrder(orderId);
-
-  // Phase 6 §11 / Phase L1 — best-effort audit entry, only on this
-  // request's OWN successful transition (not on the "already resolved
-  // concurrently" early-return above, which changed nothing here).
-  // Identifies the actor (userId), the order (resourceId), the event
-  // (eventId, carried in both before/after state), and the exact
-  // previous/resulting order+payment status pair.
-  await logCancelled({
+  const result = await cancelOrder({
     organisationId: session.organisationId,
     userId: session.userId,
-    orderId,
     eventId,
-    before: { status: order.status, payment_status: order.payment_status },
-    after: isPendingPaidReservation
-      ? { status: 'CANCELLED', payment_status: 'EXPIRED' }
-      : { status: 'CANCELLED', payment_status: order.payment_status },
+    orderId,
+    // Events -> CRM sync (Phase 5) — best-effort, never throws (see
+    // lib/crm/eventSync.ts, wrapped in its own try/catch). Reads the
+    // order's own now-updated row and updates its existing booking
+    // activity, if one exists, to reflect that — never deletes the CRM
+    // contact itself, and no-ops silently if CRM is disabled or the
+    // order was never linked to a contact. Called by the service AFTER
+    // the order UPDATE has already committed, so a CRM failure can never
+    // roll back or block the cancellation itself.
+    onTransitioned: recordEventBookingActivityForOrder,
   });
 
-  return NextResponse.json({ ok: true });
+  if (result.ok) {
+    if (result.alreadyResolved) {
+      // Already resolved by a concurrent request (webhook expiry, another
+      // manager double-clicking) — not an error, and exactly what makes a
+      // repeat cancel click on an already-cancelled free order idempotent
+      // too (Phase L1).
+      return NextResponse.json({ ok: true, note: 'Order was already resolved by a concurrent update.' });
+    }
+    return NextResponse.json({ ok: true });
+  }
+  switch (result.code) {
+    case 'NOT_FOUND':
+      return NextResponse.json({ error: 'Not found.' }, { status: 404 });
+    case 'NOT_CANCELLABLE':
+      return NextResponse.json({ error: 'Only a pending payment or a confirmed free order can be cancelled this way.' }, { status: 409 });
+  }
 }

@@ -355,10 +355,12 @@ describe('checkPaidTicketingEligibility', () => {
   })
 
   it('the checkout route blocks paid checkout when ineligible — free registration is a completely separate route, unaffected', () => {
-    const checkoutSrc = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
-    const registerSrc = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))
+    // Eve Phase 1: the flows now live in the shared services each route calls.
+    const checkoutSrc = stripComments(read('lib/events/services/paidCheckout.ts'))
+    const registerSrc = stripComments(read('lib/events/services/freeRegistration.ts'))
     expect(checkoutSrc).toMatch(/checkPaidTicketingEligibility/)
     expect(registerSrc).not.toMatch(/checkPaidTicketingEligibility|stripeConnect/)
+    expect(stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))).not.toMatch(/checkPaidTicketingEligibility|stripeConnect/)
   })
 })
 
@@ -368,12 +370,14 @@ describe('Checkout route — connected-account propagation', () => {
   it('the client cannot supply a Stripe account id — the validator has no such field, and connectedAccountId is only ever server-derived', () => {
     const validationSrc = stripComments(read('lib/events/publicValidation.ts'))
     expect(validationSrc).not.toMatch(/stripe_account|account_id/i)
-    const checkoutSrc = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
+    const checkoutSrc = stripComments(read('lib/events/services/paidCheckout.ts'))
     expect(checkoutSrc).toMatch(/eligibility\.accountId/)
+    // The route never passes any account id into the service at all.
+    expect(stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))).not.toMatch(/accountId|stripe_account/i)
   })
 
   it('the order INSERT stores stripe_account_id for historical provider attribution (§14)', () => {
-    const code = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
+    const code = stripComments(read('lib/events/services/paidCheckout.ts'))
     expect(code).toMatch(/stripe_account_id/)
     expect(code).toMatch(/\$\{connectedAccountId\}/)
   })
@@ -457,13 +461,16 @@ describe('Webhook handlers — connected-account reconciliation', () => {
 
 describe('Refund — uses the order\'s own historical Connect account', () => {
   it('createRefund is called with the ORDER\'s stripe_account_id, never re-derived from the organisation\'s current settings', () => {
-    const code = stripComments(read('app/api/events/[id]/orders/[orderId]/refund/route.ts'))
+    // Eve Phase 1: the refund transition lives in the shared service the
+    // refund route calls.
+    const code = stripComments(read('lib/events/services/orderTransitions.ts'))
     expect(code).toMatch(/createRefund\(order\.stripe_payment_intent_id, order\.stripe_account_id\)/)
     expect(code).not.toMatch(/getConnectAccountState|stripeConnect/)
+    expect(stripComments(read('app/api/events/[id]/orders/[orderId]/refund/route.ts'))).not.toMatch(/getConnectAccountState|stripeConnect|createRefund/)
   })
 
   it('an order with no stored stripe_account_id cannot be refunded (pre-Connect / non-Connect-attributed order)', () => {
-    const code = stripComments(read('app/api/events/[id]/orders/[orderId]/refund/route.ts'))
+    const code = stripComments(read('lib/events/services/orderTransitions.ts'))
     expect(code).toMatch(/!order\.stripe_account_id/)
   })
 })
