@@ -293,12 +293,12 @@ describe('Checkout-vs-Retry race closure (PR #231 follow-up)', () => {
 
   it('the write-back UPDATE is guarded on BOTH stripe_checkout_session_id IS NULL and expires_at IS NOT DISTINCT FROM the captured generation marker — no longer unconditional', () => {
     const code = routeSrc()
-    expect(code).toMatch(/WHERE id = \$\{orderId\} AND stripe_checkout_session_id IS NULL\s*\n\s*AND expires_at IS NOT DISTINCT FROM \$\{capturedExpiresAt\}/)
+    expect(code).toMatch(/WHERE id = \$\{orderId\} AND stripe_checkout_session_id IS NULL\s*\n\s*AND \(extract\(epoch FROM expires_at\) \* 1000000\)::bigint IS NOT DISTINCT FROM \$\{capturedExpiresAtStamp\}::bigint/)
   })
 
   it('capturedExpiresAt is read from the order row BEFORE createCheckoutSession is called, not after', () => {
     const code = routeSrc()
-    const captureIdx = code.indexOf('const capturedExpiresAt = ')
+    const captureIdx = code.indexOf('const capturedExpiresAtStamp = ')
     const stripeCallIdx = code.indexOf('await createCheckoutSession({')
     expect(captureIdx).toBeGreaterThan(-1)
     expect(stripeCallIdx).toBeGreaterThan(-1)
@@ -307,7 +307,7 @@ describe('Checkout-vs-Retry race closure (PR #231 follow-up)', () => {
 
   it('both compensating-cancellation UPDATEs (response-write failure, Stripe creation failure) are ALSO guarded on the same generation marker — a losing original checkout must not cancel an order a Retry has already legitimately advanced', () => {
     const code = routeSrc()
-    const occurrences = code.match(/AND payment_status = 'PENDING' AND expires_at IS NOT DISTINCT FROM \$\{capturedExpiresAt\}/g) ?? []
+    const occurrences = code.match(/AND payment_status = 'PENDING' AND \(extract\(epoch FROM expires_at\) \* 1000000\)::bigint IS NOT DISTINCT FROM \$\{capturedExpiresAtStamp\}::bigint/g) ?? []
     expect(occurrences.length).toBe(2)
   })
 
@@ -1123,5 +1123,39 @@ describe('Phase 4 — architecture containment (no scope creep beyond the brief)
     expect(fs.existsSync(path.join(process.cwd(), 'scripts/add-events-payments.sql'))).toBe(true)
     const migrationSrc = read('scripts/add-events-payments.sql')
     expect(migrationSrc).not.toMatch(/DROP TABLE|TRUNCATE|DELETE FROM/i)
+  })
+})
+
+// ─── Hotfix: expiry compare-and-set precision ──────────────────────────
+//
+// The PR #231 generation guards compared `expires_at` (timestamptz,
+// microsecond precision) against a JS Date read back from the same row
+// (millisecond precision), so they almost never matched. The guards now
+// compare a Postgres-normalised integer epoch-microsecond stamp on both
+// sides. The behavioural proof is the real-Postgres suite in
+// tests/containment/eventsExpiryCasPrecisionRealPostgres.test.ts; this
+// block pins that no JS-round-tripped timestamptz comparison remains.
+describe('Hotfix — expiry CAS precision (no JS-Date timestamptz equality guards remain)', () => {
+  const FILES = ['lib/events/services/paidCheckout.ts', 'lib/events/services/retryCheckout.ts']
+
+  it('no `expires_at IS NOT DISTINCT FROM ${<js value>}` comparison remains in the paid checkout or retry services', () => {
+    for (const f of FILES) {
+      const code = stripComments(read(f))
+      expect(code, f).not.toMatch(/(?<!\()(?:eo\.)?expires_at IS NOT DISTINCT FROM \$\{/)
+      expect(code, f).not.toMatch(/expires_at\s*=\s*\$\{/)
+    }
+  })
+
+  it('every generation guard compares the Postgres-normalised stamp cast to bigint on BOTH sides (paidCheckout: write-back + 2 compensating cancels; retry: 2 reacquire branches + write-back)', () => {
+    const stampGuard = /\(extract\(epoch FROM (?:eo\.)?expires_at\) \* 1000000\)::bigint IS NOT DISTINCT FROM \$\{\w+ExpiresAtStamp\}::bigint/g
+    expect((stripComments(read('lib/events/services/paidCheckout.ts')).match(stampGuard) ?? []).length).toBe(3)
+    expect((stripComments(read('lib/events/services/retryCheckout.ts')).match(stampGuard) ?? []).length).toBe(3)
+  })
+
+  it('the stamp is read from Postgres as text (never parsed into a JS Date/number), so no precision is lost in transit', () => {
+    for (const f of FILES) {
+      const code = stripComments(read(f))
+      expect(code, f).toMatch(/\(extract\(epoch FROM (?:eo\.)?expires_at\) \* 1000000\)::bigint::text AS expires_at_stamp/)
+    }
   })
 })
