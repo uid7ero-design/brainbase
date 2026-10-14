@@ -44,6 +44,10 @@ function toResponse(result: FreeRegistrationResult): NextResponse {
       return NextResponse.json({ error: 'Selected ticket type is not currently available.' }, { status: 400 });
     case 'TICKET_TYPE_REQUIRES_PAYMENT':
       return NextResponse.json({ error: 'This ticket type requires payment. Use the checkout flow instead.' }, { status: 400 });
+    // Phase 2 — an order is all-free or all-paid (see
+    // lib/events/services/cart.ts).
+    case 'MIXED_FREE_AND_PAID':
+      return NextResponse.json({ error: 'Free and paid tickets must be booked in separate orders.' }, { status: 400 });
     case 'SESSION_NOT_FOUND':
       return NextResponse.json({ error: 'Selected session is not available for this event.' }, { status: 400 });
     case 'RESPONSES_INVALID':

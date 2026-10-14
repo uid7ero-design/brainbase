@@ -1,12 +1,20 @@
+import { randomUUID } from 'crypto';
 import sql from '@/lib/db';
 import type { PublicEvent } from '@/lib/events/publicResolve';
 import type { ValidatedRegistration } from '@/lib/events/publicValidation';
 import { createCheckoutSession, RESERVATION_WINDOW_SECONDS, StripeNotConfiguredError, expireCheckoutSession } from '@/lib/events/stripe';
 import { checkPaidTicketingEligibility } from '@/lib/events/stripeConnect';
 import { listActiveQuestions, validateSubmittedResponses, writeRegistrationResponses } from '@/lib/events/registrationQuestions';
+import { loadCartTicketTypes, buildCartLockStatements, computeCartTotalCents } from '@/lib/events/services/cart';
 
 // Shared ticketing service — paid public checkout reservation + Stripe
 // Checkout Session creation.
+//
+// Phase 2: one order may contain several paid ticket types for the same
+// event (a cart) — one event_order_items row and one Stripe line item
+// per type, all reserved atomically in one capacity-gated statement.
+// See lib/events/services/cart.ts for the shared cart rules and lock
+// order.
 //
 // Extracted verbatim from
 // app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts
@@ -44,6 +52,8 @@ export type PaidCheckoutResult =
         | 'TICKET_TYPE_NOT_FOUND'
         | 'TICKET_TYPE_INACTIVE'
         | 'TICKET_TYPE_FREE'
+        | 'MIXED_FREE_AND_PAID'
+        | 'CURRENCY_MISMATCH'
         | 'SESSION_NOT_FOUND'
         | 'RESERVATION_FAILED'
         | 'CAPACITY_UNAVAILABLE'
@@ -67,26 +77,26 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
   }
   const connectedAccountId = eligibility.accountId;
 
-  // This route is the PAID path only — price must be > 0. A free
-  // ticket type must go through the free-registration route instead
-  // (see that route's own updated comment); this is not merely a
-  // mirror-image check, it is the thing that keeps free orders from
-  // ever touching Stripe at all (§6).
-  const ticketTypeRows = await sql`
-    SELECT id, active, price_cents, currency, name FROM event_ticket_types
-    WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId} AND event_id = ${event.id}
-    LIMIT 1
-  `;
-  const ticketType = ticketTypeRows[0] as { id: string; active: boolean; price_cents: number; currency: string; name: string } | undefined;
-  if (!ticketType) {
-    return { ok: false, code: 'TICKET_TYPE_NOT_FOUND' };
+  // This route is the PAID path only — every cart line's price must be
+  // > 0. Free ticket types must go through the free-registration route
+  // instead, and a cart mixing free and paid types is rejected (an order
+  // is all-free or all-paid — see lib/events/services/cart.ts); this is
+  // not merely a mirror-image check, it is the thing that keeps free
+  // orders from ever touching Stripe at all (§6). Every line must also
+  // share one currency (one Checkout Session charges one currency).
+  // Ownership (same organisation AND same event), active state, price
+  // and currency are all re-derived server-side in one tenant-scoped
+  // query — never trusted from the request.
+  const cart = await loadCartTicketTypes(organisationId, event.id, validated.items);
+  if (!cart.ok) {
+    return { ok: false, code: cart.code };
   }
-  if (!ticketType.active) {
-    return { ok: false, code: 'TICKET_TYPE_INACTIVE' };
-  }
-  if (ticketType.price_cents === 0) {
+  if (cart.pricing !== 'PAID') {
     return { ok: false, code: 'TICKET_TYPE_FREE' };
   }
+  const lineTypeIds = cart.lines.map(l => l.ticket_type_id);
+  const lineQuantities = cart.lines.map(l => l.quantity);
+  const lineUnitPrices = cart.lines.map(l => l.unit_price_cents);
 
   if (validated.event_session_id) {
     const sessionRows = await sql`
@@ -114,108 +124,107 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
 
   const attendeeNames = validated.attendees.map(a => a.name);
   const attendeeEmails = validated.attendees.map(a => a.email ?? '');
-  const totalCents = ticketType.price_cents * validated.quantity;
+  const attendeeTypeIds = validated.attendees.map(a => a.ticket_type_id);
+  // Generated here so each attendee's answers can be written against its
+  // own row deterministically (see the transaction comment below).
+  const attendeeIds = validated.attendees.map(() => randomUUID());
+  // Integer cents only: the order total is exactly the sum of its lines,
+  // and is exactly what the Stripe line items below charge.
+  const totalCents = computeCartTotalCents(cart.lines);
 
-  // ── Capacity-reserving transaction (§8/§9) ──────────────────────────
+  // ── Capacity-reserving transaction (§8/§9, multi-line) ──────────────
   //
   // Identical lock order and statement-sequencing discipline as the
-  // free registration route's own R1-fixed transaction (see that
-  // file's extensive comment — not reproduced here verbatim, but every
-  // invariant it documents applies unchanged): lock ticket_type (then
-  // session, if any) FOR UPDATE first; only after that lock is granted
-  // does the capacity-gated INSERT run as its own statement, so it
-  // observes a fresh, post-lock snapshot of sold quantity under READ
-  // COMMITTED.
+  // free registration flow's own R1-fixed transaction (see
+  // lib/events/services/freeRegistration.ts's extensive comment — every
+  // invariant it documents applies unchanged): lock every cart line's
+  // ticket type in ascending ticket_type_id order, then the session (if
+  // any), each FOR UPDATE as its own statement; only after every lock is
+  // granted does the capacity-gated INSERT run as its own statement, so
+  // it observes a fresh, post-lock snapshot of sold quantity under READ
+  // COMMITTED. The `gate` CTE requires EVERY line to fit its own ticket
+  // type's remaining capacity AND the combined cart quantity to fit the
+  // session — all lines are reserved together or none are.
   //
-  // The one substantive difference: the "sold" aggregate now also
-  // excludes a PENDING paid reservation whose expires_at has passed —
-  // `AND (payment_status <> 'PENDING' OR expires_at > NOW())`. A free/
-  // NOT_REQUIRED order (payment_status never 'PENDING') and a
-  // currently-valid pending paid reservation both still count, exactly
-  // preserving existing behaviour; only a STALE pending reservation is
-  // excluded, and it is excluded by a plain time comparison evaluated
-  // fresh inside this same post-lock statement — not dependent on the
-  // `checkout.session.expired` webhook ever having arrived (§17).
+  // The "sold" aggregates exclude a PENDING paid reservation whose
+  // expires_at has passed — `AND (payment_status <> 'PENDING' OR
+  // expires_at > NOW())`. A free/NOT_REQUIRED order (payment_status
+  // never 'PENDING') and a currently-valid pending paid reservation both
+  // still count; only a STALE pending reservation is excluded, by a
+  // plain time comparison evaluated fresh inside this same post-lock
+  // statement — not dependent on the `checkout.session.expired` webhook
+  // ever having arrived (§17).
+  //
+  // Attendee rows are inserted with ids generated here, before the
+  // statement runs (attendeeIds, aligned 1:1 with validated.attendees),
+  // so attendee-scoped registration answers are written against the
+  // correct attendee deterministically — never by RETURNING row order,
+  // which Postgres does not guarantee (the same reasoning the free flow
+  // already applies via ticket_token correlation).
   let transactionResults: unknown[];
   try {
-    transactionResults = validated.event_session_id
-      ? await sql.transaction([
-          sql`SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId} FOR UPDATE`,
-          sql`SELECT capacity FROM event_sessions WHERE id = ${validated.event_session_id} AND organisation_id = ${organisationId} FOR UPDATE`,
-          sql`
-            WITH sold_tt AS (
-              SELECT COALESCE(SUM(oi.quantity), 0) AS qty
+    transactionResults = await sql.transaction([
+      ...buildCartLockStatements(organisationId, lineTypeIds, validated.event_session_id),
+      sql`
+        WITH cart AS (
+          SELECT c.ticket_type_id, c.quantity, c.unit_price_cents
+          FROM UNNEST(${lineTypeIds}::text[], ${lineQuantities}::int[], ${lineUnitPrices}::int[]) AS c(ticket_type_id, quantity, unit_price_cents)
+        ),
+        cart_tt AS (
+          SELECT c.ticket_type_id, c.quantity, tt.capacity,
+            (
+              SELECT COALESCE(SUM(oi.quantity), 0)
               FROM event_order_items oi
               JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-              WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId}
+              WHERE oi.ticket_type_id = c.ticket_type_id AND oi.organisation_id = ${organisationId}
                 AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
-            ),
-            sold_sess AS (
-              SELECT COALESCE(SUM(oi.quantity), 0) AS qty
-              FROM event_order_items oi
-              JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-              WHERE oi.event_session_id = ${validated.event_session_id} AND oi.organisation_id = ${organisationId}
-                AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
-            ),
-            ins_order AS (
-              INSERT INTO event_orders (
-                organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone,
-                status, total_cents, payment_status, payment_provider, currency, expires_at, stripe_account_id
-              )
-              SELECT
-                ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone},
-                'PENDING', ${totalCents}, 'PENDING', 'stripe', ${ticketType.currency}, NOW() + make_interval(secs => ${RESERVATION_WINDOW_SECONDS}), ${connectedAccountId}
-              FROM sold_tt, sold_sess
-              WHERE sold_tt.qty + ${validated.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId})
-                AND sold_sess.qty + ${validated.quantity} <= (SELECT capacity FROM event_sessions WHERE id = ${validated.event_session_id} AND organisation_id = ${organisationId})
-              RETURNING id
-            ),
-            ins_item AS (
-              INSERT INTO event_order_items (organisation_id, order_id, event_id, ticket_type_id, event_session_id, quantity, unit_price_cents)
-              SELECT ${organisationId}, ins_order.id, ${event.id}, ${validated.ticket_type_id}, ${validated.event_session_id}, ${validated.quantity}, ${ticketType.price_cents}
-              FROM ins_order
-              RETURNING id, order_id
+            ) AS sold
+          FROM cart c
+          JOIN event_ticket_types tt ON tt.id = c.ticket_type_id AND tt.organisation_id = ${organisationId}
+        ),
+        sold_sess AS (
+          SELECT COALESCE(SUM(oi.quantity), 0) AS qty
+          FROM event_order_items oi
+          JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+          WHERE oi.event_session_id = ${validated.event_session_id} AND oi.organisation_id = ${organisationId}
+            AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
+        ),
+        gate AS (
+          SELECT 1 AS ok
+          FROM sold_sess
+          WHERE (SELECT count(*) FROM cart_tt) = ${lineTypeIds.length}
+            AND NOT EXISTS (SELECT 1 FROM cart_tt WHERE cart_tt.sold + cart_tt.quantity > cart_tt.capacity)
+            AND (
+              ${validated.event_session_id}::text IS NULL
+              OR sold_sess.qty + ${validated.quantity} <= (SELECT capacity FROM event_sessions WHERE id = ${validated.event_session_id} AND organisation_id = ${organisationId})
             )
-            INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email)
-            SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, '')
-            FROM ins_item, UNNEST(${attendeeNames}::text[], ${attendeeEmails}::text[]) AS a(name, email)
-            RETURNING id, order_id
-          `,
-        ])
-      : await sql.transaction([
-          sql`SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId} FOR UPDATE`,
-          sql`
-            WITH sold_tt AS (
-              SELECT COALESCE(SUM(oi.quantity), 0) AS qty
-              FROM event_order_items oi
-              JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-              WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId}
-                AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
-            ),
-            ins_order AS (
-              INSERT INTO event_orders (
-                organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone,
-                status, total_cents, payment_status, payment_provider, currency, expires_at, stripe_account_id
-              )
-              SELECT
-                ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone},
-                'PENDING', ${totalCents}, 'PENDING', 'stripe', ${ticketType.currency}, NOW() + make_interval(secs => ${RESERVATION_WINDOW_SECONDS}), ${connectedAccountId}
-              FROM sold_tt
-              WHERE sold_tt.qty + ${validated.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId})
-              RETURNING id
-            ),
-            ins_item AS (
-              INSERT INTO event_order_items (organisation_id, order_id, event_id, ticket_type_id, event_session_id, quantity, unit_price_cents)
-              SELECT ${organisationId}, ins_order.id, ${event.id}, ${validated.ticket_type_id}, NULL, ${validated.quantity}, ${ticketType.price_cents}
-              FROM ins_order
-              RETURNING id, order_id
-            )
-            INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email)
-            SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, '')
-            FROM ins_item, UNNEST(${attendeeNames}::text[], ${attendeeEmails}::text[]) AS a(name, email)
-            RETURNING id, order_id
-          `,
-        ]);
+        ),
+        ins_order AS (
+          INSERT INTO event_orders (
+            organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone,
+            status, total_cents, payment_status, payment_provider, currency, expires_at, stripe_account_id
+          )
+          SELECT
+            ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone},
+            'PENDING', ${totalCents}, 'PENDING', 'stripe', ${cart.currency}, NOW() + make_interval(secs => ${RESERVATION_WINDOW_SECONDS}), ${connectedAccountId}
+          FROM gate
+          RETURNING id
+        ),
+        ins_items AS (
+          INSERT INTO event_order_items (organisation_id, order_id, event_id, ticket_type_id, event_session_id, quantity, unit_price_cents)
+          SELECT ${organisationId}, ins_order.id, ${event.id}, cart.ticket_type_id, ${validated.event_session_id}, cart.quantity, cart.unit_price_cents
+          FROM ins_order, cart
+          RETURNING id, order_id, ticket_type_id
+        )
+        INSERT INTO event_attendees (id, organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email)
+        SELECT a.id, ${organisationId}, ${event.id}, ii.order_id, ii.id, a.name, NULLIF(a.email, '')
+        FROM ins_items ii
+        JOIN UNNEST(${attendeeIds}::text[], ${attendeeTypeIds}::text[], ${attendeeNames}::text[], ${attendeeEmails}::text[])
+          AS a(id, ticket_type_id, name, email)
+          ON a.ticket_type_id = ii.ticket_type_id
+        RETURNING id, order_id
+      `,
+    ]);
   } catch (err) {
     console.error('[public checkout] reservation transaction failed', err);
     return { ok: false, code: 'RESERVATION_FAILED' };
@@ -260,7 +269,7 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
   // rather than sending an anonymous purchaser into a paid checkout
   // whose attendee-requirement answers are already lost.
   try {
-    await writeRegistrationResponses(organisationId, event.id, orderId, insertResult.map(row => row.id), validatedResponses);
+    await writeRegistrationResponses(organisationId, event.id, orderId, attendeeIds, validatedResponses);
   } catch (err) {
     console.error('[public checkout] response write failed, releasing reservation', err, { orderId });
     // Guarded the same way as the Stripe-creation write-back below
@@ -296,10 +305,12 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
       organisationId,
       eventId: event.id,
       orderId,
-      ticketTypeName: ticketType.name,
-      unitAmountCents: ticketType.price_cents,
-      currency: ticketType.currency,
-      quantity: validated.quantity,
+      // One Stripe line item per cart line, in purchase order, priced
+      // from the same server-derived unit prices written to
+      // event_order_items above — so Stripe's total is exactly
+      // event_orders.total_cents.
+      lineItems: cart.lines.map(l => ({ name: l.name, unitAmountCents: l.unit_price_cents, quantity: l.quantity })),
+      currency: cart.currency,
       purchaserEmail: validated.purchaser_email,
       successUrl,
       cancelUrl,

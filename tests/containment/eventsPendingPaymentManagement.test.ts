@@ -519,10 +519,12 @@ describe('Retry payment route — NULL-session concurrency closure (PR #231 foll
   // lib/events/services/retryCheckout.ts; the route is a thin adapter.
   const routeSrc = () => stripComments(read('lib/events/services/retryCheckout.ts'))
 
-  it('P. both capacity-reacquisition UPDATE branches (session-bound and non-session-bound) include the new expires_at compare-and-set guard', () => {
+  // Phase 2: session-bound and non-session orders share ONE whole-order
+  // reacquisition UPDATE (session capacity is a conditional clause).
+  it('P. the capacity-reacquisition UPDATE (one statement for session-bound and non-session orders) includes the new expires_at compare-and-set guard', () => {
     const code = routeSrc()
     const occurrences = code.match(/\(extract\(epoch FROM eo\.expires_at\) \* 1000000\)::bigint IS NOT DISTINCT FROM \$\{verifiedExpiresAtStamp\}::bigint/g) ?? []
-    expect(occurrences.length).toBe(2)
+    expect(occurrences.length).toBe(1)
   })
 
   it('Q. verifiedExpiresAt is captured UNCONDITIONALLY — before the `if (verifiedSessionId)` branch, not inside it — so a NULL-session order still gets a guard value', () => {
@@ -604,7 +606,7 @@ describe('Retry payment route — write-back guard (checkout-vs-retry race closu
   it('reacquiredExpiresAt comes straight from the reacquisition UPDATE\'s own RETURNING clause (both branches) — no extra round trip, and always the value THIS request\'s own successful reacquisition just set', () => {
     const code = routeSrc()
     const occurrences = code.match(/RETURNING eo\.id, eo\.expires_at, \(extract\(epoch FROM eo\.expires_at\) \* 1000000\)::bigint::text AS expires_at_stamp/g) ?? []
-    expect(occurrences.length).toBe(2)
+    expect(occurrences.length).toBe(1)
     expect(code).toMatch(/const reacquiredExpiresAtStamp = reacquired\[0\]\.expires_at_stamp/)
   })
 

@@ -57,14 +57,23 @@ export class StripeNotConfiguredError extends Error {
 // the two stay aligned as designed.
 export const RESERVATION_WINDOW_SECONDS = 31 * 60;
 
+// One Stripe line item per event_order_items row (Phase 2 — multi-
+// ticket-type orders). Every value is server-derived by the caller from
+// the order's own items, never from the client request.
+export type CheckoutLineItem = {
+  name: string;
+  unitAmountCents: number;
+  quantity: number;
+};
+
 export type CreateCheckoutSessionInput = {
   organisationId: string;
   eventId: string;
   orderId: string;
-  ticketTypeName: string;
-  unitAmountCents: number;
+  // Non-empty; one entry per order item, in display order. All share
+  // `currency` below (enforced by the cart rules before reservation).
+  lineItems: CheckoutLineItem[];
   currency: string;
-  quantity: number;
   purchaserEmail: string;
   successUrl: string;
   cancelUrl: string;
@@ -94,21 +103,20 @@ export type CreateCheckoutSessionInput = {
 // Session, its PaymentIntent, and the eventual charge all belong to
 // the CLIENT's own Stripe account, not Brainbase's platform account.
 export async function createCheckoutSession(input: CreateCheckoutSessionInput): Promise<{ sessionId: string; url: string }> {
+  if (!input.lineItems.length) throw new Error('A Checkout Session requires at least one line item.');
   const stripe = getStripeClient();
   const session = await stripe.checkout.sessions.create(
     {
       mode: 'payment',
       customer_email: input.purchaserEmail,
-      line_items: [
-        {
-          price_data: {
-            currency: input.currency.toLowerCase(),
-            product_data: { name: input.ticketTypeName },
-            unit_amount: input.unitAmountCents,
-          },
-          quantity: input.quantity,
+      line_items: input.lineItems.map(item => ({
+        price_data: {
+          currency: input.currency.toLowerCase(),
+          product_data: { name: item.name },
+          unit_amount: item.unitAmountCents,
         },
-      ],
+        quantity: item.quantity,
+      })),
       metadata: {
         event_order_id: input.orderId,
         organisation_id: input.organisationId,

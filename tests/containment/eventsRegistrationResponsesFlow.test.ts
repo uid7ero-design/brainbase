@@ -293,9 +293,10 @@ describe('Free registration — response persistence is atomic with the reservat
       attendees: [{ name: 'A' }],
     }), CTX)
     expect(res.status).toBe(201)
-    // org, event, ticket-type, active-questions, lock, diagnostic count,
-    // atomic statement — exactly 7 calls, no 8th "write responses" call.
-    expect(sqlMock.mock.calls.length - callsBefore).toBe(7)
+    // org, event, ticket-type, active-questions, lock, atomic statement —
+    // exactly 6 calls, no 7th "write responses" call. (Phase 2 removed
+    // the former unread diagnostic count statement.)
+    expect(sqlMock.mock.calls.length - callsBefore).toBe(6)
     const text = lastSqlCallText()
     expect(text).toMatch(/INSERT INTO event_registration_responses/)
   })
@@ -563,14 +564,15 @@ describe('Session-bound free registration — the exact path that broke in Produ
     expect(body.quantity).toBe(1)
     expect(body.tickets).toEqual([{ attendee_name: 'Attendee One', ticket_token: 'tok-1' }])
 
-    // Proves the route actually took the session-bound branch (5
-    // statements: 2 FOR UPDATE locks + 2 diagnostic counts + the big
-    // insert) rather than silently falling back to the non-session
-    // shape (3 statements) — the specific distinction this whole bug
-    // lived inside.
+    // Proves the route actually took the session-bound shape (Phase 2:
+    // 3 statements — ticket-type lock + session lock + the big insert)
+    // rather than silently falling back to the non-session shape
+    // (2 statements) — the specific distinction this whole bug lived
+    // inside — and that the gate really carries the session id.
     expect(transactionMock).toHaveBeenCalledTimes(1)
     const submittedStatements = (transactionMock.mock.calls[0] as unknown as [unknown[]])[0]
-    expect(submittedStatements).toHaveLength(5)
+    expect(submittedStatements).toHaveLength(3)
+    expect(lastSqlCallText()).toMatch(/sold_sess\.qty \+ .* <= \(SELECT capacity FROM event_sessions/)
   })
 
   it('an unknown/mismatched session id is rejected before any reservation is attempted (400, transaction never reached)', async () => {
@@ -619,7 +621,7 @@ describe('Session-bound free registration — the exact path that broke in Produ
     expect(recordEventBookingActivityMock).not.toHaveBeenCalled()
   })
 
-  it('the pre-existing NON-session-bound path is unaffected — still succeeds, still uses the 3-statement (non-session) array', async () => {
+  it('the pre-existing NON-session-bound path is unaffected — still succeeds, still uses the shorter (non-session) array', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW, NO_QUESTIONS)
     const res = await registerRoute.POST(req(REG_URL, {
       ticket_type_id: 'tt-1', quantity: 1, purchaser_name: 'Jane', purchaser_email: 'jane@example.com',
@@ -628,6 +630,6 @@ describe('Session-bound free registration — the exact path that broke in Produ
     expect(res.status).toBe(201)
     expect(transactionMock).toHaveBeenCalledTimes(1)
     const submittedStatements = (transactionMock.mock.calls[0] as unknown as [unknown[]])[0]
-    expect(submittedStatements).toHaveLength(3)
+    expect(submittedStatements).toHaveLength(2)
   })
 })
