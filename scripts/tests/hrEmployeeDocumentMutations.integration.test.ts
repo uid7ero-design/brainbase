@@ -852,3 +852,38 @@ describe('restricted content atomic audit rollback and removal', () => {
     expect(await q('SELECT * FROM hr_restricted_case_participants WHERE case_id=$1',[caseId])).toEqual([]);
   });
 });
+
+describe('restricted grant and document audit rollback', () => {
+  it('preserves a live grant and document when their terminal audit inserts fail', async () => {
+    await q(readFileSync('scripts/add-hr-people-tenant-unique.sql','utf8'));
+    await q(readFileSync('scripts/create-hr-restricted-cases.sql','utf8'));
+    const caseId='98888888-8888-4888-8888-888888888897';
+    const actor={organisationId:org,userId:hr.userId};
+    await q("INSERT INTO hr_restricted_cases(id,organisation_id,case_type,title,opened_by) VALUES($1,$2,'other','Synthetic terminal rollback case',$3)",[caseId,org,hr.userId]);
+    const access=await import('@/lib/hr/restrictedAccessMutations');
+    const files=await import('@/lib/hr/restrictedCaseDocuments');
+    const input={actor,caseId,targetUserId:employee.userId};
+    expect((await access.grantRestrictedCaseAccess(input)).outcome).toBe('granted');
+    const uploaded=await files.uploadRestrictedCaseDocument({actor,caseId,originalFilename:'synthetic.pdf',contentType:'application/pdf',bytes:new Uint8Array([1,2,3])});
+    expect(uploaded.outcome).toBe('created');
+    const rows=await q('SELECT * FROM hr_restricted_case_documents WHERE case_id=$1',[caseId]); expect(rows).toHaveLength(1);
+    const grants=await q('SELECT * FROM hr_restricted_case_access WHERE case_id=$1',[caseId]);
+    const audits=await q('SELECT * FROM audit_logs WHERE organisation_id=$1 ORDER BY id',[org]);
+    const objectCount=blobs.size;
+    await q(`CREATE FUNCTION proof_restricted_terminal_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF NEW.action IN ('hr_restricted_case_access.revoked','hr_restricted_case_document.deleted') THEN RAISE EXCEPTION 'synthetic terminal audit failure'; END IF; RETURN NEW; END $$;
+      CREATE TRIGGER proof_restricted_terminal_audit_failure BEFORE INSERT ON audit_logs FOR EACH ROW EXECUTE FUNCTION proof_restricted_terminal_audit_failure()`);
+    try {
+      await expect(access.revokeRestrictedCaseAccess(input)).rejects.toThrow();
+      await expect(files.softDeleteRestrictedCaseDocument({actor,caseId,documentId:rows[0].id})).rejects.toThrow();
+      expect(await q('SELECT * FROM hr_restricted_case_access WHERE case_id=$1',[caseId])).toEqual(grants);
+      expect(await q('SELECT * FROM hr_restricted_case_documents WHERE case_id=$1',[caseId])).toEqual(rows);
+      expect(await q('SELECT * FROM audit_logs WHERE organisation_id=$1 ORDER BY id',[org])).toEqual(audits);
+      expect(blobs.size).toBe(objectCount);
+    } finally { await q('DROP TRIGGER proof_restricted_terminal_audit_failure ON audit_logs; DROP FUNCTION proof_restricted_terminal_audit_failure()'); }
+    expect((await access.revokeRestrictedCaseAccess(input)).outcome).toBe('revoked');
+    expect((await files.softDeleteRestrictedCaseDocument({actor,caseId,documentId:rows[0].id})).outcome).toBe('deleted');
+    expect((await q('SELECT revoked_at FROM hr_restricted_case_access WHERE case_id=$1',[caseId]))[0].revoked_at).not.toBeNull();
+    expect((await q('SELECT deleted_at FROM hr_restricted_case_documents WHERE case_id=$1',[caseId]))[0].deleted_at).not.toBeNull();
+  });
+});
