@@ -25,6 +25,11 @@ vi.doMock('@/lib/db', () => ({ default: Object.assign(async (strings: TemplateSt
   } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
 } }) }));
 const blobs = new Map<string, Uint8Array>();
+vi.doMock('@/lib/hr/restrictedDocumentStorage', async () => ({
+  ...await vi.importActual<typeof import('@/lib/hr/restrictedDocumentStorage')>('@/lib/hr/restrictedDocumentStorage'),
+  createRestrictedHrDocumentStore: () => ({ put: async (key: string, bytes: Uint8Array) => { blobs.set(key, bytes); }, delete: async (key: string) => { blobs.delete(key); } }),
+}));
+
 vi.doMock('@/lib/hr/employeeDocumentStorage', async () => ({
   ...await vi.importActual<typeof import('@/lib/hr/employeeDocumentStorage')>('@/lib/hr/employeeDocumentStorage'),
   createEmployeeHrDocumentStore: () => ({
@@ -546,5 +551,278 @@ describe('Employee document mutations against Postgres with in-memory storage', 
       expect(await snapshot()).toEqual(before);
     } finally { await q('ALTER TABLE audit_logs DROP CONSTRAINT document_proof_reject_audit'); }
     expect((await perform()).outcome).toBe('recorded');
+  });
+});
+
+describe('reminder current-version and recipient entitlement SQL', () => {
+  it('uses real SQL to suppress superseded, unlinked, revoked, inactive and foreign-tenant recipients', async () => {
+    await q(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email text,
+      ADD COLUMN IF NOT EXISTS display_name text, ADD COLUMN IF NOT EXISTS status text DEFAULT 'ACTIVE',
+      ADD COLUMN IF NOT EXISTS role text DEFAULT 'VIEWER'`);
+    await q("UPDATE users SET email='synthetic@example.invalid', status='ACTIVE', role='VIEWER' WHERE organisation_id=$1", [org]);
+    await q('UPDATE hr_people SET linked_user_id=$1 WHERE id=$2', [employee.userId, personId]);
+    const created = await create();
+    const { createEmployeeDocumentReminderEmailTransport } = await import('@/lib/hr/employeeDocumentReminderEmailTransport');
+    const sender = vi.fn().mockResolvedValue({ status: 'sent', id: 'synthetic' });
+    const delivery = { id: '96666666-6666-4666-8666-666666666666', documentVersionId: created.version.id,
+      recipientUserId: employee.userId, reminderType: 'acknowledgement_due', scheduledFor: '2026-10-13',
+      deliveryStatus: 'CLAIMED' as const, claimedAt: '2026-10-13', sentAt: null, failedAt: null, failureCode: null };
+    const transport = createEmployeeDocumentReminderEmailTransport({ organisationId: org, sender });
+    expect((await transport(delivery)).outcome).toBe('sent');
+    await q('UPDATE hr_employee_document_versions SET is_current=false WHERE id=$1', [created.version.id]);
+    sender.mockClear(); expect((await transport(delivery)).outcome).toBe('definite_failure'); expect(sender).not.toHaveBeenCalled();
+    await q('UPDATE hr_employee_document_versions SET is_current=true WHERE id=$1', [created.version.id]);
+    await q('UPDATE hr_people SET linked_user_id=NULL WHERE id=$1', [personId]);
+    expect((await transport(delivery)).outcome).toBe('definite_failure'); expect(sender).not.toHaveBeenCalled();
+    const hrDelivery = { ...delivery, recipientUserId: hr.userId };
+    expect((await transport(hrDelivery)).outcome).toBe('sent');
+    await q('DELETE FROM hr_administrators WHERE organisation_id=$1 AND user_id=$2', [org, hr.userId]);
+    sender.mockClear(); expect((await transport(hrDelivery)).outcome).toBe('definite_failure'); expect(sender).not.toHaveBeenCalled();
+    await q("UPDATE users SET role='SUPER_ADMIN' WHERE id=$1", [hr.userId]);
+    expect((await transport(hrDelivery)).outcome).toBe('sent');
+    await q("UPDATE users SET status='DISABLED' WHERE id=$1", [hr.userId]);
+    sender.mockClear(); expect((await transport(hrDelivery)).outcome).toBe('definite_failure'); expect(sender).not.toHaveBeenCalled();
+    const otherTenant = createEmployeeDocumentReminderEmailTransport({ organisationId: 'other-fixture-org', sender });
+    expect((await otherTenant(delivery)).outcome).toBe('definite_failure'); expect(sender).not.toHaveBeenCalled();
+  });
+});
+
+describe('restricted case real route access and history', () => {
+  it('requires an explicit live grant even for HR and preserves revocation history', async () => {
+    await q(readFileSync('scripts/add-hr-people-tenant-unique.sql', 'utf8'));
+    await q(readFileSync('scripts/create-hr-restricted-cases.sql', 'utf8'));
+    const caseId = '97777777-7777-4777-8777-777777777777';
+    await q("INSERT INTO hr_restricted_cases(id,organisation_id,case_type,title,opened_by) VALUES($1,$2,'other','Synthetic restricted case',$3)", [caseId, org, hr.userId]);
+    const detail = await import('@/app/api/hr/restricted-cases/[id]/route');
+    const params = { params: Promise.resolve({ id: caseId }) };
+    routeUser = hr.userId;
+    expect((await detail.GET(routeRequest('GET'), params)).status).toBe(404);
+    await q('INSERT INTO hr_restricted_case_access(organisation_id,case_id,user_id,granted_by) VALUES($1,$2,$3,$4)', [org, caseId, employee.userId, hr.userId]);
+    routeUser = employee.userId;
+    expect((await detail.GET(routeRequest('GET'), params)).status).toBe(200);
+    await q('UPDATE hr_restricted_case_access SET revoked_at=now(),revoked_by=$1 WHERE case_id=$2', [hr.userId, caseId]);
+    expect((await detail.GET(routeRequest('GET'), params)).status).toBe(404);
+    routeUser = outsider.userId;
+    expect((await detail.GET(routeRequest('GET'), params)).status).toBe(404);
+    authenticated = false;
+    expect((await detail.GET(routeRequest('GET'), params)).status).toBe(401);
+    expect((await q('SELECT count(*)::int AS count FROM hr_restricted_case_access WHERE case_id=$1 AND revoked_at IS NOT NULL', [caseId]))[0].count).toBe(1);
+  });
+});
+
+describe('restricted detail browser to actual route', () => {
+  it.each(['revoked', 'lost-note', 'lost-participant', 'lost-grant', 'lost-document', 'creation-lost', 'creation-grant-lost'] as const)('restricted detail actual-route recovery: %s', async scenario => {
+    await q(readFileSync('scripts/add-hr-people-tenant-unique.sql', 'utf8'));
+    await q(readFileSync('scripts/create-hr-restricted-cases.sql', 'utf8'));
+    const creation=scenario.startsWith('creation');
+    const caseId = scenario === 'revoked' ? '98888888-8888-4888-8888-888888888888' : scenario === 'lost-note' ? '98888888-8888-4888-8888-888888888889' : scenario === 'lost-participant' ? '98888888-8888-4888-8888-888888888890' : scenario === 'lost-grant' ? '98888888-8888-4888-8888-888888888891' : scenario === 'lost-document' ? '98888888-8888-4888-8888-888888888892' : scenario === 'creation-lost' ? '98888888-8888-4888-8888-888888888893' : '98888888-8888-4888-8888-888888888894';
+    await q("INSERT INTO hr_restricted_cases(id,organisation_id,case_type,title,opened_by) VALUES($1,$2,'other','Browser synthetic restricted case',$3)", [caseId, org, hr.userId]);
+    await q('INSERT INTO hr_restricted_case_access(organisation_id,case_id,user_id,granted_by) VALUES($1,$2,$3,$4)', [org, caseId, employee.userId, hr.userId]);
+    routeUser = (creation || ['lost-participant', 'lost-grant'].includes(scenario)) ? hr.userId : employee.userId;
+    if (['lost-participant', 'lost-grant'].includes(scenario)) await q('INSERT INTO hr_restricted_case_access(organisation_id,case_id,user_id,granted_by) VALUES($1,$2,$3,$3)', [org, caseId, hr.userId]);
+    const detail = await import('@/app/api/hr/restricted-cases/[id]/route');
+    const noteRoutes = await import('@/app/api/hr/restricted-cases/[id]/notes/route');
+    const caseRoutes=await import('@/app/api/hr/restricted-cases/route');
+    const documentRoutes = await import('@/app/api/hr/restricted-cases/[id]/documents/route');
+    const grantRoute = await import('@/app/api/hr/restricted-cases/[id]/access/route');
+    const participantRoutes = await import('@/app/api/hr/restricted-cases/[id]/participants/route');
+    const built = await build({ configFile: false, logLevel: 'error', resolve: { alias: { '@': process.cwd() } },
+      define: { 'process.env.NODE_ENV': JSON.stringify('production'), 'process.env': '{}' }, oxc: { jsx: { runtime: 'automatic', development: false } },
+      plugins: [{ name: 'restricted-browser-proof', resolveId(id) {
+        if (id === 'restricted-entry' || id.replaceAll('\\', '/').endsWith('/restricted-entry')) return '\0restricted-entry';
+        if (id === 'next/link') return '\0restricted-link';
+      }, load(id) {
+        if (id === '\0restricted-link') return "import {createElement} from 'react'; export default function Link(props){return createElement('a',props)}";
+        if (id === '\0restricted-entry' && creation) return `import {createElement} from 'react'; import {createRoot} from 'react-dom/client'; import Page from ${JSON.stringify(path.resolve('app/people/restricted-cases/page.tsx').replaceAll('\\', '/'))}; createRoot(document.getElementById('root')).render(createElement(Page));`;
+        if (id === '\0restricted-entry') return `import {createElement,Suspense} from 'react'; import {createRoot} from 'react-dom/client'; import Page from ${JSON.stringify(path.resolve('app/people/restricted-cases/[id]/page.tsx').replaceAll('\\', '/'))}; createRoot(document.getElementById('root')).render(createElement(Suspense,{fallback:'Loading'},createElement(Page,{params:Promise.resolve({id:${JSON.stringify(caseId)}})})));`;
+      } }], build: { write: false, lib: { entry: 'restricted-entry', name: 'RestrictedProof', formats: ['iife'] } } });
+    const output = Array.isArray(built) ? built[0] : built;
+    if (!('output' in output)) throw new Error('Expected browser output');
+    let actualReads = 0; let actualWrites = 0;
+    const server = createServer(async (req, res) => {
+      try {
+        const url = new URL(req.url!, 'http://fixture.local');
+        if (url.pathname === '/') { res.setHeader('Content-Type', 'text/html'); res.end('<div id="root"></div>'); return; }
+        res.setHeader('Content-Type', 'application/json');
+        if (url.pathname === '/api/hr/restricted-cases') {
+          const method=req.method ?? 'GET'; const chunks: Buffer[]=[]; for await (const chunk of req) chunks.push(Buffer.from(chunk));
+          if (method === 'POST') actualWrites++;
+          const request=new NextRequest(url,{method,...(method === 'POST' ? {headers:{'Content-Type':'application/json'},body:Buffer.concat(chunks).toString()} : {})});
+          const response=method === 'POST' ? await caseRoutes.POST(request) : await caseRoutes.GET(request);
+          res.statusCode=response.status; res.end(await response.text()); return;
+        }
+        if (url.pathname === `/api/hr/restricted-cases/${caseId}`) {
+          actualReads++;
+          const response = await detail.GET(new NextRequest(url), { params: Promise.resolve({ id: caseId }) });
+          res.statusCode = response.status; res.end(await response.text()); return;
+        }
+        if (url.pathname === `/api/hr/restricted-cases/${caseId}/documents`) {
+          const method=req.method ?? 'GET'; const chunks: Buffer[]=[]; for await (const chunk of req) chunks.push(Buffer.from(chunk));
+          if (method === 'POST') actualWrites++;
+          const request=new NextRequest(url,{method,...(method === 'POST' ? {headers:{'Content-Type':String(req.headers['content-type'])},body:new Uint8Array(Buffer.concat(chunks))} : {})});
+          const params={params:Promise.resolve({id:caseId})};
+          const response=method === 'POST' ? await documentRoutes.POST(request,params) : await documentRoutes.GET(request,params);
+          res.statusCode=response.status; res.end(await response.text()); return;
+        }
+        if (url.pathname.endsWith('/access')) {
+          actualWrites++; const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
+          const response = await grantRoute.POST(new NextRequest(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: Buffer.concat(chunks).toString() }), { params: Promise.resolve({ id: url.pathname.split('/')[4] }) });
+          res.statusCode=response.status; res.end(await response.text()); return;
+        }
+        if (url.pathname === `/api/hr/restricted-cases/${caseId}/notes` || url.pathname === `/api/hr/restricted-cases/${caseId}/participants`) {
+          const handlers = url.pathname.endsWith('/participants') ? participantRoutes : noteRoutes;
+          const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
+          const method = req.method ?? 'GET';
+          if (method === 'POST') actualWrites++;
+          const request = new NextRequest(url, { method, ...(method === 'POST' ? { headers: { 'Content-Type': 'application/json' }, body: Buffer.concat(chunks).toString() } : {}) });
+          const response = method === 'POST' ? await handlers.POST(request, { params: Promise.resolve({ id: caseId }) }) : await handlers.GET(request, { params: Promise.resolve({ id: caseId }) });
+          res.statusCode = response.status; res.end(await response.text()); return;
+        }
+        if (url.pathname.endsWith('/administrators')) { res.statusCode=(creation || ['lost-participant', 'lost-grant'].includes(scenario)) ? 200 : 403; res.end(JSON.stringify({ users: [{ id: outsider.userId, name: 'Synthetic recipient', email: null, grant_eligible: true }] })); return; }
+        const body = url.pathname.endsWith('/participants') ? { participants: [] }
+          : url.pathname.endsWith('/notes') ? { notes: [] } : url.pathname.endsWith('/documents') ? { documents: [] } : { people: [{ id: personId, first_name: 'Synthetic', last_name: 'Participant' }] };
+        res.end(JSON.stringify(body));
+      } catch { res.statusCode=500; res.end('{}'); }
+    });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('Missing loopback address');
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage(); const errors: string[] = [];
+      page.on('pageerror', error => errors.push(error.message));
+      await page.goto(`http://127.0.0.1:${address.port}/`); await page.addScriptTag({ content: output.output[0].code });
+      if (creation) {
+        const target=scenario === 'creation-lost' ? '**/restricted-cases' : '**/access';
+        await page.route(target,async route => {
+          if (route.request().method() !== 'POST') return route.continue();
+          const response=await route.fetch(); expect(response.status()).toBe(201); await route.abort('failed');
+        });
+        await page.getByRole('button',{name:'+ Open Case',exact:true}).click();
+        await page.getByRole('textbox',{name:/^Title/}).fill(`Synthetic ${scenario}`);
+        await page.getByRole('combobox',{name:/Initial reader/}).selectOption(outsider.userId);
+        await page.getByRole('button',{name:'Open Case',exact:true}).click();
+        await browserExpect(page.getByText('The change could not be confirmed. Do not open this case again until its creation and access have been checked.')).toBeVisible();
+        await page.getByRole('button',{name:'Close Open Restricted Case'}).click();
+        await page.getByRole('button',{name:'Refresh',exact:true}).click();
+        await browserExpect(page.getByRole('button',{name:'+ Open Case',exact:true})).toBeDisabled();
+        const rows=await q('SELECT id FROM hr_restricted_cases WHERE organisation_id=$1 AND title=$2',[org,`Synthetic ${scenario}`]);
+        expect(rows).toHaveLength(1); expect(actualWrites).toBe(scenario === 'creation-lost' ? 1 : 2);
+        expect((await q('SELECT count(*)::int AS count FROM hr_restricted_case_access WHERE case_id=$1',[rows[0].id]))[0].count).toBe(scenario === 'creation-lost' ? 0 : 1);
+        expect(errors).toEqual([]); return;
+      }
+      await browserExpect(page.getByRole('heading', { name: 'Browser synthetic restricted case' })).toBeVisible();
+      if (scenario === 'lost-document') {
+        await page.route('**/documents', async route => {
+          if (route.request().method() !== 'POST') return route.continue();
+          const response=await route.fetch(); expect(response.status()).toBe(201); await route.abort('failed');
+        });
+        await page.getByLabel('Document to upload').setInputFiles({name:'synthetic.pdf',mimeType:'application/pdf',buffer:Buffer.from('Synthetic PDF fixture')});
+        await page.getByRole('button',{name:'Upload',exact:true}).click();
+        await browserExpect(page.getByText('The change could not be confirmed. Refresh and review the case before trying again.')).toBeVisible();
+        await browserExpect(page.getByRole('button',{name:'Upload',exact:true})).toBeDisabled();
+        await page.getByRole('button',{name:'Refresh',exact:true}).click();
+        await browserExpect(page.getByRole('link',{name:'synthetic.pdf',exact:true})).toBeVisible();
+        expect(actualWrites).toBe(1); expect(blobs.size).toBe(1);
+        expect((await q('SELECT count(*)::int AS count FROM hr_restricted_case_documents WHERE case_id=$1',[caseId]))[0].count).toBe(1);
+        expect(errors).toEqual([]); return;
+      }
+      if (scenario === 'lost-grant') {
+        await page.route('**/access', async route => { const response=await route.fetch(); expect(response.status()).toBe(201); await route.abort('failed'); });
+        await page.getByRole('combobox', { name: 'User', exact: true }).selectOption(outsider.userId);
+        await page.getByRole('button', { name: 'Grant access', exact: true }).click();
+        await browserExpect(page.getByText('The change could not be confirmed. Refresh and review the case before trying again.')).toBeVisible();
+        await browserExpect(page.getByRole('button', { name: 'Grant access', exact: true })).toBeDisabled();
+        await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+        await browserExpect(page.getByRole('heading', { name: 'Browser synthetic restricted case' })).toBeVisible();
+        expect(actualWrites).toBe(1);
+        expect((await q('SELECT count(*)::int AS count FROM hr_restricted_case_access WHERE case_id=$1 AND user_id=$2 AND revoked_at IS NULL', [caseId, outsider.userId]))[0].count).toBe(1);
+        expect(errors).toEqual([]); return;
+      }
+      if (scenario === 'lost-participant') {
+        await page.route('**/participants', async route => {
+          if (route.request().method() !== 'POST') return route.continue();
+          const response = await route.fetch(); expect(response.status()).toBe(201); await route.abort('failed');
+        });
+        await page.getByRole('combobox', { name: 'Participant', exact: true }).selectOption(personId);
+        await page.getByRole('button', { name: 'Add', exact: true }).click();
+        await browserExpect(page.getByText('The change could not be confirmed. Refresh and review the case before trying again.')).toBeVisible();
+        await browserExpect(page.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
+        await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+        await browserExpect(page.getByRole('button', { name: 'Remove Synthetic Participant from this case' })).toBeVisible();
+        expect(actualWrites).toBe(1);
+        expect((await q('SELECT count(*)::int AS count FROM hr_restricted_case_participants WHERE case_id=$1', [caseId]))[0].count).toBe(1);
+        expect(errors).toEqual([]); return;
+      }
+      if (scenario === 'lost-note') {
+        await page.route('**/notes', async route => {
+          if (route.request().method() !== 'POST') return route.continue();
+          const response = await route.fetch(); expect(response.status()).toBe(201);
+          await route.abort('failed');
+        });
+        await page.getByRole('textbox', { name: 'New case note' }).fill('Committed synthetic restricted note');
+        await page.getByRole('button', { name: 'Add note', exact: true }).click();
+        await browserExpect(page.getByText('The change could not be confirmed. Refresh and review the case before trying again.')).toBeVisible();
+        await browserExpect(page.getByRole('button', { name: 'Add note', exact: true })).toBeDisabled();
+        await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+        await browserExpect(page.getByText('Committed synthetic restricted note', { exact: true })).toBeVisible();
+        expect(actualWrites).toBe(1);
+        expect((await q('SELECT count(*)::int AS count FROM hr_restricted_case_notes WHERE case_id=$1', [caseId]))[0].count).toBe(1);
+        expect(errors).toEqual([]); return;
+      }
+      await q('UPDATE hr_restricted_case_access SET revoked_at=now(),revoked_by=$1 WHERE case_id=$2', [hr.userId, caseId]);
+      await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+      await browserExpect(page.getByText('Could not load restricted HR case. Refresh to try again.')).toBeVisible();
+      await browserExpect(page.getByRole('heading', { name: 'Browser synthetic restricted case' })).toHaveCount(0);
+      expect(actualReads).toBe(2); expect(errors).toEqual([]);
+    } finally { await browser.close(); await new Promise<void>((resolve,reject) => server.close(error => error ? reject(error) : resolve())); }
+  });
+});
+
+describe('reminder batch real ledger failure isolation', () => {
+  it('leaves an accepted send CLAIMED after terminal SQL failure and processes later rows without replay', async () => {
+    const created = await create();
+    const ids = ['99999999-9999-4999-8999-999999999991', '99999999-9999-4999-8999-999999999992', '99999999-9999-4999-8999-999999999993'];
+    for (let i=0;i<ids.length;i++) await q(`INSERT INTO hr_employee_document_reminder_deliveries(id,organisation_id,document_version_id,recipient_user_id,reminder_type,scheduled_for)
+      VALUES($1,$2,$3,$4,'acknowledgement_due',$5::date)`, [ids[i], org, created.version.id, employee.userId, `2026-10-0${i+1}`]);
+    await q(`CREATE FUNCTION proof_reminder_terminal_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF NEW.id='99999999-9999-4999-8999-999999999991'::uuid AND NEW.delivery_status='SENT' THEN RAISE EXCEPTION 'synthetic terminal failure'; END IF;
+      RETURN NEW; END $$;
+      CREATE TRIGGER proof_reminder_terminal_failure BEFORE UPDATE ON hr_employee_document_reminder_deliveries FOR EACH ROW EXECUTE FUNCTION proof_reminder_terminal_failure()`);
+    try {
+      const { processDueEmployeeDocumentReminders } = await import('@/lib/hr/employeeDocumentReminderWorker');
+      const transport = vi.fn().mockResolvedValue({ outcome: 'sent' });
+      const params = { actor: { organisationId: org, userId: hr.userId }, scheduledThrough: '2026-10-13', transport };
+      const result = await processDueEmployeeDocumentReminders(params);
+      expect(result).toMatchObject({ claimed: 3, sent: 2, transitionSkipped: 1 });
+      expect(transport).toHaveBeenCalledTimes(3);
+      expect((await q('SELECT delivery_status FROM hr_employee_document_reminder_deliveries WHERE id=$1', [ids[0]]))[0].delivery_status).toBe('CLAIMED');
+      expect((await processDueEmployeeDocumentReminders(params)).claimed).toBe(0);
+      expect(transport).toHaveBeenCalledTimes(3);
+    } finally {
+      await q('DROP TRIGGER proof_reminder_terminal_failure ON hr_employee_document_reminder_deliveries; DROP FUNCTION proof_reminder_terminal_failure()');
+      await q('DELETE FROM hr_employee_document_reminder_deliveries WHERE organisation_id=$1', [org]);
+    }
+  });
+});
+
+describe('restricted document actual routes with isolated storage', () => {
+  it('uploads and logically deletes while preserving metadata and requiring live case access', async () => {
+    await q(readFileSync('scripts/add-hr-people-tenant-unique.sql', 'utf8'));
+    await q(readFileSync('scripts/create-hr-restricted-cases.sql', 'utf8'));
+    const caseId='98888888-8888-4888-8888-888888888895';
+    await q("INSERT INTO hr_restricted_cases(id,organisation_id,case_type,title,opened_by) VALUES($1,$2,'other','Synthetic document case',$3)", [caseId, org, hr.userId]);
+    await q('INSERT INTO hr_restricted_case_access(organisation_id,case_id,user_id,granted_by) VALUES($1,$2,$3,$4)', [org, caseId, employee.userId, hr.userId]);
+    routeUser=employee.userId;
+    const upload=await import('@/app/api/hr/restricted-cases/[id]/documents/route');
+    const removal=await import('@/app/api/hr/restricted-cases/[id]/documents/[documentId]/route');
+    const form=new FormData(); form.set('file',new File(['Synthetic PDF fixture'],'synthetic.pdf',{type:'application/pdf'}));
+    const params={params:Promise.resolve({id:caseId})};
+    const response=await upload.POST(routeRequest('POST',form),params);
+    expect(response.status).toBe(201);
+    const rows=await q('SELECT id FROM hr_restricted_case_documents WHERE case_id=$1',[caseId]); expect(rows).toHaveLength(1); expect(blobs.size).toBe(1);
+    expect((await removal.DELETE(routeRequest('DELETE'),{params:Promise.resolve({id:caseId,documentId:rows[0].id})})).status).toBe(200);
+    expect((await q('SELECT deleted_at FROM hr_restricted_case_documents WHERE case_id=$1',[caseId]))[0].deleted_at).not.toBeNull();
+    await q('UPDATE hr_restricted_case_access SET revoked_at=now(),revoked_by=$1 WHERE case_id=$2',[hr.userId,caseId]);
+    expect((await upload.GET(routeRequest('GET'),params)).status).toBe(404);
   });
 });

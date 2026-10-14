@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { use, useEffect, useMemo, useState } from 'react';
+import { use, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Badge,
   FormError,
@@ -40,10 +40,15 @@ export default function RestrictedCaseDetailPage({ params }: { params: Promise<{
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionError, setActionError] = useState('');
+  const readGeneration = useRef(0);
 
   async function load() {
+    const generation = ++readGeneration.current;
     setLoading(true);
     setError('');
+    setCaseRecord(null); setParticipants([]); setNotes([]); setDocuments([]);
+    setPeople([]); setUsers([]); setCanManage(false);
+    try {
     const [caseRes, participantsRes, notesRes, docsRes, peopleRes, adminsRes] = await Promise.all([
       fetch(`/api/hr/restricted-cases/${id}`),
       fetch(`/api/hr/restricted-cases/${id}/participants`),
@@ -53,45 +58,54 @@ export default function RestrictedCaseDetailPage({ params }: { params: Promise<{
       fetch('/api/hr/administrators'),
     ]);
 
-    if (!caseRes.ok) {
-      const data = await caseRes.json().catch(() => ({}));
-      setError(data.error ?? 'Could not load restricted HR case.');
-      setLoading(false);
-      return;
-    }
+    if (!caseRes.ok || !participantsRes.ok || !notesRes.ok || !docsRes.ok) throw new Error('Unavailable');
 
     const caseData = await caseRes.json();
-    setCaseRecord(caseData.case ?? null);
-
-    if (participantsRes.ok) setParticipants((await participantsRes.json()).participants ?? []);
-    if (notesRes.ok) setNotes((await notesRes.json()).notes ?? []);
-    if (docsRes.ok) setDocuments((await docsRes.json()).documents ?? []);
-    if (peopleRes.ok) setPeople((await peopleRes.json()).people ?? []);
+    const participantData = await participantsRes.json(), noteData = await notesRes.json(), documentData = await docsRes.json();
+    const peopleData = peopleRes.ok ? await peopleRes.json() : { people: [] };
+    const adminData = adminsRes.ok ? await adminsRes.json() : { users: [] };
+    if (caseData.case?.id !== id || typeof caseData.case?.title !== 'string'
+      || !Array.isArray(participantData.participants) || !Array.isArray(noteData.notes)
+      || !Array.isArray(documentData.documents) || !Array.isArray(peopleData.people) || !Array.isArray(adminData.users)) throw new Error('Invalid response');
+    if (generation !== readGeneration.current) return;
+    setCaseRecord(caseData.case); setParticipants(participantData.participants); setNotes(noteData.notes); setDocuments(documentData.documents); setPeople(peopleData.people);
     if (adminsRes.ok) {
-      const adminData = await adminsRes.json();
       setCanManage(true);
-      setUsers((adminData.users ?? []).filter((user: UserCandidate) => user.grant_eligible));
+      setUsers(adminData.users.filter((user: UserCandidate) => user.grant_eligible === true));
     } else {
       setCanManage(false);
       setUsers([]);
     }
-    setLoading(false);
+    } catch {
+      if (generation === readGeneration.current) setError('Could not load restricted HR case. Refresh to try again.');
+    } finally {
+      if (generation === readGeneration.current) setLoading(false);
+    }
   }
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when the case route id changes; load is intentionally local.
-  useEffect(() => { queueMicrotask(() => { load(); }); }, [id]);
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => { if (active) void load(); });
+    return () => {
+      active = false;
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- generation counter, not a DOM ref; invalidate every pending read.
+      readGeneration.current++;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when the case route id changes; load is intentionally local.
+  }, [id]);
 
   const personNames = useMemo(() => new Map(people.map(person => [person.id, `${person.first_name} ${person.last_name}`])), [people]);
 
   if (loading) return <StateMessage kind="loading" title="Loading restricted case…" size="page" />;
   if (error || !caseRecord) {
-    return <div style={{ maxWidth: 800 }}><Link href="/people/restricted-cases" style={backLink}>← Restricted Cases</Link><StateMessage kind="error" title={error || 'Restricted HR case not found.'} /></div>;
+    return <div style={{ maxWidth: 800 }}><Link href="/people/restricted-cases" style={backLink}>← Restricted Cases</Link><StateMessage kind="error" title={error || 'Restricted HR case not found.'} /><button type="button" {...buttonProps('secondary')} onClick={() => void load()}>Refresh</button></div>;
   }
 
   return (
     <div style={{ maxWidth: 1100 }}>
       <PageHeader
         eyebrow={<Link href="/people/restricted-cases">← Restricted Cases</Link>}
+        actions={<button type="button" onClick={() => void load()} {...buttonProps('secondary')}>Refresh</button>}
         title={caseRecord.title}
         meta={
           <>
@@ -141,19 +155,48 @@ export default function RestrictedCaseDetailPage({ params }: { params: Promise<{
   );
 }
 
+// An absent response may follow a committed write. Only an explicit fresh read
+// can reopen this section; never replay the mutation automatically.
+function useRestrictedWrite(onError: (message: string) => void) {
+  const inFlight = useRef(false);
+  const uncertain = useRef(false);
+  const [blocked, setBlocked] = useState(false);
+  async function request(url: string, init: RequestInit) {
+    if (inFlight.current || uncertain.current) return null;
+    inFlight.current = true;
+    setBlocked(true);
+    try {
+      const response = await fetch(url, init);
+      if (response.status >= 500) throw new Error('Uncertain outcome');
+      await response.clone().json();
+      return response;
+    } catch {
+      uncertain.current = true;
+      onError('The change could not be confirmed. Refresh and review the case before trying again.');
+      return null;
+    } finally {
+      inFlight.current = false;
+      setBlocked(uncertain.current);
+    }
+  }
+  return { request, blocked };
+}
+
 function ParticipantSection({ caseId, participants, people, personNames, canManage, onChanged, onError }: {
   caseId: string; participants: Participant[]; people: Person[]; personNames: Map<string, string>; canManage: boolean; onChanged: () => void; onError: (message: string) => void;
 }) {
   const [personId, setPersonId] = useState('');
+  const write = useRestrictedWrite(onError);
   const [role, setRole] = useState('subject');
   const existing = new Set(participants.map(item => item.person_id));
 
   async function add() {
     if (!personId) return;
     onError('');
-    const res = await fetch(`/api/hr/restricted-cases/${caseId}/participants`, {
+    const res = await write.request(`/api/hr/restricted-cases/${caseId}/participants`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ person_id: personId, role_in_case: role }),
     });
+    if (!res) { return; }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) { onError(data.error ?? 'Could not add participant.'); return; }
     setPersonId('');
@@ -162,7 +205,8 @@ function ParticipantSection({ caseId, participants, people, personNames, canMana
 
   async function remove(id: string) {
     onError('');
-    const res = await fetch(`/api/hr/restricted-cases/${caseId}/participants/${id}`, { method: 'DELETE' });
+    const res = await write.request(`/api/hr/restricted-cases/${caseId}/participants/${id}`, { method: 'DELETE' });
+    if (!res) { return; }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) { onError(data.error ?? 'Could not remove participant.'); return; }
     onChanged();
@@ -174,7 +218,7 @@ function ParticipantSection({ caseId, participants, people, personNames, canMana
         {participants.map(item => (
           <div key={item.id} style={rowBox}>
             <div><div style={{ color: 'var(--text-primary)', fontSize: 13, fontWeight: 600 }}>{personNames.get(item.person_id) ?? item.person_id}</div><div style={{ ...mutedText, marginTop: 2, textTransform: 'capitalize' }}>{item.role_in_case}</div></div>
-            {canManage && <button type="button" onClick={() => remove(item.person_id)} {...buttonProps('danger', 'sm')} aria-label={`Remove ${personNames.get(item.person_id) ?? item.person_id} from this case`}>Remove</button>}
+            {canManage && <button type="button" disabled={write.blocked} onClick={() => remove(item.person_id)} {...buttonProps('danger', 'sm')} aria-label={`Remove ${personNames.get(item.person_id) ?? item.person_id} from this case`}>Remove</button>}
           </div>
         ))}
       </div>
@@ -188,7 +232,7 @@ function ParticipantSection({ caseId, participants, people, personNames, canMana
         <select value={role} onChange={event => setRole(event.target.value)} className={fieldControlClassName} style={{ ...growControl, flex: '0 1 150px' }} aria-label="Role in case">
           {['subject','complainant','respondent','witness','other'].map(value => <option key={value} value={value}>{value}</option>)}
         </select>
-        <button type="button" onClick={add} disabled={!personId} {...buttonProps('primary', 'sm')}>Add</button>
+        <button type="button" onClick={add} disabled={write.blocked || !personId} {...buttonProps('primary', 'sm')}>Add</button>
       </div>
     )}
   </>;
@@ -196,6 +240,7 @@ function ParticipantSection({ caseId, participants, people, personNames, canMana
 
 function AccessSection({ caseId, users, onError }: { caseId: string; users: UserCandidate[]; onError: (message: string) => void }) {
   const [userId, setUserId] = useState('');
+  const write = useRestrictedWrite(onError);
   const [message, setMessage] = useState('');
 
   async function mutate(method: 'grant' | 'revoke') {
@@ -204,9 +249,10 @@ function AccessSection({ caseId, users, onError }: { caseId: string; users: User
     const url = method === 'grant'
       ? `/api/hr/restricted-cases/${caseId}/access`
       : `/api/hr/restricted-cases/${caseId}/access/${encodeURIComponent(userId)}`;
-    const res = await fetch(url, method === 'grant' ? {
+    const res = await write.request(url, method === 'grant' ? {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: userId }),
     } : { method: 'DELETE' });
+    if (!res) { return; }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) { onError(data.error ?? `Could not ${method} access.`); return; }
     setMessage(method === 'grant' ? (data.already_granted ? 'Access was already granted.' : 'Access granted.') : (data.already_revoked ? 'No live grant remained.' : 'Access revoked.'));
@@ -219,8 +265,8 @@ function AccessSection({ caseId, users, onError }: { caseId: string; users: User
       {users.map(user => <option key={user.id} value={user.id}>{user.name}{user.email ? ` · ${user.email}` : ''}</option>)}
     </select>
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-      <button type="button" disabled={!userId} onClick={() => mutate('grant')} {...buttonProps('primary', 'sm')}>Grant access</button>
-      <button type="button" disabled={!userId} onClick={() => mutate('revoke')} {...buttonProps('danger', 'sm')}>Revoke access</button>
+      <button type="button" disabled={write.blocked || !userId} onClick={() => mutate('grant')} {...buttonProps('primary', 'sm')}>Grant access</button>
+      <button type="button" disabled={write.blocked || !userId} onClick={() => mutate('revoke')} {...buttonProps('danger', 'sm')}>Revoke access</button>
     </div>
     {message && <p role="status" style={{ color: 'var(--status-success)', fontSize: 12, margin: '9px 0 0' }}>{message}</p>}
   </>;
@@ -228,15 +274,17 @@ function AccessSection({ caseId, users, onError }: { caseId: string; users: User
 
 function NoteSection({ caseId, notes, onChanged, onError }: { caseId: string; notes: Note[]; onChanged: () => void; onError: (message: string) => void }) {
   const [body, setBody] = useState('');
+  const write = useRestrictedWrite(onError);
   const [saving, setSaving] = useState(false);
 
   async function addNote(event: React.FormEvent) {
     event.preventDefault();
     if (!body.trim()) return;
     setSaving(true); onError('');
-    const res = await fetch(`/api/hr/restricted-cases/${caseId}/notes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body }) });
-    const data = await res.json().catch(() => ({}));
+    const res = await write.request(`/api/hr/restricted-cases/${caseId}/notes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body }) });
     setSaving(false);
+    if (!res) return;
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) { onError(data.error ?? 'Could not add note.'); return; }
     setBody(''); onChanged();
   }
@@ -250,7 +298,7 @@ function NoteSection({ caseId, notes, onChanged, onError }: { caseId: string; no
     <form onSubmit={addNote} style={{ marginTop: 14 }}>
       <textarea value={body} onChange={event => setBody(event.target.value)} rows={4} placeholder="Add an append-only case note…" aria-label="New case note" className={fieldControlClassName} style={{ width: '100%' }} />
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-        <button disabled={saving || !body.trim()} type="submit" {...buttonProps('primary', 'sm')}>{saving ? 'Adding…' : 'Add note'}</button>
+        <button disabled={write.blocked || saving || !body.trim()} type="submit" {...buttonProps('primary', 'sm')}>{saving ? 'Adding…' : 'Add note'}</button>
       </div>
     </form>
   </>;
@@ -258,22 +306,25 @@ function NoteSection({ caseId, notes, onChanged, onError }: { caseId: string; no
 
 function DocumentSection({ caseId, documents, onChanged, onError }: { caseId: string; documents: DocumentRow[]; onChanged: () => void; onError: (message: string) => void }) {
   const [file, setFile] = useState<File | null>(null);
+  const write = useRestrictedWrite(onError);
   const [uploading, setUploading] = useState(false);
 
   async function upload() {
     if (!file) return;
     setUploading(true); onError('');
     const form = new FormData(); form.append('file', file);
-    const res = await fetch(`/api/hr/restricted-cases/${caseId}/documents`, { method: 'POST', body: form });
-    const data = await res.json().catch(() => ({}));
+    const res = await write.request(`/api/hr/restricted-cases/${caseId}/documents`, { method: 'POST', body: form });
     setUploading(false);
+    if (!res) return;
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) { onError(data.error ?? 'Could not upload document.'); return; }
     setFile(null); onChanged();
   }
 
   async function remove(documentId: string) {
     onError('');
-    const res = await fetch(`/api/hr/restricted-cases/${caseId}/documents/${documentId}`, { method: 'DELETE' });
+    const res = await write.request(`/api/hr/restricted-cases/${caseId}/documents/${documentId}`, { method: 'DELETE' });
+    if (!res) { return; }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) { onError(data.error ?? 'Could not delete document.'); return; }
     onChanged();
@@ -282,12 +333,12 @@ function DocumentSection({ caseId, documents, onChanged, onError }: { caseId: st
   return <>
     {documents.length === 0 ? <p style={mutedText}>No documents attached.</p> : (
       <div style={list}>
-        {documents.map(doc => <div key={doc.id} style={rowBox}><div style={{ minWidth: 0 }}><a href={`/api/hr/restricted-cases/${caseId}/documents/${doc.id}`} style={{ color: 'var(--brand-brainbase-accent)', fontSize: 13, fontWeight: 600, textDecoration: 'none', overflowWrap: 'anywhere' }}>{doc.original_filename}</a><div style={{ ...mutedText, marginTop: 2 }}>{formatBytes(doc.byte_size)} · {doc.content_type} · {formatDate(doc.created_at)}</div></div><button type="button" onClick={() => remove(doc.id)} {...buttonProps('danger', 'sm')} aria-label={`Delete ${doc.original_filename}`}>Delete</button></div>)}
+        {documents.map(doc => <div key={doc.id} style={rowBox}><div style={{ minWidth: 0 }}><a href={`/api/hr/restricted-cases/${caseId}/documents/${doc.id}`} style={{ color: 'var(--brand-brainbase-accent)', fontSize: 13, fontWeight: 600, textDecoration: 'none', overflowWrap: 'anywhere' }}>{doc.original_filename}</a><div style={{ ...mutedText, marginTop: 2 }}>{formatBytes(doc.byte_size)} · {doc.content_type} · {formatDate(doc.created_at)}</div></div><button type="button" disabled={write.blocked} onClick={() => remove(doc.id)} {...buttonProps('danger', 'sm')} aria-label={`Delete ${doc.original_filename}`}>Delete</button></div>)}
       </div>
     )}
     <div style={{ ...formRow, marginTop: 14 }}>
       <input type="file" onChange={event => setFile(event.target.files?.[0] ?? null)} aria-label="Document to upload" style={{ color: 'var(--text-secondary)', fontSize: 12, flex: '1 1 200px', minWidth: 0 }} />
-      <button type="button" disabled={!file || uploading} onClick={upload} {...buttonProps('primary', 'sm')}>{uploading ? 'Uploading…' : 'Upload'}</button>
+      <button type="button" disabled={write.blocked || !file || uploading} onClick={upload} {...buttonProps('primary', 'sm')}>{uploading ? 'Uploading…' : 'Upload'}</button>
     </div>
   </>;
 }

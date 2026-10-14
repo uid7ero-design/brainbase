@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import SlidePanel from '../_components/SlidePanel';
 import {
   Badge,
@@ -42,39 +42,56 @@ export default function RestrictedCasesPage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [accessCandidates, setAccessCandidates] = useState<UserCandidate[]>([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [creationUncertain, setCreationUncertain] = useState(false);
+  const [creationPending, setCreationPending] = useState(false);
+
+  const readGeneration = useRef(0);
 
   async function load() {
+    const generation = ++readGeneration.current;
     setLoading(true);
     setError('');
-    const [casesRes, adminsRes, meRes] = await Promise.all([
-      fetch('/api/hr/restricted-cases'),
-      fetch('/api/hr/administrators'),
-      fetch('/api/me'),
-    ]);
-
-    if (casesRes.ok) {
-      const data = await casesRes.json();
-      setCases(data.cases ?? []);
-    } else {
-      const data = await casesRes.json().catch(() => ({}));
-      setError(data.error ?? 'Could not load restricted HR cases.');
+    setCases([]);
+    setCanManage(false);
+    setAccessCandidates([]);
+    setCurrentUserId(null);
+    try {
+      const [casesRes, adminsRes, meRes] = await Promise.all([
+        fetch('/api/hr/restricted-cases'),
+        fetch('/api/hr/administrators'),
+        fetch('/api/me'),
+      ]);
+      if (!casesRes.ok) throw new Error('Restricted read failed');
+      const [data, adminData, me] = await Promise.all([
+        casesRes.json(),
+        adminsRes.ok ? adminsRes.json() : Promise.resolve({ users: [] }),
+        meRes.ok ? meRes.json() : Promise.resolve({}),
+      ]);
+      if (!Array.isArray(data.cases) || !Array.isArray(adminData.users)
+        || data.cases.some((item: RestrictedCase) => !item || typeof item.id !== 'string'
+          || typeof item.title !== 'string' || typeof item.case_type !== 'string'
+          || (item.reference !== null && typeof item.reference !== 'string'))) {
+        throw new Error('Invalid restricted response');
+      }
+      if (generation !== readGeneration.current) return;
+      setCases(data.cases);
+      setCanManage(adminsRes.ok);
+      setAccessCandidates(adminData.users.filter((user: UserCandidate) => user.grant_eligible === true));
+      setCurrentUserId(typeof (me as Me).userId === 'string' ? (me as Me).userId! : null);
+    } catch {
+      if (generation === readGeneration.current) setError('Could not load restricted HR cases. Refresh to try again.');
+    } finally {
+      if (generation === readGeneration.current) setLoading(false);
     }
-
-    setCanManage(adminsRes.ok);
-    if (adminsRes.ok) {
-      const adminData = await adminsRes.json();
-      setAccessCandidates((adminData.users ?? []).filter((user: UserCandidate) => user.grant_eligible));
-    } else {
-      setAccessCandidates([]);
-    }
-    if (meRes.ok) {
-      const me = await meRes.json() as Me;
-      setCurrentUserId(typeof me.userId === 'string' ? me.userId : null);
-    }
-    setLoading(false);
   }
 
-  useEffect(() => { queueMicrotask(() => { load(); }); }, []);
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => { if (active) void load(); });
+    const generation = readGeneration;
+    return () => { active = false; generation.current++; };
+    // load reads no changing props or state.
+  }, []);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -92,10 +109,12 @@ export default function RestrictedCasesPage() {
         title="Restricted Cases"
         eyebrow={<Link href="/people">← People</Link>}
         description="Sensitive HR matters. Only cases you are explicitly authorised to read are shown here."
-        actions={canManage && <button onClick={() => setShowCreate(true)} type="button" {...buttonProps('primary')}>+ Open Case</button>}
+        actions={canManage && <button disabled={creationUncertain || creationPending} onClick={() => { if (!creationUncertain && !creationPending) setShowCreate(true); }} type="button" {...buttonProps('primary')}>+ Open Case</button>}
       />
 
+      {creationUncertain && <FormError>A case change could not be confirmed. Check its creation and access before opening another case. Refreshing the list does not repeat or unlock that submission.</FormError>}
       <WorkToolbar>
+        <button type="button" disabled={loading} onClick={() => void load()} {...buttonProps('secondary')}>Refresh</button>
         <ToolbarSearch
           label="Search cases"
           value={search}
@@ -146,6 +165,8 @@ export default function RestrictedCasesPage() {
 
       <SlidePanel open={showCreate} onClose={() => setShowCreate(false)} title="Open Restricted Case">
         <CreateCaseForm
+          onUncertain={() => setCreationUncertain(true)}
+          onPending={setCreationPending}
           currentUserId={currentUserId}
           users={accessCandidates}
           onCreated={() => { setShowCreate(false); load(); }}
@@ -155,7 +176,7 @@ export default function RestrictedCasesPage() {
   );
 }
 
-function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: string | null; users: UserCandidate[]; onCreated: () => void }) {
+function CreateCaseForm({ currentUserId, users, onCreated, onUncertain, onPending }: { currentUserId: string | null; users: UserCandidate[]; onCreated: () => void; onUncertain: () => void; onPending: (pending: boolean) => void }) {
   const defaultReader = currentUserId && users.some(user => user.id === currentUserId) ? currentUserId : '';
   const [caseType, setCaseType] = useState('investigation');
   const [title, setTitle] = useState('');
@@ -165,6 +186,8 @@ function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: st
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const mutationPending = useRef(false);
+  const [uncertain, setUncertain] = useState(false);
 
   async function grantInitialReader(caseId: string, userId: string) {
     const grantRes = await fetch(`/api/hr/restricted-cases/${caseId}/access`, {
@@ -172,7 +195,8 @@ function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: st
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user_id: userId }),
     });
-    const grantData = await grantRes.json().catch(() => ({}));
+    if (grantRes.status >= 500) throw new Error('Uncertain grant');
+    const grantData = await grantRes.json();
     if (!grantRes.ok) {
       setCreatedCaseId(caseId);
       setNotice(`Case ${caseId} was created, but the initial access grant failed: ${grantData.error ?? 'grant failed'}`);
@@ -183,7 +207,11 @@ function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: st
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (mutationPending.current || uncertain || createdCaseId) return;
+    mutationPending.current = true;
+    onPending(true);
     setSaving(true);
+    try {
     setError('');
     setNotice('');
 
@@ -192,7 +220,8 @@ function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: st
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ case_type: caseType, title, reference: reference.trim() || null }),
     });
-    const created = await createRes.json().catch(() => ({}));
+    if (createRes.status >= 500) throw new Error('Uncertain create');
+    const created = await createRes.json();
     if (!createRes.ok) {
       setError(created.error ?? 'Could not create restricted HR case.');
       setSaving(false);
@@ -201,11 +230,10 @@ function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: st
 
     const caseId = created.case?.id as string | undefined;
     if (!caseId) {
-      setError('Case was created but no case identifier was returned.');
-      setSaving(false);
-      return;
+      throw new Error('Missing created identifier');
     }
 
+    setCreatedCaseId(caseId);
     if (readerUserId) {
       const granted = await grantInitialReader(caseId, readerUserId);
       setSaving(false);
@@ -215,15 +243,36 @@ function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: st
     }
 
     onCreated();
+    } catch {
+      setUncertain(true);
+      onUncertain();
+      setError('The change could not be confirmed. Do not open this case again until its creation and access have been checked.');
+    } finally {
+      mutationPending.current = false;
+      onPending(false);
+      setSaving(false);
+    }
   }
 
   async function retryGrant() {
-    if (!createdCaseId || !readerUserId) return;
+    if (!createdCaseId || !readerUserId || mutationPending.current || uncertain) return;
+    mutationPending.current = true;
+    onPending(true);
+    try {
     setSaving(true);
     setNotice('');
     const granted = await grantInitialReader(createdCaseId, readerUserId);
     setSaving(false);
     if (granted) onCreated();
+    } catch {
+      setUncertain(true);
+      onUncertain();
+      setError('The access change could not be confirmed. Check the case access before retrying.');
+    } finally {
+      mutationPending.current = false;
+      onPending(false);
+      setSaving(false);
+    }
   }
 
   return (
@@ -259,11 +308,11 @@ function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: st
       {notice && <p role="status" style={warningNotice}>{notice}</p>}
       <FormActions align="stretch">
         {createdCaseId ? (
-          <button disabled={saving || !readerUserId} type="button" onClick={retryGrant} {...buttonProps('primary')}>
+          <button disabled={saving || uncertain || !readerUserId} type="button" onClick={retryGrant} {...buttonProps('primary')}>
             {saving ? 'Retrying…' : 'Retry access grant'}
           </button>
         ) : (
-          <button disabled={saving} type="submit" {...buttonProps('primary')}>
+          <button disabled={saving || uncertain} type="submit" {...buttonProps('primary')}>
             {saving ? 'Opening…' : 'Open Case'}
           </button>
         )}

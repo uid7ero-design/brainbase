@@ -2,6 +2,18 @@
 
 This audit covers document management, lifecycle execution and HR administration. Operational registers and drawer recovery were released in PRs #423 and #424. The current fixture acceptance bundle is reviewable in PR #426; this is not a declaration that the whole HR product is complete or authorized for release.
 
+## Release and ongoing bundle checkpoint (13 October 2026)
+
+PR #426 was authorized and merged as `7afb08ea23a0ead1a21092999d15b53fcad9eeef`. Production deployment `dpl_4vjSt3B629Z1viZ6MCov19MiKVtS` reached READY with aliases assigned; post-merge CI `38392793357` passed. Earlier open-PR and unreleased statements below describe historical checkpoints.
+
+The separate restricted-case/reminder bundle is reconciled with current main. Restricted list/detail read recovery, detail uncertain-write locks, creation/initial-grant locks that survive drawer dismissal, and reminder batch transition isolation are implemented. Reminder delivery requires the current version and existing recipient document access, as selected by the user; database super-admin spelling is `SUPER_ADMIN`.
+
+Validation: 246 focused checks; 15 standalone Chromium flows; 85 disposable database checks with containers removed; TypeScript, changed-file lint and integrated production build. Restricted Chromium uses loopback HTTP, actual routes and Postgres for grant revocation plus committed-but-lost note, participant, access-grant, upload, case-creation and initial-grant outcomes. These checks show persisted state and no duplicate application writes. Actual upload/deletion routes preserve document metadata. Reminder SQL proves current-version/recipient entitlement with a fake sender; a database trigger proves that terminal ledger failure leaves the accepted delivery CLAIMED, completes later rows and prevents replay. The real participant and document writes uncovered PostgreSQL 42P18 in JSON audit identifiers; explicit text casts correct both.
+
+Acceptance limits: sessions/modules and auxiliary People/administrator responses are fixtures; storage is an isolated in-memory map and email is fake. This is not full Next/login or live-provider acceptance. Lost responses are withheld after actual route completion at the browser interception seam, not transport exactly-once proof. Restricted creation and initial grant remain separate requests; unknown creation without an identifier requires checking saved state before another attempt. Every race, revocation after authorization, and every remove/revoke/delete lost-response combination remain unverified. No real HR records or live providers were used.
+
+The scoped restricted/reminder bundle is reviewable in PR #427. Reverify its exact head, CI/security/preview and release authority before merge; main automatically deploys production. Earlier checkpoint sections below are historical evidence.
+
 ## Current acceptance checkpoint
 
 Application changes are at `52ffd2946e6eed55c8324464ecd5a24958305e1a`; subsequent work through `f62407b2dcc62fcb44260c1fbb5332653701964b` adds recovery-lock proof only. The worktree is clean, PR #426 remains open and main remains `aac48c575e471ca38b2290d42911f3089851fb96`. Exact proof-head CI run `38231780577` passed; GitGuardian/check runs and Vercel commit status are green. Reverify live state before release. This documentation checkpoint will itself require new-head hosted checks after publication.
