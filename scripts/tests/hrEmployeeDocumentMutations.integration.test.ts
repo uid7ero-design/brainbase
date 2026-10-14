@@ -611,16 +611,18 @@ describe('restricted case real route access and history', () => {
 });
 
 describe('restricted detail browser to actual route', () => {
-  it.each(['revoked', 'lost-note', 'lost-participant', 'lost-grant', 'lost-document'] as const)('restricted detail actual-route recovery: %s', async scenario => {
+  it.each(['revoked', 'lost-note', 'lost-participant', 'lost-grant', 'lost-document', 'creation-lost', 'creation-grant-lost'] as const)('restricted detail actual-route recovery: %s', async scenario => {
     await q(readFileSync('scripts/add-hr-people-tenant-unique.sql', 'utf8'));
     await q(readFileSync('scripts/create-hr-restricted-cases.sql', 'utf8'));
-    const caseId = scenario === 'revoked' ? '98888888-8888-4888-8888-888888888888' : scenario === 'lost-note' ? '98888888-8888-4888-8888-888888888889' : scenario === 'lost-participant' ? '98888888-8888-4888-8888-888888888890' : scenario === 'lost-grant' ? '98888888-8888-4888-8888-888888888891' : '98888888-8888-4888-8888-888888888892';
+    const creation=scenario.startsWith('creation');
+    const caseId = scenario === 'revoked' ? '98888888-8888-4888-8888-888888888888' : scenario === 'lost-note' ? '98888888-8888-4888-8888-888888888889' : scenario === 'lost-participant' ? '98888888-8888-4888-8888-888888888890' : scenario === 'lost-grant' ? '98888888-8888-4888-8888-888888888891' : scenario === 'lost-document' ? '98888888-8888-4888-8888-888888888892' : scenario === 'creation-lost' ? '98888888-8888-4888-8888-888888888893' : '98888888-8888-4888-8888-888888888894';
     await q("INSERT INTO hr_restricted_cases(id,organisation_id,case_type,title,opened_by) VALUES($1,$2,'other','Browser synthetic restricted case',$3)", [caseId, org, hr.userId]);
     await q('INSERT INTO hr_restricted_case_access(organisation_id,case_id,user_id,granted_by) VALUES($1,$2,$3,$4)', [org, caseId, employee.userId, hr.userId]);
-    routeUser = ['lost-participant', 'lost-grant'].includes(scenario) ? hr.userId : employee.userId;
+    routeUser = (creation || ['lost-participant', 'lost-grant'].includes(scenario)) ? hr.userId : employee.userId;
     if (['lost-participant', 'lost-grant'].includes(scenario)) await q('INSERT INTO hr_restricted_case_access(organisation_id,case_id,user_id,granted_by) VALUES($1,$2,$3,$3)', [org, caseId, hr.userId]);
     const detail = await import('@/app/api/hr/restricted-cases/[id]/route');
     const noteRoutes = await import('@/app/api/hr/restricted-cases/[id]/notes/route');
+    const caseRoutes=await import('@/app/api/hr/restricted-cases/route');
     const documentRoutes = await import('@/app/api/hr/restricted-cases/[id]/documents/route');
     const grantRoute = await import('@/app/api/hr/restricted-cases/[id]/access/route');
     const participantRoutes = await import('@/app/api/hr/restricted-cases/[id]/participants/route');
@@ -631,6 +633,7 @@ describe('restricted detail browser to actual route', () => {
         if (id === 'next/link') return '\0restricted-link';
       }, load(id) {
         if (id === '\0restricted-link') return "import {createElement} from 'react'; export default function Link(props){return createElement('a',props)}";
+        if (id === '\0restricted-entry' && creation) return `import {createElement} from 'react'; import {createRoot} from 'react-dom/client'; import Page from ${JSON.stringify(path.resolve('app/people/restricted-cases/page.tsx').replaceAll('\\', '/'))}; createRoot(document.getElementById('root')).render(createElement(Page));`;
         if (id === '\0restricted-entry') return `import {createElement,Suspense} from 'react'; import {createRoot} from 'react-dom/client'; import Page from ${JSON.stringify(path.resolve('app/people/restricted-cases/[id]/page.tsx').replaceAll('\\', '/'))}; createRoot(document.getElementById('root')).render(createElement(Suspense,{fallback:'Loading'},createElement(Page,{params:Promise.resolve({id:${JSON.stringify(caseId)}})})));`;
       } }], build: { write: false, lib: { entry: 'restricted-entry', name: 'RestrictedProof', formats: ['iife'] } } });
     const output = Array.isArray(built) ? built[0] : built;
@@ -641,6 +644,13 @@ describe('restricted detail browser to actual route', () => {
         const url = new URL(req.url!, 'http://fixture.local');
         if (url.pathname === '/') { res.setHeader('Content-Type', 'text/html'); res.end('<div id="root"></div>'); return; }
         res.setHeader('Content-Type', 'application/json');
+        if (url.pathname === '/api/hr/restricted-cases') {
+          const method=req.method ?? 'GET'; const chunks: Buffer[]=[]; for await (const chunk of req) chunks.push(Buffer.from(chunk));
+          if (method === 'POST') actualWrites++;
+          const request=new NextRequest(url,{method,...(method === 'POST' ? {headers:{'Content-Type':'application/json'},body:Buffer.concat(chunks).toString()} : {})});
+          const response=method === 'POST' ? await caseRoutes.POST(request) : await caseRoutes.GET(request);
+          res.statusCode=response.status; res.end(await response.text()); return;
+        }
         if (url.pathname === `/api/hr/restricted-cases/${caseId}`) {
           actualReads++;
           const response = await detail.GET(new NextRequest(url), { params: Promise.resolve({ id: caseId }) });
@@ -654,9 +664,9 @@ describe('restricted detail browser to actual route', () => {
           const response=method === 'POST' ? await documentRoutes.POST(request,params) : await documentRoutes.GET(request,params);
           res.statusCode=response.status; res.end(await response.text()); return;
         }
-        if (url.pathname === `/api/hr/restricted-cases/${caseId}/access`) {
+        if (url.pathname.endsWith('/access')) {
           actualWrites++; const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
-          const response = await grantRoute.POST(new NextRequest(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: Buffer.concat(chunks).toString() }), { params: Promise.resolve({ id: caseId }) });
+          const response = await grantRoute.POST(new NextRequest(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: Buffer.concat(chunks).toString() }), { params: Promise.resolve({ id: url.pathname.split('/')[4] }) });
           res.statusCode=response.status; res.end(await response.text()); return;
         }
         if (url.pathname === `/api/hr/restricted-cases/${caseId}/notes` || url.pathname === `/api/hr/restricted-cases/${caseId}/participants`) {
@@ -668,7 +678,7 @@ describe('restricted detail browser to actual route', () => {
           const response = method === 'POST' ? await handlers.POST(request, { params: Promise.resolve({ id: caseId }) }) : await handlers.GET(request, { params: Promise.resolve({ id: caseId }) });
           res.statusCode = response.status; res.end(await response.text()); return;
         }
-        if (url.pathname.endsWith('/administrators')) { res.statusCode=['lost-participant', 'lost-grant'].includes(scenario) ? 200 : 403; res.end(JSON.stringify({ users: [{ id: outsider.userId, name: 'Synthetic recipient', email: null, grant_eligible: true }] })); return; }
+        if (url.pathname.endsWith('/administrators')) { res.statusCode=(creation || ['lost-participant', 'lost-grant'].includes(scenario)) ? 200 : 403; res.end(JSON.stringify({ users: [{ id: outsider.userId, name: 'Synthetic recipient', email: null, grant_eligible: true }] })); return; }
         const body = url.pathname.endsWith('/participants') ? { participants: [] }
           : url.pathname.endsWith('/notes') ? { notes: [] } : url.pathname.endsWith('/documents') ? { documents: [] } : { people: [{ id: personId, first_name: 'Synthetic', last_name: 'Participant' }] };
         res.end(JSON.stringify(body));
@@ -681,6 +691,25 @@ describe('restricted detail browser to actual route', () => {
       const page = await browser.newPage(); const errors: string[] = [];
       page.on('pageerror', error => errors.push(error.message));
       await page.goto(`http://127.0.0.1:${address.port}/`); await page.addScriptTag({ content: output.output[0].code });
+      if (creation) {
+        const target=scenario === 'creation-lost' ? '**/restricted-cases' : '**/access';
+        await page.route(target,async route => {
+          if (route.request().method() !== 'POST') return route.continue();
+          const response=await route.fetch(); expect(response.status()).toBe(201); await route.abort('failed');
+        });
+        await page.getByRole('button',{name:'+ Open Case',exact:true}).click();
+        await page.getByRole('textbox',{name:/^Title/}).fill(`Synthetic ${scenario}`);
+        await page.getByRole('combobox',{name:/Initial reader/}).selectOption(outsider.userId);
+        await page.getByRole('button',{name:'Open Case',exact:true}).click();
+        await browserExpect(page.getByText('The change could not be confirmed. Do not open this case again until its creation and access have been checked.')).toBeVisible();
+        await page.getByRole('button',{name:'Close Open Restricted Case'}).click();
+        await page.getByRole('button',{name:'Refresh',exact:true}).click();
+        await browserExpect(page.getByRole('button',{name:'+ Open Case',exact:true})).toBeDisabled();
+        const rows=await q('SELECT id FROM hr_restricted_cases WHERE organisation_id=$1 AND title=$2',[org,`Synthetic ${scenario}`]);
+        expect(rows).toHaveLength(1); expect(actualWrites).toBe(scenario === 'creation-lost' ? 1 : 2);
+        expect((await q('SELECT count(*)::int AS count FROM hr_restricted_case_access WHERE case_id=$1',[rows[0].id]))[0].count).toBe(scenario === 'creation-lost' ? 0 : 1);
+        expect(errors).toEqual([]); return;
+      }
       await browserExpect(page.getByRole('heading', { name: 'Browser synthetic restricted case' })).toBeVisible();
       if (scenario === 'lost-document') {
         await page.route('**/documents', async route => {
