@@ -349,6 +349,7 @@ FROM ins_items ii
 JOIN UNNEST($ATT_IDS, $ATT_TYPES, $ATT_NAMES) AS a(id, ticket_type_id, name)
   ON a.ticket_type_id = ii.ticket_type_id
 RETURNING id, order_id;
+${POST_GATE_INJECT:-}
 COMMIT;
 SQL
 }
@@ -688,17 +689,29 @@ run_concurrent_dir
 expect_eq "C1. exactly 10 of 20 concurrent carts committed (the promotion-row lock serialises the redemption check)" "SELECT count(*) FROM event_orders WHERE purchaser_name LIKE 'C-%';" "10"
 expect_eq "C2. redemption count = 10 = max; every committed order carries the snapshot" "SELECT $(redemptions_expr p-ten)||'/'||(SELECT count(*) FROM event_orders WHERE promotion_code_snapshot='TENONLY' AND discount_cents=100);" "10/10"
 expect_true "C3. no deadlock and no error on any connection" "! grep -qiE 'deadlock|ERROR' $CONC_DIR/*.out"
-echo "  -- MUTATION PROOF: without the promotion-row lock tier the limit oversubscribes --"
+echo "  -- deterministic two-connection race on the LAST redemption (different ticket types, so only the code row is shared) --"
+# A gates first and then holds its transaction open (pg_sleep AFTER the
+# gated INSERT, before COMMIT); B starts 0.5s later. With the code lock, B
+# blocks on the promotion row A holds until A commits, then B's gate reads
+# count 1 and refuses. Without the lock, B's gate runs while A is still
+# uncommitted, reads count 0, and both commit — the limit of 1 becomes 2.
 reset_db; bootstrap
-for i in $(seq 1 20); do seed_type "tt-c$i" 1000 100; done
-seed_promo p-ten TENONLY PERCENT 10 10
-rm -f "$CONC_DIR"/*.sql "$CONC_DIR"/*.out
-for i in $(seq 1 20); do
-  NO_PROMO_LOCK=1 PROMO_ID=p-ten PROMO_CODE=TENONLY LINE_DISCOUNTS_OVERRIDE='100' paid_cart_sql "CM-$i" '' "$LIVE" 'SELECT pg_sleep(4);' "tt-c$i:1" > "$CONC_DIR/c$i.sql"
-done
-run_concurrent_dir
-expect_eq "CM1. with the code lock REMOVED, more than 10 carts commit (oversubscription) — the harness is sensitive to the lock" \
-  "SELECT CASE WHEN count(*) > 10 THEN 'oversubscribed' ELSE 'not-detected' END FROM event_orders WHERE purchaser_name LIKE 'CM-%';" "oversubscribed"
+seed_type tt-x 1000 100; seed_type tt-y 1000 100
+seed_promo p-one LASTONE PERCENT 10 1
+run_concurrent_pair \
+  "$(POST_GATE_INJECT='SELECT pg_sleep(3);' PROMO_ID=p-one PROMO_CODE=LASTONE LINE_DISCOUNTS_OVERRIDE='100' paid_cart_sql C-A '' "$LIVE" '' tt-x:1)" \
+  "$(PROMO_ID=p-one PROMO_CODE=LASTONE LINE_DISCOUNTS_OVERRIDE='100' paid_cart_sql C-B '' "$LIVE" '' tt-y:1)"
+expect_eq "C4. with the code lock: exactly one of the two commits (B waited for A, then saw the limit reached)" "SELECT count(*) FROM event_orders WHERE promotion_code_id='p-one';" "1"
+expect_true "C5. no deadlock, no error" "! grep -qiE 'deadlock|ERROR' '$OUT_A' '$OUT_B'"
+echo "  -- MUTATION PROOF: without the promotion-row lock tier the same race oversubscribes --"
+reset_db; bootstrap
+seed_type tt-x 1000 100; seed_type tt-y 1000 100
+seed_promo p-one LASTONE PERCENT 10 1
+run_concurrent_pair \
+  "$(NO_PROMO_LOCK=1 POST_GATE_INJECT='SELECT pg_sleep(3);' PROMO_ID=p-one PROMO_CODE=LASTONE LINE_DISCOUNTS_OVERRIDE='100' paid_cart_sql CM-A '' "$LIVE" '' tt-x:1)" \
+  "$(NO_PROMO_LOCK=1 PROMO_ID=p-one PROMO_CODE=LASTONE LINE_DISCOUNTS_OVERRIDE='100' paid_cart_sql CM-B '' "$LIVE" '' tt-y:1)"
+expect_eq "CM1. with the code lock REMOVED, both commit against max_redemptions 1 (oversubscription) — the harness is sensitive to the lock" \
+  "SELECT count(*) FROM event_orders WHERE promotion_code_id='p-one';" "2"
 
 echo ""
 echo "=== W: sale-window boundaries are decided by the database clock inside the locked statement ==="
