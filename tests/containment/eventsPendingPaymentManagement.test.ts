@@ -521,13 +521,13 @@ describe('Retry payment route — NULL-session concurrency closure (PR #231 foll
 
   it('P. both capacity-reacquisition UPDATE branches (session-bound and non-session-bound) include the new expires_at compare-and-set guard', () => {
     const code = routeSrc()
-    const occurrences = code.match(/eo\.expires_at IS NOT DISTINCT FROM \$\{verifiedExpiresAt\}/g) ?? []
+    const occurrences = code.match(/\(extract\(epoch FROM eo\.expires_at\) \* 1000000\)::bigint IS NOT DISTINCT FROM \$\{verifiedExpiresAtStamp\}::bigint/g) ?? []
     expect(occurrences.length).toBe(2)
   })
 
   it('Q. verifiedExpiresAt is captured UNCONDITIONALLY — before the `if (verifiedSessionId)` branch, not inside it — so a NULL-session order still gets a guard value', () => {
     const code = routeSrc()
-    const captureIdx = code.indexOf('const verifiedExpiresAt = order.expires_at')
+    const captureIdx = code.indexOf('const verifiedExpiresAtStamp = order.expires_at_stamp')
     const branchIdx = code.indexOf('if (verifiedSessionId) {')
     expect(captureIdx).toBeGreaterThan(-1)
     expect(branchIdx).toBeGreaterThan(-1)
@@ -536,12 +536,12 @@ describe('Retry payment route — NULL-session concurrency closure (PR #231 foll
 
   it('the order SELECT includes expires_at, so verifiedExpiresAt always reflects the exact row this request read (never a separate, potentially-stale query)', () => {
     const code = routeSrc()
-    expect(code).toMatch(/SELECT id, payment_status, purchaser_email, total_cents, currency, stripe_account_id, stripe_checkout_session_id, expires_at\s*\n\s*FROM event_orders/)
+    expect(code).toMatch(/SELECT id, payment_status, purchaser_email, total_cents, currency, stripe_account_id, stripe_checkout_session_id, expires_at,\s*\n\s*\(extract\(epoch FROM expires_at\) \* 1000000\)::bigint::text AS expires_at_stamp\s*\n\s*FROM event_orders/)
   })
 
   it('A/B/C. two concurrent Retry requests with NO prior session id — real-Postgres proof (exactly one reaches the reacquisition UPDATE, the other deterministically fails it, the winner proceeds normally) lives in scripts/tests/verify-events-phase4-payment-concurrency.sh section I; this suite proves the route issues the guarded statement that makes that outcome possible', () => {
     const code = routeSrc()
-    expect(code).toMatch(/eo\.expires_at IS NOT DISTINCT FROM \$\{verifiedExpiresAt\}/)
+    expect(code).toMatch(/\(extract\(epoch FROM eo\.expires_at\) \* 1000000\)::bigint IS NOT DISTINCT FROM \$\{verifiedExpiresAtStamp\}::bigint/)
   })
 
   it('D. a later legitimate retry after the winning attempt eventually becomes dead remains possible — proven at the DB layer in scripts/tests/verify-events-phase4-payment-concurrency.sh section J (a sequential, non-racing retry re-reads expires_at fresh and succeeds); at the route layer, verifiedExpiresAt is read fresh from the order row on EVERY request, never cached or reused across requests', () => {
@@ -549,9 +549,9 @@ describe('Retry payment route — NULL-session concurrency closure (PR #231 foll
     // Only ONE assignment of verifiedExpiresAt exists in the whole file,
     // and it reads directly off the just-fetched `order` row — there is
     // no alternate/cached code path that could reuse a stale value.
-    const assignments = code.match(/const verifiedExpiresAt = /g) ?? []
+    const assignments = code.match(/const verifiedExpiresAtStamp = /g) ?? []
     expect(assignments.length).toBe(1)
-    expect(code).toMatch(/const verifiedExpiresAt = order\.expires_at \?\? null/)
+    expect(code).toMatch(/const verifiedExpiresAtStamp = order\.expires_at_stamp \?\? null/)
   })
 
   it('E. mutation proof that the harness is genuinely sensitive to the NULL-session defect lives in scripts/tests/verify-events-phase4-payment-concurrency.sh section "I MUTATION PROOF" (retry_sql_no_expires_guard reproduces both concurrent retries winning)', () => {
@@ -562,7 +562,7 @@ describe('Retry payment route — NULL-session concurrency closure (PR #231 foll
 
   it('F. the pre-existing stripe_checkout_session_id guard (test M) is untouched by this change — both guards coexist in the same WHERE clause, the new one does not replace the old one', () => {
     const code = routeSrc()
-    expect(code).toMatch(/eo\.stripe_checkout_session_id IS NOT DISTINCT FROM \$\{verifiedSessionId\}\s*\n\s*AND eo\.expires_at IS NOT DISTINCT FROM \$\{verifiedExpiresAt\}/)
+    expect(code).toMatch(/eo\.stripe_checkout_session_id IS NOT DISTINCT FROM \$\{verifiedSessionId\}\s*\n\s*AND \(extract\(epoch FROM eo\.expires_at\) \* 1000000\)::bigint IS NOT DISTINCT FROM \$\{verifiedExpiresAtStamp\}::bigint/)
   })
 
   it('no schema/migration change was needed — expires_at is an existing event_orders column (see scripts/add-events-payments.sql), never newly added here', () => {
@@ -598,14 +598,14 @@ describe('Retry payment route — write-back guard (checkout-vs-retry race closu
 
   it('the write-back UPDATE is guarded on BOTH stripe_checkout_session_id IS NULL and expires_at IS NOT DISTINCT FROM the reacquired generation marker — no longer unconditional', () => {
     const code = routeSrc()
-    expect(code).toMatch(/WHERE id = \$\{orderId\} AND organisation_id = \$\{organisationId\}\s*\n\s*AND stripe_checkout_session_id IS NULL AND expires_at IS NOT DISTINCT FROM \$\{reacquiredExpiresAt\}/)
+    expect(code).toMatch(/WHERE id = \$\{orderId\} AND organisation_id = \$\{organisationId\}\s*\n\s*AND stripe_checkout_session_id IS NULL AND \(extract\(epoch FROM expires_at\) \* 1000000\)::bigint IS NOT DISTINCT FROM \$\{reacquiredExpiresAtStamp\}::bigint/)
   })
 
   it('reacquiredExpiresAt comes straight from the reacquisition UPDATE\'s own RETURNING clause (both branches) — no extra round trip, and always the value THIS request\'s own successful reacquisition just set', () => {
     const code = routeSrc()
-    const occurrences = code.match(/RETURNING eo\.id, eo\.expires_at/g) ?? []
+    const occurrences = code.match(/RETURNING eo\.id, eo\.expires_at, \(extract\(epoch FROM eo\.expires_at\) \* 1000000\)::bigint::text AS expires_at_stamp/g) ?? []
     expect(occurrences.length).toBe(2)
-    expect(code).toMatch(/const reacquiredExpiresAt = reacquired\[0\]\.expires_at/)
+    expect(code).toMatch(/const reacquiredExpiresAtStamp = reacquired\[0\]\.expires_at_stamp/)
   })
 
   it('loses the write-back race (another concurrent request already claimed the order): the just-created Checkout Session is expired via expireCheckoutSession, and the response never contains a checkout_url', async () => {
