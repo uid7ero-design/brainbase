@@ -271,7 +271,9 @@ describe('Capacity restoration — same predicate every consumer already uses (p
   it('the free-registration route\'s capacity aggregates exclude CANCELLED orders (unmodified by this phase)', () => {
     const code = stripComments(read('lib/events/services/freeRegistration.ts'))
     const occurrences = (code.match(/eo\.status <> 'CANCELLED'/g) ?? []).length
-    expect(occurrences).toBeGreaterThanOrEqual(4) // session + ticket-type capacity, both branches
+    // Phase 2: one gate statement with a per-ticket-type aggregate and a
+    // session aggregate (no more duplicated session/non-session branches).
+    expect(occurrences).toBeGreaterThanOrEqual(2)
   })
 
   it('the paid checkout route\'s capacity aggregates exclude CANCELLED orders (unmodified by this phase)', () => {

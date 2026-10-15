@@ -170,11 +170,13 @@ const RESEND_ROUTE_SOURCE = fs.readFileSync(
 )
 
 describe('SCHEDULING — ticket_email_status is written only in the order-creation INSERT', () => {
-  it('both INSERT INTO event_orders branches include ticket_email_status and bind it to the literal \'pending\'', () => {
+  // Phase 2: session-bound and non-session orders now share ONE
+  // capacity-gated statement, so there is exactly one order INSERT.
+  it('the INSERT INTO event_orders includes ticket_email_status and binds it to the literal \'pending\'', () => {
     const occurrences = SERVICE_SOURCE.match(/INSERT INTO event_orders \([^)]*ticket_email_status\)/g) ?? []
-    expect(occurrences.length).toBe(2)
+    expect(occurrences.length).toBe(1)
     const selectOccurrences = SERVICE_SOURCE.match(/'CONFIRMED', 0, \$\{bookingToken\}, 'pending'/g) ?? []
-    expect(selectOccurrences.length).toBe(2)
+    expect(selectOccurrences.length).toBe(1)
   })
 
   it('MANDATORY historical safety — no broad UPDATE event_orders SET ticket_email_status exists anywhere in this route', () => {
@@ -182,9 +184,9 @@ describe('SCHEDULING — ticket_email_status is written only in the order-creati
     expect(SERVICE_SOURCE).not.toMatch(/UPDATE\s+event_orders\s+SET[^;]*ticket_email_status/i)
   })
 
-  it('the literal \'pending\' appears ONLY inside the two INSERT column-value lists — not as a standalone assignment', () => {
+  it('the literal \'pending\' appears ONLY inside the INSERT column-value list — not as a standalone assignment', () => {
     const pendingOccurrences = (SERVICE_SOURCE.match(/'pending'/g) ?? []).length
-    expect(pendingOccurrences).toBe(2)
+    expect(pendingOccurrences).toBe(1)
     expect(ROUTE_SOURCE).not.toMatch(/'pending'/)
   })
 

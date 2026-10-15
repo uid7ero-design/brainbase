@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Calendar, Clock, MapPin, ArrowLeft, ScanLine } from 'lucide-react';
 import { Metric, MetricStrip } from '@/components/ui/app';
 import RegistrationsPanel, { type OrderRow } from './RegistrationsPanel';
+import { groupOrderRows } from '@/lib/events/orderGrouping';
 import QuestionsPanel from './QuestionsPanel';
 import { ARTWORK_ACCEPT_ATTR, MAX_ARTWORK_MB, isAllowedArtworkMimeType } from '@/lib/events/artworkConstants';
 import {
@@ -175,9 +176,20 @@ export default function EventDetailClient({ eventId, canManage, organisationSlug
   // client-side beyond simple aggregation). Deliberately basic: gross
   // revenue, paid-order count, pending-payment count, refunded amount
   // — no accounting/P&L reporting.
-  const paidOrders = orders?.filter(o => o.payment_status === 'PAID') ?? [];
-  const pendingPaymentOrders = orders?.filter(o => o.payment_status === 'PENDING') ?? [];
-  const refundedOrders = orders?.filter(o => o.payment_status === 'REFUNDED') ?? [];
+  //
+  // Phase 2 (multi-ticket-type orders) — the orders API returns one row
+  // per order ITEM (see lib/events/orderGrouping.ts), so a cart order
+  // arrives as several rows that each carry the same whole-order
+  // total_cents and payment_status. Revenue, paid/pending/refunded
+  // counts and the refunded amount are ORDER-level facts, so the rows
+  // are folded to one entry per order first — otherwise a 3-line order
+  // counts as 3 paid orders and its total is summed 3 times. The per-row
+  // grain is kept for everything else (attendee totals and the
+  // per-ticket-type / per-session registered counts are per line).
+  const orderLevel = orders ? groupOrderRows(orders) : [];
+  const paidOrders = orderLevel.filter(o => o.payment_status === 'PAID');
+  const pendingPaymentOrders = orderLevel.filter(o => o.payment_status === 'PENDING');
+  const refundedOrders = orderLevel.filter(o => o.payment_status === 'REFUNDED');
   const grossRevenueCents = paidOrders.reduce((sum, o) => sum + o.total_cents, 0);
   const refundedCents = refundedOrders.reduce((sum, o) => sum + o.total_cents, 0);
   const revenueCurrency = paidOrders[0]?.currency ?? orders?.find(o => o.payment_status !== 'NOT_REQUIRED')?.currency ?? 'AUD';

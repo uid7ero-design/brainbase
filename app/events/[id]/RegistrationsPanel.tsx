@@ -8,6 +8,7 @@ import {
   FilterDropdown, type DropdownOption,
 } from '../_components/ui';
 import RegistrationDetail from './RegistrationDetail';
+import { groupOrderRows, formatOrderLines } from '@/lib/events/orderGrouping';
 
 function formatAmount(cents: number, currency: string): string {
   return new Intl.NumberFormat('en-AU', { style: 'currency', currency }).format(cents / 100);
@@ -195,7 +196,10 @@ export default function RegistrationsPanel({
     setSessionFilter('');
   }
 
-  const displayedOrders = listOrders;
+  // Phase 2 — one card per ORDER: the API returns one row per order item,
+  // so a multi-ticket-type order's rows are folded together here (see
+  // lib/events/orderGrouping.ts) and its order-level actions render once.
+  const displayedOrders = listOrders ? groupOrderRows(listOrders) : null;
   const nonCancelled = displayedOrders?.filter(o => o.status !== 'CANCELLED') ?? [];
   const orderCount = new Set(nonCancelled.map(o => o.id)).size;
   const totalAttendees = nonCancelled.reduce((sum, o) => sum + o.quantity, 0);
@@ -407,11 +411,11 @@ export default function RegistrationsPanel({
           const hasResponses = o.order_responses.length > 0 || o.attendees.some(a => a.responses.length > 0);
           const responsesOpen = expandedResponseIds.has(o.id);
           return (
-          <div key={o.order_item_id} style={rowCardStyle}>
+          <div key={o.id} style={rowCardStyle}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, flex: 1, minWidth: 260 }}>
                 <RegField label="Purchaser" value={o.purchaser_name} sub={o.purchaser_email} />
-                <RegField label="Ticket" value={`${o.ticket_type_name ?? 'Unknown ticket type'} × ${o.quantity}`} />
+                <RegField label={o.lines.length > 1 ? 'Tickets' : 'Ticket'} value={formatOrderLines(o.lines)} />
                 {o.session_name && <RegField label="Session" value={o.session_name} />}
                 {o.payment_status !== 'NOT_REQUIRED' && (
                   <RegField label="Amount" value={formatAmount(o.total_cents, o.currency)} />
@@ -503,7 +507,10 @@ export default function RegistrationsPanel({
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${BORDER_SOFT}`, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {o.attendees.map(a => (
                   <div key={a.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, fontSize: 12.5 }}>
-                    <span style={{ color: TEXT_PRIMARY, fontWeight: 500 }}>{a.name}</span>
+                    <span style={{ color: TEXT_PRIMARY, fontWeight: 500 }}>
+                      {a.name}
+                      {o.lines.length > 1 && a.ticket_type_name && <span style={{ color: TEXT_MUTED, fontWeight: 400 }}> · {a.ticket_type_name}</span>}
+                    </span>
                     {a.checked_in_at ? (
                       <span style={{ color: 'var(--status-success)', fontWeight: 600 }}>Checked in · {new Date(a.checked_in_at).toLocaleTimeString()}</span>
                     ) : (

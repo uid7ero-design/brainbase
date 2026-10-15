@@ -4,8 +4,14 @@ import type { ValidatedRegistration } from '@/lib/events/publicValidation';
 import { generateTicketToken, generateBookingToken } from '@/lib/events/ticketToken';
 import { listActiveQuestions, validateSubmittedResponses, flattenOrderAnswers, flattenAttendeeAnswers } from '@/lib/events/registrationQuestions';
 import { attemptAutomaticTicketEmail } from '@/lib/events/ticketEmailDelivery';
+import { loadCartTicketTypes, buildCartLockStatements } from '@/lib/events/services/cart';
 
 // Shared ticketing service — free (price 0) public registration.
+//
+// Phase 2: one registration may contain several free ticket types for
+// the same event (a cart) — one event_order_items row per type, all
+// reserved atomically in one capacity-gated statement. See
+// lib/events/services/cart.ts for the shared cart rules and lock order.
 //
 // Extracted verbatim from
 // app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts
@@ -40,6 +46,7 @@ export type FreeRegistrationResult =
         | 'TICKET_TYPE_NOT_FOUND'
         | 'TICKET_TYPE_INACTIVE'
         | 'TICKET_TYPE_REQUIRES_PAYMENT'
+        | 'MIXED_FREE_AND_PAID'
         | 'SESSION_NOT_FOUND'
         | 'TRANSACTION_FAILED'
         | 'CAPACITY_UNAVAILABLE';
@@ -49,31 +56,30 @@ export async function registerFreeOrder(input: FreeRegistrationInput): Promise<F
   const { organisationId, event, validated } = input;
 
   // Ownership + business-rule checks, all re-derived server-side —
-  // never trusted from the request. The ticket type (and session, if
-  // selected) must belong to THIS resolved event and organisation; the
-  // ticket type must be active; and its price must be exactly zero —
-  // this route is the free-registration path only (see this file's own
-  // header). A paid ticket type is rejected outright rather than the
-  // route ever proceeding with (or trusting) a non-zero price; the
-  // public UI never calls this route for a paid ticket type — see
-  // app/api/public/events/[organisationSlug]/[eventSlug]/checkout/
-  // route.ts (Phase 4) for the Stripe-backed paid path. This check
-  // remains as defense in depth against a bypassed/direct API call.
-  const ticketTypeRows = await sql`
-    SELECT id, active, price_cents FROM event_ticket_types
-    WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId} AND event_id = ${event.id}
-    LIMIT 1
-  `;
-  const ticketType = ticketTypeRows[0] as { id: string; active: boolean; price_cents: number } | undefined;
-  if (!ticketType) {
-    return { ok: false, code: 'TICKET_TYPE_NOT_FOUND' };
+  // never trusted from the request. Every cart line's ticket type (and
+  // the session, if selected) must belong to THIS resolved event and
+  // organisation; every ticket type must be active; and every line's
+  // price must be exactly zero — this route is the free-registration
+  // path only (see this file's own header). A paid ticket type is
+  // rejected outright rather than the route ever proceeding with (or
+  // trusting) a non-zero price, and a cart mixing free and paid types is
+  // rejected too (an order is all-free or all-paid — see
+  // lib/events/services/cart.ts). The public UI never calls this route
+  // for paid tickets — see lib/events/services/paidCheckout.ts for the
+  // Stripe-backed paid path. This check remains as defense in depth
+  // against a bypassed/direct API call.
+  const cart = await loadCartTicketTypes(organisationId, event.id, validated.items);
+  if (!cart.ok) {
+    // Currency is never compared for a free order (nothing is charged),
+    // so loadCartTicketTypes cannot report CURRENCY_MISMATCH here; the
+    // mapping below only exists to keep the result type exhaustive.
+    return { ok: false, code: cart.code === 'CURRENCY_MISMATCH' ? 'TICKET_TYPE_REQUIRES_PAYMENT' : cart.code };
   }
-  if (!ticketType.active) {
-    return { ok: false, code: 'TICKET_TYPE_INACTIVE' };
-  }
-  if (ticketType.price_cents !== 0) {
+  if (cart.pricing !== 'FREE') {
     return { ok: false, code: 'TICKET_TYPE_REQUIRES_PAYMENT' };
   }
+  const lineTypeIds = cart.lines.map(l => l.ticket_type_id);
+  const lineQuantities = cart.lines.map(l => l.quantity);
 
   if (validated.event_session_id) {
     const sessionRows = await sql`
@@ -111,6 +117,9 @@ export async function registerFreeOrder(input: FreeRegistrationInput): Promise<F
   // driver behaviour this code does not want to depend on).
   const attendeeNames = validated.attendees.map(a => a.name);
   const attendeeEmails = validated.attendees.map(a => a.email ?? '');
+  // Which cart line each attendee belongs to — joined against the
+  // inserted order items by ticket_type_id (unique within a cart).
+  const attendeeTypeIds = validated.attendees.map(a => a.ticket_type_id);
   // One token per attendee, generated once here and passed through as
   // a third parallel array to the same UNNEST(...) the names/emails
   // already use below — never derived from (or influenced by) any
@@ -147,7 +156,7 @@ export async function registerFreeOrder(input: FreeRegistrationInput): Promise<F
   const orderResponseFlat = flattenOrderAnswers(validatedResponses.orderAnswers);
   const attendeeResponseFlat = flattenAttendeeAnswers(validatedResponses.attendeeAnswers, ticketTokens);
 
-  // ── Concurrency-safe order creation (R1 remediation) ─────────────────
+  // ── Concurrency-safe order creation (R1 remediation, multi-line) ─────
   //
   // R1 CONTEXT: the original Phase 2 design ran ONE compound statement
   // containing the FOR UPDATE lock, the sold-quantity aggregate, and the
@@ -176,237 +185,148 @@ export async function registerFreeOrder(input: FreeRegistrationInput): Promise<F
   // commit that could possibly conflict with us, since FOR UPDATE
   // cannot unblock until the prior holder's transaction has committed
   // or rolled back). Verified empirically against real Postgres 16 via
-  // scripts/tests/verify-events-phase2-concurrency.sh — see that file
-  // for the reproducible harness this fix was proven against, including
-  // the specific forced-blocking scenario that reproduced the original
-  // defect 4/4 times and no longer reproduces it after this change.
+  // scripts/tests/verify-events-phase2-concurrency.sh and, for
+  // multi-ticket-type carts, scripts/tests/verify-events-cart-concurrency.sh.
   //
-  // Statement sequence (fixed, deterministic order — see LOCK ORDER
-  // below):
-  //   1. Lock the ticket type row (FOR UPDATE).
+  // Statement sequence (fixed, deterministic order):
+  //   1. Lock every cart line's ticket type row (FOR UPDATE), one
+  //      statement each, in ascending ticket_type_id order (see
+  //      lib/events/services/cart.ts's cartLockOrder) — so two carts
+  //      overlapping on any subset of ticket types always request their
+  //      shared rows in the same relative order and cannot deadlock.
   //   2. (session-bound only) Lock the session row (FOR UPDATE) —
-  //      always AFTER the ticket-type lock, in every code path, so two
-  //      concurrent registrations selecting the same pair of rows can
-  //      never deadlock by acquiring them in opposite orders.
-  //   3. A standalone, fresh sold-ticket-type-quantity read. This
-  //      statement begins only after step 1 has completed, so under
-  //      READ COMMITTED it gets its own snapshot taken at that later
-  //      point — it exists purely to build a precise "N remaining"
-  //      conflict message; it does not itself gate anything (that would
-  //      still be non-interactive — see below).
-  //   4. (session-bound only) The same, for the session.
-  //   5. The actual capacity gate: a WITH-chain INSERT (order -> item ->
-  //      attendees) whose own embedded aggregate subqueries are
-  //      evaluated as part of THIS statement — which, being submitted
-  //      after the lock statement(s), also gets a fresh, post-lock
-  //      snapshot. This is what actually prevents the oversell; step 3
-  //      is diagnostic only. Every insert downstream of the capacity
-  //      WHERE clause still SELECTs FROM the previous step's own result
-  //      set (never an unconditional INSERT), so an empty capacity
-  //      check still propagates all the way through with zero orphan
-  //      rows, exactly as before.
+  //      always AFTER every ticket-type lock, in every code path.
+  //   3. The actual capacity gate: ONE WITH-chain INSERT (order ->
+  //      items -> attendees -> responses) whose embedded aggregates are
+  //      evaluated as part of THIS statement — submitted after the lock
+  //      statements, so it gets a fresh, post-lock snapshot. The `gate`
+  //      CTE yields a row only when EVERY line fits its own ticket
+  //      type's remaining capacity AND the combined cart quantity fits
+  //      the session's remaining capacity; every insert downstream
+  //      SELECTs FROM that gate (never an unconditional INSERT), so a
+  //      cart that fails ANY check inserts nothing at all — no partial
+  //      reservation, no orphan rows.
   //
   // sql.transaction() is "non-interactive": every statement in the
   // array is built and submitted up front, in one HTTP request, with no
   // opportunity for application code to branch on one statement's
-  // result before constructing the next. That is why step 5 must still
-  // carry its own embedded capacity check (a fixed, unconditional
-  // statement whose OWN WHERE clause decides whether it inserts
-  // anything) rather than JS code deciding, after reading step 3's
-  // result, whether to submit step 5 at all.
+  // result before constructing the next. That is why step 3 carries its
+  // own embedded capacity check (a fixed, unconditional statement whose
+  // OWN WHERE clause decides whether it inserts anything).
   //
-  // Stale-reservation parity with the paid checkout route (events/
-  // ticketing production-readiness audit) — every "sold" aggregate
-  // below (including the diagnostic-only counts) now also excludes a
-  // PENDING paid reservation whose expires_at has passed:
-  // `AND (payment_status <> 'PENDING' OR expires_at > NOW())`, exactly
-  // mirroring app/api/public/events/[organisationSlug]/[eventSlug]/
-  // checkout/route.ts's own capacity-gated transaction. Without this, a
-  // free registration on a session/ticket type shared with an abandoned
-  // paid Checkout could receive a false "sold out" for as long as that
-  // Checkout's `checkout.session.expired` webhook is delayed or never
-  // arrives — the free route has no other mechanism that self-heals
-  // that the way the paid route's own new-reservation attempts already
-  // do. A CONFIRMED free order (payment_status='NOT_REQUIRED') and a
-  // currently-valid pending paid reservation both still count, exactly
-  // preserving existing behaviour; only a STALE pending reservation is
-  // newly excluded.
+  // Stale-reservation parity with the paid checkout flow — every "sold"
+  // aggregate below excludes a PENDING paid reservation whose
+  // expires_at has passed: `AND (payment_status <> 'PENDING' OR
+  // expires_at > NOW())`, exactly mirroring
+  // lib/events/services/paidCheckout.ts's own capacity-gated
+  // transaction. A CONFIRMED free order (payment_status='NOT_REQUIRED')
+  // and a currently-valid pending paid reservation both still count;
+  // only a STALE pending reservation is excluded.
   let transactionResults: unknown[];
   try {
-    transactionResults = validated.event_session_id
-      ? await sql.transaction([
-          sql`SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId} FOR UPDATE`,
-          sql`SELECT capacity FROM event_sessions WHERE id = ${validated.event_session_id} AND organisation_id = ${organisationId} FOR UPDATE`,
-          sql`
-            SELECT COALESCE(SUM(oi.quantity), 0)::int AS qty
-            FROM event_order_items oi
-            JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-            WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
-          `,
-          sql`
-            SELECT COALESCE(SUM(oi.quantity), 0)::int AS qty
-            FROM event_order_items oi
-            JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-            WHERE oi.event_session_id = ${validated.event_session_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
-          `,
-          sql`
-            WITH sold_tt AS (
-              SELECT COALESCE(SUM(oi.quantity), 0) AS qty
+    transactionResults = await sql.transaction([
+      ...buildCartLockStatements(organisationId, lineTypeIds, validated.event_session_id),
+      sql`
+        WITH cart AS (
+          SELECT c.ticket_type_id, c.quantity
+          FROM UNNEST(${lineTypeIds}::text[], ${lineQuantities}::int[]) AS c(ticket_type_id, quantity)
+        ),
+        cart_tt AS (
+          SELECT c.ticket_type_id, c.quantity, tt.capacity,
+            (
+              SELECT COALESCE(SUM(oi.quantity), 0)
               FROM event_order_items oi
               JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-              WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
-            ),
-            sold_sess AS (
-              SELECT COALESCE(SUM(oi.quantity), 0) AS qty
-              FROM event_order_items oi
-              JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-              WHERE oi.event_session_id = ${validated.event_session_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
-            ),
-            ins_order AS (
-              -- No FOR UPDATE needed here: the ticket-type/session rows
-              -- are already locked by this transaction's own earlier
-              -- statements above, and that lock is held for the whole
-              -- transaction — a plain read of their current capacity is
-              -- already guaranteed exclusive and fresh.
-              INSERT INTO event_orders (organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents, booking_token, ticket_email_status)
-              SELECT ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone}, 'CONFIRMED', 0, ${bookingToken}, 'pending'
-              FROM sold_tt, sold_sess
-              WHERE sold_tt.qty + ${validated.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId})
-                AND sold_sess.qty + ${validated.quantity} <= (SELECT capacity FROM event_sessions WHERE id = ${validated.event_session_id} AND organisation_id = ${organisationId})
-              RETURNING id
-            ),
-            ins_item AS (
-              INSERT INTO event_order_items (organisation_id, order_id, event_id, ticket_type_id, event_session_id, quantity, unit_price_cents)
-              SELECT ${organisationId}, ins_order.id, ${event.id}, ${validated.ticket_type_id}, ${validated.event_session_id}, ${validated.quantity}, 0
-              FROM ins_order
-              RETURNING id, order_id
-            ),
-            ins_attendees AS (
-              INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email, ticket_token)
-              SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, ''), a.token
-              FROM ins_item, UNNEST(${attendeeNames}::text[], ${attendeeEmails}::text[], ${ticketTokens}::text[]) AS a(name, email, token)
-              RETURNING id, order_id, attendee_name, ticket_token
-            ),
-            -- Phase 4B correctness remediation — response persistence is
-            -- folded into THIS SAME statement rather than a separate
-            -- post-transaction write. Both CTEs below are driven FROM
-            -- ins_order / ins_attendees, so if the capacity gate above
-            -- rejected the reservation (ins_order/ins_item/ins_attendees
-            -- all produce zero rows), these also naturally produce zero
-            -- rows — "no order" and "no responses" fall out of the same
-            -- WHERE-gated chain with no extra conditional logic. If
-            -- either INSERT below hits a genuine error (e.g. an FK
-            -- violation on question_id), Postgres aborts the WHOLE
-            -- statement — everything "inserted" earlier in this same
-            -- statement is rolled back too, since none of it was ever
-            -- part of a separately committed statement. This is what
-            -- makes capacity/order/attendees/responses genuinely atomic:
-            -- clauses of ONE statement, not a sequence of separately
-            -- committed ones. Attendee-scoped answers are correlated by
-            -- ticket_token (known before any row exists), never by the
-            -- attendee row's own generated id or by RETURNING row order.
-            ins_order_responses AS (
-              INSERT INTO event_registration_responses
-                (organisation_id, event_id, question_id, order_id, attendee_id, question_label_snapshot, field_type_snapshot, answer)
-              SELECT ${organisationId}, ${event.id}, r.question_id, io.id, NULL, r.label, r.field_type, r.answer_json::jsonb
-              FROM ins_order io, UNNEST(${orderResponseFlat.questionIds}::text[], ${orderResponseFlat.labels}::text[], ${orderResponseFlat.fieldTypes}::text[], ${orderResponseFlat.answersJson}::text[])
-                AS r(question_id, label, field_type, answer_json)
-              RETURNING id
-            ),
-            ins_attendee_responses AS (
-              INSERT INTO event_registration_responses
-                (organisation_id, event_id, question_id, order_id, attendee_id, question_label_snapshot, field_type_snapshot, answer)
-              SELECT ${organisationId}, ${event.id}, r.question_id, ia.order_id, ia.id, r.label, r.field_type, r.answer_json::jsonb
-              FROM ins_attendees ia
-              JOIN UNNEST(${attendeeResponseFlat.correlationKeys}::text[], ${attendeeResponseFlat.questionIds}::text[], ${attendeeResponseFlat.labels}::text[], ${attendeeResponseFlat.fieldTypes}::text[], ${attendeeResponseFlat.answersJson}::text[])
-                AS r(ticket_token, question_id, label, field_type, answer_json)
-                ON r.ticket_token = ia.ticket_token
-              RETURNING id
+              WHERE oi.ticket_type_id = c.ticket_type_id AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
+            ) AS sold
+          FROM cart c
+          JOIN event_ticket_types tt ON tt.id = c.ticket_type_id AND tt.organisation_id = ${organisationId}
+        ),
+        sold_sess AS (
+          SELECT COALESCE(SUM(oi.quantity), 0) AS qty
+          FROM event_order_items oi
+          JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+          WHERE oi.event_session_id = ${validated.event_session_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
+        ),
+        gate AS (
+          -- No FOR UPDATE needed here: every ticket-type/session row is
+          -- already locked by this transaction's own earlier statements,
+          -- and those locks are held for the whole transaction — a plain
+          -- read of their current capacity is already exclusive and fresh.
+          SELECT 1 AS ok
+          FROM sold_sess
+          WHERE (SELECT count(*) FROM cart_tt) = ${lineTypeIds.length}
+            AND NOT EXISTS (SELECT 1 FROM cart_tt WHERE cart_tt.sold + cart_tt.quantity > cart_tt.capacity)
+            AND (
+              ${validated.event_session_id}::text IS NULL
+              OR sold_sess.qty + ${validated.quantity} <= (SELECT capacity FROM event_sessions WHERE id = ${validated.event_session_id} AND organisation_id = ${organisationId})
             )
-            SELECT ia.id, ia.order_id, ia.attendee_name, ia.ticket_token
-            FROM ins_attendees ia
-            WHERE (SELECT count(*) FROM ins_order_responses) >= 0
-              AND (SELECT count(*) FROM ins_attendee_responses) >= 0
-          `,
-        ])
-      : await sql.transaction([
-          sql`SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId} FOR UPDATE`,
-          sql`
-            SELECT COALESCE(SUM(oi.quantity), 0)::int AS qty
-            FROM event_order_items oi
-            JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-            WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
-          `,
-          sql`
-            WITH sold_tt AS (
-              SELECT COALESCE(SUM(oi.quantity), 0) AS qty
-              FROM event_order_items oi
-              JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-              WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
-            ),
-            ins_order AS (
-              -- No FOR UPDATE needed here — see the session-bound branch's
-              -- identical comment above.
-              INSERT INTO event_orders (organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents, booking_token, ticket_email_status)
-              SELECT ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone}, 'CONFIRMED', 0, ${bookingToken}, 'pending'
-              FROM sold_tt
-              WHERE sold_tt.qty + ${validated.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId})
-              RETURNING id
-            ),
-            ins_item AS (
-              INSERT INTO event_order_items (organisation_id, order_id, event_id, ticket_type_id, event_session_id, quantity, unit_price_cents)
-              SELECT ${organisationId}, ins_order.id, ${event.id}, ${validated.ticket_type_id}, NULL, ${validated.quantity}, 0
-              FROM ins_order
-              RETURNING id, order_id
-            ),
-            ins_attendees AS (
-              INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email, ticket_token)
-              SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, ''), a.token
-              FROM ins_item, UNNEST(${attendeeNames}::text[], ${attendeeEmails}::text[], ${ticketTokens}::text[]) AS a(name, email, token)
-              RETURNING id, order_id, attendee_name, ticket_token
-            ),
-            -- Phase 4B correctness remediation — response persistence is
-            -- folded into THIS SAME statement rather than a separate
-            -- post-transaction write. Both CTEs below are driven FROM
-            -- ins_order / ins_attendees, so if the capacity gate above
-            -- rejected the reservation (ins_order/ins_item/ins_attendees
-            -- all produce zero rows), these also naturally produce zero
-            -- rows — "no order" and "no responses" fall out of the same
-            -- WHERE-gated chain with no extra conditional logic. If
-            -- either INSERT below hits a genuine error (e.g. an FK
-            -- violation on question_id), Postgres aborts the WHOLE
-            -- statement — everything "inserted" earlier in this same
-            -- statement is rolled back too, since none of it was ever
-            -- part of a separately committed statement. This is what
-            -- makes capacity/order/attendees/responses genuinely atomic:
-            -- clauses of ONE statement, not a sequence of separately
-            -- committed ones. Attendee-scoped answers are correlated by
-            -- ticket_token (known before any row exists), never by the
-            -- attendee row's own generated id or by RETURNING row order.
-            ins_order_responses AS (
-              INSERT INTO event_registration_responses
-                (organisation_id, event_id, question_id, order_id, attendee_id, question_label_snapshot, field_type_snapshot, answer)
-              SELECT ${organisationId}, ${event.id}, r.question_id, io.id, NULL, r.label, r.field_type, r.answer_json::jsonb
-              FROM ins_order io, UNNEST(${orderResponseFlat.questionIds}::text[], ${orderResponseFlat.labels}::text[], ${orderResponseFlat.fieldTypes}::text[], ${orderResponseFlat.answersJson}::text[])
-                AS r(question_id, label, field_type, answer_json)
-              RETURNING id
-            ),
-            ins_attendee_responses AS (
-              INSERT INTO event_registration_responses
-                (organisation_id, event_id, question_id, order_id, attendee_id, question_label_snapshot, field_type_snapshot, answer)
-              SELECT ${organisationId}, ${event.id}, r.question_id, ia.order_id, ia.id, r.label, r.field_type, r.answer_json::jsonb
-              FROM ins_attendees ia
-              JOIN UNNEST(${attendeeResponseFlat.correlationKeys}::text[], ${attendeeResponseFlat.questionIds}::text[], ${attendeeResponseFlat.labels}::text[], ${attendeeResponseFlat.fieldTypes}::text[], ${attendeeResponseFlat.answersJson}::text[])
-                AS r(ticket_token, question_id, label, field_type, answer_json)
-                ON r.ticket_token = ia.ticket_token
-              RETURNING id
-            )
-            SELECT ia.id, ia.order_id, ia.attendee_name, ia.ticket_token
-            FROM ins_attendees ia
-            WHERE (SELECT count(*) FROM ins_order_responses) >= 0
-              AND (SELECT count(*) FROM ins_attendee_responses) >= 0
-          `,
-        ]);
+        ),
+        ins_order AS (
+          INSERT INTO event_orders (organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents, booking_token, ticket_email_status)
+          SELECT ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone}, 'CONFIRMED', 0, ${bookingToken}, 'pending'
+          FROM gate
+          RETURNING id
+        ),
+        ins_items AS (
+          -- One event_order_items row per cart line, all sharing the
+          -- order's single session (one session per order).
+          INSERT INTO event_order_items (organisation_id, order_id, event_id, ticket_type_id, event_session_id, quantity, unit_price_cents)
+          SELECT ${organisationId}, ins_order.id, ${event.id}, cart.ticket_type_id, ${validated.event_session_id}, cart.quantity, 0
+          FROM ins_order, cart
+          RETURNING id, order_id, ticket_type_id
+        ),
+        ins_attendees AS (
+          -- Each attendee is attached to the order item for its own
+          -- ticket type (ticket_type_id is unique within a cart).
+          INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email, ticket_token)
+          SELECT ${organisationId}, ${event.id}, ii.order_id, ii.id, a.name, NULLIF(a.email, ''), a.token
+          FROM ins_items ii
+          JOIN UNNEST(${attendeeTypeIds}::text[], ${attendeeNames}::text[], ${attendeeEmails}::text[], ${ticketTokens}::text[])
+            AS a(ticket_type_id, name, email, token)
+            ON a.ticket_type_id = ii.ticket_type_id
+          RETURNING id, order_id, attendee_name, ticket_token
+        ),
+        -- Phase 4B correctness remediation — response persistence is
+        -- folded into THIS SAME statement rather than a separate
+        -- post-transaction write. Both CTEs below are driven FROM
+        -- ins_order / ins_attendees, so if the capacity gate above
+        -- rejected the reservation, these also naturally produce zero
+        -- rows. If either INSERT below hits a genuine error (e.g. an FK
+        -- violation on question_id), Postgres aborts the WHOLE
+        -- statement — everything "inserted" earlier in this same
+        -- statement is rolled back too. Attendee-scoped answers are
+        -- correlated by ticket_token (known before any row exists),
+        -- never by the attendee row's own generated id or by RETURNING
+        -- row order.
+        ins_order_responses AS (
+          INSERT INTO event_registration_responses
+            (organisation_id, event_id, question_id, order_id, attendee_id, question_label_snapshot, field_type_snapshot, answer)
+          SELECT ${organisationId}, ${event.id}, r.question_id, io.id, NULL, r.label, r.field_type, r.answer_json::jsonb
+          FROM ins_order io, UNNEST(${orderResponseFlat.questionIds}::text[], ${orderResponseFlat.labels}::text[], ${orderResponseFlat.fieldTypes}::text[], ${orderResponseFlat.answersJson}::text[])
+            AS r(question_id, label, field_type, answer_json)
+          RETURNING id
+        ),
+        ins_attendee_responses AS (
+          INSERT INTO event_registration_responses
+            (organisation_id, event_id, question_id, order_id, attendee_id, question_label_snapshot, field_type_snapshot, answer)
+          SELECT ${organisationId}, ${event.id}, r.question_id, ia.order_id, ia.id, r.label, r.field_type, r.answer_json::jsonb
+          FROM ins_attendees ia
+          JOIN UNNEST(${attendeeResponseFlat.correlationKeys}::text[], ${attendeeResponseFlat.questionIds}::text[], ${attendeeResponseFlat.labels}::text[], ${attendeeResponseFlat.fieldTypes}::text[], ${attendeeResponseFlat.answersJson}::text[])
+            AS r(ticket_token, question_id, label, field_type, answer_json)
+            ON r.ticket_token = ia.ticket_token
+          RETURNING id
+        )
+        -- Returned in the purchaser's own attendee order (by token
+        -- position), never in whatever order RETURNING happened to emit.
+        SELECT ia.id, ia.order_id, ia.attendee_name, ia.ticket_token
+        FROM ins_attendees ia
+        JOIN UNNEST(${ticketTokens}::text[]) WITH ORDINALITY AS t(token, ord) ON t.token = ia.ticket_token
+        WHERE (SELECT count(*) FROM ins_order_responses) >= 0
+          AND (SELECT count(*) FROM ins_attendee_responses) >= 0
+        ORDER BY t.ord
+      `,
+    ]);
   } catch (err) {
     // A DB/transaction failure (lock timeout, connection error, an
     // actual constraint violation) must fail safely — never leak SQL,

@@ -4,6 +4,7 @@ import {
   retrieveExistingCheckoutAttempt, classifyRetrySafety, expireCheckoutSession,
   type RetrySafetyDecision,
 } from '@/lib/events/stripe';
+import { buildCartLockStatements } from '@/lib/events/services/cart';
 
 type OrderRow = {
   id: string; payment_status: string; purchaser_email: string; total_cents: number; currency: string; stripe_account_id: string | null;
@@ -13,7 +14,7 @@ type OrderRow = {
   // timestamptz precision (see the expiry CAS precision note below).
   expires_at_stamp: string | null;
 };
-type ItemRow = { ticket_type_id: string; event_session_id: string | null; quantity: number };
+type ItemRow = { ticket_type_id: string; event_session_id: string | null; quantity: number; unit_price_cents: number };
 type TicketTypeRow = { id: string; name: string; active: boolean; price_cents: number; currency: string };
 
 // Shared ticketing service — retry payment for a PENDING order.
@@ -199,21 +200,35 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
     return { ok: false, code: 'NO_STRIPE_ACCOUNT' };
   }
 
+  // Phase 2 — an order may hold several line items (one per ticket
+  // type). Retry re-confirms and re-charges the WHOLE order: every line
+  // is read here, in a stable order (creation order, then id), and every
+  // line is re-validated, capacity-checked and sent to Stripe below. A
+  // retry can never collapse a cart to one line.
   const itemRows = await sql`
-    SELECT ticket_type_id, event_session_id, quantity FROM event_order_items
-    WHERE order_id = ${orderId} AND organisation_id = ${organisationId} LIMIT 1
+    SELECT ticket_type_id, event_session_id, quantity, unit_price_cents FROM event_order_items
+    WHERE order_id = ${orderId} AND organisation_id = ${organisationId}
+    ORDER BY created_at, id
   `;
-  const item = itemRows[0] as ItemRow | undefined;
-  if (!item) return { ok: false, code: 'NO_LINE_ITEM' };
+  const items = itemRows as ItemRow[];
+  if (!items.length) return { ok: false, code: 'NO_LINE_ITEM' };
+  // One session per order: every line shares it. A mixed-session order
+  // cannot be created by this system, so seeing one means the data is
+  // not what this flow understands — fail closed rather than guess.
+  const eventSessionId = items[0].event_session_id;
+  if (items.some(it => it.event_session_id !== eventSessionId)) return { ok: false, code: 'NO_LINE_ITEM' };
 
+  const itemTypeIds = items.map(it => it.ticket_type_id);
   const ttRows = await sql`
     SELECT id, name, active, price_cents, currency FROM event_ticket_types
-    WHERE id = ${item.ticket_type_id} AND organisation_id = ${organisationId} LIMIT 1
+    WHERE id = ANY(${itemTypeIds}::text[]) AND organisation_id = ${organisationId}
   `;
-  const ticketType = ttRows[0] as TicketTypeRow | undefined;
-  if (!ticketType || !ticketType.active) {
+  const ticketTypesById = new Map((ttRows as TicketTypeRow[]).map(t => [t.id, t]));
+  if (items.some(it => !ticketTypesById.get(it.ticket_type_id)?.active)) {
     return { ok: false, code: 'TICKET_TYPE_UNAVAILABLE' };
   }
+  const itemQuantities = items.map(it => it.quantity);
+  const totalQuantity = itemQuantities.reduce((sum, q) => sum + q, 0);
 
   // ── Double-charge guard (read BEFORE any mutation) ──────────────────
   // Read here, before the capacity-reacquisition step below ever runs —
@@ -254,60 +269,57 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
     }
   }
 
-  // ── Atomic capacity reacquisition ────────────────────────────────────
-  // Excludes THIS order (`eo.id <> ${orderId}`) from the "sold" count on
-  // both ticket-type and session aggregates — see this file's own header
-  // comment for why that single exclusion makes one code path correct
-  // whether the old hold had lapsed or not. Extends expires_at to a
+  // ── Atomic capacity reacquisition (whole order) ─────────────────────
+  // Excludes THIS order (`eo.id <> ${orderId}`) from every "sold" count
+  // on both ticket-type and session aggregates — see this file's own
+  // header comment for why that single exclusion makes one code path
+  // correct whether the old hold had lapsed or not. Locks every line's
+  // ticket type in ascending ticket_type_id order, then the session —
+  // the same deterministic order as every other reservation path (see
+  // lib/events/services/cart.ts) — and then extends expires_at to a
   // fresh RESERVATION_WINDOW_SECONDS from now and clears the stale
-  // stripe_checkout_session_id (a new one is about to be created below)
-  // — both only if capacity genuinely allows it.
+  // stripe_checkout_session_id (a new one is about to be created below),
+  // only if EVERY line still fits its own ticket type AND the order's
+  // combined quantity still fits the session.
   let transactionResults: unknown[];
   try {
-    transactionResults = item.event_session_id
-      ? await sql.transaction([
-          sql`SELECT capacity FROM event_ticket_types WHERE id = ${item.ticket_type_id} AND organisation_id = ${organisationId} FOR UPDATE`,
-          sql`SELECT capacity FROM event_sessions WHERE id = ${item.event_session_id} AND organisation_id = ${organisationId} FOR UPDATE`,
-          sql`
-            WITH sold_tt AS (
-              SELECT COALESCE(SUM(oi.quantity), 0) AS qty FROM event_order_items oi JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-              WHERE oi.ticket_type_id = ${item.ticket_type_id} AND oi.organisation_id = ${organisationId} AND eo.id <> ${orderId}
+    transactionResults = await sql.transaction([
+      ...buildCartLockStatements(organisationId, itemTypeIds, eventSessionId),
+      sql`
+        WITH cart AS (
+          SELECT c.ticket_type_id, c.quantity
+          FROM UNNEST(${itemTypeIds}::text[], ${itemQuantities}::int[]) AS c(ticket_type_id, quantity)
+        ),
+        cart_tt AS (
+          SELECT c.ticket_type_id, c.quantity, tt.capacity,
+            (
+              SELECT COALESCE(SUM(oi.quantity), 0) FROM event_order_items oi JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+              WHERE oi.ticket_type_id = c.ticket_type_id AND oi.organisation_id = ${organisationId} AND eo.id <> ${orderId}
                 AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
-            ),
-            sold_sess AS (
-              SELECT COALESCE(SUM(oi.quantity), 0) AS qty FROM event_order_items oi JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-              WHERE oi.event_session_id = ${item.event_session_id} AND oi.organisation_id = ${organisationId} AND eo.id <> ${orderId}
-                AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
-            )
-            UPDATE event_orders eo
-            SET expires_at = NOW() + make_interval(secs => ${RESERVATION_WINDOW_SECONDS}), stripe_checkout_session_id = NULL
-            FROM sold_tt, sold_sess
-            WHERE eo.id = ${orderId} AND eo.organisation_id = ${organisationId} AND eo.payment_status = 'PENDING'
-              AND eo.stripe_checkout_session_id IS NOT DISTINCT FROM ${verifiedSessionId}
-              AND (extract(epoch FROM eo.expires_at) * 1000000)::bigint IS NOT DISTINCT FROM ${verifiedExpiresAtStamp}::bigint
-              AND sold_tt.qty + ${item.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${item.ticket_type_id} AND organisation_id = ${organisationId})
-              AND sold_sess.qty + ${item.quantity} <= (SELECT capacity FROM event_sessions WHERE id = ${item.event_session_id} AND organisation_id = ${organisationId})
-            RETURNING eo.id, eo.expires_at, (extract(epoch FROM eo.expires_at) * 1000000)::bigint::text AS expires_at_stamp
-          `,
-        ])
-      : await sql.transaction([
-          sql`SELECT capacity FROM event_ticket_types WHERE id = ${item.ticket_type_id} AND organisation_id = ${organisationId} FOR UPDATE`,
-          sql`
-            WITH sold_tt AS (
-              SELECT COALESCE(SUM(oi.quantity), 0) AS qty FROM event_order_items oi JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-              WHERE oi.ticket_type_id = ${item.ticket_type_id} AND oi.organisation_id = ${organisationId} AND eo.id <> ${orderId}
-                AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
-            )
-            UPDATE event_orders eo
-            SET expires_at = NOW() + make_interval(secs => ${RESERVATION_WINDOW_SECONDS}), stripe_checkout_session_id = NULL
-            FROM sold_tt
-            WHERE eo.id = ${orderId} AND eo.organisation_id = ${organisationId} AND eo.payment_status = 'PENDING'
-              AND eo.stripe_checkout_session_id IS NOT DISTINCT FROM ${verifiedSessionId}
-              AND (extract(epoch FROM eo.expires_at) * 1000000)::bigint IS NOT DISTINCT FROM ${verifiedExpiresAtStamp}::bigint
-              AND sold_tt.qty + ${item.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${item.ticket_type_id} AND organisation_id = ${organisationId})
-            RETURNING eo.id, eo.expires_at, (extract(epoch FROM eo.expires_at) * 1000000)::bigint::text AS expires_at_stamp
-          `,
-        ]);
+            ) AS sold
+          FROM cart c
+          JOIN event_ticket_types tt ON tt.id = c.ticket_type_id AND tt.organisation_id = ${organisationId}
+        ),
+        sold_sess AS (
+          SELECT COALESCE(SUM(oi.quantity), 0) AS qty FROM event_order_items oi JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+          WHERE oi.event_session_id = ${eventSessionId} AND oi.organisation_id = ${organisationId} AND eo.id <> ${orderId}
+            AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
+        )
+        UPDATE event_orders eo
+        SET expires_at = NOW() + make_interval(secs => ${RESERVATION_WINDOW_SECONDS}), stripe_checkout_session_id = NULL
+        FROM sold_sess
+        WHERE eo.id = ${orderId} AND eo.organisation_id = ${organisationId} AND eo.payment_status = 'PENDING'
+          AND eo.stripe_checkout_session_id IS NOT DISTINCT FROM ${verifiedSessionId}
+          AND (extract(epoch FROM eo.expires_at) * 1000000)::bigint IS NOT DISTINCT FROM ${verifiedExpiresAtStamp}::bigint
+          AND (SELECT count(*) FROM cart_tt) = ${itemTypeIds.length}
+          AND NOT EXISTS (SELECT 1 FROM cart_tt WHERE cart_tt.sold + cart_tt.quantity > cart_tt.capacity)
+          AND (
+            ${eventSessionId}::text IS NULL
+            OR sold_sess.qty + ${totalQuantity} <= (SELECT capacity FROM event_sessions WHERE id = ${eventSessionId} AND organisation_id = ${organisationId})
+          )
+        RETURNING eo.id, eo.expires_at, (extract(epoch FROM eo.expires_at) * 1000000)::bigint::text AS expires_at_stamp
+      `,
+    ]);
   } catch (err) {
     console.error('[events order retry] capacity reacquisition failed', err);
     return { ok: false, code: 'REACQUISITION_FAILED' };
@@ -357,10 +369,16 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
       organisationId,
       eventId,
       orderId,
-      ticketTypeName: ticketType.name,
-      unitAmountCents: ticketType.price_cents,
+      // Every line of the order, priced from the unit price stored on
+      // each event_order_items row at reservation time — so the retried
+      // Checkout Session charges exactly event_orders.total_cents, even
+      // if an organiser has since edited a ticket type's price.
+      lineItems: items.map(it => ({
+        name: ticketTypesById.get(it.ticket_type_id)!.name,
+        unitAmountCents: it.unit_price_cents,
+        quantity: it.quantity,
+      })),
       currency: order.currency,
-      quantity: item.quantity,
       purchaserEmail: order.purchaser_email,
       successUrl,
       cancelUrl,
