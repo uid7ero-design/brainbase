@@ -194,7 +194,7 @@ describe('Cancel pending order route — permissions and idempotency', () => {
 
 describe('Retry payment route — revalidation, capacity, and permissions', () => {
   const ORDER_ROW = { id: 'order-1', payment_status: 'PENDING', purchaser_email: 'p@example.com', total_cents: 2500, currency: 'AUD', stripe_account_id: 'acct_org_a' }
-  const ITEM_ROW = { ticket_type_id: 'tt-1', event_session_id: null, quantity: 1 }
+  const ITEM_ROW = { ticket_type_id: 'tt-1', event_session_id: null, quantity: 1, unit_price_cents: 2500, discount_cents: 0 }
   const TT_ROW = { id: 'tt-1', name: 'Premium Guest', active: true, price_cents: 2500, currency: 'AUD' }
 
   it('unauthenticated -> 401, no Stripe call', async () => {
@@ -312,7 +312,7 @@ describe('Retry payment route — revalidation, capacity, and permissions', () =
 describe('Retry payment route — double-charge guard (Stripe-state pre-flight check)', () => {
   const ORDER_ROW = { id: 'order-1', payment_status: 'PENDING', purchaser_email: 'p@example.com', total_cents: 2500, currency: 'AUD', stripe_account_id: 'acct_org_a' }
   const ORDER_ROW_WITH_SESSION = { ...ORDER_ROW, stripe_checkout_session_id: 'cs_old_123' }
-  const ITEM_ROW = { ticket_type_id: 'tt-1', event_session_id: null, quantity: 1 }
+  const ITEM_ROW = { ticket_type_id: 'tt-1', event_session_id: null, quantity: 1, unit_price_cents: 2500, discount_cents: 0 }
   const TT_ROW = { id: 'tt-1', name: 'Premium Guest', active: true, price_cents: 2500, currency: 'AUD' }
 
   function queueSuccessPath(orderRow: typeof ORDER_ROW) {
@@ -538,7 +538,9 @@ describe('Retry payment route — NULL-session concurrency closure (PR #231 foll
 
   it('the order SELECT includes expires_at, so verifiedExpiresAt always reflects the exact row this request read (never a separate, potentially-stale query)', () => {
     const code = routeSrc()
-    expect(code).toMatch(/SELECT id, payment_status, purchaser_email, total_cents, currency, stripe_account_id, stripe_checkout_session_id, expires_at,\s*\n\s*\(extract\(epoch FROM expires_at\) \* 1000000\)::bigint::text AS expires_at_stamp\s*\n\s*FROM event_orders/)
+    // Phase 4 appends the discount-snapshot columns to this same SELECT
+    // (the stamp is still read from the exact row this request uses).
+    expect(code).toMatch(/SELECT id, payment_status, purchaser_email, total_cents, currency, stripe_account_id, stripe_checkout_session_id, expires_at,\s*\n\s*\(extract\(epoch FROM expires_at\) \* 1000000\)::bigint::text AS expires_at_stamp(?:,\s*\n\s*discount_cents, promotion_code_id, promotion_code_snapshot)?\s*\n\s*FROM event_orders/)
   })
 
   it('A/B/C. two concurrent Retry requests with NO prior session id — real-Postgres proof (exactly one reaches the reacquisition UPDATE, the other deterministically fails it, the winner proceeds normally) lives in scripts/tests/verify-events-phase4-payment-concurrency.sh section I; this suite proves the route issues the guarded statement that makes that outcome possible', () => {
@@ -595,7 +597,7 @@ describe('Retry payment route — write-back guard (checkout-vs-retry race closu
   // lib/events/services/retryCheckout.ts; the route is a thin adapter.
   const routeSrc = () => stripComments(read('lib/events/services/retryCheckout.ts'))
   const ORDER_ROW = { id: 'order-1', payment_status: 'PENDING', purchaser_email: 'p@example.com', total_cents: 2500, currency: 'AUD', stripe_account_id: 'acct_org_a' }
-  const ITEM_ROW = { ticket_type_id: 'tt-1', event_session_id: null, quantity: 1 }
+  const ITEM_ROW = { ticket_type_id: 'tt-1', event_session_id: null, quantity: 1, unit_price_cents: 2500, discount_cents: 0 }
   const TT_ROW = { id: 'tt-1', name: 'Premium Guest', active: true, price_cents: 2500, currency: 'AUD' }
 
   it('the write-back UPDATE is guarded on BOTH stripe_checkout_session_id IS NULL and expires_at IS NOT DISTINCT FROM the reacquired generation marker — no longer unconditional', () => {

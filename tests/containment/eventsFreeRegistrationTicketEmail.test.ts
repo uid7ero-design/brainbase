@@ -173,7 +173,9 @@ describe('SCHEDULING — ticket_email_status is written only in the order-creati
   // Phase 2: session-bound and non-session orders now share ONE
   // capacity-gated statement, so there is exactly one order INSERT.
   it('the INSERT INTO event_orders includes ticket_email_status and binds it to the literal \'pending\'', () => {
-    const occurrences = SERVICE_SOURCE.match(/INSERT INTO event_orders \([^)]*ticket_email_status\)/g) ?? []
+    // Phase 4 appends the access-code snapshot columns after
+    // ticket_email_status in this same single INSERT.
+    const occurrences = SERVICE_SOURCE.match(/INSERT INTO event_orders \([^)]*ticket_email_status[^)]*\)/g) ?? []
     expect(occurrences.length).toBe(1)
     const selectOccurrences = SERVICE_SOURCE.match(/'CONFIRMED', 0, \$\{bookingToken\}, 'pending'/g) ?? []
     expect(selectOccurrences.length).toBe(1)

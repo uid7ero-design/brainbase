@@ -5,6 +5,7 @@ import { generateTicketToken, generateBookingToken } from '@/lib/events/ticketTo
 import { listActiveQuestions, validateSubmittedResponses, flattenOrderAnswers, flattenAttendeeAnswers } from '@/lib/events/registrationQuestions';
 import { attemptAutomaticTicketEmail } from '@/lib/events/ticketEmailDelivery';
 import { loadCartTicketTypes, buildCartLockStatements } from '@/lib/events/services/cart';
+import { resolveAccessCode, type AccessGrant } from '@/lib/events/services/accessCodes';
 
 // Shared ticketing service — free (price 0) public registration.
 //
@@ -47,6 +48,13 @@ export type FreeRegistrationResult =
         | 'TICKET_TYPE_INACTIVE'
         | 'TICKET_TYPE_REQUIRES_PAYMENT'
         | 'MIXED_FREE_AND_PAID'
+        // Phase 4 — sale windows, presale access, and "a promotion code
+        // has nothing to discount on a free cart".
+        | 'SALE_NOT_STARTED'
+        | 'SALE_ENDED'
+        | 'ACCESS_CODE_REQUIRED'
+        | 'ACCESS_CODE_INVALID'
+        | 'PROMOTION_NOT_APPLICABLE'
         | 'SESSION_NOT_FOUND'
         | 'TRANSACTION_FAILED'
         | 'CAPACITY_UNAVAILABLE';
@@ -54,6 +62,18 @@ export type FreeRegistrationResult =
 
 export async function registerFreeOrder(input: FreeRegistrationInput): Promise<FreeRegistrationResult> {
   const { organisationId, event, validated } = input;
+
+  // Phase 4 — presale access. Resolved server-side by (organisation,
+  // event, normalised code); every failure (unknown / inactive / outside
+  // its window / another event's or organisation's code) is the one
+  // generic ACCESS_CODE_INVALID. The grant only unlocks eligibility for
+  // requires_access_code ticket types — never extra capacity.
+  let accessGrant: AccessGrant | null = null;
+  if (validated.access_code) {
+    const access = await resolveAccessCode(organisationId, event.id, validated.access_code);
+    if (!access.ok) return { ok: false, code: 'ACCESS_CODE_INVALID' };
+    accessGrant = access.grant;
+  }
 
   // Ownership + business-rule checks, all re-derived server-side —
   // never trusted from the request. Every cart line's ticket type (and
@@ -68,7 +88,7 @@ export async function registerFreeOrder(input: FreeRegistrationInput): Promise<F
   // for paid tickets — see lib/events/services/paidCheckout.ts for the
   // Stripe-backed paid path. This check remains as defense in depth
   // against a bypassed/direct API call.
-  const cart = await loadCartTicketTypes(organisationId, event.id, validated.items);
+  const cart = await loadCartTicketTypes(organisationId, event.id, validated.items, { accessGrant });
   if (!cart.ok) {
     // Currency is never compared for a free order (nothing is charged),
     // so loadCartTicketTypes cannot report CURRENCY_MISMATCH here; the
@@ -78,8 +98,17 @@ export async function registerFreeOrder(input: FreeRegistrationInput): Promise<F
   if (cart.pricing !== 'FREE') {
     return { ok: false, code: 'TICKET_TYPE_REQUIRES_PAYMENT' };
   }
+  // Phase 4 — a promotion code reduces a price; a free cart has none, so
+  // the code is "not applicable" rather than silently ignored (the
+  // purchaser typed it expecting an effect). Free orders never carry a
+  // promotion snapshot and never count as a redemption.
+  if (validated.promotion_code) {
+    return { ok: false, code: 'PROMOTION_NOT_APPLICABLE' };
+  }
   const lineTypeIds = cart.lines.map(l => l.ticket_type_id);
   const lineQuantities = cart.lines.map(l => l.quantity);
+  const accessCodeId = accessGrant?.id ?? null;
+  const accessCodeSnapshot = accessGrant?.code ?? null;
 
   if (validated.event_session_id) {
     const sessionRows = await sql`
@@ -243,7 +272,37 @@ export async function registerFreeOrder(input: FreeRegistrationInput): Promise<F
           -- capacity applies, counted event-wide exactly as before. For a
           -- no-session order the LEFT JOIN never matches (NULL session),
           -- so behaviour is unchanged.
+          --
+          -- Phase 4 "purchasable": the ticket type must be active, inside
+          -- its sale window at the database's NOW(), and — when it
+          -- requires an access code — unlocked by THIS order's access
+          -- code, re-resolved here against the live event_access_codes
+          -- row (active, in window, same organisation AND event, and
+          -- either assigned to this type or assigned to no specific type).
+          -- Re-asserted inside this locked statement so a boundary crossed
+          -- or a code disabled between the pre-check and the commit still
+          -- refuses the whole cart; a type without restrictions is always
+          -- purchasable, so pre-Phase-4 events behave exactly as before.
           SELECT c.ticket_type_id, c.quantity, COALESCE(inv.capacity, tt.capacity) AS capacity,
+            (
+              tt.active
+              AND (tt.sale_starts_at IS NULL OR tt.sale_starts_at <= NOW())
+              AND (tt.sale_ends_at IS NULL OR tt.sale_ends_at > NOW())
+              AND (
+                NOT tt.requires_access_code
+                OR EXISTS (
+                  SELECT 1 FROM event_access_codes ac
+                  WHERE ac.id = ${accessCodeId} AND ac.organisation_id = ${organisationId} AND ac.event_id = ${event.id}
+                    AND ac.active = true
+                    AND (ac.starts_at IS NULL OR ac.starts_at <= NOW())
+                    AND (ac.ends_at IS NULL OR ac.ends_at > NOW())
+                    AND (
+                      NOT EXISTS (SELECT 1 FROM event_access_code_ticket_types att WHERE att.access_code_id = ac.id AND att.organisation_id = ac.organisation_id)
+                      OR EXISTS (SELECT 1 FROM event_access_code_ticket_types att WHERE att.access_code_id = ac.id AND att.organisation_id = ac.organisation_id AND att.ticket_type_id = tt.id)
+                    )
+                )
+              )
+            ) AS purchasable,
             (
               SELECT COALESCE(SUM(oi.quantity), 0)
               FROM event_order_items oi
@@ -271,6 +330,7 @@ export async function registerFreeOrder(input: FreeRegistrationInput): Promise<F
           SELECT 1 AS ok
           FROM sold_sess
           WHERE (SELECT count(*) FROM cart_tt) = ${lineTypeIds.length}
+            AND NOT EXISTS (SELECT 1 FROM cart_tt WHERE NOT cart_tt.purchasable)
             AND NOT EXISTS (SELECT 1 FROM cart_tt WHERE cart_tt.sold + cart_tt.quantity > cart_tt.capacity)
             AND (
               ${validated.event_session_id}::text IS NULL
@@ -278,8 +338,11 @@ export async function registerFreeOrder(input: FreeRegistrationInput): Promise<F
             )
         ),
         ins_order AS (
-          INSERT INTO event_orders (organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents, booking_token, ticket_email_status)
-          SELECT ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone}, 'CONFIRMED', 0, ${bookingToken}, 'pending'
+          -- Phase 4: the access-code snapshot (id + code text as used) is
+          -- written with the order; a free order never carries a
+          -- promotion (discount_cents stays at its default 0).
+          INSERT INTO event_orders (organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents, booking_token, ticket_email_status, access_code_id, access_code_snapshot)
+          SELECT ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone}, 'CONFIRMED', 0, ${bookingToken}, 'pending', ${accessCodeId}, ${accessCodeSnapshot}
           FROM gate
           RETURNING id
         ),

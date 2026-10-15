@@ -52,6 +52,21 @@ function toResponse(result: FreeRegistrationResult): NextResponse {
       return NextResponse.json({ error: 'Selected session is not available for this event.' }, { status: 400 });
     case 'RESPONSES_INVALID':
       return NextResponse.json({ error: result.message }, { status: 400 });
+    // Phase 4 — sale windows are enforced server-side at submit (a page
+    // kept open across a boundary gets this 409, never a sale); access
+    // and promotion codes fail with ONE generic message regardless of
+    // why (unknown / inactive / expired / another event's code), so the
+    // public API never reveals which codes exist elsewhere.
+    case 'SALE_NOT_STARTED':
+      return NextResponse.json({ error: 'Tickets for this selection are not on sale yet.' }, { status: 409 });
+    case 'SALE_ENDED':
+      return NextResponse.json({ error: 'Sales for this selection have ended.' }, { status: 409 });
+    case 'ACCESS_CODE_REQUIRED':
+      return NextResponse.json({ error: 'An access code is required for this selection.' }, { status: 400 });
+    case 'ACCESS_CODE_INVALID':
+      return NextResponse.json({ error: 'Code not valid.' }, { status: 400 });
+    case 'PROMOTION_NOT_APPLICABLE':
+      return NextResponse.json({ error: "This code can't be applied to this order." }, { status: 400 });
     // A DB/transaction failure must fail safely — never leak SQL, lock
     // state, organisation ids, or capability internals to an anonymous
     // caller.

@@ -38,6 +38,12 @@ function toResponse(result: RetryCheckoutResult): NextResponse {
       return NextResponse.json({ error: 'Could not retry payment. Please try again.' }, { status: 500 });
     case 'CAPACITY_UNAVAILABLE':
       return NextResponse.json({ error: 'This ticket type is no longer available in the requested quantity.' }, { status: 409 });
+    // Phase 4 — the order's promotion code has since reached its
+    // redemption limit; the order keeps its snapshot, nothing is charged.
+    case 'PROMOTION_UNAVAILABLE':
+      return NextResponse.json({ error: "This order's promotional code has reached its redemption limit, so the payment cannot be retried." }, { status: 409 });
+    case 'ORDER_TOTAL_MISMATCH':
+      return NextResponse.json({ error: 'This order\'s stored amounts could not be reconciled. Retry was blocked for safety.' }, { status: 409 });
     case 'STRIPE_NOT_CONFIGURED':
       return NextResponse.json({ error: 'Stripe is not currently configured.' }, { status: 503 });
     case 'WRITE_BACK_RACE_LOST':
