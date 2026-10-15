@@ -1206,7 +1206,7 @@ function CodeField({
           autoCapitalize="characters"
           spellCheck={false}
           maxLength={32}
-          style={{ flex: 1, textTransform: 'uppercase' }}
+          style={{ flex: 1 }}
         />
         {applied === null ? (
           <button type="button" onClick={onApply} disabled={!value.trim()} className="bb-event-stepper-btn" style={{ width: 'auto', padding: '0 14px', fontSize: 12.5, fontWeight: 700 }}>

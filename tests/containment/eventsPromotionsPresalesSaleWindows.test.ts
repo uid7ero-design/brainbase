@@ -785,7 +785,7 @@ describe('free registration — access codes apply, promotion codes do not; the 
 
 describe('retry — committed snapshot, redemption limit re-checked excluding itself, never recalculated (approval D4)', () => {
   const EVENT_ROW = [{ id: 'event-1', status: 'PUBLISHED', event_slug: 'gala', org_slug: 'org-a' }]
-  const ORDER = { id: 'order-1', payment_status: 'PENDING', purchaser_email: 'p@example.com', total_cents: 19800, currency: 'AUD', stripe_account_id: 'acct_org_a', stripe_checkout_session_id: null, expires_at: null, expires_at_stamp: '1', discount_cents: 2200, promotion_code_id: 'promo-1', promotion_code_snapshot: 'EARLY20' }
+  const ORDER = { id: 'order-1', payment_status: 'PENDING', purchaser_email: 'p@example.com', total_cents: 19800, currency: 'AUD', stripe_account_id: 'acct_org_a', stripe_checkout_session_id: null, expires_at: null, expires_at_stamp: '1', discount_cents: 2200, promotion_code_id: 'promo-1' as string | null, promotion_code_snapshot: 'EARLY20' as string | null }
   const ITEM_ROWS = [
     { ticket_type_id: 'tt-adult', event_session_id: null, quantity: 2, unit_price_cents: 4000, discount_cents: 800 },
     { ticket_type_id: 'tt-child', event_session_id: null, quantity: 2, unit_price_cents: 2000, discount_cents: 400 },
