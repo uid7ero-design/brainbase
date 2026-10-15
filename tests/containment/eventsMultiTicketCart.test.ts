@@ -455,6 +455,30 @@ describe('Organiser registrations view — one card per order (lib/events/orderG
     expect(panel).toMatch(/const displayedOrders = listOrders \? groupOrderRows\(listOrders\) : null/)
     expect(panel).toMatch(/<div key=\{o\.id\} style=\{rowCardStyle\}>/)
   })
+
+  // Preview paid-flow verification (2026-10-15) regression: the event
+  // detail KPI strip summed total_cents and counted paid orders over the
+  // per-ITEM rows, so one paid 3-line order ($179.00) rendered as
+  // "$537.00 · 3 paid orders". Revenue, paid/pending/refunded counts and
+  // the refunded amount are order-level facts and must fold rows first.
+  it('the event detail KPI strip folds rows to one entry per order before computing revenue and paid/pending/refunded counts', () => {
+    const detail = stripComments(read('app/events/[id]/EventDetailClient.tsx'))
+    expect(detail).toMatch(/import \{ groupOrderRows \} from '@\/lib\/events\/orderGrouping'/)
+    expect(detail).toMatch(/const orderLevel = orders \? groupOrderRows\(orders\) : \[\]/)
+    expect(detail).toMatch(/const paidOrders = orderLevel\.filter\(o => o\.payment_status === 'PAID'\)/)
+    expect(detail).toMatch(/const pendingPaymentOrders = orderLevel\.filter\(o => o\.payment_status === 'PENDING'\)/)
+    expect(detail).toMatch(/const refundedOrders = orderLevel\.filter\(o => o\.payment_status === 'REFUNDED'\)/)
+    expect(detail).not.toMatch(/orders\?\.filter\(o => o\.payment_status === '(PAID|PENDING|REFUNDED)'\)/)
+
+    // Behavioural: the same reduction the KPI strip performs, over the
+    // grouped rows, yields the whole-order total exactly once.
+    const paidRows = rows.map(r => ({ ...r, payment_status: r.id === 'o1' ? 'PAID' : 'PENDING' }))
+    const grouped = groupOrderRows(paidRows)
+    const paid = grouped.filter(o => o.payment_status === 'PAID')
+    expect(paid).toHaveLength(1)
+    expect(paid.reduce((sum, o) => sum + o.total_cents, 0)).toBe(17900)
+    expect(grouped.filter(o => o.payment_status === 'PENDING')).toHaveLength(1)
+  })
 })
 
 // ─── Existing order-level systems handle multiple items ───────────────
