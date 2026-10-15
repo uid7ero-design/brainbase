@@ -138,8 +138,10 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
   // free registration flow's own R1-fixed transaction (see
   // lib/events/services/freeRegistration.ts's extensive comment — every
   // invariant it documents applies unchanged): lock every cart line's
-  // ticket type in ascending ticket_type_id order, then the session (if
-  // any), each FOR UPDATE as its own statement; only after every lock is
+  // ticket type in ascending ticket_type_id order, then (session-bound
+  // only) each line's (ticket type, session) inventory override row in
+  // the same order, then the session, each FOR UPDATE as its own
+  // statement; only after every lock is
   // granted does the capacity-gated INSERT run as its own statement, so
   // it observes a fresh, post-lock snapshot of sold quantity under READ
   // COMMITTED. The `gate` CTE requires EVERY line to fit its own ticket
@@ -171,16 +173,24 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
           FROM UNNEST(${lineTypeIds}::text[], ${lineQuantities}::int[], ${lineUnitPrices}::int[]) AS c(ticket_type_id, quantity, unit_price_cents)
         ),
         cart_tt AS (
-          SELECT c.ticket_type_id, c.quantity, tt.capacity,
+          -- Phase 3 (ticket type × session inventory): a (type, session)
+          -- override row, when present, replaces the event-wide capacity
+          -- and narrows "sold" to this type in THIS session; otherwise
+          -- the event-wide figures apply unchanged. See
+          -- lib/events/services/freeRegistration.ts's identical CTE.
+          SELECT c.ticket_type_id, c.quantity, COALESCE(inv.capacity, tt.capacity) AS capacity,
             (
               SELECT COALESCE(SUM(oi.quantity), 0)
               FROM event_order_items oi
               JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
               WHERE oi.ticket_type_id = c.ticket_type_id AND oi.organisation_id = ${organisationId}
+                AND (inv.id IS NULL OR oi.event_session_id = ${validated.event_session_id})
                 AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
             ) AS sold
           FROM cart c
           JOIN event_ticket_types tt ON tt.id = c.ticket_type_id AND tt.organisation_id = ${organisationId}
+          LEFT JOIN event_ticket_type_session_inventory inv
+            ON inv.ticket_type_id = c.ticket_type_id AND inv.event_session_id = ${validated.event_session_id} AND inv.organisation_id = ${organisationId}
         ),
         sold_sess AS (
           SELECT COALESCE(SUM(oi.quantity), 0) AS qty

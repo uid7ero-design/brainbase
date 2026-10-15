@@ -171,3 +171,20 @@ export function validateEventTicketTypeInput(body: EventTicketTypeInput): string
 
   return null;
 }
+
+// Phase 3 — ticket type × session inventory override. The only
+// manager-editable field is the pair's capacity; it follows the exact
+// same convention as every other Events capacity (non-negative whole
+// number, 0 allowed, no "unlimited" sentinel). Clearing an override is a
+// DELETE, never a null/absent capacity — see
+// scripts/create-events-ticket-type-session-inventory.sql.
+export type EventTicketTypeSessionInventoryInput = {
+  capacity?: unknown;
+};
+
+export function validateEventTicketTypeSessionInventoryInput(body: EventTicketTypeSessionInventoryInput): string | null {
+  if (!Number.isInteger(body.capacity) || (body.capacity as number) < 0) {
+    return 'Capacity must be a non-negative whole number.';
+  }
+  return null;
+}

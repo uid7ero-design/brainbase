@@ -22,6 +22,21 @@ export type PublicTicketType = {
   remaining: number;
 };
 
+// Phase 3 (ticket type × session inventory) — one row per (ticket type,
+// session) pair that has a capacity OVERRIDE configured (see
+// scripts/create-events-ticket-type-session-inventory.sql). A pair with
+// no row here falls back to the ticket type's event-wide `remaining`
+// above — the client applies exactly that precedence when a session is
+// selected. `remaining` is this type's remaining places within THIS
+// session only, under the same stale-hold predicate as every other
+// remaining figure here.
+export type PublicSessionInventory = {
+  ticket_type_id: string;
+  event_session_id: string;
+  capacity: number;
+  remaining: number;
+};
+
 // Phase 4B §5/§6 — the question DEFINITION (what to ask, and how) is
 // itself public-safe: it's exactly the form the visitor is about to
 // fill in. Never includes `active` (this list is already active-only,
@@ -55,6 +70,8 @@ export type PublicEventDetail = {
   };
   sessions: PublicSession[];
   ticket_types: PublicTicketType[];
+  // Override pairs only — see PublicSessionInventory.
+  session_inventory: PublicSessionInventory[];
   questions: PublicQuestion[];
   // Public-safe view model only (lib/organisations/branding.ts's own
   // explicit allowlist) — never organisationId, never raw settings.
@@ -125,7 +142,7 @@ export async function getPublicEventDetail(
   // keeping the two predicates identical just means the number shown
   // here doesn't visibly disagree with what the write path will do a
   // moment later.
-  const [sessionRows, ticketTypeRows, questionRows] = await Promise.all([
+  const [sessionRows, ticketTypeRows, inventoryRows, questionRows] = await Promise.all([
     sql`
       SELECT
         es.id, es.name, es.starts_at, es.ends_at, es.capacity,
@@ -160,6 +177,27 @@ export async function getPublicEventDetail(
       WHERE tt.event_id = ${event.id} AND tt.organisation_id = ${organisationId} AND tt.active = true
       ORDER BY tt.sort_order, tt.created_at
     `,
+    // Phase 3 — per-(type, session) override rows for this event's ACTIVE
+    // ticket types; "sold" here is narrowed to the pair itself, matching
+    // the reservation gate's own pair-filtered aggregate. Same ::int cast
+    // rationale as the two expressions above.
+    sql`
+      SELECT
+        inv.ticket_type_id, inv.event_session_id, inv.capacity,
+        GREATEST(
+          inv.capacity - COALESCE((
+            SELECT SUM(oi.quantity)
+            FROM event_order_items oi
+            JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+            WHERE oi.ticket_type_id = inv.ticket_type_id AND oi.event_session_id = inv.event_session_id AND oi.organisation_id = ${organisationId}
+              AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
+          ), 0),
+          0
+        )::int AS remaining
+      FROM event_ticket_type_session_inventory inv
+      JOIN event_ticket_types tt ON tt.id = inv.ticket_type_id AND tt.organisation_id = inv.organisation_id AND tt.active = true
+      WHERE inv.event_id = ${event.id} AND inv.organisation_id = ${organisationId}
+    `,
     listActiveQuestions(organisationId, event.id),
   ]);
 
@@ -178,6 +216,7 @@ export async function getPublicEventDetail(
       },
       sessions: sessionRows as unknown as PublicSession[],
       ticket_types: ticketTypeRows as unknown as PublicTicketType[],
+      session_inventory: inventoryRows as unknown as PublicSessionInventory[],
       questions: questionRows.map(q => ({
         id: q.id, label: q.label, help_text: q.help_text, field_type: q.field_type,
         required: q.required, scope: q.scope, options: q.options, sort_order: q.sort_order,

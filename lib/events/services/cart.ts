@@ -92,16 +92,33 @@ export function cartLockOrder(ticketTypeIds: string[]): string[] {
 }
 
 // The FOR UPDATE lock statements for a cart, in lock order: one
-// statement per ticket type (ascending id), then the session (if any).
+// statement per ticket type (ascending id), then — for a session-bound
+// cart only — one statement per ticket type's (ticket type, session)
+// inventory override row (same ascending id order; a statement simply
+// matches nothing when that pair has no override), then the session.
 // Each is its own statement inside the caller's sql.transaction([...]),
 // exactly like the single-type R1 design: the capacity-gated statement
 // that follows them gets its own fresh READ COMMITTED snapshot taken
 // only after every lock has been granted.
+//
+// Phase 3 lock order, in full: every ticket type (asc) < every pair
+// override row (asc by ticket type) < the session. The pair rows are
+// a strictly later tier than the ticket types and a strictly earlier
+// tier than the session, and within their tier follow the same id
+// order, so the total order stays acyclic for any two overlapping
+// carts — including a session-bound cart racing a no-session cart on
+// the same ticket type (the latter stops after the ticket-type tier).
 export function buildCartLockStatements(organisationId: string, ticketTypeIds: string[], eventSessionId: string | null) {
-  const statements = cartLockOrder(ticketTypeIds).map(
+  const ordered = cartLockOrder(ticketTypeIds);
+  const statements = ordered.map(
     id => sql`SELECT capacity FROM event_ticket_types WHERE id = ${id} AND organisation_id = ${organisationId} FOR UPDATE`,
   );
   if (eventSessionId) {
+    for (const id of ordered) {
+      statements.push(
+        sql`SELECT capacity FROM event_ticket_type_session_inventory WHERE ticket_type_id = ${id} AND event_session_id = ${eventSessionId} AND organisation_id = ${organisationId} FOR UPDATE`,
+      );
+    }
     statements.push(sql`SELECT capacity FROM event_sessions WHERE id = ${eventSessionId} AND organisation_id = ${organisationId} FOR UPDATE`);
   }
   return statements;

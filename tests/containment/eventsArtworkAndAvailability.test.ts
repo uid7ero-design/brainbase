@@ -78,9 +78,9 @@ describe('Public event page — malformed aggregate remaining badge is gone', ()
 describe('lib/events/publicEventDetail.ts — bigint/string root cause is fixed at the source', () => {
   const src = stripComments(read('lib/events/publicEventDetail.ts'))
 
-  it('both remaining computations (session and ticket type) are cast to ::int, not left as bigint', () => {
+  it('every remaining computation (session, ticket type, and the Phase 3 ticket type × session pair) is cast to ::int, not left as bigint', () => {
     const castCount = (src.match(/\)::int AS remaining/g) ?? []).length
-    expect(castCount).toBe(2)
+    expect(castCount).toBe(3)
   })
 })
 

@@ -564,14 +564,15 @@ describe('Session-bound free registration — the exact path that broke in Produ
     expect(body.quantity).toBe(1)
     expect(body.tickets).toEqual([{ attendee_name: 'Attendee One', ticket_token: 'tok-1' }])
 
-    // Proves the route actually took the session-bound shape (Phase 2:
-    // 3 statements — ticket-type lock + session lock + the big insert)
-    // rather than silently falling back to the non-session shape
-    // (2 statements) — the specific distinction this whole bug lived
-    // inside — and that the gate really carries the session id.
+    // Proves the route actually took the session-bound shape (Phase 3:
+    // 4 statements — ticket-type lock + (type, session) inventory lock +
+    // session lock + the big insert) rather than silently falling back
+    // to the non-session shape (2 statements) — the specific distinction
+    // this whole bug lived inside — and that the gate really carries the
+    // session id.
     expect(transactionMock).toHaveBeenCalledTimes(1)
     const submittedStatements = (transactionMock.mock.calls[0] as unknown as [unknown[]])[0]
-    expect(submittedStatements).toHaveLength(3)
+    expect(submittedStatements).toHaveLength(4)
     expect(lastSqlCallText()).toMatch(/sold_sess\.qty \+ .* <= \(SELECT capacity FROM event_sessions/)
   })
 
