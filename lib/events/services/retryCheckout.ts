@@ -274,7 +274,8 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
   // on both ticket-type and session aggregates — see this file's own
   // header comment for why that single exclusion makes one code path
   // correct whether the old hold had lapsed or not. Locks every line's
-  // ticket type in ascending ticket_type_id order, then the session —
+  // ticket type in ascending ticket_type_id order, then each line's
+  // (ticket type, session) inventory override row, then the session —
   // the same deterministic order as every other reservation path (see
   // lib/events/services/cart.ts) — and then extends expires_at to a
   // fresh RESERVATION_WINDOW_SECONDS from now and clears the stale
@@ -291,14 +292,20 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
           FROM UNNEST(${itemTypeIds}::text[], ${itemQuantities}::int[]) AS c(ticket_type_id, quantity)
         ),
         cart_tt AS (
-          SELECT c.ticket_type_id, c.quantity, tt.capacity,
+          -- Phase 3 (ticket type × session inventory): same pair-override
+          -- rule as the two reservation flows (see freeRegistration.ts),
+          -- still excluding THIS order from every "sold" aggregate.
+          SELECT c.ticket_type_id, c.quantity, COALESCE(inv.capacity, tt.capacity) AS capacity,
             (
               SELECT COALESCE(SUM(oi.quantity), 0) FROM event_order_items oi JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
               WHERE oi.ticket_type_id = c.ticket_type_id AND oi.organisation_id = ${organisationId} AND eo.id <> ${orderId}
+                AND (inv.id IS NULL OR oi.event_session_id = ${eventSessionId})
                 AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
             ) AS sold
           FROM cart c
           JOIN event_ticket_types tt ON tt.id = c.ticket_type_id AND tt.organisation_id = ${organisationId}
+          LEFT JOIN event_ticket_type_session_inventory inv
+            ON inv.ticket_type_id = c.ticket_type_id AND inv.event_session_id = ${eventSessionId} AND inv.organisation_id = ${organisationId}
         ),
         sold_sess AS (
           SELECT COALESCE(SUM(oi.quantity), 0) AS qty FROM event_order_items oi JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id

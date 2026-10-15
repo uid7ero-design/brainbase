@@ -235,6 +235,9 @@ export default function PublicEventClient({
   checkoutCancelled: boolean;
 }) {
   const { event, sessions, ticket_types: ticketTypes, questions, branding, organisationName } = detail;
+  // Phase 3 — (ticket type, session) override pairs. Missing for an
+  // older payload shape; treated as "no overrides".
+  const sessionInventory = detail.session_inventory ?? [];
   // Public event STRUCTURAL presentation (see lib/events/publicEventTheme.ts)
   // — a pure, synchronous lookup keyed only by the organisationSlug this
   // component already receives as a prop; no new query, no schema
@@ -281,8 +284,23 @@ export default function PublicEventClient({
 
   const selectedSession = sessions.find(s => s.id === sessionId);
   const availability = availabilityState(ticketTypes);
+
+  // Phase 3 — the remaining places for a ticket type depend on the
+  // selected session: an override pair for (type, selected session)
+  // wins; otherwise the type's event-wide remaining applies (exactly the
+  // precedence the server-side reservation gate enforces). With no
+  // session selected every figure is event-wide, as before.
+  function remainingFor(t: PublicTicketType, forSessionId: string): number {
+    if (!forSessionId) return t.remaining;
+    const pair = sessionInventory.find(p => p.ticket_type_id === t.id && p.event_session_id === forSessionId);
+    return pair ? pair.remaining : t.remaining;
+  }
+  // The ticket types as displayed for the CURRENT session selection —
+  // same objects, with `remaining` resolved per the rule above.
+  const displayTicketTypes = ticketTypes.map(t => (sessionId ? { ...t, remaining: remainingFor(t, sessionId) } : t));
+
   // The cart, in ticket-type display order — only lines with quantity > 0.
-  const cartLines = ticketTypes
+  const cartLines = displayTicketTypes
     .filter(t => (quantities[t.id] ?? 0) > 0)
     .map(t => ({ ticket: t, quantity: quantities[t.id], price_cents: t.price_cents }));
   const quantity = cartLines.reduce((sum, l) => sum + l.quantity, 0);
@@ -299,9 +317,15 @@ export default function PublicEventClient({
   );
   const showSlotTicketName = cartLines.length > 1;
 
+  // `t.remaining` here is already the session-resolved figure (see
+  // displayTicketTypes). The selected session's own shared remaining
+  // additionally bounds the WHOLE cart — the server gate checks the
+  // combined quantity against it — so the stepper stops where the
+  // session would.
   function maxFor(t: PublicTicketType): number {
     const others = quantity - (quantities[t.id] ?? 0);
-    return Math.max(0, Math.min(t.remaining, MAX_ORDER_TICKETS - others));
+    const sessionBound = selectedSession ? selectedSession.remaining - others : Number.POSITIVE_INFINITY;
+    return Math.max(0, Math.min(t.remaining, MAX_ORDER_TICKETS - others, sessionBound));
   }
   function isPricingBlocked(t: PublicTicketType): boolean {
     if (!cartPricing || (quantities[t.id] ?? 0) > 0) return false;
@@ -310,6 +334,27 @@ export default function PublicEventClient({
   function setTicketQuantity(t: PublicTicketType, next: number) {
     const clamped = Math.max(0, Math.min(maxFor(t), next));
     setQuantities(prev => ({ ...prev, [t.id]: clamped }));
+  }
+  // Changing session re-resolves every type's remaining; quantities the
+  // new session cannot honour (its pair override, or its shared
+  // capacity) are clamped down — never submitted for the gate to refuse.
+  function selectSession(nextSessionId: string) {
+    setSessionId(nextSessionId);
+    const nextSession = sessions.find(s => s.id === nextSessionId);
+    setQuantities(prev => {
+      const next: Record<string, number> = {};
+      let used = 0;
+      for (const t of ticketTypes) {
+        const wanted = prev[t.id] ?? 0;
+        if (wanted <= 0) continue;
+        let cap = Math.min(remainingFor(t, nextSessionId), MAX_ORDER_TICKETS - used);
+        if (nextSession) cap = Math.min(cap, nextSession.remaining - used);
+        const q = Math.max(0, Math.min(wanted, cap));
+        if (q > 0) next[t.id] = q;
+        used += q;
+      }
+      return next;
+    });
   }
 
   // Running step counter (rather than hand-computed arithmetic per
@@ -597,7 +642,7 @@ export default function PublicEventClient({
                   <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
                     <StepLabel index={stepTicket} text="Choose tickets" softer={institutional} />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {ticketTypes.map(t => (
+                      {displayTicketTypes.map(t => (
                         <TicketQuantityRow
                           key={t.id}
                           ticket={t}
@@ -608,7 +653,7 @@ export default function PublicEventClient({
                         />
                       ))}
                     </div>
-                    {cartPricing && ticketTypes.some(isPricingBlocked) && (
+                    {cartPricing && displayTicketTypes.some(isPricingBlocked) && (
                       <div style={{ fontSize: 12, color: TEXT_MUTED, marginTop: 8 }}>
                         Free and paid tickets are booked in separate orders.
                       </div>
@@ -620,13 +665,13 @@ export default function PublicEventClient({
                       <StepLabel index={stepSession as number} text="Choose session" softer={institutional} />
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         <label className="bb-radio-card">
-                          <input type="radio" name="event-session" value="" checked={sessionId === ''} onChange={() => setSessionId('')} />
+                          <input type="radio" name="event-session" value="" checked={sessionId === ''} onChange={() => selectSession('')} />
                           <div className="bb-radio-card-inner">
                             <div style={{ fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY }}>No specific session</div>
                           </div>
                         </label>
                         {sessions.map(s => (
-                          <SessionOption key={s.id} session={s} timezone={event.timezone} selected={sessionId === s.id} onSelect={() => setSessionId(s.id)} />
+                          <SessionOption key={s.id} session={s} timezone={event.timezone} selected={sessionId === s.id} onSelect={() => selectSession(s.id)} />
                         ))}
                       </div>
                     </fieldset>

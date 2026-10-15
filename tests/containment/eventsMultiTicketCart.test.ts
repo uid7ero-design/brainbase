@@ -383,8 +383,10 @@ describe('Retry payment — reproduces every line of a multi-line order', () => 
   const req = () => new Request('http://localhost/x', { method: 'POST' })
 
   function queueRetry(items = ITEM_ROWS, types = TT_ROWS) {
-    // 0=event, 1=order, 2=items, 3=ticket types, 4-6=type locks, 7=session lock, 8=reacquire, 9=write-back.
-    queue([{ id: 'event-1', status: 'PUBLISHED', event_slug: 'gala', org_slug: 'org' }], [ORDER_ROW], items, types, [], [], [], [], [], [{ id: 'order-1' }])
+    // 0=event, 1=order, 2=items, 3=ticket types, 4-6=type locks,
+    // 7-9=(type, session) inventory locks (Phase 3), 10=session lock,
+    // 11=reacquire, 12=write-back.
+    queue([{ id: 'event-1', status: 'PUBLISHED', event_slug: 'gala', org_slug: 'org' }], [ORDER_ROW], items, types, [], [], [], [], [], [], [], [], [{ id: 'order-1' }])
     transactionFinalResult = [{ id: 'order-1', expires_at: '2026-01-01T00:31:00.000Z' }]
   }
 
@@ -409,15 +411,17 @@ describe('Retry payment — reproduces every line of a multi-line order', () => 
     expect(input.lineItems.reduce((s, l) => s + l.unitAmountCents * l.quantity, 0)).toBe(ORDER_ROW.total_cents)
   })
 
-  it('locks every line\'s ticket type in ascending id order, then the session, and re-checks the whole order in one UPDATE', async () => {
+  it('locks every line\'s ticket type in ascending id order, then each (type, session) inventory row in the same order, then the session, and re-checks the whole order in one UPDATE', async () => {
     queueRetry()
     await retryRoute.POST(req(), CTX)
     expect([4, 5, 6].map(i => callArgs(i)[0])).toEqual(['tt-adult', 'tt-child', 'tt-vip'])
-    expect(callText(7)).toMatch(/FROM event_sessions WHERE id = .* FOR UPDATE/)
-    const update = callText(8)
+    for (const i of [7, 8, 9]) expect(callText(i)).toMatch(/FROM event_ticket_type_session_inventory WHERE ticket_type_id = .* FOR UPDATE/)
+    expect([7, 8, 9].map(i => callArgs(i)[0])).toEqual(['tt-adult', 'tt-child', 'tt-vip'])
+    expect(callText(10)).toMatch(/FROM event_sessions WHERE id = .* FOR UPDATE/)
+    const update = callText(11)
     expect(update).toMatch(/UPDATE event_orders eo/)
     expect(update).toMatch(/NOT EXISTS \(SELECT 1 FROM cart_tt WHERE cart_tt\.sold \+ cart_tt\.quantity > cart_tt\.capacity\)/)
-    expect(callArgs(8)).toContain(5) // combined order quantity vs session capacity
+    expect(callArgs(11)).toContain(5) // combined order quantity vs session capacity
   })
 
   it('any line whose ticket type is now inactive blocks the retry (409) — no partial re-charge', async () => {

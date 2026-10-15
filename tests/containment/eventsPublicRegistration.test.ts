@@ -373,11 +373,14 @@ describe('Public registration — transaction structure (R1: split lock / post-l
     expect(queries).toHaveLength(2)
   })
 
-  it('session-bound single-type registration submits exactly 3 statements: ticket-type lock, session lock, capacity-gated insert', async () => {
+  it('session-bound single-type registration submits exactly 4 statements: ticket-type lock, (type, session) inventory lock, session lock, capacity-gated insert', async () => {
+    // Phase 3 (ticket type × session inventory): one extra FOR UPDATE per
+    // cart ticket type on its pair override row, between the type locks
+    // and the session lock — see lib/events/services/cart.ts.
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW, SESSION_ROW)
     await registerRoute.POST(req({ ...VALID_BODY, event_session_id: 'sess-1' }), CTX)
     const queries = (transactionMock.mock.calls[0] as unknown as unknown[])[0] as unknown[]
-    expect(queries).toHaveLength(3)
+    expect(queries).toHaveLength(4)
   })
 
   it('mutation proof — the ticket-type lock statement acquires FOR UPDATE and is NOT itself an aggregate/count statement (lock and count are genuinely separate statements, not merged)', async () => {
@@ -414,15 +417,18 @@ describe('Public registration — transaction structure (R1: split lock / post-l
   it('mutation proof B — when a session is selected, every ticket-type lock is acquired BEFORE the session lock (deterministic lock order), and the gate ALSO checks the combined cart quantity against session capacity', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW, SESSION_ROW)
     await registerRoute.POST(req({ ...VALID_BODY, event_session_id: 'sess-1' }), CTX)
-    // 0=org, 1=event, 2=ticket types, 3=session, 4=active-questions, 5=lock tt, 6=lock session, 7=insert.
+    // 0=org, 1=event, 2=ticket types, 3=session, 4=active-questions,
+    // 5=lock tt, 6=lock (tt, session) inventory row, 7=lock session, 8=insert.
     expect(callText(5)).toMatch(/FOR UPDATE/i)
     expect(callText(5)).toMatch(/event_ticket_types/i)
     expect(callText(6)).toMatch(/FOR UPDATE/i)
-    expect(callText(6)).toMatch(/event_sessions/i)
-    const insertText = callText(7)
+    expect(callText(6)).toMatch(/event_ticket_type_session_inventory/i)
+    expect(callText(7)).toMatch(/FOR UPDATE/i)
+    expect(callText(7)).toMatch(/event_sessions/i)
+    const insertText = callText(8)
     expect(insertText).toMatch(/sold_sess\.qty \+ .* <= \(SELECT capacity FROM event_sessions/i)
     // The session comparison uses the order's TOTAL quantity.
-    expect(callArgs(7)).toContain(2)
+    expect(callArgs(8)).toContain(2)
   })
 
   it('mutation proof C — order, items, and attendee creation all happen inside the SAME capacity-gated insert statement (never split across separate writes)', async () => {
@@ -549,7 +555,8 @@ describe('Public registration — stale-reservation capacity parity with paid Ch
 
   // Phase 2: the gate statement is the last element of the transaction
   // (0=org, 1=event, 2=ticket types, 3=active-questions, 4=lock, 5=gate;
-  // session-bound: 5=lock tt, 6=lock session, 7=gate).
+  // session-bound, Phase 3: 5=lock tt, 6=lock (tt, session) inventory,
+  // 7=lock session, 8=gate).
   it('the capacity-gated insert statement (non-session branch) — the actual gate that produces the false-409 — excludes a stale PENDING reservation in its per-ticket-type sold aggregate', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
     await registerRoute.POST(req(VALID_BODY), CTX)
@@ -561,7 +568,7 @@ describe('Public registration — stale-reservation capacity parity with paid Ch
   it('session-bound branch: the capacity-gated insert excludes a stale PENDING reservation in BOTH its per-ticket-type and session aggregates', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW, SESSION_ROW)
     await registerRoute.POST(req({ ...VALID_BODY, event_session_id: 'sess-1' }), CTX)
-    const insertText = callText(7)
+    const insertText = callText(8)
     const cartTtCte = insertText.match(/cart_tt AS \([\s\S]*?\),\s*sold_sess/i)?.[0] ?? ''
     const soldSessCte = insertText.match(/sold_sess AS \([\s\S]*?\),\s*gate/i)?.[0] ?? ''
     expect(cartTtCte).toContain(STALE_PREDICATE)

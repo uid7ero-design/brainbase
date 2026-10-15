@@ -194,8 +194,12 @@ export async function registerFreeOrder(input: FreeRegistrationInput): Promise<F
   //      lib/events/services/cart.ts's cartLockOrder) — so two carts
   //      overlapping on any subset of ticket types always request their
   //      shared rows in the same relative order and cannot deadlock.
-  //   2. (session-bound only) Lock the session row (FOR UPDATE) —
-  //      always AFTER every ticket-type lock, in every code path.
+  //   2. (session-bound only) Lock each cart line's (ticket type,
+  //      session) inventory override row (FOR UPDATE, same ascending
+  //      ticket_type_id order; matches nothing when no override exists),
+  //      then the session row (FOR UPDATE) — always AFTER every
+  //      ticket-type lock, in every code path (Phase 3; see
+  //      buildCartLockStatements).
   //   3. The actual capacity gate: ONE WITH-chain INSERT (order ->
   //      items -> attendees -> responses) whose embedded aggregates are
   //      evaluated as part of THIS statement — submitted after the lock
@@ -232,15 +236,26 @@ export async function registerFreeOrder(input: FreeRegistrationInput): Promise<F
           FROM UNNEST(${lineTypeIds}::text[], ${lineQuantities}::int[]) AS c(ticket_type_id, quantity)
         ),
         cart_tt AS (
-          SELECT c.ticket_type_id, c.quantity, tt.capacity,
+          -- Phase 3 (ticket type × session inventory): when this order's
+          -- session has an override row for the line's ticket type, that
+          -- row's capacity applies and "sold" counts only this type's
+          -- tickets in THIS session; otherwise the event-wide ticket-type
+          -- capacity applies, counted event-wide exactly as before. For a
+          -- no-session order the LEFT JOIN never matches (NULL session),
+          -- so behaviour is unchanged.
+          SELECT c.ticket_type_id, c.quantity, COALESCE(inv.capacity, tt.capacity) AS capacity,
             (
               SELECT COALESCE(SUM(oi.quantity), 0)
               FROM event_order_items oi
               JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-              WHERE oi.ticket_type_id = c.ticket_type_id AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
+              WHERE oi.ticket_type_id = c.ticket_type_id AND oi.organisation_id = ${organisationId}
+                AND (inv.id IS NULL OR oi.event_session_id = ${validated.event_session_id})
+                AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
             ) AS sold
           FROM cart c
           JOIN event_ticket_types tt ON tt.id = c.ticket_type_id AND tt.organisation_id = ${organisationId}
+          LEFT JOIN event_ticket_type_session_inventory inv
+            ON inv.ticket_type_id = c.ticket_type_id AND inv.event_session_id = ${validated.event_session_id} AND inv.organisation_id = ${organisationId}
         ),
         sold_sess AS (
           SELECT COALESCE(SUM(oi.quantity), 0) AS qty

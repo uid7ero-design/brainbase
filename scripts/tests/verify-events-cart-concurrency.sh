@@ -45,6 +45,7 @@ MIGRATIONS=(
   "$REPO_ROOT/scripts/add-events-registration-questions.sql"
   "$REPO_ROOT/scripts/add-events-booking-wallet.sql"
   "$REPO_ROOT/scripts/add-events-ticket-email-delivery.sql"
+  "$REPO_ROOT/scripts/create-events-ticket-type-session-inventory.sql"
 )
 CONTAINER="events-cart-harness-$$"
 PASS=0
@@ -156,7 +157,9 @@ build_cart() {
 }
 
 # lock statements: per type in LOCK_IDS order (or $UNSORTED_LOCKS cart
-# order for the mutation proof), then session. inject after the FIRST lock.
+# order for the mutation proof), then (session-bound only, Phase 3) per
+# type's (type, session) inventory row in the same order, then session.
+# inject after the FIRST lock.
 lock_sql() {
   local sess="$1" inject="$2" order="$3" first=1 id
   for id in $order; do
@@ -164,7 +167,12 @@ lock_sql() {
     if [ "$first" -eq 1 ] && [ -n "$inject" ]; then echo "$inject"; fi
     first=0
   done
-  if [ -n "$sess" ]; then echo "SELECT capacity FROM event_sessions WHERE id = '$sess' AND organisation_id = 'org-a' FOR UPDATE;"; fi
+  if [ -n "$sess" ]; then
+    for id in $order; do
+      echo "SELECT capacity FROM event_ticket_type_session_inventory WHERE ticket_type_id = '$id' AND event_session_id = '$sess' AND organisation_id = 'org-a' FOR UPDATE;"
+    done
+    echo "SELECT capacity FROM event_sessions WHERE id = '$sess' AND organisation_id = 'org-a' FOR UPDATE;"
+  fi
 }
 
 sess_lit() { if [ -n "$1" ]; then echo "'$1'"; else echo "NULL"; fi; }
@@ -183,16 +191,19 @@ WITH cart AS (
   FROM UNNEST($LINE_IDS, $LINE_QTYS, $LINE_PRICES) AS c(ticket_type_id, quantity, unit_price_cents)
 ),
 cart_tt AS (
-  SELECT c.ticket_type_id, c.quantity, tt.capacity,
+  SELECT c.ticket_type_id, c.quantity, COALESCE(inv.capacity, tt.capacity) AS capacity,
     (
       SELECT COALESCE(SUM(oi.quantity), 0)
       FROM event_order_items oi
       JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
       WHERE oi.ticket_type_id = c.ticket_type_id AND oi.organisation_id = 'org-a'
+        AND (inv.id IS NULL OR oi.event_session_id = $s)
         AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
     ) AS sold
   FROM cart c
   JOIN event_ticket_types tt ON tt.id = c.ticket_type_id AND tt.organisation_id = 'org-a'
+  LEFT JOIN event_ticket_type_session_inventory inv
+    ON inv.ticket_type_id = c.ticket_type_id AND inv.event_session_id = $s AND inv.organisation_id = 'org-a'
 ),
 sold_sess AS (
   SELECT COALESCE(SUM(oi.quantity), 0) AS qty
@@ -252,15 +263,19 @@ WITH cart AS (
   FROM UNNEST($LINE_IDS, $LINE_QTYS) AS c(ticket_type_id, quantity)
 ),
 cart_tt AS (
-  SELECT c.ticket_type_id, c.quantity, tt.capacity,
+  SELECT c.ticket_type_id, c.quantity, COALESCE(inv.capacity, tt.capacity) AS capacity,
     (
       SELECT COALESCE(SUM(oi.quantity), 0)
       FROM event_order_items oi
       JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-      WHERE oi.ticket_type_id = c.ticket_type_id AND oi.organisation_id = 'org-a' AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
+      WHERE oi.ticket_type_id = c.ticket_type_id AND oi.organisation_id = 'org-a'
+        AND (inv.id IS NULL OR oi.event_session_id = $s)
+        AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
     ) AS sold
   FROM cart c
   JOIN event_ticket_types tt ON tt.id = c.ticket_type_id AND tt.organisation_id = 'org-a'
+  LEFT JOIN event_ticket_type_session_inventory inv
+    ON inv.ticket_type_id = c.ticket_type_id AND inv.event_session_id = $s AND inv.organisation_id = 'org-a'
 ),
 sold_sess AS (
   SELECT COALESCE(SUM(oi.quantity), 0) AS qty
@@ -337,14 +352,17 @@ WITH cart AS (
   FROM UNNEST($ids_arr, $qty_arr) AS c(ticket_type_id, quantity)
 ),
 cart_tt AS (
-  SELECT c.ticket_type_id, c.quantity, tt.capacity,
+  SELECT c.ticket_type_id, c.quantity, COALESCE(inv.capacity, tt.capacity) AS capacity,
     (
       SELECT COALESCE(SUM(oi.quantity), 0) FROM event_order_items oi JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
       WHERE oi.ticket_type_id = c.ticket_type_id AND oi.organisation_id = 'org-a' AND eo.id <> '$order_id'
+        AND (inv.id IS NULL OR oi.event_session_id = $s)
         AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
     ) AS sold
   FROM cart c
   JOIN event_ticket_types tt ON tt.id = c.ticket_type_id AND tt.organisation_id = 'org-a'
+  LEFT JOIN event_ticket_type_session_inventory inv
+    ON inv.ticket_type_id = c.ticket_type_id AND inv.event_session_id = $s AND inv.organisation_id = 'org-a'
 ),
 sold_sess AS (
   SELECT COALESCE(SUM(oi.quantity), 0) AS qty FROM event_order_items oi JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id

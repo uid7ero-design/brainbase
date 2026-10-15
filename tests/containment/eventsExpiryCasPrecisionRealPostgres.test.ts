@@ -109,6 +109,7 @@ const MIGRATIONS = [
   'scripts/add-events-registration-questions.sql',
   'scripts/add-events-booking-wallet.sql',
   'scripts/add-events-ticket-email-delivery.sql',
+  'scripts/create-events-ticket-type-session-inventory.sql',
 ]
 
 const EVENT = {

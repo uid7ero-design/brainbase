@@ -553,6 +553,9 @@ function SessionsPanel({ eventId, sessions, orders, canManage, onChanged, timezo
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // Phase 3 — which session's ticket type × session inventory table is
+  // expanded (at most one at a time; purely a disclosure, no data).
+  const [inventoryOpenId, setInventoryOpenId] = useState<string | null>(null);
 
   async function remove(id: string) {
     if (!confirm('Delete this session?')) return;
@@ -620,6 +623,14 @@ function SessionsPanel({ eventId, sessions, orders, canManage, onChanged, timezo
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <CapacityPill registered={orders ? registeredQuantity(orders, o => o.event_session_id === s.id) : null} capacity={s.capacity} />
+                <button
+                  type="button"
+                  onClick={() => setInventoryOpenId(cur => (cur === s.id ? null : s.id))}
+                  aria-expanded={inventoryOpenId === s.id}
+                  style={secondaryBtnStyle}
+                >
+                  {inventoryOpenId === s.id ? 'Hide inventory' : 'Inventory'}
+                </button>
                 {canManage && (
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button onClick={() => setEditingId(s.id)} style={secondaryBtnStyle}>Edit</button>
@@ -628,6 +639,9 @@ function SessionsPanel({ eventId, sessions, orders, canManage, onChanged, timezo
                 )}
               </div>
             </div>
+            {inventoryOpenId === s.id && (
+              <SessionInventoryTable eventId={eventId} session={s} canManage={canManage} />
+            )}
           </div>
         ))}
       </div>
@@ -678,6 +692,171 @@ function SessionForm({ initial, onSubmit, onCancel }: {
         <button type="button" onClick={onCancel} style={secondaryBtnStyle}>Cancel</button>
       </div>
     </form>
+  );
+}
+
+// ─── Ticket type × session inventory (Phase 3) ──────────────────────
+//
+// Per session, one row per ticket type: the event-wide capacity, this
+// session's override (if any), and the pair's live sold/remaining —
+// read from GET /api/events/[id]/sessions/[sessionId]/inventory, which
+// applies the same precedence and stale-hold predicate as the
+// reservation gate. Managers set an override (PUT) or clear it (DELETE);
+// a type with no override shows "Event-wide (N)" and is governed by its
+// ordinary ticket-type capacity, exactly as today. Deliberately a small
+// disclosure inside the existing Sessions panel — not a new page, not
+// a reporting feature.
+
+type SessionInventoryRow = {
+  ticket_type_id: string;
+  ticket_type_name: string;
+  active: boolean;
+  type_capacity: number;
+  override_capacity: number | null;
+  effective_capacity: number;
+  sold: number;
+  remaining: number;
+};
+
+function SessionInventoryTable({ eventId, session, canManage }: { eventId: string; session: EventSessionRow; canManage: boolean }) {
+  const [rows, setRows] = useState<SessionInventoryRow[] | null>(null);
+  const [sessionLive, setSessionLive] = useState<{ sold: number; remaining: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setError(null);
+      const res = await fetch(`/api/events/${eventId}/sessions/${session.id}/inventory`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        if (!cancelled) setError(body.error ?? `Failed to load session inventory (${res.status}).`);
+        return;
+      }
+      const body = await res.json();
+      if (!cancelled) {
+        setRows(body.inventory ?? []);
+        setSessionLive(body.event_session ? { sold: body.event_session.sold, remaining: body.event_session.remaining } : null);
+        setDrafts({});
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [eventId, session.id, reloadKey]);
+
+  async function setOverride(row: SessionInventoryRow) {
+    const raw = drafts[row.ticket_type_id];
+    const capacity = raw === undefined || raw === '' ? row.override_capacity : Number(raw);
+    if (capacity === null || !Number.isInteger(capacity) || capacity < 0) {
+      setError('Capacity must be a non-negative whole number.');
+      return;
+    }
+    setBusyId(row.ticket_type_id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/events/${eventId}/sessions/${session.id}/inventory/${row.ticket_type_id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ capacity }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body.error ?? `Failed to set session inventory (${res.status}).`);
+        return;
+      }
+      setReloadKey(k => k + 1);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function clearOverride(row: SessionInventoryRow) {
+    setBusyId(row.ticket_type_id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/events/${eventId}/sessions/${session.id}/inventory/${row.ticket_type_id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body.error ?? `Failed to clear session inventory (${res.status}).`);
+        return;
+      }
+      setReloadKey(k => k + 1);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const cellStyle: React.CSSProperties = { padding: '6px 8px', fontSize: 12, color: TEXT_SECONDARY, textAlign: 'left', verticalAlign: 'middle' };
+  const headStyle: React.CSSProperties = { ...cellStyle, color: TEXT_MUTED, fontWeight: 600, fontSize: 11, letterSpacing: '.02em', textTransform: 'uppercase' };
+
+  return (
+    <div data-testid={`session-inventory-${session.id}`} style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: TEXT_PRIMARY }}>Session inventory</div>
+        <div style={{ fontSize: 11.5, color: TEXT_MUTED }}>
+          Session shared capacity {session.capacity}
+          {sessionLive ? ` · ${sessionLive.sold} booked · ${sessionLive.remaining} remaining` : ''}
+        </div>
+      </div>
+      <div style={{ fontSize: 11.5, color: TEXT_MUTED, marginBottom: 8 }}>
+        A per-session capacity replaces the ticket type&apos;s event-wide capacity for this session only. The session&apos;s shared capacity still caps every ticket type combined.
+      </div>
+      {error && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12, marginBottom: 8 }}>{error}</div>}
+      {rows === null && !error && <div style={{ fontSize: 12, color: TEXT_MUTED }}>Loading…</div>}
+      {rows && rows.length === 0 && <div style={{ fontSize: 12, color: TEXT_MUTED }}>No ticket types yet.</div>}
+      {rows && rows.length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={headStyle}>Ticket type</th>
+                <th style={headStyle}>Capacity in this session</th>
+                <th style={headStyle}>Booked</th>
+                <th style={headStyle}>Remaining</th>
+                {canManage && <th style={headStyle}>Override</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(row => {
+                const overridden = row.override_capacity !== null;
+                const draft = drafts[row.ticket_type_id] ?? (overridden ? String(row.override_capacity) : '');
+                const busy = busyId === row.ticket_type_id;
+                return (
+                  <tr key={row.ticket_type_id} style={{ borderTop: '1px solid var(--border)' }}>
+                    <td style={{ ...cellStyle, color: TEXT_PRIMARY, fontWeight: 600 }}>
+                      {row.ticket_type_name}{!row.active && <span style={{ color: TEXT_MUTED, fontWeight: 400 }}> · Inactive</span>}
+                    </td>
+                    <td style={cellStyle}>
+                      {overridden
+                        ? <span>{row.effective_capacity} <span style={{ color: TEXT_MUTED }}>(session override)</span></span>
+                        : <span>Event-wide ({row.type_capacity})</span>}
+                    </td>
+                    <td style={cellStyle}>{row.sold}</td>
+                    <td style={cellStyle}>
+                      <StatusBadge label={String(row.remaining)} tone={capacityTone(row.remaining, row.effective_capacity)} />
+                    </td>
+                    {canManage && (
+                      <td style={cellStyle}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <input
+                            type="number" min={0} className="bb-evt-input" aria-label={`${row.ticket_type_name} capacity in ${session.name}`}
+                            value={draft} placeholder="—" disabled={busy}
+                            onChange={e => setDrafts(d => ({ ...d, [row.ticket_type_id]: e.target.value }))}
+                            style={{ ...inputStyle, width: 80 }}
+                          />
+                          <button type="button" disabled={busy || draft === ''} onClick={() => setOverride(row)} style={secondaryBtnStyle}>Set</button>
+                          {overridden && <button type="button" disabled={busy} onClick={() => clearOverride(row)} style={secondaryBtnStyle}>Clear</button>}
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 
