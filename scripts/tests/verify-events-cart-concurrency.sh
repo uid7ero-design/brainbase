@@ -82,6 +82,14 @@ reset_db() {
   docker exec -i "$CONTAINER" psql -X -q -U postgres -d postgres -c "DROP DATABASE IF EXISTS testdb;" >/dev/null 2>&1
   docker exec -i "$CONTAINER" psql -X -q -U postgres -d postgres -c "CREATE DATABASE testdb;" >/dev/null 2>&1
 }
+# Portable UUID (Linux /proc, uuidgen, or /dev/urandom via od) so the
+# harness runs unchanged on Linux CI and on Windows Git Bash.
+gen_uuid() {
+  if [ -r /proc/sys/kernel/random/uuid ]; then cat /proc/sys/kernel/random/uuid
+  elif command -v uuidgen >/dev/null 2>&1; then uuidgen
+  else od -An -N16 -tx1 /dev/urandom | tr -d ' \n' | sed -E 's/^(.{8})(.{4})(.{4})(.{4})(.{12})$/\1-\2-\3-\4-\5/'
+  fi
+}
 bootstrap() {
   {
     cat <<'SQL'
@@ -137,7 +145,7 @@ build_cart() {
     ids+=("'$id'"); qtys+=("$qty")
     local pvar="PRICE_${id//-/_}"; prices+=("${!pvar:-0}")
     for ((i = 0; i < qty; i++)); do
-      att_ids+=("'$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen)'")
+      att_ids+=("'$(gen_uuid)'")
       att_types+=("'$id'")
       att_names+=("'A-$id-$i'")
     done
@@ -254,7 +262,7 @@ free_cart_sql() {
   local purchaser="$1" sess="$2" inject="$3"; shift 3
   build_cart "$@"
   local s; s="$(sess_lit "$sess")"
-  local tokens; tokens="ARRAY[$(n=$TOTAL_QTY; for ((i=0;i<n;i++)); do printf "%s'%s'" "$([ $i -gt 0 ] && echo ,)" "$(cat /proc/sys/kernel/random/uuid)"; done)]::text[]"
+  local tokens; tokens="ARRAY[$(n=$TOTAL_QTY; for ((i=0;i<n;i++)); do printf "%s'%s'" "$([ $i -gt 0 ] && echo ,)" "$(gen_uuid)"; done)]::text[]"
   cat <<SQL
 BEGIN;
 $(lock_sql "$sess" "$inject" "$LOCK_IDS")

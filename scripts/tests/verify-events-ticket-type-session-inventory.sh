@@ -410,10 +410,10 @@ PRICE_tt_adult=2500; PRICE_tt_child=1500; PRICE_tt_vip=9900; PRICE_tt_x=1000; PR
 # Row snapshot of every pre-existing Events table that the migration
 # touches or neighbours (used by M2/M3).
 SNAPSHOT_SQL="SELECT md5(string_agg(t::text, '|' ORDER BY t::text)) FROM (
-  SELECT 'tt' AS k, id, event_id, organisation_id, name, price_cents, capacity, active::text FROM event_ticket_types
-  UNION ALL SELECT 'es', id, event_id, organisation_id, name, capacity::text, NULL, NULL FROM event_sessions
-  UNION ALL SELECT 'eo', id, event_id, organisation_id, purchaser_name, status, total_cents::text, payment_status FROM event_orders
-  UNION ALL SELECT 'oi', id, order_id, organisation_id, ticket_type_id, event_session_id, quantity::text, NULL FROM event_order_items
+  SELECT 'tt'::text AS k, id::text AS c1, event_id::text AS c2, organisation_id::text AS c3, name::text AS c4, price_cents::text AS c5, capacity::text AS c6, active::text AS c7 FROM event_ticket_types
+  UNION ALL SELECT 'es'::text, id::text, event_id::text, organisation_id::text, name::text, capacity::text, NULL::text, NULL::text FROM event_sessions
+  UNION ALL SELECT 'eo'::text, id::text, event_id::text, organisation_id::text, purchaser_name::text, status::text, total_cents::text, payment_status::text FROM event_orders
+  UNION ALL SELECT 'oi'::text, id::text, order_id::text, organisation_id::text, ticket_type_id::text, event_session_id::text, quantity::text, NULL::text FROM event_order_items
 ) t;"
 
 echo ""
@@ -423,8 +423,11 @@ echo "  bootstrap applied every PRE-EXISTING Events migration (not yet the new o
 seed_type tt-adult 2500 10; seed_type tt-child 1500 4; seed_session sess-fri 6; seed_session sess-sat 8
 seed_type tt-e2 1000 5 event-2; seed_session sess-e2 5 event-2
 seed_type tt-b 1000 5 event-b org-b; seed_session sess-b 5 event-b org-b
+# Pre-migration data is written with plain inserts (the pair-aware gate
+# cannot run yet — the table it LEFT JOINs does not exist until M1).
 expect_success "M0. pre-migration orders exist across sessions (data the migration must leave intact)" \
-  "$(paid_cart_sql Before sess-fri "$LIVE" '' tt-adult:2 tt-child:1)"
+  "INSERT INTO event_orders (id, organisation_id, event_id, purchaser_name, purchaser_email, status, total_cents, payment_status) VALUES ('ord-before', 'org-a', 'event-1', 'Before', 'b@example.com', 'CONFIRMED', 0, 'NOT_REQUIRED');
+   INSERT INTO event_order_items (organisation_id, order_id, event_id, ticket_type_id, event_session_id, quantity, unit_price_cents) VALUES ('org-a', 'ord-before', 'event-1', 'tt-adult', 'sess-fri', 2, 0), ('org-a', 'ord-before', 'event-1', 'tt-child', 'sess-fri', 1, 0);"
 BEFORE_SNAP="$(echo "$SNAPSHOT_SQL" | psql_query | tr -d '[:space:]')"
 expect_true "M1. scripts/create-events-ticket-type-session-inventory.sql applies cleanly to the current schema" \
   "cat '$NEW_MIGRATION' | psql_exec"
@@ -439,7 +442,7 @@ expect_eq "M5. the new table exists with 8 NOT NULL columns" \
 expect_eq "M6. both additive parent UNIQUE(id, event_id, organisation_id) constraints exist" \
   "SELECT count(*) FROM pg_constraint WHERE conname IN ('event_ticket_types_id_event_org_key','event_sessions_id_event_org_key') AND contype='u';" "2"
 expect_eq "M7. the pair table carries the three composite FKs, the pair UNIQUE and the (id, organisation_id) UNIQUE" \
-  "SELECT string_agg(conname||':'||contype, ',' ORDER BY conname) FROM pg_constraint WHERE conrelid='event_ticket_type_session_inventory'::regclass AND contype IN ('f','u');" \
+  "SELECT string_agg(conname||':'||contype::text, ',' ORDER BY conname) FROM pg_constraint WHERE conrelid='event_ticket_type_session_inventory'::regclass AND contype IN ('f','u');" \
   "event_tt_session_inventory_event_org_fkey:f,event_tt_session_inventory_id_org_key:u,event_tt_session_inventory_pair_key:u,event_tt_session_inventory_session_fkey:f,event_tt_session_inventory_ticket_type_fkey:f"
 expect_eq "M8. the table is empty after migration (no override is ever inferred for existing data)" "SELECT count(*) FROM event_ticket_type_session_inventory;" "0"
 expect_success "M9. a valid pair (org-a, event-1, tt-adult, sess-fri) inserts" "$(pair_insert_sql org-a event-1 tt-adult sess-fri 4)"
@@ -458,15 +461,19 @@ expect_error "M15. a negative capacity is rejected (same convention as every oth
 expect_success "M16. capacity 0 is allowed (nothing bookable for that pair, not 'unlimited')" "$(pair_insert_sql org-a event-1 tt-child sess-fri 0)"
 expect_success "M17. clearing an override is a plain row DELETE" \
   "DELETE FROM event_ticket_type_session_inventory WHERE ticket_type_id='tt-child' AND event_session_id='sess-fri' AND organisation_id='org-a';"
-expect_eq "M18. deleting a session cascades its override rows away" \
-  "WITH d AS (DELETE FROM event_sessions WHERE id='sess-fri' RETURNING id) SELECT (SELECT count(*) FROM d)||'/'||(SELECT count(*) FROM event_ticket_type_session_inventory);" "1/0"
+expect_success "M18a. an override on Saturday (a session with no orders)" "$(pair_insert_sql org-a event-1 tt-adult sess-sat 6)"
+expect_success "M18b. deleting that session succeeds (existing event_order_items RESTRICT FK is untouched — Friday, which has orders, stays)" \
+  "DELETE FROM event_sessions WHERE id='sess-sat';"
+expect_eq "M18. ...and cascades Saturday's override row away while Friday's remains" \
+  "SELECT (SELECT count(*) FROM event_ticket_type_session_inventory WHERE event_session_id='sess-sat')||'/'||(SELECT count(*) FROM event_ticket_type_session_inventory WHERE event_session_id='sess-fri');" "0/1"
 echo "  -- rollback order --"
 expect_error "M19. dropping a parent UNIQUE while the pair table still depends on it is refused (so the documented order is the only order)" \
   "ALTER TABLE event_ticket_types DROP CONSTRAINT event_ticket_types_id_event_org_key;" "depends on|dependent objects"
+PRE_ROLLBACK_SNAP="$(echo "$SNAPSHOT_SQL" | psql_query | tr -d '[:space:]')"
 expect_success "M20. rollback in the documented order succeeds: table, then the two parent UNIQUEs" \
   "DROP TABLE IF EXISTS event_ticket_type_session_inventory; ALTER TABLE event_ticket_types DROP CONSTRAINT IF EXISTS event_ticket_types_id_event_org_key; ALTER TABLE event_sessions DROP CONSTRAINT IF EXISTS event_sessions_id_event_org_key;"
 ROLLED_SNAP="$(echo "$SNAPSHOT_SQL" | psql_query | tr -d '[:space:]')"
-expect_val "M21. pre-existing rows are still byte-identical after rollback" "$ROLLED_SNAP" "$(echo "$SNAPSHOT_SQL" | psql_query | tr -d '[:space:]')"
+expect_val "M21. pre-existing rows are still byte-identical after rollback" "$ROLLED_SNAP" "$PRE_ROLLBACK_SNAP"
 expect_true "M22. the migration re-applies cleanly after rollback" "cat '$NEW_MIGRATION' | psql_exec"
 
 echo ""
