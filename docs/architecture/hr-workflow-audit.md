@@ -2,6 +2,14 @@
 
 This audit covers document management, lifecycle execution and HR administration. Operational registers and drawer recovery were released in PRs #423 and #424. The current fixture acceptance bundle is reviewable in PR #426; this is not a declaration that the whole HR product is complete or authorized for release.
 
+## Released restricted bundle and follow-up rollback acceptance (14 October 2026)
+
+PR #427 released as `9a68464840c47e4d6362e4c77273896f6a6e4203`. Deployment `dpl_7HG8t5DZfa1rF4YYgFFtBDaJqS6B` reached READY with production aliases; post-merge CI `38500793536` passed. Canonical unauthenticated register endpoints returned 401 with private/no-store caching.
+
+The follow-up test-only rollback bundle passes 87 disposable Postgres checks. New actual-service/SQL checks prove that failed audit inserts roll back participant removal, note creation, access revocation and document logical deletion. Business rows, grant/document history and audit snapshots remain unchanged; document fixture storage is preserved. After dropping only the synthetic failure triggers, removal/revocation/deletion succeed. TypeScript and changed-file lint pass; containers are removed. Application code is unchanged, so the prior production build remains applicable.
+
+These tests use the controlled session/module and minimal schema harness. Storage remains in memory; no real HR data, live providers or hosted migration is used. They do not certify every race, revocation after authorization, full login/provider acceptance or every browser removal/revocation/deletion lost-response combination. Historical unreleased checkpoints below are superseded by this release receipt.
+
 ## Release and ongoing bundle checkpoint (13 October 2026)
 
 PR #426 was authorized and merged as `7afb08ea23a0ead1a21092999d15b53fcad9eeef`. Production deployment `dpl_4vjSt3B629Z1viZ6MCov19MiKVtS` reached READY with aliases assigned; post-merge CI `38392793357` passed. Earlier open-PR and unreleased statements below describe historical checkpoints.
