@@ -37,7 +37,7 @@ describe("read-only profile readiness", () => {
     seams.run.mockResolvedValue({ row_count: BigInt(0), column_count: BigInt(4) });
     expect(await getWorksheetProfileStatus(scope)).toEqual({ ok: true, status: "SUCCEEDED", rowCount: 0, columnCount: 4 });
     expect(seams.resolve).toHaveBeenCalledWith(scope, tx);
-    expect(seams.transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "RepeatableRead" });
+    expect(seams.transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "RepeatableRead", maxWait: 5_000, timeout: 5_000 });
   });
   it.each([null, BigInt(-1), BigInt("9007199254740992")])("does not label invalid completed counts ready: %s", async row_count => {
     seams.upload.mockResolvedValue({ normalization_run_id: "n", dataset_profile_run_id: "p" }); seams.run.mockResolvedValue({ row_count, column_count: BigInt(4) });

@@ -32,6 +32,7 @@ export default function AnalysisWorksheetLinks({ batchId, filename }: { batchId:
   }
 
   return <div style={{ padding: "8px 12px" }} aria-label={`Analysis worksheets for ${filename}`}>
+    <p><Link href={`/data-hub/import/${encodeURIComponent(batchId)}/preparation`}>Workbook preparation overview</Link></p>
     <button disabled={busy} onClick={() => void load()} aria-label={`Review worksheets in ${filename}`}>
       {busy ? "Loading worksheets…" : worksheets ? "Refresh analysis worksheets" : "Review worksheets"}
     </button>

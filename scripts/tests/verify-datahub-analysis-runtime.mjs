@@ -6,6 +6,7 @@ import { randomBytes } from 'node:crypto';
 import { Pool } from 'pg';
 import { chromium, expect } from '@playwright/test';
 import { FIXTURE_PREPARATION, SETUP_STORAGE } from './helpers/dataHubAcceptanceReceipt.mjs';
+import { verifyWorkbookOverview } from './helpers/dataHubWorkbookOverviewProof.mjs';
 
 // Invoked only by verify-datahub-profile-execution.sh after provisioning its
 // disposable Docker database and seeding real profile evidence. The build,
@@ -136,6 +137,7 @@ try {
       timer = setTimeout(() => reject(new Error('Genuine planning probe response did not arrive')), 20_000);
     })]); } finally { clearTimeout(timer); }
   }
+  await verifyWorkbookOverview({ page, context, pool, origin, ready, evidence, directory });
   await page.goto(origin + '/data-hub/import');
   await page.getByRole('button', { name: 'Review worksheets in analysis-ready.xlsx', exact: true }).click();
   await page.getByRole('link', { name: 'Data (worksheet 1) — review and count', exact: true }).click();

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { preparationRequest } from "@/lib/data-hub/client/preparation";
 const signal = new AbortController().signal;
-const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 afterEach(() => vi.unstubAllGlobals());
 describe("preparation transport", () => {
   it.each(["PRIVATE_PROVIDER_DETAIL", "NOT_READY", "FAILED"])("rejects a posted non-completion: %s", async status => {
