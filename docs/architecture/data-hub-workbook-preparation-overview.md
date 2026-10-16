@@ -65,6 +65,11 @@ fresh genuine recovery. The existing upload-to-analysis regressions still run.
 Loopback Neon HTTP is adapted to the owned PostgreSQL wire protocol; these are
 local synthetic checks, not hosted or authenticated Production acceptance.
 
+The acceptance build now uses the same default Next.js build mode as
+`package.json` and Vercel. Its historical Webpack override generated a different
+Next.js 16 route validator that rejects an existing HR route's defaulted request
+parameter; that unrelated route remains unchanged. Type validation stays enabled.
+
 No migration is required. Larger tenant performance, formal screen-reader/color
 contrast checks and Production release remain separate decisions. The prior
 guided preparation release is already deployed; this new bundle is developed
