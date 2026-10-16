@@ -115,6 +115,7 @@ export default function WorksheetInventoryPanel({
         </table>
       </div>
 
+      <p><Link href={`/data-hub/import/${encodeURIComponent(state.batch.id)}/preparation`}>Workbook preparation overview</Link></p>
       <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
       <button
         type="button"

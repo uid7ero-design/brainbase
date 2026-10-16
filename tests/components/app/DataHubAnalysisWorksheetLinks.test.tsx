@@ -13,6 +13,7 @@ it("reads worksheets only on demand and links by encoded identity, including dup
   vi.stubGlobal("fetch", fetcher);
   render(<AnalysisWorksheetLinks batchId="batch/a" filename="source.xlsx" />);
   expect(fetcher).not.toHaveBeenCalled();
+  expect(screen.getByRole("link", { name: "Workbook preparation overview" })).toHaveAttribute("href", "/data-hub/import/batch%2Fa/preparation");
   fireEvent.click(screen.getByRole("button", { name: "Review worksheets in source.xlsx" }));
   const first = await screen.findByRole("link", { name: "Data (worksheet 1) â€” review and count" });
   expect(first).toHaveAttribute("href", "/data-hub/analysis/upload%2Fa");
@@ -26,7 +27,7 @@ it("shows an empty list honestly without implying analysis readiness", async () 
   render(<AnalysisWorksheetLinks batchId="batch" filename="source.xlsx" />);
   fireEvent.click(screen.getByRole("button"));
   await screen.findByText("No persisted worksheets are available for analysis yet.");
-  expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: /— review and count/ })).not.toBeInTheDocument();
 });
 
 it.each(["denied", "malformed", "duplicate", "tooMany"])("closes %s responses and permits an explicit retry", async kind => {
@@ -37,7 +38,7 @@ it.each(["denied", "malformed", "duplicate", "tooMany"])("closes %s responses an
   vi.stubGlobal("fetch", fetcher);
   render(<AnalysisWorksheetLinks batchId="batch" filename="source.xlsx" />);
   fireEvent.click(screen.getByRole("button"));
-  await screen.findByRole("alert"); expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  await screen.findByRole("alert"); expect(screen.queryByRole("link", { name: /— review and count/ })).not.toBeInTheDocument();
   expect(screen.getByRole("alert")).not.toHaveTextContent("private backend detail");
   await waitFor(() => expect(screen.getByRole("button")).toBeEnabled());
   fireEvent.click(screen.getByRole("button")); await screen.findByText("No persisted worksheets are available for analysis yet.");

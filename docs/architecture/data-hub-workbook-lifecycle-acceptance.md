@@ -1,5 +1,8 @@
 # Workbook-to-planning isolated acceptance
 
+The [workbook preparation overview](data-hub-workbook-preparation-overview.md)
+adds bounded, explicit status checks and worksheet navigation above this chain.
+
 ## Guided preparation
 
 The worksheet inventory, import-history worksheet list and review page now link

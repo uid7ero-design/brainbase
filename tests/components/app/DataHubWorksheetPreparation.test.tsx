@@ -5,7 +5,7 @@ import WorksheetPreparationClient from "@/app/data-hub/prepare/[uploadId]/Worksh
 
 type Step = "stage" | "normalize" | "profile";
 type State = Record<Step, string>;
-const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const success = (status: string) => ({ ok: true, status, ...(status === "SUCCEEDED" ? { rowCount: 0, cellCount: 0, columnCount: 4 } : {}) });
 function setup(initial: State = { stage: "NOT_STARTED", normalize: "NOT_STARTED", profile: "NOT_READY" }) {
   const state = { ...initial };

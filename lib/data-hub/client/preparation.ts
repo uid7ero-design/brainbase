@@ -1,3 +1,5 @@
+import { preparationJson } from "./preparationTransport";
+
 export const PREPARATION_STEPS = ["stage", "normalize", "profile"] as const;
 export type PreparationStep = typeof PREPARATION_STEPS[number];
 export type PreparationStatus = "NOT_READY" | "NOT_STARTED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "ABANDONED";
@@ -8,10 +10,7 @@ const failureCodes = new Set(["UNAUTHORIZED", "FORBIDDEN", "UPLOAD_NOT_FOUND", "
   "INTERACTIVE_PROFILE_LIMIT", "RUN_ALREADY_IN_PROGRESS", "LEASE_LOST", "PROFILER_VERSION_UNSUPPORTED"]);
 
 export async function preparationRequest(uploadId: string, step: PreparationStep, method: "GET" | "POST", signal: AbortSignal) {
-  const response = await fetch(`/api/data-hub/worksheets/${encodeURIComponent(uploadId)}/${step}`, {
-    method, signal, cache: "no-store", credentials: "same-origin",
-  });
-  const body: unknown = await response.json().catch(() => { throw new Error("RESPONSE_INVALID"); });
+  const { response, body } = await preparationJson(`/api/data-hub/worksheets/${encodeURIComponent(uploadId)}/${step}`, method, signal);
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("RESPONSE_INVALID");
   const data = body as Record<string, unknown>;
   if (!response.ok || data.ok !== true) {
@@ -19,7 +18,7 @@ export async function preparationRequest(uploadId: string, step: PreparationStep
       : typeof data.code === "string" && failureCodes.has(data.code) ? data.code : "PREPARATION_FAILED";
     throw new Error(code);
   }
-  if (typeof data.status !== "string" || !statuses.includes(data.status) ||
+  if ((method === "GET" && response.status !== 200) || typeof data.status !== "string" || !statuses.includes(data.status) ||
       (step !== "profile" && data.status === "NOT_READY") ||
       (method === "POST" && !["RUNNING", "SUCCEEDED"].includes(data.status)) ||
       (method === "POST" && response.status !== (data.status === "RUNNING" ? 202 : 200))) throw new Error("RESPONSE_INVALID");
