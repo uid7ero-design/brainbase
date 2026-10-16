@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { PREPARATION_STEPS } from "@/lib/data-hub/client/preparation";
+import { MAX_PREPARATION_SELECTION, prepareWorkbookSelection, type PreparationProgress } from "@/lib/data-hub/client/workbookPreparationQueue";
 import { checkWorkbookWorksheets, loadWorkbookWorksheets, workbookWorksheetState,
   WORKBOOK_CHECK_TIMEOUT_MS, WORKSHEET_CHECK_TIMEOUT_MS,
   type WorkbookWorksheet, type WorksheetCheck, type WorkbookState } from "@/lib/data-hub/client/workbookPreparation";
@@ -27,10 +28,15 @@ function WorkbookPreparation({ batchId }: { batchId: string }) {
   const filterId = useId();
   const [worksheets, setWorksheets] = useState<WorkbookWorksheet[] | null>(null);
   const [checks, setChecks] = useState<Map<string, WorksheetCheck>>(() => new Map());
-  const [busy, setBusy] = useState<"load" | "scan" | null>("load");
+  const [busy, setBusy] = useState<"load" | "scan" | "prepare" | null>("load");
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [confirming, setConfirming] = useState(false);
+  const [progress, setProgress] = useState<Map<string, PreparationProgress>>(() => new Map());
+  const [queueMessage, setQueueMessage] = useState("");
+  const [mustRecheck, setMustRecheck] = useState(false);
   const active = useRef<Request | null>(null);
 
   async function perform(ticket: Request, mode: "load" | "scan", rows: WorkbookWorksheet[] = []) {
@@ -44,7 +50,7 @@ function WorkbookPreparation({ batchId }: { batchId: string }) {
         await checkWorkbookWorksheets(rows, ticket.controller.signal, (id, result) => {
           if (active.current === ticket) setChecks(previous => new Map(previous).set(id, result));
         });
-        if (active.current === ticket) setCheckedAt(new Date().toLocaleTimeString());
+        if (active.current === ticket) { setCheckedAt(new Date().toLocaleTimeString()); setMustRecheck(false); }
       }
     } catch (failure) {
       if (active.current !== ticket) return;
@@ -52,6 +58,7 @@ function WorkbookPreparation({ batchId }: { batchId: string }) {
       const code = failure instanceof Error ? failure.message : "REQUEST_FAILED";
       if (["UNAUTHORIZED", "FORBIDDEN", "UPLOAD_NOT_FOUND"].includes(code)) {
         setWorksheets(null);
+        setSelected(new Set()); setProgress(new Map());
         setError("This workbook is unavailable or your access has changed. Return to imports or refresh the worksheet list.");
       } else if (ticket.controller.signal.aborted) {
         setError(ticket.reason === "TIMED_OUT" ? "The check took too long. Check again when you’re ready."
@@ -68,8 +75,42 @@ function WorkbookPreparation({ batchId }: { batchId: string }) {
     const ticket: Request = { controller: new AbortController(), reason: "CANCELLED" };
     active.current = ticket;
     setBusy(mode); setError(""); setChecks(new Map()); setCheckedAt(null);
-    if (mode === "load") { setWorksheets(null); setFilter("all"); }
+    setConfirming(false); setProgress(new Map()); setQueueMessage("");
+    if (mode === "load") { setWorksheets(null); setSelected(new Set()); setFilter("all"); }
     void perform(ticket, mode, rows);
+  }
+
+  async function prepareSelected() {
+    if (active.current || !confirming || mustRecheck) return;
+    const selection = (worksheets ?? []).filter(row => selected.has(row.id) && !row.excluded);
+    if (!selection.length || selection.length > MAX_PREPARATION_SELECTION) return;
+    const ticket: Request = { controller: new AbortController(), reason: "CANCELLED" };
+    active.current = ticket;
+    setBusy("prepare"); setConfirming(false); setError(""); setChecks(new Map()); setCheckedAt(null);
+    setProgress(new Map()); setQueueMessage(""); setMustRecheck(true);
+    try {
+      const result = await prepareWorkbookSelection(batchId, selection, ticket.controller.signal, (id, value) => {
+        if (active.current !== ticket) return;
+        setProgress(previous => new Map(previous).set(id, value));
+        if (value.snapshot) setChecks(previous => new Map(previous).set(id, { snapshot: value.snapshot! }));
+      });
+      if (active.current !== ticket) return;
+      setQueueMessage(result.complete ? "Selected worksheets are ready for their individual field and quality reviews."
+        : "Preparation paused at a worksheet that needs attention. Later worksheets were not started. Open its preparation page, then check preparation again before starting another queue.");
+      if (result.complete) setMustRecheck(false);
+    } catch (failure) {
+      if (active.current !== ticket) return;
+      setChecks(new Map()); setProgress(new Map());
+      const code = failure instanceof Error ? failure.message : "REQUEST_FAILED";
+      if (["UNAUTHORIZED", "FORBIDDEN", "UPLOAD_NOT_FOUND"].includes(code)) {
+        setWorksheets(null); setSelected(new Set());
+        setError("This workbook is unavailable or your access has changed. Return to imports or refresh the worksheet list.");
+      } else setError(code === "SELECTION_CHANGED" ? "The selected worksheets have changed. Refresh the worksheet list and select again."
+        : "Preparation stopped. Work may still finish on the server. Check preparation again before starting another queue; completed work is kept.");
+    } finally {
+      ticket.controller.abort();
+      if (active.current === ticket) { active.current = null; setBusy(null); }
+    }
   }
 
   useEffect(() => {
@@ -99,22 +140,26 @@ function WorkbookPreparation({ batchId }: { batchId: string }) {
   const needs = rows.filter(row => ["needs", "running", "attention"].includes(row.state)).length;
   const unchecked = rows.filter(row => row.state === "unchecked").length;
   const visible = rows.filter(row => filter === "all" || (filter === "needs" ? ["needs", "running", "attention"].includes(row.state) : row.state === filter));
+  const hiddenSelection = selected.size - visible.filter(row => selected.has(row.worksheet.id)).length;
 
   return <main className={styles.page}>
     <Link href="/data-hub/import">Back to Data Hub imports</Link>
     <header className={styles.header}>
       <p className={styles.eyebrow}>Data Hub · Workbook preparation</p>
       <h1>See what’s ready for review</h1>
-      <p>Check your worksheets together, then open each one to continue preparation or review its field meanings and quality.</p>
+      <p>Check your worksheets together or prepare a selection in order, then review each worksheet’s field meanings and quality.</p>
     </header>
     <div className={styles.toolbar}>
       <Button type="button" disabled={!!busy} onClick={() => void run("load")}>Refresh worksheet list</Button>
       <Button type="button" variant="primary" disabled={!!busy || !eligible} onClick={() => void run("scan", worksheets ?? [])}>Check preparation</Button>
-      {busy ? <Button type="button" variant="ghost" onClick={() => active.current?.controller.abort()}>Stop checking</Button> : null}
+      {busy ? <Button type="button" variant="ghost" onClick={() => active.current?.controller.abort()}>{busy === "prepare" ? "Stop preparation" : "Stop checking"}</Button> : null}
     </div>
     <p role="status" aria-live="polite">{busy === "load" ? "Loading worksheets…" : busy === "scan"
       ? `Checking preparation: ${checks.size} of ${eligible} worksheets checked.`
-      : checkedAt ? `Preparation checked at ${checkedAt}. Status can change; each worksheet checks again when opened.` : "Preparation statuses have not been checked."}</p>
+      : busy === "prepare" ? `Preparing selected worksheets: ${Array.from(progress.values()).filter(value => value.phase === "ready").length} of ${selected.size} confirmed complete.`
+      : checkedAt ? `Preparation checked at ${checkedAt}. Status can change; each worksheet checks again when opened.`
+      : progress.size ? "Preparation statuses below reflect this run’s completed reads. Status can change; each worksheet checks again when opened."
+      : "Preparation statuses have not been checked."}</p>
     {error ? <p role="alert" className={styles.alert}>{error}</p> : null}
     {worksheets ? <>
       <section className={styles.summary} aria-label="Preparation summary">
@@ -122,6 +167,26 @@ function WorkbookPreparation({ batchId }: { batchId: string }) {
         <p><strong>{unchecked}</strong> not checked</p><p><strong>{rows.length - eligible}</strong> outside preparation</p>
       </section>
       <p className={styles.help}>Hidden, empty, ineligible and skipped worksheets stay visible here and are excluded from preparation checks.</p>
+      <section className={styles.selection} aria-label="Prepare selected worksheets">
+        <h2>Prepare selected worksheets</h2>
+        <p>Select up to {MAX_PREPARATION_SELECTION} worksheets. Source rows, standardized values and profiles are prepared one worksheet at a time. Completed steps are reused.</p>
+        <p role="status">{selected.size} selected{hiddenSelection ? ` · ${hiddenSelection} hidden by this filter.` : ""}</p>
+        <div className={styles.toolbar}>
+          <Button type="button" disabled={!!busy || !selected.size} onClick={() => { setSelected(new Set()); setConfirming(false); }}>Clear selection</Button>
+          <Button type="button" variant="primary" disabled={!!busy || !selected.size || mustRecheck} onClick={() => setConfirming(true)}>Prepare selection</Button>
+        </div>
+        {mustRecheck && !busy ? <p>Check preparation again before starting another queue. A stopped request may still finish on the server.</p> : null}
+        {confirming ? <div className={styles.confirmation} role="region" aria-label="Confirm worksheet preparation">
+          <h3>Prepare {selected.size} selected {selected.size === 1 ? "worksheet" : "worksheets"}?</h3>
+          <ol>{rows.filter(row => selected.has(row.worksheet.id)).map(({ worksheet }) => <li key={worksheet.id}>{worksheet.name || "Worksheet"} (worksheet {worksheet.index + 1})</li>)}</ol>
+          <p>This starts preparation on the server. The queue stops at the first step needing attention, with no automatic retry or continuation. Stopping or leaving this page stops waiting; server work may still finish. Each worksheet still needs an individual field and quality review.</p>
+          <div className={styles.toolbar}>
+            <Button type="button" variant="primary" onClick={() => void prepareSelected()}>Start selected preparation</Button>
+            <Button type="button" onClick={() => setConfirming(false)}>Keep selecting</Button>
+          </div>
+        </div> : null}
+        {queueMessage ? <p role="status">{queueMessage}</p> : null}
+      </section>
       <div className={styles.filter}><label htmlFor={filterId}>Show worksheets</label>
         <select id={filterId} value={filter} onChange={event => setFilter(event.target.value as Filter)}>
           <option value="all">All worksheets ({rows.length})</option><option value="needs">Need preparation or attention ({needs})</option>
@@ -133,8 +198,18 @@ function WorkbookPreparation({ batchId }: { batchId: string }) {
         : <ul className={styles.list}>{visible.map(({ worksheet, state }) => {
           const check = checks.get(worksheet.id);
           const snapshot = check && "snapshot" in check ? check.snapshot : null;
+          const queueProgress = progress.get(worksheet.id);
           return <li key={worksheet.id} className={styles.card}>
           <div className={styles.cardHeading}><h2>{worksheet.name || "Worksheet"} <span>(worksheet {worksheet.index + 1})</span></h2><p>{labels[state]}</p></div>
+          {!worksheet.excluded ? <label className={styles.checkbox}>
+            <input type="checkbox" checked={selected.has(worksheet.id)} disabled={!!busy || (!selected.has(worksheet.id) && selected.size >= MAX_PREPARATION_SELECTION)}
+              onChange={event => { const checked = event.target.checked; setConfirming(false); setSelected(previous => {
+                const next = new Set(previous); if (checked && next.size < MAX_PREPARATION_SELECTION) next.add(worksheet.id); else next.delete(worksheet.id); return next;
+              }); }} />
+            Select worksheet {worksheet.index + 1} for preparation
+          </label> : null}
+          {queueProgress ? <p>{queueProgress.phase === "checking" ? "Checking current preparation…" : queueProgress.phase === "preparing"
+            ? `Preparing: ${stepLabels[queueProgress.step!]}` : queueProgress.phase === "ready" ? "Confirmed complete in this queue." : "Queue paused here. Open worksheet preparation to continue."}</p> : null}
           {snapshot ? <dl className={styles.steps}>
             {PREPARATION_STEPS.map(step => <div key={step}><dt>{stepLabels[step]}</dt><dd>{statusLabels[snapshot[step].status]}</dd></div>)}
           </dl> : null}

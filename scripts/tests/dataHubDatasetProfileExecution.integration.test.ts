@@ -122,8 +122,22 @@ afterAll(async () => {
       worlds.push({ ...ids, rawRunId: upload.raw_staging_run_id, normRunId: upload.normalization_run_id,
         datasetProfileRunId: profiled.profileRunId, held, wide });
     }
+    // Queue fixtures stop after genuine raw staging. The built browser must
+    // perform normalization and profiling itself, without setup-time storage.
+    const queueWorlds = [];
+    for (let index = 0; index < 2; index++) {
+      const suffix = nextSuffix("browserqueue");
+      const ids = await seedWorld(suffix, ORG_A, [
+        { id: `${suffix}-r1`, sourceRowNumber: 4, col1: "ID-1", col2: "0", col3: "2024-01-01", col4: "first" },
+        { id: `${suffix}-r2`, sourceRowNumber: 5, col1: "ID-2", col2: null, col3: "2024-01-02", col4: "second" },
+      ], { rawOnly: true, workbook: true });
+      if ((await stageWorkbookFixture(ids)).status !== 200) throw new Error("queue fixture staging failed");
+      const upload = await prisma.upload.findUniqueOrThrow({ where: { id: ids.uploadId } });
+      if (!upload.raw_staging_run_id || upload.normalization_run_id || upload.dataset_profile_run_id) throw new Error("queue fixture must start raw-only");
+      queueWorlds.push({ ...ids, rawRunId: upload.raw_staging_run_id });
+    }
     mkdirSync("test-results/datahub-runtime", { recursive: true });
-    writeFileSync("test-results/datahub-runtime/fixture.json", JSON.stringify({ worlds, password }));
+    writeFileSync("test-results/datahub-runtime/fixture.json", JSON.stringify({ worlds, queueWorlds, password }));
   }
   // The analysis service uses the real application Prisma client as well.
   const { prisma: analysisPrisma } = await import("@/lib/prisma");

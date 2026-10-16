@@ -1,5 +1,10 @@
 # Workbook preparation overview
 
+The subsequent [selected preparation bundle](data-hub-workbook-preparation-queue.md)
+adds an explicit, confirmed preparation action. The inventory and status-check
+behavior below remains read-only; preparation is never started by opening or
+checking the overview.
+
 The manager-only `/data-hub/import/[batchId]/preparation` page brings persisted
 worksheets together before their individual governed reviews. Import history
 and the workbook inventory link to it. This bundle introduces no API, database
