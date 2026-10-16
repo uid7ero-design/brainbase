@@ -2,6 +2,14 @@
 
 This audit covers document management, lifecycle execution and HR administration. Operational registers and drawer recovery were released in PRs #423 and #424. The current fixture acceptance bundle is reviewable in PR #426; this is not a declaration that the whole HR product is complete or authorized for release.
 
+## Terminal browser recovery acceptance (16 October 2026)
+
+The terminal recovery bundle passes 90 disposable Postgres checks. Chromium sends participant removal, access revocation and document logical deletion through loopback HTTP and their actual route handlers, then withholds each successful response. The page locks the affected action; Refresh reads saved state without another DELETE. The participant is removed, grant revocation remains recorded and document deletion retains its metadata while removing its visible link. No browser errors occur. TypeScript and changed-file lint pass; disposable containers are removed. This is test/documentation work with no application change.
+
+PR #430's audit-rollback checks released as `3884148eb5418c15c9a0c0e356a72d66dcf2431b`; deployment `dpl_6cJZeXokhaX4f81FrbSX9jnEiNUR` reached READY with domains, post-merge CI `38692164869` passed and four unauthenticated HR register checks returned 401 private/no-store.
+
+Limits remain controlled sessions/modules/auxiliary reads, minimal schema and in-memory storage, browser interception rather than transport exactly-once delivery, full login/provider acceptance, every race and revocation after authorization. No real HR records or live providers are used. Historical references below to missing terminal lost-response cases are superseded by this checkpoint.
+
 ## Released restricted bundle and follow-up rollback acceptance (14 October 2026)
 
 PR #427 released as `9a68464840c47e4d6362e4c77273896f6a6e4203`. Deployment `dpl_7HG8t5DZfa1rF4YYgFFtBDaJqS6B` reached READY with production aliases; post-merge CI `38500793536` passed. Canonical unauthenticated register endpoints returned 401 with private/no-store caching.
