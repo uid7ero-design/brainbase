@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import { chromium } from '@playwright/test';
+import { verifyRemainingWorkflows } from './helpers/hrLocalWorkflows.mjs';
 
 const root = process.cwd();
 if (!existsSync(path.join(root, 'scripts/create-hr-people.sql'))) throw new Error('Run from the repository worktree.');
@@ -45,10 +46,10 @@ try {
   console.log('Applying repository Prisma schema to disposable database.');
   exec(process.execPath, ['node_modules/prisma/build/index.js', 'db', 'push', '--skip-generate'], { env });
   const q = (text, values) => pool.query(text, values);
-  for (const file of ['create-hr-teams.sql', 'create-hr-people.sql', 'add-hr-teams-archive.sql', 'create-hr-administrators.sql', 'add-hr-people-tenant-unique.sql', 'create-hr-lifecycle-workflows.sql', 'create-hr-employee-documents.sql', 'create-hr-employee-document-assurance.sql']) await q(readFileSync(`scripts/${file}`, 'utf8'));
+  for (const file of ['create-hr-teams.sql', 'create-hr-people.sql', 'add-hr-teams-archive.sql', 'create-hr-administrators.sql', 'add-hr-people-tenant-unique.sql', 'create-hr-lifecycle-workflows.sql', 'create-hr-employee-documents.sql', 'create-hr-employee-document-assurance.sql', 'create-hr-restricted-cases.sql']) await q(readFileSync(`scripts/${file}`, 'utf8'));
   const hash = await bcrypt.hash(password, 10);
   for (const org of ['local-hr', 'local-other']) await q('INSERT INTO organisations(id,name,slug,updated_at) VALUES($1,$1,$1,now())', [org]);
-  for (const user of ['local-admin', 'local-employee']) await q(`INSERT INTO users(id,organisation_id,username,name,password_hash,updated_at) VALUES($1,'local-hr',$1,$1,$2,now())`, [user, hash]);
+  for (const user of ['local-admin', 'local-employee', 'local-manager']) await q(`INSERT INTO users(id,organisation_id,username,name,password_hash,updated_at) VALUES($1,'local-hr',$1,$1,$2,now())`, [user, hash]);
   await q("INSERT INTO modules(key,name,active,updated_at) VALUES('people','People',true,now())");
   await q("INSERT INTO organisation_modules(organisation_id,module_key,enabled,updated_at) VALUES('local-hr','people',true,now())");
   await q("INSERT INTO hr_administrators(organisation_id,user_id) VALUES('local-hr','local-admin')");
@@ -56,16 +57,41 @@ try {
   let sqlCalls = 0;
   const objects = new Map();
   let storageCalls = 0;
+  const emails = [];
+  env.RESEND_API_KEY = 'local-email-fixture';
+  env.CRON_SECRET = randomUUID();
   bridge = createServer(async (request, response) => {
     let client;
     try {
       const url = new URL(request.url, 'http://local.test');
+      if (url.pathname === '/email') {
+        assert.equal(request.headers.authorization, 'Bearer local-email-fixture');
+        const chunks = []; for await (const chunk of request) chunks.push(chunk);
+        const mail = JSON.parse(Buffer.concat(chunks).toString());
+        assert.equal(mail.to, 'employee@local.invalid');
+        emails.push(mail);
+        if (emails.length === 2) { response.destroy(); return; }
+        response.setHeader('Content-Type', 'application/json');
+        if (emails.length === 3) { response.statusCode = 422; response.end(JSON.stringify({ name: 'local_rejected' })); return; }
+        response.end(JSON.stringify({ id: `local-email-${emails.length}` })); return;
+      }
       if (url.pathname.startsWith('/blob') || url.pathname.startsWith('/objects/')) {
-        assert.equal(request.headers.authorization, 'Bearer vercel_blob_rw_localemployee_fixture');
+        const token = request.headers.authorization;
+        assert.ok(['Bearer vercel_blob_rw_localemployee_fixture', 'Bearer vercel_blob_rw_localrestricted_fixture'].includes(token));
+        const store = token.includes('localrestricted') ? 'localrestricted' : 'localemployee';
         storageCalls++;
+        if (request.method === 'POST' && url.pathname === '/blob/delete') {
+          const chunks = []; for await (const chunk of request) chunks.push(chunk);
+          for (const key of JSON.parse(Buffer.concat(chunks).toString()).urls) {
+            const object = objects.get(key);
+            if (object) { assert.equal(object.token, token); objects.delete(key); }
+          }
+          response.setHeader('Content-Type', 'application/json'); response.end('{}'); return;
+        }
         if (url.pathname.startsWith('/objects/')) {
           const object = objects.get(decodeURIComponent(url.pathname.slice(9)));
           if (!object) { response.statusCode = 404; response.end(); return; }
+          assert.equal(object.token, token);
           response.writeHead(200, { 'Content-Type': object.meta.contentType, 'Content-Length': object.bytes.length, ETag: object.meta.etag, 'Last-Modified': object.meta.uploadedAt, 'Cache-Control': 'private, no-store' });
           response.end(object.bytes); return;
         }
@@ -75,12 +101,13 @@ try {
           assert.ok(key); assert.ok(!objects.has(key));
           const chunks = []; for await (const chunk of request) chunks.push(chunk);
           const bytes = Buffer.concat(chunks);
-          const meta = { pathname: key, url: `https://localemployee.private.blob.vercel-storage.com/${key}`, downloadUrl: `https://localemployee.private.blob.vercel-storage.com/${key}?download=1`, size: bytes.length, contentType: request.headers['x-content-type'] ?? 'application/pdf', etag: randomUUID(), uploadedAt: new Date().toISOString(), contentDisposition: 'attachment', cacheControl: 'private, no-store' };
-          objects.set(key, { bytes, meta }); response.end(JSON.stringify(meta)); return;
+          const meta = { pathname: key, url: `https://${store}.private.blob.vercel-storage.com/${key}`, downloadUrl: `https://${store}.private.blob.vercel-storage.com/${key}?download=1`, size: bytes.length, contentType: request.headers['x-content-type'] ?? 'application/pdf', etag: randomUUID(), uploadedAt: new Date().toISOString(), contentDisposition: 'attachment', cacheControl: 'private, no-store' };
+          objects.set(key, { bytes, meta, token }); response.end(JSON.stringify(meta)); return;
         }
         if (request.method === 'GET') {
           const object = objects.get(key);
           if (!object) { response.statusCode = 404; response.end(JSON.stringify({ error: { code: 'not_found', message: 'Fixture object missing' } })); return; }
+          assert.equal(object.token, token);
           response.end(JSON.stringify(object.meta)); return;
         }
         throw new Error('Unexpected local storage operation.');
@@ -106,6 +133,7 @@ try {
   const sqlPort = await listen(bridge);
   const reserved = createServer(); const appPort = await listen(reserved); await close(reserved);
   Object.assign(env, { HR_LOCAL_SQL_BRIDGE: `http://127.0.0.1:${sqlPort}/sql`, VERCEL_BLOB_API_URL: `http://127.0.0.1:${sqlPort}/blob`, HR_EMPLOYEE_DOC_BLOB_STORE_ID: 'localemployee', HR_EMPLOYEE_DOC_BLOB_READ_WRITE_TOKEN: 'vercel_blob_rw_localemployee_fixture', NODE_OPTIONS: `--import=${pathToFileURL(path.join(root, 'scripts/tests/helpers/hrLocalNetworkGuard.mjs')).href}` });
+  Object.assign(env, { HR_RESTRICTED_BLOB_STORE_ID: 'localrestricted', HR_RESTRICTED_BLOB_READ_WRITE_TOKEN: 'vercel_blob_rw_localrestricted_fixture' });
   exec(process.execPath, ['--input-type=module', '-e', `
     import assert from 'node:assert/strict'; import {fetch as sdkFetch} from 'undici';
     await assert.rejects(fetch('https://example.invalid'), /External fetch blocked/);
@@ -169,7 +197,8 @@ try {
   const replacementId = (await replacement.json()).version.id;
   const history = await (await context.request.get(`${base}/versions`)).json();
   assert.equal(history.versions.length, 2); assert.equal(history.versions.filter(version => version.is_current).length, 1);
-  assert.equal((await context.request.post(`${base}/versions/${replacementId}/verifications`, { data: { decision: 'VERIFIED' } })).status(), 201);
+  const verification = await context.request.post(`${base}/versions/${replacementId}/verifications`, { data: { decision: 'VERIFIED' } });
+  assert.equal(verification.status(), 201, await verification.text());
   const employeeContext = await browser.newContext();
   await employeeContext.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort('blockedbyclient'));
   const employeePage = await employeeContext.newPage();
@@ -200,6 +229,7 @@ try {
   assert.equal((await employeeContext.request.get(`${base}/versions/${replacementId}`)).status(), 404);
   assert.equal((await q('SELECT count(*)::int AS count FROM hr_employee_document_versions WHERE document_id=$1', [docId])).rows[0].count, 2);
   assert.equal(objects.size, 2);
+  await verifyRemainingWorkflows({ origin, context, page, employeeContext, employeePage, person, q, emails, cronSecret: env.CRON_SECRET, password, browser });
   assert.equal((await employeeContext.request.post(`${origin}/api/auth/logout`)).status(), 200);
   assert.ok(!(await employeeContext.cookies()).some(cookie => cookie.name === 'session'));
   assert.equal((await employeeContext.request.get(`${origin}/api/hr/people`)).status(), 401);
@@ -214,7 +244,7 @@ try {
   assert.ok(sqlCalls > 5);
   console.log('PASS: real login, HttpOnly session, HR tenant containment, grant revocation, entitlement denial and inactive-session denial.');
 } catch (error) {
-  console.error(error.message); console.error(logs); process.exitCode = 1;
+  console.error(error.stack); console.error(logs); process.exitCode = 1;
 } finally {
   await browser?.close();
   if (app?.pid) {

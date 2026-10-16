@@ -11,7 +11,7 @@ if (!bridge || !connection || new URL(bridge).hostname !== '127.0.0.1'
 setGlobalDispatcher(new class extends Dispatcher {
   dispatch(options, handler) {
     const url = new URL(String(options.origin));
-    if (url.hostname === 'localemployee.private.blob.vercel-storage.com') {
+    if (['localemployee.private.blob.vercel-storage.com', 'localrestricted.private.blob.vercel-storage.com'].includes(url.hostname)) {
       const local = new URL(bridge);
       return agent.dispatch({ ...options, origin: local.origin, path: `/objects${options.path}` }, handler);
     }
@@ -32,6 +32,10 @@ globalThis.fetch = async (input, init) => {
     return nativeFetch(bridge, init);
   }
   const url = new URL(input instanceof Request ? input.url : String(input));
+  // Only a synthetic credential can reach the local email recorder.
+  if (url.href === 'https://api.resend.com/emails' && headers.get('authorization') === 'Bearer local-email-fixture') {
+    return nativeFetch(new URL('/email', bridge), init);
+  }
   if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) throw new Error('External fetch blocked by HR local proof.');
   return nativeFetch(input, init);
 };
