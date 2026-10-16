@@ -29,7 +29,9 @@ describe("workbook preparation selection and recovery", () => {
   it("does no status read or write on selection/confirmation and shows all chosen identities across filters", async () => {
     const { fetcher } = setup(); render(<WorkbookPreparationClient batchId="batch" />); await loaded();
     select(2); select();
+    expect(screen.queryByText(/hidden by this filter/)).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Show worksheets"), { target: { value: "ready" } }); confirm();
+    expect(screen.getByText("2 selected · 2 hidden by this filter.")).toBeInTheDocument();
     const region = screen.getByRole("region", { name: "Confirm worksheet preparation" });
     expect(within(region).getAllByRole("listitem").map(item => item.textContent)).toEqual(["Same name (worksheet 1)", "Same name (worksheet 2)"]);
     expect(region).toHaveTextContent("server work may still finish"); expect(fetcher).toHaveBeenCalledTimes(1);
@@ -52,6 +54,7 @@ describe("workbook preparation selection and recovery", () => {
     expect(writes(fetcher)).toHaveLength(3); expect(fetcher.mock.calls.some(([url]) => url.includes("/w1/"))).toBe(false);
     expect(screen.getByRole("link", { name: "Review worksheet 1" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Review worksheet 2" })).not.toBeInTheDocument();
+    expect(screen.getByText(/Preparation statuses below reflect/)).toBeInTheDocument();
     expect(fetcher.mock.calls.some(([url]) => /analysis|count/.test(url))).toBe(false);
   });
   it("pauses on existing running work and blocks restart until an explicit read-only check", async () => {

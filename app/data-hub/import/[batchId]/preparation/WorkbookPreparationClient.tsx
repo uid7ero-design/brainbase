@@ -140,6 +140,7 @@ function WorkbookPreparation({ batchId }: { batchId: string }) {
   const needs = rows.filter(row => ["needs", "running", "attention"].includes(row.state)).length;
   const unchecked = rows.filter(row => row.state === "unchecked").length;
   const visible = rows.filter(row => filter === "all" || (filter === "needs" ? ["needs", "running", "attention"].includes(row.state) : row.state === filter));
+  const hiddenSelection = selected.size - visible.filter(row => selected.has(row.worksheet.id)).length;
 
   return <main className={styles.page}>
     <Link href="/data-hub/import">Back to Data Hub imports</Link>
@@ -156,7 +157,9 @@ function WorkbookPreparation({ batchId }: { batchId: string }) {
     <p role="status" aria-live="polite">{busy === "load" ? "Loading worksheets…" : busy === "scan"
       ? `Checking preparation: ${checks.size} of ${eligible} worksheets checked.`
       : busy === "prepare" ? `Preparing selected worksheets: ${Array.from(progress.values()).filter(value => value.phase === "ready").length} of ${selected.size} confirmed complete.`
-      : checkedAt ? `Preparation checked at ${checkedAt}. Status can change; each worksheet checks again when opened.` : "Preparation statuses have not been checked."}</p>
+      : checkedAt ? `Preparation checked at ${checkedAt}. Status can change; each worksheet checks again when opened.`
+      : progress.size ? "Preparation statuses below reflect this run’s completed reads. Status can change; each worksheet checks again when opened."
+      : "Preparation statuses have not been checked."}</p>
     {error ? <p role="alert" className={styles.alert}>{error}</p> : null}
     {worksheets ? <>
       <section className={styles.summary} aria-label="Preparation summary">
@@ -167,14 +170,14 @@ function WorkbookPreparation({ batchId }: { batchId: string }) {
       <section className={styles.selection} aria-label="Prepare selected worksheets">
         <h2>Prepare selected worksheets</h2>
         <p>Select up to {MAX_PREPARATION_SELECTION} worksheets. Source rows, standardized values and profiles are prepared one worksheet at a time. Completed steps are reused.</p>
-        <p role="status">{selected.size} selected{selected.size && filter !== "all" ? " · Selection includes worksheets hidden by this filter." : ""}</p>
+        <p role="status">{selected.size} selected{hiddenSelection ? ` · ${hiddenSelection} hidden by this filter.` : ""}</p>
         <div className={styles.toolbar}>
           <Button type="button" disabled={!!busy || !selected.size} onClick={() => { setSelected(new Set()); setConfirming(false); }}>Clear selection</Button>
           <Button type="button" variant="primary" disabled={!!busy || !selected.size || mustRecheck} onClick={() => setConfirming(true)}>Prepare selection</Button>
         </div>
         {mustRecheck && !busy ? <p>Check preparation again before starting another queue. A stopped request may still finish on the server.</p> : null}
         {confirming ? <div className={styles.confirmation} role="region" aria-label="Confirm worksheet preparation">
-          <h3>Prepare {selected.size} selected worksheets?</h3>
+          <h3>Prepare {selected.size} selected {selected.size === 1 ? "worksheet" : "worksheets"}?</h3>
           <ol>{rows.filter(row => selected.has(row.worksheet.id)).map(({ worksheet }) => <li key={worksheet.id}>{worksheet.name || "Worksheet"} (worksheet {worksheet.index + 1})</li>)}</ol>
           <p>This starts preparation on the server. The queue stops at the first step needing attention, with no automatic retry or continuation. Stopping or leaving this page stops waiting; server work may still finish. Each worksheet still needs an individual field and quality review.</p>
           <div className={styles.toolbar}>
