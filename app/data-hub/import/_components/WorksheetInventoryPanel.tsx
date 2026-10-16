@@ -101,6 +101,7 @@ export default function WorksheetInventoryPanel({
                   </td>
                 ))}
                 <td style={{ padding: "8px 10px", borderBottom: "1px solid var(--border-light)" }}>
+                  <Link href={`/data-hub/prepare/${encodeURIComponent(w.id)}`} style={{ display: "block", marginBottom: 8 }}>Prepare for review</Link>
                   <Link href={`/data-hub/analysis/${encodeURIComponent(w.id)}`} style={{ display: "block", marginBottom: 8 }}>Review dataset and count</Link>
                   {w.worksheetVisibility === "visible" && !w.worksheetIsEmpty && w.canonicalStatus === "AWAITING_CONFIRMATION" ? (
                     <button type="button" onClick={() => onPreview(w.id)} style={{ fontSize: 12, padding: "5px 10px", borderRadius: 6, cursor: "pointer" }}>
