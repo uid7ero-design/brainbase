@@ -7,6 +7,7 @@ import { Pool } from 'pg';
 import { chromium, expect } from '@playwright/test';
 import { FIXTURE_PREPARATION, SETUP_STORAGE } from './helpers/dataHubAcceptanceReceipt.mjs';
 import { verifyWorkbookOverview } from './helpers/dataHubWorkbookOverviewProof.mjs';
+import { verifyWorkbookQueue } from './helpers/dataHubWorkbookQueueProof.mjs';
 
 // Invoked only by verify-datahub-profile-execution.sh after provisioning its
 // disposable Docker database and seeding real profile evidence. The build,
@@ -19,7 +20,7 @@ if (process.env.DATAHUB_BROWSER_PROOF !== '1' || !connectionString ||
 readFileSync('.next/BUILD_ID', 'utf8');
 const directory = resolve('test-results/datahub-runtime');
 const fixturePath = resolve(directory, 'fixture.json');
-const { worlds, password } = JSON.parse(readFileSync(fixturePath, 'utf8'));
+const { worlds, queueWorlds, password } = JSON.parse(readFileSync(fixturePath, 'utf8'));
 unlinkSync(fixturePath); // Do not retain even disposable login credentials.
 const pool = new Pool({ connectionString: connectionString.replace('localhost', '127.0.0.1') });
 const secret = randomBytes(32).toString('hex');
@@ -138,6 +139,7 @@ try {
     })]); } finally { clearTimeout(timer); }
   }
   await verifyWorkbookOverview({ page, context, pool, origin, ready, evidence, directory });
+  await verifyWorkbookQueue({ page, context, pool, origin, ready, queueWorlds, evidence, directory });
   await page.goto(origin + '/data-hub/import');
   await page.getByRole('button', { name: 'Review worksheets in analysis-ready.xlsx', exact: true }).click();
   await page.getByRole('link', { name: 'Data (worksheet 1) — review and count', exact: true }).click();
