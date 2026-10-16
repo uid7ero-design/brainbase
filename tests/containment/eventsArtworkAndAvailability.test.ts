@@ -42,7 +42,10 @@ describe('Public event page — malformed aggregate remaining badge is gone', ()
   })
 
   it('ticket type remaining is still displayed independently, on its own choice card', () => {
-    const fn = clientSrc.slice(clientSrc.indexOf('function TicketOption'), clientSrc.indexOf('function SessionOption'))
+    // Phase 2: the per-type card is now TicketQuantityRow (a cart stepper
+    // per ticket type) — same independent remaining display.
+    expect(clientSrc.indexOf('function TicketQuantityRow')).toBeGreaterThan(-1)
+    const fn = clientSrc.slice(clientSrc.indexOf('function TicketQuantityRow'), clientSrc.indexOf('function SessionOption'))
     expect(fn).toMatch(/ticket\.remaining/)
     expect(fn).toMatch(/formatPlacesRemaining/)
   })
@@ -64,7 +67,8 @@ describe('Public event page — malformed aggregate remaining badge is gone', ()
     // on the remaining/sold-out line — that styling must be gone from
     // both option components (letterSpacing-only styling elsewhere in
     // the file, e.g. the "EVENT" eyebrow label, is unrelated and fine).
-    const ticketFn = clientSrc.slice(clientSrc.indexOf('function TicketOption'), clientSrc.indexOf('function SessionOption'))
+    expect(clientSrc.indexOf('function TicketQuantityRow')).toBeGreaterThan(-1)
+    const ticketFn = clientSrc.slice(clientSrc.indexOf('function TicketQuantityRow'), clientSrc.indexOf('function SessionOption'))
     const sessionFn = clientSrc.slice(clientSrc.indexOf('function SessionOption'))
     expect(ticketFn).not.toMatch(/textTransform: 'uppercase'/)
     expect(sessionFn).not.toMatch(/textTransform: 'uppercase'/)
@@ -74,9 +78,9 @@ describe('Public event page — malformed aggregate remaining badge is gone', ()
 describe('lib/events/publicEventDetail.ts — bigint/string root cause is fixed at the source', () => {
   const src = stripComments(read('lib/events/publicEventDetail.ts'))
 
-  it('both remaining computations (session and ticket type) are cast to ::int, not left as bigint', () => {
+  it('every remaining computation (session, ticket type, and the Phase 3 ticket type × session pair) is cast to ::int, not left as bigint', () => {
     const castCount = (src.match(/\)::int AS remaining/g) ?? []).length
-    expect(castCount).toBe(2)
+    expect(castCount).toBe(3)
   })
 })
 

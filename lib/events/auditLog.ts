@@ -482,6 +482,46 @@ export async function logEventTicketTypeDeleted(params: {
   });
 }
 
+// ── Ticket type × session inventory audit (Phase 3) ──────────────────
+//
+// resource_type 'event_ticket_type_session_inventory' — its own literal
+// (ADR-0003 §10), exactly as event_session/event_ticket_type are above:
+// an override row is a manager-editable catalog entity in its own right
+// (set/cleared from the Sessions panel), not a sub-field of either
+// parent. resource_id = the override row's own id. Setting an override
+// (create OR change — one action, since the organiser sees one "Set"
+// control and the write is an upsert) logs `.set` with the previous
+// capacity (null when newly created); clearing logs `.cleared`. Both
+// carry event_id, ticket_type_id and event_session_id in state so
+// "which pair" is answered without a join. Capacity is public catalog
+// data — never PII or payment detail.
+
+export async function logEventTicketTypeSessionInventorySet(params: {
+  organisationId: string; userId: string; eventId: string; sessionId: string; ticketTypeId: string; inventoryId: string;
+  beforeCapacity: number | null; afterCapacity: number;
+}): Promise<void> {
+  const pair = { event_id: params.eventId, ticket_type_id: params.ticketTypeId, event_session_id: params.sessionId };
+  if (params.beforeCapacity === params.afterCapacity) return;
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event_ticket_type_session_inventory.set',
+    resourceType: 'event_ticket_type_session_inventory', resourceId: params.inventoryId,
+    beforeState: params.beforeCapacity === null ? null : { ...pair, capacity: params.beforeCapacity },
+    afterState: { ...pair, capacity: params.afterCapacity },
+  });
+}
+
+export async function logEventTicketTypeSessionInventoryCleared(params: {
+  organisationId: string; userId: string; eventId: string; sessionId: string; ticketTypeId: string; inventoryId: string;
+  beforeCapacity: number;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event_ticket_type_session_inventory.cleared',
+    resourceType: 'event_ticket_type_session_inventory', resourceId: params.inventoryId,
+    beforeState: { event_id: params.eventId, ticket_type_id: params.ticketTypeId, event_session_id: params.sessionId, capacity: params.beforeCapacity },
+    afterState: null,
+  });
+}
+
 // ── Stripe Connect audit (Phase 8) ───────────────────────────────────
 //
 // resource_type 'stripe_connect_account', resource_id = the Stripe

@@ -2713,6 +2713,9 @@ model Event {
   event_sessions  EventSession[]
   ticket_types    EventTicketType[]
   orders          EventOrder[]
+  // Phase 3 — ticket type × session inventory overrides (see
+  // scripts/create-events-ticket-type-session-inventory.sql).
+  session_inventory EventTicketTypeSessionInventory[]
   registration_questions EventRegistrationQuestion[]
 
   // Slug uniqueness is per-organisation only, not global — Phase 1 has
@@ -2742,6 +2745,7 @@ model EventSession {
   // model's own comment above for why this, not a plain event_id FK.
   event           Event        @relation(fields: [event_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
   order_items     EventOrderItem[]
+  type_inventory  EventTicketTypeSessionInventory[]
 
   // Phase 2 addition (additive-only, no behavioural change to Phase 1):
   // backs a composite FK from event_order_items(event_session_id,
@@ -2750,6 +2754,11 @@ model EventSession {
   // registration physically cannot select a session belonging to a
   // different organisation.
   @@unique([id, organisation_id])
+  // Phase 3 addition (additive-only): backs the composite FK from
+  // event_ticket_type_session_inventory(event_session_id, event_id,
+  // organisation_id), which forces an override's session and ticket type
+  // to belong to the SAME event of the SAME organisation.
+  @@unique([id, event_id, organisation_id])
   @@index([event_id])
   @@index([organisation_id])
   @@map("event_sessions")
@@ -2775,15 +2784,51 @@ model EventTicketType {
   // model's own comment above for why this, not a plain event_id FK.
   event           Event        @relation(fields: [event_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
   order_items     EventOrderItem[]
+  session_inventory EventTicketTypeSessionInventory[]
 
   // Phase 2 addition (additive-only, no behavioural change to Phase 1):
   // backs a composite FK from event_order_items(ticket_type_id,
   // organisation_id) — same rationale as EventSession's own addition
   // above.
   @@unique([id, organisation_id])
+  // Phase 3 addition (additive-only) — see EventSession's own comment.
+  @@unique([id, event_id, organisation_id])
   @@index([event_id])
   @@index([organisation_id])
   @@map("event_ticket_types")
+}
+
+// ─── Events & Ticketing (Phase 3 — ticket type × session inventory) ────
+// One OPTIONAL capacity override per (ticket type, session) pair. When a
+// row exists, that ticket type's capacity within that session is this
+// row's capacity (counted against that pair's own sales); when none
+// exists, the ticket type's event-wide capacity applies unchanged. The
+// session's own capacity always remains the shared upper bound across
+// every ticket type in it. Clearing an override deletes the row — there
+// is no nullable/unlimited state. Full rationale, including the
+// composite (id, event_id, organisation_id) FKs that make a cross-
+// organisation or cross-event pair physically unrepresentable, in
+// scripts/create-events-ticket-type-session-inventory.sql.
+model EventTicketTypeSessionInventory {
+  id               String          @id @default(dbgenerated("(gen_random_uuid())::text"))
+  organisation_id  String
+  event_id         String
+  ticket_type_id   String
+  event_session_id String
+  capacity         Int
+  created_at       DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime        @updatedAt @db.Timestamptz(6)
+
+  event            Event           @relation(fields: [event_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
+  ticket_type      EventTicketType @relation(fields: [ticket_type_id, event_id, organisation_id], references: [id, event_id, organisation_id], onDelete: Cascade)
+  session          EventSession    @relation(fields: [event_session_id, event_id, organisation_id], references: [id, event_id, organisation_id], onDelete: Cascade)
+
+  @@unique([id, organisation_id])
+  @@unique([ticket_type_id, event_session_id, organisation_id])
+  @@index([organisation_id])
+  @@index([event_id])
+  @@index([event_session_id])
+  @@map("event_ticket_type_session_inventory")
 }
 
 // ─── Events & Ticketing (Phase 2 — public free registration) ───────────

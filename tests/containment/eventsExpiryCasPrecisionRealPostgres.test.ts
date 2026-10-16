@@ -109,6 +109,7 @@ const MIGRATIONS = [
   'scripts/add-events-registration-questions.sql',
   'scripts/add-events-booking-wallet.sql',
   'scripts/add-events-ticket-email-delivery.sql',
+  'scripts/create-events-ticket-type-session-inventory.sql',
 ]
 
 const EVENT = {
@@ -116,9 +117,12 @@ const EVENT = {
   artwork_url: null, starts_at: '2030-01-01T10:00:00Z', ends_at: '2030-01-01T12:00:00Z', timezone: 'Australia/Adelaide',
 }
 const VALIDATED = {
-  ticket_type_id: 'tt-paid', event_session_id: null, quantity: 1,
+  // Phase 2 (PR #429): the validated registration carries a cart of
+  // items; this suite keeps a single one-ticket line so the guards are
+  // exercised exactly as the hotfix exercised them.
+  items: [{ ticket_type_id: 'tt-paid', quantity: 1 }], event_session_id: null, quantity: 1,
   purchaser_name: 'Jane', purchaser_email: 'jane@example.com', purchaser_phone: null,
-  attendees: [{ name: 'Jane', email: null, responses: [] }], order_responses: [],
+  attendees: [{ name: 'Jane', email: null, responses: [], ticket_type_id: 'tt-paid' }], order_responses: [],
 }
 const URLS = async () => ({ successUrl: 'https://example.test/s', cancelUrl: 'https://example.test/c' })
 const RETRY_URLS = async () => ({ successUrl: 'https://example.test/s', cancelUrl: 'https://example.test/c' })

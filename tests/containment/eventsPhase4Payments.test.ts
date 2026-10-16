@@ -195,8 +195,9 @@ describe('Paid checkout route — validation and price integrity', () => {
   it('a client-supplied price_cents in the request body has no effect — Stripe is called with the DB-derived amount', async () => {
     queue(ORG_ROW, EVENT_ROW, PAID_TT_ROW)
     await checkoutRoute.POST(req({ ...VALID_BODY, price_cents: 1 }), CTX)
+    // Phase 2: one Stripe line item per cart line.
     expect(createCheckoutSessionMock).toHaveBeenCalledWith(
-      expect.objectContaining({ unitAmountCents: 2500, currency: 'AUD', quantity: 1 }),
+      expect.objectContaining({ currency: 'AUD', lineItems: [{ name: 'Premium Guest', unitAmountCents: 2500, quantity: 1 }] }),
     )
   })
 
@@ -357,8 +358,13 @@ describe('Checkout-vs-Retry race closure (PR #231 follow-up)', () => {
     // produces a brand-new, distinct order id (see RETURNING id/order_id
     // in both) — there is no code path where a SECOND checkout request
     // could target an order a FIRST checkout request already created.
+    // Phase 2: session-bound and non-session reservations now share ONE
+    // order-creating INSERT (the session check is a conditional clause
+    // of the same gate) — still an INSERT, never an UPDATE of an
+    // existing order id.
     const occurrences = code.match(/INSERT INTO event_orders/g) ?? []
-    expect(occurrences.length).toBe(2)
+    expect(occurrences.length).toBe(1)
+    expect(code).toMatch(/INSERT INTO event_orders[\s\S]*?FROM gate\s*\n\s*RETURNING id/)
   })
 })
 
@@ -1077,12 +1083,19 @@ describe('Phase 4 — architecture containment (no scope creep beyond the brief)
   })
 
   it('the checkout route reuses the Phase 2 R1 lock-order discipline — FOR UPDATE on ticket_type before session, every code path', () => {
+    // Phase 2: lock statements come from the shared cart helper (every
+    // reservation path uses it), which emits ticket-type locks in
+    // ascending id order and then the session lock.
     const code = stripComments(read('lib/events/services/paidCheckout.ts'))
-    expect(code).toMatch(/FOR UPDATE/)
-    const ttLockIdx = code.indexOf('event_ticket_types')
-    const sessLockIdx = code.indexOf('event_sessions WHERE id')
+    expect(code).toMatch(/\.\.\.buildCartLockStatements\(organisationId, lineTypeIds, validated\.event_session_id\)/)
+    const cart = stripComments(read('lib/events/services/cart.ts'))
+    const fn = cart.slice(cart.indexOf('export function buildCartLockStatements'))
+    expect(fn).toMatch(/FOR UPDATE/)
+    const ttLockIdx = fn.indexOf('event_ticket_types')
+    const sessLockIdx = fn.indexOf('event_sessions WHERE id')
     expect(ttLockIdx).toBeGreaterThan(-1)
     expect(sessLockIdx).toBeGreaterThan(ttLockIdx)
+    expect(fn).toMatch(/cartLockOrder\(ticketTypeIds\)/)
   })
 
   // Updated by the Events/Ticketing production-readiness audit's stale-
@@ -1101,8 +1114,8 @@ describe('Phase 4 — architecture containment (no scope creep beyond the brief)
   // decide what already counts against capacity.
   it('the free registration route\'s capacity-gate SQL shape is otherwise preserved, still never calls Stripe or writes payment/Stripe columns — the only change is a narrow, read-only stale-reservation exclusion mirroring the paid route', () => {
     const code = stripComments(read('lib/events/services/freeRegistration.ts'))
-    expect(code).toMatch(/FOR UPDATE/)
-    expect(code).toMatch(/sold_tt\.qty \+ \$\{validated\.quantity\} <=/)
+    expect(code).toMatch(/buildCartLockStatements\(/)
+    expect(code).toMatch(/NOT EXISTS \(SELECT 1 FROM cart_tt WHERE cart_tt\.sold \+ cart_tt\.quantity > cart_tt\.capacity\)/)
     expect(stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))).not.toMatch(/stripe/i)
     // Still architecturally separate from Stripe entirely.
     expect(code).not.toMatch(/stripe/i)
@@ -1146,10 +1159,10 @@ describe('Hotfix — expiry CAS precision (no JS-Date timestamptz equality guard
     }
   })
 
-  it('every generation guard compares the Postgres-normalised stamp cast to bigint on BOTH sides (paidCheckout: write-back + 2 compensating cancels; retry: 2 reacquire branches + write-back)', () => {
+  it('every generation guard compares the Postgres-normalised stamp cast to bigint on BOTH sides (paidCheckout: write-back + 2 compensating cancels; retry: the single whole-order reacquire statement + write-back)', () => {
     const stampGuard = /\(extract\(epoch FROM (?:eo\.)?expires_at\) \* 1000000\)::bigint IS NOT DISTINCT FROM \$\{\w+ExpiresAtStamp\}::bigint/g
     expect((stripComments(read('lib/events/services/paidCheckout.ts')).match(stampGuard) ?? []).length).toBe(3)
-    expect((stripComments(read('lib/events/services/retryCheckout.ts')).match(stampGuard) ?? []).length).toBe(3)
+    expect((stripComments(read('lib/events/services/retryCheckout.ts')).match(stampGuard) ?? []).length).toBe(2)
   })
 
   it('the stamp is read from Postgres as text (never parsed into a JS Date/number), so no precision is lost in transit', () => {

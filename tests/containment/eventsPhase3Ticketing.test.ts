@@ -211,14 +211,19 @@ describe('Ticket identity — architecture containment (register route)', () => 
     expect(httpRouteSrc).not.toMatch(/randomBytes|generateTicketToken/)
   })
 
-  it('the R1 concurrency-safe capacity gate is textually unchanged — lock statements and capacity WHERE clauses are still present', () => {
-    expect(routeSrc).toMatch(/FOR UPDATE/)
-    expect(routeSrc).toMatch(/sold_tt\.qty \+ \$\{validated\.quantity\} <=/)
+  // Phase 2 (multi-ticket-type carts): the R1 shape is preserved —
+  // separate FOR UPDATE lock statements (now built by the shared cart
+  // helper, one per ticket type, then the session) followed by one
+  // capacity-gated statement that checks every line and the session.
+  it('the R1 concurrency-safe capacity gate is preserved — lock statements and capacity WHERE clauses are still present', () => {
+    expect(routeSrc).toMatch(/buildCartLockStatements\(organisationId, lineTypeIds, validated\.event_session_id\)/)
+    expect(stripComments(read('lib/events/services/cart.ts'))).toMatch(/FOR UPDATE/)
+    expect(routeSrc).toMatch(/NOT EXISTS \(SELECT 1 FROM cart_tt WHERE cart_tt\.sold \+ cart_tt\.quantity > cart_tt\.capacity\)/)
     expect(routeSrc).toMatch(/sold_sess\.qty \+ \$\{validated\.quantity\} <=/)
   })
 
   it('ticket_token is passed through the same UNNEST parallel-array mechanism as attendee names/emails, not a separate untrusted insert path', () => {
-    expect(routeSrc).toMatch(/UNNEST\(\$\{attendeeNames\}::text\[\], \$\{attendeeEmails\}::text\[\], \$\{ticketTokens\}::text\[\]\)/)
+    expect(routeSrc).toMatch(/UNNEST\(\$\{attendeeTypeIds\}::text\[\], \$\{attendeeNames\}::text\[\], \$\{attendeeEmails\}::text\[\], \$\{ticketTokens\}::text\[\]\)/)
   })
 })
 

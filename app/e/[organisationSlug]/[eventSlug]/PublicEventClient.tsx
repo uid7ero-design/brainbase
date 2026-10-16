@@ -111,6 +111,15 @@ const EVENT_PAGE_CSS = `
 }
 .bb-radio-card input:focus-visible + .bb-radio-card-inner { outline: 2px solid ${VIOLET}; outline-offset: 2px; }
 .bb-radio-card input:disabled + .bb-radio-card-inner { opacity: .42; cursor: not-allowed; }
+.bb-ticket-row {
+  border: 1px solid ${BORDER}; background: rgba(255,255,255,.02); border-radius: 12px; padding: 13px 15px;
+  transition: border-color .15s ease, background .15s ease, box-shadow .15s ease;
+}
+.bb-ticket-row.is-selected {
+  border-color: rgba(var(--bbpe-accent-rgb),.55); background: rgba(var(--bbpe-accent-rgb),.08);
+  box-shadow: 0 0 0 1px rgba(var(--bbpe-accent-rgb),.25) inset;
+}
+.bb-ticket-row.is-unavailable { opacity: .42; }
 .bb-event-input {
   width: 100%; background: rgba(255,255,255,.03); border: 1px solid ${BORDER}; border-radius: 9px;
   padding: 10px 12px; font-size: 14px; color: ${TEXT_PRIMARY}; font-family: ${FONT};
@@ -165,6 +174,16 @@ function formatPrice(cents: number): string {
 export function computeSelectionTotalCents(unitPriceCents: number, quantity: number): number {
   return unitPriceCents * quantity;
 }
+// Phase 2 — multi-ticket-type cart. The order total is the sum of every
+// line's computeSelectionTotalCents — the same per-line formula the
+// server uses (lib/events/services/cart.ts's computeCartTotalCents), so
+// the displayed total always matches what Stripe charges.
+export function computeCartSelectionTotalCents(lines: { price_cents: number; quantity: number }[]): number {
+  return lines.reduce((sum, l) => sum + computeSelectionTotalCents(l.price_cents, l.quantity), 0);
+}
+// Mirrors lib/events/publicValidation.ts's MAX_QUANTITY: the whole
+// order, across every ticket type, is capped at this many tickets.
+const MAX_ORDER_TICKETS = 20;
 // "280 places remaining" — sentence case, never the all-caps "280
 // REMAINING" the uppercase-transform styling used to force onto this
 // same text.
@@ -216,6 +235,9 @@ export default function PublicEventClient({
   checkoutCancelled: boolean;
 }) {
   const { event, sessions, ticket_types: ticketTypes, questions, branding, organisationName } = detail;
+  // Phase 3 — (ticket type, session) override pairs. Missing for an
+  // older payload shape; treated as "no overrides".
+  const sessionInventory = detail.session_inventory ?? [];
   // Public event STRUCTURAL presentation (see lib/events/publicEventTheme.ts)
   // — a pure, synchronous lookup keyed only by the organisationSlug this
   // component already receives as a prop; no new query, no schema
@@ -239,30 +261,101 @@ export default function PublicEventClient({
   const orderQuestions = questions.filter(q => q.scope === 'ORDER');
   const attendeeQuestions = questions.filter(q => q.scope === 'ATTENDEE');
 
-  const [ticketTypeId, setTicketTypeId] = useState(ticketTypes[0]?.id ?? '');
+  // Phase 2 — one quantity per ticket type (a cart). Defaults to one
+  // ticket of the first available type, matching the previous default
+  // selection.
+  const firstAvailable = ticketTypes.find(t => t.remaining > 0);
+  const [quantities, setQuantities] = useState<Record<string, number>>(firstAvailable ? { [firstAvailable.id]: 1 } : {});
   const [sessionId, setSessionId] = useState('');
-  const [quantity, setQuantity] = useState(1);
   const [purchaserName, setPurchaserName] = useState('');
   const [purchaserEmail, setPurchaserEmail] = useState('');
   const [purchaserPhone, setPurchaserPhone] = useState('');
-  const [attendeeNames, setAttendeeNames] = useState<string[]>(['']);
-  // Keyed by question id. orderAnswers is a single record (once per
-  // booking); attendeeAnswers is one record per attendee, resized in
-  // lockstep with attendeeNames by the same setQuantityAndResizeAttendees
-  // below, so a quantity change never leaves an attendee's answers
-  // pointing at the wrong array index.
+  // Attendee details are keyed by a stable per-ticket slot key
+  // (`${ticketTypeId}:${index}`), so changing one ticket type's quantity
+  // never shifts another type's attendee names/answers onto the wrong
+  // person. orderAnswers is a single record (once per booking), keyed
+  // by question id; attendeeAnswers is one record per slot key.
+  const [attendeeNames, setAttendeeNames] = useState<Record<string, string>>({});
   const [orderAnswers, setOrderAnswers] = useState<Record<string, unknown>>({});
-  const [attendeeAnswers, setAttendeeAnswers] = useState<Record<string, unknown>[]>([{}]);
+  const [attendeeAnswers, setAttendeeAnswers] = useState<Record<string, Record<string, unknown>>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmation, setConfirmation] = useState<{ reference: string; quantity: number; tickets: { attendee_name: string; ticket_token: string }[]; bookingToken?: string } | null>(null);
+  const [confirmation, setConfirmation] = useState<{ reference: string; quantity: number; summary: string; tickets: { attendee_name: string; ticket_token: string }[]; bookingToken?: string } | null>(null);
 
-  const selectedTicketType = ticketTypes.find(t => t.id === ticketTypeId);
   const selectedSession = sessions.find(s => s.id === sessionId);
-  const maxQuantity = selectedTicketType ? Math.max(0, Math.min(selectedTicketType.remaining, 20)) : 0;
   const availability = availabilityState(ticketTypes);
-  const isPaidSelection = (selectedTicketType?.price_cents ?? 0) > 0;
-  const totalCents = computeSelectionTotalCents(selectedTicketType?.price_cents ?? 0, quantity);
+
+  // Phase 3 — the remaining places for a ticket type depend on the
+  // selected session: an override pair for (type, selected session)
+  // wins; otherwise the type's event-wide remaining applies (exactly the
+  // precedence the server-side reservation gate enforces). With no
+  // session selected every figure is event-wide, as before.
+  function remainingFor(t: PublicTicketType, forSessionId: string): number {
+    if (!forSessionId) return t.remaining;
+    const pair = sessionInventory.find(p => p.ticket_type_id === t.id && p.event_session_id === forSessionId);
+    return pair ? pair.remaining : t.remaining;
+  }
+  // The ticket types as displayed for the CURRENT session selection —
+  // same objects, with `remaining` resolved per the rule above.
+  const displayTicketTypes = ticketTypes.map(t => (sessionId ? { ...t, remaining: remainingFor(t, sessionId) } : t));
+
+  // The cart, in ticket-type display order — only lines with quantity > 0.
+  const cartLines = displayTicketTypes
+    .filter(t => (quantities[t.id] ?? 0) > 0)
+    .map(t => ({ ticket: t, quantity: quantities[t.id], price_cents: t.price_cents }));
+  const quantity = cartLines.reduce((sum, l) => sum + l.quantity, 0);
+  const isPaidSelection = cartLines.some(l => l.price_cents > 0);
+  // An order is all-free or all-paid (server-enforced too — see
+  // lib/events/services/cart.ts): once the cart holds one kind, the
+  // other kind's steppers are disabled rather than offered and rejected.
+  const cartPricing: 'FREE' | 'PAID' | null = cartLines.length === 0 ? null : isPaidSelection ? 'PAID' : 'FREE';
+  const totalCents = computeCartSelectionTotalCents(cartLines);
+  const cartSummary = cartLines.map(l => `${l.quantity} × ${l.ticket.name}`).join(', ');
+  // One attendee slot per selected ticket, grouped by ticket type.
+  const attendeeSlots = cartLines.flatMap(l =>
+    Array.from({ length: l.quantity }, (_, i) => ({ key: `${l.ticket.id}:${i}`, ticketTypeId: l.ticket.id, ticketName: l.ticket.name })),
+  );
+  const showSlotTicketName = cartLines.length > 1;
+
+  // `t.remaining` here is already the session-resolved figure (see
+  // displayTicketTypes). The selected session's own shared remaining
+  // additionally bounds the WHOLE cart — the server gate checks the
+  // combined quantity against it — so the stepper stops where the
+  // session would.
+  function maxFor(t: PublicTicketType): number {
+    const others = quantity - (quantities[t.id] ?? 0);
+    const sessionBound = selectedSession ? selectedSession.remaining - others : Number.POSITIVE_INFINITY;
+    return Math.max(0, Math.min(t.remaining, MAX_ORDER_TICKETS - others, sessionBound));
+  }
+  function isPricingBlocked(t: PublicTicketType): boolean {
+    if (!cartPricing || (quantities[t.id] ?? 0) > 0) return false;
+    return cartPricing === 'PAID' ? t.price_cents === 0 : t.price_cents > 0;
+  }
+  function setTicketQuantity(t: PublicTicketType, next: number) {
+    const clamped = Math.max(0, Math.min(maxFor(t), next));
+    setQuantities(prev => ({ ...prev, [t.id]: clamped }));
+  }
+  // Changing session re-resolves every type's remaining; quantities the
+  // new session cannot honour (its pair override, or its shared
+  // capacity) are clamped down — never submitted for the gate to refuse.
+  function selectSession(nextSessionId: string) {
+    setSessionId(nextSessionId);
+    const nextSession = sessions.find(s => s.id === nextSessionId);
+    setQuantities(prev => {
+      const next: Record<string, number> = {};
+      let used = 0;
+      for (const t of ticketTypes) {
+        const wanted = prev[t.id] ?? 0;
+        if (wanted <= 0) continue;
+        let cap = Math.min(remainingFor(t, nextSessionId), MAX_ORDER_TICKETS - used);
+        if (nextSession) cap = Math.min(cap, nextSession.remaining - used);
+        const q = Math.max(0, Math.min(wanted, cap));
+        if (q > 0) next[t.id] = q;
+        used += q;
+      }
+      return next;
+    });
+  }
 
   // Running step counter (rather than hand-computed arithmetic per
   // label) so inserting/removing an optional step — sessions, booking
@@ -270,24 +363,9 @@ export default function PublicEventClient({
   let stepCounter = 1;
   const stepTicket = stepCounter++;
   const stepSession = sessions.length > 0 ? stepCounter++ : null;
-  const stepQuantity = stepCounter++;
   const stepPurchaser = stepCounter++;
   const stepOrderQuestions = orderQuestions.length > 0 ? stepCounter++ : null;
   const stepAttendee = stepCounter++;
-
-  function setQuantityAndResizeAttendees(next: number) {
-    setQuantity(next);
-    setAttendeeNames(prev => {
-      const arr = prev.slice(0, next);
-      while (arr.length < next) arr.push('');
-      return arr;
-    });
-    setAttendeeAnswers(prev => {
-      const arr = prev.slice(0, next);
-      while (arr.length < next) arr.push({});
-      return arr;
-    });
-  }
 
   // Structural-shape builder for the wire format lib/events/
   // publicValidation.ts's parseResponsesArray() expects — only
@@ -315,10 +393,10 @@ export default function PublicEventClient({
       const value = orderAnswers[q.id];
       if (!Array.isArray(value) || value.length === 0) return `${q.label} is required.`;
     }
-    for (let i = 0; i < attendeeAnswers.length; i++) {
+    for (let i = 0; i < attendeeSlots.length; i++) {
       for (const q of attendeeQuestions) {
         if (q.field_type !== 'MULTI_SELECT' || !q.required) continue;
-        const value = attendeeAnswers[i]?.[q.id];
+        const value = attendeeAnswers[attendeeSlots[i].key]?.[q.id];
         if (!Array.isArray(value) || value.length === 0) return `${q.label} is required for Attendee ${i + 1}.`;
       }
     }
@@ -339,20 +417,25 @@ export default function PublicEventClient({
     setError(null);
     const missing = findMissingRequiredMultiSelect();
     if (missing) { setError(missing); return; }
+    if (quantity === 0) { setError('Select at least one ticket.'); return; }
     setSubmitting(true);
-    const paid = (selectedTicketType?.price_cents ?? 0) > 0;
+    const paid = isPaidSelection;
     try {
       const res = await fetch(`/api/public/events/${organisationSlug}/${eventSlug}/${paid ? 'checkout' : 'register'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ticket_type_id: ticketTypeId,
+          // Phase 2 cart shape — see lib/events/publicValidation.ts.
+          items: cartLines.map(l => ({ ticket_type_id: l.ticket.id, quantity: l.quantity })),
           event_session_id: sessionId || undefined,
-          quantity,
           purchaser_name: purchaserName,
           purchaser_email: purchaserEmail,
           purchaser_phone: purchaserPhone || undefined,
-          attendees: attendeeNames.map((name, i) => ({ name, responses: buildResponses(attendeeQuestions, attendeeAnswers[i] ?? {}) })),
+          attendees: attendeeSlots.map(slot => ({
+            ticket_type_id: slot.ticketTypeId,
+            name: attendeeNames[slot.key] ?? '',
+            responses: buildResponses(attendeeQuestions, attendeeAnswers[slot.key] ?? {}),
+          })),
           order_responses: buildResponses(orderQuestions, orderAnswers),
         }),
       });
@@ -366,7 +449,7 @@ export default function PublicEventClient({
         window.location.href = body.checkout_url;
         return; // leave `submitting` true — the page is navigating away
       }
-      setConfirmation({ reference: body.confirmation_reference, quantity: body.quantity, tickets: body.tickets ?? [], bookingToken: body.booking_token ?? undefined });
+      setConfirmation({ reference: body.confirmation_reference, quantity: body.quantity, summary: cartSummary, tickets: body.tickets ?? [], bookingToken: body.booking_token ?? undefined });
       setSubmitting(false);
     } catch {
       setError(`${paid ? 'Checkout' : 'Registration'} failed. Please try again.`);
@@ -395,7 +478,7 @@ export default function PublicEventClient({
 
             <div style={{ textAlign: 'left', border: `1px solid ${BORDER_SOFT}`, borderRadius: 12, background: 'var(--bbpe-section-bg)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
               <ConfirmationRow label="Name" value={purchaserName} />
-              <ConfirmationRow label="Tickets" value={`${confirmation.quantity} ticket${confirmation.quantity === 1 ? '' : 's'}${selectedTicketType ? ` · ${selectedTicketType.name}` : ''}`} />
+              <ConfirmationRow label="Tickets" value={`${confirmation.quantity} ticket${confirmation.quantity === 1 ? '' : 's'}${confirmation.summary ? ` · ${confirmation.summary}` : ''}`} />
               {selectedSession && <ConfirmationRow label="Session" value={selectedSession.name} />}
               <ConfirmationRow label="Date" value={`${formatDate(event.starts_at, event.timezone)} · ${formatTime(event.starts_at, event.timezone)}`} />
               {event.venue && <ConfirmationRow label="Venue" value={event.venue} />}
@@ -557,17 +640,24 @@ export default function PublicEventClient({
               ) : (
                 <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: institutional ? 18 : 22 }}>
                   <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
-                    <StepLabel index={stepTicket} text="Choose ticket" softer={institutional} />
+                    <StepLabel index={stepTicket} text="Choose tickets" softer={institutional} />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {ticketTypes.map(t => (
-                        <TicketOption
+                      {displayTicketTypes.map(t => (
+                        <TicketQuantityRow
                           key={t.id}
                           ticket={t}
-                          selected={ticketTypeId === t.id}
-                          onSelect={() => { setTicketTypeId(t.id); setQuantityAndResizeAttendees(1); }}
+                          quantity={quantities[t.id] ?? 0}
+                          max={maxFor(t)}
+                          blocked={isPricingBlocked(t)}
+                          onChange={next => setTicketQuantity(t, next)}
                         />
                       ))}
                     </div>
+                    {cartPricing && displayTicketTypes.some(isPricingBlocked) && (
+                      <div style={{ fontSize: 12, color: TEXT_MUTED, marginTop: 8 }}>
+                        Free and paid tickets are booked in separate orders.
+                      </div>
+                    )}
                   </fieldset>
 
                   {sessions.length > 0 && (
@@ -575,44 +665,17 @@ export default function PublicEventClient({
                       <StepLabel index={stepSession as number} text="Choose session" softer={institutional} />
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         <label className="bb-radio-card">
-                          <input type="radio" name="event-session" value="" checked={sessionId === ''} onChange={() => setSessionId('')} />
+                          <input type="radio" name="event-session" value="" checked={sessionId === ''} onChange={() => selectSession('')} />
                           <div className="bb-radio-card-inner">
                             <div style={{ fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY }}>No specific session</div>
                           </div>
                         </label>
                         {sessions.map(s => (
-                          <SessionOption key={s.id} session={s} timezone={event.timezone} selected={sessionId === s.id} onSelect={() => setSessionId(s.id)} />
+                          <SessionOption key={s.id} session={s} timezone={event.timezone} selected={sessionId === s.id} onSelect={() => selectSession(s.id)} />
                         ))}
                       </div>
                     </fieldset>
                   )}
-
-                  <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
-                    <StepLabel index={stepQuantity} text="Quantity" softer={institutional} />
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <button
-                        type="button" aria-label="Decrease quantity" className="bb-event-stepper-btn"
-                        disabled={quantity <= 1}
-                        onClick={() => setQuantityAndResizeAttendees(Math.max(1, quantity - 1))}
-                      >
-                        <Minus size={14} />
-                      </button>
-                      <input
-                        required type="number" inputMode="numeric" min={1} max={maxQuantity || 1}
-                        value={quantity} aria-label="Quantity"
-                        onChange={e => setQuantityAndResizeAttendees(Math.max(1, Math.min(maxQuantity || 1, Number(e.target.value) || 1)))}
-                        className="bb-event-input" style={{ width: 56, textAlign: 'center' }}
-                      />
-                      <button
-                        type="button" aria-label="Increase quantity" className="bb-event-stepper-btn"
-                        disabled={quantity >= maxQuantity}
-                        onClick={() => setQuantityAndResizeAttendees(Math.min(maxQuantity || 1, quantity + 1))}
-                      >
-                        <Plus size={14} />
-                      </button>
-                      <span style={{ fontSize: 12, color: TEXT_MUTED }}>{maxQuantity} max</span>
-                    </div>
-                  </fieldset>
 
                   <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
                     <StepLabel index={stepPurchaser} text="Purchaser details" softer={institutional} />
@@ -648,17 +711,17 @@ export default function PublicEventClient({
                   <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
                     <StepLabel index={stepAttendee} text="Attendee details" softer={institutional} />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: attendeeQuestions.length > 0 ? 14 : 12 }}>
-                      {attendeeNames.map((name, i) => (
+                      {attendeeSlots.map((slot, i) => (
                         <div
-                          key={i}
+                          key={slot.key}
                           style={attendeeQuestions.length > 0
                             ? { border: `1px solid ${BORDER_SOFT}`, borderRadius: 10, padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }
                             : undefined}
                         >
-                          <Field label={`Attendee ${i + 1}`}>
+                          <Field label={showSlotTicketName ? `Attendee ${i + 1} · ${slot.ticketName}` : `Attendee ${i + 1}`}>
                             <input
-                              required value={name}
-                              onChange={e => setAttendeeNames(prev => prev.map((n, idx) => (idx === i ? e.target.value : n)))}
+                              required value={attendeeNames[slot.key] ?? ''}
+                              onChange={e => setAttendeeNames(prev => ({ ...prev, [slot.key]: e.target.value }))}
                               className="bb-event-input"
                             />
                           </Field>
@@ -666,8 +729,8 @@ export default function PublicEventClient({
                             <QuestionField
                               key={q.id}
                               question={q}
-                              value={attendeeAnswers[i]?.[q.id]}
-                              onChange={v => setAttendeeAnswers(prev => prev.map((a, idx) => (idx === i ? { ...a, [q.id]: v } : a)))}
+                              value={attendeeAnswers[slot.key]?.[q.id]}
+                              onChange={v => setAttendeeAnswers(prev => ({ ...prev, [slot.key]: { ...(prev[slot.key] ?? {}), [q.id]: v } }))}
                             />
                           ))}
                         </div>
@@ -675,15 +738,19 @@ export default function PublicEventClient({
                     </div>
                   </fieldset>
 
-                  {selectedTicketType && (
+                  {cartLines.length > 0 && (
                     <div style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
                       borderTop: `1px solid ${BORDER_SOFT}`, paddingTop: 14, fontSize: 13,
                     }}>
-                      <span style={{ color: TEXT_SECONDARY }}>
-                        {isPaidSelection
-                          ? `${quantity} × ${formatPrice(selectedTicketType.price_cents)}`
-                          : `${quantity} ticket${quantity === 1 ? '' : 's'}`}
+                      <span style={{ color: TEXT_SECONDARY, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {cartLines.map(l => (
+                          <span key={l.ticket.id}>
+                            {isPaidSelection
+                              ? `${l.quantity} × ${l.ticket.name} · ${formatPrice(l.price_cents)}`
+                              : `${l.quantity} × ${l.ticket.name}`}
+                          </span>
+                        ))}
                       </span>
                       <span style={{ fontWeight: 700, fontSize: 15, color: isPaidSelection ? VIOLET_SOFT : GREEN }}>
                         {isPaidSelection ? `Total ${formatPrice(totalCents)}` : 'Free'}
@@ -709,7 +776,7 @@ export default function PublicEventClient({
                     </div>
                   )}
 
-                  <button type="submit" disabled={submitting || maxQuantity <= 0} className="bb-event-cta">
+                  <button type="submit" disabled={submitting || quantity <= 0} className="bb-event-cta">
                     {submitting && <span className="bb-event-spin" aria-hidden="true" />}
                     {submitting
                       ? (isPaidSelection ? 'Redirecting to payment…' : 'Confirming…')
@@ -882,28 +949,52 @@ function ConfirmationRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function TicketOption({
-  ticket, selected, onSelect,
-}: { ticket: PublicTicketType; selected: boolean; onSelect: () => void }) {
+// Phase 2 — one quantity stepper per ticket type (a cart), replacing
+// the single-choice radio card. `max` already accounts for this type's
+// remaining capacity and the order-wide ticket cap; `blocked` is set
+// when the cart already holds the other pricing kind (all-free or
+// all-paid orders only).
+function TicketQuantityRow({
+  ticket, quantity, max, blocked, onChange,
+}: { ticket: PublicTicketType; quantity: number; max: number; blocked: boolean; onChange: (next: number) => void }) {
   const soldOut = ticket.remaining <= 0;
+  const unavailable = soldOut || blocked;
   return (
-    <label className="bb-radio-card">
-      <input type="radio" name="event-ticket-type" value={ticket.id} checked={selected} disabled={soldOut} onChange={onSelect} />
-      <div className="bb-radio-card-inner">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: TEXT_PRIMARY }}>{ticket.name}</div>
-            {ticket.description && <div style={{ fontSize: 12, color: TEXT_SECONDARY, marginTop: 3 }}>{ticket.description}</div>}
-          </div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: ticket.price_cents === 0 ? GREEN : VIOLET_SOFT, whiteSpace: 'nowrap' }}>
-            {formatPrice(ticket.price_cents)}
-          </div>
+    <div className={`bb-ticket-row${quantity > 0 ? ' is-selected' : ''}${unavailable && quantity === 0 ? ' is-unavailable' : ''}`}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: TEXT_PRIMARY }}>{ticket.name}</div>
+          {ticket.description && <div style={{ fontSize: 12, color: TEXT_SECONDARY, marginTop: 3 }}>{ticket.description}</div>}
         </div>
-        <div style={{ marginTop: 9, fontSize: 11.5, fontWeight: 600, color: soldOut ? RED : TEXT_MUTED }}>
-          {soldOut ? 'Sold out' : formatPlacesRemaining(ticket.remaining)}
+        <div style={{ fontSize: 13, fontWeight: 700, color: ticket.price_cents === 0 ? GREEN : VIOLET_SOFT, whiteSpace: 'nowrap' }}>
+          {formatPrice(ticket.price_cents)}
         </div>
       </div>
-    </label>
+      <div style={{ marginTop: 9, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ fontSize: 11.5, fontWeight: 600, color: soldOut ? RED : TEXT_MUTED }}>
+          {soldOut ? 'Sold out' : formatPlacesRemaining(ticket.remaining)}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            type="button" aria-label={`Decrease ${ticket.name} quantity`} className="bb-event-stepper-btn"
+            disabled={quantity <= 0}
+            onClick={() => onChange(quantity - 1)}
+          >
+            <Minus size={14} />
+          </button>
+          <span aria-label={`${ticket.name} quantity`} aria-live="polite" style={{ minWidth: 20, textAlign: 'center', fontSize: 14, fontWeight: 700, color: TEXT_PRIMARY }}>
+            {quantity}
+          </span>
+          <button
+            type="button" aria-label={`Increase ${ticket.name} quantity`} className="bb-event-stepper-btn"
+            disabled={unavailable || quantity >= max}
+            onClick={() => onChange(quantity + 1)}
+          >
+            <Plus size={14} />
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
