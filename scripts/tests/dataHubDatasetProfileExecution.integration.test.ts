@@ -561,6 +561,56 @@ describe("Workbook lifecycle gates and recovery", () => {
 // A. HAPPY PATH
 // ═══════════════════════════════════════════════════════════════════════
 
+describe("Guided preparation profile HTTP lifecycle with real Postgres", () => {
+  async function fixture(org = ORG_A) {
+    const suffix = nextSuffix("guided-profile");
+    return seedWorld(suffix, org, [
+      { id: `${suffix}-r1`, sourceRowNumber: 4, col1: "0001", col2: "0", col3: "2024-01-01", col4: "first" },
+      { id: `${suffix}-r2`, sourceRowNumber: 6, col1: "0002", col2: null, col3: "2024-01-02", col4: "second" },
+    ]);
+  }
+  it("reads status without work, profiles once and reuses its authoritative pointer", async () => {
+    const ids = await fixture(); await signFixtureSession(ids);
+    const route = await import("@/app/api/data-hub/worksheets/[id]/profile/route");
+    const context = { params: Promise.resolve({ id: ids.uploadId }) };
+    const get = () => route.GET(new Request("http://localhost/profile"), context);
+    const post = () => route.POST(new Request("http://localhost/profile", { method: "POST" }), context);
+    expect(await (await get()).json()).toEqual({ ok: true, status: "NOT_STARTED" });
+    expect(await prisma.dataHubDatasetProfileRun.count({ where: { upload_id: ids.uploadId } })).toBe(0);
+    const first = await post(); expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({ ok: true, status: "SUCCEEDED", rowCount: 2, columnCount: 4 });
+    const before = await prisma.upload.findUniqueOrThrow({ where: { id: ids.uploadId } });
+    expect(before.profiled_by).toBe(ids.userId);
+    expect((await post()).status).toBe(200); expect(await (await get()).json()).toEqual({ ok: true, status: "SUCCEEDED", rowCount: 2, columnCount: 4 });
+    expect(await prisma.upload.findUniqueOrThrow({ where: { id: ids.uploadId } })).toEqual(before);
+    expect(await prisma.dataHubDatasetProfileRun.count({ where: { upload_id: ids.uploadId } })).toBe(1);
+    expect(await prisma.dataHubAnalysisReview.count({ where: { upload_id: ids.uploadId } })).toBe(0);
+  });
+  it("hides foreign and missing worksheets from both status and execution", async () => {
+    const ids = await fixture(), other = await fixture(ORG_B);
+    await signFixtureSession({ userId: other.userId, organisationId: ORG_B });
+    const route = await import("@/app/api/data-hub/worksheets/[id]/profile/route");
+    for (const id of [ids.uploadId, "missing-worksheet"]) {
+      const context = { params: Promise.resolve({ id }) };
+      expect((await route.GET(new Request("http://localhost/profile"), context)).status).toBe(404);
+      expect((await route.POST(new Request("http://localhost/profile", { method: "POST" }), context)).status).toBe(404);
+    }
+    expect(await prisma.dataHubDatasetProfileRun.count({ where: { upload_id: ids.uploadId } })).toBe(0);
+  });
+  it("rejects injected evidence, live role demotion and inactive accounts", async () => {
+    const ids = await fixture(); await signFixtureSession(ids);
+    const route = await import("@/app/api/data-hub/worksheets/[id]/profile/route");
+    const context = { params: Promise.resolve({ id: ids.uploadId }) };
+    expect((await route.POST(new Request("http://localhost/profile", { method: "POST", body: JSON.stringify({ organisationId: ORG_B, normalizationRunId: ids.normRunId }) }), context)).status).toBe(400);
+    await prisma.user.update({ where: { id: ids.userId }, data: { role: "VIEWER" } });
+    expect((await route.POST(new Request("http://localhost/profile", { method: "POST" }), context)).status).toBe(403);
+    await prisma.user.update({ where: { id: ids.userId }, data: { role: "MANAGER", status: "INACTIVE" } });
+    expect((await route.GET(new Request("http://localhost/profile"), context)).status).toBe(401);
+    expect(await prisma.dataHubDatasetProfileRun.count({ where: { upload_id: ids.uploadId } })).toBe(0);
+    routeSessionToken = undefined;
+  });
+});
+
 describe("A. happy path", () => {
   it("creates exactly one RUNNING attempt, runs D4D1A, persists columns/stats exactly, completes, sets the Upload pointer", async () => {
     const s = nextSuffix("happy");
