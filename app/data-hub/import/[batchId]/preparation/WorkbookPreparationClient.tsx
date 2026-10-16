@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { PREPARATION_STEPS } from "@/lib/data-hub/client/preparation";
 import { checkWorkbookWorksheets, loadWorkbookWorksheets, workbookWorksheetState,
@@ -24,6 +24,7 @@ export default function WorkbookPreparationClient({ batchId }: { batchId: string
 }
 
 function WorkbookPreparation({ batchId }: { batchId: string }) {
+  const filterId = useId();
   const [worksheets, setWorksheets] = useState<WorkbookWorksheet[] | null>(null);
   const [checks, setChecks] = useState<Record<string, WorksheetCheck>>({});
   const [busy, setBusy] = useState<"load" | "scan" | null>("load");
@@ -121,12 +122,12 @@ function WorkbookPreparation({ batchId }: { batchId: string }) {
         <p><strong>{unchecked}</strong> not checked</p><p><strong>{rows.length - eligible}</strong> outside preparation</p>
       </section>
       <p className={styles.help}>Hidden, empty, ineligible and skipped worksheets stay visible here and are excluded from preparation checks.</p>
-      <label className={styles.filter}>Show worksheets
-        <select value={filter} onChange={event => setFilter(event.target.value as Filter)}>
+      <div className={styles.filter}><label htmlFor={filterId}>Show worksheets</label>
+        <select id={filterId} value={filter} onChange={event => setFilter(event.target.value as Filter)}>
           <option value="all">All worksheets ({rows.length})</option><option value="needs">Need preparation or attention ({needs})</option>
           <option value="ready">Ready for review ({ready})</option><option value="unchecked">Not checked ({unchecked})</option>
         </select>
-      </label>
+      </div>
       {worksheets.length === 0 ? <p>No worksheets have been inspected yet. Open the import to continue.</p>
         : visible.length === 0 ? <p>No worksheets match this view.</p>
         : <ul className={styles.list}>{visible.map(({ worksheet, state }) => {

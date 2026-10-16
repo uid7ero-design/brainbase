@@ -33,6 +33,7 @@ describe("workbook preparation overview", () => {
     fireEvent.click(screen.getByRole("button", { name: "Check preparation" }));
     expect(await screen.findByRole("link", { name: "Review worksheet 1" })).toHaveAttribute("href", "/data-hub/analysis/w0");
     expect(fetcher).toHaveBeenCalledTimes(7);
+    expect(screen.getByRole("combobox")).toHaveAccessibleName("Show worksheets");
     expect(fetcher.mock.calls.some(([url]) => url.includes("/w2/"))).toBe(false);
     fireEvent.change(screen.getByLabelText("Show worksheets"), { target: { value: "ready" } });
     expect(screen.getByRole("heading", { name: "Same name (worksheet 1)" })).toBeInTheDocument();

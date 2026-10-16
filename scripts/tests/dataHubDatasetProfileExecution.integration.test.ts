@@ -583,6 +583,7 @@ describe("Guided preparation profile HTTP lifecycle with real Postgres", () => {
     expect(before.profiled_by).toBe(ids.userId);
     const stage = await import("@/app/api/data-hub/worksheets/[id]/stage/route");
     const normalize = await import("@/app/api/data-hub/worksheets/[id]/normalize/route");
+    const { NextRequest } = await import("next/server");
     const statuses = await Promise.all([stage.GET(new NextRequest("http://localhost/stage"), context),
       normalize.GET(new NextRequest("http://localhost/normalize"), context), get()]);
     for (const response of statuses) {

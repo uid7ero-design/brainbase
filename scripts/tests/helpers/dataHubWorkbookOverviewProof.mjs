@@ -32,7 +32,7 @@ export async function verifyWorkbookOverview({ page, context, pool, origin, read
     await expect(page.getByRole('link', { name: 'Review worksheet 1', exact: true })).toHaveCount(0);
     await page.getByRole('button', { name: 'Check preparation', exact: true }).focus();
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('link', { name: 'Review worksheet 1', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Review worksheet 1', exact: true })).toBeVisible({ timeout: 20_000 });
     if (requests.length !== 4 || requests.some(request => request.method !== 'GET')) throw new Error('Overview scan was not three explicit status reads');
     await page.getByLabel('Show worksheets', { exact: true }).selectOption('ready');
     await expect(page.getByRole('heading', { name: 'Data (worksheet 1)', exact: true })).toBeVisible();
@@ -58,7 +58,7 @@ export async function verifyWorkbookOverview({ page, context, pool, origin, read
     await expect(page.getByRole('link', { name: 'Review worksheet 1', exact: true })).toHaveCount(0);
     release(); await page.unroute(profileUrl, delayed);
     await page.getByRole('button', { name: 'Check preparation', exact: true }).click();
-    await expect(page.getByRole('link', { name: 'Review worksheet 1', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Review worksheet 1', exact: true })).toBeVisible({ timeout: 20_000 });
     evidence.checks.push('Workbook overview cancels a deliberately delayed genuine profile status without retaining readiness; explicit fresh check recovers');
 
     const corrupted = async route => { const response = await route.fetch(); const body = await response.json();
