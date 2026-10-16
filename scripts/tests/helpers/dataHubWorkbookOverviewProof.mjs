@@ -20,10 +20,10 @@ export async function verifyWorkbookOverview({ page, context, pool, origin, read
   context.on('request', observe);
   context.on('response', observeResponse);
   const digest = async () => (await pool.query(`SELECT
-    (SELECT count(*)::int FROM data_hub_raw_staging_runs) AS staging,
-    (SELECT count(*)::int FROM data_hub_normalization_runs) AS normalization,
-    (SELECT count(*)::int FROM data_hub_dataset_profile_runs) AS profiling,
-    (SELECT count(*)::int FROM data_hub_analysis_reviews) AS reviews`)).rows[0];
+    (SELECT md5(COALESCE(jsonb_agg(to_jsonb(r) ORDER BY id)::text,'[]')) FROM data_hub_raw_staging_runs r) AS staging,
+    (SELECT md5(COALESCE(jsonb_agg(to_jsonb(r) ORDER BY id)::text,'[]')) FROM data_hub_normalization_runs r) AS normalization,
+    (SELECT md5(COALESCE(jsonb_agg(to_jsonb(r) ORDER BY id)::text,'[]')) FROM data_hub_dataset_profile_runs r) AS profiling,
+    (SELECT md5(COALESCE(jsonb_agg(to_jsonb(r) ORDER BY id)::text,'[]')) FROM data_hub_analysis_reviews r) AS reviews`)).rows[0];
   const before = await digest();
   try {
     await page.goto(url);
@@ -80,8 +80,11 @@ export async function verifyWorkbookOverview({ page, context, pool, origin, read
     } finally { await pool.query('UPDATE users SET role=\'MANAGER\' WHERE id=$1', [ready.userId]); }
     const foreign = (await pool.query('SELECT id FROM import_batches WHERE organisation_id=$1 LIMIT 1', ['org-b'])).rows[0];
     if (!foreign) throw new Error('Missing owned foreign fixture');
-    const denied = await context.request.get(origin + `/api/data-hub/import-batches/${foreign.id}/worksheets`);
-    if (denied.status() !== 404) throw new Error('Foreign inventory exposed');
+    // Use the browser's actual localhost session handling, as the existing
+    // runtime proof does. APIRequestContext treats Secure cookies differently.
+    const deniedStatus = await page.evaluate(async path => (await fetch(path, { credentials: 'same-origin', cache: 'no-store' })).status,
+      `/api/data-hub/import-batches/${foreign.id}/worksheets`);
+    if (deniedStatus !== 404) throw new Error(`Foreign inventory denial mismatch: ${deniedStatus}`);
     await page.goto(origin + `/data-hub/import/${foreign.id}/preparation`);
     await expect(page.locator('main [role="alert"]')).toContainText('unavailable or your access has changed');
     await expect(page.getByRole('link', { name: /Open preparation for worksheet/ })).toHaveCount(0);
