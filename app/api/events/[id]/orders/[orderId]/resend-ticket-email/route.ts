@@ -4,6 +4,7 @@ import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { isOrderEligibleForTicketEmail, sendTicketEmail, maskEmailForAudit } from '@/lib/events/ticketEmail';
 import { logTicketEmailResent } from '@/lib/events/auditLog';
 import { normaliseTicketEmailBranding } from '@/lib/organisations/branding';
+import { receiptFromOrderRow, type ReceiptOrderRow } from '@/lib/events/receipt';
 import { recordTicketEmailDeliveryAccepted } from '@/lib/events/ticketEmailDeliveryTracking';
 
 type Ctx = { params: Promise<{ id: string; orderId: string }> };
@@ -51,15 +52,26 @@ export async function POST(_req: Request, { params }: Ctx) {
   // comment). session.organisationId is already the authorized,
   // tenant-scoped organisation for this request; this join never
   // introduces a second, independent identity source.
+  // Phase 5A — also reads the order's own financial snapshot and lines so
+  // a PAID order's email carries the neutral payment summary
+  // (lib/events/receipt.ts); same round trip, wider column list only.
   const orderRows = await sql`
     SELECT
       eo.id, eo.status, eo.payment_status, eo.purchaser_name, eo.purchaser_email, eo.booking_token,
+      eo.currency, eo.total_cents, eo.discount_cents, eo.promotion_code_snapshot,
+      eo.platform_fee_cents, eo.fee_mode, eo.fee_label, eo.payment_total_cents, eo.paid_at, eo.refunded_cents, eo.refunded_at,
       e.name AS event_name,
       o.name AS organisation_name, o.settings AS organisation_settings,
       COALESCE(
         json_agg(json_build_object('name', ea.attendee_name, 'ticket_token', ea.ticket_token)) FILTER (WHERE ea.id IS NOT NULL),
         '[]'
-      ) AS attendees
+      ) AS attendees,
+      (
+        SELECT COALESCE(json_agg(json_build_object('description', tt.name, 'quantity', li.quantity, 'unit_price_cents', li.unit_price_cents, 'discount_cents', li.discount_cents) ORDER BY li.created_at, li.id), '[]')
+        FROM event_order_items li
+        LEFT JOIN event_ticket_types tt ON tt.id = li.ticket_type_id AND tt.organisation_id = li.organisation_id
+        WHERE li.order_id = eo.id AND li.organisation_id = eo.organisation_id
+      ) AS receipt_lines
     FROM event_orders eo
     JOIN events e ON e.id = eo.event_id AND e.organisation_id = eo.organisation_id
     JOIN organisations o ON o.id = eo.organisation_id
@@ -69,11 +81,11 @@ export async function POST(_req: Request, { params }: Ctx) {
     GROUP BY eo.id, e.name, o.name, o.settings
     LIMIT 1
   `;
-  const order = orderRows[0] as {
+  const order = orderRows[0] as ({
     id: string; status: string; payment_status: string; purchaser_name: string; purchaser_email: string | null; booking_token: string | null;
     event_name: string; organisation_name: string; organisation_settings: unknown;
     attendees: { name: string; ticket_token: string | null }[];
-  } | undefined;
+  } & ReceiptOrderRow) | undefined;
   if (!order) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
 
   // Eligibility re-derived immediately before send, from this same
@@ -118,6 +130,7 @@ export async function POST(_req: Request, { params }: Ctx) {
     attendees: eligibleAttendees.map(a => ({ name: a.name, ticketToken: a.ticket_token })),
     bookingToken: order.booking_token,
     branding: normaliseTicketEmailBranding(order.organisation_settings, order.organisation_name),
+    receipt: receiptFromOrderRow(order),
   });
 
   // Pre-push hardening — RESEND_API_KEY is absent (typical in Preview

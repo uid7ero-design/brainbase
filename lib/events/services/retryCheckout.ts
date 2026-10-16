@@ -6,6 +6,8 @@ import {
 } from '@/lib/events/stripe';
 import { buildCartLockStatements } from '@/lib/events/services/cart';
 import { buildCheckoutLineItems, assertCheckoutLineItemsTotal, promotionRedemptionAvailable } from '@/lib/events/services/promotions';
+import { buildFeeLineItem } from '@/lib/events/services/fees';
+import { feeSnapshotReconciles, type FeeMode } from '@/lib/events/feeCalculation';
 
 type OrderRow = {
   id: string; payment_status: string; purchaser_email: string; total_cents: number; currency: string; stripe_account_id: string | null;
@@ -14,6 +16,14 @@ type OrderRow = {
   // stamp the compare-and-set guards below compare against, at full
   // timestamptz precision (see the expiry CAS precision note below).
   expires_at_stamp: string | null;
+  // Phase 5A — the FEE SNAPSHOT committed at reservation time. Retry
+  // charges exactly payment_total_cents, rebuilds the fee line item from
+  // platform_fee_cents / fee_mode / fee_label and sends platform_fee_cents
+  // as the application fee — the CURRENT fee policy is never read here
+  // (there is no policy query in this file at all). Optional in the type
+  // because a pre-Phase-5A fixture/row carries none of them: that reads as
+  // no fee, payment total = total_cents, exactly as before.
+  platform_fee_cents?: number | null; fee_mode?: string | null; payment_total_cents?: number | null; fee_label?: string | null;
   // Phase 4 — the discount SNAPSHOT committed at reservation time. Retry
   // charges exactly this (total_cents already net of discount_cents) and
   // never re-reads the promotion's current rules, dates or active flag
@@ -201,6 +211,7 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
   const orderRows = await sql`
     SELECT id, payment_status, purchaser_email, total_cents, currency, stripe_account_id, stripe_checkout_session_id, expires_at,
       (extract(epoch FROM expires_at) * 1000000)::bigint::text AS expires_at_stamp,
+      platform_fee_cents, fee_mode, payment_total_cents, fee_label,
       discount_cents, promotion_code_id, promotion_code_snapshot
     FROM event_orders WHERE id = ${orderId} AND event_id = ${eventId} AND organisation_id = ${organisationId} LIMIT 1
   `;
@@ -251,7 +262,17 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
   // this flow understands and it fails closed — no hold is extended, no
   // Checkout Session is created. The discount is never recalculated from
   // the promotion's current rules (approval D4 / invariants 5–6).
-  const stripeLineItems = buildCheckoutLineItems(
+  //
+  // Phase 5A — the fee snapshot is reconciled the same way: fee_mode /
+  // platform_fee_cents / payment_total_cents must satisfy the by-mode
+  // arithmetic (feeSnapshotReconciles — the JS twin of
+  // event_orders_fee_snapshot_check), a PASS_THROUGH fee becomes one extra
+  // line item rebuilt from the stored label and amount, and Σ line amounts
+  // must equal the stored PAYMENT total. No current policy is consulted.
+  const platformFeeCents = order.platform_fee_cents ?? 0;
+  const feeMode = (order.fee_mode ?? null) as FeeMode | null;
+  const paymentTotalCents = order.payment_total_cents ?? order.total_cents;
+  const ticketLineItems = buildCheckoutLineItems(
     items.map(it => ({
       name: ticketTypesById.get(it.ticket_type_id)!.name,
       unit_price_cents: it.unit_price_cents,
@@ -261,10 +282,17 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
     order.promotion_code_snapshot ?? null,
     order.currency,
   );
+  let stripeLineItems = ticketLineItems;
   try {
-    assertCheckoutLineItemsTotal(stripeLineItems, order.total_cents);
+    assertCheckoutLineItemsTotal(ticketLineItems, order.total_cents);
     const itemDiscountSum = items.reduce((sum, it) => sum + (it.discount_cents ?? 0), 0);
     if (itemDiscountSum !== (order.discount_cents ?? 0)) throw new Error(`Line discounts ${itemDiscountSum} do not equal order discount ${order.discount_cents}.`);
+    if (!feeSnapshotReconciles({ total_cents: order.total_cents, platform_fee_cents: platformFeeCents, fee_mode: feeMode, payment_total_cents: order.payment_total_cents ?? null })) {
+      throw new Error(`Fee snapshot does not reconcile (mode ${feeMode}, fee ${platformFeeCents}, ticket ${order.total_cents}, payment ${order.payment_total_cents}).`);
+    }
+    const feeLineItem = feeMode === 'PASS_THROUGH' ? buildFeeLineItem(order.fee_label ?? 'Booking fee', platformFeeCents) : null;
+    stripeLineItems = feeLineItem ? [...ticketLineItems, feeLineItem] : ticketLineItems;
+    assertCheckoutLineItemsTotal(stripeLineItems, paymentTotalCents);
   } catch (err) {
     console.error('[events order retry] refusing to retry: stored line items do not reconcile with the order total', err, { orderId });
     return { ok: false, code: 'ORDER_TOTAL_MISMATCH' };
@@ -460,6 +488,9 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
       successUrl,
       cancelUrl,
       connectedAccountId: order.stripe_account_id,
+      // Phase 5A — the SAME stored application fee as the first attempt
+      // (0 = none sent); never recomputed from a current policy.
+      applicationFeeCents: platformFeeCents,
     });
     // No longer unconditional (PR #231 follow-up) — same guard shape as
     // the public checkout route's own write-back: requires BOTH the

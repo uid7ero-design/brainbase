@@ -81,8 +81,12 @@ describe('computeSelectionTotalCents — integer cents, no floating point', () =
 describe('Public booking UI — total display wired to the fixed formula', () => {
   const src = stripComments(read('app/e/[organisationSlug]/[eventSlug]/PublicEventClient.tsx'))
 
-  it('the CTA button price uses totalCents, not the bare per-unit price_cents (the exact prior bug)', () => {
-    expect(src).toMatch(/Pay \$\{formatPrice\(totalCents\)\}/)
+  it('the CTA button price uses the payable total (ticket total + any pass-through booking fee), not the bare per-unit price_cents (the exact prior bug)', () => {
+    // Phase 5A: payableCents = totalCents + feeCents, where feeCents is 0
+    // for every event without a pass-through booking fee — so the button
+    // still reads exactly `Pay ${formatPrice(totalCents)}` for them.
+    expect(src).toMatch(/Pay \$\{formatPrice\(payableCents\)\}/)
+    expect(src).toMatch(/const payableCents = .*totalCents \+ feeCents/)
     expect(src).not.toMatch(/Pay \$\{formatPrice\(selectedTicketType\?\.\s*price_cents/)
   })
 

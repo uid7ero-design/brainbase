@@ -39,12 +39,17 @@ export async function refundPaidOrder(input: OrderTransitionInput): Promise<Refu
   if (!eventRows.length) return { ok: false, code: 'NOT_FOUND' };
 
   const orderRows = await sql`
-    SELECT id, payment_status, stripe_payment_intent_id, stripe_account_id
+    SELECT id, payment_status, stripe_payment_intent_id, stripe_account_id, platform_fee_cents
     FROM event_orders
     WHERE id = ${orderId} AND event_id = ${eventId} AND organisation_id = ${organisationId}
     LIMIT 1
   `;
-  const order = orderRows[0] as { id: string; payment_status: string; stripe_payment_intent_id: string | null; stripe_account_id: string | null } | undefined;
+  const order = orderRows[0] as {
+    id: string; payment_status: string; stripe_payment_intent_id: string | null; stripe_account_id: string | null;
+    // Phase 5A — the committed fee snapshot; absent/0 on every pre-Phase-5A
+    // and every zero-fee order.
+    platform_fee_cents?: number | null;
+  } | undefined;
   if (!order) return { ok: false, code: 'NOT_FOUND' };
 
   if (order.payment_status !== 'PAID' || !order.stripe_payment_intent_id || !order.stripe_account_id) {
@@ -64,10 +69,23 @@ export async function refundPaidOrder(input: OrderTransitionInput): Promise<Refu
   // fails, this route returns an error and the order remains PAID,
   // exactly as it was; nothing is left in an ambiguous intermediate
   // state.
-  const refundResult = await createRefund(order.stripe_payment_intent_id, order.stripe_account_id);
+  //
+  // Phase 5A full-refund policy (brief §7): the customer always receives
+  // the FULL amount they paid (Stripe refunds the whole PaymentIntent),
+  // and when the order carried a platform fee, that application fee is
+  // reversed in the same refund (refund_application_fee) so the
+  // connected account is made whole rather than bearing the platform's
+  // fee on a sale that did not stand — decided from the ORDER's own
+  // snapshot, never the current policy. A zero-fee order's call is
+  // byte-identical to before this phase (no options argument).
+  const platformFeeCents = order.platform_fee_cents ?? 0;
+  const refundResult = platformFeeCents > 0
+    ? await createRefund(order.stripe_payment_intent_id, order.stripe_account_id, { refundApplicationFee: true })
+    : await createRefund(order.stripe_payment_intent_id, order.stripe_account_id);
   if (!refundResult.ok) {
     return { ok: false, code: 'STRIPE_REFUND_FAILED', error: refundResult.error };
   }
+  const refundedCents = refundResult.refundedCents ?? null;
 
   // Gated on payment_status = 'PAID' — a concurrent duplicate refund
   // click/request updates zero rows on its second attempt rather than
@@ -75,9 +93,15 @@ export async function refundPaidOrder(input: OrderTransitionInput): Promise<Refu
   // through this route. (Stripe's own API is itself idempotent per
   // charge, but this guard means the second request never gets far
   // enough to try.)
+  // Phase 5A: the same statement records what was returned —
+  // refunded_cents (Stripe's reported amount, else the stored payment
+  // total) and platform_fee_refunded_cents (the whole fee, per the policy
+  // above) — so the refund is reconstructible from the row alone.
   const updated = await sql`
     UPDATE event_orders
-    SET payment_status = 'REFUNDED', refunded_at = now(), status = 'CANCELLED'
+    SET payment_status = 'REFUNDED', refunded_at = now(), status = 'CANCELLED',
+        refunded_cents = COALESCE(${refundedCents}::int, payment_total_cents, total_cents),
+        platform_fee_refunded_cents = platform_fee_cents
     WHERE id = ${orderId} AND organisation_id = ${organisationId} AND payment_status = 'PAID'
     RETURNING id
   `;

@@ -90,6 +90,18 @@ export type CreateCheckoutSessionInput = {
   // already confirmed one exists, so a caller passing an empty value
   // here would be a genuine bug, not a legitimate "no Connect" case.
   connectedAccountId: string;
+  // Phase 5A — the platform's application fee for THIS direct charge, in
+  // integer cents, taken from the order's own committed fee snapshot
+  // (event_orders.platform_fee_cents) by both the first checkout and
+  // Retry — never from a live policy read. Omitted or 0 means NO
+  // application fee and the Checkout Session is created with exactly the
+  // pre-Phase-5A parameter shape (no payment_intent_data key at all), so
+  // every zero-fee BrainBase order is byte-identical to before. When
+  // positive it is sent as payment_intent_data.application_fee_amount —
+  // Stripe Connect's documented direct-charge fee: the connected account
+  // is charged the full amount and the fee is transferred to the
+  // platform's balance — and must never exceed the session's own total.
+  applicationFeeCents?: number;
 };
 
 // Server-calculated price/quantity/currency only — every value passed
@@ -111,6 +123,18 @@ export type CreateCheckoutSessionInput = {
 // the CLIENT's own Stripe account, not Brainbase's platform account.
 export async function createCheckoutSession(input: CreateCheckoutSessionInput): Promise<{ sessionId: string; url: string }> {
   if (!input.lineItems.length) throw new Error('A Checkout Session requires at least one line item.');
+  // Phase 5A — fail closed BEFORE any Stripe call: an application fee
+  // must be a non-negative safe integer no greater than what the session
+  // actually charges. A positive fee adds payment_intent_data; zero/absent
+  // adds nothing (see CreateCheckoutSessionInput.applicationFeeCents).
+  const applicationFeeCents = input.applicationFeeCents ?? 0;
+  if (!Number.isSafeInteger(applicationFeeCents) || applicationFeeCents < 0) {
+    throw new Error(`applicationFeeCents must be a non-negative safe integer (got ${applicationFeeCents}).`);
+  }
+  const sessionTotalCents = input.lineItems.reduce((sum, item) => sum + item.unitAmountCents * item.quantity, 0);
+  if (applicationFeeCents > sessionTotalCents) {
+    throw new Error(`applicationFeeCents ${applicationFeeCents} exceeds the Checkout Session total ${sessionTotalCents}.`);
+  }
   const stripe = getStripeClient();
   const session = await stripe.checkout.sessions.create(
     {
@@ -132,6 +156,7 @@ export async function createCheckoutSession(input: CreateCheckoutSessionInput): 
       expires_at: Math.floor(Date.now() / 1000) + RESERVATION_WINDOW_SECONDS,
       success_url: input.successUrl,
       cancel_url: input.cancelUrl,
+      ...(applicationFeeCents > 0 ? { payment_intent_data: { application_fee_amount: applicationFeeCents } } : {}),
     },
     { stripeAccount: input.connectedAccountId },
   );
@@ -619,7 +644,27 @@ export async function expireCheckoutSession(sessionId: string, connectedAccountI
   }
 }
 
-export type CreateRefundResult = { ok: true } | { ok: false; error: string };
+export type CreateRefundResult =
+  // refundedCents: the amount Stripe reports it refunded (the Refund
+  // object's `amount`), null only if the SDK returned no figure.
+  | { ok: true; refundedCents: number | null }
+  | { ok: false; error: string };
+
+export type CreateRefundOptions = {
+  // Phase 5A — reverse the platform's application fee as part of this
+  // (full) refund. Stripe's documented semantics for a direct charge: the
+  // refund is created on the connected account by the platform, and by
+  // default the application fee is NOT refunded (the connected account
+  // alone bears the refund); with refund_application_fee: true, a full
+  // charge refund also returns the FULL application fee to the connected
+  // account, so the organiser is made whole and the platform earns
+  // nothing on a sale that did not stand. Phase 5A's full-refund policy
+  // (see docs/architecture/decisions/0004-...) is to ALWAYS reverse the
+  // fee; the option exists so the caller passes it only when a fee was
+  // actually charged — a zero-fee order's refund call is byte-identical
+  // to before this phase (no third argument, no extra parameter).
+  refundApplicationFee?: boolean;
+};
 
 // Full refund only (§22). Called by the manager-only refund route
 // AFTER that route has already confirmed the order belongs to the
@@ -636,11 +681,14 @@ export type CreateRefundResult = { ok: true } | { ok: false; error: string };
 // through as the same `{ stripeAccount: ... }` request option
 // createCheckoutSession uses, so the refund is issued against the
 // exact account that actually processed the original charge.
-export async function createRefund(paymentIntentId: string, connectedAccountId: string): Promise<CreateRefundResult> {
+export async function createRefund(paymentIntentId: string, connectedAccountId: string, options?: CreateRefundOptions): Promise<CreateRefundResult> {
   try {
     const stripe = getStripeClient();
-    await stripe.refunds.create({ payment_intent: paymentIntentId }, { stripeAccount: connectedAccountId });
-    return { ok: true };
+    const refund = await stripe.refunds.create(
+      { payment_intent: paymentIntentId, ...(options?.refundApplicationFee ? { refund_application_fee: true } : {}) },
+      { stripeAccount: connectedAccountId },
+    );
+    return { ok: true, refundedCents: typeof refund?.amount === 'number' ? refund.amount : null };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'Refund failed.' };
   }

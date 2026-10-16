@@ -8,6 +8,7 @@ import { resolvePublicEventTheme, applyAccentOverride, cssVarsFor } from '@/lib/
 import { InstitutionalHeader, InstitutionalHero, InstitutionalFooter } from '@/components/publicEvents/InstitutionalChrome';
 import { OrganisationLogo } from '@/components/organisations/OrganisationLogo';
 import type { PublicEventDetail, PublicSession, PublicTicketType, PublicQuestion } from '@/lib/events/publicEventDetail';
+import { computePlatformFeeCents } from '@/lib/events/feeCalculation';
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
@@ -232,6 +233,12 @@ type QuoteResponse = {
   access: { unlocked_ticket_type_ids: string[] } | null;
   access_error: string | null;
   cart_error: string | null;
+  // Phase 5A — the platform fee on the net ticket total and what the
+  // purchaser pays; `fee` names a PASS_THROUGH fee (null when none applies
+  // or the organiser absorbs it). Optional for an older payload shape.
+  platform_fee_cents?: number;
+  payment_total_cents?: number;
+  fee?: { label: string } | null;
 };
 function normaliseCodeInput(value: string): string {
   return value.trim().toUpperCase();
@@ -478,6 +485,19 @@ export default function PublicEventClient({
   // when a discount applies, the gross total otherwise. This (and only
   // this) drives the CTA; the server independently re-derives it.
   const totalCents = computeCartSelectionTotalCents(cartLines) - (discountApplied?.discount_cents ?? 0);
+  // Phase 5A — a PASS_THROUGH booking fee the purchaser pays. Display
+  // only: computed here from the server-disclosed inputs with the SAME
+  // pure rule the server snapshots (lib/events/feeCalculation.ts) so the
+  // page can show it before any quote; whenever a fresh server quote
+  // exists its figures win. Never shown for a free selection, and an
+  // absorbed fee is never a purchaser fact (the server discloses none).
+  const bookingFee = detail.booking_fee ?? null;
+  const quotedFee = quoteFresh && quote ? quote : null;
+  const feeCents = quotedFee
+    ? (quotedFee.fee ? quotedFee.platform_fee_cents ?? 0 : 0)
+    : (bookingFee && isPaidSelection && cartLines.length > 0 ? computePlatformFeeCents(totalCents, quantity, { fee_mode: 'PASS_THROUGH', ...bookingFee }) : 0);
+  const feeLabel = quotedFee?.fee?.label ?? bookingFee?.label ?? 'Booking fee';
+  const payableCents = quotedFee && typeof quotedFee.payment_total_cents === 'number' ? quotedFee.payment_total_cents : totalCents + feeCents;
   const codesPending = (appliedPromo !== null || appliedAccess !== null) && (quoting || (cartLines.length > 0 && !quoteFresh && quote?.cart_error == null));
 
   async function refreshDetail() {
@@ -977,10 +997,21 @@ export default function PublicEventClient({
                       {discountApplied ? (
                         // Phase 4 — server-quoted figures only (never computed
                         // from the code here): subtotal, discount, payable.
+                        // Phase 5A — plus the pass-through booking fee, when one
+                        // applies; "Total" is what the purchaser pays.
                         <span data-testid="cart-totals" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, textAlign: 'right' }}>
                           <span style={{ color: TEXT_SECONDARY }}>Subtotal {formatPrice(discountApplied.subtotal_cents)}</span>
                           <span style={{ color: GREEN }}>Discount ({discountApplied.promotion!.code}) −{formatPrice(discountApplied.discount_cents)}</span>
-                          <span style={{ fontWeight: 700, fontSize: 15, color: VIOLET_SOFT }}>Total {formatPrice(discountApplied.total_cents)}</span>
+                          {feeCents > 0 && <span style={{ color: TEXT_SECONDARY }}>{feeLabel} {formatPrice(feeCents)}</span>}
+                          <span style={{ fontWeight: 700, fontSize: 15, color: VIOLET_SOFT }}>Total {formatPrice(payableCents)}</span>
+                        </span>
+                      ) : isPaidSelection && feeCents > 0 ? (
+                        // Phase 5A — no discount, but a pass-through booking fee:
+                        // tickets, fee, total (what the purchaser pays).
+                        <span data-testid="cart-totals" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, textAlign: 'right' }}>
+                          <span style={{ color: TEXT_SECONDARY }}>Tickets {formatPrice(totalCents)}</span>
+                          <span style={{ color: TEXT_SECONDARY }}>{feeLabel} {formatPrice(feeCents)}</span>
+                          <span style={{ fontWeight: 700, fontSize: 15, color: VIOLET_SOFT }}>Total {formatPrice(payableCents)}</span>
                         </span>
                       ) : (
                         <span style={{ fontWeight: 700, fontSize: 15, color: isPaidSelection ? VIOLET_SOFT : GREEN }}>
@@ -1012,7 +1043,7 @@ export default function PublicEventClient({
                     {submitting && <span className="bb-event-spin" aria-hidden="true" />}
                     {submitting
                       ? (isPaidSelection ? 'Redirecting to payment…' : 'Confirming…')
-                      : (isPaidSelection ? `Pay ${formatPrice(totalCents)}` : 'Confirm registration')}
+                      : (isPaidSelection ? `Pay ${formatPrice(payableCents)}` : 'Confirm registration')}
                   </button>
                 </form>
               )}

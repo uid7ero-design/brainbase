@@ -44,9 +44,18 @@ export type OrderRow = {
   total_cents: number;
   currency: string;
   // Phase 4 — discount snapshot (0 / null for every order placed without
-  // a promotion). total_cents above remains the amount payable/paid.
+  // a promotion). total_cents above remains the NET TICKET amount.
   discount_cents?: number;
   promotion_code_snapshot?: string | null;
+  // Phase 5A — fee snapshot (see app/api/events/[id]/orders/route.ts):
+  // what the customer paid, the platform fee and its mode, and what a
+  // refund returned. Absent/0/null on every pre-Phase-5A and zero-fee
+  // order, so every existing reader keeps working unchanged.
+  payment_total_cents?: number | null;
+  platform_fee_cents?: number | null;
+  fee_mode?: 'PASS_THROUGH' | 'ABSORB' | null;
+  refunded_cents?: number | null;
+  platform_fee_refunded_cents?: number | null;
   paid_at: string | null;
   refunded_at: string | null;
   refundable: boolean;
@@ -422,10 +431,21 @@ export default function RegistrationsPanel({
                 <RegField label={o.lines.length > 1 ? 'Tickets' : 'Ticket'} value={formatOrderLines(o.lines)} />
                 {o.session_name && <RegField label="Session" value={o.session_name} />}
                 {o.payment_status !== 'NOT_REQUIRED' && (
+                  // Phase 5A — the headline figure is what the CUSTOMER paid
+                  // (payment_total_cents; = total_cents on every zero-fee
+                  // order). The sub-line spells out the discount and, when a
+                  // platform fee applied, its amount and whether the customer
+                  // paid it or it was deducted from the organiser's proceeds —
+                  // so ticket revenue is never read as platform revenue.
                   <RegField
                     label="Amount"
-                    value={formatAmount(o.total_cents, o.currency)}
-                    sub={o.discount_cents ? `${o.promotion_code_snapshot ?? 'Discount'} · −${formatAmount(o.discount_cents, o.currency)}` : undefined}
+                    value={formatAmount(o.payment_total_cents ?? o.total_cents, o.currency)}
+                    sub={[
+                      o.discount_cents ? `${o.promotion_code_snapshot ?? 'Discount'} · −${formatAmount(o.discount_cents, o.currency)}` : null,
+                      o.platform_fee_cents && o.fee_mode
+                        ? `${o.fee_mode === 'PASS_THROUGH' ? 'Booking fee paid by customer' : 'Platform fee deducted from proceeds'} · ${formatAmount(o.platform_fee_cents, o.currency)}`
+                        : null,
+                    ].filter(Boolean).join(' · ') || undefined}
                   />
                 )}
                 <RegField label="Registered" value={new Date(o.created_at).toLocaleString()} />

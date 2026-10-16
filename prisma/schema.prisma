@@ -63,6 +63,7 @@ model Organisation {
   web_service_leads      WebServiceLead[]
   organisation_modules   OrganisationModule[]
   events                 Event[]
+  ticketing_fee_policies TicketingFeePolicy[]
   source_systems         SourceSystem[]
   source_mappings        SourceMapping[]
   mapping_versions       MappingVersion[]
@@ -2721,6 +2722,9 @@ model Event {
   // scripts/create-events-promotions-presales-sale-windows.sql).
   promotion_codes EventPromotionCode[]
   access_codes    EventAccessCode[]
+  // Phase 5A — event-level fee policy override (see
+  // scripts/create-events-ticketing-fees-foundation.sql).
+  fee_policies    TicketingFeePolicy[]
 
   // Slug uniqueness is per-organisation only, not global — Phase 1 has
   // no public URL surface that would require a global namespace. If a
@@ -2944,6 +2948,47 @@ model EventAccessCodeTicketType {
   @@map("event_access_code_ticket_types")
 }
 
+// Phase 5A — neutral platform/booking-fee policy (see
+// scripts/create-events-ticketing-fees-foundation.sql). One row per
+// scope: organisation-level (event_id NULL) or event-level. NO row = no
+// fee (the platform default, a code constant in
+// lib/events/services/fees.ts). The two partial UNIQUE indexes that
+// enforce one row per scope live only in the SQL (Prisma cannot express a
+// partial unique index) — "Prisma mirrors, raw SQL is authoritative".
+model TicketingFeePolicy {
+  id                     String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  organisation_id        String
+  event_id               String?
+  enabled                Boolean   @default(false)
+  // 'PASS_THROUGH' | 'ABSORB' — TEXT + CHECK in the live SQL.
+  fee_mode               String
+  // Basis points (1/100 of a percent, 0..10000) of the NET ticket
+  // subtotal. An exact integer rather than NUMERIC(5,2) so the fee is
+  // integer arithmetic end to end (ADR 0002 §13).
+  percent_bps            Int       @default(0)
+  fixed_per_order_cents  Int       @default(0)
+  fixed_per_ticket_cents Int       @default(0)
+  min_fee_cents          Int?
+  max_fee_cents          Int?
+  currency               String    @default("AUD")
+  label                  String    @default("Booking fee")
+  // Metadata seam only: 'UNSPECIFIED' | 'GST_INCLUSIVE' | 'GST_EXCLUSIVE'
+  // | 'GST_FREE'. Nothing computes tax from it in Phase 5A.
+  tax_treatment          String    @default("UNSPECIFIED")
+  version                Int       @default(1)
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime  @updatedAt @db.Timestamptz(6)
+
+  organisation           Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  event                  Event?       @relation(fields: [event_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
+  orders                 EventOrder[]
+
+  @@unique([id, organisation_id])
+  @@index([organisation_id])
+  @@index([event_id])
+  @@map("ticketing_fee_policies")
+}
+
 // ─── Events & Ticketing (Phase 2 — public free registration) ───────────
 // Adds only what a free, publicly-submitted registration needs:
 // EventOrder (the purchaser + submission), EventOrderItem (which ticket
@@ -3028,10 +3073,34 @@ model EventOrder {
   promotion_code_snapshot String?
   access_code_id          String?
   access_code_snapshot    String?
+  // Phase 5A — immutable FEE SNAPSHOT (see
+  // scripts/create-events-ticketing-fees-foundation.sql). total_cents above
+  // stays the NET TICKET amount; payment_total_cents is what the customer
+  // pays (NULL only on rows that pre-date the migration — readers use
+  // COALESCE(payment_total_cents, total_cents)). fee_mode NULL = no fee
+  // policy applied. The live SQL carries event_orders_fee_snapshot_check,
+  // which enforces the by-mode arithmetic between these columns.
+  platform_fee_cents          Int     @default(0)
+  fee_mode                    String?
+  payment_total_cents         Int?
+  fee_policy_id               String?
+  fee_policy_version          Int?
+  fee_percent_bps             Int?
+  fee_fixed_per_order_cents   Int?
+  fee_fixed_per_ticket_cents  Int?
+  fee_min_cents               Int?
+  fee_max_cents               Int?
+  fee_tax_treatment           String?
+  fee_label                   String?
+  refunded_cents              Int?
+  platform_fee_refunded_cents Int?
   created_at      DateTime         @default(now()) @db.Timestamptz(6)
   updated_at      DateTime         @updatedAt @db.Timestamptz(6)
 
   event           Event            @relation(fields: [event_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
+  // Phase 5A — organisation-scoped composite FK, NO ACTION (a policy is
+  // disabled, never deleted, once an order has snapshotted it).
+  fee_policy      TicketingFeePolicy? @relation(fields: [fee_policy_id, organisation_id], references: [id, organisation_id], onDelete: NoAction)
   order_items     EventOrderItem[]
   registration_responses EventRegistrationResponse[]
   ticket_email_deliveries EventTicketEmailDelivery[]
