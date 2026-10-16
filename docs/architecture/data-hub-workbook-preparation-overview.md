@@ -20,6 +20,8 @@ Hidden, very-hidden, empty, ineligible and skipped worksheets remain visible
 but are excluded from checks. This display policy does not grant eligibility.
 The existing preparation services and routes remain authoritative. Two sheets
 with identical names retain distinct physical worksheet positions and IDs.
+Observation state uses a map so opaque IDs cannot collide with object prototype
+properties. IDs remain navigation metadata rather than permission or evidence.
 
 The summary separates unchecked, ready, in-progress, attention and preparation
 states. It counts worksheets, not source rows or successful domain imports.

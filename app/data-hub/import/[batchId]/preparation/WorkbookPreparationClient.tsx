@@ -26,7 +26,7 @@ export default function WorkbookPreparationClient({ batchId }: { batchId: string
 function WorkbookPreparation({ batchId }: { batchId: string }) {
   const filterId = useId();
   const [worksheets, setWorksheets] = useState<WorkbookWorksheet[] | null>(null);
-  const [checks, setChecks] = useState<Record<string, WorksheetCheck>>({});
+  const [checks, setChecks] = useState<Map<string, WorksheetCheck>>(() => new Map());
   const [busy, setBusy] = useState<"load" | "scan" | null>("load");
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -42,13 +42,13 @@ function WorkbookPreparation({ batchId }: { batchId: string }) {
         if (active.current === ticket) setWorksheets(result);
       } else {
         await checkWorkbookWorksheets(rows, ticket.controller.signal, (id, result) => {
-          if (active.current === ticket) setChecks(previous => ({ ...previous, [id]: result }));
+          if (active.current === ticket) setChecks(previous => new Map(previous).set(id, result));
         });
         if (active.current === ticket) setCheckedAt(new Date().toLocaleTimeString());
       }
     } catch (failure) {
       if (active.current !== ticket) return;
-      setChecks({}); setCheckedAt(null);
+      setChecks(new Map()); setCheckedAt(null);
       const code = failure instanceof Error ? failure.message : "REQUEST_FAILED";
       if (["UNAUTHORIZED", "FORBIDDEN", "UPLOAD_NOT_FOUND"].includes(code)) {
         setWorksheets(null);
@@ -67,7 +67,7 @@ function WorkbookPreparation({ batchId }: { batchId: string }) {
     if (active.current) return;
     const ticket: Request = { controller: new AbortController(), reason: "CANCELLED" };
     active.current = ticket;
-    setBusy(mode); setError(""); setChecks({}); setCheckedAt(null);
+    setBusy(mode); setError(""); setChecks(new Map()); setCheckedAt(null);
     if (mode === "load") { setWorksheets(null); setFilter("all"); }
     void perform(ticket, mode, rows);
   }
@@ -93,7 +93,7 @@ function WorkbookPreparation({ batchId }: { batchId: string }) {
     return () => { const ticket = active.current; active.current = null; ticket?.controller.abort(); };
   }, [batchId]);
 
-  const rows = (worksheets ?? []).map(worksheet => ({ worksheet, state: workbookWorksheetState(worksheet, checks[worksheet.id]) }));
+  const rows = (worksheets ?? []).map(worksheet => ({ worksheet, state: workbookWorksheetState(worksheet, checks.get(worksheet.id)) }));
   const eligible = rows.filter(row => !row.worksheet.excluded).length;
   const ready = rows.filter(row => row.state === "ready").length;
   const needs = rows.filter(row => ["needs", "running", "attention"].includes(row.state)).length;
@@ -113,7 +113,7 @@ function WorkbookPreparation({ batchId }: { batchId: string }) {
       {busy ? <Button type="button" variant="ghost" onClick={() => active.current?.controller.abort()}>Stop checking</Button> : null}
     </div>
     <p role="status" aria-live="polite">{busy === "load" ? "Loading worksheets…" : busy === "scan"
-      ? `Checking preparation: ${Object.keys(checks).length} of ${eligible} worksheets checked.`
+      ? `Checking preparation: ${checks.size} of ${eligible} worksheets checked.`
       : checkedAt ? `Preparation checked at ${checkedAt}. Status can change; each worksheet checks again when opened.` : "Preparation statuses have not been checked."}</p>
     {error ? <p role="alert" className={styles.alert}>{error}</p> : null}
     {worksheets ? <>
@@ -131,7 +131,7 @@ function WorkbookPreparation({ batchId }: { batchId: string }) {
       {worksheets.length === 0 ? <p>No worksheets have been inspected yet. Open the import to continue.</p>
         : visible.length === 0 ? <p>No worksheets match this view.</p>
         : <ul className={styles.list}>{visible.map(({ worksheet, state }) => {
-          const check = checks[worksheet.id];
+          const check = checks.get(worksheet.id);
           const snapshot = check && "snapshot" in check ? check.snapshot : null;
           return <li key={worksheet.id} className={styles.card}>
           <div className={styles.cardHeading}><h2>{worksheet.name || "Worksheet"} <span>(worksheet {worksheet.index + 1})</span></h2><p>{labels[state]}</p></div>

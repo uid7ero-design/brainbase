@@ -20,6 +20,15 @@ async function loaded() { await screen.findByRole("link", { name: "Open preparat
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("workbook preparation overview", () => {
+  it.each(["__proto__", "constructor", "toString"])("preserves opaque worksheet identity %s without object-key collisions", async id => {
+    const fetcher = setup([row(0, { id })]), original = fetcher.getMockImplementation()!;
+    fetcher.mockImplementation((url, options) => url.endsWith('/worksheets') ? original(url, options)
+      : Promise.resolve(reply({ ok: true, status: "SUCCEEDED", rowCount: 0, columnCount: 4 })));
+    render(<WorkbookPreparationClient batchId="batch" />); await loaded();
+    expect(screen.getByText("Not checked", { exact: true })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Check preparation" }));
+    expect(await screen.findByRole("link", { name: "Review worksheet 1" })).toHaveAttribute("href", `/data-hub/analysis/${id}`);
+  });
   it("opens by reading persisted inventory only and distinguishes unchecked worksheets", async () => {
     const fetcher = setup(); render(<WorkbookPreparationClient batchId="batch" />); await loaded();
     expect(fetcher).toHaveBeenCalledTimes(1);
