@@ -611,17 +611,26 @@ describe('restricted case real route access and history', () => {
 });
 
 describe('restricted detail browser to actual route', () => {
-  it.each(['revoked', 'lost-note', 'lost-participant', 'lost-grant', 'lost-document', 'creation-lost', 'creation-grant-lost'] as const)('restricted detail actual-route recovery: %s', async scenario => {
+  it.each(['revoked', 'lost-note', 'lost-participant', 'lost-grant', 'lost-document', 'creation-lost', 'creation-grant-lost', 'remove-lost', 'revoke-lost', 'delete-lost'] as const)('restricted detail actual-route recovery: %s', async scenario => {
     await q(readFileSync('scripts/add-hr-people-tenant-unique.sql', 'utf8'));
     await q(readFileSync('scripts/create-hr-restricted-cases.sql', 'utf8'));
     const creation=scenario.startsWith('creation');
-    const caseId = scenario === 'revoked' ? '98888888-8888-4888-8888-888888888888' : scenario === 'lost-note' ? '98888888-8888-4888-8888-888888888889' : scenario === 'lost-participant' ? '98888888-8888-4888-8888-888888888890' : scenario === 'lost-grant' ? '98888888-8888-4888-8888-888888888891' : scenario === 'lost-document' ? '98888888-8888-4888-8888-888888888892' : scenario === 'creation-lost' ? '98888888-8888-4888-8888-888888888893' : '98888888-8888-4888-8888-888888888894';
+    const caseId = '98888888-8888-4888-8888-' + String(888888888900 + ['revoked','lost-note','lost-participant','lost-grant','lost-document','creation-lost','creation-grant-lost','remove-lost','revoke-lost','delete-lost'].indexOf(scenario));
     await q("INSERT INTO hr_restricted_cases(id,organisation_id,case_type,title,opened_by) VALUES($1,$2,'other','Browser synthetic restricted case',$3)", [caseId, org, hr.userId]);
     await q('INSERT INTO hr_restricted_case_access(organisation_id,case_id,user_id,granted_by) VALUES($1,$2,$3,$4)', [org, caseId, employee.userId, hr.userId]);
-    routeUser = (creation || ['lost-participant', 'lost-grant'].includes(scenario)) ? hr.userId : employee.userId;
-    if (['lost-participant', 'lost-grant'].includes(scenario)) await q('INSERT INTO hr_restricted_case_access(organisation_id,case_id,user_id,granted_by) VALUES($1,$2,$3,$3)', [org, caseId, hr.userId]);
+    routeUser = (creation || ['lost-participant', 'lost-grant', 'remove-lost', 'revoke-lost'].includes(scenario)) ? hr.userId : employee.userId;
+    if (['lost-participant', 'lost-grant', 'remove-lost', 'revoke-lost'].includes(scenario)) await q('INSERT INTO hr_restricted_case_access(organisation_id,case_id,user_id,granted_by) VALUES($1,$2,$3,$3)', [org, caseId, hr.userId]);
     const detail = await import('@/app/api/hr/restricted-cases/[id]/route');
     const noteRoutes = await import('@/app/api/hr/restricted-cases/[id]/notes/route');
+    if (scenario === 'remove-lost') await q("INSERT INTO hr_restricted_case_participants(organisation_id,case_id,person_id,role_in_case) VALUES($1,$2,$3,'witness')",[org,caseId,personId]);
+    if (scenario === 'revoke-lost') await q('INSERT INTO hr_restricted_case_access(organisation_id,case_id,user_id,granted_by) VALUES($1,$2,$3,$4)',[org,caseId,outsider.userId,hr.userId]);
+    if (scenario === 'delete-lost') {
+      const files=await import('@/lib/hr/restrictedCaseDocuments');
+      expect((await files.uploadRestrictedCaseDocument({actor:{organisationId:org,userId:employee.userId},caseId,originalFilename:'terminal.pdf',contentType:'application/pdf',bytes:new Uint8Array([1,2,3])})).outcome).toBe('created');
+    }
+    const removeParticipant=await import('@/app/api/hr/restricted-cases/[id]/participants/[personId]/route');
+    const revokeAccess=await import('@/app/api/hr/restricted-cases/[id]/access/[userId]/route');
+    const deleteDocument=await import('@/app/api/hr/restricted-cases/[id]/documents/[documentId]/route');
     const caseRoutes=await import('@/app/api/hr/restricted-cases/route');
     const documentRoutes = await import('@/app/api/hr/restricted-cases/[id]/documents/route');
     const grantRoute = await import('@/app/api/hr/restricted-cases/[id]/access/route');
@@ -644,6 +653,13 @@ describe('restricted detail browser to actual route', () => {
         const url = new URL(req.url!, 'http://fixture.local');
         if (url.pathname === '/') { res.setHeader('Content-Type', 'text/html'); res.end('<div id="root"></div>'); return; }
         res.setHeader('Content-Type', 'application/json');
+        if (req.method === 'DELETE') {
+          actualWrites++; const targetId=url.pathname.split('/')[6]; const request=new NextRequest(url,{method:'DELETE'});
+          const response=url.pathname.includes('/participants/') ? await removeParticipant.DELETE(request,{params:Promise.resolve({id:caseId,personId:targetId})})
+            : url.pathname.includes('/access/') ? await revokeAccess.DELETE(request,{params:Promise.resolve({id:caseId,userId:targetId})})
+            : await deleteDocument.DELETE(request,{params:Promise.resolve({id:caseId,documentId:targetId})});
+          res.statusCode=response.status; res.end(await response.text()); return;
+        }
         if (url.pathname === '/api/hr/restricted-cases') {
           const method=req.method ?? 'GET'; const chunks: Buffer[]=[]; for await (const chunk of req) chunks.push(Buffer.from(chunk));
           if (method === 'POST') actualWrites++;
@@ -678,7 +694,7 @@ describe('restricted detail browser to actual route', () => {
           const response = method === 'POST' ? await handlers.POST(request, { params: Promise.resolve({ id: caseId }) }) : await handlers.GET(request, { params: Promise.resolve({ id: caseId }) });
           res.statusCode = response.status; res.end(await response.text()); return;
         }
-        if (url.pathname.endsWith('/administrators')) { res.statusCode=(creation || ['lost-participant', 'lost-grant'].includes(scenario)) ? 200 : 403; res.end(JSON.stringify({ users: [{ id: outsider.userId, name: 'Synthetic recipient', email: null, grant_eligible: true }] })); return; }
+        if (url.pathname.endsWith('/administrators')) { res.statusCode=(creation || ['lost-participant', 'lost-grant', 'remove-lost', 'revoke-lost'].includes(scenario)) ? 200 : 403; res.end(JSON.stringify({ users: [{ id: outsider.userId, name: 'Synthetic recipient', email: null, grant_eligible: true }] })); return; }
         const body = url.pathname.endsWith('/participants') ? { participants: [] }
           : url.pathname.endsWith('/notes') ? { notes: [] } : url.pathname.endsWith('/documents') ? { documents: [] } : { people: [{ id: personId, first_name: 'Synthetic', last_name: 'Participant' }] };
         res.end(JSON.stringify(body));
@@ -711,6 +727,24 @@ describe('restricted detail browser to actual route', () => {
         expect(errors).toEqual([]); return;
       }
       await browserExpect(page.getByRole('heading', { name: 'Browser synthetic restricted case' })).toBeVisible();
+      if (['remove-lost','revoke-lost','delete-lost'].includes(scenario)) {
+        await page.route('**/api/hr/restricted-cases/**',async route => {
+          if (route.request().method() !== 'DELETE') return route.continue();
+          const response=await route.fetch(); expect(response.status()).toBe(200); await route.abort('failed');
+        });
+        if (scenario === 'revoke-lost') await page.getByRole('combobox',{name:'User',exact:true}).selectOption(outsider.userId);
+        const button=scenario === 'remove-lost' ? 'Remove Synthetic Participant from this case' : scenario === 'revoke-lost' ? 'Revoke access' : 'Delete terminal.pdf';
+        await page.getByRole('button',{name:button,exact:true}).click();
+        await browserExpect(page.getByText('The change could not be confirmed. Refresh and review the case before trying again.')).toBeVisible();
+        await browserExpect(page.getByRole('button',{name:button,exact:true})).toBeDisabled();
+        await page.getByRole('button',{name:'Refresh',exact:true}).click();
+        await browserExpect(page.getByRole('heading',{name:'Browser synthetic restricted case'})).toBeVisible();
+        expect(actualWrites).toBe(1);
+        if (scenario === 'remove-lost') expect(await q('SELECT id FROM hr_restricted_case_participants WHERE case_id=$1',[caseId])).toEqual([]);
+        if (scenario === 'revoke-lost') expect((await q('SELECT revoked_at FROM hr_restricted_case_access WHERE case_id=$1 AND user_id=$2',[caseId,outsider.userId]))[0].revoked_at).not.toBeNull();
+        if (scenario === 'delete-lost') { expect((await q('SELECT deleted_at FROM hr_restricted_case_documents WHERE case_id=$1',[caseId]))[0].deleted_at).not.toBeNull(); await browserExpect(page.getByRole('link',{name:'terminal.pdf',exact:true})).toHaveCount(0); }
+        expect(errors).toEqual([]); return;
+      }
       if (scenario === 'lost-document') {
         await page.route('**/documents', async route => {
           if (route.request().method() !== 'POST') return route.continue();
