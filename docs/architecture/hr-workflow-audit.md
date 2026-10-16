@@ -2,6 +2,21 @@
 
 This audit covers document management, lifecycle execution and HR administration. Operational registers and drawer recovery were released in PRs #423 and #424. The current fixture acceptance bundle is reviewable in PR #426; this is not a declaration that the whole HR product is complete or authorized for release.
 
+## Full local Next/login/document acceptance (16 October 2026)
+
+Run `npm run test:hr:full-local` from this checkout with Docker and Playwright Chromium available. Run one instance at a time without another Next dev server in this checkout; it uses `.next/dev`. The harness starts its own loopback-only Postgres container and HTTP SQL/object-store services, applies the repository Prisma schema and selected HR SQL scripts, seeds synthetic organisations/accounts, then launches the real Next development server. Parent environment and dotenv files are not modified. Child provider credentials are scrubbed and replaced with fixture values; native fetch, SDK undici requests and browser requests are constrained to local services, with negative guard checks. Services and the app listener are removed on completion.
+
+Passing evidence:
+
+| Boundary | Evidence |
+| --- | --- |
+| Browser login and session | Real login server action, bcrypt password check and signed HttpOnly SameSite=Lax cookie. Wrong password creates no session; tampered cookies and inactive users receive 401; real logout clears the session and subsequent HR access receives 401. |
+| HR authority | Actual People page/drawer and routes use real session/capability/context resolvers. Foreign tenant people are absent, mismatched document owner receives 404, HR grant revocation removes management permission, and disabled People entitlement returns 403. |
+| Document flow | Real browser upload form reaches the actual Next route, installed Blob SDK and local HTTP store; download bytes match. Replacement/history has two immutable versions and one current version. HR verifies; a separately logged-in linked employee downloads/acknowledges but cannot verify or delete. Logical deletion denies subsequent download while preserving both database versions and stored objects. |
+| Isolation and repeatability | Guard checks reject external native/SDK fetches and non-fixture SQL connections. Repeated final local runs pass; containers and app listeners are removed. Changed-file lint/diff checks pass. |
+
+The SQL-over-HTTP and Blob HTTP services are local protocol adapters. This establishes full Next/authentication and installed-SDK-to-local-service behaviour; it does not certify hosted Neon/Vercel services, live email, production TLS/Secure-cookie behaviour, complete production schema drift, every race, or all HR lifecycle/restricted-case flows under full Next. The earlier route/browser/Postgres suites remain separate complementary proof. One extended browser run crashed before upload; reruns passed, and no product defect was inferred from that isolated runner crash. No real HR records, live providers, hosted migrations or production changes were used.
+
 ## Terminal browser recovery acceptance (16 October 2026)
 
 The terminal recovery bundle passes 90 disposable Postgres checks. Chromium sends participant removal, access revocation and document logical deletion through loopback HTTP and their actual route handlers, then withholds each successful response. The page locks the affected action; Refresh reads saved state without another DELETE. The participant is removed, grant revocation remains recorded and document deletion retains its metadata while removing its visible link. No browser errors occur. TypeScript and changed-file lint pass; disposable containers are removed. This is test/documentation work with no application change.
