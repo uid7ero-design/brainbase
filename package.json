@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:browser": "playwright test",
     "test:browser:hr": "playwright test tests/browser/hrOperationalRegisters.spec.ts",
-    "test:hr:registers": "node scripts/tests/verify-hr-registers-runtime.mjs"
+    "test:hr:registers": "node scripts/tests/verify-hr-registers-runtime.mjs",
+    "test:hr:full-local": "node scripts/tests/verify-hr-full-local.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
@@ -70,6 +71,7 @@
     "prisma": "^5.22.0",
     "tailwindcss": "^4.2.4",
     "typescript": "^5",
+    "undici": "^6.28.0",
     "vitest": "^4.1.10"
   }
 }
