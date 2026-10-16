@@ -148,7 +148,24 @@ export type EventTicketTypeInput = {
   capacity?: unknown;
   active?: unknown;
   sort_order?: unknown;
+  // Phase 4 — optional sale window (ISO strings or null = unbounded) and
+  // the presale access-code gate. All three are optional on input; a
+  // ticket type without them is on sale exactly as before.
+  sale_starts_at?: unknown;
+  sale_ends_at?: unknown;
+  requires_access_code?: unknown;
 };
+
+// Phase 4 — an optional TIMESTAMPTZ input: undefined/null/'' mean "not
+// set"; otherwise a parseable date string. Returns the error text, or
+// the parsed millis (null when unset).
+function parseOptionalInstant(value: unknown, label: string): { error: string } | { millis: number | null } {
+  if (value === undefined || value === null || value === '') return { millis: null };
+  if (typeof value !== 'string') return { error: `${label} must be a date/time string or null.` };
+  const ms = new Date(value).getTime();
+  if (Number.isNaN(ms)) return { error: `${label} must be a valid date/time.` };
+  return { millis: ms };
+}
 
 export function validateEventTicketTypeInput(body: EventTicketTypeInput): string | null {
   if (typeof body.name !== 'string' || !body.name.trim()) return 'Name is required.';
@@ -169,7 +186,129 @@ export function validateEventTicketTypeInput(body: EventTicketTypeInput): string
     return 'Sort order must be a whole number.';
   }
 
+  // Phase 4 — sale window: either bound may be absent; when both are
+  // present the close must follow the open (mirrors the database CHECK
+  // event_ticket_types_sale_window_check). A window entirely in the past
+  // or future is legitimate (that is what "Sales ended" / "Coming soon"
+  // mean), so no comparison against now() is made here.
+  const starts = parseOptionalInstant(body.sale_starts_at, 'Sales open');
+  if ('error' in starts) return starts.error;
+  const ends = parseOptionalInstant(body.sale_ends_at, 'Sales close');
+  if ('error' in ends) return ends.error;
+  if (starts.millis !== null && ends.millis !== null && ends.millis <= starts.millis) {
+    return 'Sales close must be after sales open.';
+  }
+
+  if (body.requires_access_code !== undefined && body.requires_access_code !== null && typeof body.requires_access_code !== 'boolean') {
+    return 'Requires access code must be a boolean.';
+  }
+
   return null;
+}
+
+// ── Phase 4 — promotional codes & presale access codes ────────────────
+//
+// Both validators check the ORGANISER's management input (manager+
+// routes). The code text is normalised (trim/upper-case) by the route
+// before storage; here it is validated against the same format the
+// database CHECK constraints enforce, so an organiser gets a readable
+// message instead of a constraint error. Ticket-type assignments are a
+// list of ids — whether each id belongs to THIS event is checked by the
+// route against the database (and enforced again by the join table's
+// composite FKs), not here.
+
+export const PROMOTION_DISCOUNT_TYPES = ['PERCENT', 'FIXED'] as const;
+export type PromotionDiscountType = (typeof PROMOTION_DISCOUNT_TYPES)[number];
+
+export type EventPromotionCodeInput = {
+  code?: unknown;
+  discount_type?: unknown;
+  discount_value?: unknown;
+  active?: unknown;
+  starts_at?: unknown;
+  ends_at?: unknown;
+  max_redemptions?: unknown;
+  min_cart_cents?: unknown;
+  ticket_type_ids?: unknown;
+};
+
+const PROMOTION_CODE_INPUT_PATTERN = /^[A-Z0-9_-]{3,32}$/;
+const ACCESS_CODE_INPUT_PATTERN = /^[A-Z0-9_-]{8,32}$/;
+
+function validateCodeText(value: unknown, pattern: RegExp, minLength: number): string | null {
+  if (typeof value !== 'string' || !value.trim()) return 'Code is required.';
+  const normalised = value.trim().toUpperCase();
+  if (!pattern.test(normalised)) {
+    return `Code must be ${minLength}–32 characters using letters, numbers, hyphens or underscores.`;
+  }
+  return null;
+}
+
+function validateOptionalWindow(startsRaw: unknown, endsRaw: unknown): string | null {
+  const starts = parseOptionalInstant(startsRaw, 'Start');
+  if ('error' in starts) return starts.error;
+  const ends = parseOptionalInstant(endsRaw, 'Expiry');
+  if ('error' in ends) return ends.error;
+  if (starts.millis !== null && ends.millis !== null && ends.millis <= starts.millis) return 'Expiry must be after the start.';
+  return null;
+}
+
+function validateOptionalPositiveInt(value: unknown, label: string): string | null {
+  if (value === undefined || value === null) return null;
+  if (!Number.isInteger(value) || (value as number) < 1) return `${label} must be a whole number of at least 1, or empty.`;
+  return null;
+}
+
+function validateTicketTypeIds(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || value.some(v => typeof v !== 'string' || !v.trim())) return 'Ticket type assignments must be a list of ids.';
+  if (new Set(value.map(v => (v as string).trim())).size !== value.length) return 'Each ticket type may be assigned only once.';
+  return null;
+}
+
+export function validateEventPromotionCodeInput(body: EventPromotionCodeInput): string | null {
+  const codeError = validateCodeText(body.code, PROMOTION_CODE_INPUT_PATTERN, 3);
+  if (codeError) return codeError;
+
+  if (!PROMOTION_DISCOUNT_TYPES.includes(body.discount_type as PromotionDiscountType)) {
+    return `Discount type must be one of: ${PROMOTION_DISCOUNT_TYPES.join(', ')}.`;
+  }
+  if (body.discount_type === 'PERCENT') {
+    if (!Number.isInteger(body.discount_value) || (body.discount_value as number) < 1 || (body.discount_value as number) > 100) {
+      return 'Percentage discount must be a whole number between 1 and 100.';
+    }
+  } else if (!Number.isInteger(body.discount_value) || (body.discount_value as number) < 1) {
+    return 'Fixed discount (in cents) must be a whole number of at least 1.';
+  }
+
+  if (body.active !== undefined && body.active !== null && typeof body.active !== 'boolean') return 'Active must be a boolean.';
+
+  const windowError = validateOptionalWindow(body.starts_at, body.ends_at);
+  if (windowError) return windowError;
+
+  const maxError = validateOptionalPositiveInt(body.max_redemptions, 'Maximum redemptions');
+  if (maxError) return maxError;
+  const minCartError = validateOptionalPositiveInt(body.min_cart_cents, 'Minimum cart (in cents)');
+  if (minCartError) return minCartError;
+
+  return validateTicketTypeIds(body.ticket_type_ids);
+}
+
+export type EventAccessCodeInput = {
+  code?: unknown;
+  active?: unknown;
+  starts_at?: unknown;
+  ends_at?: unknown;
+  ticket_type_ids?: unknown;
+};
+
+export function validateEventAccessCodeInput(body: EventAccessCodeInput): string | null {
+  const codeError = validateCodeText(body.code, ACCESS_CODE_INPUT_PATTERN, 8);
+  if (codeError) return codeError;
+  if (body.active !== undefined && body.active !== null && typeof body.active !== 'boolean') return 'Active must be a boolean.';
+  const windowError = validateOptionalWindow(body.starts_at, body.ends_at);
+  if (windowError) return windowError;
+  return validateTicketTypeIds(body.ticket_type_ids);
 }
 
 // Phase 3 — ticket type × session inventory override. The only

@@ -148,9 +148,10 @@ describe('Registration panel — step headings softened for the institutional th
 
     // Phase 2 (multi-ticket-type carts): the separate "Quantity" step was
     // folded into "Choose tickets" (one quantity stepper per ticket type),
-    // so there are now 5 steps.
+    // so there were 5 steps. Events Phase 4 adds the conditional "Codes"
+    // step (promotional / access codes), so there are now 6 call sites.
     const callSites = clientSource.match(/<StepLabel[^/]*\/>/g) ?? []
-    expect(callSites.length).toBe(5)
+    expect(callSites.length).toBe(6)
     for (const call of callSites) {
       expect(call, `every StepLabel call site must pass softer={institutional}: ${call}`).toContain('softer={institutional}')
     }

@@ -6,6 +6,11 @@ import { createCheckoutSession, RESERVATION_WINDOW_SECONDS, StripeNotConfiguredE
 import { checkPaidTicketingEligibility } from '@/lib/events/stripeConnect';
 import { listActiveQuestions, validateSubmittedResponses, writeRegistrationResponses } from '@/lib/events/registrationQuestions';
 import { loadCartTicketTypes, buildCartLockStatements, computeCartTotalCents } from '@/lib/events/services/cart';
+import { resolveAccessCode, type AccessGrant } from '@/lib/events/services/accessCodes';
+import {
+  resolvePromotionCode, computeDiscount, buildCheckoutLineItems, assertCheckoutLineItemsTotal, promotionRedemptionAvailable,
+  type PromotionRule, type DiscountFailureCode,
+} from '@/lib/events/services/promotions';
 
 // Shared ticketing service — paid public checkout reservation + Stripe
 // Checkout Session creation.
@@ -54,6 +59,15 @@ export type PaidCheckoutResult =
         | 'TICKET_TYPE_FREE'
         | 'MIXED_FREE_AND_PAID'
         | 'CURRENCY_MISMATCH'
+        // Phase 4 — sale windows, presale access and promotion codes.
+        | 'SALE_NOT_STARTED'
+        | 'SALE_ENDED'
+        | 'ACCESS_CODE_REQUIRED'
+        | 'ACCESS_CODE_INVALID'
+        | 'PROMOTION_INVALID'
+        | DiscountFailureCode
+        | 'PROMOTION_UNAVAILABLE'
+        | 'ORDER_TOTAL_MISMATCH'
         | 'SESSION_NOT_FOUND'
         | 'RESERVATION_FAILED'
         | 'CAPACITY_UNAVAILABLE'
@@ -65,6 +79,16 @@ export type PaidCheckoutResult =
 
 export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidCheckoutResult> {
   const { organisationId, event, validated } = input;
+
+  // Phase 4 — presale access, resolved server-side exactly as in the
+  // free flow (see lib/events/services/freeRegistration.ts): one generic
+  // ACCESS_CODE_INVALID for every failure mode, eligibility only.
+  let accessGrant: AccessGrant | null = null;
+  if (validated.access_code) {
+    const access = await resolveAccessCode(organisationId, event.id, validated.access_code);
+    if (!access.ok) return { ok: false, code: 'ACCESS_CODE_INVALID' };
+    accessGrant = access.grant;
+  }
 
   // Phase 4A paid-ticketing gate (§10): checked before anything else
   // that would consume capacity — an anonymous purchaser gets a clean,
@@ -87,7 +111,7 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
   // Ownership (same organisation AND same event), active state, price
   // and currency are all re-derived server-side in one tenant-scoped
   // query — never trusted from the request.
-  const cart = await loadCartTicketTypes(organisationId, event.id, validated.items);
+  const cart = await loadCartTicketTypes(organisationId, event.id, validated.items, { accessGrant });
   if (!cart.ok) {
     return { ok: false, code: cart.code };
   }
@@ -97,6 +121,31 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
   const lineTypeIds = cart.lines.map(l => l.ticket_type_id);
   const lineQuantities = cart.lines.map(l => l.quantity);
   const lineUnitPrices = cart.lines.map(l => l.unit_price_cents);
+  const accessCodeId = accessGrant?.id ?? null;
+  const accessCodeSnapshot = accessGrant?.code ?? null;
+
+  // Phase 4 — ONE optional promotion code per order, resolved by
+  // (organisation, event, normalised code) and computed server-side in
+  // integer cents (see lib/events/services/promotions.ts): the discount
+  // is rounded once on the eligible subtotal, allocated across lines by
+  // largest remainder, and the payable total must stay at or above the
+  // currency's minimum charge — a code that would take this cart below
+  // it (including a 100% discount) is rejected for this cart, approval
+  // D1. Nothing about the discount is ever read from the request.
+  let promotion: PromotionRule | null = null;
+  let lineDiscounts = cart.lines.map(() => 0);
+  let discountCents = 0;
+  if (validated.promotion_code) {
+    const resolved = await resolvePromotionCode(organisationId, event.id, validated.promotion_code);
+    if (!resolved.ok) return { ok: false, code: 'PROMOTION_INVALID' };
+    const computed = computeDiscount(cart.lines, resolved.rule, cart.currency);
+    if (!computed.ok) return { ok: false, code: computed.code };
+    promotion = resolved.rule;
+    lineDiscounts = computed.lineDiscountCents;
+    discountCents = computed.discountCents;
+  }
+  const promotionCodeId = promotion?.id ?? null;
+  const promotionCodeSnapshot = promotion?.code ?? null;
 
   if (validated.event_session_id) {
     const sessionRows = await sql`
@@ -128,9 +177,23 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
   // Generated here so each attendee's answers can be written against its
   // own row deterministically (see the transaction comment below).
   const attendeeIds = validated.attendees.map(() => randomUUID());
-  // Integer cents only: the order total is exactly the sum of its lines,
-  // and is exactly what the Stripe line items below charge.
-  const totalCents = computeCartTotalCents(cart.lines);
+  // Integer cents only: the order total is exactly the sum of its lines
+  // minus the snapshotted discount (0 without a promotion), and is
+  // exactly what the Stripe line items below charge. Built and asserted
+  // BEFORE any capacity is reserved, so a mismatch can never leave a
+  // hold behind.
+  const totalCents = computeCartTotalCents(cart.lines) - discountCents;
+  const stripeLineItems = buildCheckoutLineItems(
+    cart.lines.map((l, i) => ({ name: l.name, unit_price_cents: l.unit_price_cents, quantity: l.quantity, discount_cents: lineDiscounts[i] })),
+    promotionCodeSnapshot,
+    cart.currency,
+  );
+  try {
+    assertCheckoutLineItemsTotal(stripeLineItems, totalCents);
+  } catch (err) {
+    console.error('[public checkout] refusing to reserve: Stripe line items do not reconcile with the order total', err);
+    return { ok: false, code: 'ORDER_TOTAL_MISMATCH' };
+  }
 
   // ── Capacity-reserving transaction (§8/§9, multi-line) ──────────────
   //
@@ -163,14 +226,30 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
   // correct attendee deterministically — never by RETURNING row order,
   // which Postgres does not guarantee (the same reasoning the free flow
   // already applies via ticket_token correlation).
+  //
+  // Phase 4 additions to the SAME statement (nothing above changes for
+  // an order without a promotion or access code):
+  //   * `purchasable` in cart_tt re-asserts, inside the locked statement
+  //     at the database's NOW(), that every line's ticket type is active,
+  //     inside its sale window and (if restricted) unlocked by THIS
+  //     order's access code — see freeRegistration.ts's identical CTE;
+  //   * the gate also requires the promotion code (if any) to still be
+  //     active, inside its window and under its max_redemptions — counted
+  //     with the D3 predicate (paid/refunded orders always count; live
+  //     holds count; expired/failed/cancelled unpaid holds do not) — and
+  //     the lock tier that makes that count race-free is the promotion
+  //     row FOR UPDATE that buildCartLockStatements adds AFTER every
+  //     inventory lock (lib/events/services/cart.ts). The order row this
+  //     statement inserts IS the redemption record; no promotion table is
+  //     written, so a webhook replay can never double-count.
   let transactionResults: unknown[];
   try {
     transactionResults = await sql.transaction([
-      ...buildCartLockStatements(organisationId, lineTypeIds, validated.event_session_id),
+      ...buildCartLockStatements(organisationId, lineTypeIds, validated.event_session_id, promotionCodeId),
       sql`
         WITH cart AS (
-          SELECT c.ticket_type_id, c.quantity, c.unit_price_cents
-          FROM UNNEST(${lineTypeIds}::text[], ${lineQuantities}::int[], ${lineUnitPrices}::int[]) AS c(ticket_type_id, quantity, unit_price_cents)
+          SELECT c.ticket_type_id, c.quantity, c.unit_price_cents, c.discount_cents
+          FROM UNNEST(${lineTypeIds}::text[], ${lineQuantities}::int[], ${lineUnitPrices}::int[], ${lineDiscounts}::int[]) AS c(ticket_type_id, quantity, unit_price_cents, discount_cents)
         ),
         cart_tt AS (
           -- Phase 3 (ticket type × session inventory): a (type, session)
@@ -179,6 +258,25 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
           -- the event-wide figures apply unchanged. See
           -- lib/events/services/freeRegistration.ts's identical CTE.
           SELECT c.ticket_type_id, c.quantity, COALESCE(inv.capacity, tt.capacity) AS capacity,
+            (
+              tt.active
+              AND (tt.sale_starts_at IS NULL OR tt.sale_starts_at <= NOW())
+              AND (tt.sale_ends_at IS NULL OR tt.sale_ends_at > NOW())
+              AND (
+                NOT tt.requires_access_code
+                OR EXISTS (
+                  SELECT 1 FROM event_access_codes ac
+                  WHERE ac.id = ${accessCodeId} AND ac.organisation_id = ${organisationId} AND ac.event_id = ${event.id}
+                    AND ac.active = true
+                    AND (ac.starts_at IS NULL OR ac.starts_at <= NOW())
+                    AND (ac.ends_at IS NULL OR ac.ends_at > NOW())
+                    AND (
+                      NOT EXISTS (SELECT 1 FROM event_access_code_ticket_types att WHERE att.access_code_id = ac.id AND att.organisation_id = ac.organisation_id)
+                      OR EXISTS (SELECT 1 FROM event_access_code_ticket_types att WHERE att.access_code_id = ac.id AND att.organisation_id = ac.organisation_id AND att.ticket_type_id = tt.id)
+                    )
+                )
+              )
+            ) AS purchasable,
             (
               SELECT COALESCE(SUM(oi.quantity), 0)
               FROM event_order_items oi
@@ -203,26 +301,44 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
           SELECT 1 AS ok
           FROM sold_sess
           WHERE (SELECT count(*) FROM cart_tt) = ${lineTypeIds.length}
+            AND NOT EXISTS (SELECT 1 FROM cart_tt WHERE NOT cart_tt.purchasable)
             AND NOT EXISTS (SELECT 1 FROM cart_tt WHERE cart_tt.sold + cart_tt.quantity > cart_tt.capacity)
             AND (
               ${validated.event_session_id}::text IS NULL
               OR sold_sess.qty + ${validated.quantity} <= (SELECT capacity FROM event_sessions WHERE id = ${validated.event_session_id} AND organisation_id = ${organisationId})
             )
+            AND (
+              ${promotionCodeId}::text IS NULL
+              OR EXISTS (
+                SELECT 1 FROM event_promotion_codes pc
+                WHERE pc.id = ${promotionCodeId} AND pc.organisation_id = ${organisationId} AND pc.event_id = ${event.id}
+                  AND pc.active = true
+                  AND (pc.starts_at IS NULL OR pc.starts_at <= NOW())
+                  AND (pc.ends_at IS NULL OR pc.ends_at > NOW())
+                  AND (pc.max_redemptions IS NULL OR (
+                    SELECT count(*) FROM event_orders eo
+                    WHERE eo.promotion_code_id = pc.id AND eo.organisation_id = pc.organisation_id
+                      AND (eo.payment_status IN ('PAID', 'REFUNDED') OR (eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())))
+                  ) + 1 <= pc.max_redemptions)
+              )
+            )
         ),
         ins_order AS (
           INSERT INTO event_orders (
             organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone,
-            status, total_cents, payment_status, payment_provider, currency, expires_at, stripe_account_id
+            status, total_cents, payment_status, payment_provider, currency, expires_at, stripe_account_id,
+            discount_cents, promotion_code_id, promotion_code_snapshot, access_code_id, access_code_snapshot
           )
           SELECT
             ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone},
-            'PENDING', ${totalCents}, 'PENDING', 'stripe', ${cart.currency}, NOW() + make_interval(secs => ${RESERVATION_WINDOW_SECONDS}), ${connectedAccountId}
+            'PENDING', ${totalCents}, 'PENDING', 'stripe', ${cart.currency}, NOW() + make_interval(secs => ${RESERVATION_WINDOW_SECONDS}), ${connectedAccountId},
+            ${discountCents}, ${promotionCodeId}, ${promotionCodeSnapshot}, ${accessCodeId}, ${accessCodeSnapshot}
           FROM gate
           RETURNING id
         ),
         ins_items AS (
-          INSERT INTO event_order_items (organisation_id, order_id, event_id, ticket_type_id, event_session_id, quantity, unit_price_cents)
-          SELECT ${organisationId}, ins_order.id, ${event.id}, cart.ticket_type_id, ${validated.event_session_id}, cart.quantity, cart.unit_price_cents
+          INSERT INTO event_order_items (organisation_id, order_id, event_id, ticket_type_id, event_session_id, quantity, unit_price_cents, discount_cents)
+          SELECT ${organisationId}, ins_order.id, ${event.id}, cart.ticket_type_id, ${validated.event_session_id}, cart.quantity, cart.unit_price_cents, cart.discount_cents
           FROM ins_order, cart
           RETURNING id, order_id, ticket_type_id
         )
@@ -242,6 +358,13 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
 
   const insertResult = transactionResults[transactionResults.length - 1] as { id: string; order_id: string }[];
   if (!insertResult.length) {
+    // Zero rows: capacity, OR (Phase 4) the promotion code's limit was
+    // reached / the code was disabled between the pre-check and the gate.
+    // A read-only re-check tells the two apart for the purchaser's
+    // message; it reserves nothing and changes nothing.
+    if (promotionCodeId && !(await promotionRedemptionAvailable(organisationId, promotionCodeId))) {
+      return { ok: false, code: 'PROMOTION_UNAVAILABLE' };
+    }
     return { ok: false, code: 'CAPACITY_UNAVAILABLE' };
   }
   const orderId = insertResult[0].order_id;
@@ -316,10 +439,13 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
       eventId: event.id,
       orderId,
       // One Stripe line item per cart line, in purchase order, priced
-      // from the same server-derived unit prices written to
-      // event_order_items above — so Stripe's total is exactly
-      // event_orders.total_cents.
-      lineItems: cart.lines.map(l => ({ name: l.name, unitAmountCents: l.unit_price_cents, quantity: l.quantity })),
+      // from the same server-derived unit prices (and, Phase 4, the same
+      // per-line discounts) written to event_order_items above — so
+      // Stripe's total is exactly event_orders.total_cents. Built and
+      // asserted against totalCents before the reservation ran (see
+      // stripeLineItems above); a discounted line is one net line item
+      // with the quantity and discount spelled out (approval D2).
+      lineItems: stripeLineItems,
       currency: cart.currency,
       purchaserEmail: validated.purchaser_email,
       successUrl,

@@ -64,6 +64,13 @@ export type CheckoutLineItem = {
   name: string;
   unitAmountCents: number;
   quantity: number;
+  // Phase 4 (promotions) — set only for a DISCOUNTED line, which is sent
+  // as one net line item (quantity 1) with the original quantity and the
+  // discount spelled out here so the receipt stays clear. See
+  // lib/events/services/promotions.ts's buildCheckoutLineItems. Omitted
+  // (and never sent) for every undiscounted line, so an order without a
+  // promotion produces exactly the Checkout Session it always has.
+  description?: string;
 };
 
 export type CreateCheckoutSessionInput = {
@@ -112,7 +119,7 @@ export async function createCheckoutSession(input: CreateCheckoutSessionInput): 
       line_items: input.lineItems.map(item => ({
         price_data: {
           currency: input.currency.toLowerCase(),
-          product_data: { name: item.name },
+          product_data: item.description ? { name: item.name, description: item.description } : { name: item.name },
           unit_amount: item.unitAmountCents,
         },
         quantity: item.quantity,

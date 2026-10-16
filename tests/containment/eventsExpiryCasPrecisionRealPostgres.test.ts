@@ -110,6 +110,7 @@ const MIGRATIONS = [
   'scripts/add-events-booking-wallet.sql',
   'scripts/add-events-ticket-email-delivery.sql',
   'scripts/create-events-ticket-type-session-inventory.sql',
+  'scripts/create-events-promotions-presales-sale-windows.sql',
 ]
 
 const EVENT = {
@@ -122,7 +123,7 @@ const VALIDATED = {
   // exercised exactly as the hotfix exercised them.
   items: [{ ticket_type_id: 'tt-paid', quantity: 1 }], event_session_id: null, quantity: 1,
   purchaser_name: 'Jane', purchaser_email: 'jane@example.com', purchaser_phone: null,
-  attendees: [{ name: 'Jane', email: null, responses: [], ticket_type_id: 'tt-paid' }], order_responses: [],
+  attendees: [{ name: 'Jane', email: null, responses: [], ticket_type_id: 'tt-paid' }], order_responses: [], promotion_code: null, access_code: null,
 }
 const URLS = async () => ({ successUrl: 'https://example.test/s', cancelUrl: 'https://example.test/c' })
 const RETRY_URLS = async () => ({ successUrl: 'https://example.test/s', cancelUrl: 'https://example.test/c' })

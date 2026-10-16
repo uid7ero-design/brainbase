@@ -53,6 +53,9 @@ export async function GET(req: Request, { params }: Ctx) {
     SELECT
       eo.id, eo.purchaser_name, eo.purchaser_email, eo.purchaser_phone, eo.status, eo.created_at,
       eo.payment_status, eo.total_cents, eo.currency, eo.paid_at, eo.refunded_at, eo.stripe_payment_intent_id IS NOT NULL AS refundable,
+      -- Phase 4 — the order's discount snapshot (0 / NULL for every order
+      -- without a promotion). total_cents above stays the payable amount.
+      eo.discount_cents, eo.promotion_code_snapshot,
       eo.crm_contact_id,
       eo.expires_at, (eo.payment_status = 'PENDING' AND eo.expires_at IS NOT NULL AND eo.expires_at <= NOW()) AS is_expired_pending,
       oi.id AS order_item_id, oi.quantity,

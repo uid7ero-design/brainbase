@@ -20,6 +20,18 @@ export type PublicTicketType = {
   price_cents: number;
   capacity: number;
   remaining: number;
+  // Phase 4 — sale window (ISO strings, NULL = unbounded), the server's
+  // own on-sale verdict at response time, and whether the type needs an
+  // access code. The server (lib/events/services/cart.ts and the
+  // reservation gate) re-evaluates all of this at submit against the
+  // database clock — these fields drive display only. A restricted type
+  // is still LISTED (name/price/status) so the visitor knows an access
+  // code exists; it cannot be purchased without one regardless of what
+  // the UI shows (brief §6: "do not rely solely on hiding ticket types").
+  sale_starts_at: string | null;
+  sale_ends_at: string | null;
+  sale_status: 'COMING_SOON' | 'ON_SALE' | 'SALES_ENDED';
+  requires_access_code: boolean;
 };
 
 // Phase 3 (ticket type × session inventory) — one row per (ticket type,
@@ -73,6 +85,10 @@ export type PublicEventDetail = {
   // Override pairs only — see PublicSessionInventory.
   session_inventory: PublicSessionInventory[];
   questions: PublicQuestion[];
+  // Phase 4 — whether at least one promotion code is currently live for
+  // this event (active, inside its window). Drives only whether the
+  // "promotional code" input is shown; never which codes exist.
+  has_promotions: boolean;
   // Public-safe view model only (lib/organisations/branding.ts's own
   // explicit allowlist) — never organisationId, never raw settings.
   branding: PublicOrganisationBranding;
@@ -142,7 +158,7 @@ export async function getPublicEventDetail(
   // keeping the two predicates identical just means the number shown
   // here doesn't visibly disagree with what the write path will do a
   // moment later.
-  const [sessionRows, ticketTypeRows, inventoryRows, questionRows] = await Promise.all([
+  const [sessionRows, ticketTypeRows, inventoryRows, questionRows, promotionRows] = await Promise.all([
     sql`
       SELECT
         es.id, es.name, es.starts_at, es.ends_at, es.capacity,
@@ -160,6 +176,10 @@ export async function getPublicEventDetail(
       WHERE es.event_id = ${event.id} AND es.organisation_id = ${organisationId}
       ORDER BY es.starts_at
     `,
+    // Phase 4 — sale_status is the DATABASE's verdict at NOW() (the same
+    // half-open rule the reservation gate enforces); SOLD_OUT and
+    // ACCESS_REQUIRED are client-side refinements of ON_SALE (see
+    // lib/events/saleWindow.ts). Restricted types are listed, not hidden.
     sql`
       SELECT
         tt.id, tt.name, tt.description, tt.price_cents, tt.capacity,
@@ -172,7 +192,13 @@ export async function getPublicEventDetail(
               AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
           ), 0),
           0
-        )::int AS remaining
+        )::int AS remaining,
+        tt.sale_starts_at, tt.sale_ends_at, tt.requires_access_code,
+        CASE
+          WHEN tt.sale_starts_at IS NOT NULL AND tt.sale_starts_at > NOW() THEN 'COMING_SOON'
+          WHEN tt.sale_ends_at IS NOT NULL AND tt.sale_ends_at <= NOW() THEN 'SALES_ENDED'
+          ELSE 'ON_SALE'
+        END AS sale_status
       FROM event_ticket_types tt
       WHERE tt.event_id = ${event.id} AND tt.organisation_id = ${organisationId} AND tt.active = true
       ORDER BY tt.sort_order, tt.created_at
@@ -199,7 +225,22 @@ export async function getPublicEventDetail(
       WHERE inv.event_id = ${event.id} AND inv.organisation_id = ${organisationId}
     `,
     listActiveQuestions(organisationId, event.id),
+    // Phase 4 — existence only, never the codes themselves.
+    sql`
+      SELECT 1 AS live FROM event_promotion_codes pc
+      WHERE pc.event_id = ${event.id} AND pc.organisation_id = ${organisationId} AND pc.active = true
+        AND (pc.starts_at IS NULL OR pc.starts_at <= NOW()) AND (pc.ends_at IS NULL OR pc.ends_at > NOW())
+      LIMIT 1
+    `,
   ]);
+
+  const toIsoOrNull = (v: unknown): string | null => (v === null || v === undefined ? null : v instanceof Date ? v.toISOString() : String(v));
+  const ticketTypes = (ticketTypeRows as unknown as PublicTicketType[]).map(t => ({
+    ...t,
+    sale_starts_at: toIsoOrNull(t.sale_starts_at),
+    sale_ends_at: toIsoOrNull(t.sale_ends_at),
+    requires_access_code: t.requires_access_code === true,
+  }));
 
   return {
     ok: true,
@@ -215,12 +256,13 @@ export async function getPublicEventDetail(
         timezone: event.timezone,
       },
       sessions: sessionRows as unknown as PublicSession[],
-      ticket_types: ticketTypeRows as unknown as PublicTicketType[],
+      ticket_types: ticketTypes,
       session_inventory: inventoryRows as unknown as PublicSessionInventory[],
       questions: questionRows.map(q => ({
         id: q.id, label: q.label, help_text: q.help_text, field_type: q.field_type,
         required: q.required, scope: q.scope, options: q.options, sort_order: q.sort_order,
       })),
+      has_promotions: promotionRows.length > 0,
       branding,
       organisationName,
     },

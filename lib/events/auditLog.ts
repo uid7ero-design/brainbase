@@ -357,7 +357,12 @@ export async function logAutomaticTicketEmailFailed(params: {
 
 const EVENT_AUDIT_FIELDS = ['name', 'slug', 'description', 'venue', 'artwork_url', 'status', 'starts_at', 'ends_at', 'timezone'] as const;
 const EVENT_SESSION_AUDIT_FIELDS = ['name', 'starts_at', 'ends_at', 'capacity'] as const;
-const EVENT_TICKET_TYPE_AUDIT_FIELDS = ['name', 'description', 'price_cents', 'capacity', 'active', 'sort_order'] as const;
+// Phase 4 — the sale-window/access fields join the allowlist (public
+// catalog data, never PII); a change to any of them is logged under the
+// distinct action event_ticket_type.sale_window_changed — see
+// logEventTicketTypeUpdated.
+const EVENT_TICKET_TYPE_AUDIT_FIELDS = ['name', 'description', 'price_cents', 'capacity', 'active', 'sort_order', 'sale_starts_at', 'sale_ends_at', 'requires_access_code'] as const;
+const EVENT_TICKET_TYPE_SALE_WINDOW_FIELDS: ReadonlySet<string> = new Set(['sale_starts_at', 'sale_ends_at', 'requires_access_code']);
 
 type EventRow = Record<(typeof EVENT_AUDIT_FIELDS)[number], unknown>;
 type EventSessionRow = Record<(typeof EVENT_SESSION_AUDIT_FIELDS)[number], unknown>;
@@ -465,9 +470,100 @@ export async function logEventTicketTypeUpdated(params: {
 }): Promise<void> {
   const diff = diffFields(params.before, params.after, EVENT_TICKET_TYPE_AUDIT_FIELDS);
   if (!diff) return;
+  // Phase 4 — a PATCH that touches the sale window or the access gate is
+  // logged as `sale_window_changed` (the brief's own audit vocabulary),
+  // with every changed field still carried in the diff; any other change
+  // keeps the existing `.updated` action unchanged.
+  const saleWindowChanged = Object.keys(diff.after).some(f => EVENT_TICKET_TYPE_SALE_WINDOW_FIELDS.has(f));
   await insertAuditLog({
-    organisationId: params.organisationId, userId: params.userId, action: 'event_ticket_type.updated',
+    organisationId: params.organisationId, userId: params.userId,
+    action: saleWindowChanged ? 'event_ticket_type.sale_window_changed' : 'event_ticket_type.updated',
     resourceType: 'event_ticket_type', resourceId: params.ticketTypeId,
+    beforeState: { event_id: params.eventId, ...diff.before }, afterState: { event_id: params.eventId, ...diff.after },
+  });
+}
+
+// ── Promotional codes & presale access codes audit (Phase 4) ─────────
+//
+// resource_type 'event_promotion_code' / 'event_access_code' — each its
+// own literal (ADR-0003 §10), resource_id = the code row's own id. Three
+// actions each: .created, .updated (field diff only) and .disabled (an
+// update whose only effect is active true -> false, called out
+// separately because disabling is the organiser's "stop this code" act).
+// Promotion code TEXT is marketing copy and is logged in full (approval
+// D8); access code text is MASKED everywhere in audit state ("ME*****")
+// because it gates restricted inventory. No order, purchaser or payment
+// data ever appears here — these entries describe catalog configuration.
+
+const EVENT_PROMOTION_CODE_AUDIT_FIELDS = ['code', 'discount_type', 'discount_value', 'active', 'starts_at', 'ends_at', 'max_redemptions', 'min_cart_cents', 'ticket_type_ids'] as const;
+const EVENT_ACCESS_CODE_AUDIT_FIELDS = ['code', 'active', 'starts_at', 'ends_at', 'ticket_type_ids'] as const;
+
+export type EventPromotionCodeAuditRow = Record<(typeof EVENT_PROMOTION_CODE_AUDIT_FIELDS)[number], unknown>;
+export type EventAccessCodeAuditRow = Record<(typeof EVENT_ACCESS_CODE_AUDIT_FIELDS)[number], unknown>;
+
+// Ticket-type id lists are compared as sorted, comma-joined strings so
+// diffFields' scalar comparison works on them and ordering never reads
+// as a change.
+function normaliseIdList<T extends Record<string, unknown>>(row: T): T {
+  const ids = row.ticket_type_ids;
+  if (!Array.isArray(ids)) return row;
+  return { ...row, ticket_type_ids: [...ids].map(String).sort().join(',') };
+}
+
+function codeAction(kind: 'event_promotion_code' | 'event_access_code', before: { active: unknown }, after: { active: unknown }): string {
+  return before.active === true && after.active === false ? `${kind}.disabled` : `${kind}.updated`;
+}
+
+export async function logEventPromotionCodeCreated(params: {
+  organisationId: string; userId: string; eventId: string; promotionCodeId: string; after: EventPromotionCodeAuditRow;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event_promotion_code.created',
+    resourceType: 'event_promotion_code', resourceId: params.promotionCodeId, beforeState: null,
+    afterState: { event_id: params.eventId, ...pickFields(normaliseIdList(params.after), EVENT_PROMOTION_CODE_AUDIT_FIELDS) },
+  });
+}
+
+export async function logEventPromotionCodeUpdated(params: {
+  organisationId: string; userId: string; eventId: string; promotionCodeId: string; before: EventPromotionCodeAuditRow; after: EventPromotionCodeAuditRow;
+}): Promise<void> {
+  const diff = diffFields(normaliseIdList(params.before), normaliseIdList(params.after), EVENT_PROMOTION_CODE_AUDIT_FIELDS);
+  if (!diff) return;
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId,
+    action: codeAction('event_promotion_code', params.before as { active: unknown }, params.after as { active: unknown }),
+    resourceType: 'event_promotion_code', resourceId: params.promotionCodeId,
+    beforeState: { event_id: params.eventId, ...diff.before }, afterState: { event_id: params.eventId, ...diff.after },
+  });
+}
+
+function maskAccessCodeRow<T extends Record<string, unknown>>(row: T, mask: (code: string) => string): T {
+  return typeof row.code === 'string' ? { ...row, code: mask(row.code) } : row;
+}
+
+export async function logEventAccessCodeCreated(params: {
+  organisationId: string; userId: string; eventId: string; accessCodeId: string; after: EventAccessCodeAuditRow; mask: (code: string) => string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event_access_code.created',
+    resourceType: 'event_access_code', resourceId: params.accessCodeId, beforeState: null,
+    afterState: { event_id: params.eventId, ...pickFields(maskAccessCodeRow(normaliseIdList(params.after), params.mask), EVENT_ACCESS_CODE_AUDIT_FIELDS) },
+  });
+}
+
+export async function logEventAccessCodeUpdated(params: {
+  organisationId: string; userId: string; eventId: string; accessCodeId: string; before: EventAccessCodeAuditRow; after: EventAccessCodeAuditRow; mask: (code: string) => string;
+}): Promise<void> {
+  const diff = diffFields(
+    maskAccessCodeRow(normaliseIdList(params.before), params.mask),
+    maskAccessCodeRow(normaliseIdList(params.after), params.mask),
+    EVENT_ACCESS_CODE_AUDIT_FIELDS,
+  );
+  if (!diff) return;
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId,
+    action: codeAction('event_access_code', params.before as { active: unknown }, params.after as { active: unknown }),
+    resourceType: 'event_access_code', resourceId: params.accessCodeId,
     beforeState: { event_id: params.eventId, ...diff.before }, afterState: { event_id: params.eventId, ...diff.after },
   });
 }

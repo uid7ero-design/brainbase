@@ -73,6 +73,26 @@ function toResponse(result: PaidCheckoutResult): NextResponse {
       return NextResponse.json({ error: 'Selected session is not available for this event.' }, { status: 400 });
     case 'RESPONSES_INVALID':
       return NextResponse.json({ error: result.message }, { status: 400 });
+    // Phase 4 — see the register route's identical comment: windows are
+    // enforced at submit; every code failure is one generic message;
+    // "can't be applied" covers not-applicable / minimum cart / payable
+    // below the currency minimum (incl. 100%) / unsupported currency.
+    case 'SALE_NOT_STARTED':
+      return NextResponse.json({ error: 'Tickets for this selection are not on sale yet.' }, { status: 409 });
+    case 'SALE_ENDED':
+      return NextResponse.json({ error: 'Sales for this selection have ended.' }, { status: 409 });
+    case 'ACCESS_CODE_REQUIRED':
+      return NextResponse.json({ error: 'An access code is required for this selection.' }, { status: 400 });
+    case 'ACCESS_CODE_INVALID':
+    case 'PROMOTION_INVALID':
+      return NextResponse.json({ error: 'Code not valid.' }, { status: 400 });
+    case 'PROMOTION_NOT_APPLICABLE':
+    case 'PROMOTION_MIN_CART':
+    case 'PROMOTION_TOTAL_TOO_LOW':
+    case 'PROMOTION_CURRENCY_UNSUPPORTED':
+      return NextResponse.json({ error: "This code can't be applied to this order." }, { status: 400 });
+    case 'PROMOTION_UNAVAILABLE':
+      return NextResponse.json({ error: 'This code is no longer available.' }, { status: 409 });
     case 'CAPACITY_UNAVAILABLE':
       return NextResponse.json(
         { error: 'This ticket type is no longer available in the requested quantity.' },
@@ -80,6 +100,7 @@ function toResponse(result: PaidCheckoutResult): NextResponse {
       );
     case 'STRIPE_NOT_CONFIGURED':
       return NextResponse.json({ error: 'Paid checkout is not currently available.' }, { status: 503 });
+    case 'ORDER_TOTAL_MISMATCH':
     case 'RESERVATION_FAILED':
     case 'RESPONSE_WRITE_FAILED':
     case 'WRITE_BACK_RACE_LOST':

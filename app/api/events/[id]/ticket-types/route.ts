@@ -51,13 +51,18 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const error = validateEventTicketTypeInput(body);
   if (error) return NextResponse.json({ error }, { status: 400 });
 
+  // Phase 4 — optional sale window + access gate; absent means "no
+  // restriction" (NULL / NULL / false), exactly what every pre-Phase-4
+  // ticket type has.
   const rows = await sql`
-    INSERT INTO event_ticket_types (event_id, organisation_id, name, description, price_cents, capacity, active, sort_order)
+    INSERT INTO event_ticket_types (event_id, organisation_id, name, description, price_cents, capacity, active, sort_order, sale_starts_at, sale_ends_at, requires_access_code)
     VALUES (
       ${id}, ${session.organisationId}, ${(body.name as string).trim()},
       ${(body.description as string | undefined)?.trim() || null},
       ${body.price_cents as number}, ${body.capacity as number},
-      ${(body.active as boolean | undefined) ?? true}, ${(body.sort_order as number | undefined) ?? 0}
+      ${(body.active as boolean | undefined) ?? true}, ${(body.sort_order as number | undefined) ?? 0},
+      ${(body.sale_starts_at as string | null | undefined) || null}, ${(body.sale_ends_at as string | null | undefined) || null},
+      ${(body.requires_access_code as boolean | null | undefined) ?? false}
     )
     RETURNING *
   `;

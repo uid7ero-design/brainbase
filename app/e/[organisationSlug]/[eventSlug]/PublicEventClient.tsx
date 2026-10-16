@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Calendar, Clock, MapPin, Users, Minus, Plus, CheckCircle2, Ticket } from 'lucide-react';
+import { computeSaleStatus, SALE_STATUS_LABELS, type SaleStatus } from '@/lib/events/saleWindow';
 import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
 import { resolvePublicEventTheme, applyAccentOverride, cssVarsFor } from '@/lib/events/publicEventTheme';
 import { InstitutionalHeader, InstitutionalHero, InstitutionalFooter } from '@/components/publicEvents/InstitutionalChrome';
@@ -207,9 +208,33 @@ function formatPlacesRemaining(remaining: number): string {
 // its own choice card, exactly where it's meaningful.
 function availabilityState(ticketTypes: PublicTicketType[]): { label: string; tone: 'ok' | 'soldout' | 'neutral' } {
   if (ticketTypes.length === 0) return { label: 'Registration not currently open', tone: 'neutral' };
-  const anyAvailable = ticketTypes.some(t => t.remaining > 0);
-  if (!anyAvailable) return { label: 'Sold out', tone: 'soldout' };
-  return { label: 'Tickets available', tone: 'ok' };
+  // Phase 4 — only types inside their sale window count towards "available".
+  // An older payload shape (no sale_status) is treated as on sale.
+  const onSale = ticketTypes.filter(t => (t.sale_status ?? 'ON_SALE') === 'ON_SALE');
+  if (onSale.some(t => t.remaining > 0)) return { label: 'Tickets available', tone: 'ok' };
+  if (onSale.length === 0 && ticketTypes.some(t => t.sale_status === 'COMING_SOON')) return { label: 'Coming soon', tone: 'neutral' };
+  if (onSale.length === 0) return { label: 'Sales ended', tone: 'neutral' };
+  return { label: 'Sold out', tone: 'soldout' };
+}
+
+// Phase 4 — the server's quote for the current selection + codes (see
+// app/api/public/events/[organisationSlug]/[eventSlug]/quote/route.ts).
+// Display only: register/checkout re-derive every figure themselves.
+type QuoteResponse = {
+  subtotal_cents: number;
+  discount_cents: number;
+  total_cents: number;
+  currency: string | null;
+  pricing: 'FREE' | 'PAID' | null;
+  lines: { ticket_type_id: string; quantity: number; gross_cents: number; discount_cents: number }[];
+  promotion: { code: string } | null;
+  promotion_error: string | null;
+  access: { unlocked_ticket_type_ids: string[] } | null;
+  access_error: string | null;
+  cart_error: string | null;
+};
+function normaliseCodeInput(value: string): string {
+  return value.trim().toUpperCase();
 }
 
 function EventHeader() {
@@ -234,10 +259,27 @@ export default function PublicEventClient({
   detail: PublicEventDetail;
   checkoutCancelled: boolean;
 }) {
-  const { event, sessions, ticket_types: ticketTypes, questions, branding, organisationName } = detail;
+  const { event, sessions, questions, branding, organisationName } = detail;
+  // Phase 4 — ticket types are local state so a 409 at submit (a sale
+  // window crossed, a code exhausted) can refresh their availability and
+  // sale status from the server without a full page reload.
+  const [ticketTypes, setTicketTypes] = useState<PublicTicketType[]>(detail.ticket_types);
   // Phase 3 — (ticket type, session) override pairs. Missing for an
   // older payload shape; treated as "no overrides".
   const sessionInventory = detail.session_inventory ?? [];
+  // Phase 4 — codes. The promotional-code input is offered only when the
+  // event has at least one live code (the server says whether, never
+  // which); the access-code input whenever a listed type requires one.
+  const hasPromotions = detail.has_promotions === true;
+  const hasRestrictedTypes = ticketTypes.some(t => t.requires_access_code === true);
+  const [promoInput, setPromoInput] = useState('');
+  const [appliedPromo, setAppliedPromo] = useState<string | null>(null);
+  const [accessInput, setAccessInput] = useState('');
+  const [appliedAccess, setAppliedAccess] = useState<string | null>(null);
+  const [quote, setQuote] = useState<QuoteResponse | null>(null);
+  const [quoting, setQuoting] = useState(false);
+  const [quoteFailure, setQuoteFailure] = useState<string | null>(null);
+  const unlockedIds = new Set(quote?.access?.unlocked_ticket_type_ids ?? []);
   // Public event STRUCTURAL presentation (see lib/events/publicEventTheme.ts)
   // — a pure, synchronous lookup keyed only by the organisationSlug this
   // component already receives as a prop; no new query, no schema
@@ -264,7 +306,7 @@ export default function PublicEventClient({
   // Phase 2 — one quantity per ticket type (a cart). Defaults to one
   // ticket of the first available type, matching the previous default
   // selection.
-  const firstAvailable = ticketTypes.find(t => t.remaining > 0);
+  const firstAvailable = ticketTypes.find(t => t.remaining > 0 && (t.sale_status ?? 'ON_SALE') === 'ON_SALE' && !t.requires_access_code);
   const [quantities, setQuantities] = useState<Record<string, number>>(firstAvailable ? { [firstAvailable.id]: 1 } : {});
   const [sessionId, setSessionId] = useState('');
   const [purchaserName, setPurchaserName] = useState('');
@@ -298,6 +340,14 @@ export default function PublicEventClient({
   // The ticket types as displayed for the CURRENT session selection —
   // same objects, with `remaining` resolved per the rule above.
   const displayTicketTypes = ticketTypes.map(t => (sessionId ? { ...t, remaining: remainingFor(t, sessionId) } : t));
+  // Phase 4 — display state per type (lib/events/saleWindow.ts). Server
+  // enforcement at submit is independent of this.
+  function statusFor(t: PublicTicketType): SaleStatus {
+    return computeSaleStatus(
+      { sale_starts_at: t.sale_starts_at ?? null, sale_ends_at: t.sale_ends_at ?? null, requires_access_code: t.requires_access_code === true, remaining: t.remaining },
+      { unlocked: unlockedIds.has(t.id) },
+    );
+  }
 
   // The cart, in ticket-type display order — only lines with quantity > 0.
   const cartLines = displayTicketTypes
@@ -309,7 +359,10 @@ export default function PublicEventClient({
   // lib/events/services/cart.ts): once the cart holds one kind, the
   // other kind's steppers are disabled rather than offered and rejected.
   const cartPricing: 'FREE' | 'PAID' | null = cartLines.length === 0 ? null : isPaidSelection ? 'PAID' : 'FREE';
-  const totalCents = computeCartSelectionTotalCents(cartLines);
+  // Gross cart total (every line at its listed price). Phase 4: when a
+  // server quote with a discount matches this cart, `totalCents` below is
+  // the quoted payable amount instead; otherwise it IS the gross total.
+  const grossCents = computeCartSelectionTotalCents(cartLines);
   const cartSummary = cartLines.map(l => `${l.quantity} × ${l.ticket.name}`).join(', ');
   // One attendee slot per selected ticket, grouped by ticket type.
   const attendeeSlots = cartLines.flatMap(l =>
@@ -323,9 +376,119 @@ export default function PublicEventClient({
   // combined quantity against it — so the stepper stops where the
   // session would.
   function maxFor(t: PublicTicketType): number {
+    if (statusFor(t) !== 'ON_SALE') return 0;
     const others = quantity - (quantities[t.id] ?? 0);
     const sessionBound = selectedSession ? selectedSession.remaining - others : Number.POSITIVE_INFINITY;
     return Math.max(0, Math.min(t.remaining, MAX_ORDER_TICKETS - others, sessionBound));
+  }
+
+  // Phase 4 — server quote whenever a code is in play. Debounced; the
+  // latest request wins (an earlier in-flight one is aborted). Without a
+  // code nothing is fetched and the page behaves exactly as before.
+  const cartKey = JSON.stringify(cartLines.map(l => [l.ticket.id, l.quantity]));
+  useEffect(() => {
+    // No code in play: nothing to fetch (the quote is cleared by the
+    // Remove handlers themselves, never by this effect).
+    if (!appliedPromo && !appliedAccess) return;
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setQuoting(true);
+      try {
+        const items = (JSON.parse(cartKey) as [string, number][]).map(([ticket_type_id, q]) => ({ ticket_type_id, quantity: q }));
+        const res = await fetch(`/api/public/events/${organisationSlug}/${eventSlug}/quote`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items,
+            event_session_id: sessionId || undefined,
+            promotion_code: appliedPromo ?? undefined,
+            access_code: appliedAccess ?? undefined,
+          }),
+          signal: controller.signal,
+        });
+        const body = await res.json().catch(() => null);
+        if (!res.ok || !body) {
+          setQuote(null);
+          setQuoteFailure((body as { error?: string } | null)?.error ?? 'Could not check the code. Please try again.');
+        } else {
+          const next = body as QuoteResponse;
+          setQuote(next);
+          setQuoteFailure(null);
+          // A restricted type the server did NOT unlock (code rejected or
+          // re-scoped) drops out of the cart rather than being submitted
+          // for the server gate to refuse.
+          const unlocked = new Set(next.access?.unlocked_ticket_type_ids ?? []);
+          setQuantities(prev => {
+            let changed = false;
+            const out: Record<string, number> = { ...prev };
+            for (const [ttId, q] of Object.entries(prev)) {
+              const t = ticketTypes.find(x => x.id === ttId);
+              if (t?.requires_access_code === true && !unlocked.has(ttId) && q > 0) { out[ttId] = 0; changed = true; }
+            }
+            return changed ? out : prev;
+          });
+        }
+      } catch (err) {
+        if ((err as { name?: string })?.name === 'AbortError') return;
+        setQuote(null);
+        setQuoteFailure('Could not check the code. Please try again.');
+      } finally {
+        if (!controller.signal.aborted) setQuoting(false);
+      }
+    }, 250);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [cartKey, sessionId, appliedPromo, appliedAccess, organisationSlug, eventSlug, ticketTypes]);
+
+  function applyPromo() {
+    const code = normaliseCodeInput(promoInput);
+    if (!code) return;
+    setAppliedPromo(code);
+  }
+  function removePromo() {
+    setAppliedPromo(null);
+    setPromoInput('');
+    // With no access code left either, nothing remains to quote.
+    if (!appliedAccess) { setQuote(null); setQuoteFailure(null); }
+  }
+  function applyAccess() {
+    const code = normaliseCodeInput(accessInput);
+    if (!code) return;
+    setAppliedAccess(code);
+  }
+  function removeAccess() {
+    setAppliedAccess(null);
+    setAccessInput('');
+    if (!appliedPromo) { setQuote(null); setQuoteFailure(null); }
+    // Every restricted type is locked again — drop it from the cart.
+    setQuantities(prev => {
+      let changed = false;
+      const out: Record<string, number> = { ...prev };
+      for (const t of ticketTypes) {
+        if (t.requires_access_code === true && (prev[t.id] ?? 0) > 0) { out[t.id] = 0; changed = true; }
+      }
+      return changed ? out : prev;
+    });
+  }
+
+  // The discount is shown only from a quote that matches the CURRENT cart
+  // (a debounced quote can lag a quantity change by a moment).
+  const quoteFresh = quote !== null && quote.subtotal_cents === grossCents && quote.cart_error === null;
+  const discountApplied = appliedPromo && quoteFresh && quote.promotion && quote.promotion.code === appliedPromo && quote.discount_cents > 0 ? quote : null;
+  // The amount the purchaser will actually pay — the server-quoted total
+  // when a discount applies, the gross total otherwise. This (and only
+  // this) drives the CTA; the server independently re-derives it.
+  const totalCents = computeCartSelectionTotalCents(cartLines) - (discountApplied?.discount_cents ?? 0);
+  const codesPending = (appliedPromo !== null || appliedAccess !== null) && (quoting || (cartLines.length > 0 && !quoteFresh && quote?.cart_error == null));
+
+  async function refreshDetail() {
+    try {
+      const res = await fetch(`/api/public/events/${organisationSlug}/${eventSlug}`);
+      if (!res.ok) return;
+      const body = (await res.json()) as PublicEventDetail;
+      if (Array.isArray(body.ticket_types)) setTicketTypes(body.ticket_types);
+    } catch {
+      // Display refresh only — the submit error already tells the visitor what happened.
+    }
   }
   function isPricingBlocked(t: PublicTicketType): boolean {
     if (!cartPricing || (quantities[t.id] ?? 0) > 0) return false;
@@ -362,6 +525,7 @@ export default function PublicEventClient({
   // details — can never desynchronise the numbers shown elsewhere.
   let stepCounter = 1;
   const stepTicket = stepCounter++;
+  const stepCodes = hasPromotions || hasRestrictedTypes ? stepCounter++ : null;
   const stepSession = sessions.length > 0 ? stepCounter++ : null;
   const stepPurchaser = stepCounter++;
   const stepOrderQuestions = orderQuestions.length > 0 ? stepCounter++ : null;
@@ -437,12 +601,20 @@ export default function PublicEventClient({
             responses: buildResponses(attendeeQuestions, attendeeAnswers[slot.key] ?? {}),
           })),
           order_responses: buildResponses(orderQuestions, orderAnswers),
+          // Phase 4 — code TEXT only. No discount, total or "unlocked"
+          // flag is ever sent; the server re-derives everything.
+          promotion_code: appliedPromo ?? undefined,
+          access_code: appliedAccess ?? undefined,
         }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(body.error ?? `${paid ? 'Checkout' : 'Registration'} failed (${res.status}).`);
         setSubmitting(false);
+        // A 409 means the server's state moved on (a sale window
+        // boundary, a sold-out type, an exhausted code) — refresh the
+        // availability and sale status shown rather than leave a stale page.
+        if (res.status === 409) void refreshDetail();
         return;
       }
       if (paid) {
@@ -646,6 +818,7 @@ export default function PublicEventClient({
                         <TicketQuantityRow
                           key={t.id}
                           ticket={t}
+                          status={statusFor(t)}
                           quantity={quantities[t.id] ?? 0}
                           max={maxFor(t)}
                           blocked={isPricingBlocked(t)}
@@ -659,6 +832,55 @@ export default function PublicEventClient({
                       </div>
                     )}
                   </fieldset>
+
+                  {stepCodes !== null && (
+                    <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
+                      <StepLabel index={stepCodes} text="Codes" softer={institutional} />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        {hasRestrictedTypes && (
+                          <CodeField
+                            label="Access code"
+                            placeholder="Enter your access code"
+                            value={accessInput}
+                            onChange={setAccessInput}
+                            applied={appliedAccess}
+                            onApply={applyAccess}
+                            onRemove={removeAccess}
+                            actionLabel="Unlock"
+                            busy={quoting && appliedAccess !== null}
+                            error={appliedAccess ? quote?.access_error ?? null : null}
+                            success={appliedAccess && quote?.access && !quote.access_error
+                              ? `${appliedAccess} applied — ${quote.access.unlocked_ticket_type_ids.length} ticket type${quote.access.unlocked_ticket_type_ids.length === 1 ? '' : 's'} unlocked`
+                              : null}
+                          />
+                        )}
+                        {hasPromotions && (
+                          <CodeField
+                            label="Promotional code"
+                            placeholder="Enter a promotional code"
+                            value={promoInput}
+                            onChange={setPromoInput}
+                            applied={appliedPromo}
+                            onApply={applyPromo}
+                            onRemove={removePromo}
+                            actionLabel="Apply"
+                            busy={quoting && appliedPromo !== null}
+                            error={appliedPromo && quoteFresh ? quote?.promotion_error ?? null : null}
+                            success={discountApplied ? `${discountApplied.promotion!.code} applied — ${formatPrice(discountApplied.discount_cents)} off` : null}
+                          />
+                        )}
+                        {appliedPromo && cartLines.length === 0 && (
+                          <div style={{ fontSize: 12, color: TEXT_MUTED }}>Select tickets to see the discount.</div>
+                        )}
+                        {quote?.cart_error && (
+                          <div role="alert" style={{ fontSize: 12.5, color: '#FCA5A5' }}>{quote.cart_error}</div>
+                        )}
+                        {quoteFailure && (
+                          <div role="alert" style={{ fontSize: 12.5, color: '#FCA5A5' }}>{quoteFailure}</div>
+                        )}
+                      </div>
+                    </fieldset>
+                  )}
 
                   {sessions.length > 0 && (
                     <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
@@ -752,9 +974,19 @@ export default function PublicEventClient({
                           </span>
                         ))}
                       </span>
-                      <span style={{ fontWeight: 700, fontSize: 15, color: isPaidSelection ? VIOLET_SOFT : GREEN }}>
-                        {isPaidSelection ? `Total ${formatPrice(totalCents)}` : 'Free'}
-                      </span>
+                      {discountApplied ? (
+                        // Phase 4 — server-quoted figures only (never computed
+                        // from the code here): subtotal, discount, payable.
+                        <span data-testid="cart-totals" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, textAlign: 'right' }}>
+                          <span style={{ color: TEXT_SECONDARY }}>Subtotal {formatPrice(discountApplied.subtotal_cents)}</span>
+                          <span style={{ color: GREEN }}>Discount ({discountApplied.promotion!.code}) −{formatPrice(discountApplied.discount_cents)}</span>
+                          <span style={{ fontWeight: 700, fontSize: 15, color: VIOLET_SOFT }}>Total {formatPrice(discountApplied.total_cents)}</span>
+                        </span>
+                      ) : (
+                        <span style={{ fontWeight: 700, fontSize: 15, color: isPaidSelection ? VIOLET_SOFT : GREEN }}>
+                          {isPaidSelection ? `Total ${formatPrice(totalCents)}` : 'Free'}
+                        </span>
+                      )}
                     </div>
                   )}
 
@@ -776,7 +1008,7 @@ export default function PublicEventClient({
                     </div>
                   )}
 
-                  <button type="submit" disabled={submitting || quantity <= 0} className="bb-event-cta">
+                  <button type="submit" disabled={submitting || quantity <= 0 || codesPending} className="bb-event-cta">
                     {submitting && <span className="bb-event-spin" aria-hidden="true" />}
                     {submitting
                       ? (isPaidSelection ? 'Redirecting to payment…' : 'Confirming…')
@@ -949,18 +1181,65 @@ function ConfirmationRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+// Phase 4 — a code input with Apply/Remove and inline feedback. Pure
+// presentation: the parent owns the applied value and the server quote.
+function CodeField({
+  label, placeholder, value, onChange, applied, onApply, onRemove, actionLabel, busy, error, success,
+}: {
+  label: string; placeholder: string; value: string; onChange: (v: string) => void; applied: string | null;
+  onApply: () => void; onRemove: () => void; actionLabel: string; busy: boolean; error: string | null; success: string | null;
+}) {
+  const inputId = `code-${label.toLowerCase().replace(/[^a-z]+/g, '-')}`;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <label htmlFor={inputId} style={{ fontSize: 12.5, color: TEXT_SECONDARY, fontWeight: 500 }}>{label}</label>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          id={inputId}
+          className="bb-event-input"
+          value={value}
+          placeholder={placeholder}
+          onChange={e => onChange(e.target.value.toUpperCase())}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (!applied) onApply(); } }}
+          disabled={applied !== null}
+          autoComplete="off"
+          autoCapitalize="characters"
+          spellCheck={false}
+          maxLength={32}
+          style={{ flex: 1 }}
+        />
+        {applied === null ? (
+          <button type="button" onClick={onApply} disabled={!value.trim()} className="bb-event-stepper-btn" style={{ width: 'auto', padding: '0 14px', fontSize: 12.5, fontWeight: 700 }}>
+            {actionLabel}
+          </button>
+        ) : (
+          <button type="button" onClick={onRemove} className="bb-event-stepper-btn" style={{ width: 'auto', padding: '0 14px', fontSize: 12.5, fontWeight: 700 }} aria-label={`Remove ${label.toLowerCase()} ${applied}`}>
+            Remove
+          </button>
+        )}
+      </div>
+      {busy && <div style={{ fontSize: 12, color: TEXT_MUTED }}>Checking…</div>}
+      {!busy && error && <div role="alert" style={{ fontSize: 12.5, color: '#FCA5A5' }}>{error}</div>}
+      {!busy && !error && success && <div style={{ fontSize: 12.5, color: GREEN }}>{success}</div>}
+    </div>
+  );
+}
+
 // Phase 2 — one quantity stepper per ticket type (a cart), replacing
 // the single-choice radio card. `max` already accounts for this type's
 // remaining capacity and the order-wide ticket cap; `blocked` is set
 // when the cart already holds the other pricing kind (all-free or
-// all-paid orders only).
+// all-paid orders only). Phase 4 — `status` (lib/events/saleWindow.ts)
+// replaces the plain sold-out check: Coming soon / Sales ended / Access
+// code required types are listed but cannot be selected.
 function TicketQuantityRow({
-  ticket, quantity, max, blocked, onChange,
-}: { ticket: PublicTicketType; quantity: number; max: number; blocked: boolean; onChange: (next: number) => void }) {
-  const soldOut = ticket.remaining <= 0;
-  const unavailable = soldOut || blocked;
+  ticket, status, quantity, max, blocked, onChange,
+}: { ticket: PublicTicketType; status: SaleStatus; quantity: number; max: number; blocked: boolean; onChange: (next: number) => void }) {
+  const soldOut = status === 'SOLD_OUT';
+  const notOnSale = status !== 'ON_SALE';
+  const unavailable = notOnSale || blocked;
   return (
-    <div className={`bb-ticket-row${quantity > 0 ? ' is-selected' : ''}${unavailable && quantity === 0 ? ' is-unavailable' : ''}`}>
+    <div className={`bb-ticket-row${quantity > 0 ? ' is-selected' : ''}${unavailable && quantity === 0 ? ' is-unavailable' : ''}`} data-sale-status={status}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 700, color: TEXT_PRIMARY }}>{ticket.name}</div>
@@ -972,7 +1251,7 @@ function TicketQuantityRow({
       </div>
       <div style={{ marginTop: 9, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <div style={{ fontSize: 11.5, fontWeight: 600, color: soldOut ? RED : TEXT_MUTED }}>
-          {soldOut ? 'Sold out' : formatPlacesRemaining(ticket.remaining)}
+          {notOnSale ? SALE_STATUS_LABELS[status] : formatPlacesRemaining(ticket.remaining)}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button

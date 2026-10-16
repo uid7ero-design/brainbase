@@ -49,6 +49,14 @@ export type PublicRegistrationInput = {
   // server-side, per §5's explicit "server remains authoritative"
   // requirement.
   order_responses?: unknown;
+  // Phase 4 — optional promotional code (price) and optional presale
+  // access code (eligibility). Strings only; both are normalised
+  // (trim/upper-case) here and RESOLVED server-side against this event's
+  // own codes by the services — the request never carries a discount
+  // amount, a total, or an "unlocked" flag, and none would be trusted if
+  // present (those keys don't exist in this shape).
+  promotion_code?: unknown;
+  access_code?: unknown;
 };
 
 export type ValidatedAttendee = {
@@ -73,7 +81,25 @@ export type ValidatedRegistration = {
   purchaser_phone: string | null;
   attendees: ValidatedAttendee[];
   order_responses: { question_id: string; answer: unknown }[];
+  // Phase 4 — normalised (trimmed, upper-cased) code text, or null when
+  // not supplied. Validity is decided by the services, never here.
+  promotion_code: string | null;
+  access_code: string | null;
 };
+
+// Phase 4 — a code is an optional short string; anything else is a 400.
+// Normalised to the stored form (upper(btrim)) so a later lookup matches
+// case-insensitively; an empty string means "none". The 64-character
+// bound only limits what reaches the database — the real format rule
+// (3..32 / 8..32 of [A-Z0-9_-]) is applied by the services, which answer
+// every mismatch with the same generic "not valid" outcome.
+const MAX_CODE_INPUT_LENGTH = 64;
+function parseOptionalCode(value: unknown, label: string): string | null | { error: string } {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string' || value.length > MAX_CODE_INPUT_LENGTH) return { error: `Invalid ${label}.` };
+  const normalised = value.trim().toUpperCase();
+  return normalised.length ? normalised : null;
+}
 
 // Structural-only: every entry must be a plain object with a
 // non-empty string question_id. `answer` itself is deliberately left
@@ -224,6 +250,11 @@ export function validatePublicRegistrationInput(
   const orderResponses = parseResponsesArray(body.order_responses);
   if (typeof orderResponses === 'string') return orderResponses;
 
+  const promotionCode = parseOptionalCode(body.promotion_code, 'promotion code');
+  if (promotionCode !== null && typeof promotionCode === 'object') return promotionCode.error;
+  const accessCode = parseOptionalCode(body.access_code, 'access code');
+  if (accessCode !== null && typeof accessCode === 'object') return accessCode.error;
+
   return {
     items,
     event_session_id: eventSessionId,
@@ -233,5 +264,66 @@ export function validatePublicRegistrationInput(
     purchaser_phone: purchaserPhone,
     attendees,
     order_responses: orderResponses,
+    promotion_code: promotionCode,
+    access_code: accessCode,
   };
+}
+
+// Phase 4 — the public QUOTE request: the cart selection plus the two
+// optional codes, with NO purchaser/attendee data (a quote reserves
+// nothing and creates nothing). Same cart rules and limits as a
+// registration — one entry per ticket type, whole-order cap — so a quote
+// can never describe a cart the register/checkout routes would refuse.
+export type PublicQuoteInput = {
+  items?: unknown;
+  event_session_id?: unknown;
+  promotion_code?: unknown;
+  access_code?: unknown;
+};
+
+export type ValidatedQuote = {
+  items: ValidatedCartItem[];
+  event_session_id: string | null;
+  quantity: number;
+  promotion_code: string | null;
+  access_code: string | null;
+};
+
+export function validatePublicQuoteInput(body: PublicQuoteInput): string | ValidatedQuote {
+  if (body.event_session_id !== undefined && body.event_session_id !== null && typeof body.event_session_id !== 'string') {
+    return 'Invalid session selection.';
+  }
+  const eventSessionId =
+    typeof body.event_session_id === 'string' && body.event_session_id.trim() ? body.event_session_id.trim() : null;
+
+  // A quote MAY describe an empty selection (the visitor has entered an
+  // access code before choosing tickets — the quote then only reports
+  // which restricted types the code unlocks). register/checkout still
+  // require at least one ticket.
+  const rawItems = body.items === undefined || body.items === null ? [] : body.items;
+  if (!Array.isArray(rawItems)) return 'Invalid ticket selection.';
+  if (rawItems.length > MAX_QUANTITY) return 'Too many ticket types in one order.';
+  const items: ValidatedCartItem[] = [];
+  const seen = new Set<string>();
+  for (const raw of rawItems) {
+    if (typeof raw !== 'object' || raw === null) return 'Invalid ticket selection.';
+    const it = raw as { ticket_type_id?: unknown; quantity?: unknown };
+    if (typeof it.ticket_type_id !== 'string' || !it.ticket_type_id.trim()) return 'A ticket type is required.';
+    if (!Number.isInteger(it.quantity) || (it.quantity as number) < 1 || (it.quantity as number) > MAX_QUANTITY) {
+      return `Quantity must be a whole number between 1 and ${MAX_QUANTITY}.`;
+    }
+    const id = it.ticket_type_id.trim();
+    if (seen.has(id)) return 'Each ticket type may appear only once in an order.';
+    seen.add(id);
+    items.push({ ticket_type_id: id, quantity: it.quantity as number });
+  }
+  const quantity = items.reduce((sum, it) => sum + it.quantity, 0);
+  if (quantity > MAX_QUANTITY) return `An order can contain at most ${MAX_QUANTITY} tickets in total.`;
+
+  const promotionCode = parseOptionalCode(body.promotion_code, 'promotion code');
+  if (promotionCode !== null && typeof promotionCode === 'object') return promotionCode.error;
+  const accessCode = parseOptionalCode(body.access_code, 'access code');
+  if (accessCode !== null && typeof accessCode === 'object') return accessCode.error;
+
+  return { items, event_session_id: eventSessionId, quantity, promotion_code: promotionCode, access_code: accessCode };
 }
