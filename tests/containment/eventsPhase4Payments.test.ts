@@ -1087,7 +1087,7 @@ describe('Phase 4 — architecture containment (no scope creep beyond the brief)
     // reservation path uses it), which emits ticket-type locks in
     // ascending id order and then the session lock.
     const code = stripComments(read('lib/events/services/paidCheckout.ts'))
-    expect(code).toMatch(/\.\.\.buildCartLockStatements\(organisationId, lineTypeIds, validated\.event_session_id\)/)
+    expect(code).toMatch(/\.\.\.buildCartLockStatements\(organisationId, lineTypeIds, validated\.event_session_id, promotionCodeId\)/)
     const cart = stripComments(read('lib/events/services/cart.ts'))
     const fn = cart.slice(cart.indexOf('export function buildCartLockStatements'))
     expect(fn).toMatch(/FOR UPDATE/)

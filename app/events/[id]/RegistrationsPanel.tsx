@@ -43,6 +43,10 @@ export type OrderRow = {
   payment_status: string;
   total_cents: number;
   currency: string;
+  // Phase 4 — discount snapshot (0 / null for every order placed without
+  // a promotion). total_cents above remains the amount payable/paid.
+  discount_cents?: number;
+  promotion_code_snapshot?: string | null;
   paid_at: string | null;
   refunded_at: string | null;
   refundable: boolean;
@@ -418,7 +422,11 @@ export default function RegistrationsPanel({
                 <RegField label={o.lines.length > 1 ? 'Tickets' : 'Ticket'} value={formatOrderLines(o.lines)} />
                 {o.session_name && <RegField label="Session" value={o.session_name} />}
                 {o.payment_status !== 'NOT_REQUIRED' && (
-                  <RegField label="Amount" value={formatAmount(o.total_cents, o.currency)} />
+                  <RegField
+                    label="Amount"
+                    value={formatAmount(o.total_cents, o.currency)}
+                    sub={o.discount_cents ? `${o.promotion_code_snapshot ?? 'Discount'} · −${formatAmount(o.discount_cents, o.currency)}` : undefined}
+                  />
                 )}
                 <RegField label="Registered" value={new Date(o.created_at).toLocaleString()} />
               </div>

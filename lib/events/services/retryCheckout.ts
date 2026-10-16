@@ -5,6 +5,7 @@ import {
   type RetrySafetyDecision,
 } from '@/lib/events/stripe';
 import { buildCartLockStatements } from '@/lib/events/services/cart';
+import { buildCheckoutLineItems, assertCheckoutLineItemsTotal, promotionRedemptionAvailable } from '@/lib/events/services/promotions';
 
 type OrderRow = {
   id: string; payment_status: string; purchaser_email: string; total_cents: number; currency: string; stripe_account_id: string | null;
@@ -13,8 +14,14 @@ type OrderRow = {
   // stamp the compare-and-set guards below compare against, at full
   // timestamptz precision (see the expiry CAS precision note below).
   expires_at_stamp: string | null;
+  // Phase 4 — the discount SNAPSHOT committed at reservation time. Retry
+  // charges exactly this (total_cents already net of discount_cents) and
+  // never re-reads the promotion's current rules, dates or active flag
+  // (approval D4); only its max_redemptions is re-checked, excluding this
+  // order itself.
+  discount_cents: number; promotion_code_id: string | null; promotion_code_snapshot: string | null;
 };
-type ItemRow = { ticket_type_id: string; event_session_id: string | null; quantity: number; unit_price_cents: number };
+type ItemRow = { ticket_type_id: string; event_session_id: string | null; quantity: number; unit_price_cents: number; discount_cents: number };
 type TicketTypeRow = { id: string; name: string; active: boolean; price_cents: number; currency: string };
 
 // Shared ticketing service — retry payment for a PENDING order.
@@ -158,6 +165,11 @@ export type RetryCheckoutResult =
         | 'TICKET_TYPE_UNAVAILABLE'
         | 'REACQUISITION_FAILED'
         | 'CAPACITY_UNAVAILABLE'
+        // Phase 4 — the order's promotion code has since reached its
+        // redemption limit (others filled it), or the stored snapshot does
+        // not reconcile (fail closed, nothing is charged).
+        | 'PROMOTION_UNAVAILABLE'
+        | 'ORDER_TOTAL_MISMATCH'
         | 'WRITE_BACK_RACE_LOST'
         | 'STRIPE_NOT_CONFIGURED'
         | 'STRIPE_FAILED';
@@ -188,7 +200,8 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
 
   const orderRows = await sql`
     SELECT id, payment_status, purchaser_email, total_cents, currency, stripe_account_id, stripe_checkout_session_id, expires_at,
-      (extract(epoch FROM expires_at) * 1000000)::bigint::text AS expires_at_stamp
+      (extract(epoch FROM expires_at) * 1000000)::bigint::text AS expires_at_stamp,
+      discount_cents, promotion_code_id, promotion_code_snapshot
     FROM event_orders WHERE id = ${orderId} AND event_id = ${eventId} AND organisation_id = ${organisationId} LIMIT 1
   `;
   const order = orderRows[0] as OrderRow | undefined;
@@ -206,7 +219,7 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
   // line is re-validated, capacity-checked and sent to Stripe below. A
   // retry can never collapse a cart to one line.
   const itemRows = await sql`
-    SELECT ticket_type_id, event_session_id, quantity, unit_price_cents FROM event_order_items
+    SELECT ticket_type_id, event_session_id, quantity, unit_price_cents, discount_cents FROM event_order_items
     WHERE order_id = ${orderId} AND organisation_id = ${organisationId}
     ORDER BY created_at, id
   `;
@@ -229,6 +242,34 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
   }
   const itemQuantities = items.map(it => it.quantity);
   const totalQuantity = itemQuantities.reduce((sum, q) => sum + q, 0);
+
+  // Phase 4 — rebuild the Stripe line items from the COMMITTED snapshot
+  // (stored gross unit prices, quantities and per-line discounts, with
+  // the code text as it was applied) and prove they reconcile to the
+  // stored total_cents before anything is mutated. Σ(unit × qty − d) must
+  // equal total_cents exactly; otherwise this order's data is not what
+  // this flow understands and it fails closed — no hold is extended, no
+  // Checkout Session is created. The discount is never recalculated from
+  // the promotion's current rules (approval D4 / invariants 5–6).
+  const stripeLineItems = buildCheckoutLineItems(
+    items.map(it => ({
+      name: ticketTypesById.get(it.ticket_type_id)!.name,
+      unit_price_cents: it.unit_price_cents,
+      quantity: it.quantity,
+      discount_cents: it.discount_cents ?? 0,
+    })),
+    order.promotion_code_snapshot ?? null,
+    order.currency,
+  );
+  try {
+    assertCheckoutLineItemsTotal(stripeLineItems, order.total_cents);
+    const itemDiscountSum = items.reduce((sum, it) => sum + (it.discount_cents ?? 0), 0);
+    if (itemDiscountSum !== (order.discount_cents ?? 0)) throw new Error(`Line discounts ${itemDiscountSum} do not equal order discount ${order.discount_cents}.`);
+  } catch (err) {
+    console.error('[events order retry] refusing to retry: stored line items do not reconcile with the order total', err, { orderId });
+    return { ok: false, code: 'ORDER_TOTAL_MISMATCH' };
+  }
+  const promotionCodeId = order.promotion_code_id ?? null;
 
   // ── Double-charge guard (read BEFORE any mutation) ──────────────────
   // Read here, before the capacity-reacquisition step below ever runs —
@@ -282,10 +323,20 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
   // stripe_checkout_session_id (a new one is about to be created below),
   // only if EVERY line still fits its own ticket type AND the order's
   // combined quantity still fits the session.
+  //
+  // Phase 4: when the order carries a promotion code, the code row is
+  // locked too (the last lock tier — see buildCartLockStatements) and
+  // the UPDATE additionally requires the code's max_redemptions to still
+  // have room for THIS order, counted with the D3 predicate over every
+  // OTHER order (`ro.id <> ${orderId}`): a retry is the same redemption
+  // being re-confirmed, never a second one, so it is blocked only if
+  // others have since filled the limit. The code's active flag and dates
+  // are deliberately NOT re-checked (approval D4) — the discount is a
+  // committed snapshot.
   let transactionResults: unknown[];
   try {
     transactionResults = await sql.transaction([
-      ...buildCartLockStatements(organisationId, itemTypeIds, eventSessionId),
+      ...buildCartLockStatements(organisationId, itemTypeIds, eventSessionId, promotionCodeId),
       sql`
         WITH cart AS (
           SELECT c.ticket_type_id, c.quantity
@@ -324,6 +375,18 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
             ${eventSessionId}::text IS NULL
             OR sold_sess.qty + ${totalQuantity} <= (SELECT capacity FROM event_sessions WHERE id = ${eventSessionId} AND organisation_id = ${organisationId})
           )
+          AND (
+            ${promotionCodeId}::text IS NULL
+            OR EXISTS (
+              SELECT 1 FROM event_promotion_codes pc
+              WHERE pc.id = ${promotionCodeId} AND pc.organisation_id = ${organisationId}
+                AND (pc.max_redemptions IS NULL OR (
+                  SELECT count(*) FROM event_orders ro
+                  WHERE ro.promotion_code_id = pc.id AND ro.organisation_id = pc.organisation_id AND ro.id <> ${orderId}
+                    AND (ro.payment_status IN ('PAID', 'REFUNDED') OR (ro.status <> 'CANCELLED' AND (ro.payment_status <> 'PENDING' OR ro.expires_at > NOW())))
+                ) + 1 <= pc.max_redemptions)
+            )
+          )
         RETURNING eo.id, eo.expires_at, (extract(epoch FROM eo.expires_at) * 1000000)::bigint::text AS expires_at_stamp
       `,
     ]);
@@ -346,6 +409,14 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
     // session this order gets, so reporting the same "try again" 409
     // here is correct: a manager who retries again will simply see
     // whatever the winner's attempt produced.
+    //
+    // Phase 4 — a fourth cause: the order's promotion code has since hit
+    // its redemption limit (others filled it while this hold was lapsed).
+    // A read-only re-check, excluding this order exactly as the UPDATE
+    // did, names that case for the manager; it mutates nothing.
+    if (promotionCodeId && !(await promotionRedemptionAvailable(organisationId, promotionCodeId, orderId))) {
+      return { ok: false, code: 'PROMOTION_UNAVAILABLE' };
+    }
     return { ok: false, code: 'CAPACITY_UNAVAILABLE' };
   }
   // Checkout-vs-Retry race closure (PR #231 follow-up) — the fresh
@@ -376,15 +447,14 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
       organisationId,
       eventId,
       orderId,
-      // Every line of the order, priced from the unit price stored on
-      // each event_order_items row at reservation time — so the retried
+      // Every line of the order, priced from the unit price (and, Phase
+      // 4, the per-line discount and code snapshot) stored on each
+      // event_order_items row at reservation time — so the retried
       // Checkout Session charges exactly event_orders.total_cents, even
-      // if an organiser has since edited a ticket type's price.
-      lineItems: items.map(it => ({
-        name: ticketTypesById.get(it.ticket_type_id)!.name,
-        unitAmountCents: it.unit_price_cents,
-        quantity: it.quantity,
-      })),
+      // if an organiser has since edited a ticket type's price or
+      // changed/disabled the promotion. Reconciled against total_cents
+      // above, before any mutation (stripeLineItems).
+      lineItems: stripeLineItems,
       currency: order.currency,
       purchaserEmail: order.purchaser_email,
       successUrl,

@@ -38,15 +38,27 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     capacity: mergeField(body, 'capacity', existing.capacity),
     active: mergeField(body, 'active', existing.active),
     sort_order: mergeField(body, 'sort_order', existing.sort_order),
+    // Phase 4 — the two nullable window bounds follow the same explicit-
+    // null-clears contract as description; omitted keeps the stored value.
+    sale_starts_at: mergeField(body, 'sale_starts_at', existing.sale_starts_at instanceof Date ? existing.sale_starts_at.toISOString() : existing.sale_starts_at),
+    sale_ends_at: mergeField(body, 'sale_ends_at', existing.sale_ends_at instanceof Date ? existing.sale_ends_at.toISOString() : existing.sale_ends_at),
+    requires_access_code: mergeField(body, 'requires_access_code', existing.requires_access_code),
   };
   const error = validateEventTicketTypeInput(merged);
   if (error) return NextResponse.json({ error }, { status: 400 });
 
+  // A concurrent reservation that holds FOR UPDATE on this ticket type
+  // simply makes this UPDATE wait; the gate never reads a half-applied
+  // window. Narrowing a window after sales began stops further sales from
+  // the boundary onward — it never cancels anything already booked.
   const rows = await sql`
     UPDATE event_ticket_types SET
       name = ${merged.name as string}, description = ${(merged.description as string | null) ?? null},
       price_cents = ${merged.price_cents as number}, capacity = ${merged.capacity as number},
-      active = ${merged.active as boolean}, sort_order = ${merged.sort_order as number}, updated_at = now()
+      active = ${merged.active as boolean}, sort_order = ${merged.sort_order as number},
+      sale_starts_at = ${(merged.sale_starts_at as string | null | undefined) || null}, sale_ends_at = ${(merged.sale_ends_at as string | null | undefined) || null},
+      requires_access_code = ${(merged.requires_access_code as boolean | null | undefined) ?? false},
+      updated_at = now()
     WHERE id = ${ticketTypeId} AND event_id = ${id} AND organisation_id = ${session.organisationId}
     RETURNING *
   `;
@@ -68,7 +80,7 @@ export async function DELETE(_req: NextRequest, { params }: Ctx) {
   const rows = await sql`
     DELETE FROM event_ticket_types
     WHERE id = ${ticketTypeId} AND event_id = ${id} AND organisation_id = ${session.organisationId}
-    RETURNING id, name, description, price_cents, capacity, active, sort_order
+    RETURNING id, name, description, price_cents, capacity, active, sort_order, sale_starts_at, sale_ends_at, requires_access_code
   `;
   if (!rows.length) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
   await logEventTicketTypeDeleted({

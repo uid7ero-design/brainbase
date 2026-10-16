@@ -7,6 +7,8 @@ import { Metric, MetricStrip } from '@/components/ui/app';
 import RegistrationsPanel, { type OrderRow } from './RegistrationsPanel';
 import { groupOrderRows } from '@/lib/events/orderGrouping';
 import QuestionsPanel from './QuestionsPanel';
+import { PromotionsPanel, AccessCodesPanel } from './PromotionsPanel';
+import { saleWindowPhase } from '@/lib/events/saleWindow';
 import { ARTWORK_ACCEPT_ATTR, MAX_ARTWORK_MB, isAllowedArtworkMimeType } from '@/lib/events/artworkConstants';
 import {
   FONT, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, VIOLET_SOFT,
@@ -44,6 +46,12 @@ type TicketTypeRow = {
   capacity: number;
   active: boolean;
   sort_order: number;
+  // Phase 4 — optional sale window + presale gate (see
+  // scripts/create-events-promotions-presales-sale-windows.sql). Absent
+  // on an older payload shape; treated as "no restriction".
+  sale_starts_at?: string | null;
+  sale_ends_at?: string | null;
+  requires_access_code?: boolean;
 };
 
 function toLocalInput(iso: string) {
@@ -255,7 +263,12 @@ export default function EventDetailClient({ eventId, canManage, organisationSlug
       </MetricStrip>
 
       <SessionsPanel eventId={eventId} sessions={sessions} orders={orders} canManage={canManage} onChanged={reload} timezone={event.timezone} />
-      <TicketTypesPanel eventId={eventId} ticketTypes={ticketTypes} orders={orders} canManage={canManage} onChanged={reload} />
+      <TicketTypesPanel eventId={eventId} ticketTypes={ticketTypes} orders={orders} canManage={canManage} onChanged={reload} timezone={event.timezone} />
+      {/* Phase 4 — promotional codes and presale access codes, scoped to
+          this event. Keyed on reloadKey so a ticket-type change (new type,
+          renamed, restricted) is reflected in the assignment lists. */}
+      <PromotionsPanel key={`promo-${reloadKey}`} eventId={eventId} ticketTypes={ticketTypes} canManage={canManage} timezone={event.timezone} />
+      <AccessCodesPanel key={`access-${reloadKey}`} eventId={eventId} ticketTypes={ticketTypes} canManage={canManage} timezone={event.timezone} />
       <QuestionsPanel eventId={eventId} canManage={canManage} />
       <RegistrationsPanel
         eventId={eventId} orders={orders} error={ordersError} canManage={canManage} crmEnabled={crmEnabled}
@@ -862,8 +875,25 @@ function SessionInventoryTable({ eventId, session, canManage }: { eventId: strin
 
 // ─── Ticket types ────────────────────────────────────────────────────
 
-function TicketTypesPanel({ eventId, ticketTypes, orders, canManage, onChanged }: {
-  eventId: string; ticketTypes: TicketTypeRow[]; orders: OrderRow[] | null; canManage: boolean; onChanged: () => void;
+// Phase 4 — the organiser-facing on-sale state of a ticket type, from the
+// same half-open rule the server enforces (lib/events/saleWindow.ts).
+function saleWindowBadge(tt: TicketTypeRow): { label: string; tone: 'success' | 'neutral' | 'warning' } | null {
+  if (!tt.sale_starts_at && !tt.sale_ends_at) return null;
+  const phase = saleWindowPhase({ sale_starts_at: tt.sale_starts_at ?? null, sale_ends_at: tt.sale_ends_at ?? null });
+  if (phase === 'COMING_SOON') return { label: 'Coming soon', tone: 'warning' };
+  if (phase === 'SALES_ENDED') return { label: 'Sales ended', tone: 'neutral' };
+  return { label: 'On sale', tone: 'success' };
+}
+function formatSaleWindow(tt: TicketTypeRow, timeZone: string): string | null {
+  const fmt = (iso: string) => `${formatDate(iso, timeZone)} ${formatTime(iso, timeZone)}`;
+  if (tt.sale_starts_at && tt.sale_ends_at) return `Sales ${fmt(tt.sale_starts_at)} – ${fmt(tt.sale_ends_at)}`;
+  if (tt.sale_starts_at) return `Sales open ${fmt(tt.sale_starts_at)}`;
+  if (tt.sale_ends_at) return `Sales close ${fmt(tt.sale_ends_at)}`;
+  return null;
+}
+
+function TicketTypesPanel({ eventId, ticketTypes, orders, canManage, onChanged, timezone }: {
+  eventId: string; ticketTypes: TicketTypeRow[]; orders: OrderRow[] | null; canManage: boolean; onChanged: () => void; timezone: string;
 }) {
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -930,10 +960,13 @@ function TicketTypesPanel({ eventId, ticketTypes, orders, canManage, onChanged }
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontWeight: 700, fontSize: 13, color: TEXT_PRIMARY }}>{tt.name}</span>
                   <StatusBadge label={tt.active ? 'Active' : 'Inactive'} tone={tt.active ? 'success' : 'neutral'} />
+                  {(() => { const b = saleWindowBadge(tt); return b ? <StatusBadge label={b.label} tone={b.tone} /> : null; })()}
+                  {tt.requires_access_code && <StatusBadge label="Access code required" tone="warning" />}
                 </div>
                 <div style={{ marginTop: 5, fontSize: 12, color: TEXT_SECONDARY }}>
                   {tt.price_cents === 0 ? 'Free' : `$${(tt.price_cents / 100).toFixed(2)}`}
                   {tt.description ? ` · ${tt.description}` : ''}
+                  {(() => { const w = formatSaleWindow(tt, timezone); return w ? ` · ${w}` : ''; })()}
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -955,7 +988,10 @@ function TicketTypesPanel({ eventId, ticketTypes, orders, canManage, onChanged }
 
 function TicketTypeForm({ initial, onSubmit, onCancel }: {
   initial?: TicketTypeRow;
-  onSubmit: (values: { name: string; description?: string | null; price_cents: number; capacity: number; active: boolean; sort_order: number }) => Promise<Response>;
+  onSubmit: (values: {
+    name: string; description?: string | null; price_cents: number; capacity: number; active: boolean; sort_order: number;
+    sale_starts_at: string | null; sale_ends_at: string | null; requires_access_code: boolean;
+  }) => Promise<Response>;
   onCancel: () => void;
 }) {
   const [name, setName] = useState(initial?.name ?? '');
@@ -964,6 +1000,10 @@ function TicketTypeForm({ initial, onSubmit, onCancel }: {
   const [capacity, setCapacity] = useState(initial?.capacity ?? 0);
   const [active, setActive] = useState(initial?.active ?? true);
   const [sortOrder, setSortOrder] = useState(initial?.sort_order ?? 0);
+  // Phase 4 — same datetime-local → ISO convention as SessionForm.
+  const [saleStartsAt, setSaleStartsAt] = useState(initial?.sale_starts_at ? toLocalInput(initial.sale_starts_at) : '');
+  const [saleEndsAt, setSaleEndsAt] = useState(initial?.sale_ends_at ? toLocalInput(initial.sale_ends_at) : '');
+  const [requiresAccessCode, setRequiresAccessCode] = useState(initial?.requires_access_code ?? false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -976,6 +1016,9 @@ function TicketTypeForm({ initial, onSubmit, onCancel }: {
         name, description: description || null,
         price_cents: Math.round(Number(price) * 100), capacity: Number(capacity),
         active, sort_order: Number(sortOrder),
+        sale_starts_at: saleStartsAt ? new Date(saleStartsAt).toISOString() : null,
+        sale_ends_at: saleEndsAt ? new Date(saleEndsAt).toISOString() : null,
+        requires_access_code: requiresAccessCode,
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -994,10 +1037,17 @@ function TicketTypeForm({ initial, onSubmit, onCancel }: {
         <label style={fieldStyle}>Capacity<input required type="number" min={0} className="bb-evt-input" value={capacity} onChange={e => setCapacity(Number(e.target.value))} style={inputStyle} /></label>
       </div>
       <label style={fieldStyle}>Description<input className="bb-evt-input" value={description ?? ''} onChange={e => setDescription(e.target.value)} style={inputStyle} /></label>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, alignItems: 'end' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <label style={fieldStyle}>Sales open (optional)<input type="datetime-local" className="bb-evt-input" value={saleStartsAt} onChange={e => setSaleStartsAt(e.target.value)} style={inputStyle} /></label>
+        <label style={fieldStyle}>Sales close (optional)<input type="datetime-local" className="bb-evt-input" value={saleEndsAt} onChange={e => setSaleEndsAt(e.target.value)} style={inputStyle} /></label>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, alignItems: 'end' }}>
         <label style={fieldStyle}>Sort order<input type="number" className="bb-evt-input" value={sortOrder} onChange={e => setSortOrder(Number(e.target.value))} style={inputStyle} /></label>
         <label style={{ ...fieldStyle, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <input type="checkbox" checked={active} onChange={e => setActive(e.target.checked)} /> Active
+        </label>
+        <label style={{ ...fieldStyle, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <input type="checkbox" checked={requiresAccessCode} onChange={e => setRequiresAccessCode(e.target.checked)} /> Requires access code
         </label>
       </div>
       {error && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12 }}>{error}</div>}
