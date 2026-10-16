@@ -1,5 +1,48 @@
 # Workbook-to-planning isolated acceptance
 
+## Guided preparation
+
+The worksheet inventory, import-history worksheet list and review page now link
+to `/data-hub/prepare/[uploadId]`. Opening that page only reads status. A manager
+explicitly prepares source rows, standardizes values, and builds a dataset
+profile, in that order. Existing staging and normalization endpoints retain
+their execution and lease rules. A yielded 202 needs another explicit action;
+there is no automatic mutation loop. A completed step is not run again when
+the page is reopened.
+
+`GET /api/data-hub/worksheets/[id]/profile` reads metadata only, in a repeatable
+read transaction. A completed profile is accepted only after the existing
+authoritative analysis-context resolver verifies its upload, tenant,
+normalization, mapping and profiler-version lineage. Only status and bounded
+row/column counts are returned. Failure details, cells, execution credentials
+and internal run identifiers are excluded.
+
+The manager-only, bodyless POST invokes the existing `profileUploadDataset`
+service using session-derived organisation and actor identity. Missing and
+foreign uploads return the same 404 before execution. It preserves the
+service's reuse and one-running-attempt behavior, reports RUNNING as 202,
+and rechecks the authoritative completed profile before returning readiness.
+New interactive profiling is limited to 100,000 normalized cells because the
+existing evidence adapter reads those cells into memory. Existing completed
+profiles can still be reused above that limit. The pure profiler and SQL
+completion functions are unchanged; this slice needs no migration.
+
+After any write, the UI reloads all three statuses before offering the next
+step or opening review. Timeout, cancellation, invalid responses and failed
+requests clear local readiness and require a read-only status refresh. Stopping
+the browser wait does not cancel server work. A running profile cannot be
+restarted from this page; an unexpectedly persistent RUNNING attempt requires
+administrator investigation under the existing service's lifecycle policy.
+
+Preparation does not select meanings, acknowledge notices, save reviews,
+calculate counts or execute planned analysis. Those remain explicit steps in
+the existing review/count/planning screen. Production release, large-workload
+qualification and disaster recovery remain separate from this implementation.
+
+The local acceptance description below records the earlier workbook fixture
+boundary and is retained as historical evidence; its release-status statements
+are not a current GitHub or Production status report.
+
 The acceptance boundary now starts at synthetic XLSX bytes instead of inserted
 raw rows. It uses the existing manager routes and parser, real PostgreSQL
 functions/constraints, existing normalization/profiling and governed saved

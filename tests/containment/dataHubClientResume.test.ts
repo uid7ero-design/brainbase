@@ -711,6 +711,7 @@ describe("T30 — explicit inventory of authorized backend routes", () => {
         "worksheets/[id]/analysis-review/route.ts", // D4D5U authenticated review API
         "worksheets/[id]/analysis-count/route.ts", // D4D5W authenticated count API
         "worksheets/[id]/analysis-planning/route.ts", // Separately authorized read-only catalog/selection integration
+        "worksheets/[id]/profile/route.ts", // Guided preparation: manager-only existing profiler service and read-only status
         "import-batches/route.ts",
         "import-batches/[id]/route.ts",
         "import-batches/[id]/finalize/route.ts",

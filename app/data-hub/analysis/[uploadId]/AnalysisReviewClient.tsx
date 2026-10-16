@@ -91,6 +91,7 @@ export default function AnalysisReviewClient({ uploadId }: { uploadId: string })
     <h1>Review dataset and count</h1>
     <p>Review field meanings and data quality before calculating counts from the current dataset profile.</p>
     <p>Worksheet: {uploadId}</p>
+    <p><Link href={`/data-hub/prepare/${encodeURIComponent(uploadId)}`}>Prepare this worksheet</Link></p>
     <button disabled={allBusy} onClick={() => void run(async () => {
       setPlan(null); setRoles({}); setDecisions({}); setReview(null); setCount(null); setMeasure("");
       const currentPlan = await request<Plan>("/analysis-review/plan"); setPlan(currentPlan);

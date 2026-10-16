@@ -40,6 +40,9 @@ export default function AnalysisWorksheetLinks({ batchId, filename }: { batchId:
       {worksheets.length === 0 ? <p>No persisted worksheets are available for analysis yet.</p> : <>
         <p>Open a worksheet to check its current profile and saved review.</p>
         <ul>{worksheets.map(worksheet => <li key={worksheet.id}>
+          <Link href={`/data-hub/prepare/${encodeURIComponent(worksheet.id)}`}>
+            {worksheet.worksheetName || "Worksheet"} (worksheet {worksheet.worksheetIndex + 1}) — prepare for review
+          </Link>{" · "}
           <Link href={`/data-hub/analysis/${encodeURIComponent(worksheet.id)}`}>
             {worksheet.worksheetName || "Worksheet"} (worksheet {worksheet.worksheetIndex + 1}) — review and count
           </Link>
