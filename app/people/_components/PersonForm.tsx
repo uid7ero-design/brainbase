@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Button, Field as AppField, FormActions, FormError, fieldControlClassName } from '@/components/ui/app';
+import { useHrSetupWrite, confirmedHrSetupResponse } from './useHrSetupWrite';
 
 const WORKER_TYPES = [
   { value: 'employee', label: 'Employee' },
@@ -58,17 +59,35 @@ type LinkableUser = { id: string; name: string; email: string | null; already_li
 // module — PATCH /api/hr/people/[id]'s own ctx.isHrAdministrator check
 // remains the actual, unchanged security boundary regardless of what
 // this prop is set to.
-export default function PersonForm({ initial, onSaved, canManage }: { initial?: Person; onSaved: (p: Person) => void; canManage: boolean }) {
+export default function PersonForm({ initial, onSaved, canManage, onUncertain, onPendingChange }: { initial?: Person; onSaved: (p: Person) => void; canManage: boolean; onUncertain?: () => void; onPendingChange?: (pending: boolean) => void }) {
   const [form, setForm] = useState<Person>(initial ?? { worker_type: 'employee', employment_status: 'active' });
   const [teams, setTeams] = useState<Team[]>([]);
   const [managers, setManagers] = useState<ManagerOption[]>([]);
   const [linkableUsers, setLinkableUsers] = useState<LinkableUser[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const write = useHrSetupWrite();
+  const [optionsState, setOptionsState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [refresh, setRefresh] = useState(0);
 
   useEffect(() => {
-    fetch('/api/hr/teams').then(r => r.json()).then(d => setTeams(d.teams ?? []));
-    fetch('/api/hr/people').then(r => r.json()).then(d => setManagers(d.people ?? []));
+    const controller = new AbortController();
+    queueMicrotask(async () => {
+      if (controller.signal.aborted) return;
+      setOptionsState('loading'); setTeams([]); setManagers([]); setLinkableUsers([]);
+      try {
+        if (!canManage) throw new Error('Unavailable');
+        const usersUrl = initial?.id ? `/api/hr/linkable-users?person_id=${initial.id}` : '/api/hr/linkable-users';
+        const [teamData, peopleData, userData] = await Promise.all(['/api/hr/teams', '/api/hr/people', usersUrl].map(async url => {
+          const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
+          if (!response.ok) throw new Error('Unavailable');
+          return response.json();
+        }));
+        if (!Array.isArray(teamData.teams) || !Array.isArray(peopleData.people) || peopleData.canManage !== true || !Array.isArray(userData.users)) throw new Error('Unavailable');
+        if (controller.signal.aborted) return;
+        setTeams(teamData.teams); setManagers(peopleData.people); setLinkableUsers(userData.users); setOptionsState('ready');
+      } catch { if (!controller.signal.aborted) setOptionsState('error'); }
+    });
     // HR-2 Step 1D1 — fetched only when this management UI actually
     // needs it, matching this route's own HR-administrator-only gate
     // (a fetch from a non-admin viewer would just 403 harmlessly, but
@@ -78,11 +97,8 @@ export default function PersonForm({ initial, onSaved, canManage }: { initial?: 
     // even if it has since gone inactive (see that route's own header
     // comment); create-person mode has no person_id and therefore
     // requests ACTIVE candidates only, unchanged from before.
-    if (canManage) {
-      const url = initial?.id ? `/api/hr/linkable-users?person_id=${initial.id}` : '/api/hr/linkable-users';
-      fetch(url).then(r => r.json()).then(d => setLinkableUsers(d.users ?? []));
-    }
-  }, [canManage, initial?.id]);
+    return () => controller.abort();
+  }, [canManage, initial?.id, refresh]);
 
   const set = (k: keyof Person) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
@@ -140,6 +156,8 @@ export default function PersonForm({ initial, onSaved, canManage }: { initial?: 
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!canManage || optionsState !== 'ready' || !write.begin()) return;
+    onPendingChange?.(true);
     setSaving(true); setError('');
     const isEdit = Boolean(initial?.id);
     const method = isEdit ? 'PATCH' : 'POST';
@@ -151,10 +169,16 @@ export default function PersonForm({ initial, onSaved, canManage }: { initial?: 
     const body: Person = isEdit
       ? Object.fromEntries(EDITABLE_FIELDS.map(k => [k, form[k]]))
       : form;
-    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    const data = await res.json();
-    if (!res.ok) { setError(data.error ?? 'Save failed.'); setSaving(false); return; }
-    onSaved(data.person);
+    try {
+      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json().catch(() => ({}));
+      if (!confirmedHrSetupResponse(res, typeof data.person?.id === 'string')) { setError('Could not save person. Review the details and your access.'); return; }
+      onSaved(data.person);
+    } catch {
+      write.markUncertain();
+      setError('The save could not be confirmed. Close this form and review the refreshed People list before trying again.');
+      onUncertain?.();
+    } finally { setSaving(false); write.finish(); onPendingChange?.(false); }
   }
 
   return (
@@ -267,8 +291,10 @@ export default function PersonForm({ initial, onSaved, canManage }: { initial?: 
       )}
 
       {error && <FormError>{error}</FormError>}
+      {optionsState === 'loading' && <p role="status">Checking person setup options…</p>}
+      {optionsState === 'error' && !write.uncertain && <div><FormError>Person setup options are unavailable. Refresh before saving.</FormError><Button type="button" onClick={() => setRefresh(value => value + 1)}>Refresh options</Button></div>}
       <FormActions align="stretch">
-        <Button type="submit" variant="primary" disabled={saving}>
+        <Button type="submit" variant="primary" disabled={saving || write.blocked || !canManage || optionsState !== 'ready'}>
           {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Person'}
         </Button>
       </FormActions>

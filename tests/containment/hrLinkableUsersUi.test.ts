@@ -31,23 +31,26 @@ describe('app/people/_components/PersonForm.tsx — explicit account-linking con
   });
 
   it('the linkable-users fetch is gated on canManage, not issued unconditionally', () => {
-    const fetchIdx = src.indexOf('fetch(url)');
+    const fetchIdx = src.indexOf('fetch(url,');
     expect(fetchIdx).toBeGreaterThan(-1);
-    const before = src.slice(Math.max(0, fetchIdx - 300), fetchIdx);
-    expect(before).toMatch(/if \(canManage\) \{/);
+    const gateIdx = src.indexOf('if (!canManage) throw');
+    expect(gateIdx).toBeGreaterThan(-1);
+    expect(gateIdx).toBeLessThan(fetchIdx);
+    expect(src.slice(gateIdx, fetchIdx)).toContain('usersUrl');
+    expect(src.slice(fetchIdx, fetchIdx + 100)).toContain("cache: 'no-store'");
   });
 
   it('editing an existing person includes person_id in the linkable-users request', () => {
-    const start = src.indexOf('if (canManage) {');
-    const end = src.indexOf('fetch(url)', start);
+    const start = src.indexOf('const usersUrl =');
+    const end = src.indexOf('fetch(url,', start);
     const block = src.slice(start, end);
     expect(block).toMatch(/initial\?\.id/);
     expect(block).toMatch(/person_id=\$\{initial\.id\}/);
   });
 
   it('create-person mode (no initial.id) requests the endpoint with no person_id', () => {
-    const start = src.indexOf('if (canManage) {');
-    const end = src.indexOf('fetch(url)', start);
+    const start = src.indexOf('const usersUrl =');
+    const end = src.indexOf('fetch(url,', start);
     const block = src.slice(start, end);
     expect(block).toContain("'/api/hr/linkable-users'");
   });

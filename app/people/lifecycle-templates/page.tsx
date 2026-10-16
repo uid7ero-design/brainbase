@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useHrSetupWrite, confirmedHrSetupResponse } from '../_components/useHrSetupWrite';
 import SlidePanel from '../_components/SlidePanel';
 import {
   Badge,
@@ -186,6 +187,8 @@ export default function LifecycleTemplatesPage() {
   } | null>(null);
   const [statusActionState, setStatusActionState] = useState<LifecycleTemplateStatusActionState>('idle');
   const [canCreateTemplate, setCanCreateTemplate] = useState(false);
+  const write = useHrSetupWrite();
+  const readGeneration = useRef(0);
   const [showCreateTemplate, setShowCreateTemplate] = useState(false);
   const [newTemplateKey, setNewTemplateKey] = useState('');
   const [newTemplateType, setNewTemplateType] = useState<'onboarding' | 'offboarding'>('onboarding');
@@ -203,6 +206,7 @@ export default function LifecycleTemplatesPage() {
 
   useEffect(() => {
     let cancelled = false;
+    const generation = ++readGeneration.current;
     const listUrl = lifecycleTemplateListUrl(
       templateTypeFilter,
       templateStatusFilter,
@@ -212,12 +216,13 @@ export default function LifecycleTemplatesPage() {
     queueMicrotask(() => {
       if (cancelled) return;
       setLoading(true);
+      setCanCreateTemplate(false);
       setError('');
 
-      void fetch(listUrl)
+      void fetch(listUrl, { cache: 'no-store' })
         .then(async response => {
           const data = await response.json().catch(() => ({}));
-          if (cancelled) return;
+          if (cancelled || generation !== readGeneration.current) return;
 
           if (!response.ok) {
             setTemplates([]);
@@ -238,13 +243,13 @@ export default function LifecycleTemplatesPage() {
           setError('');
         })
         .catch(() => {
-          if (!cancelled) {
+          if (!cancelled && generation === readGeneration.current) {
             setTemplates([]);
             setError('Could not load lifecycle templates.');
           }
         })
         .finally(() => {
-          if (!cancelled) setLoading(false);
+          if (!cancelled && generation === readGeneration.current) setLoading(false);
         });
     });
 
@@ -254,27 +259,38 @@ export default function LifecycleTemplatesPage() {
   }, [templateTypeFilter, templateStatusFilter, templateKeyFilter]);
 
   async function refreshTemplates() {
+    const generation = ++readGeneration.current;
+    setLoading(true);
+    setCanCreateTemplate(false);
     try {
       const response = await fetch(
         lifecycleTemplateListUrl(
           templateTypeFilter,
           templateStatusFilter,
           templateKeyFilter,
-        ),
+        ), { cache: 'no-store' },
       );
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) return false;
+      if (!response.ok || generation !== readGeneration.current) throw new Error('Unavailable');
 
       const parsed = parseLifecycleTemplateList(data);
-      if (!parsed) return false;
+      if (!parsed) throw new Error('Unavailable');
 
       setTemplates(parsed.templates);
       setCanCreateTemplate(parsed.canCreateTemplate);
       setError('');
       return true;
     } catch {
+      if (generation === readGeneration.current) { setCanCreateTemplate(false); setTemplates([]); setError('Could not load lifecycle templates.'); }
       return false;
-    }
+    } finally { if (generation === readGeneration.current) setLoading(false); }
+  }
+
+  async function recoverTemplates() {
+    if (write.isPending() || !await refreshTemplates()) return;
+    write.resetAfterRead();
+    setShowCreateTemplate(false); resetCreateTemplateForm(); resetVersionForm();
+    setOpenTemplateId(null); setConfirmStatusAction(null); setStatusActionState('idle'); setDetailByTemplate({});
   }
 
   function resetCreateTemplateForm() {
@@ -340,6 +356,7 @@ export default function LifecycleTemplatesPage() {
     template: LifecycleTemplateSummary,
     detailState: Extract<LifecycleTemplateDetailState, { state: 'ready' }>,
   ) {
+    if (write.isBlocked() || !canCreateTemplate) return;
     if (!template.capabilities.can_create_version) return;
 
     setVersionSourceTemplateId(template.id);
@@ -364,7 +381,7 @@ export default function LifecycleTemplatesPage() {
   }
 
   async function createTemplate() {
-    if (!canCreateTemplate) return;
+    if (!canCreateTemplate || loading || write.isBlocked()) return;
 
     const templateKey = newTemplateKey.trim();
     const name = newTemplateName.trim();
@@ -395,6 +412,8 @@ export default function LifecycleTemplatesPage() {
       internal_only: task.internal_only,
     }));
 
+    if (!write.begin()) return;
+    ++readGeneration.current;
     setTemplateCreateState('submitting');
 
     try {
@@ -411,7 +430,7 @@ export default function LifecycleTemplatesPage() {
       });
       const data = await response.json().catch(() => ({}));
 
-      if (!response.ok || typeof data.template?.id !== 'string') {
+      if (!confirmedHrSetupResponse(response, typeof data.template?.id === 'string')) {
         setTemplateCreateState('error');
         return;
       }
@@ -423,15 +442,16 @@ export default function LifecycleTemplatesPage() {
         setError('Template was created, but the list could not be refreshed.');
       }
     } catch {
+      write.markUncertain(); setCanCreateTemplate(false);
       setTemplateCreateState('error');
-    }
+    } finally { write.finish(); }
   }
 
   async function createTemplateVersion() {
     const source = versionSourceTemplateId
       ? templates.find(template => template.id === versionSourceTemplateId) ?? null
       : null;
-    if (!source || !source.capabilities.can_create_version) return;
+    if (!source || !source.capabilities.can_create_version || !canCreateTemplate || loading || write.isBlocked()) return;
 
     const name = versionName.trim();
     const tasksValid = versionTasks.length > 0 && versionTasks.every(task => {
@@ -460,6 +480,8 @@ export default function LifecycleTemplatesPage() {
       internal_only: task.internal_only,
     }));
 
+    if (!write.begin()) return;
+    ++readGeneration.current;
     setTemplateVersionState('submitting');
 
     try {
@@ -477,12 +499,9 @@ export default function LifecycleTemplatesPage() {
       );
       const data = await response.json().catch(() => ({}));
 
-      if (
-        !response.ok
-        || typeof data.template?.id !== 'string'
-        || data.template?.template_key !== source.template_key
-        || data.template?.lifecycle_type !== source.lifecycle_type
-      ) {
+      if (!confirmedHrSetupResponse(response, typeof data.template?.id === 'string'
+        && data.template?.template_key === source.template_key
+        && data.template?.lifecycle_type === source.lifecycle_type)) {
         setTemplateVersionState('error');
         return;
       }
@@ -493,8 +512,9 @@ export default function LifecycleTemplatesPage() {
         setError('Template version was created, but the list could not be refreshed.');
       }
     } catch {
+      write.markUncertain(); setCanCreateTemplate(false);
       setTemplateVersionState('error');
-    }
+    } finally { write.finish(); }
   }
 
   async function runTemplateStatusAction(
@@ -504,7 +524,8 @@ export default function LifecycleTemplatesPage() {
     const permitted = action === 'activate'
       ? template.capabilities.can_activate
       : template.capabilities.can_retire;
-    if (!permitted) return;
+    if (!permitted || !canCreateTemplate || loading || !write.begin()) return;
+    ++readGeneration.current;
 
     setStatusActionState('submitting');
 
@@ -520,25 +541,21 @@ export default function LifecycleTemplatesPage() {
       const data = await response.json().catch(() => ({}));
 
       const expectedStatus = action === 'activate' ? 'ACTIVE' : 'RETIRED';
-      if (
-        !response.ok
-        || data.template?.id !== template.id
-        || data.template?.status !== expectedStatus
-      ) {
+      if (!confirmedHrSetupResponse(response, data.template?.id === template.id && data.template?.status === expectedStatus)) {
         setStatusActionState('error');
         return;
       }
 
       if (!await refreshTemplates()) {
-        setStatusActionState('error');
-        return;
+        throw new Error('Saved state unavailable');
       }
 
       setConfirmStatusAction(null);
       setStatusActionState('idle');
     } catch {
+      write.markUncertain(); setCanCreateTemplate(false);
       setStatusActionState('error');
-    }
+    } finally { write.finish(); }
   }
 
   async function openTemplate(template: LifecycleTemplateSummary) {
@@ -628,15 +645,17 @@ export default function LifecycleTemplatesPage() {
   const versionSourceTemplate = versionSourceTemplateId
     ? templates.find(template => template.id === versionSourceTemplateId) ?? null
     : null;
+  const recovery = write.uncertain && <div role="status"><FormError>The change could not be confirmed. Check saved templates before making another change.</FormError><button type="button" disabled={loading} onClick={() => void recoverTemplates()} {...buttonProps('secondary')}>Check saved templates</button></div>;
 
   return (
     <div style={{ maxWidth: 1000 }}>
       <PageHeader
         title="Lifecycle Templates"
         description="Review the onboarding and offboarding templates available to your organisation."
-        actions={canCreateTemplate ? (
+        actions={<><button type="button" disabled={loading || write.busy} onClick={() => void recoverTemplates()} {...buttonProps('secondary')}>Refresh</button>{canCreateTemplate ? (
           <button
             type="button"
+            disabled={write.blocked || loading}
             onClick={() => {
               setOpenTemplateId(null);
               setConfirmStatusAction(null);
@@ -647,8 +666,9 @@ export default function LifecycleTemplatesPage() {
           >
             + Create Template
           </button>
-        ) : undefined}
+        ) : null}</>}
       />
+      {!showCreateTemplate && !versionSourceTemplate && !selectedTemplate && recovery}
 
       <div
         aria-label="Lifecycle template filters"
@@ -799,11 +819,13 @@ export default function LifecycleTemplatesPage() {
       <SlidePanel
         open={showCreateTemplate}
         onClose={() => {
+          if (write.isBlocked()) return;
           setShowCreateTemplate(false);
           resetCreateTemplateForm();
         }}
         title="Create lifecycle template"
       >
+        {recovery}
         <form
           onSubmit={event => {
             event.preventDefault();
@@ -1032,14 +1054,14 @@ export default function LifecycleTemplatesPage() {
                 setShowCreateTemplate(false);
                 resetCreateTemplateForm();
               }}
-              disabled={templateCreateState === 'submitting'}
+              disabled={write.blocked}
               {...buttonProps('secondary')}
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={templateCreateState === 'submitting'}
+              disabled={write.blocked || !canCreateTemplate || loading}
               {...buttonProps('primary')}
             >
               {templateCreateState === 'submitting' ? 'Creating…' : 'Create template'}
@@ -1050,9 +1072,10 @@ export default function LifecycleTemplatesPage() {
 
       <SlidePanel
         open={versionSourceTemplate !== null}
-        onClose={resetVersionForm}
+        onClose={() => { if (!write.isBlocked()) resetVersionForm(); }}
         title="Create lifecycle template version"
       >
+        {recovery}
         {versionSourceTemplate && (
           <form
             onSubmit={event => {
@@ -1255,14 +1278,14 @@ export default function LifecycleTemplatesPage() {
               <button
                 type="button"
                 onClick={resetVersionForm}
-                disabled={templateVersionState === 'submitting'}
+                disabled={write.blocked}
                 {...buttonProps('secondary')}
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                disabled={templateVersionState === 'submitting'}
+                disabled={write.blocked || !canCreateTemplate || loading}
                 {...buttonProps('primary')}
               >
                 {templateVersionState === 'submitting' ? 'Creating…' : 'Create version'}
@@ -1275,12 +1298,14 @@ export default function LifecycleTemplatesPage() {
       <SlidePanel
         open={selectedTemplate !== null}
         onClose={() => {
+          if (write.isBlocked()) return;
           setOpenTemplateId(null);
           setConfirmStatusAction(null);
           setStatusActionState('idle');
         }}
         title={selectedTemplate?.name ?? 'Lifecycle template'}
       >
+        {recovery}
         {selectedTemplate && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
@@ -1307,6 +1332,7 @@ export default function LifecycleTemplatesPage() {
                 <button
                   type="button"
                   onClick={() => beginTemplateVersion(selectedTemplate, detail)}
+                  disabled={write.blocked || !canCreateTemplate || loading}
                   {...buttonProps('secondary', 'sm')}
                 >
                   Create new version
@@ -1359,7 +1385,7 @@ export default function LifecycleTemplatesPage() {
                           selectedTemplate,
                           confirmStatusAction.action,
                         )}
-                        disabled={statusActionState === 'submitting'}
+                        disabled={write.blocked || !canCreateTemplate || loading}
                         {...buttonProps(
                           confirmStatusAction.action === 'retire' ? 'danger' : 'primary',
                           'sm',
@@ -1375,7 +1401,7 @@ export default function LifecycleTemplatesPage() {
                           setConfirmStatusAction(null);
                           setStatusActionState('idle');
                         }}
-                        disabled={statusActionState === 'submitting'}
+                        disabled={write.blocked}
                         {...buttonProps('secondary', 'sm')}
                       >
                         Keep template
