@@ -54,8 +54,14 @@ export async function GET(req: Request, { params }: Ctx) {
       eo.id, eo.purchaser_name, eo.purchaser_email, eo.purchaser_phone, eo.status, eo.created_at,
       eo.payment_status, eo.total_cents, eo.currency, eo.paid_at, eo.refunded_at, eo.stripe_payment_intent_id IS NOT NULL AS refundable,
       -- Phase 4 — the order's discount snapshot (0 / NULL for every order
-      -- without a promotion). total_cents above stays the payable amount.
+      -- without a promotion). total_cents above stays the NET TICKET amount.
       eo.discount_cents, eo.promotion_code_snapshot,
+      -- Phase 5A — the order's fee snapshot: what the customer paid
+      -- (payment_total_cents; = total_cents on every pre-Phase-5A and
+      -- zero-fee order), the platform fee and its mode, and what a refund
+      -- returned. Never the policy id/version.
+      COALESCE(eo.payment_total_cents, eo.total_cents) AS payment_total_cents, eo.platform_fee_cents, eo.fee_mode,
+      eo.refunded_cents, eo.platform_fee_refunded_cents,
       eo.crm_contact_id,
       eo.expires_at, (eo.payment_status = 'PENDING' AND eo.expires_at IS NOT NULL AND eo.expires_at <= NOW()) AS is_expired_pending,
       oi.id AS order_item_id, oi.quantity,

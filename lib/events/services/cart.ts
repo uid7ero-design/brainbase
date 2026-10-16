@@ -30,7 +30,17 @@ export type LoadCartFailureCode =
   | 'ACCESS_CODE_REQUIRED';
 
 export type LoadCartResult =
-  | { ok: true; lines: CartLine[]; pricing: CartPricing; currency: string }
+  | {
+      ok: true; lines: CartLine[]; pricing: CartPricing; currency: string;
+      // Phase 5A — the fee policy that applies to THIS event, as the raw
+      // row the single query below resolved (event row > organisation row;
+      // null = none, the platform default). Passed through UNINTERPRETED:
+      // only the paid checkout reads it (via
+      // lib/events/services/fees.ts's normaliseFeePolicyRow); the free flow
+      // and every pre-Phase-5A caller/fixture whose rows carry no
+      // fee_policy column see null here and behave exactly as before.
+      feePolicyRow: unknown;
+    }
   | { ok: false; code: LoadCartFailureCode };
 
 export type LoadCartOptions = {
@@ -44,6 +54,7 @@ export type LoadCartOptions = {
 type TicketTypeRow = {
   id: string; active: boolean; price_cents: number; currency: string; name: string;
   sale_started: boolean; sale_ended: boolean; requires_access_code: boolean;
+  fee_policy?: unknown;
 };
 
 // Loads every cart line's ticket type in ONE tenant-scoped query and
@@ -75,6 +86,12 @@ type TicketTypeRow = {
 // Lines are returned in the caller's item order (the order the
 // purchaser submitted), which is the order Stripe line items are shown
 // in. Lock order is a separate concern — see cartLockOrder().
+//
+// Phase 5A: the same single query also resolves the event's fee policy
+// as one scalar JSON column (identical on every row) — the cart's whole
+// pricing context in one tenant-scoped round trip. The subquery text is
+// pinned to lib/events/services/fees.ts's FEE_POLICY_RESOLUTION_SQL by
+// the containment suite; the paid checkout is its only consumer.
 export async function loadCartTicketTypes(
   organisationId: string,
   eventId: string,
@@ -86,7 +103,8 @@ export async function loadCartTicketTypes(
     SELECT id, active, price_cents, currency, name,
       (sale_starts_at IS NULL OR sale_starts_at <= NOW()) AS sale_started,
       (sale_ends_at IS NOT NULL AND sale_ends_at <= NOW()) AS sale_ended,
-      requires_access_code
+      requires_access_code,
+      (SELECT to_jsonb(p) FROM ticketing_fee_policies p WHERE p.organisation_id = ${organisationId} AND (p.event_id = ${eventId} OR p.event_id IS NULL) ORDER BY (p.event_id IS NOT NULL) DESC LIMIT 1) AS fee_policy
     FROM event_ticket_types
     WHERE organisation_id = ${organisationId} AND event_id = ${eventId} AND id = ANY(${ids}::text[])
   `;
@@ -120,7 +138,7 @@ export async function loadCartTicketTypes(
     unit_price_cents: types[i].price_cents,
     currency: types[i].currency,
   }));
-  return { ok: true, lines, pricing, currency };
+  return { ok: true, lines, pricing, currency, feePolicyRow: types[0].fee_policy ?? null };
 }
 
 // Deterministic lock order (deadlock avoidance): every flow that locks

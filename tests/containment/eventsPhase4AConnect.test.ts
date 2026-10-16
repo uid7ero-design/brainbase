@@ -505,11 +505,17 @@ describe('Phase 4A — architecture containment', () => {
     expect(code).not.toMatch(/DELETE FROM organisations|stripe_account_id = NULL|accounts\.del/)
   })
 
-  it('no platform fee (application_fee_amount) is implemented', () => {
-    for (const file of [...CONNECT_FILES, 'lib/events/stripe.ts']) {
+  it('no platform fee is implemented in the Connect module itself; Phase 5A\'s application_fee_amount lives only in createCheckoutSession, sourced solely from the caller\'s committed snapshot and omitted entirely when zero', () => {
+    for (const file of CONNECT_FILES) {
       const code = stripComments(read(file))
       expect(code).not.toMatch(/application_fee_amount|platform_fee/i)
     }
+    const stripeCode = stripComments(read('lib/events/stripe.ts'))
+    // Exactly one place sends it, guarded on a positive value and never
+    // derived from any policy/organisation read inside this module.
+    expect(stripeCode.match(/application_fee_amount/g)).toHaveLength(1)
+    expect(stripeCode).toMatch(/\.\.\.\(applicationFeeCents > 0 \? \{ payment_intent_data: \{ application_fee_amount: applicationFeeCents \} \} : \{\}\)/)
+    expect(stripeCode).not.toMatch(/ticketing_fee_policies|resolveFeePolicy/)
   })
 
   it('no seating/promo/subscription/SMS/CRM scope creep', () => {

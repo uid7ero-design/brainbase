@@ -198,8 +198,17 @@ export default function EventDetailClient({ eventId, canManage, organisationSlug
   const paidOrders = orderLevel.filter(o => o.payment_status === 'PAID');
   const pendingPaymentOrders = orderLevel.filter(o => o.payment_status === 'PENDING');
   const refundedOrders = orderLevel.filter(o => o.payment_status === 'REFUNDED');
+  // Phase 5A — "Revenue" stays TICKET revenue (Σ total_cents, net of
+  // discounts — never conflated with platform revenue); platform fees are
+  // summed separately and shown only when any paid order carried one, so
+  // a zero-fee BrainBase event renders exactly as before. "Refunded" is
+  // what was actually returned to customers (refunded_cents, falling back
+  // to the ticket total for orders refunded before this phase).
   const grossRevenueCents = paidOrders.reduce((sum, o) => sum + o.total_cents, 0);
-  const refundedCents = refundedOrders.reduce((sum, o) => sum + o.total_cents, 0);
+  const platformFeesCents = paidOrders.reduce((sum, o) => sum + (o.platform_fee_cents ?? 0), 0);
+  const absorbedFeeOrders = paidOrders.filter(o => (o.platform_fee_cents ?? 0) > 0 && o.fee_mode === 'ABSORB').length;
+  const passThroughFeeOrders = paidOrders.filter(o => (o.platform_fee_cents ?? 0) > 0 && o.fee_mode === 'PASS_THROUGH').length;
+  const refundedCents = refundedOrders.reduce((sum, o) => sum + (o.refunded_cents ?? o.payment_total_cents ?? o.total_cents), 0);
   const revenueCurrency = paidOrders[0]?.currency ?? orders?.find(o => o.payment_status !== 'NOT_REQUIRED')?.currency ?? 'AUD';
   const hasPaidTicketTypes = ticketTypes.some(t => t.price_cents > 0);
   const formatMoney = (cents: number) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: revenueCurrency }).format(cents / 100);
@@ -247,8 +256,18 @@ export default function EventDetailClient({ eventId, canManage, organisationSlug
               label="Revenue"
               value={formatMoney(grossRevenueCents)}
               loading={orders === null}
-              sub={orders ? `${paidOrders.length} paid order${paidOrders.length === 1 ? '' : 's'}` : undefined}
+              sub={orders ? `${paidOrders.length} paid order${paidOrders.length === 1 ? '' : 's'}${platformFeesCents > 0 ? ' · ticket revenue' : ''}` : undefined}
             />
+            {platformFeesCents > 0 && (
+              <Metric
+                label="Platform Fees"
+                value={formatMoney(platformFeesCents)}
+                sub={[
+                  passThroughFeeOrders > 0 ? `${passThroughFeeOrders} paid by customers` : null,
+                  absorbedFeeOrders > 0 ? `${absorbedFeeOrders} deducted from proceeds` : null,
+                ].filter(Boolean).join(' · ')}
+              />
+            )}
             <Metric
               label="Pending Payment"
               value={pendingPaymentOrders.length}

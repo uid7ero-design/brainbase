@@ -111,6 +111,9 @@ const MIGRATIONS = [
   'scripts/add-events-ticket-email-delivery.sql',
   'scripts/create-events-ticket-type-session-inventory.sql',
   'scripts/create-events-promotions-presales-sale-windows.sql',
+  // Phase 5A — the cart load now resolves ticketing_fee_policies in its
+  // single query, so every live-service harness must carry the table.
+  'scripts/create-events-ticketing-fees-foundation.sql',
 ]
 
 const EVENT = {

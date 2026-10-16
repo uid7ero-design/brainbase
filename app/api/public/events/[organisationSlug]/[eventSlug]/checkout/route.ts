@@ -100,6 +100,14 @@ function toResponse(result: PaidCheckoutResult): NextResponse {
       );
     case 'STRIPE_NOT_CONFIGURED':
       return NextResponse.json({ error: 'Paid checkout is not currently available.' }, { status: 503 });
+    // Phase 5A — a platform fee policy that cannot be applied safely
+    // (malformed row, another currency, an absorbed fee exceeding the
+    // ticket total) is a configuration fault, never the purchaser's; the
+    // same generic 503 as a missing Stripe configuration, nothing reserved.
+    case 'FEE_POLICY_INVALID':
+    case 'FEE_CURRENCY_MISMATCH':
+    case 'FEE_EXCEEDS_TOTAL':
+      return NextResponse.json({ error: 'Paid checkout is not currently available.' }, { status: 503 });
     case 'ORDER_TOTAL_MISMATCH':
     case 'RESERVATION_FAILED':
     case 'RESPONSE_WRITE_FAILED':

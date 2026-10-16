@@ -11,6 +11,8 @@ import {
   resolvePromotionCode, computeDiscount, buildCheckoutLineItems, assertCheckoutLineItemsTotal, promotionRedemptionAvailable,
   type PromotionRule, type DiscountFailureCode,
 } from '@/lib/events/services/promotions';
+import { normaliseFeePolicyRow, buildFeeLineItem, type FeePolicyResolution } from '@/lib/events/services/fees';
+import { computeOrderFinancials, type FeeComputation } from '@/lib/events/feeCalculation';
 
 // Shared ticketing service — paid public checkout reservation + Stripe
 // Checkout Session creation.
@@ -67,6 +69,11 @@ export type PaidCheckoutResult =
         | 'PROMOTION_INVALID'
         | DiscountFailureCode
         | 'PROMOTION_UNAVAILABLE'
+        // Phase 5A — platform/booking fee policy (configuration faults; a
+        // BrainBase organisation with no policy row can never hit these).
+        | 'FEE_POLICY_INVALID'
+        | 'FEE_CURRENCY_MISMATCH'
+        | 'FEE_EXCEEDS_TOTAL'
         | 'ORDER_TOTAL_MISMATCH'
         | 'SESSION_NOT_FOUND'
         | 'RESERVATION_FAILED'
@@ -147,6 +154,30 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
   const promotionCodeId = promotion?.id ?? null;
   const promotionCodeSnapshot = promotion?.code ?? null;
 
+  // Phase 5A — platform / booking fee, resolved from the SAME cart query
+  // above (event row > organisation row > platform default = none; see
+  // lib/events/services/fees.ts) and computed in integer cents on the NET
+  // ticket subtotal AFTER the discount (brief §6 order: gross → promotion
+  // → net → fee → payment total). Nothing about the fee is ever read from
+  // the request. A BrainBase organisation with no policy row resolves to
+  // no fee: platform_fee_cents 0, fee_mode NULL, payment total = ticket
+  // total, no fee line item, no application_fee_amount — the pre-Phase-5A
+  // order exactly. Configuration faults (a malformed row, a policy in
+  // another currency, an ABSORB fee larger than the ticket total) fail
+  // closed here, before any capacity is reserved.
+  let feeResolution: FeePolicyResolution;
+  try {
+    feeResolution = normaliseFeePolicyRow(cart.feePolicyRow);
+  } catch (err) {
+    console.error('[public checkout] refusing to reserve: the event\'s fee policy row could not be interpreted', err);
+    return { ok: false, code: 'FEE_POLICY_INVALID' };
+  }
+  const feePolicy = feeResolution.policy;
+  if (feePolicy && feePolicy.currency !== cart.currency.toUpperCase()) {
+    console.error('[public checkout] refusing to reserve: fee policy currency does not match the cart currency', { policy: feePolicy.id });
+    return { ok: false, code: 'FEE_CURRENCY_MISMATCH' };
+  }
+
   if (validated.event_session_id) {
     const sessionRows = await sql`
       SELECT id FROM event_sessions
@@ -178,22 +209,48 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
   // own row deterministically (see the transaction comment below).
   const attendeeIds = validated.attendees.map(() => randomUUID());
   // Integer cents only: the order total is exactly the sum of its lines
-  // minus the snapshotted discount (0 without a promotion), and is
+  // minus the snapshotted discount (0 without a promotion) — the NET
+  // TICKET amount, total_cents, whose meaning Phase 5A preserves. The
+  // customer's PAYMENT total adds a PASS_THROUGH fee (one extra Stripe
+  // line item) or equals the ticket total under ABSORB / no fee; it is
   // exactly what the Stripe line items below charge. Built and asserted
   // BEFORE any capacity is reserved, so a mismatch can never leave a
   // hold behind.
   const totalCents = computeCartTotalCents(cart.lines) - discountCents;
-  const stripeLineItems = buildCheckoutLineItems(
-    cart.lines.map((l, i) => ({ name: l.name, unit_price_cents: l.unit_price_cents, quantity: l.quantity, discount_cents: lineDiscounts[i] })),
-    promotionCodeSnapshot,
-    cart.currency,
-  );
+  const financialsResult = computeOrderFinancials(totalCents, validated.quantity, feePolicy);
+  if (!financialsResult.ok) {
+    console.error('[public checkout] refusing to reserve: the absorbed fee would exceed the ticket total', { policy: feePolicy?.id, totalCents });
+    return { ok: false, code: financialsResult.code };
+  }
+  const financials: FeeComputation = financialsResult.result;
+  const feeLabel = feePolicy?.label ?? null;
+  const feeLineItem = financials.fee_mode === 'PASS_THROUGH' ? buildFeeLineItem(feeLabel ?? 'Booking fee', financials.platform_fee_cents) : null;
+  const stripeLineItems = [
+    ...buildCheckoutLineItems(
+      cart.lines.map((l, i) => ({ name: l.name, unit_price_cents: l.unit_price_cents, quantity: l.quantity, discount_cents: lineDiscounts[i] })),
+      promotionCodeSnapshot,
+      cart.currency,
+    ),
+    ...(feeLineItem ? [feeLineItem] : []),
+  ];
   try {
-    assertCheckoutLineItemsTotal(stripeLineItems, totalCents);
+    assertCheckoutLineItemsTotal(stripeLineItems, financials.payment_total_cents);
   } catch (err) {
-    console.error('[public checkout] refusing to reserve: Stripe line items do not reconcile with the order total', err);
+    console.error('[public checkout] refusing to reserve: Stripe line items do not reconcile with the payment total', err);
     return { ok: false, code: 'ORDER_TOTAL_MISMATCH' };
   }
+  // Snapshot columns (NULL throughout, fee 0, payment total = ticket total
+  // when no policy applies). The policy INPUTS are copied, not referenced,
+  // so the fee is reconstructible from the order row alone and a later
+  // policy edit can never alter it.
+  const feePolicyId = feePolicy?.id ?? null;
+  const feePolicyVersion = feePolicy?.version ?? null;
+  const feePercentBps = feePolicy?.percent_bps ?? null;
+  const feeFixedPerOrderCents = feePolicy?.fixed_per_order_cents ?? null;
+  const feeFixedPerTicketCents = feePolicy?.fixed_per_ticket_cents ?? null;
+  const feeMinCents = feePolicy?.min_fee_cents ?? null;
+  const feeMaxCents = feePolicy?.max_fee_cents ?? null;
+  const feeTaxTreatment = feePolicy?.tax_treatment ?? null;
 
   // ── Capacity-reserving transaction (§8/§9, multi-line) ──────────────
   //
@@ -327,11 +384,15 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
           INSERT INTO event_orders (
             organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone,
             status, total_cents, payment_status, payment_provider, currency, expires_at, stripe_account_id,
+            platform_fee_cents, fee_mode, payment_total_cents, fee_policy_id, fee_policy_version,
+            fee_percent_bps, fee_fixed_per_order_cents, fee_fixed_per_ticket_cents, fee_min_cents, fee_max_cents, fee_tax_treatment, fee_label,
             discount_cents, promotion_code_id, promotion_code_snapshot, access_code_id, access_code_snapshot
           )
           SELECT
             ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone},
             'PENDING', ${totalCents}, 'PENDING', 'stripe', ${cart.currency}, NOW() + make_interval(secs => ${RESERVATION_WINDOW_SECONDS}), ${connectedAccountId},
+            ${financials.platform_fee_cents}, ${financials.fee_mode}, ${financials.payment_total_cents}, ${feePolicyId}, ${feePolicyVersion},
+            ${feePercentBps}, ${feeFixedPerOrderCents}, ${feeFixedPerTicketCents}, ${feeMinCents}, ${feeMaxCents}, ${feeTaxTreatment}, ${feeLabel},
             ${discountCents}, ${promotionCodeId}, ${promotionCodeSnapshot}, ${accessCodeId}, ${accessCodeSnapshot}
           FROM gate
           RETURNING id
@@ -442,15 +503,19 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
       // from the same server-derived unit prices (and, Phase 4, the same
       // per-line discounts) written to event_order_items above — so
       // Stripe's total is exactly event_orders.total_cents. Built and
-      // asserted against totalCents before the reservation ran (see
-      // stripeLineItems above); a discounted line is one net line item
-      // with the quantity and discount spelled out (approval D2).
+      // asserted against the payment total before the reservation ran
+      // (see stripeLineItems above); a discounted line is one net line
+      // item with the quantity and discount spelled out (approval D2);
+      // Phase 5A: a PASS_THROUGH fee is one extra labelled line.
       lineItems: stripeLineItems,
       currency: cart.currency,
       purchaserEmail: validated.purchaser_email,
       successUrl,
       cancelUrl,
       connectedAccountId,
+      // Phase 5A — the committed snapshot's application fee (0 = none
+      // sent); identical in both fee modes. See CreateCheckoutSessionInput.
+      applicationFeeCents: financials.application_fee_cents,
     });
 
     // ── Checkout-vs-Retry race closure (PR #231 follow-up) ────────────

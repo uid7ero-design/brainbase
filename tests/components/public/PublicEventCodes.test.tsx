@@ -23,6 +23,7 @@ const DETAIL: PublicEventDetail = {
   session_inventory: [],
   questions: [],
   has_promotions: true,
+  booking_fee: null,
   branding: { name: null, logoUrl: null, website: null, accentColor: null } as unknown as PublicEventDetail['branding'],
   organisationName: 'Org A',
 };
