@@ -47,6 +47,10 @@ Abort releases the waiting caller across headers and body consumption. These
 bounds also apply to the previously released single-worksheet preparation page.
 Existing endpoint authorization, server-owned tenant/actor identity, private
 responses, profile lineage admission and explicit POST behavior are unchanged.
+The consistent profile-status transaction has explicit five-second acquisition
+and execution bounds. This allows a cold client to start its read alongside
+other status requests without relying on Prisma's two-second acquisition default;
+failed reads still remain unconfirmed rather than being retried or marked ready.
 
 ## Verification and release
 

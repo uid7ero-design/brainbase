@@ -8,8 +8,17 @@ export async function verifyWorkbookOverview({ page, context, pool, origin, read
   const inventoryUrl = origin + `/api/data-hub/import-batches/${ready.batchId}/worksheets`;
   const profileUrl = origin + `/api/data-hub/worksheets/${ready.uploadId}/profile`;
   const requests = [];
+  const responses = [];
+  const observeResponse = async response => {
+    const target = new URL(response.url());
+    if (!target.pathname.startsWith(`/api/data-hub/worksheets/${ready.uploadId}/`) || !['stage', 'normalize', 'profile'].includes(target.pathname.split('/').at(-1))) return;
+    const body = await response.json().catch(() => ({}));
+    responses.push({ step: target.pathname.split('/').at(-1), httpStatus: response.status(), contentType: response.headers()['content-type'],
+      ok: body.ok, status: body.status, code: body.code, rowCountType: typeof body.rowCount, columnCountType: typeof body.columnCount });
+  };
   const observe = request => { if (new URL(request.url()).pathname.startsWith('/api/data-hub/')) requests.push({ url: request.url(), method: request.method() }); };
   context.on('request', observe);
+  context.on('response', observeResponse);
   const digest = async () => (await pool.query(`SELECT
     (SELECT count(*)::int FROM data_hub_raw_staging_runs) AS staging,
     (SELECT count(*)::int FROM data_hub_normalization_runs) AS normalization,
@@ -78,5 +87,6 @@ export async function verifyWorkbookOverview({ page, context, pool, origin, read
     await expect(page.getByRole('link', { name: /Open preparation for worksheet/ })).toHaveCount(0);
     if (requests.some(request => request.method !== 'GET') || JSON.stringify(before) !== JSON.stringify(await digest())) throw new Error('Workbook overview wrote preparation or review history');
     evidence.checks.push('Workbook overview handles live role demotion and concealed foreign inventory; all overview calls are GET and preparation/review histories remain unchanged');
-  } finally { context.off('request', observe); }
+  } catch (error) { console.error('Workbook status response diagnostics:', JSON.stringify(responses)); throw error; }
+  finally { context.off('request', observe); context.off('response', observeResponse); }
 }

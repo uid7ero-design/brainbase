@@ -42,7 +42,7 @@ export async function getWorksheetProfileStatus(scope: Scope) {
       return { ok: false as const, code: "PROFILE_LINEAGE_MISMATCH" };
     }
     return { ok: true as const, status: latest.status };
-  }, { isolationLevel: "RepeatableRead" });
+  }, { isolationLevel: "RepeatableRead", maxWait: 5_000, timeout: 5_000 });
 }
 
 export async function profileWorksheetForReview(scope: Scope & { actorId: string }) {

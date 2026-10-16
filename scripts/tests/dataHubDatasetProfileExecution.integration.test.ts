@@ -581,6 +581,14 @@ describe("Guided preparation profile HTTP lifecycle with real Postgres", () => {
     expect(await first.json()).toEqual({ ok: true, status: "SUCCEEDED", rowCount: 2, columnCount: 4 });
     const before = await prisma.upload.findUniqueOrThrow({ where: { id: ids.uploadId } });
     expect(before.profiled_by).toBe(ids.userId);
+    const stage = await import("@/app/api/data-hub/worksheets/[id]/stage/route");
+    const normalize = await import("@/app/api/data-hub/worksheets/[id]/normalize/route");
+    const statuses = await Promise.all([stage.GET(new NextRequest("http://localhost/stage"), context),
+      normalize.GET(new NextRequest("http://localhost/normalize"), context), get()]);
+    for (const response of statuses) {
+      expect(response.status).toBe(200); expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(await response.json()).toMatchObject({ ok: true, status: "SUCCEEDED", rowCount: 2 });
+    }
     expect((await post()).status).toBe(200); expect(await (await get()).json()).toEqual({ ok: true, status: "SUCCEEDED", rowCount: 2, columnCount: 4 });
     expect(await prisma.upload.findUniqueOrThrow({ where: { id: ids.uploadId } })).toEqual(before);
     expect(await prisma.dataHubDatasetProfileRun.count({ where: { upload_id: ids.uploadId } })).toBe(1);
