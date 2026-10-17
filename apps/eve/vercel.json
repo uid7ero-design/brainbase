@@ -1,0 +1,5 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "ignoreCommand": "if [ \"$VERCEL_ENV\" = \"production\" ]; then echo 'Production deployments are disabled for this product in Phase 1'; exit 0; else exit 1; fi"
+}
