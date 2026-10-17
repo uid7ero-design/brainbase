@@ -2,7 +2,7 @@ export const D4D5Q_BLOB = 'cc7f948944b1f0bd772a140d33be901736c5ca26';
 export const RECEIPT_VERSION = 'v2';
 export const FIXTURE_PREPARATION = 'Synthetic XLSX bytes; existing inspection, raw staging, normalization routes and profiler service';
 export const SETUP_STORAGE = 'InMemoryFileStore (setup only)';
-export const ARTIFACTS = ['evidence.json', 'next-server.log', 'counts-mobile.png', 'planning-mobile.png', 'planning-timeout-mobile.png', 'planning-paging-mobile.png'];
+export const ARTIFACTS = ['evidence.json', 'next-server.log', 'counts-mobile.png', 'planning-mobile.png', 'planning-timeout-mobile.png', 'planning-paging-mobile.png', 'workbook-reviews-mobile.png'];
 export const PROOF_LIMITS = [
   'Hosted authenticated Neon transport is unverified.',
   'Hosted file upload/finalization, object storage and schema selection are outside this fixture.',

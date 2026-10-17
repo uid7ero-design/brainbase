@@ -8,6 +8,7 @@ import { chromium, expect } from '@playwright/test';
 import { FIXTURE_PREPARATION, SETUP_STORAGE } from './helpers/dataHubAcceptanceReceipt.mjs';
 import { verifyWorkbookOverview } from './helpers/dataHubWorkbookOverviewProof.mjs';
 import { verifyWorkbookQueue } from './helpers/dataHubWorkbookQueueProof.mjs';
+import { verifyWorkbookReviews } from './helpers/dataHubWorkbookReviewProof.mjs';
 
 // Invoked only by verify-datahub-profile-execution.sh after provisioning its
 // disposable Docker database and seeding real profile evidence. The build,
@@ -139,6 +140,7 @@ try {
     })]); } finally { clearTimeout(timer); }
   }
   await verifyWorkbookOverview({ page, context, pool, origin, ready, evidence, directory });
+  await verifyWorkbookReviews({ page, context, pool, origin, ready, held, queueWorlds, evidence, directory, phase: 'before' });
   await verifyWorkbookQueue({ page, context, pool, origin, ready, queueWorlds, evidence, directory });
   await page.goto(origin + '/data-hub/import');
   await page.getByRole('button', { name: 'Review worksheets in analysis-ready.xlsx', exact: true }).click();
@@ -454,6 +456,7 @@ try {
     if (result.status !== 422 || result.body.code !== 'QUALITY_HOLD') throw new Error('Planning hold bypassed');
   }
   evidence.checks.push('Explicit HOLD persisted and blocks both UI counts and direct API');
+  await verifyWorkbookReviews({ page, context, pool, origin, ready, held, queueWorlds, evidence, directory, phase: 'after' });
 
   const stale = await api(endpoint(ready.uploadId) + '/analysis-review', { reviewVersion: 'v1', datasetProfileRunId: 'stale-profile', semanticChoices: [], qualityDecisions: [] });
   if (stale.status !== 409) throw new Error('Stale profile pin accepted');
