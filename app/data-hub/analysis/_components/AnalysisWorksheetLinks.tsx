@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { listWorksheetsForBatch } from "@/lib/data-hub/client/httpClient";
+import { worksheetReviewHref } from "@/lib/data-hub/client/reviewNavigation";
 
 type Worksheet = { id: string; worksheetName: string; worksheetIndex: number };
 
@@ -44,7 +45,7 @@ export default function AnalysisWorksheetLinks({ batchId, filename }: { batchId:
           <Link href={`/data-hub/prepare/${encodeURIComponent(worksheet.id)}`}>
             {worksheet.worksheetName || "Worksheet"} (worksheet {worksheet.worksheetIndex + 1}) — prepare for review
           </Link>{" · "}
-          <Link href={`/data-hub/analysis/${encodeURIComponent(worksheet.id)}`}>
+          <Link href={worksheetReviewHref(worksheet.id, batchId)}>
             {worksheet.worksheetName || "Worksheet"} (worksheet {worksheet.worksheetIndex + 1}) — review and count
           </Link>
         </li>)}</ul>

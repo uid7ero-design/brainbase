@@ -14,6 +14,10 @@ counts and observations, not calculated source-row counts. Review and preparatio
 links remain navigation; their destinations independently check current access,
 profile lineage, decisions and capabilities.
 
+Review links carry an optional workbook hint for the
+[individual review session](data-hub-review-session-workflow.md). It becomes
+navigation only after an explicit authorized membership check in that screen.
+
 ## Narrow read contract
 
 `GET /api/data-hub/worksheets/[id]/analysis-status` authorizes a current manager
