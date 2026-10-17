@@ -2,7 +2,7 @@
 // SQL-over-HTTP is a local wire adapter, not an HR/session response fixture.
 import { createServer } from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, renameSync, rmSync, mkdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
@@ -11,10 +11,16 @@ import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import { chromium } from '@playwright/test';
 import { verifyRemainingWorkflows } from './helpers/hrLocalWorkflows.mjs';
+import { verifyHrSetup } from './helpers/hrLocalSetup.mjs';
 
 const root = process.cwd();
 if (!existsSync(path.join(root, 'scripts/create-hr-people.sql'))) throw new Error('Run from the repository worktree.');
 const name = `hr-full-local-${randomUUID().slice(0, 8)}`;
+const nextDirectory = path.resolve(root, '.next');
+const devCache = path.resolve(nextDirectory, 'dev');
+const previousCache = path.resolve(nextDirectory, `${name}-previous-dev`);
+if (path.dirname(devCache) !== nextDirectory || path.dirname(previousCache) !== nextDirectory) throw new Error('Invalid local cache paths.');
+let cacheOwned = false, cacheBackedUp = false;
 const password = randomUUID();
 let pool, bridge, app, browser;
 let appOrigin;
@@ -24,6 +30,10 @@ const listen = server => new Promise(resolve => server.listen(0, '127.0.0.1', ()
 const close = server => new Promise(resolve => server?.close(resolve) ?? resolve());
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 try {
+  if (existsSync(path.join(devCache, 'lock'))) throw new Error('Close the existing Next development server before this proof.');
+  mkdirSync(nextDirectory, { recursive: true });
+  if (existsSync(devCache)) { renameSync(devCache, previousCache); cacheBackedUp = true; }
+  cacheOwned = true;
   console.log('Starting isolated full-app HR proof.');
   exec('docker', ['run', '-d', '--name', name, '-e', `POSTGRES_PASSWORD=${password}`, '-e', 'POSTGRES_DB=hrproof', '-p', '127.0.0.1::5432', 'postgres:16-alpine']);
   const mapping = exec('docker', ['port', name, '5432/tcp']).trim();
@@ -141,7 +151,9 @@ try {
     await assert.rejects(fetch('http://localhost/sql',{headers:{'Neon-Connection-String':'postgresql://not-a-fixture'}}), /Non-fixture SQL/);
   `], { env });
   console.log('PASS: fetch/SDK external egress and non-fixture SQL are rejected.');
-  app = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev', '--hostname', '127.0.0.1', '--port', String(appPort)], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  // Use the supported Webpack dev bundler: Windows Turbopack intermittently
+  // omits nested routes even with a cold cache. Production builds stay unchanged.
+  app = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev', '--webpack', '--hostname', '127.0.0.1', '--port', String(appPort)], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   for (const stream of [app.stdout, app.stderr]) stream.on('data', chunk => { logs = (logs + chunk).slice(-24000); });
   const origin = `http://127.0.0.1:${appPort}`;
   appOrigin = origin;
@@ -229,6 +241,7 @@ try {
   assert.equal((await employeeContext.request.get(`${base}/versions/${replacementId}`)).status(), 404);
   assert.equal((await q('SELECT count(*)::int AS count FROM hr_employee_document_versions WHERE document_id=$1', [docId])).rows[0].count, 2);
   assert.equal(objects.size, 2);
+  await verifyHrSetup({ origin, page, person, q });
   await verifyRemainingWorkflows({ origin, context, page, employeeContext, employeePage, person, q, emails, cronSecret: env.CRON_SECRET, password, browser });
   assert.equal((await employeeContext.request.post(`${origin}/api/auth/logout`)).status(), 200);
   assert.ok(!(await employeeContext.cookies()).some(cookie => cookie.name === 'session'));
@@ -253,7 +266,13 @@ try {
   }
   if (appOrigin) {
     const remaining = await fetch(`${appOrigin}/login`, { signal: AbortSignal.timeout(2000) }).then(() => true, () => false);
-    if (remaining) { console.error('Local app listener remained after cleanup.'); process.exitCode = 1; }
+    if (remaining) { console.error('Local app listener remained after cleanup.'); process.exitCode = 1; cacheOwned = false; }
+  }
+  if (cacheOwned) {
+    try {
+      rmSync(devCache, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      if (cacheBackedUp) renameSync(previousCache, devCache);
+    } catch { console.error(`Local cache cleanup failed; preserved cache path: ${previousCache}`); process.exitCode = 1; }
   }
   bridge?.closeAllConnections(); await close(bridge); await pool?.end();
   try { exec('docker', ['rm', '-f', name]); } catch { /* failed startup */ }
