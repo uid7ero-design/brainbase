@@ -162,6 +162,8 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  await q(`UPDATE hr_people SET linked_user_id=$1 WHERE organisation_id=$2 AND id=$3`, [EMPLOYEE_USER, ORG_ID, PERSON_ID]);
+  await q(`INSERT INTO hr_administrators (organisation_id,user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [ORG_ID, HR_USER]);
   await q(`UPDATE hr_people SET manager_person_id=$1 WHERE organisation_id=$2 AND id=$3`, [MANAGER_PERSON_ID, ORG_ID, PERSON_ID]);
   await q(`UPDATE hr_lifecycle_workflows SET status='ACTIVE', completed_at=NULL, cancelled_at=NULL WHERE organisation_id=$1 AND id=$2`, [ORG_ID, WORKFLOW_ID]);
   await q(`UPDATE hr_lifecycle_tasks SET status='NOT_STARTED', completed_by=NULL, completed_at=NULL, waived_by=NULL, waived_at=NULL, waiver_reason=NULL WHERE organisation_id=$1 AND id=$2`, [ORG_ID, START_TASK]);
@@ -178,6 +180,69 @@ afterAll(async () => {
 });
 
 describe('HR-7C task actions and approvals against real Postgres', () => {
+  it.each([
+    ['manager', 'approve', 'recorded'],
+    ['manager', 'reject', 'recorded'],
+    ['employee', 'start', 'started'],
+    ['employee', 'complete', 'completed'],
+    ['administrator', 'waive', 'waived'],
+    ['administrator', 'start', 'started'],
+  ] as const)(
+    'rechecks %s authority for %s after a real workflow-lock wait',
+    async (role, action, recoveredOutcome) => {
+      const blocker = await pool.connect();
+      let pending: Promise<unknown> | undefined;
+      try {
+        await blocker.query('BEGIN');
+        const { rows: [owner] } = await blocker.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+        await blocker.query(`SELECT pg_advisory_xact_lock(hashtextextended('hr-lifecycle-workflow:' || $1::text, 0))`, [WORKFLOW_ID]);
+        const snapshot = async () => ({
+          tasks: await q('SELECT * FROM hr_lifecycle_tasks WHERE organisation_id=$1 ORDER BY id', [ORG_ID]),
+          workflows: await q('SELECT * FROM hr_lifecycle_workflows WHERE organisation_id=$1 ORDER BY id', [ORG_ID]),
+          approvals: await q('SELECT * FROM hr_lifecycle_task_approvals WHERE organisation_id=$1 ORDER BY id', [ORG_ID]),
+          audits: await q('SELECT * FROM audit_logs WHERE organisation_id=$1 ORDER BY id', [ORG_ID]),
+        });
+        const before = await snapshot();
+        const perform = () => role === 'manager'
+          ? recordLifecycleTaskApproval({ actor: managerActor, taskId: APPROVAL_TASK, decision: action === 'reject' ? 'REJECTED' : 'APPROVED', comment: null })
+          : role === 'employee'
+            ? action === 'complete'
+              ? completeLifecycleTask({ actor: employeeActor, taskId: WAIVE_TASK })
+              : startLifecycleTask({ actor: employeeActor, taskId: START_TASK })
+            : action === 'start'
+              ? startLifecycleTask({ actor: hrActor, taskId: START_TASK })
+              : waiveLifecycleTask({ actor: hrActor, taskId: WAIVE_TASK, reason: 'Synthetic waiver' });
+        pending = perform();
+        // Observe PostgreSQL's actual wait, rather than assuming a timer ordered the requests.
+        await vi.waitFor(async () => {
+          const [row] = await q<{ waiting: boolean }>(`SELECT EXISTS (
+            SELECT 1 FROM pg_stat_activity
+            WHERE $1::int = ANY(pg_blocking_pids(pid)) AND wait_event_type='Lock'
+          ) AS waiting`, [owner.pid]);
+          expect(row.waiting).toBe(true);
+        }, { timeout: 5000, interval: 20 });
+        if (role === 'manager') {
+          await q('UPDATE hr_people SET manager_person_id=$1 WHERE organisation_id=$2 AND id=$3', [HR_PERSON_ID, ORG_ID, PERSON_ID]);
+        } else if (role === 'employee') {
+          await q('UPDATE hr_people SET linked_user_id=NULL WHERE organisation_id=$1 AND id=$2', [ORG_ID, PERSON_ID]);
+        } else {
+          await q('DELETE FROM hr_administrators WHERE organisation_id=$1 AND user_id=$2', [ORG_ID, HR_USER]);
+        }
+        await blocker.query('COMMIT');
+        await expect(pending).resolves.toEqual({ outcome: 'forbidden' });
+        expect(await snapshot()).toEqual(before);
+        // Restore only the synthetic authority and prove the queued denial did not poison recovery.
+        await q('UPDATE hr_people SET manager_person_id=$1,linked_user_id=$2 WHERE organisation_id=$3 AND id=$4', [MANAGER_PERSON_ID, EMPLOYEE_USER, ORG_ID, PERSON_ID]);
+        await q('INSERT INTO hr_administrators (organisation_id,user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [ORG_ID, HR_USER]);
+        expect((await perform()).outcome).toBe(recoveredOutcome);
+      } finally {
+        await blocker.query('ROLLBACK');
+        blocker.release();
+        if (pending) await Promise.allSettled([pending]);
+      }
+    },
+  );
+
   it.each([
     ['start', 'hr_lifecycle_task.started', 'started'],
     ['waive', 'hr_lifecycle_task.waived', 'waived'],
