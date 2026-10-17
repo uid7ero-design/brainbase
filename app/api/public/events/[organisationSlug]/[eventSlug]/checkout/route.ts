@@ -78,6 +78,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     organisationId,
     event,
     validated,
+    // Phase 3.1 — trusted entry point: this is BrainBase's own public route.
+    productSurface: 'BRAINBASE',
     // Events -> CRM sync (Phase 5) — invoked by the service after the
     // order + responses have committed, BEFORE the Stripe redirect.
     // Payment is still PENDING at this point (matching Phase 5's

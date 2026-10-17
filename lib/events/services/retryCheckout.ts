@@ -8,6 +8,7 @@ import { buildCartLockStatements } from '@/lib/events/services/cart';
 import { buildCheckoutLineItems, assertCheckoutLineItemsTotal, promotionRedemptionAvailable } from '@/lib/events/services/promotions';
 import { buildFeeLineItem } from '@/lib/events/services/fees';
 import { feeSnapshotReconciles, type FeeMode } from '@/lib/events/feeCalculation';
+import { productSurfaceFromRow, type ProductSurface } from '@/lib/events/productSurface';
 
 type OrderRow = {
   id: string; payment_status: string; purchaser_email: string; total_cents: number; currency: string; stripe_account_id: string | null;
@@ -24,6 +25,11 @@ type OrderRow = {
   // because a pre-Phase-5A fixture/row carries none of them: that reads as
   // no fee, payment total = total_cents, exactly as before.
   platform_fee_cents?: number | null; fee_mode?: string | null; payment_total_cents?: number | null; fee_label?: string | null;
+  // Phase 3.1 — the product the order was created through, committed with
+  // the order. Retry resolves its return URLs and Stripe metadata from this,
+  // never from the current request. Absent (a pre-migration fixture) reads
+  // as BRAINBASE, exactly as a historical order does.
+  product_surface?: string | null;
   // Phase 4 — the discount SNAPSHOT committed at reservation time. Retry
   // charges exactly this (total_cents already net of discount_cents) and
   // never re-reads the promotion's current rules, dates or active flag
@@ -157,7 +163,10 @@ export type RetryCheckoutInput = {
   // Called once, after capacity reacquisition succeeds and immediately
   // before Stripe Checkout Session creation, with the tenant-scoped
   // organisation/event slugs read from the database.
-  buildReturnUrls: (orgSlug: string, eventSlug: string) => Promise<{ successUrl: string; cancelUrl: string }>;
+  // Phase 3.1: also receives the order's committed product surface, and
+  // returns null when that product's origin is unavailable (refused before
+  // anything is mutated).
+  buildReturnUrls: (orgSlug: string, eventSlug: string, productSurface: ProductSurface) => Promise<{ successUrl: string; cancelUrl: string } | null>;
 };
 
 export type RetryCheckoutResult =
@@ -172,6 +181,7 @@ export type RetryCheckoutResult =
         | 'NOT_PENDING'
         | 'NO_STRIPE_ACCOUNT'
         | 'NO_LINE_ITEM'
+        | 'RETURN_URLS_UNAVAILABLE'
         | 'TICKET_TYPE_UNAVAILABLE'
         | 'REACQUISITION_FAILED'
         | 'CAPACITY_UNAVAILABLE'
@@ -212,7 +222,7 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
     SELECT id, payment_status, purchaser_email, total_cents, currency, stripe_account_id, stripe_checkout_session_id, expires_at,
       (extract(epoch FROM expires_at) * 1000000)::bigint::text AS expires_at_stamp,
       platform_fee_cents, fee_mode, payment_total_cents, fee_label,
-      discount_cents, promotion_code_id, promotion_code_snapshot
+      discount_cents, promotion_code_id, promotion_code_snapshot, product_surface
     FROM event_orders WHERE id = ${orderId} AND event_id = ${eventId} AND organisation_id = ${organisationId} LIMIT 1
   `;
   const order = orderRows[0] as OrderRow | undefined;
@@ -223,6 +233,15 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
   if (!order.stripe_account_id) {
     return { ok: false, code: 'NO_STRIPE_ACCOUNT' };
   }
+
+  // Phase 3.1 — the order's own committed product decides where the buyer
+  // returns, not the origin of this (manager) request. Resolved before any
+  // capacity is reacquired so an unconfigured product origin refuses
+  // cleanly, with nothing mutated.
+  const productSurface = productSurfaceFromRow(order.product_surface);
+  const returnUrls = await input.buildReturnUrls(event.org_slug, event.event_slug, productSurface);
+  if (!returnUrls) return { ok: false, code: 'RETURN_URLS_UNAVAILABLE' };
+  const { successUrl, cancelUrl } = returnUrls;
 
   // Phase 2 — an order may hold several line items (one per ticket
   // type). Retry re-confirms and re-charges the WHOLE order: every line
@@ -468,7 +487,7 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
   // Return-URL construction itself is the caller's concern (each product
   // surface owns its own public origin and paths); the slugs it is given
   // are still exclusively the tenant-scoped database values above.
-  const { successUrl, cancelUrl } = await input.buildReturnUrls(event.org_slug, event.event_slug);
+  // (Resolved above, before reacquisition — see productSurface.)
 
   try {
     const { sessionId, url } = await createCheckoutSession({
@@ -491,6 +510,7 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
       // Phase 5A — the SAME stored application fee as the first attempt
       // (0 = none sent); never recomputed from a current policy.
       applicationFeeCents: platformFeeCents,
+      productSurface,
     });
     // No longer unconditional (PR #231 follow-up) — same guard shape as
     // the public checkout route's own write-back: requires BOTH the

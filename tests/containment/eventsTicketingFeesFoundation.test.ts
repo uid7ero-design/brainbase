@@ -420,7 +420,7 @@ describe('ZERO-FEE BACKWARD COMPATIBILITY — an organisation with no policy row
   it("paid checkout of the brief's cart without a fee: fee 0, mode NULL, payment total = ticket total (19800 with EARLY20), no policy snapshot, three Phase-4 line items only, applicationFeeCents 0, one ticket-type query and no fee query", async () => {
     resolver = combine(ttRowsResolver([ADULT, CHILD, VIP]), promoResolver, stampResolver, writeBackResolver)
     transactionFinalResult = [{ id: 'att-1', order_id: 'order-1' }]
-    const res = await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor(ITEMS, { promotion_code: 'early20' }), buildReturnUrls: URLS })
+    const res = await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor(ITEMS, { promotion_code: 'early20' }), buildReturnUrls: URLS })
     expect(res).toEqual({ ok: true, checkoutUrl: 'https://checkout.stripe.test/1' })
     const args = orderInsertArgs()
     expect(args).toContain(19800)
@@ -438,7 +438,7 @@ describe('ZERO-FEE BACKWARD COMPATIBILITY — an organisation with no policy row
   it('a fixture row with NO fee_policy column at all (every pre-Phase-5A test/caller) behaves identically to an explicit null', async () => {
     resolver = combine(ttRowsResolver([ADULT, CHILD, VIP]), stampResolver, writeBackResolver)
     transactionFinalResult = [{ id: 'att-1', order_id: 'order-1' }]
-    const res = await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor(ITEMS), buildReturnUrls: URLS })
+    const res = await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor(ITEMS), buildReturnUrls: URLS })
     expect(res.ok).toBe(true)
     expect(sessionInput().lineItems).toEqual([
       { name: 'Adult', unitAmountCents: 4000, quantity: 2 },
@@ -452,7 +452,7 @@ describe('ZERO-FEE BACKWARD COMPATIBILITY — an organisation with no policy row
   it('an explicitly DISABLED policy row is treated exactly like no row', async () => {
     resolver = combine(ttRowsResolver(withPolicy([ADULT], { ...POLICY_ROW, enabled: false })), stampResolver, writeBackResolver)
     transactionFinalResult = [{ id: 'att-1', order_id: 'order-1' }]
-    const res = await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-adult', quantity: 1 }]), buildReturnUrls: URLS })
+    const res = await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-adult', quantity: 1 }]), buildReturnUrls: URLS })
     expect(res.ok).toBe(true)
     expect(sessionInput().lineItems).toEqual([{ name: 'Adult', unitAmountCents: 4000, quantity: 1 }])
     expect(sessionInput().applicationFeeCents).toBe(0)
@@ -489,7 +489,7 @@ describe('ZERO-FEE BACKWARD COMPATIBILITY — an organisation with no policy row
   it('free registration is untouched: no fee column in its INSERT, no fee statement, never a Stripe call', async () => {
     resolver = combine(ttRowsResolver(withPolicy([FREE_TT], POLICY_ROW)))
     transactionFinalResult = [{ id: 'att-1', order_id: 'order-1' }]
-    const res = await registerFreeOrder({ organisationId: 'org-a', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-free', quantity: 2 }]) } as never)
+    const res = await registerFreeOrder({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-free', quantity: 2 }]) } as never)
     expect(res.ok).toBe(true)
     const texts = allTexts()
     expect(texts.some(t => /INSERT INTO event_orders/.test(t) && /platform_fee_cents|fee_mode|payment_total_cents/.test(t))).toBe(false)
@@ -499,9 +499,9 @@ describe('ZERO-FEE BACKWARD COMPATIBILITY — an organisation with no policy row
 
   it('a paid cart that includes a free type still fails before any fee logic (MIXED_FREE_AND_PAID), and a free-only cart is TICKET_TYPE_FREE — free orders never invoke Stripe or a fee', async () => {
     resolver = ttRowsResolver(withPolicy([ADULT, FREE_TT], POLICY_ROW))
-    expect(await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-adult', quantity: 1 }, { ticket_type_id: 'tt-free', quantity: 1 }]), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'MIXED_FREE_AND_PAID' })
+    expect(await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-adult', quantity: 1 }, { ticket_type_id: 'tt-free', quantity: 1 }]), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'MIXED_FREE_AND_PAID' })
     resolver = ttRowsResolver(withPolicy([FREE_TT], POLICY_ROW))
-    expect(await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-free', quantity: 1 }]), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'TICKET_TYPE_FREE' })
+    expect(await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-free', quantity: 1 }]), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'TICKET_TYPE_FREE' })
     expect(transactionMock).not.toHaveBeenCalled()
     expect(createCheckoutSessionMock).not.toHaveBeenCalled()
   })
@@ -513,10 +513,10 @@ describe('PASS_THROUGH fee order — snapshot, Stripe line item, application fee
   it("the brief's cart + EARLY20 + 2.5% + $0.30: ticket 19800, fee 525, customer pays 20325; INSERT snapshots the policy inputs; Stripe gets 3 ticket lines + 1 'Booking fee' line summing to 20325 and applicationFeeCents 525", async () => {
     resolver = combine(ttRowsResolver(withPolicy([ADULT, CHILD, VIP], POLICY_ROW)), promoResolver, stampResolver, writeBackResolver)
     transactionFinalResult = [{ id: 'att-1', order_id: 'order-1' }]
-    const res = await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor(ITEMS, { promotion_code: 'early20' }), buildReturnUrls: URLS })
+    const res = await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor(ITEMS, { promotion_code: 'early20' }), buildReturnUrls: URLS })
     expect(res).toEqual({ ok: true, checkoutUrl: 'https://checkout.stripe.test/1' })
     const gate = callText(findCall(/INSERT INTO event_orders/))
-    expect(gate).toMatch(/platform_fee_cents, fee_mode, payment_total_cents, fee_policy_id, fee_policy_version,\s*\n\s*fee_percent_bps, fee_fixed_per_order_cents, fee_fixed_per_ticket_cents, fee_min_cents, fee_max_cents, fee_tax_treatment, fee_label,\s*\n\s*discount_cents, promotion_code_id, promotion_code_snapshot, access_code_id, access_code_snapshot\s*\n\s*\)/)
+    expect(gate).toMatch(/platform_fee_cents, fee_mode, payment_total_cents, fee_policy_id, fee_policy_version,\s*\n\s*fee_percent_bps, fee_fixed_per_order_cents, fee_fixed_per_ticket_cents, fee_min_cents, fee_max_cents, fee_tax_treatment, fee_label,\s*\n\s*discount_cents, promotion_code_id, promotion_code_snapshot, access_code_id, access_code_snapshot,\s*\n\s*product_surface\s*\n\s*\)/)
     const args = orderInsertArgs()
     const feeArgs = args.slice(args.indexOf(19800) + 4, args.indexOf(19800) + 4 + 12)
     expect(feeArgs).toEqual([525, 'PASS_THROUGH', 20325, 'fee-1', 3, 250, 30, 0, null, null, 'UNSPECIFIED', 'Booking fee'])
@@ -531,7 +531,7 @@ describe('PASS_THROUGH fee order — snapshot, Stripe line item, application fee
   it('the event-level row wins over the organisation row inside the SAME subquery; the snapshot names the event policy', async () => {
     resolver = combine(ttRowsResolver(withPolicy([ADULT], ABSORB_ROW)), stampResolver, writeBackResolver)
     transactionFinalResult = [{ id: 'att-1', order_id: 'order-1' }]
-    await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-adult', quantity: 1 }]), buildReturnUrls: URLS })
+    await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-adult', quantity: 1 }]), buildReturnUrls: URLS })
     expect(orderInsertArgs()).toContain('fee-2')
     expect(callText(findCall(/FROM event_ticket_types/))).toContain('ORDER BY (p.event_id IS NOT NULL) DESC LIMIT 1')
   })
@@ -547,11 +547,11 @@ describe('PASS_THROUGH fee order — snapshot, Stripe line item, application fee
 
   it('configuration faults fail closed BEFORE any reservation: malformed row -> FEE_POLICY_INVALID, other currency -> FEE_CURRENCY_MISMATCH, absorbed fee > total -> FEE_EXCEEDS_TOTAL; the route maps each to a generic 503', async () => {
     resolver = ttRowsResolver(withPolicy([ADULT], { ...POLICY_ROW, fee_mode: 'SPLIT' }))
-    expect(await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-adult', quantity: 1 }]), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'FEE_POLICY_INVALID' })
+    expect(await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-adult', quantity: 1 }]), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'FEE_POLICY_INVALID' })
     resolver = ttRowsResolver(withPolicy([ADULT], { ...POLICY_ROW, currency: 'USD' }))
-    expect(await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-adult', quantity: 1 }]), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'FEE_CURRENCY_MISMATCH' })
+    expect(await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-adult', quantity: 1 }]), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'FEE_CURRENCY_MISMATCH' })
     resolver = ttRowsResolver(withPolicy([ADULT], { ...ABSORB_ROW, fixed_per_order_cents: 5000, percent_bps: 0 }))
-    expect(await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-adult', quantity: 1 }]), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'FEE_EXCEEDS_TOTAL' })
+    expect(await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-adult', quantity: 1 }]), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'FEE_EXCEEDS_TOTAL' })
     expect(transactionMock).not.toHaveBeenCalled()
     expect(createCheckoutSessionMock).not.toHaveBeenCalled()
     const route = stripComments((read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts') + read('lib/events/paidCheckoutResponse.ts')))
@@ -575,7 +575,7 @@ describe('ABSORB fee order — customer total unchanged, fee only as application
   it("the brief's cart + EARLY20 under ABSORB: ticket 19800 = payment 19800, fee 525 deducted via application fee, no fee line item", async () => {
     resolver = combine(ttRowsResolver(withPolicy([ADULT, CHILD, VIP], ABSORB_ROW)), promoResolver, stampResolver, writeBackResolver)
     transactionFinalResult = [{ id: 'att-1', order_id: 'order-1' }]
-    const res = await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor(ITEMS, { promotion_code: 'early20' }), buildReturnUrls: URLS })
+    const res = await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor(ITEMS, { promotion_code: 'early20' }), buildReturnUrls: URLS })
     expect(res.ok).toBe(true)
     const args = orderInsertArgs()
     const feeArgs = args.slice(args.indexOf(19800) + 4, args.indexOf(19800) + 4 + 12)
@@ -599,7 +599,7 @@ describe('Retry — reuses the COMMITTED fee snapshot; never re-reads a policy',
   function retryResolver(order: Record<string, unknown> = ORDER): Resolver {
     return combine(
       text => (/FROM events e JOIN organisations o/.test(text) ? EVENT_ROW : undefined),
-      text => (/platform_fee_cents, fee_mode, payment_total_cents, fee_label,\s*\n\s*discount_cents, promotion_code_id, promotion_code_snapshot\s*\n\s*FROM event_orders WHERE id = /.test(text) ? [order] : undefined),
+      text => (/platform_fee_cents, fee_mode, payment_total_cents, fee_label,\s*\n\s*discount_cents, promotion_code_id, promotion_code_snapshot, product_surface\s*\n\s*FROM event_orders WHERE id = /.test(text) ? [order] : undefined),
       text => (/SELECT ticket_type_id, event_session_id, quantity, unit_price_cents, discount_cents FROM event_order_items/.test(text) ? ITEM_ROWS : undefined),
       text => (/SELECT id, name, active, price_cents, currency FROM event_ticket_types/.test(text) ? TT_ROWS : undefined),
       writeBackResolver,

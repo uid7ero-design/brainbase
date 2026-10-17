@@ -1,7 +1,6 @@
 import 'server-only';
 import { NextRequest } from 'next/server';
 import { getClientIp } from '@/lib/clientIp';
-import { productLinkBase, type ProductLinkBase } from '@ticketing/core';
 import { TICKETING_CLIENT_IP_HEADER } from './gate';
 
 // Small HTTP helpers shared by the /api/ticketing/* handlers. Nothing here
@@ -60,10 +59,10 @@ export async function readBodyText(req: Request): Promise<string | null> {
 // The standalone product's public origin, configured on THIS deployment
 // (EVE_PUBLIC_BASE_URL, server-only) — never taken from a request header, so
 // a hosted-checkout return URL or a ticket QR can only ever point at the
-// configured product. https is required outside local development.
-export function eveLinkBase(): ProductLinkBase | null {
-  return productLinkBase(process.env.EVE_PUBLIC_BASE_URL, process.env.NODE_ENV === 'production');
-}
+// configured product. https is required outside local development. It lives
+// with the product identity so order creation, Retry and this API all
+// resolve the same value.
+export { eveLinkBase } from '@/lib/events/productSurface';
 
 // Path identifiers (event ids, slugs, tokens) are bounded and charset-
 // limited before they reach a reused handler; anything else is a 404.
