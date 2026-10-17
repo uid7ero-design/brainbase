@@ -9,6 +9,7 @@ import { checkWorkbookWorksheets, loadWorkbookWorksheets, workbookWorksheetState
   WORKBOOK_CHECK_TIMEOUT_MS, WORKSHEET_CHECK_TIMEOUT_MS,
   type WorkbookWorksheet, type WorksheetCheck, type WorkbookState } from "@/lib/data-hub/client/workbookPreparation";
 import styles from "./workbookPreparation.module.css";
+import { worksheetReviewHref } from "@/lib/data-hub/client/reviewNavigation";
 
 const labels: Record<WorkbookState, string> = {
   unchecked: "Not checked", excluded: "Outside preparation", ready: "Ready for review",
@@ -218,7 +219,7 @@ function WorkbookPreparation({ batchId }: { batchId: string }) {
           {state === "running" ? <p>Preparation is in progress. Open the worksheet to check whether a continuation is available.</p> : null}
           {!busy && !worksheet.excluded ? <div className={styles.links}>
             <Link href={`/data-hub/prepare/${encodeURIComponent(worksheet.id)}`}>Open preparation for worksheet {worksheet.index + 1}</Link>
-            {state === "ready" ? <Link href={`/data-hub/analysis/${encodeURIComponent(worksheet.id)}`}>Review worksheet {worksheet.index + 1}</Link> : null}
+            {state === "ready" ? <Link href={worksheetReviewHref(worksheet.id, batchId)}>Review worksheet {worksheet.index + 1}</Link> : null}
           </div> : null}
         </li>; })}</ul>}
       {!busy ? <Link href={`/data-hub/import/${encodeURIComponent(batchId)}`}>Open import settings and schema selection</Link> : null}
