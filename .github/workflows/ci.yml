@@ -43,3 +43,30 @@ jobs:
       # Not a target to hit or preserve — just why this step doesn't gate yet.
       - run: npx eslint .
         continue-on-error: true
+
+  # Standalone ticketing product shell (apps/eve) — own lockfile, own
+  # toolchain. Kept as a separate job so the BrainBase gate above is
+  # byte-for-byte what it was; a failure here never masks or alters it.
+  eve:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/eve
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: apps/eve/package-lock.json
+
+      - run: npm ci
+
+      - run: npx tsc --noEmit
+
+      - run: npx vitest run
+
+      - run: npx eslint .
+
+      - run: npx next build --webpack
