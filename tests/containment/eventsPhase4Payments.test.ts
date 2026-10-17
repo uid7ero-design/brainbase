@@ -244,7 +244,7 @@ describe('Paid checkout route — validation and price integrity', () => {
   })
 
   it('never calls requireSession/requireRole — fully anonymous, matching the free registration route', () => {
-    const code = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
+    const code = stripComments((read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts') + read('lib/events/paidCheckoutResponse.ts')))
     expect(code).not.toMatch(/requireSession|requireRole|getSession|getAuthSession/)
   })
 })
@@ -598,7 +598,7 @@ function asyncSucceededEvent(overrides: Record<string, unknown> = {}, account: s
 describe('processStripeWebhookEvent — checkout.session.async_payment_succeeded (asynchronous payment success closure)', () => {
   beforeEach(() => { vi.doUnmock('@/lib/events/stripe') })
   const STRIPE_SOURCE = stripComments(read('lib/events/stripe.ts'))
-  const CHECKOUT_ROUTE_SOURCE = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
+  const CHECKOUT_ROUTE_SOURCE = stripComments((read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts') + read('lib/events/paidCheckoutResponse.ts')))
 
   // B5-B13: order begins PENDING, the async event arrives, correlates to
   // the correct order, transitions payment_status -> PAID and status ->

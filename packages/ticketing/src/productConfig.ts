@@ -83,26 +83,63 @@ export function productFeatureEnabled(config: ProductConfig, feature: string): b
 
 // Public link builders. The path shapes (/e, /t, /b) are the shared
 // ticketing core's public namespaces; every product serves them under its
-// own base URL.
-export function publicEventUrl(config: ProductConfig, organisationSlug: string, eventSlug: string): string {
+// own base URL. They need only the base URL, so a server that mints links
+// on a product's behalf (e.g. hosted-checkout return URLs) can pass just
+// that, validated with productLinkBase(), without the full identity.
+export type ProductLinkBase = Pick<ProductConfig, 'publicBaseUrl'>;
+
+// Validates an absolute http(s) origin (optionally with a path) and
+// returns it normalised with no trailing slash, or null. `requireHttps`
+// refuses plain http for deployed environments.
+export function productLinkBase(raw: string | null | undefined, requireHttps: boolean): ProductLinkBase | null {
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  try {
+    const url = new URL(raw.trim());
+    if (url.protocol !== 'https:' && (requireHttps || url.protocol !== 'http:')) return null;
+    if (url.username || url.password || url.search || url.hash) return null;
+    return { publicBaseUrl: url.origin + url.pathname.replace(/\/+$/, '') };
+  } catch {
+    return null;
+  }
+}
+
+// Extracts the opaque ticket token from either a bare token or a ticket
+// link of the form <anything>/t/<token>. Used by check-in input, which
+// accepts what a scanner or a pasted link yields. Returns null when no
+// plausible token is present.
+export function extractTicketToken(input: string): string | null {
+  const value = input.trim();
+  if (!value) return null;
+  const match = /\/t\/([^/?#\s]+)/.exec(value);
+  let candidate = value;
+  if (match) {
+    try {
+      candidate = decodeURIComponent(match[1]);
+    } catch {
+      return null;
+    }
+  }
+  return /^[A-Za-z0-9_-]{16,128}$/.test(candidate) ? candidate : null;
+}
+export function publicEventUrl(config: ProductLinkBase, organisationSlug: string, eventSlug: string): string {
   return `${config.publicBaseUrl}/e/${encodeURIComponent(organisationSlug)}/${encodeURIComponent(eventSlug)}`;
 }
 
-export function publicTicketUrl(config: ProductConfig, ticketToken: string): string {
+export function publicTicketUrl(config: ProductLinkBase, ticketToken: string): string {
   return `${config.publicBaseUrl}/t/${encodeURIComponent(ticketToken)}`;
 }
 
-export function publicBookingWalletUrl(config: ProductConfig, bookingToken: string): string {
+export function publicBookingWalletUrl(config: ProductLinkBase, bookingToken: string): string {
   return `${config.publicBaseUrl}/b/${encodeURIComponent(bookingToken)}/tickets`;
 }
 
 // Hosted-checkout return URLs. The `{CHECKOUT_SESSION_ID}` placeholder is
 // the payment provider's own template token and must be passed through
 // verbatim (never URL-encoded), so it is appended outside encodeURIComponent.
-export function checkoutSuccessUrl(config: ProductConfig, organisationSlug: string, eventSlug: string): string {
+export function checkoutSuccessUrl(config: ProductLinkBase, organisationSlug: string, eventSlug: string): string {
   return `${publicEventUrl(config, organisationSlug, eventSlug)}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
 }
 
-export function checkoutCancelUrl(config: ProductConfig, organisationSlug: string, eventSlug: string): string {
+export function checkoutCancelUrl(config: ProductLinkBase, organisationSlug: string, eventSlug: string): string {
   return `${publicEventUrl(config, organisationSlug, eventSlug)}?checkout=cancelled`;
 }

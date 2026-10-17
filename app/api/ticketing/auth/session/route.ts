@@ -4,6 +4,9 @@ import { authorizeTicketingApiRequest } from '@/lib/ticketing/authorize';
 export async function GET(req: Request) {
   const auth = await authorizeTicketingApiRequest(req, 'viewer');
   if (!auth.ok) return auth.response;
-  const { userId, organisationId, role, name } = auth.context;
-  return Response.json({ user: { id: userId, name, role }, organisationId }, { headers: { 'Cache-Control': 'no-store' } });
+  const { userId, organisationId, organisationSlug, organisationName, role, name } = auth.context;
+  return Response.json(
+    { user: { id: userId, name, role }, organisationId, organisation: { slug: organisationSlug, name: organisationName } },
+    { headers: { 'Cache-Control': 'no-store' } },
+  );
 }

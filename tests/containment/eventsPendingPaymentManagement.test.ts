@@ -788,7 +788,7 @@ describe('RegistrationsPanel — pending payment actions', () => {
 
 describe('Orders API — exposes expiry state needed by the manager UI', () => {
   it('the orders route selects expires_at and computes is_expired_pending server-side (never trusting the browser clock)', () => {
-    const code = stripComments(read('app/api/events/[id]/orders/route.ts'))
+    const code = stripComments((read('app/api/events/[id]/orders/route.ts') + read('lib/events/organiserReads.ts')))
     expect(code).toMatch(/eo\.expires_at/)
     expect(code).toMatch(/is_expired_pending/)
   })

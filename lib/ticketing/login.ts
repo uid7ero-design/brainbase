@@ -2,10 +2,10 @@ import 'server-only';
 import bcrypt from 'bcryptjs';
 import sql from '@/lib/db';
 import { checkRateLimit, resetRateLimit } from '@/lib/rateLimit';
-import { getClientIp } from '@/lib/clientIp';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
 import type { Role } from '@/lib/session';
-import { checkTicketingGate, TICKETING_CLIENT_IP_HEADER, TICKETING_SESSION_HEADER } from './gate';
+import { checkTicketingGate, TICKETING_SESSION_HEADER } from './gate';
+import { ticketingClientIp } from './http';
 import { issueTicketingSession, verifyTicketingSession } from './session';
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
@@ -52,10 +52,6 @@ async function readJson(req: Request): Promise<Record<string, unknown> | null> {
   }
 }
 
-function clientIp(req: Request): string {
-  return req.headers.get(TICKETING_CLIENT_IP_HEADER)?.trim() || getClientIp(req);
-}
-
 export async function handleTicketingLogin(req: Request): Promise<Response> {
   const gate = checkTicketingGate(req);
   if (!gate.ok) return gate.response;
@@ -66,7 +62,7 @@ export async function handleTicketingLogin(req: Request): Promise<Response> {
   const requestedOrg = typeof body?.organisationId === 'string' ? body.organisationId : null;
   if (!username || username.length > 254 || !password || password.length > 1024) return INVALID();
 
-  const ipKey = `ticketing-login:ip:${clientIp(req)}`;
+  const ipKey = `ticketing-login:ip:${ticketingClientIp(req)}`;
   const userKey = `ticketing-login:user:${username}`;
   if (!checkRateLimit(ipKey, 30) || !checkRateLimit(userKey, 10)) {
     return json({ error: 'Too many attempts. Try again later.' }, 429);

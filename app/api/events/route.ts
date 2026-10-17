@@ -3,24 +3,14 @@ import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { validateEventInput, type EventInput } from '@/lib/events/validation';
 import { logEventCreated } from '@/lib/events/auditLog';
+import { listOrganisationEvents } from '@/lib/events/organiserReads';
 
 export async function GET() {
   const auth = await authorizeEventsRequest('viewer');
   if (!auth.ok) return auth.response;
   const { session } = auth;
 
-  const events = await sql`
-    SELECT
-      e.*,
-      COUNT(DISTINCT es.id)::int AS session_count,
-      COUNT(DISTINCT tt.id)::int AS ticket_type_count
-    FROM events e
-    LEFT JOIN event_sessions es ON es.event_id = e.id
-    LEFT JOIN event_ticket_types tt ON tt.event_id = e.id
-    WHERE e.organisation_id = ${session.organisationId}
-    GROUP BY e.id
-    ORDER BY e.starts_at DESC
-  `;
+  const events = await listOrganisationEvents(session.organisationId);
 
   return NextResponse.json({ events });
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { validateEventInput, toIsoString, mergeField, type EventInput } from '@/lib/events/validation';
+import { getOrganisationEvent } from '@/lib/events/organiserReads';
 import { logEventUpdated, logEventPublished, logEventUnpublished, logEventCancelled } from '@/lib/events/auditLog';
 import { scheduleEventCancelledNotifications, EVENT_CANCELLED_INLINE_SEND_LIMIT } from '@/lib/events/notifications';
 import { attemptNotificationDelivery } from '@/lib/events/notificationDelivery';
@@ -14,17 +15,10 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   const { session } = auth;
   const { id } = await params;
 
-  const rows = await sql`
-    SELECT * FROM events WHERE id = ${id} AND organisation_id = ${session.organisationId} LIMIT 1
-  `;
-  if (!rows.length) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
+  const detail = await getOrganisationEvent(session.organisationId, id);
+  if (!detail) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
 
-  const [event_sessions, ticket_types] = await Promise.all([
-    sql`SELECT * FROM event_sessions WHERE event_id = ${id} AND organisation_id = ${session.organisationId} ORDER BY starts_at`,
-    sql`SELECT * FROM event_ticket_types WHERE event_id = ${id} AND organisation_id = ${session.organisationId} ORDER BY sort_order, created_at`,
-  ]);
-
-  return NextResponse.json({ event: rows[0], event_sessions, ticket_types });
+  return NextResponse.json(detail);
 }
 
 export async function PATCH(req: NextRequest, { params }: Ctx) {

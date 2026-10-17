@@ -512,7 +512,7 @@ describe('Public ticket detail (defense in depth) — allow-listed shape survive
 
 describe('Manager view (§7) — orders route includes snapshot-based responses, tenant-scoped', () => {
   it('the orders query reads question_label_snapshot/field_type_snapshot (never the live question row) for both order- and attendee-scoped answers, each still organisation_id-scoped', () => {
-    const src = fs.readFileSync(path.join(process.cwd(), 'app/api/events/[id]/orders/route.ts'), 'utf8')
+    const src = fs.readFileSync(path.join(process.cwd(), 'app/api/events/[id]/orders/route.ts'), 'utf8') + fs.readFileSync(path.join(process.cwd(), 'lib/events/organiserReads.ts'), 'utf8')
     expect(src).toMatch(/question_label_snapshot/)
     expect(src).toMatch(/field_type_snapshot/)
     expect(src).toMatch(/r\.organisation_id = ea\.organisation_id/)

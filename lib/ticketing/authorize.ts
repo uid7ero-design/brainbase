@@ -11,6 +11,8 @@ export type TicketingContext = {
   homeOrganisationId: string;
   role: Role;
   name: string;
+  organisationSlug: string;
+  organisationName: string;
 };
 
 export type TicketingAuthResult =
@@ -57,7 +59,7 @@ export async function authorizeTicketingApiRequest(
     }
 
     org = (await sql`
-      SELECT id, status FROM organisations WHERE id = ${claims.organisationId} LIMIT 1
+      SELECT id, status, slug, name FROM organisations WHERE id = ${claims.organisationId} LIMIT 1
     `)[0];
   } catch {
     return { ok: false, response: unavailable() };
@@ -81,6 +83,8 @@ export async function authorizeTicketingApiRequest(
       homeOrganisationId: user.organisation_id as string,
       role,
       name: (user.name as string) ?? '',
+      organisationSlug: (org.slug as string) ?? '',
+      organisationName: (org.name as string) ?? '',
     },
   };
 }
