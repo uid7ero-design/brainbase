@@ -28,6 +28,9 @@ type EventDetail = {
   starts_at: string;
   ends_at: string;
   timezone: string;
+  // Phase 5B — opt-in purchaser reminder email (24 hours before the
+  // event). Absent on an older payload shape; treated as off.
+  reminder_enabled?: boolean;
 };
 
 type EventSessionRow = {
@@ -372,6 +375,7 @@ function EventOverview({ event, canManage, onSaved, organisationSlug }: { event:
   const [status, setStatus] = useState(event.status);
   const [startsAt, setStartsAt] = useState(toLocalInput(event.starts_at));
   const [endsAt, setEndsAt] = useState(toLocalInput(event.ends_at));
+  const [reminderEnabled, setReminderEnabled] = useState(event.reminder_enabled === true);
 
   // Artwork upload/remove are immediate, independent actions against
   // their own dedicated endpoint (app/api/events/[id]/artwork/route.ts)
@@ -437,6 +441,7 @@ function EventOverview({ event, canManage, onSaved, organisationSlug }: { event:
         body: JSON.stringify({
           name, venue: venue || null, description: description || null, status,
           starts_at: new Date(startsAt).toISOString(), ends_at: new Date(endsAt).toISOString(),
+          reminder_enabled: reminderEnabled,
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -566,6 +571,13 @@ function EventOverview({ event, canManage, onSaved, organisationSlug }: { event:
               />
             </label>
           </div>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, color: TEXT_MUTED, cursor: 'pointer' }}>
+            <input type="checkbox" checked={reminderEnabled} onChange={e => setReminderEnabled(e.target.checked)} style={{ marginTop: 2 }} />
+            <span>
+              Send a reminder email to purchasers 24 hours before the event
+              <span style={{ display: 'block', fontSize: 11.5, marginTop: 2 }}>One email per confirmed order, with their ticket links. Off by default.</span>
+            </span>
+          </label>
           {formError && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12 }}>{formError}</div>}
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="submit" disabled={saving} style={{ ...primaryBtnStyle, opacity: saving ? 0.6 : 1, cursor: saving ? 'default' : 'pointer' }}>{saving ? 'Saving…' : 'Save'}</button>

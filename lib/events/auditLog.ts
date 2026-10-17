@@ -323,6 +323,65 @@ export async function logAutomaticTicketEmailFailed(params: {
   });
 }
 
+// ── Lifecycle notifications (Phase 5B) ────────────────────────────────
+//
+// resource_type stays 'event_order' with the ORDER as resource_id —
+// ADR-0003 §10: "show me everything for this order" remains one query,
+// exactly as the ticket-email actions above already do; the notification
+// row id and type travel in after_state. after_state is operational
+// metadata only (type, attempt, outcome, provider message id, masked
+// recipient) — never the email body, a ticket/booking token, or any
+// provider credential. The bulk scheduling paths (event cancelled,
+// reminders) write their 'notification_scheduled' rows atomically inside
+// their own INSERT CTE (lib/events/notifications.ts); the per-order
+// transitions use this best-effort form because the human-initiated
+// cancel/refund has already been audited and committed.
+export async function logNotificationScheduled(params: {
+  organisationId: string; userId: string | null; orderId: string; notificationId: string; notificationType: string; source: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event_order.notification_scheduled',
+    resourceType: 'event_order', resourceId: params.orderId, beforeState: null,
+    afterState: { source: params.source, notification_type: params.notificationType, notification_id: params.notificationId },
+  });
+}
+
+export async function logNotificationSent(params: {
+  organisationId: string; orderId: string; notificationId: string; notificationType: string; attemptCount: number;
+  providerMessageId: string | null; recipientMasked: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: null, action: 'event_order.notification_sent',
+    resourceType: 'event_order', resourceId: params.orderId, beforeState: null,
+    afterState: {
+      source: 'automatic',
+      notification_type: params.notificationType,
+      notification_id: params.notificationId,
+      attempt_count: params.attemptCount,
+      provider_message_id: params.providerMessageId,
+      recipient_masked: params.recipientMasked,
+    },
+  });
+}
+
+export async function logNotificationFailed(params: {
+  organisationId: string; orderId: string; notificationId: string; notificationType: string; attemptCount: number;
+  terminal: boolean; reason: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: null, action: 'event_order.notification_failed',
+    resourceType: 'event_order', resourceId: params.orderId, beforeState: null,
+    afterState: {
+      source: 'automatic',
+      notification_type: params.notificationType,
+      notification_id: params.notificationId,
+      attempt_count: params.attemptCount,
+      terminal: params.terminal,
+      reason: params.reason,
+    },
+  });
+}
+
 // ── Event / session / ticket-type management audit (Phase 8) ────────
 //
 // Closes the gap the Events production-readiness audit named: event
@@ -406,6 +465,19 @@ export async function logEventPublished(params: { organisationId: string; userId
   const diff = diffFields(params.before, params.after, EVENT_AUDIT_FIELDS);
   await insertAuditLog({
     organisationId: params.organisationId, userId: params.userId, action: 'event.published',
+    resourceType: 'event', resourceId: params.eventId,
+    beforeState: diff?.before ?? { status: params.before.status }, afterState: diff?.after ?? { status: params.after.status },
+  });
+}
+
+// Phase 5B — a non-cancelled -> CANCELLED transition is its own
+// lifecycle action (it triggers purchaser communications), distinct from
+// an ordinary edit, exactly as publish/unpublish are. Carries the same
+// safe-field diff; status is always present in the diff by construction.
+export async function logEventCancelled(params: { organisationId: string; userId: string; eventId: string; before: EventRow; after: EventRow }): Promise<void> {
+  const diff = diffFields(params.before, params.after, EVENT_AUDIT_FIELDS);
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event.cancelled',
     resourceType: 'event', resourceId: params.eventId,
     beforeState: diff?.before ?? { status: params.before.status }, afterState: diff?.after ?? { status: params.after.status },
   });

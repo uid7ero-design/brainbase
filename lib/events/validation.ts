@@ -68,6 +68,9 @@ export type EventInput = {
   starts_at?: unknown;
   ends_at?: unknown;
   timezone?: unknown;
+  // Phase 5B — opt-in reminder email (events.reminder_enabled, default
+  // false). Boolean only; omitted leaves the stored value alone.
+  reminder_enabled?: unknown;
 };
 
 // artwork_url is a reference to an already-hosted image (see
@@ -108,6 +111,10 @@ export function validateEventInput(body: EventInput): string | null {
 
   const artworkError = validateArtworkUrl(body.artwork_url);
   if (artworkError) return artworkError;
+
+  if (body.reminder_enabled !== undefined && typeof body.reminder_enabled !== 'boolean') {
+    return 'reminder_enabled must be true or false.';
+  }
 
   const starts = new Date(body.starts_at as string);
   const ends = new Date(body.ends_at as string);

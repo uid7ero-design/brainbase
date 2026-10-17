@@ -71,6 +71,18 @@ const AUDIT_ACTION_BY_OUTCOME: Record<ResendDeliveryOutcome, string> = {
   failed: 'event_order.ticket_email_delivery_failed',
 };
 
+// Phase 5B — the same five outcomes, recorded against a lifecycle
+// notification (event_notifications) instead of a ticket email. Still
+// resource_type 'event_order' / resource_id = order id (ADR-0003 §10);
+// the notification id and type travel in after_state.
+const NOTIFICATION_AUDIT_ACTION_BY_OUTCOME: Record<ResendDeliveryOutcome, string> = {
+  delivered: 'event_order.notification_delivered',
+  bounced: 'event_order.notification_bounced',
+  suppressed: 'event_order.notification_suppressed',
+  complained: 'event_order.notification_complained',
+  failed: 'event_order.notification_delivery_failed',
+};
+
 export type ApplyResendDeliveryEventResult = { applied: boolean };
 
 // Applies ONE verified Resend webhook event. Idempotent and safe to call
@@ -103,7 +115,15 @@ export async function applyResendDeliveryWebhookEvent(params: {
 }): Promise<ApplyResendDeliveryEventResult> {
   const { providerMessageId, outcome, eventId, eventType, eventCreatedAt } = params;
   const auditAction = AUDIT_ACTION_BY_OUTCOME[outcome];
+  const notificationAuditAction = NOTIFICATION_AUDIT_ACTION_BY_OUTCOME[outcome];
 
+  // Phase 5B — still ONE statement. A Resend email id belongs to exactly
+  // one of the two tables (each send gets a fresh id), so at most one of
+  // the two guarded UPDATEs below matches; the other is a 0-row no-op.
+  // event_notifications carries the same replay/ordering/terminal-lock
+  // guards, plus `delivery_status IS NOT NULL` (a never-sent row has no
+  // provider id to match anyway). Both audit INSERTs derive from their
+  // UPDATE's RETURNING, so a no-op UPDATE writes no audit row.
   const rows = (await sql`
     WITH updated AS (
       UPDATE event_ticket_email_deliveries
@@ -137,7 +157,44 @@ export async function applyResendDeliveryWebhookEvent(params: {
         -- different svix-id) must never overwrite newer state.
         AND (latest_event_at IS NULL OR ${eventCreatedAt}::timestamptz >= latest_event_at)
       RETURNING organisation_id, order_id, send_source
-    )
+    ),
+    updated_notifications AS (
+      UPDATE event_notifications
+      SET
+        delivery_status = ${outcome},
+        latest_event_id = ${eventId},
+        latest_event_at = ${eventCreatedAt},
+        latest_event_type = ${eventType},
+        delivered_at = CASE WHEN ${outcome} = 'delivered' THEN COALESCE(delivered_at, ${eventCreatedAt}::timestamptz) ELSE delivered_at END,
+        bounced_at = CASE WHEN ${outcome} = 'bounced' THEN COALESCE(bounced_at, ${eventCreatedAt}::timestamptz) ELSE bounced_at END,
+        suppressed_at = CASE WHEN ${outcome} = 'suppressed' THEN COALESCE(suppressed_at, ${eventCreatedAt}::timestamptz) ELSE suppressed_at END,
+        complained_at = CASE WHEN ${outcome} = 'complained' THEN COALESCE(complained_at, ${eventCreatedAt}::timestamptz) ELSE complained_at END,
+        delivery_failed_at = CASE WHEN ${outcome} = 'failed' THEN COALESCE(delivery_failed_at, ${eventCreatedAt}::timestamptz) ELSE delivery_failed_at END,
+        updated_at = NOW()
+      WHERE provider_message_id = ${providerMessageId}
+        AND delivery_status IS NOT NULL
+        AND delivery_status NOT IN ('bounced', 'suppressed', 'complained', 'failed')
+        AND latest_event_id IS DISTINCT FROM ${eventId}
+        AND (latest_event_at IS NULL OR ${eventCreatedAt}::timestamptz >= latest_event_at)
+      RETURNING organisation_id, order_id, id, notification_type
+    ),
+    audited_notifications AS (
+      INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
+      SELECT gen_random_uuid()::text, organisation_id, NULL, ${notificationAuditAction}, 'event_order', order_id,
+        NULL,
+        jsonb_build_object(
+          'source', 'resend_webhook',
+          'delivery_status', ${outcome}::text,
+          'provider_message_id', ${providerMessageId}::text,
+          'notification_type', notification_type,
+          'notification_id', id,
+          'event_type', ${eventType}::text,
+          'event_at', ${eventCreatedAt}::text
+        )
+      FROM updated_notifications
+      RETURNING resource_id
+    ),
+    audited_tickets AS (
     INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
     SELECT gen_random_uuid()::text, organisation_id, NULL, ${auditAction}, 'event_order', order_id,
       NULL,
@@ -166,6 +223,10 @@ export async function applyResendDeliveryWebhookEvent(params: {
       )
     FROM updated
     RETURNING resource_id
+    )
+    SELECT resource_id FROM audited_tickets
+    UNION ALL
+    SELECT resource_id FROM audited_notifications
   `) as { resource_id: string }[];
 
   return { applied: rows.length > 0 };

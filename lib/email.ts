@@ -30,6 +30,12 @@ interface EmailOptions {
   // implies) — callers must never rotate a key merely to force another
   // send.
   idempotencyKey?: string;
+  // Phase 5B — optional plain-text alternative, forwarded verbatim as
+  // Resend's own `text` field alongside `html` (a multipart/alternative
+  // message). Optional and additive: every existing caller omits it and
+  // sends exactly the HTML-only body it always has; only the Events
+  // lifecycle notifications (lib/events/lifecycleEmail.ts) pass one.
+  text?: string;
 }
 
 const FROM = process.env.EMAIL_FROM ?? 'Brainbase <noreply@brainbase.app>';
@@ -130,7 +136,7 @@ export class EmailSendError extends Error {
   }
 }
 
-export async function sendEmail({ to, subject, html, attachments, idempotencyKey }: EmailOptions): Promise<SendEmailResult> {
+export async function sendEmail({ to, subject, html, text, attachments, idempotencyKey }: EmailOptions): Promise<SendEmailResult> {
   const apiKey = process.env.RESEND_API_KEY;
 
   if (!apiKey) {
@@ -159,6 +165,7 @@ export async function sendEmail({ to, subject, html, attachments, idempotencyKey
       to,
       subject,
       html,
+      ...(text ? { text } : {}),
       ...(attachments?.length
         ? { attachments: attachments.map(a => ({ filename: a.filename, content: a.contentBase64 })) }
         : {}),

@@ -10,6 +10,20 @@ vi.mock('@/lib/events/ticketEmailRecovery', () => ({
   runTicketEmailRecovery: () => runTicketEmailRecoveryMock(),
 }));
 
+// Phase 5B — the same route also runs the lifecycle-notification
+// executor (lib/events/notificationRecovery.ts); mocked here so this
+// file keeps proving the ROUTE's own auth/shape contract only.
+const runNotificationRecoveryMock = vi.fn();
+vi.mock('@/lib/events/notificationRecovery', () => ({
+  runNotificationRecovery: () => runNotificationRecoveryMock(),
+}));
+
+const SAMPLE_NOTIFICATION_SUMMARY = {
+  considered: 2, claimed: 1, sent: 1, retryable_failed: 0, terminal_failed: 0,
+  not_claimed: 1, stale_exhausted_swept: 0, reminders_scheduled: 0, reminders_expired: 0,
+  deferred_time_budget: 0, duration_ms: 7,
+};
+
 const { GET } = await import('@/app/api/cron/ticket-email-recovery/route');
 
 function cronRequest(authHeader?: string): Request {
@@ -29,6 +43,8 @@ describe('GET /api/cron/ticket-email-recovery — fails closed', () => {
   beforeEach(() => {
     runTicketEmailRecoveryMock.mockReset();
     runTicketEmailRecoveryMock.mockResolvedValue(SAMPLE_SUMMARY);
+    runNotificationRecoveryMock.mockReset();
+    runNotificationRecoveryMock.mockResolvedValue(SAMPLE_NOTIFICATION_SUMMARY);
   });
 
   afterEach(() => {
@@ -84,21 +100,34 @@ describe('GET /api/cron/ticket-email-recovery — response shape', () => {
   beforeEach(() => {
     process.env.CRON_SECRET = 'correct-secret';
     runTicketEmailRecoveryMock.mockReset().mockResolvedValue(SAMPLE_SUMMARY);
+    runNotificationRecoveryMock.mockReset().mockResolvedValue(SAMPLE_NOTIFICATION_SUMMARY);
   });
 
-  it('200 response body is exactly the executor\'s own summary object, unmodified', async () => {
+  it('200 response body is the ticket-email executor\'s own summary object, unmodified at the top level, plus the nested notification summary (Phase 5B)', async () => {
     const res = await GET(cronRequest('Bearer correct-secret'));
     const data = await res.json();
-    expect(data).toEqual(SAMPLE_SUMMARY);
+    expect(data).toEqual({ ...SAMPLE_SUMMARY, notifications: SAMPLE_NOTIFICATION_SUMMARY });
   });
 
-  it('response contains only the 8 documented counters — no identifier arrays, no email, no token, no error internals', async () => {
+  it('response contains only the 8 documented ticket-email counters plus the nested notifications summary — no identifier arrays, no email, no token, no error internals', async () => {
     const res = await GET(cronRequest('Bearer correct-secret'));
     const data = await res.json();
     expect(Object.keys(data).sort()).toEqual([
-      'claimed', 'considered', 'duration_ms', 'not_claimed', 'retryable_failed',
+      'claimed', 'considered', 'duration_ms', 'not_claimed', 'notifications', 'retryable_failed',
       'sent', 'stale_exhausted_swept', 'terminal_failed',
     ]);
+    expect(Object.keys(data.notifications).sort()).toEqual([
+      'claimed', 'considered', 'deferred_time_budget', 'duration_ms', 'not_claimed', 'reminders_expired',
+      'reminders_scheduled', 'retryable_failed', 'sent', 'stale_exhausted_swept', 'terminal_failed',
+    ]);
+  });
+
+  it('runs the lifecycle-notification executor exactly once per run, after the ticket-email executor, under the same secret (no second cron) — Phase 5B', async () => {
+    const res = await GET(cronRequest('Bearer correct-secret'));
+    expect(res.status).toBe(200);
+    expect(runTicketEmailRecoveryMock).toHaveBeenCalledTimes(1);
+    expect(runNotificationRecoveryMock).toHaveBeenCalledTimes(1);
+    expect(runNotificationRecoveryMock.mock.invocationCallOrder[0]).toBeGreaterThan(runTicketEmailRecoveryMock.mock.invocationCallOrder[0]);
   });
 
   it('the CRON_SECRET value never appears anywhere in the response body', async () => {

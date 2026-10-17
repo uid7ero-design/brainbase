@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { runTicketEmailRecovery } from '@/lib/events/ticketEmailRecovery';
+import { runNotificationRecovery } from '@/lib/events/notificationRecovery';
 import { secureCompare } from '@/lib/secureCompare';
 
 /**
@@ -18,6 +19,13 @@ import { secureCompare } from '@/lib/secureCompare';
  * ticketEmailRecovery.ts), not dependent on any particular polling
  * cadence — the schedule only controls how promptly a due candidate is
  * picked up, never correctness.
+ *
+ * Phase 5B — the same run ALSO executes lib/events/notificationRecovery.ts
+ * (lifecycle notifications: retries, stale-lease sweeps, reminder
+ * scheduling) after ticket-email recovery, under the same secret and
+ * schedule — no second cron. The ticket-email summary keeps its exact
+ * shape at the top level; the notification summary is nested under
+ * `notifications`.
  *
  * Protected by CRON_SECRET env var — fails closed: if the secret isn't
  * configured, the endpoint refuses every request rather than running
@@ -42,6 +50,7 @@ export async function GET(req: Request) {
 
   try {
     const summary = await runTicketEmailRecovery();
+    const notifications = await runNotificationRecovery();
     // One safe structured summary line — no ids, no emails, no tokens,
     // no provider bodies, no secret. Per-order detail already lives in
     // the existing event_order.ticket_email_sent/failed audit rows
@@ -52,7 +61,14 @@ export async function GET(req: Request) {
       `sent=${summary.sent} retryable_failed=${summary.retryable_failed} terminal_failed=${summary.terminal_failed} ` +
       `not_claimed=${summary.not_claimed} stale_exhausted_swept=${summary.stale_exhausted_swept} duration_ms=${summary.duration_ms}`,
     );
-    return NextResponse.json(summary);
+    console.log(
+      `[events cron/notification-recovery] considered=${notifications.considered} claimed=${notifications.claimed} ` +
+      `sent=${notifications.sent} retryable_failed=${notifications.retryable_failed} terminal_failed=${notifications.terminal_failed} ` +
+      `not_claimed=${notifications.not_claimed} stale_exhausted_swept=${notifications.stale_exhausted_swept} ` +
+      `reminders_scheduled=${notifications.reminders_scheduled} reminders_expired=${notifications.reminders_expired} ` +
+      `deferred_time_budget=${notifications.deferred_time_budget} duration_ms=${notifications.duration_ms}`,
+    );
+    return NextResponse.json({ ...summary, notifications });
   } catch (err) {
     // Generic, safe error only — deliberately NOT (err as Error).message
     // (unlike cron/sync's own handler): an infrastructure failure here

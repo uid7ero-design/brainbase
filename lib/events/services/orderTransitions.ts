@@ -1,6 +1,7 @@
 import sql from '@/lib/db';
 import { createRefund } from '@/lib/events/stripe';
 import { logRefunded, logCancelled } from '@/lib/events/auditLog';
+import { dispatchScheduledOrderNotification } from '@/lib/events/notificationDelivery';
 
 // Shared ticketing service — staff-initiated order state transitions
 // (full refund, cancellation).
@@ -97,13 +98,33 @@ export async function refundPaidOrder(input: OrderTransitionInput): Promise<Refu
   // refunded_cents (Stripe's reported amount, else the stored payment
   // total) and platform_fee_refunded_cents (the whole fee, per the policy
   // above) — so the refund is reconstructible from the row alone.
+  // Phase 5B: the SAME statement also schedules the purchaser's refund
+  // notification (ORDER_REFUNDED), derived from the UPDATE's own RETURNING
+  // — so a notification can only ever exist for a transition that really
+  // committed, and a transition that matched zero rows schedules nothing
+  // (ADR-0003 §3). ON CONFLICT (idempotency_key) DO NOTHING makes a
+  // replayed/duplicate request a scheduling no-op; the LEFT JOIN keeps the
+  // order row visible either way so the alreadyResolved logic below is
+  // unchanged. notification_id is non-null only when THIS call scheduled
+  // the row.
   const updated = await sql`
+    WITH updated AS (
     UPDATE event_orders
     SET payment_status = 'REFUNDED', refunded_at = now(), status = 'CANCELLED',
         refunded_cents = COALESCE(${refundedCents}::int, payment_total_cents, total_cents),
         platform_fee_refunded_cents = platform_fee_cents
     WHERE id = ${orderId} AND organisation_id = ${organisationId} AND payment_status = 'PAID'
-    RETURNING id
+    RETURNING id, organisation_id, event_id, purchaser_email
+    ),
+    scheduled AS (
+      INSERT INTO event_notifications (organisation_id, event_id, order_id, notification_type, recipient_email, idempotency_key)
+      SELECT organisation_id, event_id, id, 'ORDER_REFUNDED', purchaser_email, 'event-notification:ORDER_REFUNDED:' || id
+      FROM updated
+      WHERE purchaser_email IS NOT NULL AND btrim(purchaser_email) <> ''
+      ON CONFLICT (idempotency_key) DO NOTHING
+      RETURNING id
+    )
+    SELECT updated.id, scheduled.id AS notification_id FROM updated LEFT JOIN scheduled ON TRUE
   `;
   if (!updated.length) {
     // Stripe confirmed the refund, but this order was no longer PAID
@@ -123,6 +144,16 @@ export async function refundPaidOrder(input: OrderTransitionInput): Promise<Refu
   // early-return above, which changed nothing here — matching the
   // cancel route's identical rationale).
   await logRefunded({ organisationId: organisationId, userId: userId, orderId });
+
+  // Phase 5B — purchaser refund email: audit the scheduling and make one
+  // inline delivery attempt for the row the statement above scheduled.
+  // Never throws; the refund is already committed and reported either way.
+  const refundNotificationId = (updated[0] as { notification_id?: string | null }).notification_id ?? null;
+  if (refundNotificationId) {
+    await dispatchScheduledOrderNotification({
+      organisationId, userId, orderId, notificationId: refundNotificationId, notificationType: 'ORDER_REFUNDED', source: 'order_refunded',
+    });
+  }
 
   return { ok: true, alreadyResolved: false };
 }
@@ -153,18 +184,45 @@ export async function cancelOrder(input: OrderTransitionInput): Promise<CancelOr
   // No Stripe call in either branch — a PENDING reservation was never
   // charged (that's what makes it cancellable here rather than
   // refundable), and a free order was never a Stripe concern at all.
+  // Phase 5B: each conditional UPDATE also schedules the purchaser's
+  // ORDER_CANCELLED notification in the SAME statement (see the refund
+  // path's identical comment) — a repeat cancel that updates zero rows
+  // schedules nothing, and a replay against an already-scheduled order is
+  // an ON CONFLICT no-op.
   const updated = isPendingPaidReservation
     ? await sql`
+        WITH updated AS (
         UPDATE event_orders
         SET status = 'CANCELLED', payment_status = 'EXPIRED'
         WHERE id = ${orderId} AND organisation_id = ${organisationId} AND payment_status = 'PENDING'
-        RETURNING id
+        RETURNING id, organisation_id, event_id, purchaser_email
+        ),
+        scheduled AS (
+          INSERT INTO event_notifications (organisation_id, event_id, order_id, notification_type, recipient_email, idempotency_key)
+          SELECT organisation_id, event_id, id, 'ORDER_CANCELLED', purchaser_email, 'event-notification:ORDER_CANCELLED:' || id
+          FROM updated
+          WHERE purchaser_email IS NOT NULL AND btrim(purchaser_email) <> ''
+          ON CONFLICT (idempotency_key) DO NOTHING
+          RETURNING id
+        )
+        SELECT updated.id, scheduled.id AS notification_id FROM updated LEFT JOIN scheduled ON TRUE
       `
     : await sql`
+        WITH updated AS (
         UPDATE event_orders
         SET status = 'CANCELLED'
         WHERE id = ${orderId} AND organisation_id = ${organisationId} AND status = 'CONFIRMED' AND payment_status = 'NOT_REQUIRED'
-        RETURNING id
+        RETURNING id, organisation_id, event_id, purchaser_email
+        ),
+        scheduled AS (
+          INSERT INTO event_notifications (organisation_id, event_id, order_id, notification_type, recipient_email, idempotency_key)
+          SELECT organisation_id, event_id, id, 'ORDER_CANCELLED', purchaser_email, 'event-notification:ORDER_CANCELLED:' || id
+          FROM updated
+          WHERE purchaser_email IS NOT NULL AND btrim(purchaser_email) <> ''
+          ON CONFLICT (idempotency_key) DO NOTHING
+          RETURNING id
+        )
+        SELECT updated.id, scheduled.id AS notification_id FROM updated LEFT JOIN scheduled ON TRUE
       `;
   if (!updated.length) {
     // Already resolved by a concurrent request (webhook expiry, another
@@ -195,6 +253,17 @@ export async function cancelOrder(input: OrderTransitionInput): Promise<CancelOr
       ? { status: 'CANCELLED', payment_status: 'EXPIRED' }
       : { status: 'CANCELLED', payment_status: order.payment_status },
   });
+
+  // Phase 5B — purchaser cancellation email (free order: "registration
+  // cancelled, no payment taken"; unpaid reservation: "cancelled before
+  // payment, nothing owed" — wording is chosen at send time from the
+  // order's own committed state, see lib/events/lifecycleEmail.ts).
+  const cancelNotificationId = (updated[0] as { notification_id?: string | null }).notification_id ?? null;
+  if (cancelNotificationId) {
+    await dispatchScheduledOrderNotification({
+      organisationId, userId, orderId, notificationId: cancelNotificationId, notificationType: 'ORDER_CANCELLED', source: 'order_cancelled',
+    });
+  }
 
   return { ok: true, alreadyResolved: false };
 }
