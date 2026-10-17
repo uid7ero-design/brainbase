@@ -201,7 +201,10 @@ describe('Shared cart rules (lib/events/services/cart.ts)', () => {
     expect(r.ok).toBe(true)
     expect(sqlMock).toHaveBeenCalledTimes(1)
     expect(callText(0)).toMatch(/organisation_id = .* AND event_id = .* AND id = ANY\(/)
-    expect(callArgs(0)).toEqual(['org-a', 'event-1', ['tt-a', 'tt-b']])
+    // Phase 5A: the same single query also resolves the event's fee policy
+    // (the first organisation/event pair is that scalar subquery's own
+    // tenant scoping; the second is the ticket-type WHERE clause).
+    expect(callArgs(0)).toEqual(['org-a', 'event-1', 'org-a', 'event-1', ['tt-a', 'tt-b']])
   })
 
   it('a ticket type from another event or organisation (not returned) rejects the whole cart', async () => {
@@ -490,7 +493,9 @@ describe('Organiser registrations view — one card per order (lib/events/orderG
 describe('Refund / cancel / ticket validity / wallet / email — order-level, multi-item safe', () => {
   it('refund and cancel transition the whole order (event_orders by order id) — every item\'s tickets follow the order status', () => {
     const t = stripComments(read('lib/events/services/orderTransitions.ts'))
-    expect(t).toMatch(/UPDATE event_orders\s+SET payment_status = 'REFUNDED', refunded_at = now\(\), status = 'CANCELLED'\s+WHERE id = \$\{orderId\} AND organisation_id = \$\{organisationId\} AND payment_status = 'PAID'/)
+    // Phase 5A appends the refund-amount snapshot columns to this SAME
+    // order-level UPDATE (never a second statement).
+    expect(t).toMatch(/UPDATE event_orders\s+SET payment_status = 'REFUNDED', refunded_at = now\(\), status = 'CANCELLED',\s+refunded_cents = [^\n]+,\s+platform_fee_refunded_cents = platform_fee_cents\s+WHERE id = \$\{orderId\} AND organisation_id = \$\{organisationId\} AND payment_status = 'PAID'/)
     expect(t).not.toMatch(/UPDATE event_order_items|UPDATE event_attendees|DELETE FROM/)
     const validity = stripComments(read('lib/events/ticketValidity.ts'))
     expect(validity).toMatch(/orderStatus === 'CANCELLED'/)

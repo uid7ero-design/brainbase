@@ -3,6 +3,7 @@ import sql from '@/lib/db';
 import { resolvePublicEvent } from '@/lib/events/publicResolve';
 import { listActiveQuestions, type FieldType, type QuestionScope } from '@/lib/events/registrationQuestions';
 import type { PublicOrganisationBranding } from '@/lib/organisations/branding';
+import { resolveFeePolicy, publicFeeDisclosure, type PublicFeeDisclosure } from '@/lib/events/services/fees';
 
 export type PublicSession = {
   id: string;
@@ -89,6 +90,13 @@ export type PublicEventDetail = {
   // this event (active, inside its window). Drives only whether the
   // "promotional code" input is shown; never which codes exist.
   has_promotions: boolean;
+  // Phase 5A — the PASS_THROUGH booking fee the purchaser will pay on a
+  // paid selection (label + the integer inputs, so the page can show the
+  // fee for a selection before any quote), or null when no fee applies to
+  // this event or the fee is ABSORBED by the organiser (never a purchaser
+  // fact). Never the policy id, version or tax metadata. The server
+  // recomputes and snapshots the authoritative figure at checkout.
+  booking_fee: PublicFeeDisclosure | null;
   // Public-safe view model only (lib/organisations/branding.ts's own
   // explicit allowlist) — never organisationId, never raw settings.
   branding: PublicOrganisationBranding;
@@ -158,7 +166,7 @@ export async function getPublicEventDetail(
   // keeping the two predicates identical just means the number shown
   // here doesn't visibly disagree with what the write path will do a
   // moment later.
-  const [sessionRows, ticketTypeRows, inventoryRows, questionRows, promotionRows] = await Promise.all([
+  const [sessionRows, ticketTypeRows, inventoryRows, questionRows, promotionRows, feeResolution] = await Promise.all([
     sql`
       SELECT
         es.id, es.name, es.starts_at, es.ends_at, es.capacity,
@@ -232,6 +240,14 @@ export async function getPublicEventDetail(
         AND (pc.starts_at IS NULL OR pc.starts_at <= NOW()) AND (pc.ends_at IS NULL OR pc.ends_at > NOW())
       LIMIT 1
     `,
+    // Phase 5A — the fee policy that applies to this event (event row >
+    // organisation row > none). A malformed row must not take the public
+    // page down: it is reported as "no fee" here (display only) and the
+    // checkout itself fails closed on it.
+    resolveFeePolicy(organisationId, event.id).catch(err => {
+      console.error('[public event detail] fee policy could not be interpreted; hiding the fee from the page', err);
+      return { policy: null, source: 'PLATFORM_DEFAULT' as const };
+    }),
   ]);
 
   const toIsoOrNull = (v: unknown): string | null => (v === null || v === undefined ? null : v instanceof Date ? v.toISOString() : String(v));
@@ -263,6 +279,7 @@ export async function getPublicEventDetail(
         required: q.required, scope: q.scope, options: q.options, sort_order: q.sort_order,
       })),
       has_promotions: promotionRows.length > 0,
+      booking_fee: publicFeeDisclosure(feeResolution.policy),
       branding,
       organisationName,
     },

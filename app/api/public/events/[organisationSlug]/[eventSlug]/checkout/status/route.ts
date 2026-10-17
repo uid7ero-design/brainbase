@@ -33,14 +33,24 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   if (!resolved.ok) return NextResponse.json({ error: 'Event not available.' }, { status: 404 });
   const { organisationId, event } = resolved;
 
+  // Phase 5A — amount_total_cents below is what the purchaser PAID
+  // (payment_total_cents; = total_cents on every pre-Phase-5A / zero-fee
+  // order), and the ticket/fee split is exposed so the success page can
+  // say "incl. booking fee" when one applied. Never the policy id/mode.
   const rows = await sql`
-    SELECT eo.id, eo.status, eo.payment_status, eo.total_cents, eo.currency
+    SELECT eo.id, eo.status, eo.payment_status, eo.total_cents, eo.currency,
+      COALESCE(eo.payment_total_cents, eo.total_cents) AS payment_total_cents, eo.platform_fee_cents, eo.fee_mode, eo.fee_label
     FROM event_orders eo
     WHERE eo.stripe_checkout_session_id = ${sessionId} AND eo.organisation_id = ${organisationId} AND eo.event_id = ${event.id}
     LIMIT 1
   `;
-  const order = rows[0] as { id: string; status: string; payment_status: string; total_cents: number; currency: string } | undefined;
+  const order = rows[0] as {
+    id: string; status: string; payment_status: string; total_cents: number; currency: string;
+    payment_total_cents?: number | null; platform_fee_cents?: number | null; fee_mode?: string | null; fee_label?: string | null;
+  } | undefined;
   if (!order) return NextResponse.json({ error: 'Order not found.' }, { status: 404 });
+  const paymentTotalCents = order.payment_total_cents ?? order.total_cents;
+  const passThroughFeeCents = order.fee_mode === 'PASS_THROUGH' ? (order.platform_fee_cents ?? 0) : 0;
 
   let tickets: { attendee_name: string; ticket_token: string }[] = [];
   if (order.payment_status === 'PAID') {
@@ -53,7 +63,10 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   return NextResponse.json({
     payment_status: order.payment_status,
     order_status: order.status,
-    amount_total_cents: order.total_cents,
+    amount_total_cents: paymentTotalCents,
+    ticket_total_cents: order.total_cents,
+    fee_cents: passThroughFeeCents,
+    fee_label: passThroughFeeCents > 0 ? (order.fee_label ?? 'Booking fee') : null,
     currency: order.currency,
     tickets,
   });

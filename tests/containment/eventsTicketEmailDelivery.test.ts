@@ -682,6 +682,9 @@ describe('claim return shape', () => {
       id: 'order-1', organisationId: 'org-1', purchaserName: 'Jane Doe', purchaserEmail: 'jane@example.com',
       eventName: 'Spring Gala', bookingToken: 'a'.repeat(64),
       attendees: [{ name: 'Jane Doe', ticketToken: 'b'.repeat(64) }],
+      // Phase 5A: a row without a PAID payment snapshot carries no payment
+      // summary — the email renders exactly as before.
+      receipt: null,
     })
   })
 

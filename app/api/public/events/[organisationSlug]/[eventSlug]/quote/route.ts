@@ -7,6 +7,8 @@ import { getClientIp } from '@/lib/clientIp';
 import { loadCartTicketTypes, computeCartTotalCents } from '@/lib/events/services/cart';
 import { resolveAccessCode, grantUnlocks, type AccessGrant } from '@/lib/events/services/accessCodes';
 import { resolvePromotionCode, computeDiscount, promotionRedemptionAvailable } from '@/lib/events/services/promotions';
+import { normaliseFeePolicyRow } from '@/lib/events/services/fees';
+import { computeOrderFinancials } from '@/lib/events/feeCalculation';
 
 type Ctx = { params: Promise<{ organisationSlug: string; eventSlug: string }> };
 
@@ -23,7 +25,12 @@ type Ctx = { params: Promise<{ organisationSlug: string; eventSlug: string }> };
 //     lines: [{ ticket_type_id, quantity, gross_cents, discount_cents }],
 //     promotion: { code } | null,  promotion_error: string | null,
 //     access: { unlocked_ticket_type_ids } | null, access_error: string | null,
-//     cart_error: string | null }
+//     cart_error: string | null,
+//     Phase 5A: platform_fee_cents, payment_total_cents,
+//       fee: { label } | null  (a PASS_THROUGH fee the purchaser pays;
+//       null when no fee or an ABSORB fee, which is never a purchaser fact) }
+//   total_cents stays the NET TICKET total; payment_total_cents is what the
+//   purchaser pays (equal unless a PASS_THROUGH fee applies).
 // Every code failure is the SAME generic text regardless of cause
 // (unknown / inactive / expired / other event / other organisation), so
 // this endpoint cannot be used to learn which codes exist (brief §6).
@@ -91,6 +98,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({
       subtotal_cents: 0, discount_cents: 0, total_cents: 0, currency: null, pricing: null, lines: [],
       promotion: null, promotion_error: null, access, access_error: accessError, cart_error: null,
+      platform_fee_cents: 0, payment_total_cents: 0, fee: null,
     });
   }
 
@@ -100,6 +108,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       subtotal_cents: 0, discount_cents: 0, total_cents: 0, currency: null, pricing: null, lines: [],
       promotion: null, promotion_error: null, access, access_error: accessError,
       cart_error: CART_ERRORS[cart.code] ?? 'This selection is not available.',
+      platform_fee_cents: 0, payment_total_cents: 0, fee: null,
     });
   }
 
@@ -130,10 +139,40 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     }
   }
 
+  // Phase 5A — the platform fee on the NET ticket total, from the SAME
+  // resolution the paid checkout will snapshot (event row > organisation
+  // row > none). A free cart never carries a fee. A policy this code
+  // cannot apply (malformed, other currency, absorbed fee > total) is
+  // reported as the generic cart error the checkout would also refuse
+  // with — the quote reserves nothing either way.
+  const totalCents = subtotalCents - discountCents;
+  let platformFeeCents = 0;
+  let paymentTotalCents = totalCents;
+  let fee: { label: string } | null = null;
+  if (cart.pricing === 'PAID') {
+    try {
+      const policy = normaliseFeePolicyRow(cart.feePolicyRow).policy;
+      if (policy && policy.currency !== cart.currency.toUpperCase()) throw new Error('fee policy currency mismatch');
+      const financials = computeOrderFinancials(totalCents, validated.quantity, policy);
+      if (!financials.ok) throw new Error(financials.code);
+      platformFeeCents = financials.result.platform_fee_cents;
+      paymentTotalCents = financials.result.payment_total_cents;
+      if (financials.result.fee_mode === 'PASS_THROUGH' && platformFeeCents > 0) fee = { label: policy!.label };
+    } catch (err) {
+      console.error('[public quote] fee policy could not be applied', err);
+      return NextResponse.json({
+        subtotal_cents: 0, discount_cents: 0, total_cents: 0, currency: null, pricing: null, lines: [],
+        promotion: null, promotion_error: null, access, access_error: accessError,
+        cart_error: 'This selection is not available.',
+        platform_fee_cents: 0, payment_total_cents: 0, fee: null,
+      });
+    }
+  }
+
   return NextResponse.json({
     subtotal_cents: subtotalCents,
     discount_cents: discountCents,
-    total_cents: subtotalCents - discountCents,
+    total_cents: totalCents,
     currency: cart.currency,
     pricing: cart.pricing,
     lines: cart.lines.map((l, i) => ({
@@ -145,5 +184,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     access,
     access_error: accessError,
     cart_error: null,
+    platform_fee_cents: platformFeeCents,
+    payment_total_cents: paymentTotalCents,
+    fee,
   });
 }

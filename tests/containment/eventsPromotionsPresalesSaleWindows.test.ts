@@ -576,7 +576,9 @@ describe('loadCartTicketTypes — sale windows and presale access enforced serve
     await loadCartTicketTypes('org-a', 'event-1', [{ ticket_type_id: 'tt-adult', quantity: 1 }])
     expect(callText(0)).toMatch(/\(sale_starts_at IS NULL OR sale_starts_at <= NOW\(\)\) AS sale_started/)
     expect(callText(0)).toMatch(/\(sale_ends_at IS NOT NULL AND sale_ends_at <= NOW\(\)\) AS sale_ended/)
-    expect(callText(0)).toMatch(/requires_access_code\s*\n\s*FROM event_ticket_types\s*\n\s*WHERE organisation_id = .* AND event_id = .* AND id = ANY/)
+    // Phase 5A adds the fee-policy scalar subquery between the access flag
+    // and FROM — same single tenant-scoped statement.
+    expect(callText(0)).toMatch(/requires_access_code,\s*\n\s*\(SELECT to_jsonb\(p\) FROM ticketing_fee_policies p .*\) AS fee_policy\s*\n\s*FROM event_ticket_types\s*\n\s*WHERE organisation_id = .* AND event_id = .* AND id = ANY/)
   })
 
   it('SALE_NOT_STARTED / SALE_ENDED when ANY line is outside its window; ACCESS_CODE_REQUIRED when a restricted line is not unlocked', async () => {
@@ -603,7 +605,9 @@ describe('loadCartTicketTypes — sale windows and presale access enforced serve
   it('G: a row with NONE of the Phase 4 fields (a pre-Phase-4 caller/fixture) reads as unrestricted — existing behaviour unchanged', async () => {
     resolver = ttRowsResolver([{ id: 'tt-adult', active: true, price_cents: 4000, currency: 'AUD', name: 'Adult' }])
     const r = await loadCartTicketTypes('org-a', 'event-1', [{ ticket_type_id: 'tt-adult', quantity: 2 }])
-    expect(r).toEqual({ ok: true, pricing: 'PAID', currency: 'AUD', lines: [{ ticket_type_id: 'tt-adult', name: 'Adult', quantity: 2, unit_price_cents: 4000, currency: 'AUD' }] })
+    // Phase 5A: a row with no fee_policy column reads as feePolicyRow null
+    // — the platform default, no fee.
+    expect(r).toEqual({ ok: true, pricing: 'PAID', currency: 'AUD', lines: [{ ticket_type_id: 'tt-adult', name: 'Adult', quantity: 2, unit_price_cents: 4000, currency: 'AUD' }], feePolicyRow: null })
   })
 })
 
@@ -1152,9 +1156,10 @@ describe('ticket-type routes — sale window + access flag, audited as event_tic
 })
 
 describe('organiser orders list carries the discount snapshot; CSV/revenue readers keep total_cents (the amount paid)', () => {
-  it('GET orders selects discount_cents and promotion_code_snapshot; the CSV export and KPI strip still read total_cents only', () => {
+  it('GET orders selects discount_cents and promotion_code_snapshot; the KPI strip\'s Revenue still reads total_cents only, and the CSV export keeps "Order total" = total_cents while naming the discount in its own explicit column (Phase 5A)', () => {
     expect(read('app/api/events/[id]/orders/route.ts')).toMatch(/eo\.discount_cents, eo\.promotion_code_snapshot,/)
-    expect(stripComments(read('app/api/events/[id]/orders/export/route.ts'))).not.toMatch(/discount_cents/)
+    const exportSrc = stripComments(read('app/api/events/[id]/orders/export/route.ts'))
+    expect(exportSrc).toMatch(/\(r\.total_cents \/ 100\)\.toFixed\(2\),\s*\n\s*r\.currency,\s*\n\s*\(\(r\.discount_cents \?\? 0\) \/ 100\)\.toFixed\(2\)/)
     expect(stripComments(read('app/events/[id]/EventDetailClient.tsx'))).toMatch(/grossRevenueCents = paidOrders\.reduce\(\(sum, o\) => sum \+ o\.total_cents, 0\)/)
   })
 })
@@ -1173,8 +1178,13 @@ describe('public page (PublicEventClient) — codes as text, server totals, stat
     expect(src).toMatch(/const totalCents = computeCartSelectionTotalCents\(cartLines\) - \(discountApplied\?\.discount_cents \?\? 0\);/)
     expect(src).toMatch(/Subtotal \{formatPrice\(discountApplied\.subtotal_cents\)\}/)
     expect(src).toMatch(/Discount \(\{discountApplied\.promotion!\.code\}\) −\{formatPrice\(discountApplied\.discount_cents\)\}/)
-    expect(src).toMatch(/Total \{formatPrice\(discountApplied\.total_cents\)\}/)
-    expect(src).toMatch(/`Pay \$\{formatPrice\(totalCents\)\}`/)
+    // Phase 5A: the displayed/charged total is the payable amount — the
+    // quoted payment_total_cents when a fresh quote exists (equal to
+    // total_cents unless a pass-through booking fee applies), otherwise
+    // the ticket total plus the locally-displayed fee.
+    expect(src).toMatch(/Total \{formatPrice\(payableCents\)\}/)
+    expect(src).toMatch(/const payableCents = quotedFee && typeof quotedFee\.payment_total_cents === 'number' \? quotedFee\.payment_total_cents : totalCents \+ feeCents/)
+    expect(src).toMatch(/`Pay \$\{formatPrice\(payableCents\)\}`/)
     // The client never multiplies a percentage or subtracts a fixed amount itself.
     expect(stripComments(src)).not.toMatch(/discount_value|\* \(100 -|\/ 100 \*/)
   })

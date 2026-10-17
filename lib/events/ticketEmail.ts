@@ -2,6 +2,7 @@ import 'server-only';
 import { sendEmail, EmailSendError, emailLayout, escHtml, BASE_URL } from '@/lib/email';
 import { buildTicketUrl } from '@/lib/events/qr';
 import type { TicketEmailBranding } from '@/lib/organisations/branding';
+import { renderPaymentReceiptHtml, type PaymentReceipt } from '@/lib/events/receipt';
 
 export { isOrderEligibleForTicketEmail, type TicketEmailEligibilityOrder } from './ticketEmailEligibility';
 
@@ -48,6 +49,12 @@ export type TicketEmailData = {
   // below) — no organisation is ever REQUIRED to configure branding for
   // this email to render safely.
   branding?: TicketEmailBranding | null;
+  // Phase 5A — the neutral payment summary for a PAID order (see
+  // lib/events/receipt.ts): factual figures only — tickets, discount,
+  // pass-through booking fee, total paid, payment date — and never a tax
+  // claim. Optional/nullable: a free order, a historical row, or a caller
+  // that supplies none renders the exact email it always has.
+  receipt?: PaymentReceipt | null;
 };
 
 // Booking-wallet link shape (/b/<bookingToken>/tickets) — deliberately
@@ -149,6 +156,7 @@ export function buildTicketEmail(data: TicketEmailData): { subject: string; html
       <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 8px">
         ${ticketRows}
       </table>
+      ${data.receipt ? renderPaymentReceiptHtml(data.receipt, escHtml) : ''}
       <p style="margin:28px 0 0;font-size:12px;color:#888;line-height:1.5">
         Keep this email — you can use it to find your ticket link${multiple ? 's' : ''} again at any time.
       </p>
