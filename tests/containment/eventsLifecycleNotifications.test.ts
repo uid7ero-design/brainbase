@@ -24,7 +24,7 @@ function readSource(relativePath: string): string {
 
 let responseQueue: unknown[][] = []
 let callCount = 0
-const sqlMock = vi.fn(() => Promise.resolve(responseQueue[callCount++] ?? []))
+const sqlMock = vi.fn((..._args: unknown[]) => Promise.resolve(responseQueue[callCount++] ?? []))
 vi.mock('@/lib/db', () => ({ default: (...args: unknown[]) => sqlMock(...args) }))
 function queue(...responses: unknown[][]) { responseQueue = responses; callCount = 0 }
 function callText(i: number): string { return ((sqlMock.mock.calls[i] as unknown[])[0] as TemplateStringsArray).join('') }
