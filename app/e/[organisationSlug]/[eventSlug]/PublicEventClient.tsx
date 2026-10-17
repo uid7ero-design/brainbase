@@ -233,6 +233,12 @@ type QuoteResponse = {
   access: { unlocked_ticket_type_ids: string[] } | null;
   access_error: string | null;
   cart_error: string | null;
+  // Phase 6 — the server's read-side availability verdict for this
+  // selection and session (the reservation gate's own rule, without a
+  // lock). When it is not ok the server also sets cart_error, which the
+  // page already shows; the detail is here for a later per-line hint.
+  // Optional for an older payload shape.
+  availability?: { ok: boolean; unavailable_ticket_type_ids: string[]; session_full: boolean } | null;
   // Phase 5A — the platform fee on the net ticket total and what the
   // purchaser pays; `fee` names a PASS_THROUGH fee (null when none applies
   // or the organiser absorbs it). Optional for an older payload shape.

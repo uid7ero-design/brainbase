@@ -4,7 +4,7 @@ import { resolvePublicEvent } from '@/lib/events/publicResolve';
 import { validatePublicQuoteInput, type PublicQuoteInput } from '@/lib/events/publicValidation';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { getClientIp } from '@/lib/clientIp';
-import { loadCartTicketTypes, computeCartTotalCents } from '@/lib/events/services/cart';
+import { loadCartTicketTypes, computeCartTotalCents, assessCartAvailability } from '@/lib/events/services/cart';
 import { resolveAccessCode, grantUnlocks, type AccessGrant } from '@/lib/events/services/accessCodes';
 import { resolvePromotionCode, computeDiscount, promotionRedemptionAvailable } from '@/lib/events/services/promotions';
 import { normaliseFeePolicyRow } from '@/lib/events/services/fees';
@@ -31,6 +31,15 @@ type Ctx = { params: Promise<{ organisationSlug: string; eventSlug: string }> };
 //       null when no fee or an ABSORB fee, which is never a purchaser fact) }
 //   total_cents stays the NET TICKET total; payment_total_cents is what the
 //   purchaser pays (equal unless a PASS_THROUGH fee applies).
+//     Phase 6: availability: { ok, unavailable_ticket_type_ids, session_full }
+//       | null — the read-side twin of the reservation gate (see
+//       lib/events/services/cart.ts's assessCartAvailability) evaluated for
+//       THIS selection and session; null for an empty selection. A cart the
+//       gate would refuse right now (a sold-out type in this session, the
+//       session's shared capacity, or a session that is not this event's)
+//       is reported as a cart_error here too, so the page never shows a
+//       price for a selection checkout is about to reject. Advisory only:
+//       a quote still reserves nothing and the gate still decides.
 // Every code failure is the SAME generic text regardless of cause
 // (unknown / inactive / expired / other event / other organisation), so
 // this endpoint cannot be used to learn which codes exist (brief §6).
@@ -53,6 +62,11 @@ const CART_ERRORS: Record<string, string> = {
   SALE_NOT_STARTED: 'Tickets for this selection are not on sale yet.',
   SALE_ENDED: 'Sales for this selection have ended.',
   ACCESS_CODE_REQUIRED: 'An access code is required for this selection.',
+  // Phase 6 — availability, worded exactly like the register/checkout
+  // routes' own 404/409 bodies for the same conditions.
+  SESSION_NOT_FOUND: 'Selected session is not available for this event.',
+  CAPACITY_UNAVAILABLE: 'Some of the selected tickets are no longer available.',
+  SESSION_FULL: 'The selected session does not have enough places left for this order.',
 };
 
 export async function POST(req: NextRequest, { params }: Ctx) {
@@ -98,7 +112,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({
       subtotal_cents: 0, discount_cents: 0, total_cents: 0, currency: null, pricing: null, lines: [],
       promotion: null, promotion_error: null, access, access_error: accessError, cart_error: null,
-      platform_fee_cents: 0, payment_total_cents: 0, fee: null,
+      platform_fee_cents: 0, payment_total_cents: 0, fee: null, availability: null,
     });
   }
 
@@ -108,7 +122,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       subtotal_cents: 0, discount_cents: 0, total_cents: 0, currency: null, pricing: null, lines: [],
       promotion: null, promotion_error: null, access, access_error: accessError,
       cart_error: CART_ERRORS[cart.code] ?? 'This selection is not available.',
-      platform_fee_cents: 0, payment_total_cents: 0, fee: null,
+      platform_fee_cents: 0, payment_total_cents: 0, fee: null, availability: null,
     });
   }
 
@@ -164,9 +178,29 @@ export async function POST(req: NextRequest, { params }: Ctx) {
         subtotal_cents: 0, discount_cents: 0, total_cents: 0, currency: null, pricing: null, lines: [],
         promotion: null, promotion_error: null, access, access_error: accessError,
         cart_error: 'This selection is not available.',
-        platform_fee_cents: 0, payment_total_cents: 0, fee: null,
+        platform_fee_cents: 0, payment_total_cents: 0, fee: null, availability: null,
       });
     }
+  }
+
+  // Phase 6 — the same capacity verdict the reservation gate will reach
+  // for this exact selection and session, read without locks AFTER the
+  // pricing above (pricing never depends on it). A selection the gate
+  // would refuse right now is a cart_error with the figures zeroed, like
+  // every other cart error on this endpoint; the availability detail is
+  // returned alongside so the page can say which lines. Reserves nothing.
+  const assessed = await assessCartAvailability(organisationId, event.id, validated.items, validated.event_session_id);
+  const availability = assessed.assessed
+    ? { ok: assessed.sessionFound && !assessed.sessionFull && assessed.unavailableTicketTypeIds.length === 0, unavailable_ticket_type_ids: assessed.unavailableTicketTypeIds, session_full: assessed.sessionFull }
+    : null;
+  if (assessed.assessed && !availability!.ok) {
+    const code = !assessed.sessionFound ? 'SESSION_NOT_FOUND' : assessed.unavailableTicketTypeIds.length > 0 ? 'CAPACITY_UNAVAILABLE' : 'SESSION_FULL';
+    return NextResponse.json({
+      subtotal_cents: 0, discount_cents: 0, total_cents: 0, currency: null, pricing: null, lines: [],
+      promotion: null, promotion_error: null, access, access_error: accessError,
+      cart_error: CART_ERRORS[code],
+      platform_fee_cents: 0, payment_total_cents: 0, fee: null, availability,
+    });
   }
 
   return NextResponse.json({
@@ -187,5 +221,6 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     platform_fee_cents: platformFeeCents,
     payment_total_cents: paymentTotalCents,
     fee,
+    availability,
   });
 }

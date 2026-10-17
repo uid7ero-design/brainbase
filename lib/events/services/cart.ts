@@ -203,6 +203,96 @@ export function buildCartLockStatements(
   return statements;
 }
 
+// Phase 6 (GA inventory hardening) — the READ-SIDE twin of the
+// reservation gate, for the public quote. Evaluates, without any lock
+// and without writing anything, exactly the three capacity questions the
+// gate's own `gate` CTE asks (see freeRegistration.ts / paidCheckout.ts /
+// retryCheckout.ts, whose cart_tt / sold_sess CTEs this statement copies
+// verbatim and the containment suite pins to this function):
+//   * per line: live sold (pair-narrowed when a (type, session) override
+//     row exists, event-wide otherwise — the same COALESCE / LEFT JOIN /
+//     `inv.id IS NULL OR` precedence) + this quantity <= effective capacity;
+//   * the selected session's shared capacity across the whole cart;
+//   * the selected session belongs to THIS event and organisation.
+// Same stale-hold predicate as every "sold" aggregate in the core, so a
+// quote can only disagree with the gate through a genuine concurrent
+// race, never through a different rule. Advisory by construction: the
+// gate's own post-lock statement remains the only authority, and the
+// quote never reserves. Exactly one row is always returned; a missing
+// row (a driver anomaly) is reported as `assessed: false` rather than as
+// either verdict.
+export type CartAvailability =
+  | { assessed: false }
+  | { assessed: true; sessionFound: boolean; unavailableTicketTypeIds: string[]; sessionFull: boolean };
+
+export async function assessCartAvailability(
+  organisationId: string,
+  eventId: string,
+  items: ValidatedCartItem[],
+  eventSessionId: string | null,
+): Promise<CartAvailability> {
+  const lineTypeIds = items.map(it => it.ticket_type_id);
+  const lineQuantities = items.map(it => it.quantity);
+  const totalQuantity = lineQuantities.reduce((sum, q) => sum + q, 0);
+  const rows = await sql`
+    WITH cart AS (
+      SELECT c.ticket_type_id, c.quantity
+      FROM UNNEST(${lineTypeIds}::text[], ${lineQuantities}::int[]) AS c(ticket_type_id, quantity)
+    ),
+    cart_tt AS (
+      SELECT c.ticket_type_id, c.quantity, COALESCE(inv.capacity, tt.capacity) AS capacity,
+        (
+          SELECT COALESCE(SUM(oi.quantity), 0)
+          FROM event_order_items oi
+          JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+          WHERE oi.ticket_type_id = c.ticket_type_id AND oi.organisation_id = ${organisationId}
+            AND (inv.id IS NULL OR oi.event_session_id = ${eventSessionId})
+            AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
+        ) AS sold
+      FROM cart c
+      JOIN event_ticket_types tt ON tt.id = c.ticket_type_id AND tt.organisation_id = ${organisationId}
+      LEFT JOIN event_ticket_type_session_inventory inv
+        ON inv.ticket_type_id = c.ticket_type_id AND inv.event_session_id = ${eventSessionId} AND inv.organisation_id = ${organisationId}
+    ),
+    sold_sess AS (
+      SELECT COALESCE(SUM(oi.quantity), 0) AS qty
+      FROM event_order_items oi
+      JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+      WHERE oi.event_session_id = ${eventSessionId} AND oi.organisation_id = ${organisationId}
+        AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
+    ),
+    sess AS (
+      SELECT capacity FROM event_sessions
+      WHERE id = ${eventSessionId} AND organisation_id = ${organisationId} AND event_id = ${eventId}
+    )
+    SELECT
+      (${eventSessionId}::text IS NULL OR EXISTS (SELECT 1 FROM sess)) AS session_found,
+      COALESCE((SELECT array_agg(cart_tt.ticket_type_id ORDER BY cart_tt.ticket_type_id) FROM cart_tt WHERE cart_tt.sold + cart_tt.quantity > cart_tt.capacity), '{}'::text[]) AS unavailable_ticket_type_ids,
+      (${eventSessionId}::text IS NOT NULL AND EXISTS (SELECT 1 FROM sess) AND (SELECT qty FROM sold_sess) + ${totalQuantity} > (SELECT capacity FROM sess)) AS session_full
+  `;
+  const row = rows[0] as { session_found: boolean; unavailable_ticket_type_ids: unknown; session_full: boolean } | undefined;
+  if (!row) return { assessed: false };
+  return {
+    assessed: true,
+    sessionFound: row.session_found === true,
+    unavailableTicketTypeIds: parseTextArray(row.unavailable_ticket_type_ids),
+    sessionFull: row.session_full === true,
+  };
+}
+
+// A text[] column arrives as a JS array from the serverless driver; the
+// Postgres literal form ('{a,b}') is accepted too so the result never
+// depends on a driver parsing setting. Ids never contain quotes or
+// commas (TEXT uuids / slugs), so the literal split is exact.
+function parseTextArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.filter((v): v is string => typeof v === 'string');
+  if (typeof value === 'string') {
+    const inner = value.replace(/^\{|\}$/g, '');
+    return inner ? inner.split(',').map(s => s.replace(/^"|"$/g, '')) : [];
+  }
+  return [];
+}
+
 // Integer-cents order total: the exact sum of every line's
 // unit_price_cents × quantity — the same figures written to
 // event_order_items and sent to Stripe as line items, so the stored
