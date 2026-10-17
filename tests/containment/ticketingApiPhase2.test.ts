@@ -232,6 +232,14 @@ describe('public API', () => {
     expect(publicSvc.startPaidCheckout).not.toHaveBeenCalled()
   })
 
+  it('accepts a Node-style server fetch (which sets sec-fetch-mode) but refuses anything carrying Sec-Fetch-Site', async () => {
+    publicSvc.getPublicEventDetail.mockResolvedValue({ ok: true, detail: { event: { name: 'Gala' } } })
+    const serverFetch = gated('http://bb.test/x', { headers: { 'sec-fetch-mode': 'cors' } })
+    expect((await pub.handleTicketingPublicEvent(serverFetch, params)).status).toBe(200)
+    const browserFetch = gated('http://bb.test/x', { headers: { 'sec-fetch-site': 'same-site', 'sec-fetch-mode': 'cors' } })
+    expect((await pub.handleTicketingPublicEvent(browserFetch, params)).status).toBe(403)
+  })
+
   it('paid checkout returns Eve URLs for success and cancel, and never reads the request host', async () => {
     publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, organisationId: 'org-a', event: { id: 'e1' } })
     let captured: { successUrl: string; cancelUrl: string } | null = null

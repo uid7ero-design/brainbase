@@ -26,7 +26,10 @@ export function checkTicketingGate(req: Request): GateResult {
   // Browser-origin use is refused outright: a server-side fetch carries
   // neither header, a browser always carries at least one on a cross-site
   // request. No CORS headers are ever emitted by these routes.
-  if (req.headers.has('origin') || req.headers.has('sec-fetch-site') || req.headers.has('sec-fetch-mode')) {
+  // (sec-fetch-mode is deliberately NOT checked: Node's own fetch sets it, so
+  // the Eve server would be refused. Browsers always add Origin on a CORS
+  // request and Sec-Fetch-Site on every request, both of which Node omits.)
+  if (req.headers.has('origin') || req.headers.has('sec-fetch-site')) {
     return deny(403, 'Forbidden');
   }
 
