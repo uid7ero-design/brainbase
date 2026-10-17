@@ -20,7 +20,10 @@ type CallOptions = { method?: 'GET' | 'POST'; body?: unknown; session?: string |
 
 async function call<T>(path: string, opts: CallOptions = {}): Promise<GatewayResult<T>> {
   const config = readApiConfig();
-  if (!config) return { status: 'unavailable', reason: 'not_connected' };
+  if (!config) {
+    console.error('[ticketing-gateway] not configured (TICKETING_API_BASE_URL / TICKETING_API_SECRET)');
+    return { status: 'unavailable', reason: 'not_connected' };
+  }
 
   const headers: Record<string, string> = { 'x-ticketing-api-key': config.secret, accept: 'application/json' };
   if (config.protectionBypass) headers['x-vercel-protection-bypass'] = config.protectionBypass;
@@ -43,7 +46,7 @@ async function call<T>(path: string, opts: CallOptions = {}): Promise<GatewayRes
   }
 
   // Operational signal only: method, path (no query) and status. Never headers or bodies.
-  if (res.status >= 300 && res.status !== 401 && res.status !== 403 && res.status !== 404 && res.status !== 409) {
+  if (res.status >= 300 && res.status !== 404 && res.status !== 409) {
     console.error(`[ticketing-gateway] ${opts.method ?? 'GET'} ${path.split('?')[0]} -> ${res.status}`);
   }
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
