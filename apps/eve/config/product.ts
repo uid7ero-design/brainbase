@@ -16,15 +16,15 @@ export const product = defineProductConfig({
   emailFrom: process.env.EVE_EMAIL_FROM ?? 'Eve <no-reply@eve.invalid>',
   defaultTheme: 'light',
   features: {
-    // Nothing below is wired in Phase 1. Each switch is read by the shell
-    // to decide between a working surface and an explicit "not available"
-    // panel — never to show sample data.
-    public_event_pages: false,
-    tickets: false,
-    booking_wallet: false,
-    organiser_console: false,
+    // Each switch is read by the shell to decide between a working surface
+    // and an explicit "not available" panel — never to show sample data.
+    // `payments` stays off: Stripe Connect management is not exposed here.
+    public_event_pages: true,
+    tickets: true,
+    booking_wallet: true,
+    organiser_console: true,
     payments: false,
-    check_in: false,
+    check_in: true,
   },
 });
 

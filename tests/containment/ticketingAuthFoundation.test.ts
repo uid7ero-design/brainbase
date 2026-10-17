@@ -295,7 +295,13 @@ describe('boundary', () => {
       expect(readFileSync(f, 'utf8'), f).not.toMatch(/NEXT_PUBLIC_[A-Z_]*(EVE_SESSION|TICKETING_API)/)
     }
     for (const f of walk(path.join(ROOT, 'apps/eve'))) {
-      expect(readFileSync(f, 'utf8'), f).not.toMatch(/EVE_SESSION_SECRET|TICKETING_API_SECRET/)
+      const src = readFileSync(f, 'utf8')
+      // Eve never holds the session-signing secret; the server-to-server
+      // credential is read only by its one server-only config module.
+      expect(src, f).not.toMatch(/EVE_SESSION_SECRET/)
+      if (!f.replace(/\\/g, '/').endsWith('apps/eve/lib/ticketing/serverConfig.ts') && !f.replace(/\\/g, '/').includes('/apps/eve/tests/')) {
+        expect(src, f).not.toMatch(/TICKETING_API_SECRET/)
+      }
     }
   })
 

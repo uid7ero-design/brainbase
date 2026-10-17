@@ -2,6 +2,9 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { CalendarDays, LayoutDashboard, ReceiptText, Users, ScanLine, CreditCard, Settings } from 'lucide-react';
 import { EveWordmark } from '@/components/brand/EveWordmark';
+import { OrganisationSwitcher, SignOutButton } from '@/components/organiser/SessionControls';
+
+export type OrganiserIdentity = { name: string; role: string; organisationId: string; organisationName: string };
 
 export const ORGANISER_NAV = [
   { href: '/organiser', label: 'Dashboard', icon: LayoutDashboard },
@@ -14,10 +17,9 @@ export const ORGANISER_NAV = [
 ] as const;
 
 // The organiser console chrome. Its own sidebar and header — nothing is
-// borrowed from any other product's navigation. There is no signed-in
-// identity yet (see /signin), so the header says so instead of showing a
-// placeholder user.
-export function OrganiserShell({ children, title }: { children: ReactNode; title: string }) {
+// borrowed from any other product's navigation. Shows who is signed in
+// and for which organisation, as re-validated by the API on this request.
+export function OrganiserShell({ children, title, identity }: { children: ReactNode; title: string; identity: OrganiserIdentity }) {
   return (
     <div className="min-h-screen bg-eve-canvas md:grid md:grid-cols-[240px_1fr]">
       <aside className="border-b border-eve-line bg-eve-surface md:border-b-0 md:border-r">
@@ -44,7 +46,11 @@ export function OrganiserShell({ children, title }: { children: ReactNode; title
       <div className="min-w-0">
         <header className="flex min-h-16 items-center justify-between border-b border-eve-line bg-eve-surface px-4 sm:px-8">
           <h1 className="text-lg font-semibold">{title}</h1>
-          <Link href="/signin" className="text-sm font-medium text-eve-accent">Not signed in</Link>
+          <div className="flex items-center gap-4 text-sm">
+            <span className="hidden text-eve-muted sm:inline">{identity.organisationName} · {identity.name} ({identity.role})</span>
+            {identity.role === 'super_admin' ? <OrganisationSwitcher currentId={identity.organisationId} /> : null}
+            <SignOutButton />
+          </div>
         </header>
         <main className="px-4 py-8 sm:px-8">{children}</main>
       </div>

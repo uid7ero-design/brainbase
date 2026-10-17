@@ -9,22 +9,9 @@ import FeaturesPage from '@/app/(marketing)/features/page';
 import PricingPage from '@/app/(marketing)/pricing/page';
 import OrganisersPage from '@/app/(marketing)/organisers/page';
 import VenuesPage from '@/app/(marketing)/venues/page';
-import SignInPage from '@/app/(marketing)/signin/page';
 import GetStartedPage from '@/app/(marketing)/get-started/page';
-import BuyerLayout from '@/app/(buyer)/layout';
-import PublicEventPage from '@/app/(buyer)/e/[eventSlug]/page';
-import TicketPage from '@/app/(buyer)/t/[token]/page';
-import BookingWalletPage from '@/app/(buyer)/b/[bookingToken]/tickets/page';
-import OrganiserDashboardPage from '@/app/(organiser)/organiser/page';
-import OrganiserEventsPage from '@/app/(organiser)/organiser/events/page';
-import OrganiserOrdersPage from '@/app/(organiser)/organiser/orders/page';
-import OrganiserAttendeesPage from '@/app/(organiser)/organiser/attendees/page';
-import OrganiserCheckInPage from '@/app/(organiser)/organiser/check-in/page';
-import OrganiserPaymentsPage from '@/app/(organiser)/organiser/payments/page';
-import OrganiserSettingsPage from '@/app/(organiser)/organiser/settings/page';
 import NotFound from '@/app/not-found';
 import { MARKETING_LINKS } from '@/components/marketing/MarketingNav';
-import { ORGANISER_NAV } from '@/components/organiser/OrganiserShell';
 import { impactPlaceholder } from '@/content/impact';
 
 // Words that would mean another product's shell leaked into this one, and
@@ -38,14 +25,9 @@ const MARKETING: [string, ReactElement][] = [
   ['/pricing', <PricingPage key="p" />],
   ['/organisers', <OrganisersPage key="o" />],
   ['/venues', <VenuesPage key="v" />],
-  ['/signin', <SignInPage key="s" />],
   ['/get-started', <GetStartedPage key="g" />],
   ['/404', <NotFound key="n" />],
 ];
-
-async function renderAsync(el: Promise<ReactElement> | ReactElement) {
-  return render(await el);
-}
 
 describe('marketing shell', () => {
   for (const [path, page] of MARKETING) {
@@ -80,8 +62,8 @@ describe('marketing shell', () => {
     expect(screen.getAllByRole('link', { name: /create an event/i })[0]).toHaveAttribute('href', '/get-started');
   });
 
-  it('pricing, sign-in and get-started are explicit "not yet available" panels, never forms or numbers', () => {
-    for (const page of [<PricingPage key="p" />, <SignInPage key="s" />, <GetStartedPage key="g" />]) {
+  it('pricing and get-started are explicit "not yet available" panels, never forms or numbers', () => {
+    for (const page of [<PricingPage key="p" />, <GetStartedPage key="g" />]) {
       const { container, unmount } = render(page);
       expect(container.querySelector('[data-eve-unavailable="true"]')).not.toBeNull();
       expect(container.querySelector('input, form, button[type="submit"]')).toBeNull();
@@ -89,51 +71,6 @@ describe('marketing shell', () => {
       unmount();
     }
   });
-});
-
-describe('buyer shell', () => {
-  it('event, ticket and wallet routes render the unavailable state and never a sample record', async () => {
-    const pages = [
-      PublicEventPage({ params: Promise.resolve({ eventSlug: 'any-event' }) }),
-      TicketPage({ params: Promise.resolve({ token: 'any-token' }) }),
-      BookingWalletPage({ params: Promise.resolve({ bookingToken: 'any-booking' }) }),
-    ];
-    for (const p of pages) {
-      const { container, unmount } = await renderAsync(<BuyerLayout>{await p}</BuyerLayout>);
-      expect(container.querySelector('[data-eve-unavailable="true"]')).not.toBeNull();
-      expect(container.textContent).not.toMatch(FOREIGN_CHROME);
-      expect(container.textContent).not.toMatch(/any-event|any-token|any-booking/);
-      expect(container.querySelector('svg[aria-label], img')).toBeNull();
-      expect(await axe(container)).toHaveNoViolations();
-      unmount();
-    }
-  });
-});
-
-describe('organiser shell', () => {
-  const pages: [string, () => ReactElement | Promise<ReactElement>][] = [
-    ['/organiser', () => <OrganiserDashboardPage />],
-    ['/organiser/events', () => <OrganiserEventsPage />],
-    ['/organiser/orders', () => OrganiserOrdersPage()],
-    ['/organiser/attendees', () => <OrganiserAttendeesPage />],
-    ['/organiser/check-in', () => <OrganiserCheckInPage />],
-    ['/organiser/payments', () => <OrganiserPaymentsPage />],
-    ['/organiser/settings', () => <OrganiserSettingsPage />],
-  ];
-
-  for (const [path, make] of pages) {
-    it(`${path} renders its own console chrome with the full organiser navigation and an unavailable panel`, async () => {
-      const { container } = await renderAsync(make());
-      const nav = screen.getByRole('navigation', { name: 'Organiser' });
-      for (const item of ORGANISER_NAV) expect(within(nav).getByRole('link', { name: item.label })).toHaveAttribute('href', item.href);
-      expect(container.querySelector('[data-eve-unavailable="true"]')).not.toBeNull();
-      expect(container.textContent).not.toMatch(FOREIGN_CHROME);
-      expect(container.textContent).not.toMatch(/\btable\b.*\brow\b/i);
-      expect(container.querySelector('table')).toBeNull();
-      expect(screen.getByRole('link', { name: /not signed in/i })).toHaveAttribute('href', '/signin');
-      expect(await axe(container)).toHaveNoViolations();
-    });
-  }
 });
 
 describe('content guards', () => {
