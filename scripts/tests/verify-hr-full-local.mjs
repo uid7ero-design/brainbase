@@ -151,7 +151,9 @@ try {
     await assert.rejects(fetch('http://localhost/sql',{headers:{'Neon-Connection-String':'postgresql://not-a-fixture'}}), /Non-fixture SQL/);
   `], { env });
   console.log('PASS: fetch/SDK external egress and non-fixture SQL are rejected.');
-  app = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev', '--hostname', '127.0.0.1', '--port', String(appPort)], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  // Use the supported Webpack dev bundler: Windows Turbopack intermittently
+  // omits nested routes even with a cold cache. Production builds stay unchanged.
+  app = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev', '--webpack', '--hostname', '127.0.0.1', '--port', String(appPort)], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   for (const stream of [app.stdout, app.stderr]) stream.on('data', chunk => { logs = (logs + chunk).slice(-24000); });
   const origin = `http://127.0.0.1:${appPort}`;
   appOrigin = origin;
