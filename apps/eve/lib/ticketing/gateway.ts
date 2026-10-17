@@ -38,9 +38,14 @@ async function call<T>(path: string, opts: CallOptions = {}): Promise<GatewayRes
       redirect: 'manual',
     });
   } catch {
+    console.error(`[ticketing-gateway] ${opts.method ?? 'GET'} ${path.split('?')[0]} unreachable`);
     return { status: 'unavailable', reason: 'upstream_unreachable' };
   }
 
+  // Operational signal only: method, path (no query) and status. Never headers or bodies.
+  if (res.status >= 300 && res.status !== 401 && res.status !== 403 && res.status !== 404 && res.status !== 409) {
+    console.error(`[ticketing-gateway] ${opts.method ?? 'GET'} ${path.split('?')[0]} -> ${res.status}`);
+  }
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (res.ok) return { status: 'ok', data: body as T };
   if (res.status === 401) return { status: 'unauthorised' };
