@@ -95,3 +95,14 @@ export function publicTicketUrl(config: ProductConfig, ticketToken: string): str
 export function publicBookingWalletUrl(config: ProductConfig, bookingToken: string): string {
   return `${config.publicBaseUrl}/b/${encodeURIComponent(bookingToken)}/tickets`;
 }
+
+// Hosted-checkout return URLs. The `{CHECKOUT_SESSION_ID}` placeholder is
+// the payment provider's own template token and must be passed through
+// verbatim (never URL-encoded), so it is appended outside encodeURIComponent.
+export function checkoutSuccessUrl(config: ProductConfig, organisationSlug: string, eventSlug: string): string {
+  return `${publicEventUrl(config, organisationSlug, eventSlug)}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
+}
+
+export function checkoutCancelUrl(config: ProductConfig, organisationSlug: string, eventSlug: string): string {
+  return `${publicEventUrl(config, organisationSlug, eventSlug)}?checkout=cancelled`;
+}
