@@ -115,7 +115,7 @@ using it. This verifies three prepared worlds; it is not an independent
 attestation that arbitrary external databases followed these routes.
 
 The repeatable clean-candidate command writes a v2 acceptance receipt with build
-and commit identities, unchanged D4D5Q blob, all six artifact hashes, cleanup
+and commit identities, unchanged D4D5Q blob, all seven artifact hashes, cleanup
 checks, workbook preparation and the explicit storage seam. It rejects the old
 raw-insert preparation description or missing lineage/world checks. Receipt
 diagnostics and actor data are projected away; release authorization stays

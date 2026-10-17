@@ -497,7 +497,7 @@ describe('Refund / cancel / ticket validity / wallet / email — order-level, mu
     // order-level UPDATE (never a second statement).
     expect(t).toMatch(/UPDATE event_orders\s+SET payment_status = 'REFUNDED', refunded_at = now\(\), status = 'CANCELLED',\s+refunded_cents = [^\n]+,\s+platform_fee_refunded_cents = platform_fee_cents\s+WHERE id = \$\{orderId\} AND organisation_id = \$\{organisationId\} AND payment_status = 'PAID'/)
     expect(t).not.toMatch(/UPDATE event_order_items|UPDATE event_attendees|DELETE FROM/)
-    const validity = stripComments(read('lib/events/ticketValidity.ts'))
+    const validity = stripComments(read('packages/ticketing/src/ticketValidity.ts'))
     expect(validity).toMatch(/orderStatus === 'CANCELLED'/)
   })
 

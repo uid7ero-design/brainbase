@@ -19,7 +19,9 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@ticketing/core": ["./packages/ticketing/src/index.ts"],
+      "@ticketing/core/*": ["./packages/ticketing/src/*"]
     }
   },
   "include": [
@@ -30,5 +32,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "backend_migration", "Clients", "Dr Soong", "scripts"]
+  "exclude": ["node_modules", "backend_migration", "Clients", "Dr Soong", "scripts", "apps"]
 }
