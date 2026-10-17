@@ -369,6 +369,7 @@ describe("T32/M20: explicit inventory of authorized backend routes", () => {
         "app/api/data-hub/worksheets/[id]/analysis-review/route.ts", // D4D5U authenticated review API
         "app/api/data-hub/worksheets/[id]/analysis-count/route.ts", // D4D5W authenticated count API
         "app/api/data-hub/worksheets/[id]/analysis-planning/route.ts", // Separately authorized read-only catalog/selection integration
+        "app/api/data-hub/worksheets/[id]/analysis-status/route.ts", // Read-only workbook saved-review observations
         "app/api/data-hub/worksheets/[id]/profile/route.ts", // Guided preparation: manager-only existing profiler service and read-only status
         "app/api/data-hub/import-batches/[id]/finalize/route.ts",
         "app/api/data-hub/import-batches/[id]/inspect/route.ts",

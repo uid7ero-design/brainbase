@@ -1,5 +1,9 @@
 # Workbook preparation overview
 
+The [saved-review status page](data-hub-workbook-review-status.md) now links from
+this overview, keeping preparation completion separate from saved reviews and
+quality holds.
+
 The subsequent [selected preparation bundle](data-hub-workbook-preparation-queue.md)
 adds an explicit, confirmed preparation action. The inventory and status-check
 behavior below remains read-only; preparation is never started by opening or

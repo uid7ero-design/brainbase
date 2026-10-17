@@ -144,6 +144,7 @@ function WorkbookPreparation({ batchId }: { batchId: string }) {
 
   return <main className={styles.page}>
     <Link href="/data-hub/import">Back to Data Hub imports</Link>
+    <p><Link href={`/data-hub/import/${encodeURIComponent(batchId)}/reviews`}>See workbook review status</Link></p>
     <header className={styles.header}>
       <p className={styles.eyebrow}>Data Hub · Workbook preparation</p>
       <h1>See what’s ready for review</h1>

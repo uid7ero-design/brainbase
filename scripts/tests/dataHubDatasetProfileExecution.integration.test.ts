@@ -1379,6 +1379,34 @@ describe("D4D5Q durable analysis review foundation", () => {
     await insertReview(f, { revision: 2, decisions: [] });
     expect(await loadAnalysisReview(f.scope)).toMatchObject({ ok: false });
   });
+  it("workbook review status uses current signed scope and latest matching decisions without writing history", async () => {
+    const f = await countWorld();
+    const { GET } = await import("@/app/api/data-hub/worksheets/[id]/analysis-status/route");
+    const context = { params: Promise.resolve({ id: f.ids.uploadId }) }, request = () => new Request("http://localhost/status");
+    await signFixtureSession({ userId: f.ids.userId, organisationId: ORG_A });
+    const absent = await GET(request(), context);
+    expect(absent.status).toBe(200); expect(await absent.json()).toEqual({ ok: true, status: { statusVersion: "v1", uploadId: f.ids.uploadId, state: "REVIEW_REQUIRED" } });
+    await insertReview(f);
+    const before = await prisma.dataHubAnalysisReview.findMany({ where: { upload_id: f.ids.uploadId } });
+    const observed = await GET(request(), context);
+    expect(observed.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(await observed.json()).toEqual({ ok: true, status: { statusVersion: "v1", uploadId: f.ids.uploadId,
+      state: "REVIEWED_WITH_NOTICES", datasetProfileRunId: f.context.datasetProfileRunId, reviewRevision: 1 } });
+    expect(await prisma.dataHubAnalysisReview.findMany({ where: { upload_id: f.ids.uploadId } })).toEqual(before);
+    await insertReview(f, { revision: 2, decisions: [] });
+    const invalid = await GET(request(), context);
+    expect(invalid.status).toBe(503); expect(await invalid.json()).toEqual({ ok: false, code: "REVIEW_STATUS_UNAVAILABLE" });
+    const unprofiled = await seedWorld(nextSuffix("reviewstatusunprofiled"), ORG_A, []);
+    const pending = await GET(request(), { params: Promise.resolve({ id: unprofiled.uploadId }) });
+    expect(await pending.json()).toEqual({ ok: true, status: { statusVersion: "v1", uploadId: unprofiled.uploadId, state: "PREPARATION_REQUIRED" } });
+    await signFixtureSession({ userId: "user-b-reviewstatus", organisationId: ORG_B });
+    // Session identity must exist in the current database, as in the other route proofs.
+    await prisma.$executeRawUnsafe("INSERT INTO users (id, organisation_id, username, email, name, password_hash, role, updated_at) VALUES ('user-b-reviewstatus',$1,'user-b-reviewstatus','reviewstatus@x.com','Other','x','MANAGER',now())", ORG_B);
+    const foreign = await GET(request(), context);
+    expect(foreign.status).toBe(404); expect(await foreign.json()).toEqual({ ok: false, code: "UPLOAD_NOT_FOUND" });
+    routeSessionToken = undefined;
+    expect((await GET(request(), context)).status).toBe(401);
+  });
   it("D4D5T saves recomputed reviews and rejects invalid actors, stale pins and incomplete decisions", async () => {
     const f = await countWorld();
     const { saveAnalysisReview } = await import("@/lib/data-hub/analysisExecution/saveAnalysisReview");
