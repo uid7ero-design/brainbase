@@ -206,6 +206,29 @@ lock_sql() {
 
 sess_lit() { if [ -n "$1" ]; then echo "'$1'"; else echo "NULL"; fi; }
 
+# Phase 6 — mirrors lib/events/services/cart.ts's assessCartAvailability:
+# the READ-SIDE twin of the gate (same cart_tt / sold_sess CTEs, no lock,
+# no write). Prints "session_found|unavailable-type-ids|session_full".
+avail_sql() {
+  local sess="$1"; shift
+  build_cart "$@"
+  local s; s="$(sess_lit "$sess")"
+  cat <<SQL
+WITH cart AS (
+  SELECT c.ticket_type_id, c.quantity
+  FROM UNNEST($LINE_IDS, $LINE_QTYS) AS c(ticket_type_id, quantity)
+),
+$(cart_tt_sql "$s" ""),
+sess AS (
+  SELECT capacity FROM event_sessions
+  WHERE id = $s AND organisation_id = 'org-a' AND event_id = 'event-1'
+)
+SELECT ($s::text IS NULL OR EXISTS (SELECT 1 FROM sess))::text
+  || '|' || COALESCE((SELECT string_agg(cart_tt.ticket_type_id, ',' ORDER BY cart_tt.ticket_type_id) FROM cart_tt WHERE cart_tt.sold + cart_tt.quantity > cart_tt.capacity), '')
+  || '|' || ($s::text IS NOT NULL AND EXISTS (SELECT 1 FROM sess) AND (SELECT qty FROM sold_sess) + $TOTAL_QTY > (SELECT capacity FROM sess))::text;
+SQL
+}
+
 # The shared pair-aware cart_tt CTE (mirrors all three services).
 # args: session_literal extra_predicate (e.g. "AND eo.id <> 'x'")
 cart_tt_sql() {
@@ -655,6 +678,27 @@ run_concurrent_pair "$MUT_A" "$MUT_B"
 expect_true "JM1. unsorted lock order produces a real 'deadlock detected' error" "grep -qi 'deadlock detected' '$OUT_A' '$OUT_B'"
 expect_eq "JM2. Postgres aborted one victim, so at most one mutated cart committed" \
   "SELECT CASE WHEN count(*) <= 1 THEN 'ok' ELSE 'bad' END FROM event_orders;" "ok"
+
+echo ""
+echo "=== K: read-side availability (public quote) agrees with the reservation gate ==="
+reset_db; bootstrap
+seed_type tt-adult 2500 5; seed_type tt-vip 9900 100; seed_session sess-fri 4; seed_session sess-sat 10
+seed_pair tt-vip sess-fri 1
+expect_success "K setup: 1 VIP Friday (pair 1) + 2 Adult Friday (no override, event-wide 5) are held" "$(paid_cart_sql K-Seed sess-fri "$LIVE" '' tt-adult:2 tt-vip:1)"
+expect_eq "K1. 1 more VIP Friday: the pair is reported unavailable; the session is not full" "$(avail_sql sess-fri tt-vip:1)" "true|tt-vip|false"
+expect_eq "K2. 2 Adult Friday: every line fits its own capacity but the shared session (4) is reported full" "$(avail_sql sess-fri tt-adult:2)" "true||true"
+expect_eq "K3. 4 Adult Saturday (no override): the fallback counts Friday's 2, so event-wide 5 is reported exceeded" "$(avail_sql sess-sat tt-adult:4)" "true|tt-adult|false"
+expect_eq "K4. 3 Adult Saturday fits the event-wide fallback exactly" "$(avail_sql sess-sat tt-adult:3)" "true||false"
+expect_eq "K5. a session that is not this event's is reported as not found (and never full)" "$(avail_sql sess-nope tt-adult:1)" "false||false"
+expect_eq "K6. a no-session cart is judged event-wide only" "$(avail_sql '' tt-adult:3)" "true||false"
+expect_success "K7. the seed hold lapses (stale)" "UPDATE event_orders SET expires_at = NOW() - interval '1 minute' WHERE purchaser_name='K-Seed';"
+expect_eq "K8. with the hold stale, VIP Friday is available again and the session is no longer full" "$(avail_sql sess-fri tt-vip:1)" "true||false"
+expect_success "K9. ...and the gate agrees: a 1 VIP Friday cart reserves" "$(paid_cart_sql K-Agree sess-fri "$LIVE" '' tt-vip:1)"
+expect_eq "K10. the order exists" "$(orders_named K-Agree)" "1"
+expect_eq "K11. the read side now reports VIP Friday unavailable again" "$(avail_sql sess-fri tt-vip:1)" "true|tt-vip|false"
+expect_success "K12. ...and the gate agrees: a second VIP Friday cart runs" "$(paid_cart_sql K-Refused sess-fri "$LIVE" '' tt-vip:1)"
+expect_eq "K13. ...and reserves nothing" "$(orders_named K-Refused)" "0"
+expect_eq "K14. a multi-line cart names every line that does not fit (Adult 6 > event-wide 5, VIP pair full) and the session cap too" "$(avail_sql sess-fri tt-adult:6 tt-vip:1)" "true|tt-adult,tt-vip|true"
 
 echo ""
 echo "=== SUMMARY: $PASS passed, $FAIL failed ==="
