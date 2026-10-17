@@ -101,7 +101,7 @@ describe('standalone product boundary', () => {
   it('the API credential is read in exactly one place and is never public or in a client file', () => {
     for (const f of files) {
       const src = readFileSync(f, 'utf8');
-      if (rel(f) !== 'lib/ticketing/serverConfig.ts') expect(src, rel(f)).not.toMatch(/TICKETING_API_SECRET|TICKETING_API_BASE_URL/);
+      if (rel(f) !== 'lib/ticketing/serverConfig.ts') expect(src, rel(f)).not.toMatch(/TICKETING_API_SECRET|TICKETING_API_BASE_URL|TICKETING_API_PROTECTION_BYPASS/);
       expect(src, rel(f)).not.toMatch(/NEXT_PUBLIC_[A-Z_]*(SECRET|API_KEY|TICKETING_API|SESSION)/);
     }
   });

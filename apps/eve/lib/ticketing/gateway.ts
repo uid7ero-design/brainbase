@@ -23,6 +23,7 @@ async function call<T>(path: string, opts: CallOptions = {}): Promise<GatewayRes
   if (!config) return { status: 'unavailable', reason: 'not_connected' };
 
   const headers: Record<string, string> = { 'x-ticketing-api-key': config.secret, accept: 'application/json' };
+  if (config.protectionBypass) headers['x-vercel-protection-bypass'] = config.protectionBypass;
   if (opts.session) headers['x-ticketing-session'] = opts.session;
   if (opts.clientIp) headers['x-ticketing-client-ip'] = opts.clientIp;
   if (opts.body !== undefined) headers['content-type'] = 'application/json';

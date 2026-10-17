@@ -5,3 +5,6 @@ out
 .vercel
 *.tsbuildinfo
 test-results
+
+.vercel
+.env*
