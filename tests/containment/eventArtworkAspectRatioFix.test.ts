@@ -273,7 +273,7 @@ describe('No event business logic changed by this presentation-only fix', () => 
   })
 
   it('artwork upload/validation logic (a separate concern, in a separate file) was not touched by this pass', () => {
-    const validationSource = read('lib/events/validation.ts')
+    const validationSource = read('packages/ticketing/src/validation.ts')
     expect(validationSource).toMatch(/artwork_url/)
     // No new artwork-shape/dimension validation was introduced here —
     // this fix is presentation-only, not upload-time validation.
