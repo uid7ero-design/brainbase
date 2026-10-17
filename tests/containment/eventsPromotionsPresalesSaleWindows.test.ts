@@ -949,7 +949,7 @@ describe('POST .../quote — read-only server pricing with generic code feedback
 
   it('register / checkout / retry adapters map every Phase 4 code; code failures are generic, window failures are 409', () => {
     const register = read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts')
-    const checkout = read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts')
+    const checkout = (read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts') + read('lib/events/paidCheckoutResponse.ts'))
     const retry = read('app/api/events/[id]/orders/[orderId]/retry/route.ts')
     for (const src of [register, checkout]) {
       expect(src).toMatch(/case 'SALE_NOT_STARTED':\s*\n\s*return NextResponse\.json\(\{ error: 'Tickets for this selection are not on sale yet\.' \}, \{ status: 409 \}\)/)
@@ -1157,7 +1157,7 @@ describe('ticket-type routes — sale window + access flag, audited as event_tic
 
 describe('organiser orders list carries the discount snapshot; CSV/revenue readers keep total_cents (the amount paid)', () => {
   it('GET orders selects discount_cents and promotion_code_snapshot; the KPI strip\'s Revenue still reads total_cents only, and the CSV export keeps "Order total" = total_cents while naming the discount in its own explicit column (Phase 5A)', () => {
-    expect(read('app/api/events/[id]/orders/route.ts')).toMatch(/eo\.discount_cents, eo\.promotion_code_snapshot,/)
+    expect((read('app/api/events/[id]/orders/route.ts') + read('lib/events/organiserReads.ts'))).toMatch(/eo\.discount_cents, eo\.promotion_code_snapshot,/)
     const exportSrc = stripComments(read('app/api/events/[id]/orders/export/route.ts'))
     expect(exportSrc).toMatch(/\(r\.total_cents \/ 100\)\.toFixed\(2\),\s*\n\s*r\.currency,\s*\n\s*\(\(r\.discount_cents \?\? 0\) \/ 100\)\.toFixed\(2\)/)
     expect(stripComments(read('app/events/[id]/EventDetailClient.tsx'))).toMatch(/grossRevenueCents = paidOrders\.reduce\(\(sum, o\) => sum \+ o\.total_cents, 0\)/)

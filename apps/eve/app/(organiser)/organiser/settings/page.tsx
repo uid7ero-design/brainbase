@@ -1,14 +1,19 @@
 import { OrganiserShell } from '@/components/organiser/OrganiserShell';
 import { Card, Unavailable } from '@/components/ui/primitives';
 import { product } from '@/config/product';
+import { requireOrganiser } from '@/lib/organiserAuth';
+import { identityOf } from '@/lib/identity';
 
-export default function OrganiserSettingsPage() {
+export const dynamic = 'force-dynamic';
+
+export default async function OrganiserSettingsPage() {
+  const { session } = await requireOrganiser();
   return (
-    <OrganiserShell title="Settings">
+    <OrganiserShell title="Settings" identity={identityOf(session)}>
       <div className="grid gap-6 lg:grid-cols-2">
         <Unavailable
-          title="Organiser settings are not connected"
-          detail="Organisation name and branding, support contact, email sender identity and team members will live here. Nothing can be edited until an account exists."
+          title="Organiser settings are not available yet"
+          detail="Organisation branding, support contact, email sender identity and team members cannot be edited in this product yet."
         />
         <Card>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-eve-muted">Product identity (read-only)</p>

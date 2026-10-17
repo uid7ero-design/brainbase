@@ -96,3 +96,24 @@ then.
   them.
 - `content/impact.ts` is an internal, disabled placeholder and is never
   rendered.
+
+## Phase 2 — connected to the ticketing API
+
+Eve's browser only ever talks to Eve's own origin. Eve's server talks to the
+ticketing API (`/api/ticketing/*` on the BrainBase deployment) server-to-server
+through `lib/ticketing/gateway.ts`; the API owns users, organisations, roles,
+the Events entitlement and every ticketing rule, and re-validates them on every
+organiser request. Eve holds no SQL, no password logic and no signing secret.
+
+| Variable | Where | Purpose |
+| --- | --- | --- |
+| `TICKETING_API_BASE_URL` | Eve (server) | Origin of the ticketing API deployment |
+| `TICKETING_API_SECRET` | Eve (server) **and** BrainBase | Shared server-to-server credential (>= 32 chars) |
+| `TICKETING_API_PROTECTION_BYPASS` | Eve (server, Preview only) | Platform deployment-protection bypass header for Preview calls |
+| `EVE_SESSION_SECRET` | BrainBase only | Signs the Eve session token (must differ from `SESSION_SECRET`) |
+| `EVE_PUBLIC_BASE_URL` | BrainBase | Eve's public origin, used for Stripe return URLs and ticket QR links |
+
+None is `NEXT_PUBLIC`. Session cookie: `eve_session`, host-only, HttpOnly,
+SameSite=Strict, Secure outside local development. Rate limiting reuses
+BrainBase's in-memory limiter, which is per serverless instance and resets on
+cold start (adequate for Preview, not a distributed limit).

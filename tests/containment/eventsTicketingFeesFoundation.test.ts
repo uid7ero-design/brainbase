@@ -554,7 +554,7 @@ describe('PASS_THROUGH fee order — snapshot, Stripe line item, application fee
     expect(await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-adult', quantity: 1 }]), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'FEE_EXCEEDS_TOTAL' })
     expect(transactionMock).not.toHaveBeenCalled()
     expect(createCheckoutSessionMock).not.toHaveBeenCalled()
-    const route = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
+    const route = stripComments((read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts') + read('lib/events/paidCheckoutResponse.ts')))
     expect(route).toMatch(/case 'FEE_POLICY_INVALID':\s*\n\s*case 'FEE_CURRENCY_MISMATCH':\s*\n\s*case 'FEE_EXCEEDS_TOTAL':\s*\n\s*return NextResponse\.json\(\{ error: 'Paid checkout is not currently available\.' \}, \{ status: 503 \}\)/)
   })
 
@@ -742,7 +742,7 @@ describe('public quote / detail / status — fee facts for the purchaser', () =>
     expect(client).toMatch(/import \{ computePlatformFeeCents \} from '@\/lib\/events\/feeCalculation'/)
     expect(client).toMatch(/computePlatformFeeCents\(totalCents, quantity, \{ fee_mode: 'PASS_THROUGH', \.\.\.bookingFee \}\)/)
     expect(client).toMatch(/`Pay \$\{formatPrice\(payableCents\)\}`/)
-    expect(read('app/api/events/[id]/orders/route.ts')).toMatch(/COALESCE\(eo\.payment_total_cents, eo\.total_cents\) AS payment_total_cents, eo\.platform_fee_cents, eo\.fee_mode,\s*\n\s*eo\.refunded_cents, eo\.platform_fee_refunded_cents,/)
+    expect((read('app/api/events/[id]/orders/route.ts') + read('lib/events/organiserReads.ts'))).toMatch(/COALESCE\(eo\.payment_total_cents, eo\.total_cents\) AS payment_total_cents, eo\.platform_fee_cents, eo\.fee_mode,\s*\n\s*eo\.refunded_cents, eo\.platform_fee_refunded_cents,/)
     const panel = stripComments(read('app/events/[id]/RegistrationsPanel.tsx'))
     expect(panel).toMatch(/formatAmount\(o\.payment_total_cents \?\? o\.total_cents, o\.currency\)/)
     expect(panel).toMatch(/Booking fee paid by customer/)

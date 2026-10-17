@@ -53,10 +53,72 @@ describe('standalone product boundary', () => {
     });
   }
 
-  it('the app has no middleware, no API routes and no server actions in Phase 1', () => {
+  it('has no middleware and no server actions', () => {
     expect(() => statSync(path.join(APP_ROOT, 'middleware.ts'))).toThrow();
-    expect(() => statSync(path.join(APP_ROOT, 'app', 'api'))).toThrow();
     for (const file of files) expect(readFileSync(file, 'utf8')).not.toMatch(/['"]use server['"]/);
+  });
+
+  const rel = (f: string) => path.relative(APP_ROOT, f).replace(/\\/g, '/');
+  const routeFiles = files.filter(f => /app\/api\/.*route\.ts$/.test(rel(f)));
+
+  it('exposes only the auth, buyer-relay and check-in-relay API routes', () => {
+    expect(routeFiles.map(rel).sort()).toEqual([
+      'app/api/auth/login/route.ts',
+      'app/api/auth/logout/route.ts',
+      'app/api/auth/organisation/route.ts',
+      'app/api/auth/session/route.ts',
+      'app/api/buyer/[organisationSlug]/[eventSlug]/[action]/route.ts',
+      'app/api/organiser/check-in/[id]/[action]/route.ts',
+    ]);
+  });
+
+  it('every state-changing route enforces the same-origin check before doing anything', () => {
+    for (const f of routeFiles) {
+      const src = readFileSync(f, 'utf8');
+      for (const m of src.matchAll(/export async function (POST|PUT|PATCH|DELETE)\b[\s\S]*?\n\}/g)) {
+        expect(m[0], `${rel(f)} ${m[1]}`).toMatch(/sameOriginRequest\(req\)/);
+      }
+    }
+  });
+
+  it('no route emits CORS headers', () => {
+    for (const f of files) expect(readFileSync(f, 'utf8'), rel(f)).not.toMatch(/Access-Control-|access-control-/);
+  });
+
+  it('client components never import server-only modules at runtime', () => {
+    const forbidden = /from ['"]@\/lib\/(session|organiserAuth|organiserData|ticketing\/serverConfig|requestGuards)['"]/;
+    for (const f of files) {
+      const src = readFileSync(f, 'utf8');
+      if (!/^['"]use client['"]/.test(src.trim())) continue;
+      expect(src, rel(f)).not.toMatch(forbidden);
+      // The gateway may be referenced for TYPES only.
+      for (const m of src.matchAll(/import\s+(type\s+)?[^;]*?from\s+['"]@\/lib\/ticketing\/gateway['"]/g)) {
+        expect(m[0], rel(f)).toMatch(/^import\s+type\s/);
+      }
+    }
+  });
+
+  it('the API credential is read in exactly one place and is never public or in a client file', () => {
+    for (const f of files) {
+      const src = readFileSync(f, 'utf8');
+      if (rel(f) !== 'lib/ticketing/serverConfig.ts') expect(src, rel(f)).not.toMatch(/TICKETING_API_SECRET|TICKETING_API_BASE_URL|TICKETING_API_PROTECTION_BYPASS/);
+      expect(src, rel(f)).not.toMatch(/NEXT_PUBLIC_[A-Z_]*(SECRET|API_KEY|TICKETING_API|SESSION)/);
+    }
+  });
+
+  it('the session cookie is addressed only through the shared constant (never the other product\'s "session" cookie)', () => {
+    for (const f of files) {
+      const src = readFileSync(f, 'utf8');
+      expect(src, rel(f)).not.toMatch(/\.(get|set|delete)\(\s*['"](session|org_override)['"]/);
+    }
+    expect(readFileSync(path.join(APP_ROOT, 'lib/session.ts'), 'utf8')).toMatch(/TICKETING_SESSION_COOKIE/);
+  });
+
+  it('carries no sample or invented live data', () => {
+    for (const f of files) {
+      if (rel(f).startsWith('content/')) continue;
+      expect(readFileSync(f, 'utf8'), rel(f)).not.toMatch(/lorem ipsum|sample event|dummy|Jane Doe|John Smith|example\.com/i);
+    }
   });
 
   it('the Vercel config refuses production deployments for this phase', () => {

@@ -255,7 +255,7 @@ describe('GET /api/events/[id]/orders — auth (viewer+)', () => {
   })
 
   it('the event-existence check is always scoped to the session organisation, never a query param', () => {
-    const src = stripComments(read('app/api/events/[id]/orders/route.ts'))
+    const src = stripComments((read('app/api/events/[id]/orders/route.ts') + read('lib/events/organiserReads.ts')))
     expect(src).toContain('session.organisationId')
     expect(src).not.toMatch(/organisationId:\s*req\.|searchParams\.get\('organisationId'\)/)
   })
@@ -263,9 +263,9 @@ describe('GET /api/events/[id]/orders — auth (viewer+)', () => {
 
 describe('GET /api/events/[id]/orders — search/filter query params are parsed and applied', () => {
   it('calls parseRegistrationFilters and buildRegistrationFilterSql — never a second, hand-copied filter implementation', () => {
-    const src = stripComments(read('app/api/events/[id]/orders/route.ts'))
+    const src = stripComments((read('app/api/events/[id]/orders/route.ts') + read('lib/events/organiserReads.ts')))
     expect(src).toContain('parseRegistrationFilters(searchParams)')
-    expect(src).toContain('buildRegistrationFilterSql(filters, session.organisationId)')
+    expect(src).toContain('buildRegistrationFilterSql(filters, organisationId)')
     expect(src).toContain("from '@/lib/events/registrationFilters'")
   })
 

@@ -1,40 +1,36 @@
 import { OrganiserShell } from '@/components/organiser/OrganiserShell';
 import { Card, Unavailable } from '@/components/ui/primitives';
-import { TICKETING_CONCEPTS } from '@ticketing/core';
+import { requireOrganiser } from '@/lib/organiserAuth';
+import { identityOf } from '@/lib/identity';
+import { loadEvents, loadOverview } from '@/lib/organiserData';
 
-const LABELS: Record<(typeof TICKETING_CONCEPTS)[number], string> = {
-  organiser: 'Organiser',
-  venue: 'Venue',
-  event: 'Event',
-  session: 'Session / performance',
-  ticket_type: 'Ticket type',
-  inventory: 'Inventory',
-  order: 'Order',
-  attendee: 'Attendee',
-  ticket: 'Ticket',
-  payment: 'Payment',
-};
+export const dynamic = 'force-dynamic';
 
-export default function OrganiserDashboardPage() {
+export default async function OrganiserDashboardPage() {
+  const { token, session } = await requireOrganiser();
+  const events = await loadEvents(token);
+  const o = await loadOverview(token, events);
+  const tiles: [string, number][] = [
+    ['Events', o.eventCount], ['Published', o.publishedCount], ['Orders', o.orderCount],
+    ['Paid orders', o.paidOrderCount], ['Tickets', o.ticketCount], ['Checked in', o.checkedInCount],
+  ];
   return (
-    <OrganiserShell title="Dashboard">
-      <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-        <Unavailable
-          title="No organiser account is connected"
-          detail="Once sign-in exists, this dashboard will show your upcoming sessions, sales to date and door status from the shared ticketing core. Nothing is shown until then — no sample figures."
-        />
-        <Card>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-eve-muted">What the console manages</p>
-          <ul className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-            {TICKETING_CONCEPTS.map(c => (
-              <li key={c} className="flex items-center gap-2">
-                <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-eve-accent" />
-                {LABELS[c]}
-              </li>
+    <OrganiserShell title="Dashboard" identity={identityOf(session)}>
+      {events.length === 0 ? (
+        <Unavailable title="No events yet" detail="Events created for this organisation will appear here." />
+      ) : (
+        <>
+          <dl className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+            {tiles.map(([label, value]) => (
+              <Card key={label} className="p-4">
+                <dt className="text-xs font-semibold uppercase tracking-wider text-eve-muted">{label}</dt>
+                <dd className="mt-1 text-3xl font-semibold" data-testid={`kpi-${label.toLowerCase().replace(/\s+/g, '-')}`}>{value}</dd>
+              </Card>
             ))}
-          </ul>
-        </Card>
-      </div>
+          </dl>
+          {o.truncated ? <p className="mt-3 text-xs text-eve-muted">Order and ticket counts cover the 25 most recent events.</p> : null}
+        </>
+      )}
     </OrganiserShell>
   );
 }
