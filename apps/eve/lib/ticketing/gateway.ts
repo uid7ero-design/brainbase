@@ -21,7 +21,7 @@ type CallOptions = { method?: 'GET' | 'POST'; body?: unknown; session?: string |
 async function call<T>(path: string, opts: CallOptions = {}): Promise<GatewayResult<T>> {
   const config = readApiConfig();
   if (!config) {
-    console.error('[ticketing-gateway] not configured (TICKETING_API_BASE_URL / TICKETING_API_SECRET)');
+    console.error('[ticketing-gateway] API connection is not configured');
     return { status: 'unavailable', reason: 'not_connected' };
   }
 
