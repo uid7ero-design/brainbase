@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { validateEventInput, toIsoString, mergeField, type EventInput } from '@/lib/events/validation';
-import { logEventUpdated, logEventPublished, logEventUnpublished } from '@/lib/events/auditLog';
+import { logEventUpdated, logEventPublished, logEventUnpublished, logEventCancelled } from '@/lib/events/auditLog';
+import { scheduleEventCancelledNotifications, EVENT_CANCELLED_INLINE_SEND_LIMIT } from '@/lib/events/notifications';
+import { attemptNotificationDelivery } from '@/lib/events/notificationDelivery';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -64,9 +66,12 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     starts_at: mergeField(body, 'starts_at', toIsoString(existing.starts_at)),
     ends_at: mergeField(body, 'ends_at', toIsoString(existing.ends_at)),
     timezone: mergeField(body, 'timezone', existing.timezone),
+    reminder_enabled: mergeField(body, 'reminder_enabled', existing.reminder_enabled === true),
   };
   const error = validateEventInput(merged);
   if (error) return NextResponse.json({ error }, { status: 400 });
+  // Phase 5B — never anything but a real boolean reaches the column.
+  const reminderEnabled = merged.reminder_enabled === true;
 
   try {
     const rows = await sql`
@@ -77,7 +82,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
         artwork_url = ${(merged.artwork_url as string | null) || null},
         status = ${merged.status as string},
         starts_at = ${merged.starts_at as string}, ends_at = ${merged.ends_at as string},
-        timezone = ${merged.timezone as string}, updated_at = now()
+        timezone = ${merged.timezone as string}, reminder_enabled = ${reminderEnabled}, updated_at = now()
       WHERE id = ${id} AND organisation_id = ${session.organisationId}
       RETURNING *
     `;
@@ -98,12 +103,47 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     // edit, correctly carrying the status change in its own diff.
     const becamePublished = existing.status !== updated.status && updated.status === 'PUBLISHED';
     const leftPublished = existing.status === 'PUBLISHED' && updated.status === 'DRAFT';
+    // Phase 5B — any non-cancelled -> CANCELLED transition (from DRAFT or
+    // PUBLISHED) is the event-cancellation lifecycle action: audited as
+    // event.cancelled and the trigger for purchaser communications below.
+    // A PATCH that leaves an already-CANCELLED event CANCELLED is an
+    // ordinary edit — it schedules nothing (and the UNIQUE idempotency key
+    // would make it a no-op even if it did).
+    const becameCancelled = existing.status !== 'CANCELLED' && updated.status === 'CANCELLED';
     const auditParams = { organisationId: session.organisationId, userId: session.userId, eventId: id, before: existing as never, after: updated as never };
     if (becamePublished) await logEventPublished(auditParams);
     else if (leftPublished) await logEventUnpublished(auditParams);
+    else if (becameCancelled) await logEventCancelled(auditParams);
     else await logEventUpdated(auditParams);
 
-    return NextResponse.json({ event: updated });
+    // Phase 5B — event cancellation communications. What cancelling an
+    // event does to ORDERS is unchanged by this phase: nothing. Order and
+    // payment rows keep their state (tickets already resolve as
+    // EVENT_CANCELLED via lib/events/ticketValidity.ts), and no refund is
+    // issued automatically — each paid order is still refunded one by one
+    // through the refund route. The EVENT_CANCELLED email therefore tells
+    // each purchaser the TRUE refund state of their order at send time.
+    // Scheduling is one idempotent statement (see
+    // scheduleEventCancelledNotifications); a bounded number of the rows
+    // it scheduled are sent inline, the rest by the hourly recovery run.
+    // Best-effort after the event UPDATE has committed: an email problem
+    // can never fail or roll back the cancellation itself.
+    let notificationsScheduled: number | undefined;
+    if (becameCancelled) {
+      try {
+        const scheduledIds = await scheduleEventCancelledNotifications({
+          organisationId: session.organisationId, eventId: id, actorUserId: session.userId,
+        });
+        notificationsScheduled = scheduledIds.length;
+        for (const notificationId of scheduledIds.slice(0, EVENT_CANCELLED_INLINE_SEND_LIMIT)) {
+          await attemptNotificationDelivery(notificationId);
+        }
+      } catch (err) {
+        console.error('[events] event-cancelled notifications failed after the event was cancelled', err, { eventId: id });
+      }
+    }
+
+    return NextResponse.json(notificationsScheduled === undefined ? { event: updated } : { event: updated, notifications_scheduled: notificationsScheduled });
   } catch (err) {
     if (err instanceof Error && /organisation_id_slug_key/i.test(err.message)) {
       return NextResponse.json({ error: 'An event with this slug already exists.' }, { status: 409 });

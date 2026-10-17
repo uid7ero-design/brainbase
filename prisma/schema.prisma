@@ -2705,12 +2705,19 @@ model Event {
   starts_at       DateTime          @db.Timestamptz(6)
   ends_at         DateTime          @db.Timestamptz(6)
   timezone        String
+  // Phase 5B — opt-in purchaser reminder email, sent once per confirmed
+  // order inside the 24 hours before starts_at by the recovery cron (see
+  // scripts/create-events-notifications.sql). Default false for every
+  // existing and new event; only an organiser's PATCH turns it on.
+  reminder_enabled Boolean          @default(false)
   created_by      String?
   created_at      DateTime          @default(now()) @db.Timestamptz(6)
   updated_at      DateTime          @updatedAt @db.Timestamptz(6)
 
   organisation    Organisation      @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
   creator         User?             @relation(fields: [created_by], references: [id], onDelete: SetNull)
+  // Phase 5B — lifecycle notifications (see EventNotification).
+  notifications   EventNotification[]
   event_sessions  EventSession[]
   ticket_types    EventTicketType[]
   orders          EventOrder[]
@@ -3104,6 +3111,8 @@ model EventOrder {
   order_items     EventOrderItem[]
   registration_responses EventRegistrationResponse[]
   ticket_email_deliveries EventTicketEmailDelivery[]
+  // Phase 5B — lifecycle notifications (see EventNotification).
+  notifications   EventNotification[]
   // Event-scoped composite FKs: an order can only reference a code of its
   // OWN event and organisation. Default NO ACTION (never Restrict) so an
   // event delete's cascade through orders and codes completes.
@@ -3193,6 +3202,58 @@ model EventTicketEmailDelivery {
   @@index([organisation_id])
   @@index([organisation_id, order_id])
   @@map("event_ticket_email_deliveries")
+}
+
+// Phase 5B — lifecycle notifications: one row per (notification type,
+// order) carrying BOTH BrainBase's own send lifecycle (status/claim/
+// attempts/backoff/idempotency key — the ticket-email state machine
+// applied to a notification row) AND, once Resend accepted the message,
+// the same provider-outcome vocabulary EventTicketEmailDelivery uses. See
+// scripts/create-events-notifications.sql's header for the full
+// rationale. The live SQL also carries the CHECK constraints (type,
+// status, delivery_status, claim/provider consistency), the UNIQUE
+// idempotency_key, and a partial UNIQUE index on provider_message_id —
+// same "Prisma mirrors, raw SQL is authoritative" convention as the
+// sibling tables.
+model EventNotification {
+  id                  String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  organisation_id     String
+  event_id            String
+  order_id            String?
+  notification_type   String
+  recipient_email     String
+  idempotency_key     String    @unique
+  status              String    @default("pending")
+  scheduled_for       DateTime  @default(now()) @db.Timestamptz(6)
+  claim_id            String?
+  claimed_at          DateTime? @db.Timestamptz(6)
+  attempt_count       Int       @default(0)
+  last_attempt_at     DateTime? @db.Timestamptz(6)
+  next_attempt_at     DateTime? @db.Timestamptz(6)
+  sent_at             DateTime? @db.Timestamptz(6)
+  failed_at           DateTime? @db.Timestamptz(6)
+  last_error          String?
+  provider_message_id String?
+  delivery_status     String?
+  latest_event_id     String?
+  latest_event_at     DateTime? @db.Timestamptz(6)
+  latest_event_type   String?
+  delivered_at        DateTime? @db.Timestamptz(6)
+  bounced_at          DateTime? @db.Timestamptz(6)
+  suppressed_at       DateTime? @db.Timestamptz(6)
+  complained_at       DateTime? @db.Timestamptz(6)
+  delivery_failed_at  DateTime? @db.Timestamptz(6)
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @updatedAt @db.Timestamptz(6)
+
+  // Organisation-scoped composite FKs — a notification physically cannot
+  // point at another organisation's event or order.
+  event               Event       @relation(fields: [event_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
+  order               EventOrder? @relation(fields: [order_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
+
+  @@index([organisation_id, event_id])
+  @@index([organisation_id, order_id])
+  @@map("event_notifications")
 }
 
 model EventAttendee {
