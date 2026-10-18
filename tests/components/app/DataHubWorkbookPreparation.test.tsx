@@ -27,7 +27,7 @@ describe("workbook preparation overview", () => {
     render(<WorkbookPreparationClient batchId="batch" />); await loaded();
     expect(screen.getByText("Not checked", { exact: true })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Check preparation" }));
-    expect(await screen.findByRole("link", { name: "Review worksheet 1" })).toHaveAttribute("href", `/data-hub/analysis/${id}`);
+    expect(await screen.findByRole("link", { name: "Review worksheet 1" })).toHaveAttribute("href", `/data-hub/analysis/${id}?workbook=batch`);
   });
   it("opens by reading persisted inventory only and distinguishes unchecked worksheets", async () => {
     const fetcher = setup(); render(<WorkbookPreparationClient batchId="batch" />); await loaded();
@@ -40,7 +40,7 @@ describe("workbook preparation overview", () => {
   it("checks eligible worksheets explicitly, filters current observations and links to review without writes", async () => {
     const fetcher = setup(); render(<WorkbookPreparationClient batchId="batch" />); await loaded();
     fireEvent.click(screen.getByRole("button", { name: "Check preparation" }));
-    expect(await screen.findByRole("link", { name: "Review worksheet 1" })).toHaveAttribute("href", "/data-hub/analysis/w0");
+    expect(await screen.findByRole("link", { name: "Review worksheet 1" })).toHaveAttribute("href", "/data-hub/analysis/w0?workbook=batch");
     expect(fetcher).toHaveBeenCalledTimes(7);
     expect(screen.getByRole("combobox")).toHaveAccessibleName("Show worksheets");
     expect(fetcher.mock.calls.some(([url]) => url.includes("/w2/"))).toBe(false);

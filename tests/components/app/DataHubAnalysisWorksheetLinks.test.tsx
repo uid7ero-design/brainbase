@@ -16,8 +16,8 @@ it("reads worksheets only on demand and links by encoded identity, including dup
   expect(screen.getByRole("link", { name: "Workbook preparation overview" })).toHaveAttribute("href", "/data-hub/import/batch%2Fa/preparation");
   fireEvent.click(screen.getByRole("button", { name: "Review worksheets in source.xlsx" }));
   const first = await screen.findByRole("link", { name: "Data (worksheet 1) — review and count" });
-  expect(first).toHaveAttribute("href", "/data-hub/analysis/upload%2Fa");
-  expect(screen.getByRole("link", { name: "Data (worksheet 2) — review and count" })).toHaveAttribute("href", "/data-hub/analysis/upload-b");
+  expect(first).toHaveAttribute("href", "/data-hub/analysis/upload%2Fa?workbook=batch%2Fa");
+  expect(screen.getByRole("link", { name: "Data (worksheet 2) — review and count" })).toHaveAttribute("href", "/data-hub/analysis/upload-b?workbook=batch%2Fa");
   expect(fetcher).toHaveBeenCalledWith("/api/data-hub/import-batches/batch%2Fa/worksheets", expect.objectContaining({ method: "GET", credentials: "same-origin" }));
   expect(screen.queryByText("hidden")).not.toBeInTheDocument();
 });

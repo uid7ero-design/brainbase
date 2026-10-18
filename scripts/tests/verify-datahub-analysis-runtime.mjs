@@ -9,6 +9,7 @@ import { FIXTURE_PREPARATION, SETUP_STORAGE } from './helpers/dataHubAcceptanceR
 import { verifyWorkbookOverview } from './helpers/dataHubWorkbookOverviewProof.mjs';
 import { verifyWorkbookQueue } from './helpers/dataHubWorkbookQueueProof.mjs';
 import { verifyWorkbookReviews } from './helpers/dataHubWorkbookReviewProof.mjs';
+import { verifyReviewSession } from './helpers/dataHubReviewSessionProof.mjs';
 
 // Invoked only by verify-datahub-profile-execution.sh after provisioning its
 // disposable Docker database and seeding real profile evidence. The build,
@@ -145,7 +146,7 @@ try {
   await page.goto(origin + '/data-hub/import');
   await page.getByRole('button', { name: 'Review worksheets in analysis-ready.xlsx', exact: true }).click();
   await page.getByRole('link', { name: 'Data (worksheet 1) — review and count', exact: true }).click();
-  await expect(page).toHaveURL(origin + `/data-hub/analysis/${ready.uploadId}`);
+  await expect(page).toHaveURL(origin + `/data-hub/analysis/${ready.uploadId}?workbook=${ready.batchId}`);
   await page.getByRole('button', { name: 'Load current review', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Field meanings', exact: true })).toBeVisible();
   evidence.checks.push('Import history to persisted worksheet navigation through real metadata API, without file reinspection');
@@ -457,6 +458,7 @@ try {
   }
   evidence.checks.push('Explicit HOLD persisted and blocks both UI counts and direct API');
   await verifyWorkbookReviews({ page, context, pool, origin, ready, held, queueWorlds, evidence, directory, phase: 'after' });
+  await verifyReviewSession({ page, pool, origin, ready, held, evidence, directory, chooseMeanings, chooseQuality });
 
   const stale = await api(endpoint(ready.uploadId) + '/analysis-review', { reviewVersion: 'v1', datasetProfileRunId: 'stale-profile', semanticChoices: [], qualityDecisions: [] });
   if (stale.status !== 409) throw new Error('Stale profile pin accepted');
