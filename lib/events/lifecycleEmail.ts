@@ -1,5 +1,6 @@
 import 'server-only';
-import { emailLayout, escHtml, BASE_URL } from '@/lib/email';
+import { emailLayout, escHtml } from '@/lib/email';
+import { brainbaseBuyerContext, type BuyerProductContext } from '@/lib/events/buyerProduct';
 import { buildTicketUrl } from '@/lib/events/qr';
 import { formatReceiptMoney } from '@/lib/events/receipt';
 import type { LifecycleEmailBranding } from '@/lib/organisations/branding';
@@ -66,6 +67,10 @@ export type LifecycleEmailData = {
   bookingToken: string | null;
   branding: LifecycleEmailBranding;
   organisationName: string;
+  // Eve Phase 3.2 — buyer-facing product identity of the underlying order
+  // (resolveBuyerProduct over event_orders.product_surface). Absent =>
+  // BrainBase, exactly as before.
+  product?: BuyerProductContext | null;
 };
 
 export type LifecycleEmail = { subject: string; html: string; text: string };
@@ -178,7 +183,7 @@ function render(data: LifecycleEmailData, opts: {
     logoUrl: data.branding.logoUrl ?? null,
     website: data.branding.website ?? null,
     footerText: data.branding.emailFooter ?? null,
-  });
+  }, data.product?.presentation ?? null);
 
   const textLines: string[] = [
     opts.heading,
@@ -310,11 +315,12 @@ function buildEventReminder(data: LifecycleEmailData): LifecycleEmail {
   const facts = eventFacts(data);
   facts.push({ label: 'Tickets', value: `${data.attendees.length} ticket${data.attendees.length === 1 ? '' : 's'}` });
   const links: { label: string; url: string }[] = [];
+  const linkBase = (data.product ?? brainbaseBuyerContext()).linkBase;
   if (data.bookingToken) {
-    links.push({ label: data.attendees.length > 1 ? 'View all tickets' : 'View ticket', url: `${BASE_URL}/b/${data.bookingToken}/tickets` });
+    links.push({ label: data.attendees.length > 1 ? 'View all tickets' : 'View ticket', url: `${linkBase}/b/${data.bookingToken}/tickets` });
   } else {
     for (const a of data.attendees) {
-      if (a.ticketToken) links.push({ label: `View ticket — ${a.name}`, url: buildTicketUrl(BASE_URL, a.ticketToken) });
+      if (a.ticketToken) links.push({ label: `View ticket — ${a.name}`, url: buildTicketUrl(linkBase, a.ticketToken) });
     }
   }
   const paragraphs = [

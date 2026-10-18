@@ -327,7 +327,10 @@ describe('lib/email.ts — delivery identity unchanged', () => {
     const sendEmailStart = code.indexOf('export async function sendEmail')
     const sendEmailEnd = code.indexOf('\nexport const BASE_URL', sendEmailStart)
     const sendEmailBody = code.slice(sendEmailStart, sendEmailEnd)
-    expect(sendEmailBody).toContain('from: FROM,')
+    // Eve Phase 3.2: the sender may vary by PRODUCT only, through an explicit
+    // `from` argument the caller took from lib/events/buyerProduct.ts; the
+    // default is still FROM and nothing is derived from an organisation.
+    expect(sendEmailBody).toContain('from: from ?? FROM,')
     expect(sendEmailBody).not.toMatch(/reply_to|replyTo|Reply-To/i)
     expect(sendEmailBody).not.toMatch(/branding|organisation/i)
   })

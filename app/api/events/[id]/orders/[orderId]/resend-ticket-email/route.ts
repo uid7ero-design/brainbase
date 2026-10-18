@@ -5,6 +5,7 @@ import { isOrderEligibleForTicketEmail, sendTicketEmail, maskEmailForAudit } fro
 import { logTicketEmailResent } from '@/lib/events/auditLog';
 import { normaliseTicketEmailBranding } from '@/lib/organisations/branding';
 import { receiptFromOrderRow, type ReceiptOrderRow } from '@/lib/events/receipt';
+import { resolveBuyerProduct } from '@/lib/events/buyerProduct';
 import { recordTicketEmailDeliveryAccepted } from '@/lib/events/ticketEmailDeliveryTracking';
 
 type Ctx = { params: Promise<{ id: string; orderId: string }> };
@@ -57,7 +58,7 @@ export async function POST(_req: Request, { params }: Ctx) {
   // (lib/events/receipt.ts); same round trip, wider column list only.
   const orderRows = await sql`
     SELECT
-      eo.id, eo.status, eo.payment_status, eo.purchaser_name, eo.purchaser_email, eo.booking_token,
+      eo.id, eo.status, eo.payment_status, eo.purchaser_name, eo.purchaser_email, eo.booking_token, eo.product_surface,
       eo.currency, eo.total_cents, eo.discount_cents, eo.promotion_code_snapshot,
       eo.platform_fee_cents, eo.fee_mode, eo.fee_label, eo.payment_total_cents, eo.paid_at, eo.refunded_cents, eo.refunded_at,
       e.name AS event_name,
@@ -82,7 +83,7 @@ export async function POST(_req: Request, { params }: Ctx) {
     LIMIT 1
   `;
   const order = orderRows[0] as ({
-    id: string; status: string; payment_status: string; purchaser_name: string; purchaser_email: string | null; booking_token: string | null;
+    id: string; status: string; payment_status: string; purchaser_name: string; purchaser_email: string | null; booking_token: string | null; product_surface: string | null;
     event_name: string; organisation_name: string; organisation_settings: unknown;
     attendees: { name: string; ticket_token: string | null }[];
   } & ReceiptOrderRow) | undefined;
@@ -124,6 +125,18 @@ export async function POST(_req: Request, { params }: Ctx) {
   const recipient = order.purchaser_email as string; // non-null — guaranteed by isOrderEligibleForTicketEmail above
   const recipientMasked = maskEmailForAudit(recipient);
 
+  // Eve Phase 3.2 — identity from the COMMITTED order, never from this
+  // request. An Eve order with unconfigured links/sender is refused before
+  // anything is sent (and before the audit/cooldown row, since no send was
+  // attempted); there is no BrainBase fallback.
+  const buyer = resolveBuyerProduct(order.product_surface);
+  if (!buyer.ok) {
+    return NextResponse.json(
+      { ok: false, result: 'not_configured', error: 'Email sending is not configured for this booking.' },
+      { status: 503 },
+    );
+  }
+
   const sendResult = await sendTicketEmail(recipient, {
     eventName: order.event_name,
     purchaserName: order.purchaser_name,
@@ -131,6 +144,7 @@ export async function POST(_req: Request, { params }: Ctx) {
     bookingToken: order.booking_token,
     branding: normaliseTicketEmailBranding(order.organisation_settings, order.organisation_name),
     receipt: receiptFromOrderRow(order),
+    product: buyer.context,
   });
 
   // Pre-push hardening — RESEND_API_KEY is absent (typical in Preview
