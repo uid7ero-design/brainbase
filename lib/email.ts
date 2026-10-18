@@ -36,6 +36,13 @@ interface EmailOptions {
   // sends exactly the HTML-only body it always has; only the Events
   // lifecycle notifications (lib/events/lifecycleEmail.ts) pass one.
   text?: string;
+  // Eve Phase 3.2 — per-product sender identity. BrainBase stays the only
+  // delivery layer (one Resend account, one code path); a caller sending on
+  // behalf of another product passes that product's already-validated
+  // sender (see lib/events/buyerProduct.ts). Both are optional and additive:
+  // every existing caller omits them and sends exactly as before (FROM below,
+  // no Reply-To).
+  from?: string;
 }
 
 const FROM = process.env.EMAIL_FROM ?? 'Brainbase <noreply@brainbase.app>';
@@ -136,7 +143,7 @@ export class EmailSendError extends Error {
   }
 }
 
-export async function sendEmail({ to, subject, html, text, attachments, idempotencyKey }: EmailOptions): Promise<SendEmailResult> {
+export async function sendEmail({ to, subject, html, text, attachments, idempotencyKey, from }: EmailOptions): Promise<SendEmailResult> {
   const apiKey = process.env.RESEND_API_KEY;
 
   if (!apiKey) {
@@ -161,7 +168,7 @@ export async function sendEmail({ to, subject, html, text, attachments, idempote
       ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
     },
     body: JSON.stringify({
-      from: FROM,
+      from: from ?? FROM,
       to,
       subject,
       html,
@@ -350,7 +357,22 @@ export interface EmailOrgPresentation {
   footerText?: string | null;
 }
 
-export function emailLayout(body: string, org?: EmailOrgPresentation | null) {
+// Eve Phase 3.2 — optional PRODUCT presentation for the shell: the wordmark
+// and the copyright line. Absent (every existing caller) the shell is the
+// byte-identical BrainBase one. Eve passes its own name and makes no claim
+// about a legal entity, address or purpose.
+export interface EmailProductPresentation {
+  wordmark: string;
+  footerName: string;
+}
+
+export function emailLayout(body: string, org?: EmailOrgPresentation | null, product?: EmailProductPresentation | null) {
+  const wordmarkHtml = product
+    ? escHtml(product.wordmark)
+    : `BRAINB<span style="color:#A78BFA">Λ</span>SE`;
+  const legalLine = product
+    ? `© ${new Date().getFullYear()} ${escHtml(product.footerName)}`
+    : `© ${new Date().getFullYear()} Brainbase · Adelaide SA Australia`;
   // Identity row directly below the BrainBase wordmark — never
   // replacing it (§7's own "do not replace BrainBase attribution
   // entirely"). Logo, if present, is a small inline glyph only; no
@@ -373,14 +395,14 @@ export function emailLayout(body: string, org?: EmailOrgPresentation | null) {
       <table width="520" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e4e4e7">
         <tr><td style="padding:24px 32px;background:#08090C;border-bottom:1px solid #1c1c2e">
           <span style="font-size:18px;font-weight:700;letter-spacing:.1em;color:#f4f4f5">
-            BRAINB<span style="color:#A78BFA">Λ</span>SE
+            ${wordmarkHtml}
           </span>${orgIdentity}
         </td></tr>
         <tr><td style="padding:36px 32px">
           ${body}
         </td></tr>
         <tr><td style="padding:16px 32px;background:#fafafa;border-top:1px solid #e4e4e7;font-size:12px;color:#aaa">
-          ${orgFooter}© ${new Date().getFullYear()} Brainbase · Adelaide SA Australia
+          ${orgFooter}${legalLine}
         </td></tr>
       </table>
     </td></tr>

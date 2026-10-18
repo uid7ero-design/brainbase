@@ -4,6 +4,7 @@ import { sendEmail, EmailSendError } from '@/lib/email';
 import { normaliseLifecycleEmailBranding } from '@/lib/organisations/branding';
 import { maskEmailForAudit } from './ticketEmail';
 import { LEASE_TIMEOUT_MINUTES, MAX_ATTEMPTS, RETRY_BACKOFF_MINUTES, type TicketEmailFailureReason } from './ticketEmailDelivery';
+import { resolveBuyerProduct, type BuyerProductContext } from './buyerProduct';
 import { buildLifecycleEmail, type LifecycleEmailData } from './lifecycleEmail';
 import { logNotificationScheduled, logNotificationSent, logNotificationFailed } from './auditLog';
 import type { NotificationType } from './notifications';
@@ -96,6 +97,8 @@ export type ClaimedNotificationForDelivery = {
   recipientEmail: string;
   idempotencyKey: string;
   data: LifecycleEmailData;
+  // event_orders.product_surface of the underlying order (authoritative).
+  productSurface: string;
 };
 
 type ClaimedNotificationRow = {
@@ -103,7 +106,7 @@ type ClaimedNotificationRow = {
   order_id: string; purchaser_name: string; order_status: string; payment_status: string; currency: string;
   total_cents: number; platform_fee_cents: number | null; fee_mode: string | null; fee_label: string | null;
   payment_total_cents: number | null; paid_at: string | Date | null; refunded_cents: number | null;
-  platform_fee_refunded_cents: number | null; refunded_at: string | Date | null; booking_token: string | null;
+  platform_fee_refunded_cents: number | null; refunded_at: string | Date | null; booking_token: string | null; product_surface: string | null;
   event_name: string; starts_at: string | Date; ends_at: string | Date; timezone: string; venue: string | null; description: string | null;
   organisation_name: string; organisation_settings: unknown;
   attendees: { name: string; ticket_token: string | null; session_name: string | null }[];
@@ -127,7 +130,7 @@ export async function readClaimedNotificationForDelivery(notificationId: string,
       n.id, n.organisation_id, n.notification_type, n.recipient_email, n.idempotency_key,
       eo.id AS order_id, eo.purchaser_name, eo.status AS order_status, eo.payment_status, eo.currency,
       eo.total_cents, eo.platform_fee_cents, eo.fee_mode, eo.fee_label, eo.payment_total_cents, eo.paid_at,
-      eo.refunded_cents, eo.platform_fee_refunded_cents, eo.refunded_at, eo.booking_token,
+      eo.refunded_cents, eo.platform_fee_refunded_cents, eo.refunded_at, eo.booking_token, eo.product_surface,
       e.name AS event_name, e.starts_at, e.ends_at, e.timezone, e.venue, e.description,
       o.name AS organisation_name, o.settings AS organisation_settings,
       COALESCE((
@@ -183,6 +186,7 @@ export async function readClaimedNotificationForDelivery(notificationId: string,
     recipientEmail: row.recipient_email,
     idempotencyKey: row.idempotency_key,
     data,
+    productSurface: row.product_surface ?? 'BRAINBASE',
   };
 }
 
@@ -295,9 +299,12 @@ type SendOutcome =
 // payload mismatch / ambiguous / not configured) — the HTML and the
 // plain-text alternative are sent together, under the row's own
 // deterministic idempotency key.
-async function sendLifecycleEmail(to: string, email: { subject: string; html: string; text: string }, idempotencyKey: string): Promise<SendOutcome> {
+async function sendLifecycleEmail(to: string, email: { subject: string; html: string; text: string }, idempotencyKey: string, product: BuyerProductContext): Promise<SendOutcome> {
   try {
-    const sent = await sendEmail({ to, subject: email.subject, html: email.html, text: email.text, idempotencyKey });
+    const sent = await sendEmail({
+      to, subject: email.subject, html: email.html, text: email.text, idempotencyKey,
+      ...(product.from ? { from: product.from } : {}),
+    });
     if (sent.status === 'not_configured') return { result: 'not_configured' };
     return { result: 'sent', providerMessageId: sent.id };
   } catch (err) {
@@ -330,9 +337,23 @@ export async function attemptNotificationDelivery(notificationId: string): Promi
       return { outcome: 'failed', reason: 'ambiguous_outcome', terminal: isTerminalFailure('ambiguous_outcome', claim.attemptCount) };
     }
 
-    const email = buildLifecycleEmail(claimed.data);
+    // Eve Phase 3.2 — identity from the underlying COMMITTED order, resolved
+    // fresh on every attempt (inline, retry and recovery alike). Eve with
+    // missing links/sender fails closed: no email, no BrainBase fallback, the
+    // ordinary retryable schedule.
+    const buyer = resolveBuyerProduct(claimed.productSurface);
+    if (!buyer.ok) {
+      await markNotificationFailed(notificationId, claim.claimId, 'not_configured', buyer.message);
+      const terminal = isTerminalFailure('not_configured', claim.attemptCount);
+      await logNotificationFailed({
+        organisationId: claimed.organisationId, orderId: claimed.orderId, notificationId, notificationType: claim.notificationType,
+        attemptCount: claim.attemptCount, terminal, reason: 'not_configured',
+      }).catch(err => console.error('[events] notification audit write failed (product identity unavailable)', err, { notificationId }));
+      return { outcome: 'failed', reason: 'not_configured', terminal };
+    }
+    const email = buildLifecycleEmail({ ...claimed.data, product: buyer.context });
     const recipientMasked = maskEmailForAudit(claimed.recipientEmail);
-    const sendResult = await sendLifecycleEmail(claimed.recipientEmail, email, claimed.idempotencyKey);
+    const sendResult = await sendLifecycleEmail(claimed.recipientEmail, email, claimed.idempotencyKey, buyer.context);
 
     if (sendResult.result === 'sent') {
       await markNotificationSent(notificationId, claim.claimId, sendResult.providerMessageId);
