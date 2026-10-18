@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { loadWorkbookWorksheets, WORKSHEET_CHECK_TIMEOUT_MS, type WorkbookWorksheet } from "@/lib/data-hub/client/workbookPreparation";
 import { checkWorkbookReviews, type ReviewCheck } from "@/lib/data-hub/client/workbookReviews";
 import styles from "../preparation/workbookPreparation.module.css";
+import { worksheetReviewHref } from "@/lib/data-hub/client/reviewNavigation";
 
 type State = "unchecked" | "excluded" | "unconfirmed" | "preparation" | "review" | "hold" | "reviewed";
 const labels: Record<State, string> = { unchecked: "Not checked", excluded: "Outside review checks", unconfirmed: "Status unconfirmed",
@@ -113,7 +114,7 @@ function WorkbookReviews({ batchId }: { batchId: string }) {
             {state === "excluded" ? <p>Hidden, empty, ineligible and skipped worksheets are excluded from review checks.</p> : null}
             {!busy && !row.excluded ? <div className={styles.links}>
               <Link href={`/data-hub/prepare/${encodeURIComponent(row.id)}`}>Open preparation for worksheet {row.index + 1}</Link>
-              {state !== "preparation" ? <Link href={`/data-hub/analysis/${encodeURIComponent(row.id)}`}>Open review for worksheet {row.index + 1}</Link> : null}
+              {state !== "preparation" ? <Link href={worksheetReviewHref(row.id, batchId)}>Open review for worksheet {row.index + 1}</Link> : null}
             </div> : null}
           </li>;
         })}</ul>}
