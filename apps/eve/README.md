@@ -53,8 +53,8 @@ Separate Vercel project (same Git repository):
 | Install command | default (`npm install` in `apps/eve`, own lockfile) |
 | Build command | default (`npm run build` → `next build --webpack`) |
 | Include files outside root | on (default) — needed for `packages/ticketing` |
-| Production deployments | **disabled** by `vercel.json` `ignoreCommand` (exit 0 when `VERCEL_ENV=production`) |
-| Domains | none configured |
+| Production deployments | allowed from Phase 3.6 Gate 1: `vercel.json` no longer carries an `ignoreCommand`. The Vercel PROJECT setting `commandForIgnoringBuildStep` (Settings → Git → Ignored Build Step) must also be cleared by the operator when this change is merged, or production builds stay skipped. Production serves **free events only** until the paid-event gate is approved. |
+| Domains | `eveevents.com.au` (Production origin, no redirect); `www.eveevents.com.au` redirects to it (308) |
 
 ### Environment variables
 
