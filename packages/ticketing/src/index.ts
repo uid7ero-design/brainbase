@@ -24,3 +24,4 @@ export * from './ticketEmailEligibility';
 export * from './validation';
 export * from './artworkConstants';
 export * from './sessionPolicy';
+export * from './paymentsView';

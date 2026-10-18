@@ -7,6 +7,11 @@ import {
 } from '@/lib/events/organiserReads';
 import { resolveAttendee, searchAttendees, type AttendeeIdentifier } from '@/lib/events/checkIn';
 import { confirmCheckInWithAudit, eventBelongsToOrganisation, undoCheckInWithAudit } from '@/lib/events/checkInOps';
+import { listPaymentOrders, getPaymentOrder, type PaymentOrderRow } from '@/lib/events/organiserPayments';
+import { getConnectAccountState, checkPaidTicketingEligibility } from '@/lib/events/stripeConnect';
+import {
+  feeModeOf, isPaymentState, organiserShareBeforeProcessingCents, paymentTotalCents, refundedAmountCents, summarisePayments,
+} from '@ticketing/core';
 import { authorizeTicketingApiRequest, type TicketingContext } from './authorize';
 import { isIdentifier, readBodyText, ticketingJson } from './http';
 
@@ -22,7 +27,9 @@ import { isIdentifier, readBodyText, ticketingJson } from './http';
 // Minimum roles mirror the BrainBase Events routes: reads and check-in
 // resolve/search are viewer; check-in confirm and undo are manager.
 // Deliberately absent: event/ticket-type editing, refunds, cancellation,
-// retry, resend, export and payments onboarding.
+// retry, resend, export and payments onboarding. Payments are READ-ONLY
+// (GET only): the two payment handlers below read committed order snapshots
+// and cached account columns — no provider call and no write.
 
 type Json = Record<string, unknown>;
 
@@ -235,5 +242,116 @@ export function handleOrganiserCheckIn(req: Request, id: string, action: 'resolv
     const result = await confirmCheckInWithAudit(ctx.organisationId, id, identifier, ctx.userId);
     if (!result.ok) return failure(result.reason);
     return ticketingJson({ first: result.first, attendee: result.attendee }, result.first ? 200 : 409);
+  });
+}
+
+// ── Payments (read-only) ────────────────────────────────────────────────
+
+const PAYMENT_LIST_CAP = 200;
+
+function iso(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const d = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+// Allow-listed projection of one payment-bearing order. Money fields are the
+// order's own snapshot (never recomputed from a fee policy); no Stripe id, no
+// ticket or booking token, no answers, no CRM id.
+function paymentView(r: PaymentOrderRow): Json {
+  const snapshot = {
+    payment_status: r.payment_status,
+    total_cents: r.total_cents,
+    platform_fee_cents: r.platform_fee_cents,
+    fee_mode: r.fee_mode,
+    payment_total_cents: r.payment_total_cents,
+    refunded_cents: r.refunded_cents,
+  };
+  return {
+    id: r.id,
+    event: { id: r.event_id, name: r.event_name, timezone: r.event_timezone },
+    purchaser_name: r.purchaser_name,
+    purchaser_email: r.purchaser_email,
+    order_status: r.status,
+    payment_state: r.payment_status,
+    currency: (r.currency ?? 'AUD').toUpperCase(),
+    created_at: iso(r.created_at),
+    paid_at: iso(r.paid_at),
+    refunded_at: iso(r.refunded_at),
+    ticket_total_cents: r.total_cents,
+    discount_cents: r.discount_cents ?? 0,
+    platform_fee_cents: r.platform_fee_cents ?? 0,
+    fee_mode: feeModeOf(snapshot),
+    fee_label: r.fee_label,
+    payment_total_cents: paymentTotalCents(snapshot),
+    refunded_amount_cents: refundedAmountCents(snapshot),
+    platform_fee_refunded_cents: r.payment_status === 'REFUNDED' ? (r.platform_fee_refunded_cents ?? null) : null,
+    organiser_share_before_processing_cents: organiserShareBeforeProcessingCents(snapshot),
+  };
+}
+
+// Cached Connect state only (organisations.stripe_* columns, as the paid-
+// checkout gate reads them) — no live Stripe call. The connected account id
+// and every other provider identifier are deliberately NOT projected.
+async function connectView(organisationId: string): Promise<Json | null> {
+  try {
+    const state = await getConnectAccountState(organisationId);
+    const eligibility = await checkPaidTicketingEligibility(organisationId);
+    return {
+      status: state.status,
+      connected: state.accountId !== null,
+      charges_enabled: state.chargesEnabled,
+      payouts_enabled: state.payoutsEnabled,
+      details_submitted: state.detailsSubmitted,
+      eligible_for_paid_ticketing: eligibility.eligible,
+      connected_at: state.connectedAt,
+      last_synced_at: state.lastSyncedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// GET /payments?status=&event= — viewer+. The summary covers every
+// payment-bearing order of the organisation (optionally one event); the list
+// applies the status filter and is capped.
+export function handleOrganiserPayments(req: Request): Promise<Response> {
+  return asOrganiser(req, 'viewer', async ctx => {
+    const params = new URL(req.url).searchParams;
+    const status = params.get('status');
+    const event = params.get('event');
+    if (status !== null && status !== '' && !isPaymentState(status)) return ticketingJson({ error: 'Invalid status filter.' }, 400);
+    if (event !== null && event !== '' && !isIdentifier(event)) return ticketingJson({ error: 'Invalid event filter.' }, 400);
+
+    const { rows, truncated } = await listPaymentOrders(ctx.organisationId, event || null);
+    const filtered = status ? rows.filter(r => r.payment_status === status) : rows;
+    return ticketingJson({
+      organisation: organisationOf(ctx),
+      connect: await connectView(ctx.organisationId),
+      filter: { status: status || null, event: event || null },
+      summary: { currencies: summarisePayments(rows), complete: !truncated },
+      orders: filtered.slice(0, PAYMENT_LIST_CAP).map(paymentView),
+      orders_truncated: filtered.length > PAYMENT_LIST_CAP,
+    });
+  });
+}
+
+// GET /payments/[orderId] — viewer+. An order of another tenant, a free
+// order and an unknown id are all the same 404.
+export function handleOrganiserPayment(req: Request, orderId: string): Promise<Response> {
+  return asOrganiser(req, 'viewer', async ctx => {
+    if (!isIdentifier(orderId)) return notFound();
+    const found = await getPaymentOrder(ctx.organisationId, orderId);
+    if (!found) return notFound();
+    return ticketingJson({
+      organisation: organisationOf(ctx),
+      order: paymentView(found.order),
+      lines: found.lines.map(l => ({
+        description: l.description ?? 'Ticket',
+        quantity: l.quantity,
+        unit_price_cents: l.unit_price_cents,
+        discount_cents: l.discount_cents ?? 0,
+      })),
+    });
   });
 }

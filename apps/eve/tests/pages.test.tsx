@@ -29,7 +29,6 @@ import EventsPage from '@/app/(organiser)/organiser/events/page';
 import OrdersPage from '@/app/(organiser)/organiser/orders/page';
 import AttendeesPage from '@/app/(organiser)/organiser/attendees/page';
 import CheckInPage from '@/app/(organiser)/organiser/check-in/page';
-import PaymentsPage from '@/app/(organiser)/organiser/payments/page';
 import SettingsPage from '@/app/(organiser)/organiser/settings/page';
 import { ORGANISER_NAV } from '@/components/organiser/OrganiserShell';
 import { CheckInConsole } from '@/components/organiser/CheckInConsole';
@@ -250,9 +249,9 @@ describe('organiser pages', () => {
     expect(container.querySelector('table')).toBeNull();
   });
 
-  it('payments and settings stay explicitly unavailable', async () => {
+  it('settings stays explicitly unavailable (payments is a real read-only page: see payments.test.tsx)', async () => {
     stage();
-    for (const page of [PaymentsPage(), SettingsPage()]) {
+    for (const page of [SettingsPage()]) {
       const { container, unmount } = await renderPage(page);
       expect(container.querySelector('[data-eve-unavailable="true"]')).not.toBeNull();
       unmount();
