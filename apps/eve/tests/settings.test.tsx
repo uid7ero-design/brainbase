@@ -191,6 +191,13 @@ describe('organiser Settings page', () => {
     await expect(SettingsPage({ searchParams: Promise.resolve({}) })).rejects.toThrow(/could not be reached/);
   });
 
+  it('a malformed event id (API 400) also falls back to the organisation-level view instead of an error page', async () => {
+    gw.getSettings.mockResolvedValueOnce({ status: 'error', httpStatus: 400, message: 'Invalid event.', body: {} }).mockResolvedValueOnce(settings());
+    await page({ event: 'a b' });
+    expect(gw.getSettings).toHaveBeenNthCalledWith(2, 'tok', {});
+    expect(screen.getByTestId('fee-none')).toBeInTheDocument();
+  });
+
   it('an event id that is not this organisation\'s falls back to the organisation-level view', async () => {
     gw.getSettings.mockResolvedValueOnce({ status: 'not_found' }).mockResolvedValueOnce(settings());
     await page({ event: 'foreign' });

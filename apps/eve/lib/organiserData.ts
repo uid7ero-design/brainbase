@@ -33,8 +33,8 @@ export async function loadPayments(token: string, filter: { status?: string; eve
 
 export async function loadSettings(token: string, filter: { event?: string }): Promise<OrganiserSettings> {
   const r = await getTicketingGateway().getSettings(token, filter);
-  if (r.status === 'not_found') {
-    // An event id that is not this organisation's: show the organisation-level answer instead.
+  if (r.status === 'not_found' || (r.status === 'error' && r.httpStatus === 400)) {
+    // An event id that is not this organisation's (or is malformed): show the organisation-level answer instead.
     const org = await getTicketingGateway().getSettings(token, {});
     if (org.status !== 'ok') failOrRedirect(org.status);
     return org.data;
