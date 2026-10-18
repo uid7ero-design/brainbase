@@ -11,7 +11,7 @@ import { freeRegistrationResultResponse } from '@/lib/events/freeRegistrationRes
 import { registerFreeOrder } from '@/lib/events/services/freeRegistration';
 import { generateTicketQrSvg } from '@/lib/events/qr';
 import { syncEventOrderContact, recordEventBookingActivity } from '@/lib/crm/eventSync';
-import { checkRateLimit } from '@/lib/rateLimit';
+import { LIMITS, limit } from './rateLimit';
 import { POST as publicQuote } from '@/app/api/public/events/[organisationSlug]/[eventSlug]/quote/route';
 import { GET as publicCheckoutStatus } from '@/app/api/public/events/[organisationSlug]/[eventSlug]/checkout/status/route';
 import { checkTicketingGate } from './gate';
@@ -62,6 +62,11 @@ export async function handleTicketingQuote(req: Request, params: EventParams): P
   const gate = checkTicketingGate(req);
   if (!gate.ok) return gate.response;
   if (!validEventParams(params)) return notAvailable();
+  // Shared (distributed) budget per buyer address and event; checked before the
+  // quote is computed. Quotes have no side effects.
+  if (!(await limit(LIMITS.publicQuote, [params.organisationSlug, params.eventSlug, ticketingClientIp(req)])).allowed) {
+    return ticketingJson({ error: 'Too many requests. Please try again later.' }, 429);
+  }
   const body = await readBodyText(req);
   if (body === null) return ticketingJson({ error: 'Invalid request body.' }, 400);
   const res = await publicQuote(delegatedRequest(req, eventPath(params, '/quote'), { method: 'POST', body }), {
@@ -79,7 +84,8 @@ export async function handleTicketingRegister(req: Request, params: EventParams)
   // Same limiter key as the public register route: one budget per buyer
   // address and event, whichever product they register through.
   const ip = ticketingClientIp(req);
-  if (!checkRateLimit(`public-events-register:${organisationSlug}:${eventSlug}:${ip}`, 10, 60 * 60_000)) {
+  // Checked before anything is read, validated or created: a 429 has no side effect.
+  if (!(await limit(LIMITS.freeRegistration, [organisationSlug, eventSlug, ip], `public-events-register:${organisationSlug}:${eventSlug}:${ip}`)).allowed) {
     return ticketingJson({ error: 'Too many registration attempts. Please try again later.' }, 429);
   }
 
@@ -151,7 +157,8 @@ export async function handleTicketingCheckout(req: Request, params: EventParams)
   // Same limiter key as the public checkout route: one budget per buyer
   // address and event, whichever product they check out through.
   const ip = ticketingClientIp(req);
-  if (!checkRateLimit(`public-events-checkout:${organisationSlug}:${eventSlug}:${ip}`, 10, 60 * 60_000)) {
+  // Checked before any reservation, order or Stripe call: a 429 has no side effect.
+  if (!(await limit(LIMITS.paidCheckout, [organisationSlug, eventSlug, ip], `public-events-checkout:${organisationSlug}:${eventSlug}:${ip}`)).allowed) {
     return ticketingJson({ error: 'Too many checkout attempts. Please try again later.' }, 429);
   }
 
@@ -200,8 +207,9 @@ export async function handleTicketingCheckout(req: Request, params: EventParams)
 }
 
 // Same per-IP budget and key as the public ticket API route.
-function lookupAllowed(req: Request): boolean {
-  return checkRateLimit(`public-ticket-lookup:${ticketingClientIp(req)}`, 60, 60 * 60_000);
+async function lookupAllowed(req: Request): Promise<boolean> {
+  const ip = ticketingClientIp(req);
+  return (await limit(LIMITS.ticketLookup, [ip], `public-ticket-lookup:${ip}`)).allowed;
 }
 
 // The QR encodes the product's own ticket link (the same value its check-in
@@ -220,7 +228,7 @@ async function productTicketQr(ticketToken: string): Promise<string | null> {
 export async function handleTicketingTicket(req: Request, token: string): Promise<Response> {
   const gate = checkTicketingGate(req);
   if (!gate.ok) return gate.response;
-  if (!lookupAllowed(req)) return ticketingJson({ error: 'Too many requests. Please try again later.' }, 429);
+  if (!(await lookupAllowed(req))) return ticketingJson({ error: 'Too many requests. Please try again later.' }, 429);
   if (!isIdentifier(token)) return ticketingJson({ error: 'Ticket not found.' }, 404);
   const result = await getPublicTicketDetail(token);
   if (!result.ok) return ticketingJson({ error: 'Ticket not found.' }, 404);
@@ -230,7 +238,7 @@ export async function handleTicketingTicket(req: Request, token: string): Promis
 export async function handleTicketingBooking(req: Request, bookingToken: string): Promise<Response> {
   const gate = checkTicketingGate(req);
   if (!gate.ok) return gate.response;
-  if (!lookupAllowed(req)) return ticketingJson({ error: 'Too many requests. Please try again later.' }, 429);
+  if (!(await lookupAllowed(req))) return ticketingJson({ error: 'Too many requests. Please try again later.' }, 429);
   if (!isIdentifier(bookingToken)) return ticketingJson({ error: 'Booking not found.' }, 404);
   const result = await getPublicBookingDetail(bookingToken);
   if (!result.ok) return ticketingJson({ error: 'Booking not found.' }, 404);

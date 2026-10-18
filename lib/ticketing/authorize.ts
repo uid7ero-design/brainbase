@@ -6,6 +6,7 @@ import { checkTicketingGate, TICKETING_SESSION_HEADER } from './gate';
 import { verifyTicketingSession } from './session';
 
 export type TicketingContext = {
+  sessionId: string;
   userId: string;
   organisationId: string;
   homeOrganisationId: string;
@@ -28,7 +29,9 @@ const unavailable = () =>
 // Reloads everything authoritative from the database on every call; the token
 // contributes only (userId, organisationId) as a pointer. Fails closed.
 //   1. server-to-server gate (secret, no browser origin)
-//   2. Eve session token (own secret, issuer, audience, expiry)
+//   2. Eve session token (own secret, issuer, audience, expiry, jti), and its
+//      ticketing_sessions row is live (same user + organisation, not revoked,
+//      not expired) — read in the SAME query as the user
 //   3. user exists and is ACTIVE (strict — missing status denies)
 //   4. tenant relationship: non-super_admin must still belong to the token's
 //      organisation; super_admin may act in any organisation that passes 5
@@ -48,9 +51,17 @@ export async function authorizeTicketingApiRequest(
   let org: Record<string, unknown> | undefined;
   try {
     user = (await sql`
-      SELECT id, organisation_id, role, status, name FROM users WHERE id = ${claims.userId} LIMIT 1
+      SELECT id, organisation_id, role, status, name,
+        EXISTS (
+          SELECT 1 FROM ticketing_sessions s
+          WHERE s.id = ${claims.jti} AND s.user_id = users.id AND s.organisation_id = ${claims.organisationId}
+            AND s.revoked_at IS NULL AND s.expires_at > NOW()
+        ) AS session_live
+      FROM users WHERE id = ${claims.userId} LIMIT 1
     `)[0];
     if (!user) return { ok: false, response: unauthorized() };
+    // A revoked, expired, unknown or mismatched session is dead whatever the token says.
+    if (user.session_live !== true) return { ok: false, response: unauthorized() };
     if (String(user.status ?? '').toUpperCase() !== 'ACTIVE') return { ok: false, response: unauthorized() };
 
     const role = String(user.role ?? '').toLowerCase() as Role;
@@ -78,6 +89,7 @@ export async function authorizeTicketingApiRequest(
   return {
     ok: true,
     context: {
+      sessionId: claims.jti,
       userId: claims.userId,
       organisationId: claims.organisationId,
       homeOrganisationId: user.organisation_id as string,

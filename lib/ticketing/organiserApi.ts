@@ -16,6 +16,7 @@ import {
   feeModeOf, isPaymentState, organiserShareBeforeProcessingCents, paymentTotalCents, refundedAmountCents, summarisePayments,
 } from '@ticketing/core';
 import { authorizeTicketingApiRequest, type TicketingContext } from './authorize';
+import { LIMITS, limit, type LimitPolicy } from './rateLimit';
 import { isIdentifier, readBodyText, ticketingJson } from './http';
 
 // Organiser half of the ticketing API. Every handler:
@@ -36,14 +37,27 @@ import { isIdentifier, readBodyText, ticketingJson } from './http';
 
 type Json = Record<string, unknown>;
 
+// Identity for the limiter comes from the VERIFIED context only (never a
+// request value). `eventId` narrows the door classes to one event. A limited
+// request is refused before the handler reads or writes anything.
 async function asOrganiser(
   req: Request,
   minRole: Role,
   fn: (ctx: TicketingContext) => Promise<Response>,
+  opts: { policy?: LimitPolicy; eventId?: string } = {},
 ): Promise<Response> {
   const auth = await authorizeTicketingApiRequest(req, minRole);
   if (!auth.ok) return auth.response;
-  return fn(auth.context);
+  const ctx = auth.context;
+  const policy = opts.policy ?? LIMITS.organiserRead;
+  const dims = opts.eventId ? [ctx.organisationId, ctx.userId, opts.eventId] : [ctx.organisationId, ctx.userId];
+  const decision = await limit(policy, dims);
+  if (!decision.allowed) {
+    return decision.reason === 'UNAVAILABLE'
+      ? ticketingJson({ error: 'Unable to verify request limits right now.' }, 503)
+      : ticketingJson({ error: 'Too many requests. Please slow down.' }, 429);
+  }
+  return fn(ctx);
 }
 
 function pick(row: unknown, keys: readonly string[]): Json {
@@ -182,7 +196,7 @@ export function handleOrganiserCheckInSearch(req: Request, id: string): Promise<
     if (!isIdentifier(id) || !(await eventBelongsToOrganisation(ctx.organisationId, id))) return notFound();
     const q = (new URL(req.url).searchParams.get('q') ?? '').slice(0, 200);
     return ticketingJson({ attendees: await searchAttendees(ctx.organisationId, id, q) });
-  });
+  }, { policy: LIMITS.checkInLookup, eventId: isIdentifier(id) ? id : 'invalid' });
 }
 
 function parseIdentifier(body: { ticket_token?: unknown; attendee_id?: unknown }): AttendeeIdentifier | null {
@@ -245,7 +259,7 @@ export function handleOrganiserCheckIn(req: Request, id: string, action: 'resolv
     const result = await confirmCheckInWithAudit(ctx.organisationId, id, identifier, ctx.userId);
     if (!result.ok) return failure(result.reason);
     return ticketingJson({ first: result.first, attendee: result.attendee }, result.first ? 200 : 409);
-  });
+  }, { policy: action === 'resolve' ? LIMITS.checkInLookup : LIMITS.checkInMutation, eventId: isIdentifier(id) ? id : 'invalid' });
 }
 
 // ── Payments (read-only) ────────────────────────────────────────────────

@@ -1,12 +1,12 @@
 import 'server-only';
 import bcrypt from 'bcryptjs';
 import sql from '@/lib/db';
-import { checkRateLimit, resetRateLimit } from '@/lib/rateLimit';
+import { LIMITS, limit, resetLimit } from './rateLimit';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
 import type { Role } from '@/lib/session';
 import { checkTicketingGate, TICKETING_SESSION_HEADER } from './gate';
 import { ticketingClientIp } from './http';
-import { issueTicketingSession, verifyTicketingSession } from './session';
+import { issueTicketingSession, pruneTicketingSessions, revokeTicketingSession, verifyTicketingSession } from './session';
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
 const json = (body: unknown, status: number) => Response.json(body, { status, headers: NO_STORE });
@@ -62,10 +62,16 @@ export async function handleTicketingLogin(req: Request): Promise<Response> {
   const requestedOrg = typeof body?.organisationId === 'string' ? body.organisationId : null;
   if (!username || username.length > 254 || !password || password.length > 1024) return INVALID();
 
-  const ipKey = `ticketing-login:ip:${ticketingClientIp(req)}`;
-  const userKey = `ticketing-login:user:${username}`;
-  if (!checkRateLimit(ipKey, 30) || !checkRateLimit(userKey, 10)) {
-    return json({ error: 'Too many attempts. Try again later.' }, 429);
+  // Shared across instances; the address and the username are hashed into the
+  // stored key. The limiter being unreachable DENIES sign-in (fail closed).
+  const clientIp = ticketingClientIp(req);
+  const ipDecision = await limit(LIMITS.loginIp, [clientIp]);
+  const userDecision = ipDecision.allowed ? await limit(LIMITS.loginUser, [username]) : ipDecision;
+  if (!ipDecision.allowed || !userDecision.allowed) {
+    const unavailable = (!ipDecision.allowed && ipDecision.reason === 'UNAVAILABLE') || (!userDecision.allowed && userDecision.reason === 'UNAVAILABLE');
+    return unavailable
+      ? json({ error: 'Unable to sign in right now.' }, 503)
+      : json({ error: 'Too many attempts. Try again later.' }, 429);
   }
 
   let user: Record<string, unknown> | undefined;
@@ -108,9 +114,10 @@ export async function handleTicketingLogin(req: Request): Promise<Response> {
   }
 
   const issued = await issueTicketingSession(user.id as string, organisationId);
-  if (!issued) return json({ error: 'Ticketing sessions are not configured.' }, 503);
+  if (!issued) return json({ error: 'Ticketing sessions are unavailable.' }, 503);
 
-  resetRateLimit(userKey);
+  await resetLimit(LIMITS.loginUser, [username]);
+  void pruneTicketingSessions();
   return json(
     {
       token: issued.token,
@@ -128,14 +135,22 @@ export async function handleTicketingLogin(req: Request): Promise<Response> {
 // an organisation that has lost the capability.
 export async function requireActiveSuperAdmin(
   req: Request,
-): Promise<{ ok: true; userId: string } | { ok: false; response: Response }> {
+): Promise<{ ok: true; userId: string; sessionId: string } | { ok: false; response: Response }> {
   const gate = checkTicketingGate(req);
   if (!gate.ok) return gate;
   const claims = await verifyTicketingSession(req.headers.get(TICKETING_SESSION_HEADER));
   if (!claims) return { ok: false, response: json({ error: 'Unauthorized' }, 401) };
   try {
-    const user = (await sql`SELECT role, status FROM users WHERE id = ${claims.userId} LIMIT 1`)[0];
-    if (!user || String(user.status ?? '').toUpperCase() !== 'ACTIVE') {
+    const user = (await sql`
+      SELECT role, status,
+        EXISTS (
+          SELECT 1 FROM ticketing_sessions s
+          WHERE s.id = ${claims.jti} AND s.user_id = users.id AND s.organisation_id = ${claims.organisationId}
+            AND s.revoked_at IS NULL AND s.expires_at > NOW()
+        ) AS session_live
+      FROM users WHERE id = ${claims.userId} LIMIT 1
+    `)[0];
+    if (!user || user.session_live !== true || String(user.status ?? '').toUpperCase() !== 'ACTIVE') {
       return { ok: false, response: json({ error: 'Unauthorized' }, 401) };
     }
     if (String(user.role ?? '').toLowerCase() !== 'super_admin') {
@@ -144,7 +159,7 @@ export async function requireActiveSuperAdmin(
   } catch {
     return { ok: false, response: json({ error: 'Unable to verify access.' }, 503) };
   }
-  return { ok: true, userId: claims.userId };
+  return { ok: true, userId: claims.userId, sessionId: claims.jti };
 }
 
 export async function handleOrganisationSwitch(req: Request): Promise<Response> {
@@ -158,8 +173,11 @@ export async function handleOrganisationSwitch(req: Request): Promise<Response> 
   } catch {
     return json({ error: 'Unable to verify access.' }, 503);
   }
-  const issued = await issueTicketingSession(guard.userId, target);
-  if (!issued) return json({ error: 'Ticketing sessions are not configured.' }, 503);
+  // The replacement session is written and the previous one revoked in ONE
+  // transaction; the new token is signed only after it commits, so the old
+  // organisation's authority cannot survive the switch.
+  const issued = await issueTicketingSession(guard.userId, target, { replaceSessionId: guard.sessionId });
+  if (!issued) return json({ error: 'Ticketing sessions are unavailable.' }, 503);
   return json({ token: issued.token, expiresAt: issued.expiresAt, organisationId: target }, 200);
 }
 
@@ -171,4 +189,23 @@ export async function handleOrganisationList(req: Request): Promise<Response> {
   } catch {
     return json({ error: 'Unable to verify access.' }, 503);
   }
+}
+
+// Logout: the presented session is revoked server-side so the token is dead
+// immediately, wherever a copy of it might exist. Idempotent: a repeated,
+// expired, unknown or malformed token is a successful no-op. A database error
+// is reported (503) so the caller never believes a session was revoked when it
+// was not.
+export async function handleTicketingLogout(req: Request): Promise<Response> {
+  const gate = checkTicketingGate(req);
+  if (!gate.ok) return gate.response;
+  const claims = await verifyTicketingSession(req.headers.get(TICKETING_SESSION_HEADER));
+  if (claims) {
+    try {
+      await revokeTicketingSession(claims.jti, claims.userId, 'LOGOUT');
+    } catch {
+      return json({ error: 'Unable to confirm sign-out.', clearCookie: true }, 503);
+    }
+  }
+  return json({ ok: true, clearCookie: true }, 200);
 }
