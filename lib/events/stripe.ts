@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import sql from '@/lib/db';
 import { generateTicketToken, generateBookingToken } from './ticketToken';
 import { recordEventBookingActivityForOrder } from '@/lib/crm/eventSync';
+import type { ProductSurface } from '@/lib/events/productSurface';
 
 // ── Architecture ─────────────────────────────────────────────────────
 //
@@ -102,6 +103,11 @@ export type CreateCheckoutSessionInput = {
   // is charged the full amount and the fee is transferred to the
   // platform's balance — and must never exceed the session's own total.
   applicationFeeCents?: number;
+  // Phase 3.1 — the order's committed product identity
+  // (event_orders.product_surface), sent as informational metadata for
+  // Stripe-side reconciliation ONLY. The webhook never reads it; the
+  // database row is the authority.
+  productSurface?: ProductSurface;
 };
 
 // Server-calculated price/quantity/currency only — every value passed
@@ -152,6 +158,7 @@ export async function createCheckoutSession(input: CreateCheckoutSessionInput): 
         event_order_id: input.orderId,
         organisation_id: input.organisationId,
         event_id: input.eventId,
+        ...(input.productSurface ? { product_surface: input.productSurface } : {}),
       },
       expires_at: Math.floor(Date.now() / 1000) + RESERVATION_WINDOW_SECONDS,
       success_url: input.successUrl,

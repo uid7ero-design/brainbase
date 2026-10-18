@@ -239,7 +239,9 @@ describe('ORCHESTRATION INVOCATION — attemptAutomaticTicketEmail', () => {
     // In the route: CRM handling is exactly that hook, and the response
     // is only built from the service's (post-attempt) result.
     expect(ROUTE_SOURCE.indexOf('recordEventBookingActivity(')).toBeGreaterThan(ROUTE_SOURCE.indexOf('onCommitted: async (orderId) => {'))
-    expect(ROUTE_SOURCE).toMatch(/confirmation_reference: result\.orderId/)
+    // (Phase 3.1: the wire mapping lives in the shared response module.)
+    expect(ROUTE_SOURCE).toMatch(/freeRegistrationResultResponse\(result\)/)
+    expect(stripComments(fs.readFileSync(path.join(process.cwd(), 'lib/events/freeRegistrationResponse.ts'), 'utf-8'))).toMatch(/confirmation_reference: result\.orderId/)
     expect(ROUTE_SOURCE).not.toMatch(/attemptAutomaticTicketEmail/)
   })
 

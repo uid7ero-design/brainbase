@@ -638,7 +638,7 @@ describe('paid checkout with a promotion code — snapshot, lock tier, gate pred
   it("reserves the brief's cart at $198: locks the code last, gates on the D3 redemption count, writes discount_cents/promotion snapshot/per-line discounts, sends net line items summing to total_cents", async () => {
     resolver = combine(ttRowsResolver([ADULT, CHILD, VIP]), promoResolver, stampResolver, writeBackResolver)
     transactionFinalResult = [{ id: 'att-1', order_id: 'order-1' }]
-    const res = await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor(ITEMS, { promotion_code: 'early20' }), buildReturnUrls: URLS })
+    const res = await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor(ITEMS, { promotion_code: 'early20' }), buildReturnUrls: URLS })
     expect(res).toEqual({ ok: true, checkoutUrl: 'https://checkout.stripe.test/1' })
 
     // Code resolved by (organisation, event, normalised code) with active/window filters.
@@ -657,7 +657,7 @@ describe('paid checkout with a promotion code — snapshot, lock tier, gate pred
     expect(gate).toContain('NOT EXISTS (SELECT 1 FROM cart_tt WHERE cart_tt.sold + cart_tt.quantity > cart_tt.capacity)')
     expect(gate).toContain(REDEMPTION_COUNTS_PREDICATE_SQL)
     expect(gate).toMatch(/\) \+ 1 <= pc\.max_redemptions\)/)
-    expect(gate).toMatch(/INSERT INTO event_orders \([\s\S]*discount_cents, promotion_code_id, promotion_code_snapshot, access_code_id, access_code_snapshot\s*\n\s*\)/)
+    expect(gate).toMatch(/INSERT INTO event_orders \([\s\S]*discount_cents, promotion_code_id, promotion_code_snapshot, access_code_id, access_code_snapshot,\s*\n\s*product_surface\s*\n\s*\)/)
     expect(gate).toMatch(/INSERT INTO event_order_items \(organisation_id, order_id, event_id, ticket_type_id, event_session_id, quantity, unit_price_cents, discount_cents\)/)
     const gateIdx = findCall(/INSERT INTO event_orders/)
     const args = callArgs(gateIdx)
@@ -677,7 +677,7 @@ describe('paid checkout with a promotion code — snapshot, lock tier, gate pred
   it('without a promotion: no code lock, discounts all 0, total = gross, Stripe line items exactly as Phase 2 (quantity preserved, no description) — G', async () => {
     resolver = combine(ttRowsResolver([ADULT, CHILD, VIP]), stampResolver, writeBackResolver)
     transactionFinalResult = [{ id: 'att-1', order_id: 'order-1' }]
-    const res = await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor(ITEMS), buildReturnUrls: URLS })
+    const res = await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor(ITEMS), buildReturnUrls: URLS })
     expect(res.ok).toBe(true)
     expect(allTexts().some(t => /FROM event_promotion_codes WHERE id = .* FOR UPDATE/.test(t))).toBe(false)
     expect(allTexts().some(t => /FROM event_promotion_codes pc\s*\n\s*WHERE pc\.organisation_id/.test(t))).toBe(false)
@@ -696,9 +696,9 @@ describe('paid checkout with a promotion code — snapshot, lock tier, gate pred
 
   it('an unknown / inactive / other-event code -> PROMOTION_INVALID before any reservation; 100% -> PROMOTION_TOTAL_TOO_LOW; both leave no transaction', async () => {
     resolver = ttRowsResolver([ADULT, CHILD, VIP])
-    expect(await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor(ITEMS, { promotion_code: 'NOPE' }), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'PROMOTION_INVALID' })
+    expect(await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor(ITEMS, { promotion_code: 'NOPE' }), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'PROMOTION_INVALID' })
     resolver = combine(ttRowsResolver([ADULT, CHILD, VIP]), text => (/FROM event_promotion_codes pc/.test(text) ? [{ ...PROMO_ROW, discount_value: 100 }] : undefined))
-    expect(await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor(ITEMS, { promotion_code: 'EARLY20' }), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'PROMOTION_TOTAL_TOO_LOW' })
+    expect(await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor(ITEMS, { promotion_code: 'EARLY20' }), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'PROMOTION_TOTAL_TOO_LOW' })
     expect(transactionMock).not.toHaveBeenCalled()
     expect(createCheckoutSessionMock).not.toHaveBeenCalled()
   })
@@ -706,18 +706,18 @@ describe('paid checkout with a promotion code — snapshot, lock tier, gate pred
   it('a zero-row gate with a promotion is diagnosed read-only: PROMOTION_UNAVAILABLE when the code no longer has room, CAPACITY_UNAVAILABLE otherwise', async () => {
     resolver = combine(ttRowsResolver([ADULT]), promoResolver, text => (/SELECT 1 AS ok FROM event_promotion_codes pc/.test(text) ? [] : undefined))
     transactionFinalResult = []
-    expect(await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor([ITEMS[0]], { promotion_code: 'EARLY20' }), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'PROMOTION_UNAVAILABLE' })
+    expect(await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor([ITEMS[0]], { promotion_code: 'EARLY20' }), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'PROMOTION_UNAVAILABLE' })
     const check = callText(findCall(/SELECT 1 AS ok FROM event_promotion_codes pc/))
     expect(check).toContain(REDEMPTION_COUNTS_PREDICATE_SQL)
     expect(check).not.toMatch(/INSERT|UPDATE|FOR UPDATE/)
     resolver = combine(ttRowsResolver([ADULT]), promoResolver, text => (/SELECT 1 AS ok FROM event_promotion_codes pc/.test(text) ? [{ ok: 1 }] : undefined))
-    expect(await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor([ITEMS[0]], { promotion_code: 'EARLY20' }), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'CAPACITY_UNAVAILABLE' })
+    expect(await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor([ITEMS[0]], { promotion_code: 'EARLY20' }), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'CAPACITY_UNAVAILABLE' })
     expect(createCheckoutSessionMock).not.toHaveBeenCalled()
   })
 
   it('an access code is resolved server-side; an invalid one is ACCESS_CODE_INVALID; a valid one is snapshotted onto the order and re-asserted inside the gate', async () => {
     resolver = combine(ttRowsResolver([{ ...VIP, requires_access_code: true }]), text => (/FROM event_access_codes ac\s*\n\s*WHERE ac\.organisation_id/.test(text) ? [] : undefined))
-    expect(await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor([ITEMS[2]], { access_code: 'WRONGCODE1' }), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'ACCESS_CODE_INVALID' })
+    expect(await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor([ITEMS[2]], { access_code: 'WRONGCODE1' }), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'ACCESS_CODE_INVALID' })
     expect(transactionMock).not.toHaveBeenCalled()
     sqlMock.mockClear()
 
@@ -727,7 +727,7 @@ describe('paid checkout with a promotion code — snapshot, lock tier, gate pred
       stampResolver, writeBackResolver,
     )
     transactionFinalResult = [{ id: 'att-1', order_id: 'order-1' }]
-    const res = await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor([ITEMS[2]], { access_code: 'members2026' }), buildReturnUrls: URLS })
+    const res = await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor([ITEMS[2]], { access_code: 'members2026' }), buildReturnUrls: URLS })
     expect(res.ok).toBe(true)
     const accessIdx = findCall(/FROM event_access_codes ac\s*\n\s*WHERE ac\.organisation_id/)
     expect(callArgs(accessIdx)).toEqual(['org-a', 'event-1', 'MEMBERS2026'])
@@ -739,7 +739,7 @@ describe('paid checkout with a promotion code — snapshot, lock tier, gate pred
 
   it('a restricted type without a code never reaches the database write path (ACCESS_CODE_REQUIRED from the pre-check)', async () => {
     resolver = ttRowsResolver([{ ...VIP, requires_access_code: true }])
-    expect(await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: validatedFor([ITEMS[2]]), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'ACCESS_CODE_REQUIRED' })
+    expect(await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor([ITEMS[2]]), buildReturnUrls: URLS })).toEqual({ ok: false, code: 'ACCESS_CODE_REQUIRED' })
     expect(transactionMock).not.toHaveBeenCalled()
   })
 
@@ -756,7 +756,7 @@ describe('paid checkout with a promotion code — snapshot, lock tier, gate pred
 describe('free registration — access codes apply, promotion codes do not; the gate re-asserts purchasable', () => {
   it('a promotion code on a free cart is PROMOTION_NOT_APPLICABLE (never silently ignored, never a redemption)', async () => {
     resolver = ttRowsResolver([FREE_TT])
-    expect(await registerFreeOrder({ organisationId: 'org-a', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-free', quantity: 1 }], { promotion_code: 'EARLY20' }) })).toEqual({ ok: false, code: 'PROMOTION_NOT_APPLICABLE' })
+    expect(await registerFreeOrder({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-free', quantity: 1 }], { promotion_code: 'EARLY20' }) })).toEqual({ ok: false, code: 'PROMOTION_NOT_APPLICABLE' })
     expect(transactionMock).not.toHaveBeenCalled()
     expect(allTexts().some(t => /event_promotion_codes/.test(t))).toBe(false)
   })
@@ -767,10 +767,10 @@ describe('free registration — access codes apply, promotion codes do not; the 
       text => (/FROM event_access_codes ac\s*\n\s*WHERE ac\.organisation_id/.test(text) ? [{ id: 'access-1', code: 'MEMBERS2026', ticket_type_ids: null }] : undefined),
     )
     transactionFinalResult = [{ id: 'att-1', order_id: 'order-1', attendee_name: 'tt-free-0', ticket_token: 'tok' }]
-    const res = await registerFreeOrder({ organisationId: 'org-a', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-free', quantity: 1 }], { access_code: 'MEMBERS2026' }) })
+    const res = await registerFreeOrder({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-free', quantity: 1 }], { access_code: 'MEMBERS2026' }) })
     expect(res.ok).toBe(true)
     const gateIdx = findCall(/INSERT INTO event_orders/)
-    expect(callText(gateIdx)).toMatch(/INSERT INTO event_orders \(organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents, booking_token, ticket_email_status, access_code_id, access_code_snapshot\)/)
+    expect(callText(gateIdx)).toMatch(/INSERT INTO event_orders \(organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents, booking_token, ticket_email_status, access_code_id, access_code_snapshot, product_surface\)/)
     expect(callText(gateIdx)).toContain('NOT EXISTS (SELECT 1 FROM cart_tt WHERE NOT cart_tt.purchasable)')
     expect(callArgs(gateIdx)).toContain('access-1')
     expect(callArgs(gateIdx)).toContain('MEMBERS2026')
@@ -800,7 +800,7 @@ describe('retry — committed snapshot, redemption limit re-checked excluding it
   function retryResolver(order = ORDER, items = ITEM_ROWS): Resolver {
     return combine(
       text => (/FROM events e JOIN organisations o/.test(text) ? EVENT_ROW : undefined),
-      text => (/discount_cents, promotion_code_id, promotion_code_snapshot\s*\n\s*FROM event_orders WHERE id = /.test(text) ? [order] : undefined),
+      text => (/discount_cents, promotion_code_id, promotion_code_snapshot, product_surface\s*\n\s*FROM event_orders WHERE id = /.test(text) ? [order] : undefined),
       text => (/SELECT ticket_type_id, event_session_id, quantity, unit_price_cents, discount_cents FROM event_order_items/.test(text) ? items : undefined),
       text => (/SELECT id, name, active, price_cents, currency FROM event_ticket_types/.test(text) ? TT_ROWS : undefined),
       writeBackResolver,
@@ -948,7 +948,7 @@ describe('POST .../quote — read-only server pricing with generic code feedback
   })
 
   it('register / checkout / retry adapters map every Phase 4 code; code failures are generic, window failures are 409', () => {
-    const register = read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts')
+    const register = read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts') + read('lib/events/freeRegistrationResponse.ts')
     const checkout = (read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts') + read('lib/events/paidCheckoutResponse.ts'))
     const retry = read('app/api/events/[id]/orders/[orderId]/retry/route.ts')
     for (const src of [register, checkout]) {

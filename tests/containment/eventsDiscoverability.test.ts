@@ -408,11 +408,16 @@ describe('Retry route — authoritative server-resolved slugs, never client-trus
 
   it('success/cancel URLs always use the branded public flow with the resolved slugs — no generic manager-route fallback', () => {
     // The service hands the route exactly the tenant-scoped DB slugs...
-    expect(service).toMatch(/await input\.buildReturnUrls\(event\.org_slug, event\.event_slug\)/)
+    // Phase 3.1: it also hands over the order's committed product surface,
+    // resolved before anything is mutated.
+    expect(service).toMatch(/await input\.buildReturnUrls\(event\.org_slug, event\.event_slug, productSurface\)/)
     // ...and the route builds only the branded public flow from them.
-    expect(code).toMatch(/buildReturnUrls: async \(orgSlug, eventSlug\) =>/)
-    expect(code).toMatch(/successUrl: `\$\{origin\}\/e\/\$\{orgSlug\}\/\$\{eventSlug\}\/checkout\/success\?session_id=\{CHECKOUT_SESSION_ID\}`/)
-    expect(code).toMatch(/cancelUrl: `\$\{origin\}\/e\/\$\{orgSlug\}\/\$\{eventSlug\}\?checkout=cancelled`/)
+    expect(code).toMatch(/buildReturnUrls: async \(orgSlug, eventSlug, productSurface\) =>/)
+    expect(code).toMatch(/checkoutReturnUrlsFor\(productSurface, orgSlug, eventSlug, `\$\{proto\}:\/\/\$\{host\}`\)/)
+    // BrainBase orders keep the exact same branded public flow.
+    const urls = stripComments(read('lib/events/productSurface.ts'))
+    expect(urls).toMatch(/successUrl: `\$\{brainbaseOrigin\}\/e\/\$\{orgSlug\}\/\$\{eventSlug\}\/checkout\/success\?session_id=\{CHECKOUT_SESSION_ID\}`/)
+    expect(urls).toMatch(/cancelUrl: `\$\{brainbaseOrigin\}\/e\/\$\{orgSlug\}\/\$\{eventSlug\}\?checkout=cancelled`/)
     expect(code).not.toMatch(/events\/\$\{eventId\}\?checkout=retry-success/)
     expect(service).not.toMatch(/events\/\$\{eventId\}\?checkout=retry-success/)
   })

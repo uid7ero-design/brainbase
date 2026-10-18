@@ -3,7 +3,8 @@ import { resolvePublicEvent } from '@/lib/events/publicResolve';
 import { validatePublicRegistrationInput, type PublicRegistrationInput } from '@/lib/events/publicValidation';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { getClientIp } from '@/lib/clientIp';
-import { registerFreeOrder, type FreeRegistrationResult } from '@/lib/events/services/freeRegistration';
+import { freeRegistrationResultResponse } from '@/lib/events/freeRegistrationResponse';
+import { registerFreeOrder } from '@/lib/events/services/freeRegistration';
 import { syncEventOrderContact, recordEventBookingActivity } from '@/lib/crm/eventSync';
 
 type Ctx = { params: Promise<{ organisationSlug: string; eventSlug: string }> };
@@ -23,66 +24,6 @@ type Ctx = { params: Promise<{ organisationSlug: string; eventSlug: string }> };
 // organisation id, a price, a capability, or a role, and none would be
 // trusted if present (see validatePublicRegistrationInput — those keys
 // don't even exist in its accepted shape).
-function toResponse(result: FreeRegistrationResult): NextResponse {
-  if (result.ok) {
-    // booking_token is the exact value minted and persisted by the same
-    // atomic transaction (never a second token, never regenerated
-    // here) — returned so a genuinely multi-attendee confirmation screen
-    // can offer the booking-wallet link (/b/[bookingToken]/tickets)
-    // alongside the individual ticket links it already returns. Matches
-    // this response's own existing snake_case wire convention
-    // (confirmation_reference, ticket_token, attendee_name).
-    return NextResponse.json(
-      { confirmation_reference: result.orderId, quantity: result.quantity, tickets: result.tickets, booking_token: result.bookingToken },
-      { status: 201 },
-    );
-  }
-  switch (result.code) {
-    case 'TICKET_TYPE_NOT_FOUND':
-      return NextResponse.json({ error: 'Selected ticket type is not available for this event.' }, { status: 400 });
-    case 'TICKET_TYPE_INACTIVE':
-      return NextResponse.json({ error: 'Selected ticket type is not currently available.' }, { status: 400 });
-    case 'TICKET_TYPE_REQUIRES_PAYMENT':
-      return NextResponse.json({ error: 'This ticket type requires payment. Use the checkout flow instead.' }, { status: 400 });
-    // Phase 2 — an order is all-free or all-paid (see
-    // lib/events/services/cart.ts).
-    case 'MIXED_FREE_AND_PAID':
-      return NextResponse.json({ error: 'Free and paid tickets must be booked in separate orders.' }, { status: 400 });
-    case 'SESSION_NOT_FOUND':
-      return NextResponse.json({ error: 'Selected session is not available for this event.' }, { status: 400 });
-    case 'RESPONSES_INVALID':
-      return NextResponse.json({ error: result.message }, { status: 400 });
-    // Phase 4 — sale windows are enforced server-side at submit (a page
-    // kept open across a boundary gets this 409, never a sale); access
-    // and promotion codes fail with ONE generic message regardless of
-    // why (unknown / inactive / expired / another event's code), so the
-    // public API never reveals which codes exist elsewhere.
-    case 'SALE_NOT_STARTED':
-      return NextResponse.json({ error: 'Tickets for this selection are not on sale yet.' }, { status: 409 });
-    case 'SALE_ENDED':
-      return NextResponse.json({ error: 'Sales for this selection have ended.' }, { status: 409 });
-    case 'ACCESS_CODE_REQUIRED':
-      return NextResponse.json({ error: 'An access code is required for this selection.' }, { status: 400 });
-    case 'ACCESS_CODE_INVALID':
-      return NextResponse.json({ error: 'Code not valid.' }, { status: 400 });
-    case 'PROMOTION_NOT_APPLICABLE':
-      return NextResponse.json({ error: "This code can't be applied to this order." }, { status: 400 });
-    // A DB/transaction failure must fail safely — never leak SQL, lock
-    // state, organisation ids, or capability internals to an anonymous
-    // caller.
-    case 'TRANSACTION_FAILED':
-      return NextResponse.json(
-        { error: 'Registration could not be completed. Please try again.' },
-        { status: 500 },
-      );
-    case 'CAPACITY_UNAVAILABLE':
-      return NextResponse.json(
-        { error: 'This ticket type is no longer available in the requested quantity.' },
-        { status: 409 },
-      );
-  }
-}
-
 export async function POST(req: NextRequest, { params }: Ctx) {
   const { organisationSlug, eventSlug } = await params;
 
@@ -123,6 +64,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     organisationId,
     event,
     validated,
+    // Phase 3.1 - trusted entry point: this is BrainBase's own public route.
+    productSurface: 'BRAINBASE',
     // Events -> CRM sync (Phase 5) — invoked by the service deliberately
     // AFTER the booking transaction has already committed, never inside
     // it: CRM must never hold up or fail a capacity-critical
@@ -153,5 +96,5 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     },
   });
 
-  return toResponse(result);
+  return freeRegistrationResultResponse(result);
 }

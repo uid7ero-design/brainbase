@@ -13,6 +13,7 @@ import {
 } from '@/lib/events/services/promotions';
 import { normaliseFeePolicyRow, buildFeeLineItem, type FeePolicyResolution } from '@/lib/events/services/fees';
 import { computeOrderFinancials, type FeeComputation } from '@/lib/events/feeCalculation';
+import { isProductSurface, type ProductSurface } from '@/lib/events/productSurface';
 
 // Shared ticketing service — paid public checkout reservation + Stripe
 // Checkout Session creation.
@@ -43,6 +44,11 @@ export type PaidCheckoutInput = {
   organisationId: string;
   event: PublicEvent;
   validated: ValidatedRegistration;
+  // Phase 3.1 — product identity, supplied by the trusted server-side entry
+  // point (BrainBase's public route => 'BRAINBASE'; the Eve S2S API after the
+  // gate => 'EVE'). Required, never defaulted here, and never derived from
+  // anything the browser sent. Persisted in the same INSERT as the order.
+  productSurface: ProductSurface;
   // Called once, immediately before Stripe Checkout Session creation.
   buildReturnUrls: () => Promise<PaidCheckoutReturnUrls>;
   // Post-reservation, pre-Stripe hook. Must never throw.
@@ -86,6 +92,10 @@ export type PaidCheckoutResult =
 
 export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidCheckoutResult> {
   const { organisationId, event, validated } = input;
+  // Fail closed on anything that is not a known surface: the value goes into
+  // a CHECK-constrained column, and a bad one must never reach the INSERT.
+  if (!isProductSurface(input.productSurface)) throw new Error('startPaidCheckout requires a valid productSurface.');
+  const productSurface = input.productSurface;
 
   // Phase 4 — presale access, resolved server-side exactly as in the
   // free flow (see lib/events/services/freeRegistration.ts): one generic
@@ -386,14 +396,16 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
             status, total_cents, payment_status, payment_provider, currency, expires_at, stripe_account_id,
             platform_fee_cents, fee_mode, payment_total_cents, fee_policy_id, fee_policy_version,
             fee_percent_bps, fee_fixed_per_order_cents, fee_fixed_per_ticket_cents, fee_min_cents, fee_max_cents, fee_tax_treatment, fee_label,
-            discount_cents, promotion_code_id, promotion_code_snapshot, access_code_id, access_code_snapshot
+            discount_cents, promotion_code_id, promotion_code_snapshot, access_code_id, access_code_snapshot,
+            product_surface
           )
           SELECT
             ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone},
             'PENDING', ${totalCents}, 'PENDING', 'stripe', ${cart.currency}, NOW() + make_interval(secs => ${RESERVATION_WINDOW_SECONDS}), ${connectedAccountId},
             ${financials.platform_fee_cents}, ${financials.fee_mode}, ${financials.payment_total_cents}, ${feePolicyId}, ${feePolicyVersion},
             ${feePercentBps}, ${feeFixedPerOrderCents}, ${feeFixedPerTicketCents}, ${feeMinCents}, ${feeMaxCents}, ${feeTaxTreatment}, ${feeLabel},
-            ${discountCents}, ${promotionCodeId}, ${promotionCodeSnapshot}, ${accessCodeId}, ${accessCodeSnapshot}
+            ${discountCents}, ${promotionCodeId}, ${promotionCodeSnapshot}, ${accessCodeId}, ${accessCodeSnapshot},
+            ${productSurface}
           FROM gate
           RETURNING id
         ),
@@ -516,6 +528,7 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
       // Phase 5A — the committed snapshot's application fee (0 = none
       // sent); identical in both fee modes. See CreateCheckoutSessionInput.
       applicationFeeCents: financials.application_fee_cents,
+      productSurface,
     });
 
     // ── Checkout-vs-Retry race closure (PR #231 follow-up) ────────────

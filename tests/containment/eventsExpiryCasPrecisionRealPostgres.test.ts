@@ -114,6 +114,8 @@ const MIGRATIONS = [
   // Phase 5A — the cart load now resolves ticketing_fee_policies in its
   // single query, so every live-service harness must carry the table.
   'scripts/create-events-ticketing-fees-foundation.sql',
+  // Eve Phase 3.1 - the order INSERTs now write product_surface.
+  'scripts/add-events-order-product-surface.sql',
 ]
 
 const EVENT = {
@@ -218,7 +220,7 @@ describe.runIf(HAS_DOCKER)('real Postgres — paid expiry compare-and-set precis
 
   it('B. paid checkout — the Stripe Checkout Session id is written back (CAS still applied)', async () => {
     createCheckoutSessionMock.mockResolvedValue({ sessionId: 'cs_test_b', url: 'https://checkout.stripe.test/b' })
-    const res = await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: VALIDATED, buildReturnUrls: URLS })
+    const res = await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: VALIDATED, buildReturnUrls: URLS })
     expect(res).toEqual({ ok: true, checkoutUrl: 'https://checkout.stripe.test/b' })
     const [row] = await q<{ stripe_checkout_session_id: string; status: string }>(`SELECT stripe_checkout_session_id, status FROM event_orders`)
     expect(row).toEqual({ stripe_checkout_session_id: 'cs_test_b', status: 'PENDING' })
@@ -227,7 +229,7 @@ describe.runIf(HAS_DOCKER)('real Postgres — paid expiry compare-and-set precis
 
   it('C. paid checkout — a Stripe creation failure releases the reservation (compensating cancel matches)', async () => {
     createCheckoutSessionMock.mockRejectedValue(new Error('stripe down'))
-    const res = await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: VALIDATED, buildReturnUrls: URLS })
+    const res = await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: VALIDATED, buildReturnUrls: URLS })
     expect(res).toEqual({ ok: false, code: 'STRIPE_FAILED' })
     const [row] = await q<{ status: string; payment_status: string }>(`SELECT status, payment_status FROM event_orders`)
     expect(row).toEqual({ status: 'CANCELLED', payment_status: 'FAILED' })
@@ -282,7 +284,7 @@ describe.runIf(HAS_DOCKER)('real Postgres — paid expiry compare-and-set precis
       return { sessionId: 'cs_test_original', url: 'https://checkout.stripe.test/original' }
     })
     createCheckoutSessionMock.mockResolvedValueOnce({ sessionId: 'cs_test_retry', url: 'https://checkout.stripe.test/retry' })
-    const res = await startPaidCheckout({ organisationId: 'org-a', event: EVENT, validated: VALIDATED, buildReturnUrls: URLS })
+    const res = await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: VALIDATED, buildReturnUrls: URLS })
     expect(res).toEqual({ ok: false, code: 'WRITE_BACK_RACE_LOST' })
     expect(expireCheckoutSessionMock).toHaveBeenCalledWith('cs_test_original', 'acct_test_org_a')
     const [row] = await q<{ stripe_checkout_session_id: string; status: string }>(`SELECT stripe_checkout_session_id, status FROM event_orders`)

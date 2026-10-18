@@ -7,11 +7,12 @@ import { resolvePublicEvent } from '@/lib/events/publicResolve';
 import { validatePublicRegistrationInput, type PublicRegistrationInput } from '@/lib/events/publicValidation';
 import { startPaidCheckout } from '@/lib/events/services/paidCheckout';
 import { paidCheckoutResultResponse } from '@/lib/events/paidCheckoutResponse';
+import { freeRegistrationResultResponse } from '@/lib/events/freeRegistrationResponse';
+import { registerFreeOrder } from '@/lib/events/services/freeRegistration';
 import { generateTicketQrSvg } from '@/lib/events/qr';
-import { syncEventOrderContact } from '@/lib/crm/eventSync';
+import { syncEventOrderContact, recordEventBookingActivity } from '@/lib/crm/eventSync';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { POST as publicQuote } from '@/app/api/public/events/[organisationSlug]/[eventSlug]/quote/route';
-import { POST as publicRegister } from '@/app/api/public/events/[organisationSlug]/[eventSlug]/register/route';
 import { GET as publicCheckoutStatus } from '@/app/api/public/events/[organisationSlug]/[eventSlug]/checkout/status/route';
 import { checkTicketingGate } from './gate';
 import {
@@ -73,12 +74,59 @@ export async function handleTicketingRegister(req: Request, params: EventParams)
   const gate = checkTicketingGate(req);
   if (!gate.ok) return gate.response;
   if (!validEventParams(params)) return notAvailable();
+  const { organisationSlug, eventSlug } = params;
+
+  // Same limiter key as the public register route: one budget per buyer
+  // address and event, whichever product they register through.
+  const ip = ticketingClientIp(req);
+  if (!checkRateLimit(`public-events-register:${organisationSlug}:${eventSlug}:${ip}`, 10, 60 * 60_000)) {
+    return ticketingJson({ error: 'Too many registration attempts. Please try again later.' }, 429);
+  }
+
   const body = await readBodyText(req);
   if (body === null) return ticketingJson({ error: 'Invalid request body.' }, 400);
-  const res = await publicRegister(delegatedRequest(req, eventPath(params, '/register'), { method: 'POST', body }), {
-    params: Promise.resolve(params),
+  let rawBody: PublicRegistrationInput;
+  try {
+    rawBody = JSON.parse(body);
+  } catch {
+    return ticketingJson({ error: 'Invalid request body.' }, 400);
+  }
+  const validated = validatePublicRegistrationInput(rawBody);
+  if (typeof validated === 'string') return ticketingJson({ error: validated }, 400);
+
+  const resolved = await resolvePublicEvent(organisationSlug, eventSlug);
+  if (!resolved.ok) return notAvailable();
+  const { organisationId, event } = resolved;
+
+  // Calls the shared service directly (not the BrainBase route handler) so
+  // the order is stamped with this entry point's product identity. The
+  // identity comes from the gate above, never from the request body.
+  const result = await registerFreeOrder({
+    organisationId,
+    event,
+    validated,
+    productSurface: 'EVE',
+    // Same best-effort post-commit CRM hooks as the public register route.
+    onCommitted: async (orderId) => {
+      await syncEventOrderContact({
+        organisationId,
+        orderId,
+        purchaserName: validated.purchaser_name,
+        purchaserEmail: validated.purchaser_email,
+        purchaserPhone: validated.purchaser_phone,
+      });
+      await recordEventBookingActivity({
+        organisationId,
+        orderId,
+        eventName: event.name,
+        quantity: validated.quantity,
+        totalCents: 0,
+        currency: 'AUD',
+        paymentStatus: 'NOT_REQUIRED',
+      });
+    },
   });
-  return reissue(res);
+  return freeRegistrationResultResponse(result);
 }
 
 export async function handleTicketingCheckoutStatus(req: Request, params: EventParams): Promise<Response> {
@@ -129,6 +177,9 @@ export async function handleTicketingCheckout(req: Request, params: EventParams)
     organisationId,
     event,
     validated,
+    // Product identity comes from this trusted entry point (the request has
+    // passed the server-to-server gate), never from the request body.
+    productSurface: 'EVE',
     // Same best-effort CRM hook as the public checkout route (purchaser
     // contact only; never attendees or answers).
     onReserved: async (orderId) => {

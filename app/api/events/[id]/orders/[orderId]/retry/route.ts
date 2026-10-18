@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { retryPendingOrderCheckout, type RetryCheckoutResult } from '@/lib/events/services/retryCheckout';
+import { checkoutReturnUrlsFor } from '@/lib/events/productSurface';
 
 type Ctx = { params: Promise<{ id: string; orderId: string }> };
 
@@ -28,6 +29,8 @@ function toResponse(result: RetryCheckoutResult): NextResponse {
       return NextResponse.json({ error: 'Only a pending payment can be retried.' }, { status: 409 });
     case 'NO_STRIPE_ACCOUNT':
       return NextResponse.json({ error: 'This order has no associated Stripe account to retry against.' }, { status: 409 });
+    case 'RETURN_URLS_UNAVAILABLE':
+      return NextResponse.json({ error: 'Payment retry is not currently available for this order.' }, { status: 503 });
     case 'NO_LINE_ITEM':
       return NextResponse.json({ error: 'Order has no ticket line item.' }, { status: 409 });
     case 'TICKET_TYPE_UNAVAILABLE':
@@ -73,15 +76,14 @@ export async function POST(_req: Request, { params }: Ctx) {
     organisationId: session.organisationId,
     eventId,
     orderId,
-    buildReturnUrls: async (orgSlug, eventSlug) => {
+    // The order's committed product decides the return origin (an Eve order
+    // returns to Eve, never to this BrainBase host); only a BRAINBASE order
+    // uses this request's own origin, exactly as before.
+    buildReturnUrls: async (orgSlug, eventSlug, productSurface) => {
       const h = await headers();
       const host = h.get('x-forwarded-host') ?? h.get('host') ?? 'localhost:3000';
       const proto = h.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
-      const origin = `${proto}://${host}`;
-      return {
-        successUrl: `${origin}/e/${orgSlug}/${eventSlug}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancelUrl: `${origin}/e/${orgSlug}/${eventSlug}?checkout=cancelled`,
-      };
+      return checkoutReturnUrlsFor(productSurface, orgSlug, eventSlug, `${proto}://${host}`);
     },
   });
 
