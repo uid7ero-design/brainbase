@@ -173,6 +173,15 @@ export async function handleTicketingCheckout(req: Request, params: EventParams)
   } catch {
     return ticketingJson({ error: 'Invalid request body.' }, 400);
   }
+  // Paid checkout needs explicit acceptance of the Terms and the Refunds &
+  // cancellations policy. Checked HERE, server-side, before the event is
+  // resolved or anything is reserved: the browser checkbox is only a prompt and
+  // a client that omits or falsifies the field is refused. (Acceptance itself
+  // is not persisted yet — see the compliance ADR — and never waives consumer
+  // rights.)
+  if ((rawBody as { accept_terms?: unknown } | null)?.accept_terms !== true) {
+    return ticketingJson({ error: 'Please agree to the Terms and the Refunds & cancellations policy to continue.', code: 'TERMS_NOT_ACCEPTED' }, 400);
+  }
   const validated = validatePublicRegistrationInput(rawBody);
   if (typeof validated === 'string') return ticketingJson({ error: validated }, 400);
 

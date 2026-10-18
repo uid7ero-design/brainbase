@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { EveWordmark } from '@/components/brand/EveWordmark';
 import { Container } from '@/components/ui/primitives';
 import { product } from '@/config/product';
+import { LegalLinks } from '@/components/legal/LegalLinks';
 
 // Buyer-facing chrome is intentionally minimal: a small wordmark and a
 // support line. Organiser branding will sit above this once public event
@@ -16,8 +17,9 @@ export default function BuyerLayout({ children }: { children: ReactNode }) {
         </Container>
       </header>
       <main id="main">{children}</main>
-      <footer className="mt-16 border-t border-eve-line py-6 text-center text-xs text-eve-muted">
-        Need help with a booking? {product.supportEmail}
+      <footer className="mt-16 space-y-2 border-t border-eve-line py-6 text-center text-xs text-eve-muted">
+        <p>Need help with a booking? {product.supportEmail}</p>
+        <LegalLinks />
       </footer>
     </>
   );

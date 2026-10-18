@@ -222,7 +222,7 @@ describe('organiser API: authorization', () => {
 describe('public API', () => {
   const params = { organisationSlug: 'acme', eventSlug: 'gala' }
   const gated = (url = 'http://bb.test/x', init: RequestInit = {}) => new Request(url, { ...init, headers: { ...GATE, 'content-type': 'application/json', ...(init.headers as object) } })
-  const VALID = { items: [{ ticket_type_id: 't1', quantity: 1 }], purchaser_name: 'Sam', purchaser_email: 's@x.test', attendees: [{ name: 'Sam', ticket_type_id: 't1' }] }
+  const VALID = { items: [{ ticket_type_id: 't1', quantity: 1 }], purchaser_name: 'Sam', purchaser_email: 's@x.test', attendees: [{ name: 'Sam', ticket_type_id: 't1' }], accept_terms: true }
 
   it('every public handler needs the gate and refuses browser-origin calls', async () => {
     const calls: ((r: Request) => Promise<Response>)[] = [
@@ -392,7 +392,7 @@ const { limiterKeyHash, LIMITS } = await import('@/lib/ticketing/rateLimit')
 
 describe('distributed rate limiting wiring (Phase 3.5)', () => {
   const gated = (url = 'http://bb.test/x', init: RequestInit = {}) => new Request(url, { ...init, headers: { ...GATE, 'content-type': 'application/json', ...(init.headers as object) } })
-  const VALID = { items: [{ ticket_type_id: 't1', quantity: 1 }], purchaser_name: 'Sam', purchaser_email: 's@x.test', attendees: [{ name: 'Sam', ticket_type_id: 't1' }] }
+  const VALID = { items: [{ ticket_type_id: 't1', quantity: 1 }], purchaser_name: 'Sam', purchaser_email: 's@x.test', attendees: [{ name: 'Sam', ticket_type_id: 't1' }], accept_terms: true }
   const params = { organisationSlug: 'acme', eventSlug: 'gala' }
   const IP = '198.51.100.20'
   const exhaust = (policy: { cls: string; max: number }, dims: string[]) => db.counters.set(limiterKeyHash(policy.cls, dims), policy.max)
@@ -494,5 +494,46 @@ describe('distributed rate limiting wiring (Phase 3.5)', () => {
       expect(src, f).not.toMatch(/limit\([^)]*(password|secret|token|authorization|cookie)/i)
     }
     expect(strip('lib/ticketing/organiserApi.ts')).toMatch(/\[ctx\.organisationId, ctx\.userId/)
+  })
+})
+
+describe('paid checkout acceptance is enforced server-side (launch compliance)', () => {
+  const gated = (body: unknown) => new Request('http://bb.test/x', { method: 'POST', headers: { ...GATE, 'content-type': 'application/json', 'x-ticketing-client-ip': '198.51.100.90' }, body: JSON.stringify(body) })
+  const BASE = { items: [{ ticket_type_id: 't1', quantity: 1 }], purchaser_name: 'Sam', purchaser_email: 's@x.test', attendees: [{ name: 'Sam', ticket_type_id: 't1' }] }
+  const params = () => ({ organisationSlug: 'acme', eventSlug: 'accept-' + Math.random().toString(36).slice(2, 8) })
+
+  it.each([
+    ['missing', BASE],
+    ['false', { ...BASE, accept_terms: false }],
+    ['string "true"', { ...BASE, accept_terms: 'true' }],
+    ['1', { ...BASE, accept_terms: 1 }],
+    ['null', { ...BASE, accept_terms: null }],
+    ['nested', { ...BASE, terms: { accept_terms: true } }],
+  ])('%s acceptance is refused with a 400 before the event is resolved or anything is reserved', async (_l, body) => {
+    const res = await pub.handleTicketingCheckout(gated(body), params())
+    expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({ code: 'TERMS_NOT_ACCEPTED' })
+    expect(publicSvc.resolvePublicEvent).not.toHaveBeenCalled()
+    expect(publicSvc.startPaidCheckout).not.toHaveBeenCalled()
+  })
+
+  it('accept_terms: true proceeds to the normal checkout path, and the field never reaches the service input', async () => {
+    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, organisationId: 'org-a', event: { id: 'e1' } })
+    publicSvc.startPaidCheckout.mockResolvedValue({ ok: true, checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_test_1' })
+    const res = await pub.handleTicketingCheckout(gated({ ...BASE, accept_terms: true }), params())
+    expect(res.status).toBe(201)
+    expect(publicSvc.startPaidCheckout).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(publicSvc.startPaidCheckout.mock.calls[0][0].validated)).not.toMatch(/accept|terms/i)
+  })
+
+  it('free registration does not require acceptance (linked notice only)', async () => {
+    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: false })
+    const res = await pub.handleTicketingRegister(gated(BASE), params())
+    expect(res.status).not.toBe(400)
+  })
+
+  it('a refused acceptance does not touch Stripe configuration or the database', async () => {
+    await pub.handleTicketingCheckout(gated(BASE), params())
+    expect(publicSvc.startPaidCheckout).not.toHaveBeenCalled()
   })
 })

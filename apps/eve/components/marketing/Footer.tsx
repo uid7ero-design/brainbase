@@ -3,11 +3,12 @@ import { EveWordmark } from '@/components/brand/EveWordmark';
 import { Tagline } from '@/components/brand/Tagline';
 import { Container } from '@/components/ui/primitives';
 import { product } from '@/config/product';
+import { LEGAL_LINKS } from '@/config/legal';
 
 export function Footer() {
   return (
     <footer className="mt-24 border-t border-eve-line bg-eve-surface">
-      <Container className="grid gap-10 py-12 md:grid-cols-[1.4fr_1fr_1fr]">
+      <Container className="grid gap-10 py-12 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
         <div>
           <EveWordmark size="sm" />
           <Tagline className="mt-2 text-sm text-eve-muted" />
@@ -27,6 +28,15 @@ export function Footer() {
             <li><Link href="/signin" className="hover:text-eve-accent">Sign in</Link></li>
             <li><Link href="/get-started" className="hover:text-eve-accent">Create an event</Link></li>
             <li><Link href="/organiser" className="hover:text-eve-accent">Organiser console</Link></li>
+          </ul>
+        </nav>
+        <nav aria-label="Legal">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-eve-muted">Legal</p>
+          <ul className="mt-3 space-y-2 text-sm">
+            {LEGAL_LINKS.map(l => (
+              <li key={l.href}><Link href={l.href} className="hover:text-eve-accent">{l.label}</Link></li>
+            ))}
+            <li><a href={`mailto:${product.supportEmail}`} className="hover:text-eve-accent">Support</a></li>
           </ul>
         </nav>
       </Container>

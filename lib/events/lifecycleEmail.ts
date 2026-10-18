@@ -205,6 +205,8 @@ function render(data: LifecycleEmailData, opts: {
   textLines.push('', `Questions about this order? Contact ${organiser}${contact.length ? ` — ${contact.join(' · ')}` : ''}.`);
   textLines.push('', `Order reference ${data.orderReference}`);
   if (data.branding.emailFooter) textLines.push('', data.branding.emailFooter);
+  const footerLinks = data.product?.presentation?.footerLinks;
+  if (footerLinks?.length) textLines.push('', footerLinks.map(l => `${l.label}: ${l.url}`).join('\n'));
 
   return { subject: opts.subject, html, text: textLines.join('\n') };
 }
@@ -327,6 +329,8 @@ function buildEventReminder(data: LifecycleEmailData): LifecycleEmail {
     `This is a reminder that ${data.eventName} is coming up. Your ticket${data.attendees.length === 1 ? ' is' : 's are'} ready — have ${data.attendees.length === 1 ? 'it' : 'them'} on your phone or printed when you arrive.`,
   ];
   if (data.description) paragraphs.push(truncate(data.description, MAX_DESCRIPTION_CHARS));
+  // Ticket and booking links are bearer links (Eve only; BrainBase output unchanged).
+  if (data.product?.surface === 'EVE' && links.length) paragraphs.push('Anyone with these links can access your tickets. Keep them private.');
   return render(data, {
     subject: `Reminder: ${data.eventName} — ${formatDateTime(data.eventStartsAt, data.eventTimezone)}`,
     heading: 'Your event is coming up',

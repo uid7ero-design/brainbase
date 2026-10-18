@@ -364,14 +364,19 @@ export interface EmailOrgPresentation {
 export interface EmailProductPresentation {
   wordmark: string;
   footerName: string;
+  // Optional legal/support links under the copyright line (Eve only).
+  footerLinks?: { label: string; url: string }[];
 }
 
 export function emailLayout(body: string, org?: EmailOrgPresentation | null, product?: EmailProductPresentation | null) {
   const wordmarkHtml = product
     ? escHtml(product.wordmark)
     : `BRAINB<span style="color:#A78BFA">Λ</span>SE`;
+  const footerLinksHtml = product?.footerLinks?.length
+    ? `<div style="margin-top:8px">${product.footerLinks.map(l => `<a href="${escHtml(l.url)}" style="color:#888;text-decoration:underline">${escHtml(l.label)}</a>`).join(' · ')}</div>`
+    : '';
   const legalLine = product
-    ? `© ${new Date().getFullYear()} ${escHtml(product.footerName)}`
+    ? `© ${new Date().getFullYear()} ${escHtml(product.footerName)}${footerLinksHtml}`
     : `© ${new Date().getFullYear()} Brainbase · Adelaide SA Australia`;
   // Identity row directly below the BrainBase wordmark — never
   // replacing it (§7's own "do not replace BrainBase attribution

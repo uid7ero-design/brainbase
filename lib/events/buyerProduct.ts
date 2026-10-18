@@ -23,6 +23,19 @@ import { eveLinkBase, productSurfaceFromRow, type ProductSurface } from '@/lib/e
 // Either way NOTHING is sent for an Eve order — an Eve order is never emailed
 // with BrainBase links, the BrainBase wordmark or the BrainBase sender.
 
+// Legal + support links shown in the footer of every Eve email. Support is
+// included only when a real address is configured on this deployment.
+export function eveFooterLinks(linkBase: string, supportEmail: string | undefined): { label: string; url: string }[] {
+  const links = [
+    { label: 'Terms', url: `${linkBase}/terms` },
+    { label: 'Privacy', url: `${linkBase}/privacy` },
+    { label: 'Refunds & cancellations', url: `${linkBase}/refunds` },
+  ];
+  const s = (supportEmail ?? '').trim();
+  if (/^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(s) && !PLACEHOLDER_DOMAIN.test(s.split('@')[1])) links.push({ label: 'Support', url: `mailto:${s}` });
+  return links;
+}
+
 export type BuyerProductFailureCode = 'EVE_LINK_BASE_UNAVAILABLE' | 'EVE_SENDER_UNCONFIGURED';
 
 export type BuyerProductContext = {
@@ -94,7 +107,7 @@ export function resolveBuyerProduct(rowSurface: unknown): BuyerProductResult {
     context: {
       surface: 'EVE',
       linkBase: links.publicBaseUrl,
-      presentation: { wordmark: 'EVE', footerName: 'Eve' },
+      presentation: { wordmark: 'EVE', footerName: 'Eve', footerLinks: eveFooterLinks(links.publicBaseUrl, process.env.EVE_SUPPORT_EMAIL) },
       from,
     },
   };

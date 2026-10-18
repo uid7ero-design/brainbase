@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Container, Unavailable } from '@/components/ui/primitives';
 import { TicketCard } from '@/components/buyer/TicketCard';
 import { getTicketingGateway } from '@/lib/ticketing/gateway';
+import { BearerLinkNotice } from '@/components/buyer/BearerLinkNotice';
 
 export const metadata: Metadata = { title: 'Ticket', robots: { index: false, follow: false } };
 export const dynamic = 'force-dynamic';
@@ -32,6 +33,7 @@ export default async function TicketPage({ params }: Props) {
         ) : (
           <Unavailable title="We can't load this ticket right now" detail="Please try again in a moment." />
         )}
+        {result.status === 'ok' ? <BearerLinkNotice what="ticket" /> : null}
       </div>
     </Container>
   );
