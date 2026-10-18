@@ -169,7 +169,7 @@ describe('source containment', () => {
   })
 
   it('both services write the column in the SAME INSERT as the order, from their validated input', () => {
-    expect(paid).toMatch(/INSERT INTO event_orders \([\s\S]*?product_surface\s*\)\s*SELECT[\s\S]*?\$\{productSurface\}\s*FROM gate/)
+    expect(paid).toMatch(/INSERT INTO event_orders \([\s\S]*?product_surface(?:,\s*terms_accepted_at,\s*terms_version,\s*refunds_version)?\s*\)\s*SELECT[\s\S]*?\$\{productSurface\}[\s\S]*?FROM gate/)
     expect(free).toMatch(/INSERT INTO event_orders \([^)]*product_surface\)\s*SELECT[^;]*\$\{productSurface\}\s*FROM gate/)
     expect(paid).toMatch(/isProductSurface\(input\.productSurface\)/)
     expect(free).toMatch(/isProductSurface\(input\.productSurface\)/)

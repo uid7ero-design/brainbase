@@ -116,6 +116,8 @@ const MIGRATIONS = [
   'scripts/create-events-ticketing-fees-foundation.sql',
   // Eve Phase 3.1 - the order INSERTs now write product_surface.
   'scripts/add-events-order-product-surface.sql',
+  // Eve launch compliance - the paid order INSERT now writes the acceptance snapshot columns.
+  'scripts/add-events-order-legal-acceptance.sql',
 ]
 
 const EVENT = {

@@ -516,7 +516,7 @@ describe('PASS_THROUGH fee order — snapshot, Stripe line item, application fee
     const res = await startPaidCheckout({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor(ITEMS, { promotion_code: 'early20' }), buildReturnUrls: URLS })
     expect(res).toEqual({ ok: true, checkoutUrl: 'https://checkout.stripe.test/1' })
     const gate = callText(findCall(/INSERT INTO event_orders/))
-    expect(gate).toMatch(/platform_fee_cents, fee_mode, payment_total_cents, fee_policy_id, fee_policy_version,\s*\n\s*fee_percent_bps, fee_fixed_per_order_cents, fee_fixed_per_ticket_cents, fee_min_cents, fee_max_cents, fee_tax_treatment, fee_label,\s*\n\s*discount_cents, promotion_code_id, promotion_code_snapshot, access_code_id, access_code_snapshot,\s*\n\s*product_surface\s*\n\s*\)/)
+    expect(gate).toMatch(/platform_fee_cents, fee_mode, payment_total_cents, fee_policy_id, fee_policy_version,\s*\n\s*fee_percent_bps, fee_fixed_per_order_cents, fee_fixed_per_ticket_cents, fee_min_cents, fee_max_cents, fee_tax_treatment, fee_label,\s*\n\s*discount_cents, promotion_code_id, promotion_code_snapshot, access_code_id, access_code_snapshot,\s*\n\s*product_surface, terms_accepted_at, terms_version, refunds_version\s*\n\s*\)/)
     const args = orderInsertArgs()
     const feeArgs = args.slice(args.indexOf(19800) + 4, args.indexOf(19800) + 4 + 12)
     expect(feeArgs).toEqual([525, 'PASS_THROUGH', 20325, 'fee-1', 3, 250, 30, 0, null, null, 'UNSPECIFIED', 'Booking fee'])

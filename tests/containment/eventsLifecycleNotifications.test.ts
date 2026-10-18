@@ -287,16 +287,19 @@ describe('idempotency key — one deterministic spelling, pinned everywhere it i
     expect(refunded).toHaveLength(1)
     expect(NOTIFICATIONS_SRC.match(/'event-notification:EVENT_CANCELLED:' \|\| eo\.id/g) ?? []).toHaveLength(1)
     expect(NOTIFICATIONS_SRC.match(/'event-notification:EVENT_REMINDER:' \|\| eo\.id/g) ?? []).toHaveLength(2)
+    // EVENT_UPDATED appends the committed change version: <orderId>:<version>.
+    expect(NOTIFICATIONS_SRC.match(/'event-notification:EVENT_UPDATED:' \|\| eo\.id \|\| ':' \|\| \$\{version\}::text/g) ?? []).toHaveLength(1)
+    expect(notifications.buildEventUpdatedIdempotencyKey('o1', '123')).toBe('event-notification:EVENT_UPDATED:o1:123')
     // No other prefix spelling exists anywhere these keys are built.
     for (const src of [TRANSITIONS_SRC, NOTIFICATIONS_SRC, DELIVERY_SRC, RECOVERY_SRC]) {
       const spellings = src.match(/'event-notification[^']*'/g) ?? []
-      for (const s of spellings) expect(s).toMatch(/^'event-notification:(ORDER_CANCELLED|ORDER_REFUNDED|EVENT_CANCELLED|EVENT_REMINDER):'$|^'event-notification:'$/)
+      for (const s of spellings) expect(s).toMatch(/^'event-notification:(ORDER_CANCELLED|ORDER_REFUNDED|EVENT_CANCELLED|EVENT_REMINDER|EVENT_UPDATED):'$|^'event-notification:'$/)
     }
   })
 
   it('every scheduling INSERT is ON CONFLICT (idempotency_key) DO NOTHING — never ON CONFLICT DO UPDATE, never a plain INSERT', () => {
     const inserts = [TRANSITIONS_SRC, NOTIFICATIONS_SRC].join('\n').match(/INSERT INTO event_notifications[\s\S]*?RETURNING/g) ?? []
-    expect(inserts).toHaveLength(5)
+    expect(inserts).toHaveLength(6)
     for (const ins of inserts) {
       expect(ins).toMatch(/ON CONFLICT \(idempotency_key\) DO NOTHING/)
       expect(ins).not.toMatch(/DO UPDATE/)
@@ -558,7 +561,7 @@ describe('notification recovery — same cron, bounded, time-budgeted, reminder 
     vi.resetModules()
     const attempt = vi.fn()
     vi.doMock('@/lib/events/notificationDelivery', () => ({ attemptNotificationDelivery: (id: string) => attempt(id), sweepStaleExhaustedNotificationLeases: vi.fn().mockResolvedValue(2) }))
-    vi.doMock('@/lib/events/notifications', () => ({ scheduleEventReminderNotifications: vi.fn().mockResolvedValue(['r1', 'r2', 'r3']), expireIneligibleReminderNotifications: vi.fn().mockResolvedValue(1) }))
+    vi.doMock('@/lib/events/notifications', () => ({ scheduleEventReminderNotifications: vi.fn().mockResolvedValue(['r1', 'r2', 'r3']), expireIneligibleReminderNotifications: vi.fn().mockResolvedValue(1), expireIneligibleEventUpdatedNotifications: vi.fn().mockResolvedValue(0) }))
     const mod = await import('@/lib/events/notificationRecovery')
     queue([{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }])
     attempt

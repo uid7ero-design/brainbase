@@ -104,6 +104,8 @@ const MIGRATIONS = [
   'scripts/create-events-promotions-presales-sale-windows.sql',
   'scripts/create-events-ticketing-fees-foundation.sql',
   'scripts/add-events-order-product-surface.sql',
+  // Eve launch compliance - the paid order INSERT now writes the acceptance snapshot columns.
+  'scripts/add-events-order-legal-acceptance.sql',
 ]
 
 const EVENT = {

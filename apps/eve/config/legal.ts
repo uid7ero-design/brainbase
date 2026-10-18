@@ -1,3 +1,4 @@
+import { EVE_LEGAL_DOCUMENT_VERSION } from '@ticketing/core';
 import { product } from '@/config/product';
 
 // Server-side legal configuration for the public legal pages (/terms,
@@ -12,12 +13,14 @@ import { product } from '@/config/product';
 // render the draft with every unresolved fact visibly marked, for review.
 
 // Bump when the wording of any legal document changes.
-export const LEGAL_DOCUMENT_VERSION = '0.1-draft';
+// Single source of truth is @ticketing/core: the same constant is stamped on
+// paid orders server-side, so the text shown and the version recorded agree.
+export const LEGAL_DOCUMENT_VERSION = EVE_LEGAL_DOCUMENT_VERSION;
 export const LEGAL_LAST_UPDATED = '2026-10-18';
 
 // Flip to true only when automatic material-event-change notices are live, so
 // the Refunds & cancellations policy never promises a notice Eve does not send.
-export const EVENT_CHANGE_NOTICES_ENABLED = false;
+export const EVENT_CHANGE_NOTICES_ENABLED = true;
 
 export const LEGAL_FACT_KEYS = [
   'operatorLegalName',

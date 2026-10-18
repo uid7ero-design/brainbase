@@ -4,7 +4,10 @@ import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { validateEventInput, toIsoString, mergeField, type EventInput } from '@/lib/events/validation';
 import { getOrganisationEvent } from '@/lib/events/organiserReads';
 import { logEventUpdated, logEventPublished, logEventUnpublished, logEventCancelled } from '@/lib/events/auditLog';
-import { scheduleEventCancelledNotifications, EVENT_CANCELLED_INLINE_SEND_LIMIT } from '@/lib/events/notifications';
+import {
+  scheduleEventCancelledNotifications, EVENT_CANCELLED_INLINE_SEND_LIMIT,
+  scheduleEventUpdatedNotifications, EVENT_UPDATED_INLINE_SEND_LIMIT,
+} from '@/lib/events/notifications';
 import { attemptNotificationDelivery } from '@/lib/events/notificationDelivery';
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -68,20 +71,37 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   const reminderEnabled = merged.reminder_enabled === true;
 
   try {
+    // One statement: the pre-update material values are read under a row lock
+    // (FOR UPDATE) and the row is updated against that SAME locked read, so the
+    // before/after pair is exact even under concurrent edits (they serialise on
+    // the lock). updated_at is the committed change version: strictly greater
+    // than the previous one (GREATEST with prev + 1 microsecond) so two edits
+    // can never share a version, and exposed as epoch microseconds.
     const rows = await sql`
-      UPDATE events SET
+      WITH prev AS (
+        SELECT id, starts_at, ends_at, venue, status, updated_at
+        FROM events
+        WHERE id = ${id} AND organisation_id = ${session.organisationId}
+        FOR UPDATE
+      )
+      UPDATE events e SET
         name = ${merged.name as string}, slug = ${merged.slug as string},
         description = ${(merged.description as string | null) ?? null},
         venue = ${(merged.venue as string | null) ?? null},
         artwork_url = ${(merged.artwork_url as string | null) || null},
         status = ${merged.status as string},
         starts_at = ${merged.starts_at as string}, ends_at = ${merged.ends_at as string},
-        timezone = ${merged.timezone as string}, reminder_enabled = ${reminderEnabled}, updated_at = now()
-      WHERE id = ${id} AND organisation_id = ${session.organisationId}
-      RETURNING *
+        timezone = ${merged.timezone as string}, reminder_enabled = ${reminderEnabled},
+        updated_at = GREATEST(clock_timestamp(), prev.updated_at + interval '1 microsecond')
+      FROM prev
+      WHERE e.id = prev.id AND e.organisation_id = ${session.organisationId}
+      RETURNING e.*,
+        prev.starts_at AS __prev_starts_at, prev.ends_at AS __prev_ends_at, prev.venue AS __prev_venue, prev.status AS __prev_status,
+        floor(extract(epoch FROM e.updated_at) * 1000000)::bigint::text AS __change_version,
+        e.updated_at::text AS __changed_at
     `;
     if (!rows.length) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
-    const updated = rows[0] as Record<string, unknown>;
+    const { __prev_starts_at, __prev_ends_at, __prev_venue, __prev_status, __change_version, __changed_at, ...updated } = rows[0] as Record<string, unknown>;
 
     // Phase 8 — publish/unpublish must be clearly distinguishable from
     // an ordinary edit (task's own explicit requirement), so the status
@@ -134,6 +154,33 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
         }
       } catch (err) {
         console.error('[events] event-cancelled notifications failed after the event was cancelled', err, { eventId: id });
+      }
+    }
+
+    // Material event-change notice (date, time or venue). Compared as instants
+    // and trimmed venue text, so a description/artwork/branding/name/reminder
+    // edit — or a same-value PATCH — is NOT material. Only a PUBLISHED event
+    // that stays PUBLISHED notifies (cancelling has its own notice; publishing
+    // from draft is not a change to something buyers were told). The version
+    // keying the idempotency is the committed change version above.
+    if (__prev_status === 'PUBLISHED' && updated.status === 'PUBLISHED') {
+      const beforeSnap = { starts_at: toIsoString(__prev_starts_at as never), ends_at: toIsoString(__prev_ends_at as never), venue: ((__prev_venue as string | null) ?? '').trim() || null };
+      const afterSnap = { starts_at: toIsoString(updated.starts_at as never), ends_at: toIsoString(updated.ends_at as never), venue: ((updated.venue as string | null) ?? '').trim() || null };
+      const material = beforeSnap.starts_at !== afterSnap.starts_at || beforeSnap.ends_at !== afterSnap.ends_at || beforeSnap.venue !== afterSnap.venue;
+      if (material) {
+        try {
+          const scheduledIds = await scheduleEventUpdatedNotifications({
+            organisationId: session.organisationId, eventId: id, actorUserId: session.userId,
+            payload: { before: beforeSnap, after: afterSnap, change_version: String(__change_version) },
+            changedAt: String(__changed_at),
+          });
+          notificationsScheduled = scheduledIds.length;
+          for (const notificationId of scheduledIds.slice(0, EVENT_UPDATED_INLINE_SEND_LIMIT)) {
+            await attemptNotificationDelivery(notificationId);
+          }
+        } catch (err) {
+          console.error('[events] event-updated notifications failed after the event was updated', err, { eventId: id });
+        }
       }
     }
 

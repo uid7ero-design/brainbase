@@ -657,7 +657,7 @@ describe('paid checkout with a promotion code — snapshot, lock tier, gate pred
     expect(gate).toContain('NOT EXISTS (SELECT 1 FROM cart_tt WHERE cart_tt.sold + cart_tt.quantity > cart_tt.capacity)')
     expect(gate).toContain(REDEMPTION_COUNTS_PREDICATE_SQL)
     expect(gate).toMatch(/\) \+ 1 <= pc\.max_redemptions\)/)
-    expect(gate).toMatch(/INSERT INTO event_orders \([\s\S]*discount_cents, promotion_code_id, promotion_code_snapshot, access_code_id, access_code_snapshot,\s*\n\s*product_surface\s*\n\s*\)/)
+    expect(gate).toMatch(/INSERT INTO event_orders \([\s\S]*discount_cents, promotion_code_id, promotion_code_snapshot, access_code_id, access_code_snapshot,\s*\n\s*product_surface, terms_accepted_at, terms_version, refunds_version\s*\n\s*\)/)
     expect(gate).toMatch(/INSERT INTO event_order_items \(organisation_id, order_id, event_id, ticket_type_id, event_session_id, quantity, unit_price_cents, discount_cents\)/)
     const gateIdx = findCall(/INSERT INTO event_orders/)
     const args = callArgs(gateIdx)

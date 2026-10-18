@@ -105,7 +105,7 @@ export const PRIVACY: LegalDoc = {
       body: [
         'If you book a ticket: your name, email address and optional phone number; each attendee\'s name and optional email address; any promotion or access code you enter; and any answers to registration questions that the Event Organiser asks.',
         'If you are an Event Organiser or team member: your username, a one-way hash of your password (never the password itself), your name, role, sign-in times and session records.',
-        'For payments: card details go directly to Stripe and are not seen or stored by us. We keep the amount, the Stripe order and payment references, and the refund status.',
+        'For payments: card details go directly to Stripe and are not seen or stored by us. We keep the amount, the Stripe order and payment references, and the refund status. For paid tickets we also record when you agreed to the Terms and the Refunds & cancellations policy and which version of each you agreed to.',
         'When tickets are checked in: the time of check-in and the organiser staff member who recorded it.',
         'Technical data: our hosting provider\'s logs record technical request details such as your IP address. We also use hashed identifiers to limit repeated requests.',
       ],
@@ -128,7 +128,7 @@ export const PRIVACY: LegalDoc = {
     {
       heading: '5. Sensitive information',
       body: [
-        'Some Event Organisers ask registration questions (for example about access or dietary needs) whose answers can reveal sensitive information such as health or disability. Event Organisers should only ask for what they need. Answers are provided to the Event Organiser for event administration and are not used for any other purpose by us.',
+        'Eve does not currently show registration questions on its booking form, so it does not collect answers to them. If that changes, this policy will be updated first. Event Organisers who ask such questions elsewhere (for example about access or dietary needs) should only ask for what they need, because answers can reveal sensitive information such as health or disability.',
       ],
     },
     {
@@ -191,7 +191,7 @@ export function refundsDoc(changeNotices: boolean = EVENT_CHANGE_NOTICES_ENABLED
         heading: '3. If an event changes significantly',
         body: [
           changeNotices
-            ? 'If the date, time or venue of an event changes, we email the people with tickets to tell them what has changed. A change that materially affects what you bought may entitle you to a refund or another remedy under Australian law. Contact the Event Organiser or {{supportEmail}} if you think a change is significant.'
+            ? 'If the date, time or venue of an event changes, we email people with a confirmed booking to tell them what has changed. A change that materially affects what you bought may entitle you to a refund or another remedy under Australian law. Contact the Event Organiser or {{supportEmail}} if you think a change is significant.'
             : 'If the date, time, venue or a major feature of an event changes in a way that materially affects what you bought, you may be entitled to a refund or another remedy under Australian law. The Event Organiser is responsible for telling you about changes. Contact the Event Organiser or {{supportEmail}} if you think a change is significant.',
         ],
       },

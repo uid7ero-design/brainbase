@@ -12,11 +12,11 @@ only things that expire by themselves are listed in the last two rows.
 
 | Category | Where | What it holds | Behaviour today | Retention period |
 |---|---|---|---|---|
-| Orders and payment snapshots | `event_orders`, `event_order_items` | purchaser name/email/phone, amounts, fee and refund snapshot, Stripe checkout/payment/account identifiers, product (`EVE`/`BRAINBASE`) | kept indefinitely; cancelled/expired/refunded orders stay | PENDING LEGAL/ACCOUNTING APPROVAL (financial records) |
+| Orders and payment snapshots | `event_orders`, `event_order_items` | purchaser name/email/phone, amounts, fee and refund snapshot, Stripe checkout/payment/account identifiers, product (`EVE`/`BRAINBASE`), and for paid Eve orders the time and versions of the Terms and Refunds policy accepted (`terms_accepted_at`, `terms_version`, `refunds_version`; written once, never edited) | kept indefinitely; cancelled/expired/refunded orders stay | PENDING LEGAL/ACCOUNTING APPROVAL (financial records) |
 | Attendees and tickets | `event_attendees` | attendee name, optional email, ticket token, check-in time and checker | kept indefinitely | PENDING LEGAL/ACCOUNTING APPROVAL |
 | Registration answers | `event_registration_responses` | organiser-defined answers (may be sensitive: health, access, dietary) with a snapshot of the question | kept indefinitely; never copied to CRM; not in emails | PENDING LEGAL APPROVAL (recommend the shortest period that serves the event) |
 | Email delivery records | `event_ticket_email_deliveries` | order id, provider message id, delivery status and timestamps (no address) | kept indefinitely | PENDING |
-| Lifecycle notifications | `event_notifications` | recipient email, type, status, provider message id | kept indefinitely | PENDING |
+| Lifecycle notifications | `event_notifications` | recipient email, type, status, provider message id; for event-change notices a buyer-safe payload of the old/new date, time and venue | kept indefinitely | PENDING |
 | CRM contacts | `crm_contacts`, `crm_activities` | buyer name/email/phone copied best-effort at booking, a fixed note and an activity line | kept until an organiser staff member deletes the contact; deletion does not remove the order | PENDING |
 | Organiser accounts | `users` | username, password hash, name, role, status | kept until an administrator removes the user | PENDING |
 | Eve sessions | `ticketing_sessions` | session id, user, organisation, times | expire after 8 hours; up to 100 long-expired rows pruned on each sign-in | 8 hours (+ pruning); operational |

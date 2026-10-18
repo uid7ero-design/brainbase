@@ -125,3 +125,82 @@ describe('CRM disclosure boundary (buyer contact only; no marketing consent; no 
     expect(sync).not.toMatch(/event_registration_responses|event_registration_questions|answer_json/)
   })
 })
+
+// ─── Schema gate: acceptance snapshot + EVENT_UPDATED ──────────────────
+
+function walk(dir: string, out: string[] = []): string[] {
+  for (const e of fs.readdirSync(path.join(process.cwd(), dir), { withFileTypes: true })) {
+    const rel = `${dir}/${e.name}`
+    if (e.isDirectory()) { if (!['node_modules', '.next'].includes(e.name)) walk(rel, out) } else if (/\.(ts|tsx)$/.test(e.name)) out.push(rel)
+  }
+  return out
+}
+
+describe('legal acceptance snapshot — write-once, server-side only', () => {
+  it('no application SQL ever UPDATEs the acceptance columns (retry, webhook and refund cannot alter them)', () => {
+    for (const f of [...walk('lib'), ...walk('app')]) {
+      const src = read(f)
+      for (const m of src.matchAll(/UPDATE\s+event_orders[\s\S]*?(?:WHERE|RETURNING|`)/g)) {
+        expect(m[0], `${f} must not update acceptance columns`).not.toMatch(/terms_accepted_at|terms_version|refunds_version/)
+      }
+    }
+  })
+
+  it('only paidCheckout writes the columns, in the order INSERT, with the DB clock', () => {
+    const writers = [...walk('lib'), ...walk('app')].filter(f => /terms_accepted_at/.test(read(f)))
+    expect(writers).toEqual(['lib/events/services/paidCheckout.ts'])
+    const src = read('lib/events/services/paidCheckout.ts')
+    expect(src).toMatch(/CASE WHEN \$\{legalAcceptance != null\}::boolean THEN NOW\(\) ELSE NULL END/)
+    expect(src).not.toMatch(/terms_accepted_at\s*=/)
+  })
+
+  it('only the Eve S2S checkout passes legalAcceptance; BrainBase public routes never do', () => {
+    const callers = [...walk('lib'), ...walk('app')].filter(f => /legalAcceptance/.test(read(f)) && f !== 'lib/events/services/paidCheckout.ts')
+    expect(callers).toEqual(['lib/ticketing/publicApi.ts'])
+    expect(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts')).not.toMatch(/legalAcceptance|accept_terms/)
+  })
+
+  it('Eve renders the same version constant that the server stamps', () => {
+    expect(read('apps/eve/config/legal.ts')).toMatch(/LEGAL_DOCUMENT_VERSION = EVE_LEGAL_DOCUMENT_VERSION/)
+  })
+})
+
+describe('EVENT_UPDATED — source contracts', () => {
+  const noComments = (t: string) => t.split(/\r?\n/).filter(l => !l.trim().startsWith('//')).join(' ')
+  const route = read('app/api/events/[id]/route.ts')
+
+  it('the change version is the committed updated_at (strictly increasing), not a hash of the new values', () => {
+    expect(route).toMatch(/FOR UPDATE/)
+    expect(route).toMatch(/GREATEST\(clock_timestamp\(\), prev\.updated_at \+ interval '1 microsecond'\)/)
+    expect(route).toMatch(/floor\(extract\(epoch FROM e\.updated_at\) \* 1000000\)::bigint::text AS __change_version/)
+    expect(route).not.toMatch(/sha256|createHash|digest\(/i)
+    expect(read('lib/events/notifications.ts')).not.toMatch(/sha256|createHash|digest\(/i)
+  })
+
+  it('only starts_at / ends_at / venue are material, and only PUBLISHED -> PUBLISHED notifies', () => {
+    const block = noComments(route.slice(route.indexOf('Material event-change notice')))
+    expect(block).toMatch(/__prev_status === 'PUBLISHED' && updated\.status === 'PUBLISHED'/)
+    expect(block).toMatch(/beforeSnap\.starts_at !== afterSnap\.starts_at \|\| beforeSnap\.ends_at !== afterSnap\.ends_at \|\| beforeSnap\.venue !== afterSnap\.venue/)
+    expect(block).not.toMatch(/description|artwork|name !==|reminder_enabled/)
+  })
+
+  it('internal change columns never reach the response; sending is bounded and best-effort', () => {
+    expect(route).toMatch(/const \{ __prev_starts_at, __prev_ends_at, __prev_venue, __prev_status, __change_version, __changed_at, \.\.\.updated \}/)
+    expect(route).toMatch(/scheduledIds\.slice\(0, EVENT_UPDATED_INLINE_SEND_LIMIT\)/)
+    expect(route).toMatch(/event-updated notifications failed after the event was updated/)
+  })
+
+  it('the payload carries only before/after/change_version (no purchaser, token or config fields)', () => {
+    const n = read('lib/events/notifications.ts')
+    const type = noComments(n.slice(n.indexOf('export type EventUpdatedSnapshot'), n.indexOf('export function buildEventUpdatedIdempotencyKey')))
+    expect(type).not.toMatch(/email|name|token|secret|phone|order/i)
+  })
+
+  it('EVENT_UPDATED is in the shared vocabulary and the migration, and the migration is not wired into any automatic runner', () => {
+    expect(NOTIFICATION_TYPES).toContain('EVENT_UPDATED')
+    expect(read('scripts/add-events-notification-event-updated.sql')).toMatch(/'EVENT_UPDATED'/)
+    for (const f of ['package.json', 'vercel.json']) {
+      expect(read(f)).not.toMatch(/add-events-notification-event-updated|add-events-order-legal-acceptance/)
+    }
+  })
+})

@@ -4,7 +4,7 @@ import { brainbaseBuyerContext, type BuyerProductContext } from '@/lib/events/bu
 import { buildTicketUrl } from '@/lib/events/qr';
 import { formatReceiptMoney } from '@/lib/events/receipt';
 import type { LifecycleEmailBranding } from '@/lib/organisations/branding';
-import type { NotificationType } from './notifications';
+import type { NotificationType, EventUpdatedPayload, EventUpdatedSnapshot } from './notifications';
 
 // Phase 5B — lifecycle (transactional) email templates: order cancelled,
 // order refunded, event cancelled, event reminder. Pure template
@@ -71,6 +71,11 @@ export type LifecycleEmailData = {
   // (resolveBuyerProduct over event_orders.product_surface). Absent =>
   // BrainBase, exactly as before.
   product?: BuyerProductContext | null;
+  // EVENT_UPDATED only — the buyer-safe before/after snapshot persisted in
+  // event_notifications.payload, and the slugs for the event page link.
+  change?: EventUpdatedPayload | null;
+  eventSlug?: string | null;
+  organisationSlug?: string | null;
 };
 
 export type LifecycleEmail = { subject: string; html: string; text: string };
@@ -211,6 +216,25 @@ function render(data: LifecycleEmailData, opts: {
   return { subject: opts.subject, html, text: textLines.join('\n') };
 }
 
+// Defensive parse of event_notifications.payload: anything that is not exactly
+// the buyer-safe shape is treated as absent (the template then refuses to
+// invent a before/after).
+export function parseEventUpdatedPayload(raw: unknown): EventUpdatedPayload | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const snap = (v: unknown): EventUpdatedSnapshot | null => {
+    if (!v || typeof v !== 'object') return null;
+    const x = v as Record<string, unknown>;
+    if (typeof x.starts_at !== 'string' || typeof x.ends_at !== 'string') return null;
+    if (x.venue !== null && x.venue !== undefined && typeof x.venue !== 'string') return null;
+    return { starts_at: x.starts_at, ends_at: x.ends_at, venue: (x.venue as string | null | undefined) ?? null };
+  };
+  const before = snap(o.before);
+  const after = snap(o.after);
+  if (!before || !after || typeof o.change_version !== 'string') return null;
+  return { before, after, change_version: o.change_version };
+}
+
 function money(cents: number, currency: string): string {
   return formatReceiptMoney(cents, currency);
 }
@@ -342,11 +366,68 @@ function buildEventReminder(data: LifecycleEmailData): LifecycleEmail {
   });
 }
 
+function whenText(snap: EventUpdatedSnapshot, tz: string): string {
+  return `${formatDateTime(snap.starts_at, tz)} – ${formatDateTime(snap.ends_at, tz)}`;
+}
+
+// Material event change (date, time or venue). Shows exactly what changed from
+// the persisted before/after, names the organiser, links to the event page (and
+// for Eve the Refunds & cancellations page), and never promises a refund: it
+// only says a significant change may give rights under applicable law or the
+// organiser's terms and points to the organiser.
+function buildEventUpdated(data: LifecycleEmailData): LifecycleEmail {
+  const change = data.change ?? null;
+  const tz = data.eventTimezone;
+  const facts: Facts = [{ label: 'Event', value: data.eventName }];
+  if (change) {
+    const timeChanged = change.before.starts_at !== change.after.starts_at || change.before.ends_at !== change.after.ends_at;
+    const venueChanged = (change.before.venue ?? '').trim() !== (change.after.venue ?? '').trim();
+    if (timeChanged) {
+      facts.push({ label: 'Previously', value: whenText(change.before, tz) });
+      facts.push({ label: 'Now', value: whenText(change.after, tz) });
+    } else {
+      facts.push({ label: 'When', value: whenText(change.after, tz) });
+    }
+    if (venueChanged) {
+      facts.push({ label: 'Previous venue', value: change.before.venue?.trim() || 'Not specified' });
+      facts.push({ label: 'New venue', value: change.after.venue?.trim() || 'Not specified' });
+    } else if (change.after.venue) {
+      facts.push({ label: 'Where', value: change.after.venue });
+    }
+  } else {
+    facts.push(...eventFacts(data).slice(1));
+  }
+  facts.push({ label: 'Tickets', value: `${data.attendees.length} ticket${data.attendees.length === 1 ? '' : 's'} on this order` });
+
+  const linkBase = (data.product ?? brainbaseBuyerContext()).linkBase;
+  const links: { label: string; url: string }[] = [];
+  if (data.organisationSlug && data.eventSlug) {
+    links.push({ label: 'View event details', url: `${linkBase}/e/${encodeURIComponent(data.organisationSlug)}/${encodeURIComponent(data.eventSlug)}` });
+  }
+  const isEve = data.product?.surface === 'EVE';
+  if (isEve) links.push({ label: 'Refunds & cancellations', url: `${linkBase}/refunds` });
+
+  const paragraphs = [
+    `${organiserName(data)} has changed the date, time or venue of ${data.eventName}. The details above show what changed. Please check the new details work for you.`,
+    'If this change is significant for you, you may have rights under applicable law or the organiser’s terms. This message does not issue a refund. To ask about your options, contact the organiser.',
+  ];
+  return render(data, {
+    subject: `Details changed for ${data.eventName}`,
+    heading: 'Event details changed',
+    paragraphs,
+    facts,
+    links,
+    attendeeList: false,
+    closing: null,
+  });
+}
+
 export function buildLifecycleEmail(data: LifecycleEmailData): LifecycleEmail {
   switch (data.type) {
     case 'ORDER_CANCELLED': return buildOrderCancelled(data);
     case 'ORDER_REFUNDED': return buildOrderRefunded(data);
     case 'EVENT_CANCELLED': return buildEventCancelled(data);
     case 'EVENT_REMINDER': return buildEventReminder(data);
+    case 'EVENT_UPDATED': return buildEventUpdated(data);
   }
 }

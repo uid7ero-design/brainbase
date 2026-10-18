@@ -526,6 +526,53 @@ describe('paid checkout acceptance is enforced server-side (launch compliance)',
     expect(JSON.stringify(publicSvc.startPaidCheckout.mock.calls[0][0].validated)).not.toMatch(/accept|terms/i)
   })
 
+  it('the acceptance snapshot comes from trusted server constants — hostile client versions / timestamps are ignored', async () => {
+    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, organisationId: 'org-a', event: { id: 'e1' } })
+    publicSvc.startPaidCheckout.mockResolvedValue({ ok: true, checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_test_1' })
+    const { currentEveLegalAcceptance } = await import('@ticketing/core')
+    const res = await pub.handleTicketingCheckout(gated({
+      ...BASE, accept_terms: true,
+      terms_version: 'attacker-1', refunds_version: 'attacker-2', termsVersion: 'attacker-3', refundsVersion: 'attacker-4',
+      terms_accepted_at: '1999-01-01T00:00:00Z', legalAcceptance: { termsVersion: 'x', refundsVersion: 'y' },
+    }), params())
+    expect(res.status).toBe(201)
+    const input = publicSvc.startPaidCheckout.mock.calls.at(-1)![0]
+    expect(input.legalAcceptance).toEqual(currentEveLegalAcceptance())
+    expect(JSON.stringify(input)).not.toMatch(/attacker|1999|"x"|"y"/)
+    // No timestamp is passed at all: the database stamps its own NOW().
+    expect(Object.keys(input.legalAcceptance).sort()).toEqual(['refundsVersion', 'termsVersion'])
+  })
+
+  it('Production refuses to record a DRAFT legal version (503, nothing reserved); Preview records it', async () => {
+    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, organisationId: 'org-a', event: { id: 'e1' } })
+    publicSvc.startPaidCheckout.mockResolvedValue({ ok: true, checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_test_1' })
+    vi.stubEnv('VERCEL_ENV', 'production')
+    try {
+      publicSvc.startPaidCheckout.mockClear()
+      const res = await pub.handleTicketingCheckout(gated({ ...BASE, accept_terms: true }), params())
+      expect(res.status).toBe(503)
+      expect(publicSvc.startPaidCheckout).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+    vi.stubEnv('VERCEL_ENV', 'preview')
+    try {
+      const res = await pub.handleTicketingCheckout(gated({ ...BASE, accept_terms: true }), params())
+      expect(res.status).toBe(201)
+      expect(publicSvc.startPaidCheckout).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('free registration never carries an acceptance snapshot', async () => {
+    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: false })
+    await pub.handleTicketingRegister(gated(BASE), params())
+    const src = readFileSync(path.join(process.cwd(), 'lib/ticketing/publicApi.ts'), 'utf8')
+    const freeFn = src.slice(src.indexOf('export async function handleTicketingRegister'), src.indexOf('export async function handleTicketingCheckoutStatus'))
+    expect(freeFn).not.toMatch(/legalAcceptance/)
+  })
+
   it('free registration does not require acceptance (linked notice only)', async () => {
     publicSvc.resolvePublicEvent.mockResolvedValue({ ok: false })
     const res = await pub.handleTicketingRegister(gated(BASE), params())
