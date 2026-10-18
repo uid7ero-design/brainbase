@@ -326,7 +326,7 @@ describe('surface boundary', () => {
   }
   const routes = walk(path.join(ROOT, 'app/api/ticketing')).map(f => path.relative(ROOT, f).replace(/\\/g, '/')).sort()
 
-  it('exposes exactly the approved routes — no refund, cancel, retry, resend, payments or fee-policy surface', () => {
+  it('exposes exactly the approved routes — no refund, cancel, retry, resend, payment mutation or fee-policy surface', () => {
     expect(routes).toEqual([
       'app/api/ticketing/auth/login/route.ts',
       'app/api/ticketing/auth/logout/route.ts',
@@ -340,6 +340,8 @@ describe('surface boundary', () => {
       'app/api/ticketing/organiser/events/[id]/orders/route.ts',
       'app/api/ticketing/organiser/events/[id]/route.ts',
       'app/api/ticketing/organiser/events/route.ts',
+      'app/api/ticketing/organiser/payments/[orderId]/route.ts',
+      'app/api/ticketing/organiser/payments/route.ts',
       'app/api/ticketing/organiser/summary/route.ts',
       'app/api/ticketing/public/bookings/[bookingToken]/route.ts',
       'app/api/ticketing/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts',
@@ -349,6 +351,13 @@ describe('surface boundary', () => {
       'app/api/ticketing/public/events/[organisationSlug]/[eventSlug]/route.ts',
       'app/api/ticketing/public/tickets/[token]/route.ts',
     ])
+  })
+
+  it('the payments routes are READ-ONLY: GET is their only exported method', () => {
+    for (const f of routes.filter(r => r.includes('/organiser/payments/'))) {
+      const exported = [...code(f).matchAll(/export (?:async function|const|function) (\w+)/g)].map(m => m[1])
+      expect(exported, f).toEqual(['GET'])
+    }
   })
 
   it('no ticketing route or handler module emits CORS headers or an OPTIONS handler, and none sets a cookie', () => {
