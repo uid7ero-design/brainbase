@@ -11,12 +11,16 @@ process.env.TICKETING_API_SECRET = 'gate-test-secret-0123456789abcdef0123456789a
 process.env.EVE_PUBLIC_BASE_URL = 'https://eve.example'
 
 type Row = Record<string, unknown>
-const db: { users: Row[]; orgs: Row[]; entitled: Set<string> } = { users: [], orgs: [], entitled: new Set() }
+const db: { users: Row[]; orgs: Row[]; entitled: Set<string>; counters: Map<string, number>; limiterDown: boolean } = { users: [], orgs: [], entitled: new Set(), counters: new Map(), limiterDown: false }
 
 vi.mock('@/lib/db', () => ({
   default: async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const q = strings.join('?')
-    if (q.includes('FROM users WHERE id')) return db.users.filter(u => u.id === values[0])
+    if (q.includes('INSERT INTO ticketing_rate_limits')) {
+      if (db.limiterDown) throw new Error('limiter down')
+      const k = String(values[0]); const n = (db.counters.get(k) ?? 0) + 1; db.counters.set(k, n); return [{ count: n }]
+    }
+    if (q.includes('FROM users WHERE id')) return db.users.filter(u => u.id === values[values.length - 1]).map(u => ({ ...u, session_live: true }))
     if (q.includes('FROM organisations WHERE id')) return db.orgs.filter(o => o.id === values[0])
     return []
   },
@@ -82,6 +86,7 @@ async function authed(userId = 'u-mgr', orgId = 'org-a', extra: Record<string, s
 }
 
 beforeEach(() => {
+  db.counters = new Map(); db.limiterDown = false
   for (const group of [reads, checkIn, ops, publicSvc]) for (const f of Object.values(group)) f.mockReset()
   db.entitled = new Set(['org-a', 'org-b'])
   db.orgs = [
@@ -380,5 +385,114 @@ describe('surface boundary', () => {
     const src = code('lib/events/authorize.ts')
     expect(src).toMatch(/session = await requireSession\(\)/)
     expect(src).not.toMatch(/delegated|ticketing|AsyncLocalStorage/i)
+  })
+})
+
+const { limiterKeyHash, LIMITS } = await import('@/lib/ticketing/rateLimit')
+
+describe('distributed rate limiting wiring (Phase 3.5)', () => {
+  const gated = (url = 'http://bb.test/x', init: RequestInit = {}) => new Request(url, { ...init, headers: { ...GATE, 'content-type': 'application/json', ...(init.headers as object) } })
+  const VALID = { items: [{ ticket_type_id: 't1', quantity: 1 }], purchaser_name: 'Sam', purchaser_email: 's@x.test', attendees: [{ name: 'Sam', ticket_type_id: 't1' }] }
+  const params = { organisationSlug: 'acme', eventSlug: 'gala' }
+  const IP = '198.51.100.20'
+  const exhaust = (policy: { cls: string; max: number }, dims: string[]) => db.counters.set(limiterKeyHash(policy.cls, dims), policy.max)
+
+  it('paid checkout: the 11th request from one address is a 429 and the service (reservation, Stripe) is NOT called a 11th time', async () => {
+    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, organisationId: 'org-a', event: { id: 'e1' } })
+    publicSvc.startPaidCheckout.mockResolvedValue({ ok: false, code: 'CAPACITY_UNAVAILABLE' })
+    const run = () => pub.handleTicketingCheckout(gated('http://bb.test/x', { method: 'POST', body: JSON.stringify(VALID), headers: { 'x-ticketing-client-ip': IP } }), params)
+    const statuses: number[] = []
+    for (let i = 0; i < 11; i++) statuses.push((await run()).status)
+    expect(statuses.slice(0, 10).every(x => x === 409)).toBe(true)
+    expect(statuses[10]).toBe(429)
+    expect(publicSvc.startPaidCheckout).toHaveBeenCalledTimes(10)
+    expect(publicSvc.resolvePublicEvent).toHaveBeenCalledTimes(10)
+  })
+
+  it('free registration and quote: an exhausted budget is refused BEFORE the event is resolved or anything is created/computed', async () => {
+    exhaust(LIMITS.freeRegistration, ['acme', 'gala', IP])
+    const reg = await pub.handleTicketingRegister(gated('http://bb.test/x', { method: 'POST', body: JSON.stringify(VALID), headers: { 'x-ticketing-client-ip': IP } }), params)
+    expect(reg.status).toBe(429)
+    exhaust(LIMITS.publicQuote, ['acme', 'gala', IP])
+    const quote = await pub.handleTicketingQuote(gated('http://bb.test/x', { method: 'POST', body: JSON.stringify(VALID), headers: { 'x-ticketing-client-ip': IP } }), params)
+    expect(quote.status).toBe(429)
+    exhaust(LIMITS.ticketLookup, [IP])
+    expect((await pub.handleTicketingTicket(gated('http://bb.test/x', { headers: { 'x-ticketing-client-ip': IP } }), 'abcdefghijklmnop')).status).toBe(429)
+    expect((await pub.handleTicketingBooking(gated('http://bb.test/x', { headers: { 'x-ticketing-client-ip': IP } }), 'abcdefghijklmnop')).status).toBe(429)
+    expect(publicSvc.resolvePublicEvent).not.toHaveBeenCalled()
+    expect(publicSvc.getPublicTicketDetail).not.toHaveBeenCalled()
+    expect(publicSvc.getPublicBookingDetail).not.toHaveBeenCalled()
+  })
+
+  it('another address or another event keeps its own budget', async () => {
+    exhaust(LIMITS.paidCheckout, ['acme', 'gala', IP])
+    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, organisationId: 'org-a', event: { id: 'e1' } })
+    publicSvc.startPaidCheckout.mockResolvedValue({ ok: false, code: 'CAPACITY_UNAVAILABLE' })
+    const go = (ip: string, eventSlug = 'gala') => pub.handleTicketingCheckout(gated('http://bb.test/x', { method: 'POST', body: JSON.stringify(VALID), headers: { 'x-ticketing-client-ip': ip } }), { organisationSlug: 'acme', eventSlug })
+    expect((await go(IP)).status).toBe(429)
+    expect((await go('198.51.100.21')).status).toBe(409)
+    expect((await go(IP, 'other-event')).status).toBe(409)
+  })
+
+  it('organiser reads: limited per VERIFIED user and organisation, refused before the handler reads anything; other users are unaffected', async () => {
+    exhaust(LIMITS.organiserRead, ['org-a', 'u-mgr'])
+    const res = await org.handleOrganiserEvents(await authed('u-mgr', 'org-a'))
+    expect(res.status).toBe(429)
+    expect(reads.listOrganisationEvents).not.toHaveBeenCalled()
+    expect((await org.handleOrganiserEvents(await authed('u-view', 'org-a'))).status).toBe(200)
+    expect((await org.handleOrganiserEvents(await authed('u-b', 'org-b'))).status).toBe(200)
+  })
+
+  it('check-in: lookups and confirm/undo have separate per-user-per-event budgets; a limited scan changes nothing', async () => {
+    exhaust(LIMITS.checkInMutation, ['org-a', 'u-mgr', 'e1'])
+    const confirm = await org.handleOrganiserCheckIn(await authed('u-mgr', 'org-a', {}, { ticket_token: 'abc' }, 'POST'), 'e1', 'confirm')
+    expect(confirm.status).toBe(429)
+    expect(ops.confirmCheckInWithAudit).not.toHaveBeenCalled()
+    // The lookup budget for the same event is untouched; another event is untouched.
+    ops.eventBelongsToOrganisation.mockResolvedValue(true)
+    checkIn.resolveAttendee.mockResolvedValue({ ok: false, reason: 'not_found' })
+    expect((await org.handleOrganiserCheckIn(await authed('u-mgr', 'org-a', {}, { ticket_token: 'abc' }, 'POST'), 'e1', 'resolve')).status).toBe(404)
+    ops.confirmCheckInWithAudit.mockResolvedValue({ ok: true, first: true, attendee: {} })
+    expect((await org.handleOrganiserCheckIn(await authed('u-mgr', 'org-a', {}, { ticket_token: 'abc' }, 'POST'), 'e2', 'confirm')).status).toBe(200)
+    exhaust(LIMITS.checkInLookup, ['org-a', 'u-view', 'e1'])
+    expect((await org.handleOrganiserCheckInSearch(await authed('u-view', 'org-a'), 'e1')).status).toBe(429)
+    expect(checkIn.searchAttendees).not.toHaveBeenCalled()
+  })
+
+  it('limiter outage: public and organiser classes degrade to the in-memory limiter and keep serving; the unauthenticated denial is unchanged', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    db.limiterDown = true
+    publicSvc.getPublicTicketDetail.mockResolvedValue({ ok: false })
+    expect((await pub.handleTicketingTicket(gated('http://bb.test/x', { headers: { 'x-ticketing-client-ip': '198.51.100.55' } }), 'abcdefghijklmnop')).status).toBe(404)
+    expect((await org.handleOrganiserEvents(await authed('u-view', 'org-a'))).status).toBe(200)
+    expect((await org.handleOrganiserEvents(new Request('http://bb.test/x', { headers: GATE }))).status).toBe(401)
+    expect(warn.mock.calls.map(c => String(c[0])).join('')).toContain('ticketing_rate_limit_degraded')
+    warn.mockRestore()
+  })
+
+  it('a future organiser MUTATION class fails closed (policy), and every class is bounded and named', () => {
+    expect(LIMITS.organiserMutation.outage).toBe('closed')
+    expect(LIMITS.loginIp.outage).toBe('closed')
+    expect(LIMITS.loginUser.outage).toBe('closed')
+    for (const [name, p] of Object.entries(LIMITS)) {
+      expect(p.max, name).toBeGreaterThan(0)
+      expect(p.windowSeconds, name).toBeGreaterThan(0)
+      expect(p.cls, name).toMatch(/^eve-[a-z-]+$/)
+    }
+    expect(new Set(Object.values(LIMITS).map(p => p.cls)).size).toBe(Object.keys(LIMITS).length)
+  })
+
+  it('limiter callers pass no raw secret or token: dimensions come from the verified context, the trusted IP path or URL slugs', () => {
+    const root = path.resolve(__dirname, '../..')
+    const strip = (f: string) => readFileSync(path.join(root, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    const login = strip('lib/ticketing/login.ts')
+    expect(login).toMatch(/limit\(LIMITS\.loginIp, \[clientIp\]\)/)
+    expect(login).toMatch(/limit\(LIMITS\.loginUser, \[username\]\)/)
+    expect(login).not.toMatch(/checkRateLimit|resetRateLimit/)
+    for (const f of ['lib/ticketing/publicApi.ts', 'lib/ticketing/organiserApi.ts', 'lib/ticketing/login.ts']) {
+      const src = strip(f)
+      expect(src, f).not.toMatch(/limit\([^)]*(password|secret|token|authorization|cookie)/i)
+    }
+    expect(strip('lib/ticketing/organiserApi.ts')).toMatch(/\[ctx\.organisationId, ctx\.userId/)
   })
 })

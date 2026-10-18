@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import sql from '@/lib/db';
 import { getSession, type Role } from '@/lib/session';
 import { revalidatePath } from 'next/cache';
+import { revokeUserSessionsQuery } from '@/lib/ticketing/sessionRevocation';
 
 async function requireSuperAdmin() {
   const session = await getSession();
@@ -53,7 +54,16 @@ export async function resetUserPassword(prevState: UserFormState, formData: Form
   const password = formData.get('password') as string;
   if (!userId || !password || password.length < 8) return { error: 'Password must be at least 8 characters.' };
   const passwordHash = await bcrypt.hash(password, 12);
-  await sql`UPDATE users SET password_hash = ${passwordHash}, updated_at = NOW() WHERE id = ${userId}`;
+  // Same transaction as the password write: the user's Eve sessions are revoked
+  // or the whole change fails (and is reported).
+  try {
+    await sql.transaction([
+      sql`UPDATE users SET password_hash = ${passwordHash}, updated_at = NOW() WHERE id = ${userId}`,
+      revokeUserSessionsQuery(userId),
+    ]);
+  } catch {
+    return { error: 'The password could not be updated. Please try again.' };
+  }
   revalidatePath('/admin/users');
   return { success: 'Password updated.' };
 }

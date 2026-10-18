@@ -16,7 +16,7 @@ const db: { users: Row[]; orgs: Row[]; entitled: Set<string> } = { users: [], or
 vi.mock('@/lib/db', () => ({
   default: async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const q = strings.join('?')
-    if (q.includes('FROM users WHERE id')) return db.users.filter(u => u.id === values[0])
+    if (q.includes('FROM users WHERE id')) return db.users.filter(u => u.id === values[values.length - 1]).map(u => ({ ...u, session_live: true }))
     if (q.includes('FROM organisations WHERE id')) return db.orgs.filter(o => o.id === values[0])
     return []
   },

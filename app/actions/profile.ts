@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import sql from '@/lib/db';
 import { getSession, createSession, type Role } from '@/lib/session';
 import { revalidatePath } from 'next/cache';
+import { revokeUserSessionsQuery } from '@/lib/ticketing/sessionRevocation';
 
 export async function updateSecureMode(enabled: boolean): Promise<void> {
   const session = await getSession();
@@ -49,6 +50,16 @@ export async function updatePassword(prevState: ProfileState, formData: FormData
   }
 
   const hash = await bcrypt.hash(next, 12);
-  await sql`UPDATE users SET password_hash = ${hash}, updated_at = NOW() WHERE id = ${session.userId}`;
+  // Eve (ticketing) sessions of this user are revoked in the SAME transaction as
+  // the password write: both happen or neither does, so a failure is reported
+  // instead of leaving stale Eve sessions active behind a "success".
+  try {
+    await sql.transaction([
+      sql`UPDATE users SET password_hash = ${hash}, updated_at = NOW() WHERE id = ${session.userId}`,
+      revokeUserSessionsQuery(session.userId),
+    ]);
+  } catch {
+    return { error: 'Your password could not be updated. Please try again.' };
+  }
   return { success: 'Password updated.' };
 }

@@ -110,6 +110,23 @@ describe('logout, session and organisation selection', () => {
     expect(jar.has(TICKETING_SESSION_COOKIE)).toBe(false);
   });
 
+  it('logout reports whether the server-side revocation was confirmed, and still removes the cookie', async () => {
+    jar.set(TICKETING_SESSION_COOKIE, { value: 't', opts: {} });
+    gw.logout.mockResolvedValueOnce({ status: 'ok', data: { ok: true } });
+    const ok = await logout.POST(req('/api/auth/logout'));
+    expect(await ok.json()).toEqual({ ok: true, revoked: true });
+    expect(gw.logout).toHaveBeenLastCalledWith('t');
+    jar.set(TICKETING_SESSION_COOKIE, { value: 't', opts: {} });
+    gw.logout.mockResolvedValueOnce({ status: 'error', httpStatus: 503, message: 'x', body: {} });
+    const unconfirmed = await logout.POST(req('/api/auth/logout'));
+    expect(await unconfirmed.json()).toEqual({ ok: true, revoked: false });
+    expect(jar.has(TICKETING_SESSION_COOKIE)).toBe(false);
+    // No cookie at all: nothing to revoke, no API call.
+    gw.logout.mockClear();
+    expect(await (await logout.POST(req('/api/auth/logout'))).json()).toEqual({ ok: true, revoked: true });
+    expect(gw.logout).not.toHaveBeenCalled();
+  });
+
   it('session is 401 without a cookie and reflects the API verdict with one', async () => {
     expect((await sessionRoute.GET()).status).toBe(401);
     jar.set(TICKETING_SESSION_COOKIE, { value: 't', opts: {} });
