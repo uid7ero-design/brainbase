@@ -58,7 +58,13 @@ ALTER TABLE event_orders
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'event_orders_product_surface_check') THEN
+  -- Scoped to event_orders itself: a same-named constraint on any other
+  -- table or schema must not cause this one to be skipped.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'event_orders_product_surface_check'
+      AND conrelid = 'event_orders'::regclass
+  ) THEN
     ALTER TABLE event_orders
       ADD CONSTRAINT event_orders_product_surface_check
       CHECK (product_surface IN ('BRAINBASE', 'EVE')) NOT VALID;

@@ -152,6 +152,38 @@ expect_success "M7. re-running the migration is a no-op (idempotent)" "$(cat "$N
 expect_eq "M8. no other table gained a product_surface column" "SELECT count(*) FROM information_schema.columns WHERE column_name='product_surface';" "1"
 
 echo ""
+echo "=== N: a same-named constraint elsewhere must not skip the event_orders constraint ==="
+# Fresh database, base chain only (no product_surface yet). Decoys carry the
+# exact constraint name on a different table AND on a table in another schema.
+docker exec "$CONTAINER" psql -X -q -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE collide;" >"$DIAG_OUT" 2>&1 || { echo "ERROR: create collide db failed:" >&2; cat "$DIAG_OUT" >&2; exit 2; }
+collide_exec() { docker exec -i "$CONTAINER" psql -X -q -U postgres -d collide -v ON_ERROR_STOP=1 >"$DIAG_OUT" 2>&1; }
+collide_query() { docker exec -i "$CONTAINER" psql -X -t -A -U postgres -d collide -v ON_ERROR_STOP=1; }
+{
+  cat <<'SQL'
+CREATE TABLE organisations (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, stripe_account_id TEXT);
+CREATE TABLE users (id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL REFERENCES organisations(id) ON DELETE CASCADE, username TEXT NOT NULL UNIQUE, name TEXT NOT NULL);
+SQL
+  for f in "${BASE_MIGRATIONS[@]}"; do cat "$f"; echo; done
+  cat <<'SQL'
+CREATE TABLE decoy_other_table (product_surface TEXT, CONSTRAINT event_orders_product_surface_check CHECK (product_surface IN ('X')));
+CREATE SCHEMA decoy_schema;
+CREATE TABLE decoy_schema.event_orders (product_surface TEXT, CONSTRAINT event_orders_product_surface_check CHECK (product_surface IN ('Y')));
+SQL
+} | collide_exec || { echo "ERROR: collide bootstrap failed:" >&2; cat "$DIAG_OUT" >&2; exit 2; }
+if cat "$NEW_MIGRATION" | collide_exec; then echo "  PASS: N1. migration runs despite same-named constraints elsewhere"; PASS=$((PASS + 1))
+else echo "  FAIL: N1. migration failed"; sed 's/^/    /' "$DIAG_OUT"; FAIL=$((FAIL + 1)); FAILURES+=("N1"); fi
+N2="$(echo "SELECT count(*) FROM pg_constraint WHERE conrelid='public.event_orders'::regclass AND conname='event_orders_product_surface_check' AND convalidated;" | collide_query | tr -d '[:space:]')"
+if [ "$N2" = "1" ]; then echo "  PASS: N2. event_orders still received its own validated constraint (got $N2)"; PASS=$((PASS + 1))
+else echo "  FAIL: N2. event_orders constraint skipped (want 1, got $N2)"; FAIL=$((FAIL + 1)); FAILURES+=("N2"); fi
+N3="$(echo "SELECT count(*) FROM pg_constraint WHERE conname='event_orders_product_surface_check';" | collide_query | tr -d '[:space:]')"
+if [ "$N3" = "3" ]; then echo "  PASS: N3. decoys untouched; one constraint per table (got $N3)"; PASS=$((PASS + 1))
+else echo "  FAIL: N3. (want 3, got $N3)"; FAIL=$((FAIL + 1)); FAILURES+=("N3"); fi
+if echo "INSERT INTO event_orders (organisation_id, event_id, purchaser_name, purchaser_email, status, total_cents, product_surface) VALUES ('o','e','n','e@x.test','CONFIRMED',0,'BOGUS');" | collide_exec; then
+  echo "  FAIL: N4. event_orders accepted an invalid value"; FAIL=$((FAIL + 1)); FAILURES+=("N4")
+elif grep -qi "event_orders_product_surface_check" "$DIAG_OUT"; then echo "  PASS: N4. the CHECK is enforced on event_orders"; PASS=$((PASS + 1))
+else echo "  FAIL: N4. refused for another reason"; sed 's/^/    /' "$DIAG_OUT"; FAIL=$((FAIL + 1)); FAILURES+=("N4"); fi
+
+echo ""
 echo "=== H: historical orders are BrainBase ==="
 expect_eq "H1. all three pre-migration orders read BRAINBASE" "SELECT count(*) FROM event_orders WHERE id LIKE 'hist-%' AND product_surface='BRAINBASE';" "3"
 
