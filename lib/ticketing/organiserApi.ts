@@ -10,6 +10,9 @@ import { confirmCheckInWithAudit, eventBelongsToOrganisation, undoCheckInWithAud
 import { listPaymentOrders, getPaymentOrder, type PaymentOrderRow } from '@/lib/events/organiserPayments';
 import { getConnectAccountState, checkPaidTicketingEligibility } from '@/lib/events/stripeConnect';
 import {
+  brandingView, countEventFeeOverrides, feePolicyView, getOrganisationRow, getOwnEvent, resolveEffectiveFeePolicy,
+} from '@/lib/events/organiserSettings';
+import {
   feeModeOf, isPaymentState, organiserShareBeforeProcessingCents, paymentTotalCents, refundedAmountCents, summarisePayments,
 } from '@ticketing/core';
 import { authorizeTicketingApiRequest, type TicketingContext } from './authorize';
@@ -352,6 +355,50 @@ export function handleOrganiserPayment(req: Request, orderId: string): Promise<R
         unit_price_cents: l.unit_price_cents,
         discount_cents: l.discount_cents ?? 0,
       })),
+    });
+  });
+}
+
+// ── Settings (read-only) ────────────────────────────────────────────────
+
+// GET /settings[?event=<id>] — viewer+. Organisation, ticketing status,
+// cached Connect state, the EFFECTIVE fee policy (organisation level, or the
+// named event's when ?event= is given, using the checkout's own resolver),
+// and the organiser's saved buyer branding. Entitlement 'config' is never
+// returned: only that Events is enabled, which the authorisation above has
+// just proved (a caller without the capability never reaches this point).
+export function handleOrganiserSettings(req: Request): Promise<Response> {
+  return asOrganiser(req, 'viewer', async ctx => {
+    const event = new URL(req.url).searchParams.get('event');
+    if (event !== null && event !== '' && !isIdentifier(event)) return ticketingJson({ error: 'Invalid event.' }, 400);
+
+    const org = await getOrganisationRow(ctx.organisationId);
+    if (!org) return notFound();
+    const ownEvent = event ? await getOwnEvent(ctx.organisationId, event) : null;
+    if (event && !ownEvent) return notFound();
+
+    let fees: Json;
+    try {
+      const resolution = await resolveEffectiveFeePolicy(ctx.organisationId, ownEvent?.id ?? null);
+      fees = {
+        scope: ownEvent ? { level: 'EVENT', event: { id: ownEvent.id, name: ownEvent.name } } : { level: 'ORGANISATION', event: null },
+        effective: feePolicyView(resolution),
+        event_overrides_count: await countEventFeeOverrides(ctx.organisationId),
+      };
+    } catch {
+      // A policy row this code cannot interpret (the checkout fails closed on it too).
+      fees = { scope: { level: ownEvent ? 'EVENT' : 'ORGANISATION', event: ownEvent }, effective: null, event_overrides_count: null, unavailable: true };
+    }
+
+    const connect = await connectView(ctx.organisationId);
+    return ticketingJson({
+      organisation: { name: org.name, slug: org.slug },
+      user: { name: ctx.name, role: ctx.role },
+      events_capability: { enabled: true },
+      ticketing: { paid_ticketing_available: connect ? connect.eligible_for_paid_ticketing === true : null },
+      connect,
+      fees,
+      branding: brandingView(org.settings, org.name),
     });
   });
 }

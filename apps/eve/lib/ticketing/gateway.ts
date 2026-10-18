@@ -143,6 +143,31 @@ export type OrganiserPaymentDetail = {
   order: OrganiserPayment;
   lines: { description: string; quantity: number; unit_price_cents: number; discount_cents: number }[];
 };
+export type FeePolicyView =
+  | { state: 'NO_FEE'; source: 'EVENT' | 'ORGANISATION' | 'PLATFORM_DEFAULT'; reason: 'NOT_CONFIGURED' | 'DISABLED' }
+  | {
+      state: 'FEE'; source: 'EVENT' | 'ORGANISATION'; fee_mode: 'PASS_THROUGH' | 'ABSORB'; paid_by: 'BUYER' | 'ORGANISER';
+      percent_bps: number; fixed_per_order_cents: number; fixed_per_ticket_cents: number;
+      min_fee_cents: number | null; max_fee_cents: number | null; currency: string; label: string;
+    };
+export type BrandingView = {
+  configured: boolean; display_name: string; display_name_is_custom: boolean; logo_configured: boolean;
+  accent_color: string | null; website: string | null; support_email: string | null; support_phone: string | null; email_footer: string | null;
+};
+export type OrganiserSettings = {
+  organisation: { name: string; slug: string };
+  user: { name: string; role: string };
+  events_capability: { enabled: boolean };
+  ticketing: { paid_ticketing_available: boolean | null };
+  connect: ConnectView | null;
+  fees: {
+    scope: { level: 'ORGANISATION' | 'EVENT'; event: { id: string; name: string } | null };
+    effective: FeePolicyView | null;
+    event_overrides_count: number | null;
+    unavailable?: boolean;
+  };
+  branding: BrandingView;
+};
 export type CheckInAttendee = { id: string; attendee_name: string; ticket_type_name: string | null; session_name: string | null; checked_in_at: string | null };
 
 export type LoginResult = { token: string; expiresAt: number; user: { id: string; name: string; role: string }; organisationId: string };
@@ -182,6 +207,9 @@ export function createGateway() {
       const suffix = qs.toString();
       return call<OrganiserPayments>(`/organiser/payments${suffix ? `?${suffix}` : ''}`, { session });
     },
+    // Settings are READ-ONLY: a single GET; there is no settings mutation in this client.
+    getSettings: (session: string | null, filter: { event?: string } = {}) =>
+      call<OrganiserSettings>(`/organiser/settings${filter.event ? `?event=${enc(filter.event)}` : ''}`, { session }),
     getPayment: (session: string | null, orderId: string) => call<OrganiserPaymentDetail>(`/organiser/payments/${enc(orderId)}`, { session }),
     checkInSearch: (session: string | null, eventId: string, q: string) =>
       call<{ attendees: CheckInAttendee[] }>(`/organiser/events/${enc(eventId)}/check-in/search?q=${enc(q)}`, { session }),
