@@ -342,6 +342,7 @@ describe('surface boundary', () => {
       'app/api/ticketing/organiser/events/route.ts',
       'app/api/ticketing/organiser/payments/[orderId]/route.ts',
       'app/api/ticketing/organiser/payments/route.ts',
+      'app/api/ticketing/organiser/settings/route.ts',
       'app/api/ticketing/organiser/summary/route.ts',
       'app/api/ticketing/public/bookings/[bookingToken]/route.ts',
       'app/api/ticketing/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts',
@@ -353,8 +354,8 @@ describe('surface boundary', () => {
     ])
   })
 
-  it('the payments routes are READ-ONLY: GET is their only exported method', () => {
-    for (const f of routes.filter(r => r.includes('/organiser/payments/'))) {
+  it('the payments and settings routes are READ-ONLY: GET is their only exported method', () => {
+    for (const f of routes.filter(r => /\/organiser\/(payments|settings)\//.test(r))) {
       const exported = [...code(f).matchAll(/export (?:async function|const|function) (\w+)/g)].map(m => m[1])
       expect(exported, f).toEqual(['GET'])
     }
