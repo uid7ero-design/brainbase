@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 export async function verifyReviewHistory({ page, pool, origin, ready, held, evidence, directory, chooseMeanings, chooseQuality, api }) {
   const base = `/api/data-hub/worksheets/${held.uploadId}`, historyPattern = origin + base + '/analysis-review/history**';
   const region = () => page.getByRole('region', { name: 'Saved review history', exact: true });
-  const history = async () => { await region().getByRole('button', { name: /^(Load|Refresh) review history$/ }).click(); await expect(region().getByText('Revision 1', { exact: true })).toBeVisible(); };
+  const history = async () => { await region().getByRole('button', { name: /^(Load|Refresh) review history$/ }).click(); await expect(region().getByRole('heading', { name: /^Revision 1(?: — current saved review)?$/ })).toBeVisible(); };
   const reload = async revision => { await page.getByRole('button', { name: 'Load current review', exact: true }).click(); await expect(page.getByRole('heading', { name: `Saved review ${revision}`, exact: true })).toBeVisible(); };
   const reviewDigest = async () => (await pool.query("SELECT md5(COALESCE(jsonb_agg(to_jsonb(r) ORDER BY id)::text,'[]')) AS digest FROM data_hub_analysis_reviews r")).rows[0].digest;
   const preparation = async () => (await pool.query(`SELECT
