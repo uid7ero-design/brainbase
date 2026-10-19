@@ -96,6 +96,7 @@ beforeAll(async () => {
 });
 beforeEach(async () => {
   blobs.clear();
+  await q('UPDATE hr_people SET linked_user_id=$1 WHERE organisation_id=$2 AND id=$3', [employee.userId, org, personId]);
   routeUser = hr.userId; authenticated = true;
   for (const table of ['hr_employee_document_acknowledgements', 'hr_employee_document_verifications', 'hr_employee_document_versions', 'hr_employee_documents', 'audit_logs', 'hr_administrators']) {
     await q(`DELETE FROM ${table} WHERE organisation_id=$1`, [org]);
@@ -107,6 +108,66 @@ beforeEach(async () => {
 });
 afterAll(async () => { await pool.end(); });
 describe('Employee document mutations against Postgres with in-memory storage', () => {
+  it.each([
+    ['acknowledge', 'authority'], ['verify', 'authority'],
+    ['version', 'authority'], ['delete', 'authority'],
+    ['acknowledge', 'deleted'], ['verify', 'deleted'],
+    ['version', 'deleted'], ['delete', 'deleted'],
+  ] as const)('rechecks %s after %s changes during an actual route lock wait', async (action, change) => {
+    const created = await create();
+    routeUser = action === 'acknowledge' ? employee.userId : hr.userId;
+    const key = action === 'acknowledge'
+      ? `hr-employee-document-ack:${org}:${created.version.id}:${employee.userId}`
+      : action === 'verify'
+        ? `hr-employee-document-verify:${org}:${created.version.id}`
+        : `hr-employee-document:${org}:${created.document.id}`;
+    const perform = () => {
+      const params = routeParams(created.document.id, created.version.id);
+      if (action === 'acknowledge') return acknowledge.POST(routeRequest('POST'), params);
+      if (action === 'verify') return verify.POST(routeRequest('POST', { decision: 'VERIFIED', comment: null }), params);
+      if (action === 'version') return versions.POST(routeRequest('POST', multipart()), params);
+      return remove.DELETE(routeRequest('DELETE'), params);
+    };
+    const blocker = await pool.connect();
+    let pending: ReturnType<typeof perform> | undefined;
+    const storedBefore = new Map(blobs);
+    try {
+      await blocker.query('BEGIN');
+      const { rows: [owner] } = await blocker.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+      await blocker.query('SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))', [key]);
+      pending = perform();
+      // The actual route has passed its initial context checks and reached mutation SQL.
+      await vi.waitFor(async () => {
+        const [row] = await q(`SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+          WHERE $1::int = ANY(pg_blocking_pids(pid)) AND wait_event_type='Lock') AS waiting`, [owner.pid]);
+        expect(row.waiting).toBe(true);
+      }, { timeout: 5000, interval: 20 });
+      if (action === 'version') expect(blobs.size).toBe(storedBefore.size + 1);
+      if (change === 'deleted') {
+        await q('UPDATE hr_employee_documents SET deleted_at=now() WHERE organisation_id=$1 AND id=$2', [org, created.document.id]);
+      } else if (action === 'acknowledge') {
+        await q('UPDATE hr_people SET linked_user_id=NULL WHERE organisation_id=$1 AND id=$2', [org, personId]);
+      } else {
+        await q('DELETE FROM hr_administrators WHERE organisation_id=$1 AND user_id=$2', [org, hr.userId]);
+      }
+      const before = await snapshot();
+      await blocker.query('COMMIT');
+      const response = await pending;
+      expect(response.status).toBe(change === 'deleted' ? 404 : 403);
+      expect(await snapshot()).toEqual(before);
+      expect(blobs).toEqual(storedBefore);
+      // Restore only synthetic fixture authority/visibility, then require successful recovery.
+      await q('UPDATE hr_employee_documents SET deleted_at=NULL WHERE organisation_id=$1 AND id=$2', [org, created.document.id]);
+      await q('UPDATE hr_people SET linked_user_id=$1 WHERE organisation_id=$2 AND id=$3', [employee.userId, org, personId]);
+      await q('INSERT INTO hr_administrators(organisation_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING', [org, hr.userId]);
+      expect((await perform()).status).toBe(action === 'delete' ? 200 : 201);
+    } finally {
+      await blocker.query('ROLLBACK');
+      blocker.release();
+      if (pending) await Promise.allSettled([pending]);
+    }
+  });
+
   it.each(['cancel', 'approval'] as const)('proves lifecycle %s routes with current database authority in the shared fixture', async scenario => {
     const workflows = await import('@/app/api/hr/lifecycle/workflows/route');
     const cancel = await import('@/app/api/hr/lifecycle/workflows/[id]/cancel/route');

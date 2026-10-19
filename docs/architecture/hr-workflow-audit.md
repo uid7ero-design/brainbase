@@ -2,6 +2,18 @@
 
 This audit covers document management, lifecycle execution and HR administration. Operational registers and subsequent recovery bundles have released; older checkpoints below retain their original evidence and limits. PR #436 released as `5b7df3f015403993a9333cce5e3231adf261e85a`; production deployment `dpl_G89Br2q5JzfdDrqWz9jeQDo22Gzz` reached READY with aliases, post-merge CI `38921042733` passed, and four canonical endpoints on both app.hlna.com.au and the Vercel production alias returned 401 private/no-store. This is not a declaration that the whole HR product is complete.
 
+## Document route concurrency acceptance (18 October 2026)
+
+PR #443 released the lifecycle waiting-authority checks as `21412c0726931052e89f44961a8544ee581d6495`. Production deployment `dpl_WN8bsE388pJCjFS6wTa19wBbwJRD` reached READY with aliases; post-merge CI `39014556002` passed. Both production domains passed login, protected-page redirects and four unauthenticated HR register checks with private/no-store caching. This is a historical release receipt, not a claim that production remains on that SHA after concurrent releases.
+
+The next local bundle extends the same wait-boundary proof to actual employee-document routes: acknowledgement, verification, version upload and logical deletion. Eight cases pass initial route context checks, block on the operation's real Postgres advisory lock, then commit either authority removal (employee account unlink or HR grant revocation) or document logical deletion. After release, the route must return 403 or 404 respectively, with no additional document/version/assurance/audit mutation. The stored-byte map must match its pre-request snapshot: version-upload cases explicitly prove that an object was uploaded before the wait and removed after denial. Restoring only the synthetic fixture permits successful recovery.
+
+All 104 disposable checks passed on current main through #449 (3 completion, 17 task action/approval, 6 workflow, 28 administration and 50 document/restricted/reminder checks, including the existing browser scenarios). The owned container was removed. TypeScript, changed-file ESLint and diff checks passed. Application code is unchanged; the hosted preview build and CI are recorded in the PR separately from this local harness.
+
+The eight new cases are actual route-to-service-to-Postgres checks with controlled sessions/modules and in-memory storage. They do not add browser/full-login/provider acceptance or cover revocation after the final decision statement begins. Fixture restoration of deleted rows is test setup, not an application restore feature. Immutable-version acknowledgement semantics and current-version reminder policy are unchanged. Production release requires separate authorization.
+
+Remaining HR acceptance: hosted provider and inbox behaviour, production secure-cookie acceptance, complete hosted schema drift, and other explicitly chosen workflow/race variants. Local test gaps are not automatically backend defects or new product requirements.
+
 ## Released setup and next concurrency acceptance (17 October 2026)
 
 PR #440 released as `a82c60a7aecf2e86e3c57aa3b81b1e7cf1915692`. Production deployment `dpl_G7RjKCYqdy1zZbGnQ9XPxhrkm8e6` reached READY with production aliases; post-merge CI `39001713000` passed. Login, protected-page redirects and four canonical unauthenticated HR register endpoints passed on both production domains. Earlier unreleased wording below records the pre-release checkpoint.

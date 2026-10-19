@@ -10,6 +10,7 @@ import { analysisFailureReference } from "@/lib/data-hub/analysis/failureReferen
 import { validateAnalysisDatasetContexts } from "@/lib/data-hub/analysis/scopedProfileCounts";
 import ProfilePlanningClient from "../_components/ProfilePlanningClient";
 import ReviewWorkbookNavigation from "../_components/ReviewWorkbookNavigation";
+import ReviewHistoryClient from "../_components/ReviewHistoryClient";
 import { decodeReviewPlan, decodeSessionReview, decodeReviewSave, requestReviewJson, type ReviewPlan, type SessionReview } from "@/lib/data-hub/client/reviewSession";
 
 type Plan = ReviewPlan;
@@ -18,7 +19,7 @@ type Count = Extract<AnalyzeReviewedUploadCountResult, { ok: true }>;
 const words = (value: string) => value.toLowerCase().replaceAll("_", " ");
 const recoveryMessage = (code: string) => {
   if (["PROFILE_NOT_COMPLETE", "PROFILER_VERSION_UNSUPPORTED"].includes(code)) return "This worksheet needs a completed, supported profile before analysis is available.";
-  if (["REVIEW_PROFILE_CHANGED", "PROFILE_LINEAGE_MISMATCH", "DATASET_CONTEXT_MISMATCH"].includes(code)) return "The dataset changed. Reload its current profile and review before continuing.";
+  if (["REVIEW_PROFILE_CHANGED", "REVIEW_REVISION_MISMATCH", "REVIEW_NOT_FOUND", "PROFILE_LINEAGE_MISMATCH", "DATASET_CONTEXT_MISMATCH"].includes(code)) return "The dataset or saved review changed. Reload its current profile and review before continuing.";
   if (["UNAUTHORIZED", "FORBIDDEN", "UPLOAD_NOT_FOUND"].includes(code)) return "This worksheet is unavailable to your current session. Sign in with an authorized account or return to imports.";
   if (code === "QUALITY_HOLD") return "The latest review has a quality hold. Reload it and review the required corrections before counting.";
   if (code === "REVIEW_FIELD_LIMIT") return "This review exceeds the interactive limit of 1,000 fields. Use a smaller worksheet or ask an administrator for help.";
@@ -41,9 +42,10 @@ function ReviewSession({ uploadId, workbookHint }: Props) {
   const [busy, setBusy] = useState(false);
   const [planningBusy, setPlanningBusy] = useState(false);
   const [navigationBusy, setNavigationBusy] = useState(false);
+  const [historyBusy, setHistoryBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [scopeInvalid, setScopeInvalid] = useState(false);
-  const allBusy = busy || planningBusy || navigationBusy;
+  const allBusy = busy || planningBusy || navigationBusy || historyBusy;
   const [error, setError] = useState("");
   const pending = useRef<AbortController | null>(null);
   const live = useRef(true);
@@ -57,6 +59,11 @@ function ReviewSession({ uploadId, workbookHint }: Props) {
     setPlan(null); setReview(null); setCount(null); setRoles(new Map()); setDecisions({}); setMeasure(""); setDirty(false); setScopeInvalid(true);
     setError(analysisFailureReference(code));
   }, []);
+  const invalidateHistory = useCallback((code: string) => {
+    setPlan(null); setReview(null); setCount(null); setRoles(new Map()); setDecisions({}); setMeasure(""); setDirty(false);
+    if (["UNAUTHORIZED", "FORBIDDEN", "UPLOAD_NOT_FOUND"].includes(code)) setScopeInvalid(true);
+    setError(analysisFailureReference(code));
+  }, []);
   async function request(path: string, body?: unknown): Promise<unknown> {
     const controller = pending.current;
     if (!controller) throw new Error("REQUEST_CANCELLED");
@@ -65,7 +72,7 @@ function ReviewSession({ uploadId, workbookHint }: Props) {
     return data;
   }
   async function run(action: () => Promise<void>) {
-    if (pending.current || planningBusy || navigationBusy) return;
+    if (pending.current || planningBusy || navigationBusy || historyBusy) return;
     const controller = new AbortController(); pending.current = controller; setBusy(true); setError(""); setCount(null);
     try { await action(); } catch (failure) {
       if (live.current && pending.current === controller) {
@@ -212,7 +219,10 @@ function ReviewSession({ uploadId, workbookHint }: Props) {
     </section> : null}
     {review && matchingProfile && !saveNeedsReload && !planningStale ? <ProfilePlanningClient
       key={JSON.stringify([review.revision, review.schema.context])} uploadId={uploadId} review={review}
-      fieldLabels={plan!.fieldLabels} disabled={busy || navigationBusy || held} onBusyChange={setPlanningBusy} onScopeLoss={clearScope} /> : null}
+      fieldLabels={plan!.fieldLabels} disabled={busy || navigationBusy || historyBusy || held} onBusyChange={setPlanningBusy} onScopeLoss={clearScope} /> : null}
+    {review && matchingProfile && !saveNeedsReload && !planningStale ? <ReviewHistoryClient
+      key={JSON.stringify(["history", review.revision, review.schema.context])} uploadId={uploadId} review={review} fieldLabels={plan!.fieldLabels}
+      disabled={busy || planningBusy || navigationBusy} onBusyChange={setHistoryBusy} onInvalidated={invalidateHistory} /> : null}
     {planningStale ? <p>Reload the current review before planning or counting again: the returned count used a different review or profile.</p> : null}
   </main>;
 }

@@ -1,5 +1,8 @@
 # Worksheet review sessions and workbook navigation
 
+The next [saved-review history bundle](data-hub-review-history.md) adds bounded,
+read-only revision summaries and comparison against the current saved review.
+
 The existing manager review/count screen now bounds discovery, quality preview,
 save/reload and count requests. Each request has a 15-second deadline and a
 one-MiB streamed UTF-8/JSON limit. **Stop review request** stops the browser wait.
