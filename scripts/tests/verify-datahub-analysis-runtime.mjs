@@ -10,6 +10,7 @@ import { verifyWorkbookOverview } from './helpers/dataHubWorkbookOverviewProof.m
 import { verifyWorkbookQueue } from './helpers/dataHubWorkbookQueueProof.mjs';
 import { verifyWorkbookReviews } from './helpers/dataHubWorkbookReviewProof.mjs';
 import { verifyReviewSession } from './helpers/dataHubReviewSessionProof.mjs';
+import { verifyReviewHistory } from './helpers/dataHubReviewHistoryProof.mjs';
 
 // Invoked only by verify-datahub-profile-execution.sh after provisioning its
 // disposable Docker database and seeding real profile evidence. The build,
@@ -459,6 +460,7 @@ try {
   evidence.checks.push('Explicit HOLD persisted and blocks both UI counts and direct API');
   await verifyWorkbookReviews({ page, context, pool, origin, ready, held, queueWorlds, evidence, directory, phase: 'after' });
   await verifyReviewSession({ page, pool, origin, ready, held, evidence, directory, chooseMeanings, chooseQuality });
+  await verifyReviewHistory({ page, pool, origin, ready, held, evidence, directory, chooseMeanings, chooseQuality, api });
 
   const stale = await api(endpoint(ready.uploadId) + '/analysis-review', { reviewVersion: 'v1', datasetProfileRunId: 'stale-profile', semanticChoices: [], qualityDecisions: [] });
   if (stale.status !== 409) throw new Error('Stale profile pin accepted');

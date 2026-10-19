@@ -1407,6 +1407,62 @@ describe("D4D5Q durable analysis review foundation", () => {
     routeSessionToken = undefined;
     expect((await GET(request(), context)).status).toBe(401);
   });
+  it("review history pages and compares signed current-profile decisions without rewriting history", async () => {
+    const f = await countWorld();
+    const history = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/route");
+    const compare = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/compare/route");
+    for (let revision = 1; revision <= 12; revision++) await insertReview(f, { revision, choices: [
+      { sourceSchemaColumnId: f.ids.col1, role: revision === 1 ? "IDENTIFIER" : "RECORD_KEY" }, { sourceSchemaColumnId: f.ids.col2, role: "MEASURE" },
+    ] });
+    await signFixtureSession({ userId: f.ids.userId, organisationId: ORG_A });
+    const params = { params: Promise.resolve({ id: f.ids.uploadId }) };
+    const search = new URLSearchParams({ historyVersion: "v1", datasetProfileRunId: f.context.datasetProfileRunId, expectedReviewRevision: "12" });
+    const before = await prisma.dataHubAnalysisReview.findMany({ where: { upload_id: f.ids.uploadId }, orderBy: { revision: "desc" } });
+    const first = await history.GET(new Request(`http://localhost/history?${search}`), params);
+    expect(first.status).toBe(200); expect(first.headers.get("Cache-Control")).toBe("private, no-store");
+    const page = await first.json(); expect(page.history.entries.map((entry: { revision: number }) => entry.revision)).toEqual([12,11,10,9,8,7,6,5,4,3]);
+    expect(page.history.nextBeforeRevision).toBe(3);
+    expect(JSON.stringify(page)).not.toMatch(/reviewed_by|reviewed_at|semantic_choices|quality_decisions|rowCount|nonNullCount/);
+    const older = await history.GET(new Request(`http://localhost/history?${search}&beforeRevision=3`), params);
+    expect((await older.json()).history.entries.map((entry: { revision: number }) => entry.revision)).toEqual([2, 1]);
+    const changed = await compare.GET(new Request(`http://localhost/history/compare?${search}&baselineRevision=1`), params);
+    expect(changed.status).toBe(200); expect(changed.headers.get("Cache-Control")).toBe("private, no-store");
+    expect((await changed.json()).comparison).toMatchObject({ baselineRevision: 1, currentReviewRevision: 12,
+      semanticChanges: [{ sourceSchemaColumnId: f.ids.col1, fromRole: "IDENTIFIER", toRole: "RECORD_KEY" }], qualityChanges: [] });
+    expect(await prisma.dataHubAnalysisReview.findMany({ where: { upload_id: f.ids.uploadId }, orderBy: { revision: "desc" } })).toEqual(before);
+    await insertReview(f, { revision: 13 });
+    const stale = await history.GET(new Request(`http://localhost/history?${search}`), params);
+    expect(stale.status).toBe(409); expect(await stale.json()).toEqual({ ok: false, code: "REVIEW_REVISION_MISMATCH" });
+    const wrongProfile = new URLSearchParams(search); wrongProfile.set("datasetProfileRunId", "obsolete-profile");
+    expect((await history.GET(new Request(`http://localhost/history?${wrongProfile}`), params)).status).toBe(409);
+  });
+  it.each(["latest", "historical"])("history never falls back from invalid %s saved decisions", async which => {
+    const f = await countWorld(); await insertReview(f, { decisions: which === "historical" ? [] : undefined });
+    await insertReview(f, { revision: 2, decisions: which === "latest" ? [] : undefined });
+    await signFixtureSession({ userId: f.ids.userId, organisationId: ORG_A });
+    const history = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/route");
+    const compare = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/compare/route");
+    const search = new URLSearchParams({ historyVersion: "v1", datasetProfileRunId: f.context.datasetProfileRunId, expectedReviewRevision: "2" });
+    const params = { params: Promise.resolve({ id: f.ids.uploadId }) };
+    for (const response of [await history.GET(new Request(`http://localhost/history?${search}`), params),
+      await compare.GET(new Request(`http://localhost/compare?${search}&baselineRevision=1`), params)]) {
+      expect(response.status).toBe(503); expect(await response.json()).toEqual({ ok: false, code: "REVIEW_RECORD_INVALID" });
+    }
+  });
+  it("history rechecks live manager and organization scope before revealing any revisions", async () => {
+    const f = await countWorld(); await insertReview(f);
+    const { GET } = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/route");
+    const search = new URLSearchParams({ historyVersion: "v1", datasetProfileRunId: f.context.datasetProfileRunId, expectedReviewRevision: "1" });
+    const request = () => new Request(`http://localhost/history?${search}`), params = { params: Promise.resolve({ id: f.ids.uploadId }) };
+    await signFixtureSession({ userId: f.ids.userId, organisationId: ORG_A }); expect((await GET(request(), params)).status).toBe(200);
+    try {
+      await prisma.user.update({ where: { id: f.ids.userId }, data: { role: "VIEWER" } }); expect((await GET(request(), params)).status).toBe(403);
+      await prisma.user.update({ where: { id: f.ids.userId }, data: { role: "MANAGER", organisation_id: ORG_B } }); expect((await GET(request(), params)).status).toBe(401);
+      await signFixtureSession({ userId: f.ids.userId, organisationId: ORG_B });
+      const foreign = await GET(request(), params); expect(foreign.status).toBe(404); expect(await foreign.json()).toEqual({ ok: false, code: "UPLOAD_NOT_FOUND" });
+      routeSessionToken = undefined; expect((await GET(new Request("http://localhost/history?invalid=1"), params)).status).toBe(401);
+    } finally { await prisma.user.update({ where: { id: f.ids.userId }, data: { role: "MANAGER", organisation_id: ORG_A } }); }
+  });
   it("D4D5T saves recomputed reviews and rejects invalid actors, stale pins and incomplete decisions", async () => {
     const f = await countWorld();
     const { saveAnalysisReview } = await import("@/lib/data-hub/analysisExecution/saveAnalysisReview");
