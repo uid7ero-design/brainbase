@@ -17,6 +17,7 @@
 
 # next.js
 /.next/
+/.hr-full-local-*/
 /out/
 
 # production
