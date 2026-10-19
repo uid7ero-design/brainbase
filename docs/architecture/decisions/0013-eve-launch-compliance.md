@@ -154,12 +154,9 @@ every message and will reply as soon as we reasonably can. We do not guarantee a
 response time." Privacy access/correction requests: "We will respond within a
 reasonable time, and we aim to do so within 30 days."
 
-**Retention (public text):** principle-based. Order, payment and refund records:
-7 years (pending accountant/counsel confirmation). Other personal information is
-reviewed and removed or de-identified when no longer reasonably required, subject
-to legal and operational needs. The text states that nothing is deleted
-automatically. The per-category table in `docs/compliance/eve-data-retention.md`
-is internal and is NOT published.
+**Retention (public text):** superseded by section 7 — principle-based only, no
+fixed period published. The per-category table in
+`docs/compliance/eve-data-retention.md` is internal and is NOT published.
 
 **Wording changes:** Privacy section 2 no longer claims registration answers or
 attendee emails (Eve collects neither) and no longer contradicts section 5; the
@@ -183,3 +180,47 @@ organiser terms are needed before organisers other than the operator use Eve.
 **To publish (separate gate, not done):** counsel sign-off, then bump the version
 from `0.1-draft` (Production refuses a draft version for paid acceptance), update
 the last-updated date and set `EVE_LEGAL_PUBLISHED=true`.
+
+## 7. Self-published free-event private beta position (2026-10-19)
+
+Decision: no solicitor sign-off is being sought at this stage. The legal set is
+prepared for a **limited free-event private beta only**: operator-run events, no
+external organisers, no paid events, Stripe live blocked. **The documents have not
+been reviewed or approved by a solicitor or accountant and must not be described
+as if they had.** They remain DRAFT (`0.1-draft`, `EVE_LEGAL_PUBLISHED` unset,
+Production fail-closed). No migration, Production, Stripe or email change.
+
+What changed from section 6:
+- **Private-beta limitation** added to the Terms and Refunds policy: Eve is made
+  available on a limited basis; paid ticketing and third-party organiser access may
+  not yet be available; the operator may also be the Event Organiser.
+- **No third-party organisers assumed:** "independent Event Organisers" and the
+  "we are not the organiser" claim are removed. The Event Organiser concept is
+  explained without implying external organisers are onboarded. No organiser terms
+  exist or are created.
+- **Paid ticketing marked not currently available** wherever it is described
+  (Terms 3-4, Privacy 2/4/7, Refunds 1/3/6/7); Stripe appears only as a future,
+  conditional processor. The booking-fee refund sentence is removed.
+- **Free bookings:** the Refunds policy says there is no ticket price to refund.
+- **Liability minimal:** the "not responsible for Event Organisers / not reasonably
+  foreseeable" limb is removed. Terms 10 is now "Responsibility for events": the
+  Event Organiser conducts the event and nothing limits any right or remedy under
+  Australian law. No indemnity, waiver, consequential-loss or cap language.
+- **Governing law kept** only in its safe form: non-exclusive jurisdiction,
+  without limiting statutory rights.
+- **Privacy:** APP wording is "to the extent the APPs and the Privacy Act apply to
+  us" (no coverage claim); breach wording is "we will assess it and notify... where
+  the law requires"; overseas wording names Resend only (Stripe not applicable yet)
+  and is factual, not consent-based; support is the privacy contact; no-cookie and
+  no-tracker statements stay only because they are verified true.
+- **Retention:** principle-based only, no fixed period (the 7-year statement is
+  withdrawn from the public text until the accountant has confirmed it and before
+  paid events). The text does not imply automatic deletion.
+- **Out of scope unless product behaviour requires it:** minors, transfer/resale
+  and organiser terms.
+
+Not claimed anywhere: legal review, regulatory compliance beyond what is verified,
+GST, tax invoices, charity/NFP status, a residential address.
+
+Before external organisers: organiser terms. Before paid events: accountant
+confirmation of retention, GST/fee wording and receipts, then the live-Stripe gate.

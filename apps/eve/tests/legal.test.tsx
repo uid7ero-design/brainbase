@@ -132,8 +132,9 @@ describe('legal routes', () => {
   });
 
   it('the event-change section never promises a notice unless the notice feature is on', () => {
-    const off = refundsDoc(false).sections[2].body.join(' ');
-    const on = refundsDoc(true).sections[2].body.join(' ');
+    const changes = (c: boolean) => refundsDoc(c).sections.find(x => /changes significantly/.test(x.heading))!.body.join(' ');
+    const off = changes(false);
+    const on = changes(true);
     expect(off).toMatch(/Event Organiser is responsible for telling you/);
     expect(off).not.toMatch(/we (aim to )?email/i);
     expect(on).toMatch(/we aim to email/i);
@@ -161,13 +162,61 @@ describe('legal routes', () => {
     expect(all).not.toMatch(/supportResponseTime|privacyContact|retentionPeriods|aim to respond within|business days|within \d+ (business )?(days|hours)(?!\.)(?<!30 days)/i);
   });
 
-  it('approved wording: retention is principle-based, says 7 years for financial records and never implies automated deletion', () => {
-    const s8 = PRIVACY.sections.find(s => s.heading.startsWith('8.'))!.body.join(' ');
-    expect(s8).toContain('order, payment and refund records for 7 years');
-    expect(s8).toMatch(/remove or de-identify it when it is no longer reasonably required, subject to legal and operational needs/);
+  it('retention is principle-based: the exact principle sentence, no promised period (7 years etc.), no implied automatic deletion', () => {
+    const s8 = PRIVACY.sections.find(x => x.heading.startsWith('8.'))!.body.join(' ');
+    expect(s8).toContain('We keep personal information only for as long as reasonably required for the purposes described in this policy, our operational needs, dispute handling and any applicable legal obligations. When it is no longer reasonably required, we may delete or de-identify it.');
     expect(s8).toMatch(/do not currently delete information automatically/);
+    expect(allText()).not.toMatch(/\b(7|seven) years?\b|financial (and tax )?record-keeping|for 7 years/i);
+    expect(s8).not.toMatch(/\b\d+ (days|weeks|months|years)\b/); // no fixed period is published
     expect(s8).not.toMatch(/automatically (delete|remove)s?(?! )|are deleted after|is deleted after|we delete .* after \d/i);
-    expect(s8).not.toMatch(/\b(1|2|3|6|12|24) (months|years)\b/); // no per-category table published
+  });
+
+  it('private beta: states the limited availability, free-booking position and that the operator may be the Event Organiser', () => {
+    const note = 'Eve is currently being made available on a limited basis. Some features, including paid ticketing and access for third-party organisers, may not yet be available.';
+    const terms = TERMS.sections.flatMap(x => x.body).join(' ');
+    const refunds = refundsDoc(true).sections.flatMap(x => x.body).join(' ');
+    expect(terms).toContain(note);
+    expect(refunds).toContain(note);
+    expect(terms).toMatch(/During the private beta the Event Organiser may be the operator of Eve/);
+    expect(refunds).toMatch(/Free bookings have no ticket price, so there is nothing to refund/);
+    expect(refunds).toMatch(/Paid ticketing is not currently available/);
+    expect(terms).toMatch(/Paid ticketing is not currently available/);
+  });
+
+  it('the documents do not imply third-party organisers are onboarded, paid ticketing is live, legal review, or settled Privacy Act coverage', () => {
+    const all = allText();
+    expect(all).not.toMatch(/independent Event Organisers|run by independent|Events on Eve are run by/i);
+    expect(all).not.toMatch(/(reviewed|approved|checked|endorsed|certified) by (a |our )?(lawyer|solicitor|counsel|attorney)|legally (reviewed|approved)|legal advice|lawyer|solicitor/i);
+    expect(all).not.toMatch(/we comply with|fully compliant|compliant with the (Privacy Act|APPs|Australian Privacy)/i);
+    const priv = PRIVACY.sections.flatMap(x => x.body).join(' ');
+    expect(priv).toContain('to the extent the Australian Privacy Principles and the Privacy Act 1988 (Cth) apply to us');
+    // Stripe appears only as a future / conditional processor.
+    for (const doc of [TERMS, PRIVACY, refundsDoc(true)]) {
+      for (const sec of doc.sections) for (const para of sec.body) {
+        if (/Stripe/.test(para)) expect(para, `${doc.slug}: ${para.slice(0, 60)}`).toMatch(/future|if paid ticketing|Paid ticketing is not currently available|expected to be/i);
+      }
+    }
+  });
+
+  it('liability wording is minimal: no waiver, indemnity, consequential-loss, foreseeability or cap language', () => {
+    const all = allText();
+    expect(all).not.toMatch(/indemnif|waive|waiver|consequential|indirect loss|not reasonably foreseeable|maximum liability|liability is limited|limit(ed)? our liability|exclude all|to the fullest extent|not responsible for/i);
+    const s10 = TERMS.sections.find(x => x.heading.startsWith('10.'))!;
+    expect(s10.heading).toBe('10. Responsibility for events');
+    expect(s10.body.join(' ')).toMatch(/Nothing in these terms limits any right or remedy you have under Australian law/);
+  });
+
+  it('governing law is kept only in its safe form: non-exclusive jurisdiction, subject to statutory rights', () => {
+    const s12 = TERMS.sections.find(x => x.heading.startsWith('12.'))!.body.join(' ');
+    expect(s12).toMatch(/non-exclusive jurisdiction, without limiting your statutory rights/);
+    expect(s12).not.toMatch(/exclusive jurisdiction(?!,)/);
+    expect(s12).not.toMatch(/waive|submit irrevocably|sole jurisdiction/i);
+  });
+
+  it('the Terms and Refunds documents do not promise delivery, an outcome or a response time', () => {
+    const all = allText();
+    expect(all).not.toMatch(/we (will|must) (email|notify|tell) (you|people)|guarantee (that )?(an email|delivery)(?! will)/i);
+    expect(all).not.toMatch(/within \d+ ?(business )?(hours|days)(?!\.)(?<!30 days)|24 hours|same day|instantly/i);
   });
 
   it('approved wording: no organiser agreement claim, no consent-like overseas wording, no registration-answer contradiction', () => {
