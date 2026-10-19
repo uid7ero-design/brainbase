@@ -136,29 +136,35 @@ function walk(dir: string, out: string[] = []): string[] {
   return out
 }
 
+// The lib/ + app/ tree is walked and read ONCE and shared by every test in this
+// block: re-reading ~1000 files per test timed out (5s) when the full suite ran
+// in parallel on a loaded machine.
+let CORPUS: Map<string, string> | null = null
+const corpus = (): Map<string, string> => (CORPUS ??= new Map([...walk('lib'), ...walk('app')].map(f => [f, read(f)] as [string, string])))
+const SLOW = 60_000
+
 describe('legal acceptance snapshot — write-once, server-side only', () => {
   it('no application SQL ever UPDATEs the acceptance columns (retry, webhook and refund cannot alter them)', () => {
-    for (const f of [...walk('lib'), ...walk('app')]) {
-      const src = read(f)
+    for (const [f, src] of corpus()) {
       for (const m of src.matchAll(/UPDATE\s+event_orders[\s\S]*?(?:WHERE|RETURNING|`)/g)) {
         expect(m[0], `${f} must not update acceptance columns`).not.toMatch(/terms_accepted_at|terms_version|refunds_version/)
       }
     }
-  })
+  }, SLOW)
 
   it('only paidCheckout writes the columns, in the order INSERT, with the DB clock', () => {
-    const writers = [...walk('lib'), ...walk('app')].filter(f => /terms_accepted_at/.test(read(f)))
+    const writers = [...corpus()].filter(([, src]) => /terms_accepted_at/.test(src)).map(([f]) => f)
     expect(writers).toEqual(['lib/events/services/paidCheckout.ts'])
     const src = read('lib/events/services/paidCheckout.ts')
     expect(src).toMatch(/CASE WHEN \$\{legalAcceptance != null\}::boolean THEN NOW\(\) ELSE NULL END/)
     expect(src).not.toMatch(/terms_accepted_at\s*=/)
-  })
+  }, SLOW)
 
   it('only the Eve S2S checkout passes legalAcceptance; BrainBase public routes never do', () => {
-    const callers = [...walk('lib'), ...walk('app')].filter(f => /legalAcceptance/.test(read(f)) && f !== 'lib/events/services/paidCheckout.ts')
+    const callers = [...corpus()].filter(([f, src]) => /legalAcceptance/.test(src) && f !== 'lib/events/services/paidCheckout.ts').map(([f]) => f)
     expect(callers).toEqual(['lib/ticketing/publicApi.ts'])
     expect(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts')).not.toMatch(/legalAcceptance|accept_terms/)
-  })
+  }, SLOW)
 
   it('Eve renders the same version constant that the server stamps', () => {
     expect(read('apps/eve/config/legal.ts')).toMatch(/LEGAL_DOCUMENT_VERSION = EVE_LEGAL_DOCUMENT_VERSION/)
