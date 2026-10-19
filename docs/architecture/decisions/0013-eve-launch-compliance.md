@@ -9,7 +9,7 @@ still required (all legal text is DRAFT).
 
 - **Legal routes** `/terms`, `/privacy`, `/refunds` in Eve, first-draft wording
   from `apps/eve/content/legal.ts`. Operator facts come from
-  `apps/eve/config/legal.ts` (environment, no invented values). On Vercel
+  `apps/eve/config/legal.ts` (reviewed constants since Phase 3.6, see section 6). On Vercel
   **production** the pages are FAIL-CLOSED: unless every fact is set, a real
   support address exists and `EVE_LEGAL_PUBLISHED=true`, a "not yet published"
   state is shown instead of legal text. Preview shows the draft with every
@@ -130,3 +130,56 @@ cannot be booked on Eve at all.
 - No automated retention or erasure (see the retention document).
 - Production remains separately gated: apply both migrations to Production only
   after approval, then deploy the code, then publish non-draft legal text.
+
+## 6. Phase 3.6 — operator facts and approved wording (2026-10-19)
+
+The pages remain **DRAFT**: version `0.1-draft`, `EVE_LEGAL_PUBLISHED` unset,
+visible draft banner, `noindex`, Production fail-closed. No Production migration,
+deploy, Stripe or email change was made.
+
+**Operator facts (supplied by the operator; awaiting accountant/counsel
+confirmation)** now live in `apps/eve/config/legal.ts` as reviewed constants
+(`OPERATOR_FACTS`), replacing the `EVE_LEGAL_*` environment variables:
+James Ronald Palmer, sole trader, ABN 32 207 559 504, Adelaide, South Australia
+(town/state level only — no street address), governing state South Australia.
+Not registered for GST: no GST wording is used in the legal text or about Eve
+platform fees. No ACN (not applicable). A fact set to `null` still renders as a
+visible placeholder and keeps the pages non-final.
+
+**Removed:** the privacy-contact and support-response-time facts/variables
+(`EVE_PRIVACY_CONTACT`, `EVE_SUPPORT_RESPONSE_TIME`) and the retention-summary
+variable (`EVE_LEGAL_RETENTION_SUMMARY`). The privacy contact is
+`support@eveevents.com.au`. Support wording is not a service level: "We read
+every message and will reply as soon as we reasonably can. We do not guarantee a
+response time." Privacy access/correction requests: "We will respond within a
+reasonable time, and we aim to do so within 30 days."
+
+**Retention (public text):** principle-based. Order, payment and refund records:
+7 years (pending accountant/counsel confirmation). Other personal information is
+reviewed and removed or de-identified when no longer reasonably required, subject
+to legal and operational needs. The text states that nothing is deleted
+automatically. The per-category table in `docs/compliance/eve-data-retention.md`
+is internal and is NOT published.
+
+**Wording changes:** Privacy section 2 no longer claims registration answers or
+attendee emails (Eve collects neither) and no longer contradicts section 5; the
+"separate organiser agreement" claim is removed (none exists); the overseas
+"you understand" wording is replaced by a plain statement of where processing
+happens; the refund entitlement, charge correction, "right outcome" and marketing
+statements are softened; event-change emails are "aimed" not guaranteed; the ACL
+non-exclusion wording and the bearer-link warning are kept.
+
+**Naming:** the document is "Refunds & cancellations" everywhere (page title,
+metadata, footer links, emails, acceptance checkbox, Terms references). Event
+changes are covered inside it.
+
+**Still awaiting accountant / counsel:** the 7-year financial-record period; the
+liability and ACL wording (Terms 9-10); the governing-law/jurisdiction clause;
+whether the Privacy Act applies to a sole trader below the small-business
+threshold (the text says "to the extent they apply to us"); whether the
+town/state-level location is sufficient; whether a written organiser agreement or
+organiser terms are needed before organisers other than the operator use Eve.
+
+**To publish (separate gate, not done):** counsel sign-off, then bump the version
+from `0.1-draft` (Production refuses a draft version for paid acceptance), update
+the last-updated date and set `EVE_LEGAL_PUBLISHED=true`.

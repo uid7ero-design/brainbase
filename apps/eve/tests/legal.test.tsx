@@ -21,16 +21,16 @@ import { Footer } from '@/components/marketing/Footer';
 import BuyerLayout from '@/app/(buyer)/layout';
 import { BuyerBooking } from '@/components/buyer/BuyerBooking';
 import { BearerLinkNotice } from '@/components/buyer/BearerLinkNotice';
-import { getLegalConfig, LEGAL_FACT_KEYS } from '@/config/legal';
+import { getLegalConfig, LEGAL_FACT_KEYS, OPERATOR_FACTS, LEGAL_DOCUMENT_VERSION } from '@/config/legal';
 import { refundsDoc, TERMS, PRIVACY } from '@/content/legal';
 import { renderTokens } from '@/components/legal/LegalDocument';
 
 const FOREIGN = /BrainBase|Brainbase/;
-const FACT_ENV: Record<string, string> = {
-  EVE_LEGAL_OPERATOR_NAME: 'Test Operator Pty Ltd', EVE_LEGAL_ENTITY_TYPE: 'proprietary company', EVE_LEGAL_ENTITY_IDENTIFIER: 'ACN 000 000 000',
-  EVE_LEGAL_ADDRESS: '1 Test Street, Testville', EVE_LEGAL_STATE: 'South Australia', EVE_PRIVACY_CONTACT: 'privacy@test.invalid.example',
-  EVE_SUPPORT_RESPONSE_TIME: '2 business days', EVE_LEGAL_RETENTION_SUMMARY: 'seven years for financial records', EVE_SUPPORT_EMAIL: 'support@eveevents.com.au',
-};
+// The operator facts are code constants now; the only environment input left is
+// the support address (plus the publish switch and the Vercel environment).
+const FACT_ENV: Record<string, string> = { EVE_SUPPORT_EMAIL: 'support@eveevents.com.au' };
+const allText = (docs = [TERMS, PRIVACY, refundsDoc(false), refundsDoc(true)]) =>
+  docs.flatMap(d => [d.title, d.intro, ...d.sections.flatMap(s => [s.heading, ...s.body])]).join('\n');
 
 function setEnv(env: Record<string, string>) {
   for (const k of [...Object.keys(FACT_ENV), 'EVE_LEGAL_PUBLISHED', 'VERCEL_ENV']) vi.stubEnv(k, '');
@@ -41,20 +41,21 @@ beforeEach(() => setEnv({}));
 afterEach(() => vi.unstubAllEnvs());
 
 describe('legal routes', () => {
-  const routes = [['terms', TermsPage, 'Terms of Use and Ticket Purchase Terms'], ['privacy', PrivacyPage, 'Privacy Policy'], ['refunds', RefundsPage, 'Refunds, Cancellations & Event Changes']] as const;
+  const routes = [['terms', TermsPage, 'Terms of Use and Ticket Purchase Terms'], ['privacy', PrivacyPage, 'Privacy Policy'], ['refunds', RefundsPage, 'Refunds & cancellations']] as const;
 
-  it.each(routes)('/%s renders in Preview with a DRAFT banner and every unresolved fact visibly marked', async (_slug, Page, title) => {
-    setEnv({ VERCEL_ENV: 'preview' });
+  it.each(routes)('/%s renders in Preview with a DRAFT banner, the supplied operator facts and no placeholders', async (_slug, Page, title) => {
+    setEnv({ VERCEL_ENV: 'preview', ...FACT_ENV });
     const { container } = await page(Page());
     expect(screen.getByRole('heading', { level: 1, name: title })).toBeInTheDocument();
     expect(screen.getByTestId('legal-draft-banner')).toBeInTheDocument();
-    expect(container.querySelectorAll('mark[data-placeholder="true"]').length).toBeGreaterThan(0);
+    expect(container.querySelectorAll('mark[data-placeholder="true"]').length).toBe(0);
+    expect(container.textContent).not.toMatch(/\[[A-Z/ ]+\]|\{\{/);
     expect(container.textContent).toMatch(/Last updated: \d{4}-\d{2}-\d{2}/);
     expect(container.textContent).not.toMatch(FOREIGN);
   });
 
-  it.each(routes)('/%s FAILS CLOSED in production while any required fact is missing: no legal text at all', async (_slug, Page, title) => {
-    setEnv({ VERCEL_ENV: 'production', ...FACT_ENV, EVE_LEGAL_ENTITY_IDENTIFIER: '' });
+  it.each(routes)('/%s FAILS CLOSED in production while the support address is not real: no legal text at all', async (_slug, Page, title) => {
+    setEnv({ VERCEL_ENV: 'production', EVE_SUPPORT_EMAIL: 'support@eve.invalid', EVE_LEGAL_PUBLISHED: 'true' });
     const { container } = await page(Page());
     expect(screen.getByTestId('legal-not-published')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 1, name: title })).toBeInTheDocument();
@@ -62,10 +63,33 @@ describe('legal routes', () => {
     expect(container.textContent).not.toMatch(/Australian Consumer Law|Privacy Principles/);
   });
 
-  it('production with every fact set but NOT explicitly published also stays closed', async () => {
+  it('production with every fact set but NOT explicitly published also stays closed (EVE_LEGAL_PUBLISHED unset)', async () => {
     setEnv({ VERCEL_ENV: 'production', ...FACT_ENV });
     await page(TermsPage());
     expect(screen.getByTestId('legal-not-published')).toBeInTheDocument();
+  });
+
+  it('an unresolved operator fact keeps the pages draft and, in production, closed, even if published', () => {
+    const missing = { ...OPERATOR_FACTS, entityIdentifier: null };
+    const cfg = getLegalConfig({ VERCEL_ENV: 'production', EVE_SUPPORT_EMAIL: 'support@eveevents.com.au', EVE_LEGAL_PUBLISHED: 'true' }, missing);
+    expect(cfg.unresolved).toEqual(['entityIdentifier']);
+    expect(cfg.isFinal).toBe(false);
+    expect(cfg.showDocuments).toBe(false);
+  });
+
+  it('the supplied operator facts are exactly the approved ones, with no residential address', () => {
+    expect(OPERATOR_FACTS).toEqual({
+      operatorLegalName: 'James Ronald Palmer', entityType: 'sole trader', entityIdentifier: 'ABN 32 207 559 504',
+      operatorLocation: 'Adelaide, South Australia', governingState: 'South Australia',
+    });
+    expect(getLegalConfig({ EVE_SUPPORT_EMAIL: 'support@eveevents.com.au' }).unresolved).toEqual([]);
+  });
+
+  it('the legal version stays a DRAFT version, the publish switch stays off and Preview is never final', () => {
+    expect(LEGAL_DOCUMENT_VERSION).toMatch(/draft/i);
+    const cfg = getLegalConfig({ VERCEL_ENV: 'preview', EVE_SUPPORT_EMAIL: 'support@eveevents.com.au' });
+    expect(cfg.published).toBe(false);
+    expect(cfg.isFinal).toBe(false);
   });
 
   it('production with every fact set and published renders final text: no banner, no placeholders, the real values', async () => {
@@ -79,7 +103,9 @@ describe('legal routes', () => {
       unmount();
     }
     await page(TermsPage());
-    expect(document.body.textContent).toContain('Test Operator Pty Ltd');
+    expect(document.body.textContent).toContain('James Ronald Palmer');
+    expect(document.body.textContent).toContain('ABN 32 207 559 504');
+    expect(document.body.textContent).toContain('Adelaide, South Australia');
     expect(document.body.textContent).toContain('support@eveevents.com.au');
   });
 
@@ -87,7 +113,7 @@ describe('legal routes', () => {
     setEnv({ EVE_SUPPORT_EMAIL: 'support@eve.invalid' });
     const cfg = getLegalConfig();
     expect(cfg.supportEmailResolved).toBe(false);
-    expect(cfg.unresolved).toEqual([...LEGAL_FACT_KEYS]);
+    expect(cfg.unresolved).toEqual([]);
     expect(renderTokens('{{supportEmail}}', cfg)).toEqual([{ text: '[SUPPORT EMAIL]', placeholder: true }]);
   });
 
@@ -109,8 +135,80 @@ describe('legal routes', () => {
     const off = refundsDoc(false).sections[2].body.join(' ');
     const on = refundsDoc(true).sections[2].body.join(' ');
     expect(off).toMatch(/Event Organiser is responsible for telling you/);
-    expect(off).not.toMatch(/we email/i);
-    expect(on).toMatch(/we email/i);
+    expect(off).not.toMatch(/we (aim to )?email/i);
+    expect(on).toMatch(/we aim to email/i);
+    // Delivery is never guaranteed.
+    expect(on).toMatch(/cannot guarantee that an email will be delivered/i);
+    expect(on).not.toMatch(/we email people/i);
+  });
+
+  it('operator identity appears only where it is needed: Terms and Privacy, not the Refunds policy', () => {
+    const body = (d: { sections: { body: string[] }[] }) => d.sections.flatMap(s => s.body).join(' ');
+    for (const t of ['{{operatorLegalName}}', '{{entityIdentifier}}', '{{operatorLocation}}']) {
+      expect(body(TERMS)).toContain(t);
+    }
+    expect(body(PRIVACY)).toContain('{{operatorLegalName}}');
+    expect(body(PRIVACY)).toContain('{{entityIdentifier}}');
+    expect(body(refundsDoc(true))).not.toMatch(/\{\{(operatorLegalName|entityIdentifier|operatorLocation)\}\}/);
+  });
+
+  it('approved wording: support is not an SLA, privacy requests aim for 30 days, no response-time or privacy-contact placeholders', () => {
+    const all = allText([TERMS, PRIVACY, refundsDoc(true)]);
+    const reply = 'We read every message and will reply as soon as we reasonably can. We do not guarantee a response time.';
+    expect(all).toContain(reply);
+    expect(all.split(reply).length - 1).toBe(2); // Terms contact + Refunds help (both refer to support)
+    expect(PRIVACY.sections.flatMap(s => s.body).join(' ')).toContain('We will respond within a reasonable time, and we aim to do so within 30 days.');
+    expect(all).not.toMatch(/supportResponseTime|privacyContact|retentionPeriods|aim to respond within|business days|within \d+ (business )?(days|hours)(?!\.)(?<!30 days)/i);
+  });
+
+  it('approved wording: retention is principle-based, says 7 years for financial records and never implies automated deletion', () => {
+    const s8 = PRIVACY.sections.find(s => s.heading.startsWith('8.'))!.body.join(' ');
+    expect(s8).toContain('order, payment and refund records for 7 years');
+    expect(s8).toMatch(/remove or de-identify it when it is no longer reasonably required, subject to legal and operational needs/);
+    expect(s8).toMatch(/do not currently delete information automatically/);
+    expect(s8).not.toMatch(/automatically (delete|remove)s?(?! )|are deleted after|is deleted after|we delete .* after \d/i);
+    expect(s8).not.toMatch(/\b(1|2|3|6|12|24) (months|years)\b/); // no per-category table published
+  });
+
+  it('approved wording: no organiser agreement claim, no consent-like overseas wording, no registration-answer contradiction', () => {
+    const all = allText();
+    expect(all).not.toMatch(/separate agreement/i);
+    expect(all).not.toMatch(/By using Eve you understand/i);
+    const priv = PRIVACY.sections.flatMap(s => s.body).join(' ');
+    expect(priv).not.toMatch(/answers to registration questions that the Event Organiser asks/);
+    expect(priv).toMatch(/does not currently ask registration questions, so we do not currently collect answers to them/);
+    expect(priv).not.toMatch(/attendee.s name and optional email/); // Eve collects attendee names only
+    expect(priv).toMatch(/This means some personal information may be handled outside Australia/);
+  });
+
+  it('approved wording: softened refund, correction, help and marketing statements; ACL non-exclusion and bearer warning kept', () => {
+    const all = allText();
+    expect(all).not.toMatch(/You are entitled to a refund of what you paid/);
+    expect(all).toMatch(/generally entitled to a remedy under Australian law/);
+    expect(all).not.toMatch(/Charges made in error will be corrected/);
+    expect(all).toMatch(/If we find a charge was made in error, we will correct it/);
+    expect(all).not.toMatch(/right outcome/);
+    expect(all).toMatch(/will try to help/);
+    expect(all).not.toMatch(/We do not send marketing email/);
+    expect(all).toMatch(/We do not currently send marketing email/);
+    expect(all).toMatch(/Nothing in these terms limits those guarantees/);
+    expect(all).toMatch(/does not limit your rights under the Australian Consumer Law/);
+    expect(TERMS.sections.find(s => s.heading.startsWith('5.'))!.body.join(' ')).toMatch(/Anyone who has a ticket or booking link can view and use that ticket/);
+  });
+
+  it('no GST wording on platform fees while the operator is not registered for GST, and no street address', () => {
+    const all = allText();
+    expect(all).not.toMatch(/\bGST\b|tax invoice|inclusive of (gst|tax)/i);
+    expect(JSON.stringify(OPERATOR_FACTS)).not.toMatch(/\d+\s+\w+\s+(street|st\b|road|rd\b|avenue|ave\b|drive|dr\b|terrace|court|crescent)/i);
+  });
+
+  it('the Refunds document is named the same in the page title, metadata, footer links, acceptance label and policy references', async () => {
+    expect(refundsDoc(true).title).toBe('Refunds & cancellations');
+    expect((await (await import('@/app/(marketing)/refunds/page')).generateMetadata()).title).toBe('Refunds & cancellations');
+    const { LEGAL_LINKS } = await import('@/config/legal');
+    expect(LEGAL_LINKS.find(l => l.href === '/refunds')!.label).toBe('Refunds & cancellations');
+    expect(allText()).not.toMatch(/Refunds, Cancellations/);
+    expect(TERMS.intro).toContain('Refunds & cancellations policy');
   });
 
   it('the draft pages are not indexable; final pages are', async () => {

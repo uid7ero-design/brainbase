@@ -6,6 +6,11 @@ import { EVENT_CHANGE_NOTICES_ENABLED } from '@/config/legal';
 // entity, ABN/ACN, address or jurisdiction. No charity, not-for-profit or
 // public-benefit claim appears anywhere in this file.
 
+// Support wording is deliberately NOT a service level: no time is promised.
+export const SUPPORT_REPLY_NOTE = 'We read every message and will reply as soon as we reasonably can. We do not guarantee a response time.';
+// Privacy access/correction requests: a reasonable time, aiming for 30 days.
+export const PRIVACY_REQUEST_NOTE = 'We will respond within a reasonable time, and we aim to do so within 30 days.';
+
 export type LegalSection = { heading: string; body: string[] };
 export type LegalDoc = { slug: 'terms' | 'privacy' | 'refunds'; title: string; intro: string; sections: LegalSection[] };
 
@@ -17,7 +22,7 @@ export const TERMS: LegalDoc = {
     {
       heading: '1. Who we are and what Eve does',
       body: [
-        'Eve is an online ticketing service operated by {{operatorLegalName}} ({{entityType}}, {{entityIdentifier}}), {{registeredAddress}} ("we", "us").',
+        'Eve is an online ticketing service operated by {{operatorLegalName}} ({{entityType}}, {{entityIdentifier}}), {{operatorLocation}} ("we", "us").',
         'Eve lets event organisers list events, sell or issue tickets, and manage registrations and check-in. We are not the organiser of the events listed on Eve. Each event is run by an independent event organiser (the "Event Organiser"), who is responsible for the event, its content, its price and its delivery.',
       ],
     },
@@ -59,7 +64,7 @@ export const TERMS: LegalDoc = {
     {
       heading: '8. Event Organisers',
       body: [
-        'Event Organisers are responsible for the accuracy of their event information, for the event itself, for honouring their refund and cancellation obligations under Australian law, and for how they use the booking details they receive. Event Organisers who use Eve do so under a separate agreement with us.',
+        'Event Organisers are responsible for the accuracy of their event information, for the event itself, for honouring their refund and cancellation obligations under Australian law, and for how they use the booking details they receive.',
         'An Event Organiser may have its own conditions of entry. Where it does, it should make them available on or with the event.',
       ],
     },
@@ -83,7 +88,7 @@ export const TERMS: LegalDoc = {
       heading: '12. Changes, governing law and contact',
       body: [
         'We may update these terms and will show the date they were last updated ({{lastUpdated}}). These terms are governed by the laws of {{governingState}}, Australia, and the courts of that jurisdiction have non-exclusive jurisdiction, without limiting your statutory rights.',
-        'Contact us at {{supportEmail}}. We aim to respond within {{supportResponseTime}}.',
+        `Contact us at {{supportEmail}}. ${SUPPORT_REPLY_NOTE}`,
       ],
     },
   ],
@@ -97,13 +102,13 @@ export const PRIVACY: LegalDoc = {
     {
       heading: '1. About this policy',
       body: [
-        '{{operatorLegalName}} ({{entityType}}, {{entityIdentifier}}) operates Eve at https://eveevents.com.au. We handle personal information in line with the Australian Privacy Principles and the Privacy Act 1988 (Cth) to the extent they apply to us.',
+        '{{operatorLegalName}} ({{entityType}}, {{entityIdentifier}}), {{operatorLocation}}, operates Eve at https://eveevents.com.au. We handle personal information in line with the Australian Privacy Principles and the Privacy Act 1988 (Cth) to the extent they apply to us.',
       ],
     },
     {
       heading: '2. What we collect',
       body: [
-        'If you book a ticket: your name, email address and optional phone number; each attendee\'s name and optional email address; any promotion or access code you enter; and any answers to registration questions that the Event Organiser asks.',
+        'If you book a ticket: your name, email address and optional phone number; each attendee\'s name; and any promotion or access code you enter. Eve\'s booking form does not currently ask registration questions, so we do not currently collect answers to them (see section 5).',
         'If you are an Event Organiser or team member: your username, a one-way hash of your password (never the password itself), your name, role, sign-in times and session records.',
         'For payments: card details go directly to Stripe and are not seen or stored by us. We keep the amount, the Stripe order and payment references, and the refund status. For paid tickets we also record when you agreed to the Terms and the Refunds & cancellations policy and which version of each you agreed to.',
         'When tickets are checked in: the time of check-in and the organiser staff member who recorded it.',
@@ -114,7 +119,7 @@ export const PRIVACY: LegalDoc = {
       heading: '3. Why we use it',
       body: [
         'To process bookings and payments; to issue and deliver tickets; to send booking confirmations and event notices (such as cancellation, refund and, where the organiser has switched them on, reminder emails); to run organiser accounts and keep them secure; to prevent abuse; and to meet legal obligations.',
-        'We do not send marketing email. Your booking details are not used for marketing, and agreeing to the Terms is not consent to marketing.',
+        'We do not currently send marketing email or use your booking details for marketing, and agreeing to the Terms is not consent to marketing.',
       ],
     },
     {
@@ -140,13 +145,14 @@ export const PRIVACY: LegalDoc = {
     {
       heading: '7. Where information is processed',
       body: [
-        'Our database is hosted in Australia (Sydney). Our hosting provider processes requests in the United States. Our payment and email providers may process information in other countries. By using Eve you understand that your information may be handled outside Australia.',
+        'Our database is hosted in Australia (Sydney). Our hosting provider processes requests in the United States, and our payment and email providers (Stripe and Resend) may process information in other countries. This means some personal information may be handled outside Australia.',
       ],
     },
     {
       heading: '8. How long we keep information',
       body: [
-        'We keep booking, ticket and payment records for as long as needed to run the service and meet legal and financial record-keeping obligations. Retention periods: {{retentionPeriods}}. Sign-in sessions expire after 8 hours.',
+        'We keep order, payment and refund records for 7 years, because we may need them for tax and financial record-keeping.',
+        'We review other personal information and remove or de-identify it when it is no longer reasonably required, subject to legal and operational needs. We do not currently delete information automatically. If you would like us to review your information, contact {{supportEmail}}. Sign-in sessions expire after 8 hours.',
       ],
     },
     {
@@ -158,7 +164,7 @@ export const PRIVACY: LegalDoc = {
     {
       heading: '10. Your rights, questions and complaints',
       body: [
-        'You can ask to access or correct your personal information, or raise a question or complaint, by emailing {{supportEmail}} (privacy contact: {{privacyContact}}). We aim to respond within {{supportResponseTime}}. If you are not satisfied, you can contact the Office of the Australian Information Commissioner at oaic.gov.au.',
+        `You can ask to access or correct your personal information, or raise a question or complaint, by emailing {{supportEmail}}. ${PRIVACY_REQUEST_NOTE} If you are not satisfied, you can contact the Office of the Australian Information Commissioner at oaic.gov.au.`,
       ],
     },
     {
@@ -171,19 +177,19 @@ export const PRIVACY: LegalDoc = {
 export function refundsDoc(changeNotices: boolean = EVENT_CHANGE_NOTICES_ENABLED): LegalDoc {
   return {
     slug: 'refunds',
-    title: 'Refunds, Cancellations & Event Changes',
-    intro: 'This policy explains what happens when an event is cancelled or changed, and how to ask for help. It does not limit your rights under the Australian Consumer Law.',
+    title: 'Refunds & cancellations',
+    intro: 'This policy explains what happens when an event is cancelled or its details change, and how to ask for help. It does not limit your rights under the Australian Consumer Law.',
     sections: [
       {
         heading: '1. Who is responsible',
         body: [
-          'Events on Eve are run by independent Event Organisers, who are responsible for cancelling and refunding in line with Australian law. We provide the ticketing platform and will help you reach the right outcome.',
+          'Events on Eve are run by independent Event Organisers, who are responsible for cancelling and refunding in line with Australian law. We provide the ticketing platform and will try to help.',
         ],
       },
       {
         heading: '2. If the Event Organiser cancels the event',
         body: [
-          'You are entitled to a refund of what you paid for the cancelled event, or a replacement if the organiser offers one that you agree to. The cancellation email states your actual refund status.',
+          'If an event is cancelled you are generally entitled to a remedy under Australian law. This will usually be a refund of what you paid, or a replacement if the organiser offers one that you agree to. The cancellation email states your actual refund status.',
           'Cancelling an event does not refund payments automatically: the Event Organiser issues each refund. Refunds go to your original payment method and can take time to appear, depending on your bank. If you have not received a refund, contact the Event Organiser or {{supportEmail}}.',
         ],
       },
@@ -191,7 +197,7 @@ export function refundsDoc(changeNotices: boolean = EVENT_CHANGE_NOTICES_ENABLED
         heading: '3. If an event changes significantly',
         body: [
           changeNotices
-            ? 'If the date, time or venue of an event changes, we email people with a confirmed booking to tell them what has changed. A change that materially affects what you bought may entitle you to a refund or another remedy under Australian law. Contact the Event Organiser or {{supportEmail}} if you think a change is significant.'
+            ? 'If the date, time or venue of an event changes, we aim to email people with a confirmed booking to tell them what has changed. We cannot guarantee that an email will be delivered, so please also check the event page. A change that materially affects what you bought may entitle you to a refund or another remedy under Australian law. Contact the Event Organiser or {{supportEmail}} if you think a change is significant.'
             : 'If the date, time, venue or a major feature of an event changes in a way that materially affects what you bought, you may be entitled to a refund or another remedy under Australian law. The Event Organiser is responsible for telling you about changes. Contact the Event Organiser or {{supportEmail}} if you think a change is significant.',
         ],
       },
@@ -204,7 +210,7 @@ export function refundsDoc(changeNotices: boolean = EVENT_CHANGE_NOTICES_ENABLED
       {
         heading: '5. If something is wrong with your booking',
         body: [
-          'If you were charged incorrectly, charged twice, or did not receive your ticket, contact {{supportEmail}} and we will look into it. Charges made in error will be corrected.',
+          'If you think you were charged incorrectly, were charged twice, or did not receive your ticket, contact {{supportEmail}} and we will look into it. If we find a charge was made in error, we will correct it.',
         ],
       },
       {
@@ -214,12 +220,12 @@ export function refundsDoc(changeNotices: boolean = EVENT_CHANGE_NOTICES_ENABLED
       {
         heading: '7. How refunds are made',
         body: [
-          'Refunds for paid tickets are made for the full order, to the original payment method, through Stripe. Partial refunds are not currently available through Eve. If a booking fee was charged and the order is refunded, the booking fee is refunded too.',
+          'Refunds for paid tickets are made for the full order, to the original payment method, through Stripe. Partial refunds are not currently available through Eve, but this does not limit your rights under Australian law. If a booking fee was charged and the order is refunded, the booking fee is refunded too.',
         ],
       },
       {
         heading: '8. How to ask for help',
-        body: ['Email {{supportEmail}} with your order reference (shown in your ticket email). We aim to respond within {{supportResponseTime}}.'],
+        body: [`Email {{supportEmail}} with your order reference (shown in your ticket email). ${SUPPORT_REPLY_NOTE}`],
       },
     ],
   };

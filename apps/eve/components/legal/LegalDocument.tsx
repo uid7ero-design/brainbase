@@ -54,7 +54,7 @@ export function LegalDocument({ doc }: { doc: LegalDoc }) {
     <Container className="max-w-3xl py-12 sm:py-16">
       {!cfg.isFinal ? (
         <p role="note" data-testid="legal-draft-banner" className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-          DRAFT for review: not final legal text. Highlighted items are facts that have not been confirmed yet.
+          DRAFT for review: not final legal text. The operator details shown are awaiting accountant and legal confirmation.
         </p>
       ) : null}
       <h1 className="text-3xl font-semibold tracking-tight">{doc.title}</h1>

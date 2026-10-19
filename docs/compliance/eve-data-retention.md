@@ -4,6 +4,8 @@ Status: **DRAFT — retention periods PENDING LEGAL/ACCOUNTING APPROVAL.**
 Nothing in this document is a public statement. It records what the system does
 today so that the public Privacy Policy never claims more than exists.
 
+**Public policy (Phase 3.6, draft):** the published Privacy text is principle-based. It states 7 years for order/payment/refund records (pending accountant/counsel confirmation) and that other personal information is reviewed and removed or de-identified when no longer reasonably required, and it does not imply automated deletion. The per-category periods below are internal recommendations only and are NOT published.
+
 **There is no automated retention, anonymisation or erasure for event, order,
 attendee or registration-answer data.** Nothing is deleted by a schedule. The
 only things that expire by themselves are listed in the last two rows.
