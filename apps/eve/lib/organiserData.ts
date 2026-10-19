@@ -1,4 +1,4 @@
-import { getTicketingGateway, type OrganiserAttendee, type OrganiserEvent, type OrganiserOrder } from './ticketing/gateway';
+import { getTicketingGateway, type OrganiserAttendee, type OrganiserEvent, type OrganiserOrder, type OrganiserPaymentDetail, type OrganiserPayments, type OrganiserSettings } from './ticketing/gateway';
 import { redirect } from 'next/navigation';
 
 // Loads for the organiser pages. A non-ok API answer is surfaced as an
@@ -23,6 +23,31 @@ export async function loadOrders(token: string, eventId: string): Promise<Organi
   if (r.status === 'not_found') return [];
   if (r.status !== 'ok') failOrRedirect(r.status);
   return r.data.orders;
+}
+
+export async function loadPayments(token: string, filter: { status?: string; event?: string }): Promise<OrganiserPayments> {
+  const r = await getTicketingGateway().listPayments(token, filter);
+  if (r.status !== 'ok') failOrRedirect(r.status);
+  return r.data;
+}
+
+export async function loadSettings(token: string, filter: { event?: string }): Promise<OrganiserSettings> {
+  const r = await getTicketingGateway().getSettings(token, filter);
+  if (r.status === 'not_found' || (r.status === 'error' && r.httpStatus === 400)) {
+    // An event id that is not this organisation's (or is malformed): show the organisation-level answer instead.
+    const org = await getTicketingGateway().getSettings(token, {});
+    if (org.status !== 'ok') failOrRedirect(org.status);
+    return org.data;
+  }
+  if (r.status !== 'ok') failOrRedirect(r.status);
+  return r.data;
+}
+
+export async function loadPayment(token: string, orderId: string): Promise<OrganiserPaymentDetail | null> {
+  const r = await getTicketingGateway().getPayment(token, orderId);
+  if (r.status === 'not_found') return null;
+  if (r.status !== 'ok') failOrRedirect(r.status);
+  return r.data;
 }
 
 export async function loadAttendees(token: string, eventId: string): Promise<OrganiserAttendee[]> {

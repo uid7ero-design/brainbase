@@ -11,20 +11,54 @@ process.env.EVE_SESSION_SECRET = 'eve-test-secret-0123456789abcdef0123456789abcd
 process.env.TICKETING_API_SECRET = 'gate-test-secret-0123456789abcdef0123456789abcdef'
 
 type Row = Record<string, unknown>
-const db: { users: Row[]; orgs: Row[]; entitled: Set<string>; fail: boolean } = {
-  users: [], orgs: [], entitled: new Set(), fail: false,
+type SessionRow = { user: string; org: string; revoked: string | null; expired: boolean }
+const db: { users: Row[]; orgs: Row[]; entitled: Set<string>; fail: boolean; sessions: Map<string, SessionRow>; counters: Map<string, number>; failSessionWrite: boolean; failTx: boolean; limiterDown: boolean } = {
+  users: [], orgs: [], entitled: new Set(), fail: false, sessions: new Map(), counters: new Map(), failSessionWrite: false, failTx: false, limiterDown: false,
 }
 
 const sqlMock = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
   if (db.fail) throw new Error('db down')
   const q = strings.join('?')
+  if (q.includes('INSERT INTO ticketing_rate_limits')) {
+    if (db.limiterDown) throw new Error('limiter down')
+    const k = String(values[0]); const n = (db.counters.get(k) ?? 0) + 1; db.counters.set(k, n); return [{ count: n }]
+  }
+  if (q.includes('DELETE FROM ticketing_rate_limits')) { db.counters.delete(String(values[0])); return [] }
+  if (q.includes('DELETE FROM ticketing_sessions')) return []
+  if (q.includes('INSERT INTO ticketing_sessions')) {
+    if (db.failSessionWrite) throw new Error('session write failed')
+    db.sessions.set(String(values[0]), { user: String(values[1]), org: String(values[2]), revoked: null, expired: false }); return []
+  }
+  if (q.includes('UPDATE ticketing_sessions')) {
+    if (q.includes("'ORG_SWITCH'")) { const s = db.sessions.get(String(values[0])); if (s && s.user === values[1] && !s.revoked) s.revoked = 'ORG_SWITCH' }
+    else if (q.includes('WHERE id')) { const s = db.sessions.get(String(values[1])); if (s && s.user === values[2] && !s.revoked) s.revoked = String(values[0]) }
+    else for (const s of db.sessions.values()) if (s.user === values[1] && !s.revoked) s.revoked = String(values[0])
+    return []
+  }
   if (q.includes('FROM users WHERE username')) return db.users.filter(u => u.username === values[0])
-  if (q.includes('FROM users WHERE id')) return db.users.filter(u => u.id === values[0])
+  if (q.includes('FROM users WHERE id')) {
+    // (jti, token organisation, user id): the session must be live for THIS user and organisation.
+    const s = db.sessions.get(String(values[0]))
+    const live = !!s && s.user === values[2] && s.org === values[1] && !s.revoked && !s.expired
+    return db.users.filter(u => u.id === values[2]).map(u => ({ ...u, session_live: live }))
+  }
   if (q.includes('FROM organisations WHERE id')) return db.orgs.filter(o => o.id === values[0])
   if (q.includes('FROM organisations o')) return db.orgs.filter(o => o.status === 'ACTIVE' && db.entitled.has(o.id as string))
   return []
 })
-vi.mock('@/lib/db', () => ({ default: (...a: unknown[]) => (sqlMock as unknown as (...x: unknown[]) => Promise<Row[]>)(...a) }))
+vi.mock('@/lib/db', () => ({
+  default: Object.assign(
+    (...a: unknown[]) => ({ then: (res: (v: Row[]) => unknown, rej: (e: unknown) => unknown) => (sqlMock as unknown as (...x: unknown[]) => Promise<Row[]>)(...a).then(res, rej) }),
+    {
+      transaction: async (qs: PromiseLike<unknown>[]) => {
+        if (db.failTx) throw new Error('tx failed')
+        const out: unknown[] = []
+        for (const q of qs) out.push(await q)
+        return out
+      },
+    },
+  ),
+}))
 
 vi.mock('@/lib/capabilities/requireCapability', async (orig) => {
   const actual = await orig<typeof import('@/lib/capabilities/requireCapability')>()
@@ -66,6 +100,7 @@ const tok = async (u: string, o: string) => (await issueTicketingSession(u, o))!
 
 beforeEach(() => {
   db.fail = false
+  db.sessions = new Map(); db.counters = new Map(); db.failSessionWrite = false; db.failTx = false; db.limiterDown = false
   db.entitled = new Set(['org-a', 'org-b'])
   db.orgs = [
     { id: 'org-a', name: 'A', status: 'ACTIVE' },
@@ -140,7 +175,7 @@ describe('session token', () => {
   it('carries identifiers, audience and expiry only', async () => {
     const token = await tok('u-mgr', 'org-a')
     const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString())
-    expect(Object.keys(payload).sort()).toEqual(['aud', 'exp', 'iat', 'iss', 'org', 'sub'])
+    expect(Object.keys(payload).sort()).toEqual(['aud', 'exp', 'iat', 'iss', 'jti', 'org', 'sub'])
     expect(payload.aud).toBe(policy.TICKETING_SESSION_AUDIENCE)
   })
 
@@ -148,7 +183,7 @@ describe('session token', () => {
     const key = new TextEncoder().encode(process.env.EVE_SESSION_SECRET!)
     const base = (aud: string, exp: number, k = key) =>
       new SignJWT({ org: 'org-a' }).setProtectedHeader({ alg: 'HS256' }).setIssuer(policy.TICKETING_SESSION_ISSUER)
-        .setAudience(aud).setSubject('u-mgr').setIssuedAt(exp - 120).setExpirationTime(exp).sign(k)
+        .setAudience(aud).setSubject('u-mgr').setJti('j'.repeat(32)).setIssuedAt(exp - 120).setExpirationTime(exp).sign(k)
     const now = Math.floor(Date.now() / 1000)
     expect(await verifyTicketingSession(await base(policy.TICKETING_SESSION_AUDIENCE, now + 60))).not.toBeNull()
     expect(await verifyTicketingSession(await base(policy.TICKETING_SESSION_AUDIENCE, now - 60))).toBeNull()
@@ -176,7 +211,7 @@ describe('session token', () => {
     } finally { process.env.EVE_SESSION_SECRET = saved }
   })
 
-  it('logout directs the cookie to be cleared and needs the gate', async () => {
+  it('logout directs the cookie to be cleared and needs the gate (no session presented is an idempotent no-op)', async () => {
     const ok = await logoutRoute.POST(new Request('http://x/', { method: 'POST', headers: GATE }))
     expect((await ok.json()).clearCookie).toBe(true)
     expect((await logoutRoute.POST(new Request('http://x/', { method: 'POST' }))).status).toBe(401)
@@ -258,11 +293,11 @@ describe('super_admin organisation selection', () => {
 
   it('switches to an eligible org only', async () => {
     const t = await tok('u-sa', 'org-a')
+    expect((await handleOrganisationSwitch(sw(t, 'org-c'))).status).toBe(403)
+    expect((await handleOrganisationSwitch(sw(t, 'org-missing'))).status).toBe(403)
     const ok = await handleOrganisationSwitch(sw(t, 'org-b'))
     expect(ok.status).toBe(200)
     expect((await verifyTicketingSession((await ok.json()).token))?.organisationId).toBe('org-b')
-    expect((await handleOrganisationSwitch(sw(t, 'org-c'))).status).toBe(403)
-    expect((await handleOrganisationSwitch(sw(t, 'org-missing'))).status).toBe(403)
   })
 
   it('refuses non-super_admin users and lists only entitled orgs', async () => {
@@ -275,6 +310,145 @@ describe('super_admin organisation selection', () => {
     db.entitled.delete('org-a')
     const ok = await handleOrganisationSwitch(sw(await tok('u-sa', 'org-a'), 'org-b'))
     expect(ok.status).toBe(200)
+  })
+})
+
+describe('server-side session revocation (Phase 3.5)', () => {
+  const logoutReq = (t?: string) => new Request('http://x/', { method: 'POST', headers: { ...GATE, ...(t ? { 'x-ticketing-session': t } : {}) } })
+  const sw = (t: string, organisationId: string) => new Request('http://x/', {
+    method: 'POST', headers: { ...GATE, 'x-ticketing-session': t, 'content-type': 'application/json' }, body: JSON.stringify({ organisationId }),
+  })
+
+  it('login issues a token only AFTER its session row is written, and the token carries that row id', async () => {
+    const res = await handleTicketingLogin(post({ username: 'mgr', password: PW }, freshIp()))
+    const { token } = await res.json()
+    const claims = await verifyTicketingSession(token)
+    expect(claims?.jti).toBeTruthy()
+    expect(db.sessions.get(claims!.jti)).toMatchObject({ user: 'u-mgr', org: 'org-a', revoked: null })
+    expect((await authorizeTicketingApiRequest(withSession(token), 'viewer')).ok).toBe(true)
+  })
+
+  it('never returns a token when the session row cannot be written', async () => {
+    db.failSessionWrite = true
+    const res = await handleTicketingLogin(post({ username: 'mgr', password: PW }, freshIp()))
+    expect(res.status).toBe(503)
+    expect(JSON.stringify(await res.json())).not.toMatch(/token/i)
+    expect(db.sessions.size).toBe(0)
+  })
+
+  it('logout makes the SAME token unusable immediately; a repeated or unknown logout is a safe no-op', async () => {
+    const t = await tok('u-mgr', 'org-a')
+    expect((await authorizeTicketingApiRequest(withSession(t), 'viewer')).ok).toBe(true)
+    const first = await logoutRoute.POST(logoutReq(t))
+    expect(first.status).toBe(200)
+    const after = await authorizeTicketingApiRequest(withSession(t), 'viewer')
+    expect(!after.ok && after.response.status).toBe(401)
+    expect((await logoutRoute.POST(logoutReq(t))).status).toBe(200)       // repeat
+    expect((await logoutRoute.POST(logoutReq('garbage'))).status).toBe(200) // malformed
+    expect([...db.sessions.values()][0].revoked).toBe('LOGOUT')
+  })
+
+  it('logging out one session does not touch another session of the same user', async () => {
+    const a = await tok('u-mgr', 'org-a'); const b = await tok('u-mgr', 'org-a')
+    await logoutRoute.POST(logoutReq(a))
+    expect((await authorizeTicketingApiRequest(withSession(a), 'viewer')).ok).toBe(false)
+    expect((await authorizeTicketingApiRequest(withSession(b), 'viewer')).ok).toBe(true)
+  })
+
+  it('logout reports (503) when it cannot confirm the revocation instead of claiming success', async () => {
+    const t = await tok('u-mgr', 'org-a')
+    sqlMock.mockImplementationOnce(async () => { throw new Error('db down') })
+    expect((await logoutRoute.POST(logoutReq(t))).status).toBe(503)
+  })
+
+  it('organisation switch revokes the OLD session and the new token works for the new organisation only', async () => {
+    const old = await tok('u-sa', 'org-a')
+    const res = await handleOrganisationSwitch(sw(old, 'org-b'))
+    expect(res.status).toBe(200)
+    const fresh = (await res.json()).token
+    const oldUse = await authorizeTicketingApiRequest(withSession(old), 'viewer')
+    expect(!oldUse.ok && oldUse.response.status).toBe(401)
+    const newUse = await authorizeTicketingApiRequest(withSession(fresh), 'viewer')
+    expect(newUse.ok && newUse.context.organisationId).toBe('org-b')
+    expect([...db.sessions.values()].map(s => s.revoked)).toEqual(['ORG_SWITCH', null])
+  })
+
+  it('a failed switch transaction issues no token and leaves the old session untouched', async () => {
+    const old = await tok('u-sa', 'org-a')
+    db.failTx = true
+    const res = await handleOrganisationSwitch(sw(old, 'org-b'))
+    expect(res.status).toBe(503)
+    expect(JSON.stringify(await res.json())).not.toMatch(/token/i)
+    db.failTx = false
+    expect((await authorizeTicketingApiRequest(withSession(old), 'viewer')).ok).toBe(true)
+  })
+
+  it('a revoked session cannot be used to switch organisation either', async () => {
+    const old = await tok('u-sa', 'org-a')
+    await logoutRoute.POST(logoutReq(old))
+    expect((await handleOrganisationSwitch(sw(old, 'org-b'))).status).toBe(401)
+    expect((await handleOrganisationList(withSession(old))).status).toBe(401)
+  })
+
+  it('denies a validly signed token whose session row is missing, expired, or for another user/organisation', async () => {
+    const t = await tok('u-mgr', 'org-a'); const claims = (await verifyTicketingSession(t))!
+    db.sessions.get(claims.jti)!.expired = true
+    expect((await authorizeTicketingApiRequest(withSession(t), 'viewer')).ok).toBe(false)
+    db.sessions.get(claims.jti)!.expired = false
+    db.sessions.get(claims.jti)!.org = 'org-b'
+    expect((await authorizeTicketingApiRequest(withSession(t), 'viewer')).ok).toBe(false)
+    db.sessions.get(claims.jti)!.org = 'org-a'; db.sessions.get(claims.jti)!.user = 'u-view'
+    expect((await authorizeTicketingApiRequest(withSession(t), 'viewer')).ok).toBe(false)
+    db.sessions.delete(claims.jti)
+    expect((await authorizeTicketingApiRequest(withSession(t), 'viewer')).ok).toBe(false)
+  })
+
+  it('fails closed for a token with no jti (issued before sessions were server-side), wrong issuer, wrong audience, or tampering', async () => {
+    const key = new TextEncoder().encode(process.env.EVE_SESSION_SECRET!)
+    const now = Math.floor(Date.now() / 1000)
+    const mk = (over: { iss?: string; aud?: string; jti?: string | null }) => {
+      const j = new SignJWT({ org: 'org-a' }).setProtectedHeader({ alg: 'HS256' }).setIssuer(over.iss ?? policy.TICKETING_SESSION_ISSUER)
+        .setAudience(over.aud ?? policy.TICKETING_SESSION_AUDIENCE).setSubject('u-mgr').setIssuedAt(now).setExpirationTime(now + 600)
+      if (over.jti !== null) j.setJti(over.jti ?? 'j'.repeat(32))
+      return j.sign(key)
+    }
+    expect(await verifyTicketingSession(await mk({ jti: null }))).toBeNull()
+    expect(await verifyTicketingSession(await mk({ iss: 'someone-else' }))).toBeNull()
+    expect(await verifyTicketingSession(await mk({ aud: 'ticketing:other' }))).toBeNull()
+    const good = await tok('u-mgr', 'org-a')
+    const [h, p, sig] = good.split('.')
+    const forged = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(p, 'base64url').toString()), sub: 'u-sa' })).toString('base64url')
+    expect(await verifyTicketingSession([h, forged, sig].join('.'))).toBeNull()
+    // Even a correctly signed token with no live row authorises nothing.
+    expect((await authorizeTicketingApiRequest(withSession(await mk({})), 'viewer')).ok).toBe(false)
+  })
+
+  it('role downgrade and user/org/capability changes take effect on the very next request with the SAME token', async () => {
+    const t = await tok('u-mgr', 'org-a')
+    expect((await authorizeTicketingApiRequest(withSession(t), 'manager')).ok).toBe(true)
+    db.users[0].role = 'VIEWER'
+    const r = await authorizeTicketingApiRequest(withSession(t), 'manager')
+    expect(!r.ok && r.response.status).toBe(403)
+    db.users[0].organisation_id = 'org-b' // org access removed
+    const r2 = await authorizeTicketingApiRequest(withSession(t), 'viewer')
+    expect(!r2.ok && r2.response.status).toBe(401)
+  })
+
+  it('login limiter: shared counters are keyed by hash (no username or IP in the key) and an outage DENIES sign-in', async () => {
+    await handleTicketingLogin(post({ username: 'someone@example.com', password: 'x' }, { ...GATE, 'x-ticketing-client-ip': '203.0.113.9' }))
+    expect(db.counters.size).toBe(2)
+    for (const k of db.counters.keys()) expect(k).toMatch(/^[0-9a-f]{64}$/)
+    db.limiterDown = true
+    const res = await handleTicketingLogin(post({ username: 'mgr', password: PW }, freshIp()))
+    expect(res.status).toBe(503)
+    expect(JSON.stringify(await res.json())).not.toMatch(/token/i)
+  })
+
+  it('a successful sign-in clears that username\'s failed-attempt counter', async () => {
+    for (let i = 0; i < 3; i++) await handleTicketingLogin(post({ username: 'mgr', password: 'nope' }, freshIp()))
+    const before = db.counters.size
+    expect((await handleTicketingLogin(post({ username: 'mgr', password: PW }, freshIp()))).status).toBe(200)
+    expect(db.counters.size).toBeLessThanOrEqual(before + 1) // per-IP counter added, the username counter removed
   })
 })
 

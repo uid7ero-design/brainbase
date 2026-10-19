@@ -108,6 +108,66 @@ export type OrganiserAttendee = {
   id: string; name: string; email: string | null; checked_in_at: string | null; checked_in_by: string | null;
   ticket_type_name: string | null; session_name: string | null; order_status: string; payment_status: string; purchaser_name: string;
 };
+export type PaymentState = 'PAID' | 'PENDING' | 'FAILED' | 'EXPIRED' | 'REFUNDED';
+export type OrganiserPayment = {
+  id: string;
+  event: { id: string; name: string; timezone: string | null };
+  purchaser_name: string; purchaser_email: string | null;
+  order_status: string; payment_state: PaymentState; currency: string;
+  created_at: string | null; paid_at: string | null; refunded_at: string | null;
+  ticket_total_cents: number; discount_cents: number; platform_fee_cents: number;
+  fee_mode: 'PASS_THROUGH' | 'ABSORB' | null; fee_label: string | null;
+  payment_total_cents: number; refunded_amount_cents: number | null; platform_fee_refunded_cents: number | null;
+  organiser_share_before_processing_cents: number | null;
+};
+export type PaymentCurrencySummary = {
+  currency: string;
+  counts: Record<PaymentState, number>;
+  paid_revenue_cents: number; platform_fees_cents: number; refunded_cents: number; organiser_share_before_processing_cents: number;
+};
+export type ConnectView = {
+  status: 'NOT_CONNECTED' | 'ONBOARDING' | 'ACTION_REQUIRED' | 'CONNECTED' | 'RESTRICTED';
+  connected: boolean; charges_enabled: boolean; payouts_enabled: boolean; details_submitted: boolean;
+  eligible_for_paid_ticketing: boolean; connected_at: string | null; last_synced_at: string | null;
+};
+export type OrganiserPayments = {
+  organisation: { slug: string; name: string };
+  connect: ConnectView | null;
+  filter: { status: PaymentState | null; event: string | null };
+  summary: { currencies: PaymentCurrencySummary[]; complete: boolean };
+  orders: OrganiserPayment[];
+  orders_truncated: boolean;
+};
+export type OrganiserPaymentDetail = {
+  organisation: { slug: string; name: string };
+  order: OrganiserPayment;
+  lines: { description: string; quantity: number; unit_price_cents: number; discount_cents: number }[];
+};
+export type FeePolicyView =
+  | { state: 'NO_FEE'; source: 'EVENT' | 'ORGANISATION' | 'PLATFORM_DEFAULT'; reason: 'NOT_CONFIGURED' | 'DISABLED' }
+  | {
+      state: 'FEE'; source: 'EVENT' | 'ORGANISATION'; fee_mode: 'PASS_THROUGH' | 'ABSORB'; paid_by: 'BUYER' | 'ORGANISER';
+      percent_bps: number; fixed_per_order_cents: number; fixed_per_ticket_cents: number;
+      min_fee_cents: number | null; max_fee_cents: number | null; currency: string; label: string;
+    };
+export type BrandingView = {
+  configured: boolean; display_name: string; display_name_is_custom: boolean; logo_configured: boolean;
+  accent_color: string | null; website: string | null; support_email: string | null; support_phone: string | null; email_footer: string | null;
+};
+export type OrganiserSettings = {
+  organisation: { name: string; slug: string };
+  user: { name: string; role: string };
+  events_capability: { enabled: boolean };
+  ticketing: { paid_ticketing_available: boolean | null };
+  connect: ConnectView | null;
+  fees: {
+    scope: { level: 'ORGANISATION' | 'EVENT'; event: { id: string; name: string } | null };
+    effective: FeePolicyView | null;
+    event_overrides_count: number | null;
+    unavailable?: boolean;
+  };
+  branding: BrandingView;
+};
 export type CheckInAttendee = { id: string; attendee_name: string; ticket_type_name: string | null; session_name: string | null; checked_in_at: string | null };
 
 export type LoginResult = { token: string; expiresAt: number; user: { id: string; name: string; role: string }; organisationId: string };
@@ -139,6 +199,18 @@ export function createGateway() {
     listEvents: (session: string | null) => call<{ organisation: { slug: string; name: string }; events: OrganiserEvent[] }>('/organiser/events', { session }),
     listOrders: (session: string | null, eventId: string) => call<{ orders: OrganiserOrder[] }>(`/organiser/events/${enc(eventId)}/orders`, { session }),
     listAttendees: (session: string | null, eventId: string) => call<{ attendees: OrganiserAttendee[] }>(`/organiser/events/${enc(eventId)}/attendees`, { session }),
+    // Payments are READ-ONLY: GET calls only; there is no payment mutation in this client.
+    listPayments: (session: string | null, filter: { status?: string; event?: string } = {}) => {
+      const qs = new URLSearchParams();
+      if (filter.status) qs.set('status', filter.status);
+      if (filter.event) qs.set('event', filter.event);
+      const suffix = qs.toString();
+      return call<OrganiserPayments>(`/organiser/payments${suffix ? `?${suffix}` : ''}`, { session });
+    },
+    // Settings are READ-ONLY: a single GET; there is no settings mutation in this client.
+    getSettings: (session: string | null, filter: { event?: string } = {}) =>
+      call<OrganiserSettings>(`/organiser/settings${filter.event ? `?event=${enc(filter.event)}` : ''}`, { session }),
+    getPayment: (session: string | null, orderId: string) => call<OrganiserPaymentDetail>(`/organiser/payments/${enc(orderId)}`, { session }),
     checkInSearch: (session: string | null, eventId: string, q: string) =>
       call<{ attendees: CheckInAttendee[] }>(`/organiser/events/${enc(eventId)}/check-in/search?q=${enc(q)}`, { session }),
     checkInAction: (session: string | null, eventId: string, action: 'resolve' | 'confirm' | 'undo', body: unknown) =>

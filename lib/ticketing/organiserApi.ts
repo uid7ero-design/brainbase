@@ -7,7 +7,16 @@ import {
 } from '@/lib/events/organiserReads';
 import { resolveAttendee, searchAttendees, type AttendeeIdentifier } from '@/lib/events/checkIn';
 import { confirmCheckInWithAudit, eventBelongsToOrganisation, undoCheckInWithAudit } from '@/lib/events/checkInOps';
+import { listPaymentOrders, getPaymentOrder, type PaymentOrderRow } from '@/lib/events/organiserPayments';
+import { getConnectAccountState, checkPaidTicketingEligibility } from '@/lib/events/stripeConnect';
+import {
+  brandingView, countEventFeeOverrides, feePolicyView, getOrganisationRow, getOwnEvent, resolveEffectiveFeePolicy,
+} from '@/lib/events/organiserSettings';
+import {
+  feeModeOf, isPaymentState, organiserShareBeforeProcessingCents, paymentTotalCents, refundedAmountCents, summarisePayments,
+} from '@ticketing/core';
 import { authorizeTicketingApiRequest, type TicketingContext } from './authorize';
+import { LIMITS, limit, type LimitPolicy } from './rateLimit';
 import { isIdentifier, readBodyText, ticketingJson } from './http';
 
 // Organiser half of the ticketing API. Every handler:
@@ -22,18 +31,33 @@ import { isIdentifier, readBodyText, ticketingJson } from './http';
 // Minimum roles mirror the BrainBase Events routes: reads and check-in
 // resolve/search are viewer; check-in confirm and undo are manager.
 // Deliberately absent: event/ticket-type editing, refunds, cancellation,
-// retry, resend, export and payments onboarding.
+// retry, resend, export and payments onboarding. Payments are READ-ONLY
+// (GET only): the two payment handlers below read committed order snapshots
+// and cached account columns — no provider call and no write.
 
 type Json = Record<string, unknown>;
 
+// Identity for the limiter comes from the VERIFIED context only (never a
+// request value). `eventId` narrows the door classes to one event. A limited
+// request is refused before the handler reads or writes anything.
 async function asOrganiser(
   req: Request,
   minRole: Role,
   fn: (ctx: TicketingContext) => Promise<Response>,
+  opts: { policy?: LimitPolicy; eventId?: string } = {},
 ): Promise<Response> {
   const auth = await authorizeTicketingApiRequest(req, minRole);
   if (!auth.ok) return auth.response;
-  return fn(auth.context);
+  const ctx = auth.context;
+  const policy = opts.policy ?? LIMITS.organiserRead;
+  const dims = opts.eventId ? [ctx.organisationId, ctx.userId, opts.eventId] : [ctx.organisationId, ctx.userId];
+  const decision = await limit(policy, dims);
+  if (!decision.allowed) {
+    return decision.reason === 'UNAVAILABLE'
+      ? ticketingJson({ error: 'Unable to verify request limits right now.' }, 503)
+      : ticketingJson({ error: 'Too many requests. Please slow down.' }, 429);
+  }
+  return fn(ctx);
 }
 
 function pick(row: unknown, keys: readonly string[]): Json {
@@ -172,7 +196,7 @@ export function handleOrganiserCheckInSearch(req: Request, id: string): Promise<
     if (!isIdentifier(id) || !(await eventBelongsToOrganisation(ctx.organisationId, id))) return notFound();
     const q = (new URL(req.url).searchParams.get('q') ?? '').slice(0, 200);
     return ticketingJson({ attendees: await searchAttendees(ctx.organisationId, id, q) });
-  });
+  }, { policy: LIMITS.checkInLookup, eventId: isIdentifier(id) ? id : 'invalid' });
 }
 
 function parseIdentifier(body: { ticket_token?: unknown; attendee_id?: unknown }): AttendeeIdentifier | null {
@@ -235,5 +259,160 @@ export function handleOrganiserCheckIn(req: Request, id: string, action: 'resolv
     const result = await confirmCheckInWithAudit(ctx.organisationId, id, identifier, ctx.userId);
     if (!result.ok) return failure(result.reason);
     return ticketingJson({ first: result.first, attendee: result.attendee }, result.first ? 200 : 409);
+  }, { policy: action === 'resolve' ? LIMITS.checkInLookup : LIMITS.checkInMutation, eventId: isIdentifier(id) ? id : 'invalid' });
+}
+
+// ── Payments (read-only) ────────────────────────────────────────────────
+
+const PAYMENT_LIST_CAP = 200;
+
+function iso(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const d = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+// Allow-listed projection of one payment-bearing order. Money fields are the
+// order's own snapshot (never recomputed from a fee policy); no Stripe id, no
+// ticket or booking token, no answers, no CRM id.
+function paymentView(r: PaymentOrderRow): Json {
+  const snapshot = {
+    payment_status: r.payment_status,
+    total_cents: r.total_cents,
+    platform_fee_cents: r.platform_fee_cents,
+    fee_mode: r.fee_mode,
+    payment_total_cents: r.payment_total_cents,
+    refunded_cents: r.refunded_cents,
+  };
+  return {
+    id: r.id,
+    event: { id: r.event_id, name: r.event_name, timezone: r.event_timezone },
+    purchaser_name: r.purchaser_name,
+    purchaser_email: r.purchaser_email,
+    order_status: r.status,
+    payment_state: r.payment_status,
+    currency: (r.currency ?? 'AUD').toUpperCase(),
+    created_at: iso(r.created_at),
+    paid_at: iso(r.paid_at),
+    refunded_at: iso(r.refunded_at),
+    ticket_total_cents: r.total_cents,
+    discount_cents: r.discount_cents ?? 0,
+    platform_fee_cents: r.platform_fee_cents ?? 0,
+    fee_mode: feeModeOf(snapshot),
+    fee_label: r.fee_label,
+    payment_total_cents: paymentTotalCents(snapshot),
+    refunded_amount_cents: refundedAmountCents(snapshot),
+    platform_fee_refunded_cents: r.payment_status === 'REFUNDED' ? (r.platform_fee_refunded_cents ?? null) : null,
+    organiser_share_before_processing_cents: organiserShareBeforeProcessingCents(snapshot),
+  };
+}
+
+// Cached Connect state only (organisations.stripe_* columns, as the paid-
+// checkout gate reads them) — no live Stripe call. The connected account id
+// and every other provider identifier are deliberately NOT projected.
+async function connectView(organisationId: string): Promise<Json | null> {
+  try {
+    const state = await getConnectAccountState(organisationId);
+    const eligibility = await checkPaidTicketingEligibility(organisationId);
+    return {
+      status: state.status,
+      connected: state.accountId !== null,
+      charges_enabled: state.chargesEnabled,
+      payouts_enabled: state.payoutsEnabled,
+      details_submitted: state.detailsSubmitted,
+      eligible_for_paid_ticketing: eligibility.eligible,
+      connected_at: state.connectedAt,
+      last_synced_at: state.lastSyncedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// GET /payments?status=&event= — viewer+. The summary covers every
+// payment-bearing order of the organisation (optionally one event); the list
+// applies the status filter and is capped.
+export function handleOrganiserPayments(req: Request): Promise<Response> {
+  return asOrganiser(req, 'viewer', async ctx => {
+    const params = new URL(req.url).searchParams;
+    const status = params.get('status');
+    const event = params.get('event');
+    if (status !== null && status !== '' && !isPaymentState(status)) return ticketingJson({ error: 'Invalid status filter.' }, 400);
+    if (event !== null && event !== '' && !isIdentifier(event)) return ticketingJson({ error: 'Invalid event filter.' }, 400);
+
+    const { rows, truncated } = await listPaymentOrders(ctx.organisationId, event || null);
+    const filtered = status ? rows.filter(r => r.payment_status === status) : rows;
+    return ticketingJson({
+      organisation: organisationOf(ctx),
+      connect: await connectView(ctx.organisationId),
+      filter: { status: status || null, event: event || null },
+      summary: { currencies: summarisePayments(rows), complete: !truncated },
+      orders: filtered.slice(0, PAYMENT_LIST_CAP).map(paymentView),
+      orders_truncated: filtered.length > PAYMENT_LIST_CAP,
+    });
+  });
+}
+
+// GET /payments/[orderId] — viewer+. An order of another tenant, a free
+// order and an unknown id are all the same 404.
+export function handleOrganiserPayment(req: Request, orderId: string): Promise<Response> {
+  return asOrganiser(req, 'viewer', async ctx => {
+    if (!isIdentifier(orderId)) return notFound();
+    const found = await getPaymentOrder(ctx.organisationId, orderId);
+    if (!found) return notFound();
+    return ticketingJson({
+      organisation: organisationOf(ctx),
+      order: paymentView(found.order),
+      lines: found.lines.map(l => ({
+        description: l.description ?? 'Ticket',
+        quantity: l.quantity,
+        unit_price_cents: l.unit_price_cents,
+        discount_cents: l.discount_cents ?? 0,
+      })),
+    });
+  });
+}
+
+// ── Settings (read-only) ────────────────────────────────────────────────
+
+// GET /settings[?event=<id>] — viewer+. Organisation, ticketing status,
+// cached Connect state, the EFFECTIVE fee policy (organisation level, or the
+// named event's when ?event= is given, using the checkout's own resolver),
+// and the organiser's saved buyer branding. Entitlement 'config' is never
+// returned: only that Events is enabled, which the authorisation above has
+// just proved (a caller without the capability never reaches this point).
+export function handleOrganiserSettings(req: Request): Promise<Response> {
+  return asOrganiser(req, 'viewer', async ctx => {
+    const event = new URL(req.url).searchParams.get('event');
+    if (event !== null && event !== '' && !isIdentifier(event)) return ticketingJson({ error: 'Invalid event.' }, 400);
+
+    const org = await getOrganisationRow(ctx.organisationId);
+    if (!org) return notFound();
+    const ownEvent = event ? await getOwnEvent(ctx.organisationId, event) : null;
+    if (event && !ownEvent) return notFound();
+
+    let fees: Json;
+    try {
+      const resolution = await resolveEffectiveFeePolicy(ctx.organisationId, ownEvent?.id ?? null);
+      fees = {
+        scope: ownEvent ? { level: 'EVENT', event: { id: ownEvent.id, name: ownEvent.name } } : { level: 'ORGANISATION', event: null },
+        effective: feePolicyView(resolution),
+        event_overrides_count: await countEventFeeOverrides(ctx.organisationId),
+      };
+    } catch {
+      // A policy row this code cannot interpret (the checkout fails closed on it too).
+      fees = { scope: { level: ownEvent ? 'EVENT' : 'ORGANISATION', event: ownEvent }, effective: null, event_overrides_count: null, unavailable: true };
+    }
+
+    const connect = await connectView(ctx.organisationId);
+    return ticketingJson({
+      organisation: { name: org.name, slug: org.slug },
+      user: { name: ctx.name, role: ctx.role },
+      events_capability: { enabled: true },
+      ticketing: { paid_ticketing_available: connect ? connect.eligible_for_paid_ticketing === true : null },
+      connect,
+      fees,
+      branding: brandingView(org.settings, org.name),
+    });
   });
 }

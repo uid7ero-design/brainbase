@@ -121,8 +121,10 @@ describe('standalone product boundary', () => {
     }
   });
 
-  it('the Vercel config refuses production deployments for this phase', () => {
+  it('the Vercel config no longer blocks production builds (Phase 3.6 Gate 1), and adds nothing else', () => {
     const vercel = JSON.parse(readFileSync(path.join(APP_ROOT, 'vercel.json'), 'utf8'));
-    expect(vercel.ignoreCommand).toMatch(/VERCEL_ENV.*production.*exit 0/);
+    expect(vercel.ignoreCommand).toBeUndefined();
+    expect(Object.keys(vercel).sort()).toEqual(['$schema', 'framework']);
+    expect(vercel.framework).toBe('nextjs');
   });
 });
