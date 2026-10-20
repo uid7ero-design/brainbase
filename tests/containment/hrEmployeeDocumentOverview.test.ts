@@ -54,19 +54,19 @@ describe('employee document overview boundary', () => {
   });
   it.each([401, 403, 503])('preserves non-cacheable context denial %s without reading', async status => {
     mocks.context.mockResolvedValue({ ok: false, response: NextResponse.json({ error: 'Denied' }, { status }) });
-    const response = await GET();
+    const response = await GET(new Request('http://localhost/'));
     expect(response.status).toBe(status); expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     expect(mocks.sql).not.toHaveBeenCalled();
   });
   it('returns non-cacheable success using the trusted session', async () => {
-    const response = await GET();
+    const response = await GET(new Request('http://localhost/'));
     expect(response.status).toBe(200); expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     expect((await response.json()).people).toEqual([row]);
   });
   it('fails generically on a failed read or malformed count, never returning partial data', async () => {
     mocks.sql.mockRejectedValueOnce(new Error('database secret'));
-    expect(await (await GET()).json()).toEqual({ error: 'Unable to load document overview.' });
+    expect(await (await GET(new Request('http://localhost/'))).json()).toEqual({ error: 'Unable to load document overview.' });
     mocks.sql.mockResolvedValue([{ ...row, expired: -1 }]);
-    expect((await GET()).status).toBe(503);
+    expect((await GET(new Request('http://localhost/'))).status).toBe(503);
   });
 });

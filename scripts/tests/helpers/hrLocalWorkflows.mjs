@@ -6,7 +6,7 @@ const expect = browserExpect.configure({ timeout: 30000 });
 
 // Called only inside verify-hr-full-local's owned database/app lifetime.
 // Requests retain real browser-issued sessions and run the actual Next routes.
-export async function verifyRemainingWorkflows({ origin, context, page, employeeContext, employeePage, person, q, emails, cronSecret, password, browser }) {
+export async function verifyRemainingWorkflows({ origin, context, page, employeeContext, employeePage, person, q, emails, cronSecret, password, browser, contextOptions = {} }) {
   const api = context.request, employee = employeeContext.request;
   async function check(response, status) {
     assert.equal(response.status(), status, await response.text());
@@ -93,7 +93,7 @@ export async function verifyRemainingWorkflows({ origin, context, page, employee
   } }), 201)).template;
   await check(await api.post(`${origin}/api/hr/lifecycle/templates/${managerTemplate.id}/activate`), 200);
   const managerWorkflow = await check(await api.post(`${origin}/api/hr/lifecycle/workflows`, { data: { person_id: person.id, template_id: managerTemplate.id, anchor_date: '2026-10-16' } }), 201);
-  const managerContext = await browser.newContext();
+  const managerContext = await browser.newContext(contextOptions);
   await managerContext.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort('blockedbyclient'));
   const managerPage = await managerContext.newPage();
   await managerPage.goto(`${origin}/login`);
