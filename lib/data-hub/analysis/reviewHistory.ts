@@ -2,13 +2,16 @@ import { SEMANTIC_ROLES, type SemanticRole } from "../semanticInference/contract
 import { DATA_QUALITY_OBSERVATION_CODES, type DataQualityObservationCode } from "../dataQuality/contracts";
 import type { DataQualityReviewDecision } from "../dataQuality/reviewResolution";
 import type { AnalysisReviewDecisionInput } from "./reviewDecisionInput";
+import { parseAnalysisReviewDecisionInput } from "./reviewDecisionInput";
 import { copyAnalysisDatasetContext, validateAnalysisDatasetContexts, type AnalysisDatasetContext } from "./scopedProfileCounts";
 
 export const REVIEW_HISTORY_PAGE_SIZE = 10;
 export const MAX_HISTORY_FIELDS = 1_000;
 export const MAX_HISTORY_QUALITY = (MAX_HISTORY_FIELDS + 1) * DATA_QUALITY_OBSERVATION_CODES.length;
 export type ReviewHistoryQuery = { datasetProfileRunId: string; expectedReviewRevision: number } &
-  ({ kind: "page"; beforeRevision: number | null } | { kind: "compare"; baselineRevision: number });
+  ({ kind: "page"; beforeRevision: number | null } | { kind: "compare"; baselineRevision: number } | { kind: "detail"; revision: number });
+export type ReviewDetail = { detailVersion: "v1"; context: AnalysisDatasetContext; currentReviewRevision: number; revision: number;
+  semanticChoices: AnalysisReviewDecisionInput["semanticChoices"]; qualityDecisions: AnalysisReviewDecisionInput["qualityDecisions"] };
 export type ReviewHistoryEntry = { revision: number; semanticChoiceCount: number; qualityDecisionCount: number;
   acknowledgedNoticeCount: number; continuedReviewCount: number; heldReviewCount: number };
 export type ReviewHistoryPage = { historyVersion: "v1"; context: AnalysisDatasetContext; currentReviewRevision: number;
@@ -38,17 +41,32 @@ function context(value: unknown, expected: AnalysisDatasetContext) {
   if (!validateAnalysisDatasetContexts(expected, [row]).ok) return invalid();
   return copyAnalysisDatasetContext(row);
 }
-export function parseReviewHistoryQuery(params: URLSearchParams, kind: "page" | "compare"): ReviewHistoryQuery | null {
-  const required = ["historyVersion", "datasetProfileRunId", "expectedReviewRevision", ...(kind === "compare" ? ["baselineRevision"] : [])];
+export function parseReviewHistoryQuery(params: URLSearchParams, kind: ReviewHistoryQuery["kind"]): ReviewHistoryQuery | null {
+  const required = ["historyVersion", "datasetProfileRunId", "expectedReviewRevision", ...(kind === "compare" ? ["baselineRevision"] : kind === "detail" ? ["revision"] : [])];
   const allowed = [...required, ...(kind === "page" ? ["beforeRevision"] : [])];
   if ([...params.keys()].some(key => !allowed.includes(key) || params.getAll(key).length !== 1) || required.some(key => !params.has(key)) || params.get("historyVersion") !== "v1") return null;
   const integer = (key: string) => { const text = params.get(key); return text && /^[1-9]\d*$/.test(text) && Number.isSafeInteger(Number(text)) ? Number(text) : null; };
   const revision = integer("expectedReviewRevision"), profile = params.get("datasetProfileRunId");
   if (!revision || !profile?.trim() || profile.length > 512) return null;
+  if (kind === "detail") { const selected = integer("revision"); return selected && selected <= revision ? { kind, datasetProfileRunId: profile, expectedReviewRevision: revision, revision: selected } : null; }
   if (kind === "compare") { const baseline = integer("baselineRevision"); return baseline && baseline < revision ? { kind, datasetProfileRunId: profile, expectedReviewRevision: revision, baselineRevision: baseline } : null; }
   const before = params.has("beforeRevision") ? integer("beforeRevision") : null;
   if (params.has("beforeRevision") && (!before || before > revision)) return null;
   return { kind, datasetProfileRunId: profile, expectedReviewRevision: revision, beforeRevision: before };
+}
+export function decodeReviewDetail(body: unknown, expected: AnalysisDatasetContext, query: Extract<ReviewHistoryQuery, { kind: "detail" }>, fieldIds: readonly string[]): ReviewDetail {
+  const envelope = closed(body, ["ok", "detail"]); if (envelope.ok !== true) return invalid();
+  const row = closed(envelope.detail, ["detailVersion", "context", "currentReviewRevision", "revision", "semanticChoices", "qualityDecisions"]);
+  if (row.detailVersion !== "v1" || positive(row.currentReviewRevision) !== query.expectedReviewRevision || positive(row.revision) !== query.revision || query.revision > query.expectedReviewRevision) return invalid();
+  const lineage = context(row.context, expected); if (lineage.datasetProfileRunId !== query.datasetProfileRunId) return invalid();
+  const parsed = parseAnalysisReviewDecisionInput({ reviewVersion: "v1", datasetProfileRunId: query.datasetProfileRunId,
+    semanticChoices: array(row.semanticChoices, MAX_HISTORY_FIELDS), qualityDecisions: array(row.qualityDecisions, MAX_HISTORY_QUALITY) });
+  if (!parsed.ok) return invalid();
+  const fields = new Set(fieldIds);
+  for (const choice of parsed.input.semanticChoices) if (!fields.has(id(choice.sourceSchemaColumnId))) return invalid();
+  for (const decision of parsed.input.qualityDecisions) if (decision.sourceSchemaColumnId !== undefined && !fields.has(id(decision.sourceSchemaColumnId))) return invalid();
+  return { detailVersion: "v1", context: lineage, currentReviewRevision: query.expectedReviewRevision, revision: query.revision,
+    semanticChoices: parsed.input.semanticChoices, qualityDecisions: parsed.input.qualityDecisions };
 }
 export function summarizeReview(revision: number, input: AnalysisReviewDecisionInput): ReviewHistoryEntry {
   return { revision, semanticChoiceCount: input.semanticChoices.length, qualityDecisionCount: input.qualityDecisions.length,

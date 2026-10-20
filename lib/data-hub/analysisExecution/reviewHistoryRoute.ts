@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "../../org";
-import { parseReviewHistoryQuery } from "../analysis/reviewHistory";
+import { parseReviewHistoryQuery, type ReviewHistoryQuery } from "../analysis/reviewHistory";
 import { loadReviewHistory } from "./loadReviewHistory";
 
 const headers = { "Cache-Control": "private, no-store" };
 const failure = (code: string, status: number) => NextResponse.json({ ok: false, code }, { status, headers });
-export async function reviewHistoryRoute(request: Request, params: Promise<{ id: string }>, kind: "page" | "compare") {
+export async function reviewHistoryRoute(request: Request, params: Promise<{ id: string }>, kind: ReviewHistoryQuery["kind"]) {
   let session;
   try { session = await requireRole("manager"); }
   catch (error) { return error instanceof Error && error.message === "Forbidden" ? failure("FORBIDDEN", 403) : failure("UNAUTHORIZED", 401); }

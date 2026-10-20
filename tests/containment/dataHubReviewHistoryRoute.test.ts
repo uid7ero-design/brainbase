@@ -4,10 +4,23 @@ vi.mock("@/lib/org", () => ({ requireRole: mocks.role }));
 vi.mock("@/lib/data-hub/analysisExecution/loadReviewHistory", () => ({ loadReviewHistory: mocks.load }));
 import * as page from "@/app/api/data-hub/worksheets/[id]/analysis-review/history/route";
 import * as compare from "@/app/api/data-hub/worksheets/[id]/analysis-review/history/compare/route";
+import * as detail from "@/app/api/data-hub/worksheets/[id]/analysis-review/history/detail/route";
 import { historyFixture } from "../helpers/dataHubHistoryFixture";
 const f = historyFixture(), search = "historyVersion=v1&datasetProfileRunId=profile&expectedReviewRevision=3";
 const params = { params: Promise.resolve({ id: "upload/a" }) };
 beforeEach(() => { vi.resetAllMocks(); mocks.role.mockResolvedValue({ organisationId: "server-org" }); mocks.load.mockResolvedValue({ ok: true, history: f.history }); });
+it("scopes detail reads to live manager identity, admits only selected revision and keeps errors private", async () => {
+  expect(Object.keys(detail)).toEqual(["GET"]);
+  const response = await detail.GET(new Request(`http://localhost/history/detail?${search}&revision=1`), params);
+  expect(response.status).toBe(200); expect(response.headers.get("cache-control")).toBe("private, no-store");
+  expect(mocks.load).toHaveBeenCalledWith({ organisationId: "server-org", uploadId: "upload/a" }, { kind: "detail", datasetProfileRunId: "profile", expectedReviewRevision: 3, revision: 1 });
+  mocks.load.mockClear();
+  expect((await detail.GET(new Request(`http://localhost/history/detail?${search}&revision=4`), params)).status).toBe(400);
+  expect(mocks.load).not.toHaveBeenCalled();
+  mocks.role.mockRejectedValue(new Error("Forbidden"));
+  const denied = await detail.GET(new Request("http://localhost/history/detail?private=1"), params);
+  expect(denied.status).toBe(403); expect(await denied.json()).toEqual({ ok: false, code: "FORBIDDEN" }); expect(denied.headers.get("cache-control")).toBe("private, no-store");
+});
 it("derives scope from the live manager session and has GET handlers only", async () => {
   const response = await page.GET(new Request(`http://localhost/history?${search}`), params);
   expect(response.status).toBe(200); expect(response.headers.get("cache-control")).toBe("private, no-store");
