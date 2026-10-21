@@ -186,14 +186,23 @@ row lock serialises concurrent writers, the update re-evaluates against the
 latest row version, and the `CHECK` rejects the second writer atomically. It
 works over the Neon HTTP driver because it needs no interactive transaction.
 
-Because the counter is maintained by the database rather than by each code
-path, it cannot drift when a path forgets it, which is the hazard the legacy
-system's many cancel paths (archive, pause, remove-future, single cancel,
-reconcile) illustrate. This is the design for the new tables. The live LD Tennis
-fix is evaluated separately and has no counter column; the two should be
-consistent in discipline (database-enforced, one rule for every writer) but not
-in mechanism. **Unproven:** to be demonstrated on a disposable Neon branch with
-a real concurrent test before 2B depends on it.
+**Evidence now available (2026-10-21, `docs/architecture/ld-tennis-booking-capacity-guard.md`).**
+A different database-side pattern was proven on a disposable Neon branch for the live LD Tennis
+system: a `BEFORE INSERT` row trigger that takes `pg_advisory_xact_lock` keyed on the parent id,
+then counts live children and raises a dedicated SQLSTATE when full. Over the Neon HTTP driver, on both
+the pooled and direct hosts, 30 parallel bookings into a capacity-5 instance produced exactly 5
+confirmed (30 of 30 without it), refusals arrived as `error.code`, and concurrent UPDATEs and cancels
+produced no deadlock. It needs no counter column and cannot drift, because there is no second copy
+of the number to keep in step.
+
+**Recommendation for the new tables:** use that proven pattern as the default for headcount
+capacity (advisory lock plus count in a trigger on `scheduling_reservations`), and keep the
+`reserved_count` counter described above only as an optimisation if counting a large occurrence
+ever proves slow. Both are database-enforced for every writer; the count-under-lock version
+is the one demonstrated on this platform. The counter variant remains unproven here.
+
+One rule applies to either: it must be installed before any application path writes to the table,
+and every refusal must map to the response the caller already gives for "full".
 
 ### 5.2 Exclusive resources (appointments, tables, rooms, hire, and classes that occupy a court)
 
@@ -210,8 +219,10 @@ a class occurrence creates one hold for its court regardless of enrolments.
 Buffers are part of the held range. Ranges are half-open, so back-to-back
 bookings and same-day hotel turnover do not collide.
 
-**Verification gate:** `btree_gist` availability on the Neon plan is unverified
-(no `EXCLUDE` constraint exists in this repository yet). If unavailable, the
+**Verification gate (partly cleared):** `pg_available_extensions` on the Production-derived
+branch lists `btree_gist` 1.7 as available (not installed). `CREATE EXTENSION` and an actual
+exclusion constraint have not been run; that is a 2A rehearsal on a disposable branch. No
+`EXCLUDE` constraint exists in this repository yet. If unavailable, the
 fallback is a slot-grid row per `(resource, slot)` or per `(room, night)` with a
 plain unique key; it works for fixed grids and for hotels but cannot express
 variable-length hire, so hire would then need a locking function. Decide after
@@ -386,8 +397,11 @@ A change fails review if any item is false.
 2. Which table is the scheduling customer table for non-tennis organisations:
    `contacts` or `crm_contacts`? (section 3)
 3. Status given to a contact created by a public booking (`lead` assumed).
-4. Approve a disposable-branch verification of `btree_gist`, the counter trigger
-   and interactive transactions (this document used no database).
+4. ~~Approve a disposable-branch verification~~ Partly done: the advisory-lock count trigger
+   and interactive transactions (WebSocket `Pool`, pooled and direct) were verified on a
+   disposable branch for the LD Tennis fix; `btree_gist` is available but an exclusion
+   constraint and `CREATE EXTENSION` still need a 2A rehearsal, and the counter variant is
+   unproven. Approve the 2A rehearsal branch.
 5. Accept the first-release deferrals: automatic table combining, pooled hotel
    inventory and overbooking policy, waitlists.
 6. A duplicate-email audit of `contacts` so the functional unique index can be
