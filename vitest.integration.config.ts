@@ -177,6 +177,11 @@ import path from 'path';
 // normalised status, tenant isolation — see
 // scripts/tests/verify-essio-integration-b3.sh), same explicit-file-argument
 // isolation and seams as the B2 suite.
+// LD Tennis booking capacity addition: scripts/tests/bookingCapacityConcurrency.integration
+// .test.ts (real-Postgres concurrency proof that no booking path can exceed a session
+// instance's max_capacity — see scripts/tests/verify-booking-capacity-concurrency.sh),
+// same explicit-file-argument isolation. Needs the lib/db sql-client seam and a
+// lib/org requireRole stand-in.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -234,6 +239,7 @@ export default defineConfig({
       'scripts/tests/essioIntegrationB1.integration.test.ts',
       'scripts/tests/essioIntegrationB2.integration.test.ts',
       'scripts/tests/essioIntegrationB3.integration.test.ts',
+      'scripts/tests/bookingCapacityConcurrency.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,
