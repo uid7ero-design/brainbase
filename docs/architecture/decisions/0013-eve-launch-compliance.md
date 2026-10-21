@@ -224,3 +224,26 @@ GST, tax invoices, charity/NFP status, a residential address.
 
 Before external organisers: organiser terms. Before paid events: accountant
 confirmation of retention, GST/fee wording and receipts, then the live-Stripe gate.
+
+## 8. Eve paid-checkout kill switch and version 2026-10-21 (2026-10-21)
+
+A Production paid-safety check found `ld-tennis` has a connected Stripe account with
+charges enabled and a published paid ticket type, and the Eve checkout path accepts any
+organisation slug. Removing the draft-version guard alone would therefore have opened
+real paid checkout through Eve. Decision: add an explicit, fail-closed server-side switch.
+
+- `EVE_PAID_CHECKOUT_ENABLED` (BrainBase project env; the checkout handler runs there).
+  Paid Eve checkout is available only when it is exactly the string `true` (no trimming,
+  no case folding). Unset, empty, `false`, `0`, `TRUE`, ` true` and everything else block it.
+- Enforced first in `handleTicketingCheckout` (`lib/ticketing/publicApi.ts`), straight after
+  the server-to-server gate: before the rate limiter, body parsing, event lookup, any
+  reservation or order, and any Stripe call. Response: 503 "Paid checkout is not currently
+  available." (nothing about Stripe or the organisation).
+- Scope: Eve paid checkout only. BrainBase's public checkout route, Stripe Connect, the
+  webhook, retry, refunds, lifecycle email and free Eve registration do not read it.
+- Independent of the draft legal-version guard: either control blocks alone.
+- **Must stay unset in Production** until the paid-event gate is separately approved.
+
+The legal version is now `2026-10-21` and the last-updated date `21 October 2026`; the
+approved text is unchanged. `EVE_LEGAL_PUBLISHED` stays unset, so Production legal pages
+still render "Not yet published".
