@@ -188,3 +188,20 @@ describe('BrainBase adapter', () => {
     );
   });
 });
+
+describe('BrainBase adapter: timezone fallback and per-schedule resolution', () => {
+  it('existing organisations without a configured timezone resolve to Australia/Adelaide, with no backfill', async () => {
+    const { BRAINBASE_FALLBACK_TIMEZONE } = await import('@/lib/scheduling/adapters/brainbase');
+    const { resolveScheduleTimezone } = await import('@scheduling/core');
+    expect(BRAINBASE_FALLBACK_TIMEZONE).toBe('Australia/Adelaide');
+    expect(resolveScheduleTimezone({ timezone: null }, { timezone: null }, BRAINBASE_FALLBACK_TIMEZONE)).toBe('Australia/Adelaide');
+    expect(resolveScheduleTimezone({ timezone: null }, { timezone: 'Australia/Perth' }, BRAINBASE_FALLBACK_TIMEZONE)).toBe('Australia/Perth');
+    expect(resolveScheduleTimezone({ timezone: 'Pacific/Auckland' }, { timezone: 'Australia/Perth' }, BRAINBASE_FALLBACK_TIMEZONE)).toBe('Pacific/Auckland');
+  });
+
+  it('the adapter source names the fallback in one place and still reads no organisation column', () => {
+    const src = read('lib/scheduling/adapters/brainbase/index.ts');
+    expect(src.match(/'Australia\/Adelaide'/g)).toHaveLength(1); // only the constant definition
+    expect(src).not.toMatch(/organisations\.timezone/); // organisationTimezoneSchema (F.2A) forbids reading it before Phase 2 wires it
+  });
+});

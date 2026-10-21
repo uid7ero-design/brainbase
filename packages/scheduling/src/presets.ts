@@ -4,10 +4,11 @@ import type {
   CancellationPolicy,
   CapacitySemantics,
   DurationSource,
-  OrganisationSchedulingConfig,
   PresetKey,
   RecurrenceEnd,
   RecurrenceKind,
+  ScheduleConfig,
+  SchedulingSettings,
   ResourceKind,
   ResourceRequirement,
   TermKey,
@@ -24,12 +25,20 @@ import { PRESET_KEYS } from './types';
 // A preset carries no functions and no hooks. Behaviour that differs between
 // presets is selected by the closed unions in types.ts (TimeModel,
 // CapacitySemantics, AvailabilityStrategy), each of which the engine will
-// implement once, so a preset can never inject runtime behaviour. An
-// organisation customises a preset only through validated terminology
-// overrides and policy values (see OrganisationSchedulingConfig).
+// implement once, so a preset can never inject runtime behaviour. A schedule
+// customises a preset only through validated terminology overrides and policy
+// values (see ScheduleConfig). The registry is deeply frozen, and schedule
+// configs are built from deep copies, so one schedule can never change a
+// preset or another schedule by mutation.
 
 export interface PresetDefinition {
   readonly key: PresetKey;
+  /**
+   * Version of this definition. Bumped whenever a change would alter how an
+   * existing schedule or reservation should be interpreted. Schedules and
+   * reservations record the version they were created under.
+   */
+  readonly version: number;
   readonly name: string;
   readonly description: string;
   readonly labels: TermLabels;
@@ -70,9 +79,18 @@ export interface PresetDefinition {
 
 const NO_CHARGE = { kind: 'none' } as const;
 
-export const PRESETS: Readonly<Record<PresetKey, PresetDefinition>> = Object.freeze({
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
+  }
+  return value;
+}
+
+export const PRESETS: Readonly<Record<PresetKey, PresetDefinition>> = deepFreeze({
   classes_coaching: {
     key: 'classes_coaching',
+    version: 1,
     name: 'Classes and coaching',
     description:
       'Recurring group or private sessions with a fixed time and a headcount cap. Customers enrol in a session, usually weekly.',
@@ -113,6 +131,7 @@ export const PRESETS: Readonly<Record<PresetKey, PresetDefinition>> = Object.fre
 
   appointments: {
     key: 'appointments',
+    version: 1,
     name: 'Appointments',
     description:
       'One-to-one services where the customer picks a start time within a provider\'s working hours.',
@@ -153,6 +172,7 @@ export const PRESETS: Readonly<Record<PresetKey, PresetDefinition>> = Object.fre
 
   restaurant_tables: {
     key: 'restaurant_tables',
+    version: 1,
     name: 'Restaurant table bookings',
     description:
       'Party reservations seated on tables during named service periods, with a turn time per party size.',
@@ -189,6 +209,7 @@ export const PRESETS: Readonly<Record<PresetKey, PresetDefinition>> = Object.fre
 
   accommodation: {
     key: 'accommodation',
+    version: 1,
     name: 'Hotel and accommodation',
     description:
       'Stays booked by check-in and check-out date against rooms or units, with availability tracked per night.',
@@ -225,6 +246,7 @@ export const PRESETS: Readonly<Record<PresetKey, PresetDefinition>> = Object.fre
 
   resource_hire: {
     key: 'resource_hire',
+    version: 1,
     name: 'Resource and facility hire',
     description:
       'Hourly or per-slot hire of a court, room, space or piece of equipment, held exclusively for the booked time.',
@@ -265,6 +287,7 @@ export const PRESETS: Readonly<Record<PresetKey, PresetDefinition>> = Object.fre
 
   event_capacity: {
     key: 'event_capacity',
+    version: 1,
     name: 'Events-style capacity reservations',
     description:
       'Free or invitation-style reservations against a dated occurrence with a headcount cap (workshops, open days, info sessions). Not ticket sales.',
@@ -349,23 +372,51 @@ export function resolveTerminology(
   return resolved;
 }
 
-/**
- * A new organisation configuration seeded entirely from a preset. The host
- * supplies the facts the preset cannot know (tenant, timezone, currency).
- */
-export function defaultConfigForPreset(params: {
+/** An independent deep copy of a cancellation policy (no shared nested objects). */
+export function clonePolicy(policy: CancellationPolicy): CancellationPolicy {
+  return { ...policy, lateCancellationCharge: { ...policy.lateCancellationCharge } };
+}
+
+/** Organisation-wide defaults for a new organisation. Timezone stays null until configured. */
+export function defaultSettings(params: {
   organisationId: string;
-  presetKey: PresetKey;
-  timezone: string;
   currency: string;
-}): OrganisationSchedulingConfig {
-  const preset = PRESETS[params.presetKey];
+  timezone?: string | null;
+}): SchedulingSettings {
   return {
     organisationId: params.organisationId,
-    presetKey: params.presetKey,
-    timezone: params.timezone,
+    timezone: params.timezone ?? null,
     currency: params.currency,
-    terminology: {},
-    cancellationPolicy: { ...preset.defaultCancellationPolicy },
   };
+}
+
+/**
+ * A new schedule seeded entirely from a preset. The host supplies the facts the
+ * preset cannot know (tenant, id, name). Everything copied from the preset is a
+ * deep copy, so later edits to this schedule cannot reach the preset or any
+ * other schedule.
+ */
+export function defaultScheduleConfig(params: {
+  id: string;
+  organisationId: string;
+  name: string;
+  presetKey: PresetKey;
+  timezone?: string | null;
+}): ScheduleConfig {
+  const preset = PRESETS[params.presetKey];
+  return {
+    id: params.id,
+    organisationId: params.organisationId,
+    name: params.name,
+    presetKey: params.presetKey,
+    presetVersion: preset.version,
+    terminology: {},
+    cancellationPolicy: clonePolicy(preset.defaultCancellationPolicy),
+    timezone: params.timezone ?? null,
+  };
+}
+
+/** The wording a schedule shows: its preset's labels with the schedule's own overrides. */
+export function resolveScheduleTerminology(schedule: Pick<ScheduleConfig, 'presetKey' | 'terminology'>): TermLabels {
+  return resolveTerminology(schedule.presetKey, schedule.terminology);
 }

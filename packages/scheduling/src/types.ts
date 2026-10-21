@@ -162,16 +162,46 @@ export type CancellationOutcome =
   | { status: 'cancelled'; cancelledReservationIds: string[]; charge: Money | null }
   | { status: 'rejected'; reason: 'not_found' | 'already_cancelled' | 'not_permitted' | 'in_the_past' };
 
-// ─── Organisation configuration ─────────────────────────────────────────────
+// ─── Configuration: organisation settings and schedules ─────────────────────
+//
+// An organisation has ONE SchedulingSettings record (defaults that apply to
+// everything it runs) and any number of Schedules. A schedule is one business
+// line (a restaurant, a coaching programme, room hire, an events programme)
+// and carries its own preset, wording, cancellation policy and optional
+// timezone. Two schedules in the same organisation share nothing except the
+// settings defaults and the organisation's resources, so configuring one never
+// changes the other.
 
-export interface OrganisationSchedulingConfig {
+/** Organisation-wide defaults. Exactly one per organisation. */
+export interface SchedulingSettings {
   organisationId: OrganisationId;
-  presetKey: PresetKey;
-  timezone: IanaTimezone;
+  /**
+   * The organisation's default IANA timezone. Null means "not configured": the
+   * host supplies a fallback when resolving (see resolveScheduleTimezone), so
+   * existing organisations that never set one keep working without a backfill.
+   */
+  timezone: IanaTimezone | null;
   currency: CurrencyCode;
-  /** Per-organisation wording overrides; only keys of TermLabels are valid. */
+}
+
+/** One business line within an organisation. */
+export interface ScheduleConfig {
+  id: string;
+  organisationId: OrganisationId;
+  name: string;
+  presetKey: PresetKey;
+  /**
+   * The version of the preset definition this schedule was configured against
+   * (PresetDefinition.version). Recorded so a later change to a preset's
+   * meaning can be detected and migrated deliberately instead of silently
+   * re-interpreting existing schedules and their reservations.
+   */
+  presetVersion: number;
+  /** Per-schedule wording overrides; only keys of TermLabels are valid. */
   terminology: Partial<TermLabels>;
   cancellationPolicy: CancellationPolicy;
+  /** Overrides the organisation default for this schedule only; null = inherit. */
+  timezone: IanaTimezone | null;
 }
 
 // ─── Offerings, resources, availability ─────────────────────────────────────
@@ -179,6 +209,8 @@ export interface OrganisationSchedulingConfig {
 export interface Offering {
   id: string;
   organisationId: OrganisationId;
+  /** The schedule (business line) this offering belongs to; fixes its preset. */
+  scheduleId: string;
   name: string;
   /** Organisation-defined category (today's session_types.slug). */
   typeKey: string | null;
@@ -268,13 +300,53 @@ export interface Participant {
   role: 'primary' | 'guest';
 }
 
+/**
+ * What the customer looked like when they booked. Copied onto the reservation
+ * at booking time and never rewritten, so editing or merging the customer
+ * record later cannot change history (receipts, attendance lists, disputes).
+ */
+export interface CustomerSnapshot {
+  displayName: string;
+  email: string | null;
+  /** normaliseEmail(email): trim + lowercase; null when there is no email. */
+  emailNormalised: string | null;
+  phone: string | null;
+}
+
+/** A reservation's absolute time window, UTC ISO-8601 ending in 'Z'. */
+export interface InstantWindow {
+  startsAt: string;
+  endsAt: string;
+}
+
 export interface Reservation {
   id: string;
   organisationId: OrganisationId;
+  /** The schedule the booking was made under. */
+  scheduleId: string;
+  /**
+   * The preset and version in force when the booking was made. A snapshot:
+   * later edits to the schedule or the preset definition do not reinterpret
+   * an existing reservation.
+   */
+  presetKey: PresetKey;
+  presetVersion: number;
   offeringId: string;
   resourceId: string | null;
-  /** The booking customer; the host's contact/customer id. */
-  customerId: string;
+  /**
+   * The host's customer record, when one is linked. Null for a booking with no
+   * identifying contact detail (customers are never matched on name alone).
+   */
+  customerId: string | null;
+  customerSnapshot: CustomerSnapshot;
+  /**
+   * The IANA timezone used to interpret `span` and to derive `window`. A
+   * snapshot: changing the schedule's or organisation's timezone later never
+   * moves an existing reservation.
+   */
+  timezone: IanaTimezone;
+  /** The absolute window (instants) derived from `span` and `timezone` at booking time. */
+  instants: InstantWindow;
   participants: Participant[];
   partySize: number;
   span: TimeSpan;

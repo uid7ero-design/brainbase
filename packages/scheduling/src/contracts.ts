@@ -4,11 +4,14 @@ import type {
   CancellationRequest,
   CurrencyCode,
   CustomerRef,
+  CustomerSnapshot,
   IanaTimezone,
+  InstantWindow,
   LocalDate,
   LocalTime,
   Money,
   OrganisationId,
+  PresetKey,
   Reservation,
   TimeSpan,
 } from './types';
@@ -73,10 +76,23 @@ export interface CustomerProvider {
 
 // ─── Reservations ───────────────────────────────────────────────────────────
 
+/**
+ * Everything needed to write a reservation, including the snapshot fields that
+ * must be captured at booking time and never rewritten: the schedule and the
+ * preset/version in force, the customer as they were, the timezone used and
+ * the UTC window derived from it. The repository stores these verbatim.
+ */
 export interface NewReservationInput {
+  scheduleId: string;
+  presetKey: PresetKey;
+  presetVersion: number;
   offeringId: string;
   resourceId: string | null;
-  customerId: string;
+  /** The host's customer record when one was matched or created; null otherwise. */
+  customerId: string | null;
+  customerSnapshot: CustomerSnapshot;
+  timezone: IanaTimezone;
+  instants: InstantWindow;
   partySize: number;
   span: TimeSpan;
   price: Money;

@@ -3,17 +3,20 @@ import {
   PRESETS,
   PRESET_KEYS,
   TERM_KEYS,
-  defaultConfigForPreset,
+  defaultScheduleConfig,
+  defaultSettings,
   getPreset,
   isPresetKey,
   listPresets,
   resolveTerminology,
-  validateOrganisationConfig,
+  validateScheduleConfig,
+  validateSettings,
   validatePresetDefinition,
   validateReservationForPreset,
   type PresetKey,
   type Reservation,
 } from '../src';
+import { reservation, schedule } from './support/fixtures';
 
 describe('preset registry', () => {
   it('defines exactly the six presets, each registered under its own key', () => {
@@ -174,43 +177,50 @@ describe('terminology', () => {
   });
 });
 
-describe('organisation configuration', () => {
-  it('a config seeded from any preset is valid and copies (does not alias) the default policy', () => {
+describe('organisation settings and schedule configuration', () => {
+  it('default settings carry no timezone until one is configured', () => {
+    const s = defaultSettings({ organisationId: 'org-1', currency: 'AUD' });
+    expect(s.timezone).toBeNull();
+    expect(validateSettings(s)).toEqual([]);
+    expect(validateSettings(defaultSettings({ organisationId: 'org-1', currency: 'AUD', timezone: 'Australia/Adelaide' }))).toEqual([]);
+  });
+
+  it('settings reject a missing tenant, a bad currency and a non-IANA timezone', () => {
+    const s = defaultSettings({ organisationId: 'org-1', currency: 'AUD' });
+    expect(validateSettings({ ...s, organisationId: '' })).not.toEqual([]);
+    expect(validateSettings({ ...s, currency: 'aud' })).not.toEqual([]);
+    expect(validateSettings({ ...s, timezone: 'Mars/Olympus' })).not.toEqual([]);
+    expect(validateSettings({ ...s, timezone: '' })).not.toEqual([]);
+  });
+
+  it('a schedule seeded from any preset is valid, records the preset version, and deep-copies the default policy', () => {
     for (const key of PRESET_KEYS) {
-      const c = defaultConfigForPreset({ organisationId: 'org-1', presetKey: key, timezone: 'Australia/Adelaide', currency: 'AUD' });
-      expect(validateOrganisationConfig(c), key).toEqual([]);
+      const c = defaultScheduleConfig({ id: 'sch-' + key, organisationId: 'org-1', name: 'Main', presetKey: key });
+      expect(validateScheduleConfig(c), key).toEqual([]);
+      expect(c.presetVersion).toBe(PRESETS[key].version);
+      expect(c.timezone).toBeNull();
       expect(c.cancellationPolicy).toEqual(PRESETS[key].defaultCancellationPolicy);
       expect(c.cancellationPolicy).not.toBe(PRESETS[key].defaultCancellationPolicy);
+      expect(c.cancellationPolicy.lateCancellationCharge).not.toBe(PRESETS[key].defaultCancellationPolicy.lateCancellationCharge);
     }
   });
 
-  it('rejects an unknown preset, unknown terminology key, bad currency and missing tenant', () => {
-    const base = defaultConfigForPreset({ organisationId: 'org-1', presetKey: 'appointments', timezone: 'Australia/Adelaide', currency: 'AUD' });
-    expect(validateOrganisationConfig({ ...base, presetKey: 'nope' as never })).toEqual(expect.arrayContaining([expect.stringMatching(/unknown preset/)]));
-    expect(validateOrganisationConfig({ ...base, terminology: { bogus: 'x' } as never })).toEqual(expect.arrayContaining([expect.stringMatching(/unknown terminology key/)]));
-    expect(validateOrganisationConfig({ ...base, currency: 'aud' })).not.toEqual([]);
-    expect(validateOrganisationConfig({ ...base, organisationId: '' })).not.toEqual([]);
+  it('rejects an unknown preset, a version the preset never had, an unknown terminology key, a bad timezone and a missing tenant or name', () => {
+    const base = schedule('appointments', 'sch-1');
+    expect(validateScheduleConfig({ ...base, presetKey: 'nope' as never })).toEqual(expect.arrayContaining([expect.stringMatching(/unknown preset/)]));
+    expect(validateScheduleConfig({ ...base, presetVersion: 0 })).not.toEqual([]);
+    expect(validateScheduleConfig({ ...base, presetVersion: PRESETS.appointments.version + 1 })).not.toEqual([]);
+    expect(validateScheduleConfig({ ...base, terminology: { bogus: 'x' } as never })).toEqual(expect.arrayContaining([expect.stringMatching(/unknown terminology key/)]));
+    expect(validateScheduleConfig({ ...base, timezone: 'Not/AZone' })).not.toEqual([]);
+    expect(validateScheduleConfig({ ...base, organisationId: '' })).not.toEqual([]);
+    expect(validateScheduleConfig({ ...base, name: '  ' })).not.toEqual([]);
+    expect(validateScheduleConfig({ ...base, id: '' })).not.toEqual([]);
   });
 });
 
 describe('reservation shape per preset', () => {
-  const money = { amountCents: 0, currency: 'AUD' };
-  const base: Omit<Reservation, 'span' | 'resourceId' | 'partySize'> = {
-    id: 'r1',
-    organisationId: 'org-1',
-    offeringId: 'o1',
-    customerId: 'c1',
-    participants: [],
-    status: 'confirmed',
-    attendance: null,
-    paymentStatus: 'unpaid',
-    price: money,
-    seriesId: null,
-    notes: null,
-  };
-
   it('a class enrolment is one person on an occurrence', () => {
-    const r: Reservation = { ...base, resourceId: null, partySize: 1, span: { kind: 'occurrence', occurrenceId: 'occ1' } };
+    const r: Reservation = reservation('classes_coaching', 'sch-1');
     expect(validateReservationForPreset(r, PRESETS.classes_coaching)).toEqual([]);
     expect(validateReservationForPreset({ ...r, partySize: 2 }, PRESETS.classes_coaching)).not.toEqual([]);
     expect(validateReservationForPreset({ ...r, span: { kind: 'stay', checkIn: '2026-11-01', checkOut: '2026-11-02' } }, PRESETS.classes_coaching)).not.toEqual([]);
@@ -218,20 +228,20 @@ describe('reservation shape per preset', () => {
 
   it('a hotel booking needs a room and a stay of at least one night', () => {
     const stay = { kind: 'stay', checkIn: '2026-11-01', checkOut: '2026-11-03' } as const;
-    const r: Reservation = { ...base, resourceId: 'room-1', partySize: 2, span: stay };
+    const r: Reservation = reservation('accommodation', 'sch-1', { span: stay });
     expect(validateReservationForPreset(r, PRESETS.accommodation)).toEqual([]);
     expect(validateReservationForPreset({ ...r, resourceId: null }, PRESETS.accommodation)).not.toEqual([]);
     expect(validateReservationForPreset({ ...r, span: { kind: 'stay', checkIn: '2026-11-03', checkOut: '2026-11-03' } }, PRESETS.accommodation)).not.toEqual([]);
   });
 
   it('a table reservation needs a table and a slot', () => {
-    const r: Reservation = { ...base, resourceId: 't1', partySize: 4, span: { kind: 'slot', date: '2026-11-01', startTime: '18:30', durationMinutes: 90 } };
+    const r: Reservation = reservation('restaurant_tables', 'sch-1');
     expect(validateReservationForPreset(r, PRESETS.restaurant_tables)).toEqual([]);
     expect(validateReservationForPreset({ ...r, resourceId: null }, PRESETS.restaurant_tables)).not.toEqual([]);
   });
 
   it('rejects a negative or fractional price and a cancelled reservation carrying attendance', () => {
-    const r: Reservation = { ...base, resourceId: null, partySize: 1, span: { kind: 'occurrence', occurrenceId: 'occ1' } };
+    const r: Reservation = reservation('classes_coaching', 'sch-1');
     expect(validateReservationForPreset({ ...r, price: { amountCents: -1, currency: 'AUD' } }, PRESETS.classes_coaching)).not.toEqual([]);
     expect(validateReservationForPreset({ ...r, price: { amountCents: 10.5, currency: 'AUD' } }, PRESETS.classes_coaching)).not.toEqual([]);
     expect(validateReservationForPreset({ ...r, status: 'cancelled', attendance: 'attended' }, PRESETS.classes_coaching)).not.toEqual([]);

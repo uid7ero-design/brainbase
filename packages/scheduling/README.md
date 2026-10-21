@@ -14,9 +14,9 @@ has the module.
 | Module | Holds |
 | --- | --- |
 | `types` | Ids, local date/time conventions, presets keys, offerings, resources, availability, occurrences, reservations, recurrence, cancellation, customers |
-| `presets` | The six preset definitions (data only), `resolveTerminology`, `defaultConfigForPreset` |
+| `presets` | The six preset definitions (data only), `resolveTerminology`, `defaultScheduleConfig`, `defaultSettings` |
 | `contracts` | The ports: tenant, clock, customers, reservations, availability, payments, notifications, and `SchedulingPlatform` |
-| `validation` | Pure invariant checks, the preset consistency check, `assertSameTenant` |
+| `validation` | Pure invariant checks, the preset consistency check, schedule/settings/reservation-snapshot validation, `isIanaTimezone`, `normaliseEmail`, `resolveScheduleTimezone`, `assertSameTenant` |
 
 ## Two deployment modes, one engine
 
@@ -46,11 +46,39 @@ neither the host product's name nor any customer's name appears in it.
 | `PaymentProvider` (optional) | The existing payments foundation | Its own provider |
 | `NotificationProvider` (optional) | The existing email layer | Its own sender |
 | `Clock` | System clock plus organisation timezone | Same |
-| Branding and terminology | `OrganisationSchedulingConfig.terminology` overrides | Same |
+| Branding and terminology | `ScheduleConfig.terminology` overrides (per schedule) | Same |
 
 Because the persistence SQL is written once against `scheduling_*` tables and
 only the connection and the customer table differ, the standalone product reuses
 the engine rather than copying it.
+
+## Configuration: one organisation, many schedules
+
+```
+SchedulingSettings   one per organisation: tenant, currency, optional default IANA timezone
+ScheduleConfig       any number per organisation: preset + preset version, terminology,
+                     cancellation policy, optional timezone override
+Offering             belongs to one schedule (which fixes its preset)
+Resource             organisation-level, so a court can serve a coaching schedule and a hire schedule
+Reservation          a snapshot: schedule, preset + version, customer snapshot, timezone, UTC window
+```
+
+A restaurant schedule and a coaching schedule in the same organisation share nothing but the
+settings defaults and the organisation's resources. Schedules are built from deep copies of the
+preset defaults and the preset registry is deeply frozen, so configuring one schedule can never
+change another schedule or a preset (proved by `tests/multiPreset.test.ts`).
+
+- **Timezone:** `resolveScheduleTimezone(schedule, settings, fallback)` returns the schedule's override,
+  else the organisation default, else a host-supplied fallback (BrainBase passes `Australia/Adelaide`;
+  the core hard-codes no region). `isIanaTimezone` validates names. A reservation records the zone it
+  was made in; changing a zone later never moves an existing reservation.
+- **Preset version:** each preset has a `version`; schedules and reservations record the one they were
+  created under.
+- **Customer snapshot:** a reservation copies the customer's name, email, normalised email
+  (`normaliseEmail`: trim + lower-case) and phone at booking time. `customerId` is nullable, and
+  customers are matched on organisation + normalised email, never on a name.
+- **Standalone:** all of the above is plain data and pure functions with no host dependency; the
+  boundary test still proves the core imports nothing outside itself.
 
 ## Tenant isolation
 

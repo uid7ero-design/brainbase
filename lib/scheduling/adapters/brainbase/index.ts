@@ -26,6 +26,14 @@ import {
  */
 export const SCHEDULING_CAPABILITY_KEY = 'scheduling' as const;
 
+/**
+ * The timezone BrainBase uses when neither a schedule nor its organisation has
+ * one configured. The core takes the fallback as a parameter (it hard-codes no
+ * region), so existing organisations that never set a timezone resolve to this
+ * at read time without any backfill.
+ */
+export const BRAINBASE_FALLBACK_TIMEZONE = 'Australia/Adelaide' as const;
+
 export type BrainBaseRole = 'super_admin' | 'admin' | 'manager' | 'viewer' | 'analyst';
 
 // Mirrors the existing LD Tennis gates: dashboard session/enrolment routes
@@ -60,7 +68,9 @@ export function staffTenantContext(session: {
   return {
     organisationId: session.organisationId,
     // The organisation's timezone setting is nullable; fall back to the platform default.
-    timezone: session.timezone || 'Australia/Adelaide',
+    // This is the organisation-level zone; a schedule's own override is applied on top of it
+    // with resolveScheduleTimezone() when a specific schedule is in play.
+    timezone: session.timezone || BRAINBASE_FALLBACK_TIMEZONE,
     actor: { kind: 'staff', userId: session.userId },
     can: permission => granted.has(permission),
   };
@@ -76,7 +86,7 @@ export function publicTenantContext(organisationId: string, timezone: string | n
   if (!organisationId) throw new Error('organisationId is required');
   return {
     organisationId,
-    timezone: timezone || 'Australia/Adelaide',
+    timezone: timezone || BRAINBASE_FALLBACK_TIMEZONE,
     actor: { kind: 'public' },
     can: () => false,
   };

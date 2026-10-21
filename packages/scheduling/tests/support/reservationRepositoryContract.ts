@@ -28,7 +28,13 @@ export function newInput(over: Partial<NewReservationInput> = {}): NewReservatio
   return {
     offeringId: 'offering-1',
     resourceId: null,
+    scheduleId: 'sched-1',
+    presetKey: 'classes_coaching',
+    presetVersion: 1,
     customerId: 'customer-1',
+    customerSnapshot: { displayName: 'Customer', email: null, emailNormalised: null, phone: null },
+    timezone: 'Australia/Adelaide',
+    instants: { startsAt: '2026-12-07T05:30:00Z', endsAt: '2026-12-07T06:30:00Z' },
     partySize: 1,
     span: { kind: 'occurrence', occurrenceId: 'occ-1' },
     price: { amountCents: 0, currency: 'AUD' },
@@ -128,6 +134,39 @@ export function describeReservationRepositoryContract(name: string, make: () => 
       h.seedOccurrence(b, 'only-b-occ', 'only-b-offering');
       const r = await h.repo.create(a, newInput({ offeringId: 'only-b-offering', span: { kind: 'occurrence', occurrenceId: 'only-b-occ' } }));
       expect(r).toEqual({ ok: false, reason: 'not_found' });
+    });
+
+    it('stores the booking-time snapshot verbatim: schedule, preset and version, customer, timezone and UTC window', async () => {
+      const snapshot = { displayName: 'Sam Taylor', email: 'Sam@Example.com', emailNormalised: 'sam@example.com', phone: '0400 000 000' };
+      const r = expectOk(await h.repo.create(a, newInput({
+        scheduleId: 'sched-7', presetKey: 'restaurant_tables', presetVersion: 1, customerId: null,
+        customerSnapshot: snapshot, timezone: 'Australia/Perth',
+        instants: { startsAt: '2026-12-07T10:00:00Z', endsAt: '2026-12-07T11:30:00Z' },
+      })));
+      expect(r.scheduleId).toBe('sched-7');
+      expect(r.presetKey).toBe('restaurant_tables');
+      expect(r.customerId).toBeNull();
+      expect(r.customerSnapshot).toEqual(snapshot);
+      expect(r.timezone).toBe('Australia/Perth');
+      expect(r.instants).toEqual({ startsAt: '2026-12-07T10:00:00Z', endsAt: '2026-12-07T11:30:00Z' });
+    });
+
+    it('an unlinked booking is a duplicate only on the same normalised email within the tenant, never on a name', async () => {
+      const mk = (name: string, email: string | null) => newInput({
+        customerId: null,
+        customerSnapshot: { displayName: name, email, emailNormalised: email ? email.trim().toLowerCase() : null, phone: null },
+      });
+      expectOk(await h.repo.create(a, mk('Sam Taylor', 'sam@example.com')));
+      // same name, different email: a different person
+      expectOk(await h.repo.create(a, mk('Sam Taylor', 'other@example.com')));
+      // no email at all, same name: cannot be matched, never merged
+      h.seedOffering(a, 'offering-1', 10);
+      expectOk(await h.repo.create(a, mk('Sam Taylor', null)));
+      expectOk(await h.repo.create(a, mk('Sam Taylor', null)));
+      // same email, different case: the same person
+      expect(await h.repo.create(a, mk('S. Taylor', ' SAM@example.com '))).toEqual({ ok: false, reason: 'duplicate_reservation' });
+      // the same email in ANOTHER tenant is unrelated
+      expectOk(await h.repo.create(b, mk('Sam Taylor', 'sam@example.com')));
     });
   });
 }

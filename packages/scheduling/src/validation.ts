@@ -1,12 +1,13 @@
 import type { TenantContext } from './contracts';
-import { PRESETS, TERM_KEYS } from './presets';
+import { PRESETS, TERM_KEYS, getPreset } from './presets';
 import type { PresetDefinition } from './presets';
 import type {
   AvailabilityRule,
   CancellationPolicy,
-  OrganisationSchedulingConfig,
   Recurrence,
   Reservation,
+  ScheduleConfig,
+  SchedulingSettings,
   TimeSpan,
 } from './types';
 import { PRESET_KEYS } from './types';
@@ -117,17 +118,116 @@ export function validateAvailabilityRule(r: AvailabilityRule): string[] {
   return problems;
 }
 
-/** Organisation configuration: preset exists, terminology keys are known, policy is valid. */
-export function validateOrganisationConfig(c: OrganisationSchedulingConfig): string[] {
+/** A real IANA timezone name as understood by Intl (e.g. 'Australia/Adelaide'). Pure. */
+export function isIanaTimezone(value: unknown): value is string {
+  if (typeof value !== 'string' || value.trim() === '' || value !== value.trim()) return false;
+  try {
+    new Intl.DateTimeFormat('en-AU', { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The email form used to match and snapshot customers: trimmed and lower-cased,
+ * null when there is nothing left. Matching is on this value within one
+ * organisation; it is never combined with, or replaced by, a name match.
+ */
+export function normaliseEmail(email: string | null | undefined): string | null {
+  const trimmed = email?.trim().toLowerCase();
+  return trimmed ? trimmed : null;
+}
+
+/**
+ * The timezone a schedule runs in: its own override, else the organisation's
+ * default, else the host-supplied fallback. The fallback is a parameter so the
+ * core does not hard-code any region (BrainBase passes 'Australia/Adelaide').
+ */
+export function resolveScheduleTimezone(
+  schedule: Pick<ScheduleConfig, 'timezone'>,
+  settings: Pick<SchedulingSettings, 'timezone'> | null | undefined,
+  fallback: string,
+): string {
+  return schedule.timezone ?? settings?.timezone ?? fallback;
+}
+
+/** Organisation-wide settings: tenant, currency and (when set) a real timezone. */
+export function validateSettings(c: SchedulingSettings): string[] {
   const problems: string[] = [];
   if (!c.organisationId) problems.push('organisationId is required');
-  if (!(PRESET_KEYS as readonly string[]).includes(c.presetKey)) problems.push(`unknown preset: ${String(c.presetKey)}`);
-  if (!c.timezone) problems.push('timezone is required');
   if (!/^[A-Z]{3}$/.test(c.currency)) problems.push('currency must be a 3-letter uppercase ISO code');
+  if (c.timezone !== null && !isIanaTimezone(c.timezone)) problems.push('timezone must be a valid IANA timezone or null');
+  return problems;
+}
+
+/**
+ * One schedule: its preset exists and the recorded version is one this preset
+ * has had, terminology keys are known, the policy is valid and any timezone
+ * override is real. Independent of every other schedule by construction.
+ */
+export function validateScheduleConfig(c: ScheduleConfig): string[] {
+  const problems: string[] = [];
+  if (!c.id) problems.push('schedule id is required');
+  if (!c.organisationId) problems.push('organisationId is required');
+  if (!c.name || c.name.trim() === '') problems.push('schedule name is required');
+  if (!(PRESET_KEYS as readonly string[]).includes(c.presetKey)) {
+    problems.push(`unknown preset: ${String(c.presetKey)}`);
+  } else {
+    const preset = getPreset(c.presetKey);
+    if (!Number.isInteger(c.presetVersion) || c.presetVersion < 1 || c.presetVersion > preset.version) {
+      problems.push(`presetVersion must be an integer from 1 to ${preset.version} for ${c.presetKey}`);
+    }
+  }
+  if (c.timezone !== null && !isIanaTimezone(c.timezone)) problems.push('timezone must be a valid IANA timezone or null');
   for (const key of Object.keys(c.terminology)) {
     if (!(TERM_KEYS as readonly string[]).includes(key)) problems.push(`unknown terminology key: ${key}`);
   }
   problems.push(...validateCancellationPolicy(c.cancellationPolicy));
+  return problems;
+}
+
+const ISO_UTC_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
+
+/**
+ * A reservation's own snapshot fields: customer snapshot consistent with the
+ * normalisation rule, a real timezone, a UTC window that ends after it starts,
+ * and a preset/version pair that exists. These describe the booking as it was
+ * made and must hold for the life of the record.
+ */
+export function validateReservationSnapshot(r: Reservation): string[] {
+  const problems: string[] = [];
+  if (!r.scheduleId) problems.push('scheduleId is required');
+  if (!(PRESET_KEYS as readonly string[]).includes(r.presetKey)) {
+    problems.push(`unknown preset: ${String(r.presetKey)}`);
+  } else if (!Number.isInteger(r.presetVersion) || r.presetVersion < 1 || r.presetVersion > getPreset(r.presetKey).version) {
+    problems.push('presetVersion is not a version this preset has had');
+  }
+  if (!isIanaTimezone(r.timezone)) problems.push('timezone must be a valid IANA timezone');
+  const s = r.customerSnapshot;
+  if (!s || typeof s.displayName !== 'string' || s.displayName.trim() === '') problems.push('customerSnapshot.displayName is required');
+  else if (s.emailNormalised !== normaliseEmail(s.email)) problems.push('customerSnapshot.emailNormalised must equal normaliseEmail(email)');
+  if (!ISO_UTC_RE.test(r.instants.startsAt) || !ISO_UTC_RE.test(r.instants.endsAt)) {
+    problems.push('instants must be UTC ISO-8601 ending in Z');
+  } else if (Date.parse(r.instants.endsAt) <= Date.parse(r.instants.startsAt)) {
+    problems.push('instants must end after it starts');
+  }
+  return problems;
+}
+
+/**
+ * A reservation checked against the schedule it was made under: same tenant,
+ * same schedule, and its shape judged by the preset it SNAPSHOTTED (not by the
+ * schedule's current preset), so history stays valid if configuration changes.
+ * Reservations from other schedules, other presets or other tenants are
+ * rejected here, which is what stops configuration leaking between them.
+ */
+export function validateReservationAgainstSchedule(r: Reservation, schedule: ScheduleConfig): string[] {
+  const problems: string[] = [];
+  if (r.organisationId !== schedule.organisationId) problems.push('reservation and schedule belong to different organisations');
+  if (r.scheduleId !== schedule.id) problems.push('reservation belongs to a different schedule');
+  problems.push(...validateReservationSnapshot(r));
+  if ((PRESET_KEYS as readonly string[]).includes(r.presetKey)) problems.push(...validateReservationForPreset(r, getPreset(r.presetKey)));
   return problems;
 }
 
@@ -168,6 +268,7 @@ export function validateReservationForPreset(r: Reservation, preset: PresetDefin
 export function validatePresetDefinition(p: PresetDefinition): string[] {
   const problems: string[] = [];
   if (PRESETS[p.key] !== p) problems.push('preset is not registered under its own key');
+  if (!Number.isInteger(p.version) || p.version < 1) problems.push('preset version must be a positive integer');
   if (p.resources.requirement !== 'none' && p.resources.kinds.length === 0) {
     problems.push('a preset that uses resources must list at least one resource kind');
   }

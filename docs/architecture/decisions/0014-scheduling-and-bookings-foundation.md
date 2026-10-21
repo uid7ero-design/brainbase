@@ -27,7 +27,13 @@ baseline and dependency map are in
    `lib/scheduling/adapters/brainbase` and `lib/scheduling/compatibility/tennis`
    and depends on the core, never the reverse. This differs from the
    `lib/scheduling/core/...` layout suggested in the brief for that reason.
-2. **Presets are data** over closed behaviour unions; no hooks, no functions.
+2. **Presets are data** over closed behaviour unions; no hooks, no functions. **A preset belongs
+   to a schedule, not to an organisation.** An organisation has one `SchedulingSettings` record
+   (tenant, currency, optional default timezone) and any number of `ScheduleConfig` records, each a
+   business line with its own preset, preset version, terminology, cancellation policy and optional
+   timezone override. A restaurant, a coaching programme and an events programme can coexist in one
+   organisation without sharing configuration (corrected 2026-10-21; the first revision assumed one
+   preset per organisation).
 3. **Ports with the tenant first.** Isolation is structural, and proven by an
    executable repository contract the Phase 2 SQL adapter must pass.
 4. **New `scheduling_*` tables later; legacy tennis tables untouched.** Not
@@ -75,8 +81,13 @@ by the adapter but is not seeded in `modules` and is checked nowhere.
 - The package is source-aliased in three places (root `tsconfig.json`,
   `vitest.config.ts`; a standalone app would add its own), the same trade-off
   ticketing accepted.
-- Presets will need a schema-version field once organisations persist a
-  preset choice (Phase 2).
+- Preset definitions carry a `version`. A schedule records the version it was configured against and
+  a reservation records the preset and version it was made under, so changing a preset later never
+  silently reinterprets existing data.
+- A reservation is a snapshot: customer details (with the normalised email used for matching), the
+  timezone in force, the UTC window, and the preset/version. Editing a customer, a schedule or an
+  organisation timezone later does not rewrite history. Customers are matched on organisation +
+  normalised email only, never on a name.
 - The brief's "no direct imports from the core into BrainBase" is satisfied;
   the converse (adapters importing the core) is required and intended.
 

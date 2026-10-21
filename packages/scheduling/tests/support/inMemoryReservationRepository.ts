@@ -56,15 +56,25 @@ export class InMemoryReservationRepository implements ReservationRepository {
     const live = this.mine(tenant).filter(
       r => r.span.kind === 'occurrence' && r.span.occurrenceId === (input.span as { occurrenceId: string }).occurrenceId && r.status !== 'cancelled',
     );
-    if (live.some(r => r.customerId === input.customerId)) return { ok: false, reason: 'duplicate_reservation' };
+    // Same linked customer, or (for unlinked bookings) the same normalised email. Never a name.
+    const sameCustomer = (r: Reservation) =>
+      (input.customerId !== null && r.customerId === input.customerId) ||
+      (input.customerSnapshot.emailNormalised !== null && r.customerSnapshot.emailNormalised === input.customerSnapshot.emailNormalised);
+    if (live.some(sameCustomer)) return { ok: false, reason: 'duplicate_reservation' };
     if (live.reduce((n, r) => n + r.partySize, 0) + input.partySize > capacity) return { ok: false, reason: 'capacity_exceeded' };
 
     const reservation: Reservation = {
       id: `res-${++this.seq}`,
       organisationId: org,
+      scheduleId: input.scheduleId,
+      presetKey: input.presetKey,
+      presetVersion: input.presetVersion,
       offeringId: input.offeringId,
       resourceId: input.resourceId,
       customerId: input.customerId,
+      customerSnapshot: input.customerSnapshot,
+      timezone: input.timezone,
+      instants: input.instants,
       participants: [],
       partySize: input.partySize,
       span: input.span,

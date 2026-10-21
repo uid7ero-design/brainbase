@@ -1,5 +1,10 @@
 # Scheduling Phase 2 — proposed schema and migration outline
 
+> **Superseded in part (2026-10-21).** This first outline put the preset on the organisation
+> (`scheduling_settings.preset_key`). That is wrong: the preset belongs to a schedule, and an
+> organisation has many. The Phase 1 core now models this (`SchedulingSettings` + `ScheduleConfig`).
+> See revision 2 on the `docs/scheduling-phase2-design` branch for the corrected tables.
+
 **Documentation only. Nothing here has been run, applied or reviewed against a
 database, and Phase 2 is not started or authorised.** Table and column names
 are proposals for owner review.
@@ -8,7 +13,7 @@ are proposals for owner review.
 
 | Table | Purpose | Key constraints |
 | --- | --- | --- |
-| `scheduling_settings` | One row per organisation: `preset_key`, `timezone`, `currency`, `terminology jsonb`, `cancellation_policy jsonb`, `config_version int` | PK `organisation_id`; `preset_key` CHECK against the six keys |
+| `scheduling_settings` | One row per organisation: nullable default `timezone`, `currency`. Preset, wording, policy and version live on the schedule (`scheduling_schedules`, revision 2) | PK `organisation_id` |
 | `scheduling_resources` | Courts, tables, rooms, providers | `kind` CHECK; `capacity > 0`; `UNIQUE(organisation_id, id)` |
 | `scheduling_offerings` | What can be booked (the generalised `sessions` + `session_types`) | `price_cents >= 0`, `currency`; recurrence stored as columns mirroring `sessions` (`recurrence_kind`, `day_of_week`, `start_date`, `end_mode`, `end_after_occurrences`, `end_date`) so the verified rule maths carries over; `archived_at` |
 | `scheduling_availability_rules`, `scheduling_availability_exceptions` | Weekly hours, closures, overrides | time and date CHECKs mirroring `validateAvailabilityRule` |
@@ -101,4 +106,4 @@ elsewhere and the old URL redirects only at cutover.
 | 9 | Tenant resolution on the public surface | Route slug resolved server-side, never an env var or request field |
 | 10 | Waitlists and participant lists | Defer; schema allows adding without change to existing tables |
 | 11 | Standalone product's identity and tenancy | Separate decision after the BrainBase module works; core is ready for it |
-| 12 | Where preset version lives | `scheduling_settings.config_version`, bumped when a preset definition changes meaning |
+| 12 | Where preset version lives | On each schedule (`scheduling_schedules.preset_version`) and snapshotted on each reservation; bumped when a preset definition changes meaning |
