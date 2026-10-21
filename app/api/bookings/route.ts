@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
+import { isBookingCapacityError } from '@/lib/bookingCapacity'
 
 export async function GET(req: NextRequest) {
   let session
@@ -127,6 +128,8 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({ booking: rows[0] }, { status: 201 })
     } catch (err) {
+      // The database capacity guard refused the insert: another request took the last place.
+      if (isBookingCapacityError(err)) return NextResponse.json({ error: 'Session instance is full' }, { status: 409 })
       console.error('[bookings POST/instance]', err)
       return NextResponse.json({ error: 'Failed to create booking' }, { status: 500 })
     }
