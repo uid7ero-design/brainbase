@@ -43,6 +43,10 @@ interface EmailOptions {
   // every existing caller omits them and sends exactly as before (FROM below,
   // no Reply-To).
   from?: string;
+  // Optional Reply-To, forwarded as Resend's `reply_to`. Additive like `from`:
+  // omitted => no Reply-To is sent, exactly as before. Only a caller sending on
+  // behalf of another product passes one (Eve: its validated support address).
+  replyTo?: string;
 }
 
 const FROM = process.env.EMAIL_FROM ?? 'Brainbase <noreply@brainbase.app>';
@@ -143,7 +147,7 @@ export class EmailSendError extends Error {
   }
 }
 
-export async function sendEmail({ to, subject, html, text, attachments, idempotencyKey, from }: EmailOptions): Promise<SendEmailResult> {
+export async function sendEmail({ to, subject, html, text, attachments, idempotencyKey, from, replyTo }: EmailOptions): Promise<SendEmailResult> {
   const apiKey = process.env.RESEND_API_KEY;
 
   if (!apiKey) {
@@ -169,6 +173,7 @@ export async function sendEmail({ to, subject, html, text, attachments, idempote
     },
     body: JSON.stringify({
       from: from ?? FROM,
+      ...(replyTo ? { reply_to: replyTo } : {}),
       to,
       subject,
       html,

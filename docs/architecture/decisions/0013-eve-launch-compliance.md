@@ -247,3 +247,40 @@ real paid checkout through Eve. Decision: add an explicit, fail-closed server-si
 The legal version is now `2026-10-21` and the last-updated date `21 October 2026`; the
 approved text is unchanged. `EVE_LEGAL_PUBLISHED` stays unset, so Production legal pages
 still render "Not yet published".
+
+## 9. Eve sender domain and Reply-To (2026-10-21)
+
+Eve buyer email is sent by BrainBase (one Resend account, one `sendEmail()`), from
+`EVE_EMAIL_FROM`. The target sender is `Eve <tickets@mail.eveevents.com.au>` (Resend domain
+`mail.eveevents.com.au`, verified); the previous `eve-mail.thebrainbase.com.au` domain stays
+verified as the rollback until Production is proven on the new one.
+
+Replies to a transactional sender address would go nowhere, so an Eve buyer email now carries
+`Reply-To: <EVE_SUPPORT_EMAIL>`:
+
+- `sendEmail()` gained an optional `replyTo` (sent as Resend `reply_to` only when passed; no
+  default, no env source). BrainBase and LD Tennis callers do not pass it, so their request body is
+  unchanged.
+- `resolveBuyerProduct` sets `replyTo` for Eve orders only, from `EVE_SUPPORT_EMAIL` under the same
+  validation as the footer Support link (real address, not a placeholder domain). A missing or
+  malformed value yields no Reply-To — never a BrainBase address — and does not block the send.
+- Only the two Eve-aware send sites (`ticketEmail.ts`, `notificationDelivery.ts`) forward it.
+
+### Proof status (Preview, 2026-10-21)
+
+One free Preview registration was sent from `Eve <tickets@mail.eveevents.com.au>` and delivered to
+Gmail with `Reply-To: support@eveevents.com.au`:
+
+- DKIM: pass (`d=mail.eveevents.com.au`, selector `resend`).
+- SPF: pass (return-path `rsend.mail.eveevents.com.au`).
+- Domain alignment: DKIM and SPF domains are the From domain or a subdomain of it, so the message
+  would align.
+- DMARC: **not configured / no result.** `eveevents.com.au` publishes no `_dmarc` record, so Gmail
+  reported no DMARC verdict. DMARC is not claimed as passing. Publishing a monitoring record is a
+  separate, optional DNS step.
+- Delivered webhook: **not demonstrated in Preview.** The Preview delivery row stayed `accepted`. The
+  Resend webhook is account-wide and has a single Enabled endpoint (the Production URL); it received
+  the `email.delivered` event for the Preview message (200), but that message id has no row in the
+  Production database, so the handler correctly did nothing. The Preview deployment has no webhook
+  endpoint or signing secret of its own. The `delivered` outcome for the new sender is therefore
+  expected to be demonstrated only by the controlled Production test, not shown here.

@@ -248,6 +248,7 @@ export async function sendTicketEmail(
     const sent = await sendEmail({
       to, subject, html, idempotencyKey: options?.idempotencyKey,
       ...(product?.from ? { from: product.from } : {}),
+      ...(product?.replyTo ? { replyTo: product.replyTo } : {}),
     });
     if (sent.status === 'not_configured') {
       return { result: 'not_configured' };
