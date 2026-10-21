@@ -19,6 +19,9 @@ export default defineConfig({
           name: 'packages',
           environment: 'node',
           include: ['packages/*/tests/**/*.test.ts'],
+          // Real-Postgres suites need a disposable database (scripts/tests/verify-scheduling-phase2a.sh);
+          // like every other *.integration.test.ts in this repo they run in vitest.integration.config.ts.
+          exclude: ['packages/*/tests/**/*.integration.test.ts', '**/node_modules/**'],
         },
       },
       {
@@ -53,6 +56,7 @@ export default defineConfig({
       // '@scheduling/core' paths. Subpath first so it matches before the bare name.
       '@scheduling/core/': path.resolve(__dirname, 'packages/scheduling/src') + '/',
       '@scheduling/core': path.resolve(__dirname, 'packages/scheduling/src/index.ts'),
+      '@scheduling/postgres': path.resolve(__dirname, 'packages/scheduling-postgres/src/index.ts'),
       // See tests/stubs/server-only.ts for why this alias exists.
       'server-only': path.resolve(__dirname, 'tests/stubs/server-only.ts'),
     },

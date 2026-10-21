@@ -23,7 +23,8 @@
       "@ticketing/core": ["./packages/ticketing/src/index.ts"],
       "@ticketing/core/*": ["./packages/ticketing/src/*"],
       "@scheduling/core": ["./packages/scheduling/src/index.ts"],
-      "@scheduling/core/*": ["./packages/scheduling/src/*"]
+      "@scheduling/core/*": ["./packages/scheduling/src/*"],
+      "@scheduling/postgres": ["./packages/scheduling-postgres/src/index.ts"]
     }
   },
   "include": [

@@ -75,6 +75,10 @@ describe('Phase 1 does not enable the module anywhere', () => {
       for (const name of readdirSync(dir)) {
         if (name === 'node_modules') continue;
         const full = path.join(dir, name);
+        // Phase 2A (deliberate, reviewed change): the BrainBase HOST migration lives in scripts/scheduling/.
+        // Its contents are pinned file-by-file in schedulingPhase2aContainment.test.ts; the shared DDL
+        // lives in packages/scheduling/sql (outside these directories) and is pinned there as well.
+        if (rel(full) === 'scripts/scheduling') continue;
         if (statSync(full).isDirectory()) scan(full);
         else if (/\.(sql|prisma|ts|mjs|js)$/.test(name) && /scheduling_[a-z_]+/.test(readFileSync(full, 'utf8'))) offenders.push(rel(full));
       }
