@@ -257,6 +257,11 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
             <Link href="/privacy" target="_blank" rel="noopener" className="underline">Privacy Policy</Link>.
           </p>
           {anyPaid ? (
+            <p data-testid="paid-payment-notice" className="text-eve-muted">
+              You will pay securely with Stripe on the next page. Your card details are entered with Stripe and are not seen or stored by us.
+            </p>
+          ) : null}
+          {anyPaid ? (
             <div className="flex items-start gap-3">
               <input id="accept-terms" type="checkbox" checked={accepted} onChange={e => setAccepted(e.target.checked)} required className="mt-1 h-5 w-5 shrink-0" />
               <label htmlFor="accept-terms" className="text-eve-ink">
