@@ -21,7 +21,9 @@
     "paths": {
       "@/*": ["./*"],
       "@ticketing/core": ["./packages/ticketing/src/index.ts"],
-      "@ticketing/core/*": ["./packages/ticketing/src/*"]
+      "@ticketing/core/*": ["./packages/ticketing/src/*"],
+      "@scheduling/core": ["./packages/scheduling/src/index.ts"],
+      "@scheduling/core/*": ["./packages/scheduling/src/*"]
     }
   },
   "include": [
