@@ -11,6 +11,8 @@ import path from 'node:path'
 process.env.EVE_SESSION_SECRET = 'eve-test-secret-0123456789abcdef0123456789abcdef'
 process.env.TICKETING_API_SECRET = 'gate-test-secret-0123456789abcdef0123456789abcdef'
 process.env.EVE_PUBLIC_BASE_URL = 'https://eve.example'
+// These tests exercise the paid path itself, so the Eve paid-checkout kill switch is on here.
+process.env.EVE_PAID_CHECKOUT_ENABLED = 'true'
 
 const svc = {
   resolvePublicEvent: vi.fn(),
