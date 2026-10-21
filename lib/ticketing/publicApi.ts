@@ -15,6 +15,7 @@ import { LIMITS, limit } from './rateLimit';
 import { POST as publicQuote } from '@/app/api/public/events/[organisationSlug]/[eventSlug]/quote/route';
 import { GET as publicCheckoutStatus } from '@/app/api/public/events/[organisationSlug]/[eventSlug]/checkout/status/route';
 import { checkTicketingGate } from './gate';
+import { isEvePaidCheckoutEnabled } from './paidCheckoutFlag';
 import {
   delegatedRequest,
   eveLinkBase,
@@ -153,6 +154,13 @@ export async function handleTicketingCheckout(req: Request, params: EventParams)
   if (!gate.ok) return gate.response;
   if (!validEventParams(params)) return notAvailable();
   const { organisationSlug, eventSlug } = params;
+
+  // Eve paid-checkout kill switch (fails closed). First thing after the gate:
+  // before the limiter, the body, the event lookup, any reservation or order, and
+  // any Stripe call. The response says nothing about Stripe or the organisation.
+  if (!isEvePaidCheckoutEnabled()) {
+    return ticketingJson({ error: 'Paid checkout is not currently available.' }, 503);
+  }
 
   // Same limiter key as the public checkout route: one budget per buyer
   // address and event, whichever product they check out through.

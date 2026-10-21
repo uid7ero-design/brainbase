@@ -21,7 +21,7 @@ import { Footer } from '@/components/marketing/Footer';
 import BuyerLayout from '@/app/(buyer)/layout';
 import { BuyerBooking } from '@/components/buyer/BuyerBooking';
 import { BearerLinkNotice } from '@/components/buyer/BearerLinkNotice';
-import { getLegalConfig, LEGAL_FACT_KEYS, OPERATOR_FACTS, LEGAL_DOCUMENT_VERSION } from '@/config/legal';
+import { getLegalConfig, LEGAL_FACT_KEYS, OPERATOR_FACTS, LEGAL_DOCUMENT_VERSION, LEGAL_LAST_UPDATED } from '@/config/legal';
 import { refundsDoc, TERMS, PRIVACY } from '@/content/legal';
 import { renderTokens } from '@/components/legal/LegalDocument';
 
@@ -50,7 +50,7 @@ describe('legal routes', () => {
     expect(screen.getByTestId('legal-draft-banner')).toBeInTheDocument();
     expect(container.querySelectorAll('mark[data-placeholder="true"]').length).toBe(0);
     expect(container.textContent).not.toMatch(/\[[A-Z/ ]+\]|\{\{/);
-    expect(container.textContent).toMatch(/Last updated: \d{4}-\d{2}-\d{2}/);
+    expect(container.textContent).toMatch(/Last updated: 21 October 2026/);
     expect(container.textContent).not.toMatch(FOREIGN);
   });
 
@@ -85,8 +85,9 @@ describe('legal routes', () => {
     expect(getLegalConfig({ EVE_SUPPORT_EMAIL: 'support@eveevents.com.au' }).unresolved).toEqual([]);
   });
 
-  it('the legal version stays a DRAFT version, the publish switch stays off and Preview is never final', () => {
-    expect(LEGAL_DOCUMENT_VERSION).toMatch(/draft/i);
+  it('the legal version is the dated 2026-10-21 version, the publish switch stays off and Preview is never final', () => {
+    expect(LEGAL_DOCUMENT_VERSION).toBe('2026-10-21');
+    expect(LEGAL_LAST_UPDATED).toBe('21 October 2026');
     const cfg = getLegalConfig({ VERCEL_ENV: 'preview', EVE_SUPPORT_EMAIL: 'support@eveevents.com.au' });
     expect(cfg.published).toBe(false);
     expect(cfg.isFinal).toBe(false);

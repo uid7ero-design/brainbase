@@ -9,6 +9,8 @@ import path from 'node:path'
 process.env.EVE_SESSION_SECRET = 'eve-test-secret-0123456789abcdef0123456789abcdef'
 process.env.TICKETING_API_SECRET = 'gate-test-secret-0123456789abcdef0123456789abcdef'
 process.env.EVE_PUBLIC_BASE_URL = 'https://eve.example'
+// These tests exercise the paid path itself, so the Eve paid-checkout kill switch is on here.
+process.env.EVE_PAID_CHECKOUT_ENABLED = 'true'
 
 type Row = Record<string, unknown>
 const db: { users: Row[]; orgs: Row[]; entitled: Set<string>; counters: Map<string, number>; limiterDown: boolean } = { users: [], orgs: [], entitled: new Set(), counters: new Map(), limiterDown: false }
@@ -546,13 +548,21 @@ describe('paid checkout acceptance is enforced server-side (launch compliance)',
   it('Production refuses to record a DRAFT legal version (503, nothing reserved); Preview records it', async () => {
     publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, organisationId: 'org-a', event: { id: 'e1' } })
     publicSvc.startPaidCheckout.mockResolvedValue({ ok: true, checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_test_1' })
+    // The repo's legal version is now the dated 2026-10-21 version, so the draft
+    // guard is exercised with a mocked draft version (it is independent of the
+    // EVE_PAID_CHECKOUT_ENABLED kill switch, which is on in this file).
     vi.stubEnv('VERCEL_ENV', 'production')
     try {
+      vi.resetModules()
+      vi.doMock('@ticketing/core', async orig => ({ ...(await orig<typeof import('@ticketing/core')>()), isDraftLegalVersion: () => true }))
+      const draftPub = await import('@/lib/ticketing/publicApi')
       publicSvc.startPaidCheckout.mockClear()
-      const res = await pub.handleTicketingCheckout(gated({ ...BASE, accept_terms: true }), params())
+      const res = await draftPub.handleTicketingCheckout(gated({ ...BASE, accept_terms: true }), params())
       expect(res.status).toBe(503)
       expect(publicSvc.startPaidCheckout).not.toHaveBeenCalled()
     } finally {
+      vi.doUnmock('@ticketing/core')
+      vi.resetModules()
       vi.unstubAllEnvs()
     }
     vi.stubEnv('VERCEL_ENV', 'preview')
