@@ -5,7 +5,7 @@ import { normaliseLifecycleEmailBranding } from '@/lib/organisations/branding';
 import { maskEmailForAudit } from './ticketEmail';
 import { LEASE_TIMEOUT_MINUTES, MAX_ATTEMPTS, RETRY_BACKOFF_MINUTES, type TicketEmailFailureReason } from './ticketEmailDelivery';
 import { resolveBuyerProduct, type BuyerProductContext } from './buyerProduct';
-import { buildLifecycleEmail, type LifecycleEmailData } from './lifecycleEmail';
+import { buildLifecycleEmail, parseEventUpdatedPayload, type LifecycleEmailData } from './lifecycleEmail';
 import { logNotificationScheduled, logNotificationSent, logNotificationFailed } from './auditLog';
 import type { NotificationType } from './notifications';
 
@@ -40,7 +40,8 @@ export type NotificationDeliveryClaim = {
 
 // The single atomic claim. Claimable states mirror the ticket-email
 // claim exactly (pending / due failed / stale sending), gated on
-// scheduled_for having passed. An EVENT_REMINDER is additionally
+// scheduled_for having passed. An EVENT_REMINDER (and an EVENT_UPDATED, which
+// needs a live booking and a still-published event) is additionally
 // re-checked against the live order + event state at claim time: a
 // reminder must never go out for a cancelled/unpublished event, an event
 // that already started, or an order that is no longer a confirmed
@@ -83,6 +84,16 @@ export async function claimNotificationDelivery(notificationId: string): Promise
             AND e.status = 'PUBLISHED' AND e.reminder_enabled = true AND e.starts_at > NOW()
         )
       )
+      AND (
+        notification_type <> 'EVENT_UPDATED'
+        OR EXISTS (
+          SELECT 1 FROM event_orders eo
+          JOIN events e ON e.id = eo.event_id AND e.organisation_id = eo.organisation_id
+          WHERE eo.id = event_notifications.order_id AND eo.organisation_id = event_notifications.organisation_id
+            AND eo.status = 'CONFIRMED' AND eo.payment_status IN ('NOT_REQUIRED', 'PAID')
+            AND e.status = 'PUBLISHED'
+        )
+      )
     RETURNING id, claim_id, attempt_count, notification_type
   `;
   if (!rows.length) return null;
@@ -110,6 +121,8 @@ type ClaimedNotificationRow = {
   event_name: string; starts_at: string | Date; ends_at: string | Date; timezone: string; venue: string | null; description: string | null;
   organisation_name: string; organisation_settings: unknown;
   attendees: { name: string; ticket_token: string | null; session_name: string | null }[];
+  payload: unknown;
+  organisation_slug: string | null; event_slug: string;
 };
 
 function iso(value: string | Date | null): string | null {
@@ -127,11 +140,11 @@ function iso(value: string | Date | null): string | null {
 export async function readClaimedNotificationForDelivery(notificationId: string, claimId: string): Promise<ClaimedNotificationForDelivery | null> {
   const rows = await sql`
     SELECT
-      n.id, n.organisation_id, n.notification_type, n.recipient_email, n.idempotency_key,
+      n.id, n.organisation_id, n.notification_type, n.recipient_email, n.idempotency_key, n.payload,
       eo.id AS order_id, eo.purchaser_name, eo.status AS order_status, eo.payment_status, eo.currency,
       eo.total_cents, eo.platform_fee_cents, eo.fee_mode, eo.fee_label, eo.payment_total_cents, eo.paid_at,
       eo.refunded_cents, eo.platform_fee_refunded_cents, eo.refunded_at, eo.booking_token, eo.product_surface,
-      e.name AS event_name, e.starts_at, e.ends_at, e.timezone, e.venue, e.description,
+      e.name AS event_name, e.slug AS event_slug, o.slug AS organisation_slug, e.starts_at, e.ends_at, e.timezone, e.venue, e.description,
       o.name AS organisation_name, o.settings AS organisation_settings,
       COALESCE((
         SELECT json_agg(json_build_object('name', ea.attendee_name, 'ticket_token', ea.ticket_token, 'session_name', es.name) ORDER BY ea.created_at, ea.id)
@@ -178,6 +191,9 @@ export async function readClaimedNotificationForDelivery(notificationId: string,
     bookingToken: row.booking_token,
     branding: normaliseLifecycleEmailBranding(row.organisation_settings, row.organisation_name),
     organisationName: row.organisation_name,
+    eventSlug: row.event_slug,
+    organisationSlug: row.organisation_slug,
+    change: parseEventUpdatedPayload(row.payload),
   };
   return {
     notificationId: row.id,

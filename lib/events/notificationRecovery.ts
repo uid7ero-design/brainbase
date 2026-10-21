@@ -2,7 +2,7 @@ import 'server-only';
 import sql from '@/lib/db';
 import { LEASE_TIMEOUT_MINUTES, MAX_ATTEMPTS } from './ticketEmailDelivery';
 import { attemptNotificationDelivery, sweepStaleExhaustedNotificationLeases } from './notificationDelivery';
-import { scheduleEventReminderNotifications, expireIneligibleReminderNotifications } from './notifications';
+import { scheduleEventReminderNotifications, expireIneligibleReminderNotifications, expireIneligibleEventUpdatedNotifications } from './notifications';
 
 // Phase 5B — periodic executor for event_notifications, run by the SAME
 // CRON_SECRET-protected route and vercel.json schedule as ticket-email
@@ -73,6 +73,7 @@ export async function runNotificationRecovery(now: () => number = Date.now): Pro
 
   const stale_exhausted_swept = await sweepStaleExhaustedNotificationLeases(NOTIFICATION_RECOVERY_BATCH_SIZE);
   const reminders_expired = await expireIneligibleReminderNotifications();
+  await expireIneligibleEventUpdatedNotifications();
   const reminders_scheduled = (await scheduleEventReminderNotifications()).length;
 
   const candidateIds = await findNotificationRecoveryCandidateIds();

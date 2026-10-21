@@ -43,6 +43,8 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
   const [access, setAccess] = useState<string | null>(null);
   const [rawQuote, setQuote] = useState<Quote | null>(null);
   const [purchaser, setPurchaser] = useState({ name: '', email: '', phone: '' });
+  // Paid checkout only: unticked by default. The API re-checks it server-side.
+  const [accepted, setAccepted] = useState(false);
   const [attendeeNames, setAttendeeNames] = useState<Record<string, string[]>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +99,7 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
     setError(null);
     if (!sessionId && sessions.length > 0) { setError('Choose a session.'); return; }
     if (totalTickets === 0) { setError('Select at least one ticket.'); return; }
+    if (anyPaid && !accepted) { setError('Please agree to the Terms and the Refunds & cancellations policy to continue.'); return; }
     setBusy(true);
     try {
       const payload = {
@@ -105,6 +108,7 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
         purchaser_name: purchaser.name, purchaser_email: purchaser.email, purchaser_phone: purchaser.phone || undefined,
         promotion_code: promo ?? undefined, access_code: access ?? undefined,
         attendees: slots.map(s => ({ name: attendeeNames[s.type.id]?.[s.index] || purchaser.name, ticket_type_id: s.type.id })),
+        ...(anyPaid ? { accept_terms: true } : {}),
       };
       const res = await fetch(`${base}/${anyPaid ? 'checkout' : 'register'}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
@@ -244,6 +248,29 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
             {quote?.cart_error ? <p role="alert" className="mt-2 text-red-700">{quote.cart_error}</p> : null}
           </div>
         </>
+      ) : null}
+
+      {totalTickets > 0 ? (
+        <div className="space-y-3 text-sm" data-testid="booking-notices">
+          <p data-testid="collection-notice" className="text-eve-muted">
+            Your booking details (your name, email and phone, and the attendees&apos; names) are provided to the event organiser so they can run the booking and contact you about the event. Your name, email and phone may also appear in the organiser&apos;s event contact records. This is not consent to marketing. See the{' '}
+            <Link href="/privacy" target="_blank" rel="noopener" className="underline">Privacy Policy</Link>.
+          </p>
+          {anyPaid ? (
+            <div className="flex items-start gap-3">
+              <input id="accept-terms" type="checkbox" checked={accepted} onChange={e => setAccepted(e.target.checked)} required className="mt-1 h-5 w-5 shrink-0" />
+              <label htmlFor="accept-terms" className="text-eve-ink">
+                I agree to the <Link href="/terms" target="_blank" rel="noopener" className="underline">Terms</Link> and{' '}
+                <Link href="/refunds" target="_blank" rel="noopener" className="underline">Refunds &amp; cancellations</Link> policy.
+              </label>
+            </div>
+          ) : (
+            <p data-testid="free-terms-notice" className="text-eve-ink">
+              By registering you agree to the <Link href="/terms" target="_blank" rel="noopener" className="underline">Terms</Link> and acknowledge the{' '}
+              <Link href="/privacy" target="_blank" rel="noopener" className="underline">Privacy Policy</Link>.
+            </p>
+          )}
+        </div>
       ) : null}
 
       {error ? <p role="alert" className="text-sm font-medium text-red-700">{error}</p> : null}

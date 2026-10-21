@@ -167,6 +167,7 @@ export function buildTicketEmail(data: TicketEmailData): { subject: string; html
       <p style="margin:28px 0 0;font-size:12px;color:#888;line-height:1.5">
         Keep this email — you can use it to find your ticket link${multiple ? 's' : ''} again at any time.
       </p>
+      ${product.surface === 'EVE' ? `<p style="margin:8px 0 0;font-size:12px;color:#888;line-height:1.5">Anyone with ${multiple ? 'these links' : 'this link'} can access ${multiple ? 'these tickets' : 'this ticket'}. Keep ${multiple ? 'them' : 'it'} private.</p>` : ''}
     `, {
       name: branding?.name ?? null,
       logoUrl: branding?.logoUrl ?? null,

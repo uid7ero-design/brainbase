@@ -4,6 +4,7 @@ import { Container, Unavailable } from '@/components/ui/primitives';
 import { TicketCard } from '@/components/buyer/TicketCard';
 import { getTicketingGateway } from '@/lib/ticketing/gateway';
 import { formatDateTime } from '@/lib/format';
+import { BearerLinkNotice } from '@/components/buyer/BearerLinkNotice';
 
 export const metadata: Metadata = { title: 'Your tickets', robots: { index: false, follow: false } };
 export const dynamic = 'force-dynamic';
@@ -30,6 +31,7 @@ export default async function BookingWalletPage({ params }: Props) {
       <h1 className="eve-display text-3xl">{event.name}</h1>
       <p className="mt-2 text-eve-muted">{formatDateTime(event.starts_at, event.timezone)}{event.venue ? ` · ${event.venue}` : ''}</p>
       <p className="mt-1 text-sm text-eve-muted">Booked by {purchaser_name} · {tickets.length} ticket{tickets.length === 1 ? '' : 's'}</p>
+      <BearerLinkNotice what="booking" />
       <ul className="mt-8 grid gap-6 md:grid-cols-2">
         {tickets.map(t => (
           <li key={t.ticket_token}>

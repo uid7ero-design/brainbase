@@ -97,6 +97,10 @@ const MIGRATIONS = [
   'scripts/create-events-ticketing-fees-foundation.sql',
   'scripts/create-events-notifications.sql',
   'scripts/add-events-order-product-surface.sql',
+  // Eve launch compliance - the paid order INSERT now writes the acceptance snapshot columns.
+  'scripts/add-events-order-legal-acceptance.sql',
+  // Eve launch compliance - notification delivery now reads event_notifications.payload.
+  'scripts/add-events-notification-event-updated.sql',
 ]
 
 const EVE_BASE = 'https://eve-preview.vercel.app'

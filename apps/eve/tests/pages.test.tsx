@@ -355,9 +355,11 @@ describe('buyer booking form', () => {
     await user.type(screen.getByLabelText('General ticket 1'), 'Alex');
     await user.type(screen.getByLabelText('VIP ticket 1'), 'Bo');
     await waitFor(() => expect(screen.getByTestId('payable')).toHaveTextContent('$76.50'));
+    await user.click(screen.getByLabelText(/I agree to the/));
     await user.click(screen.getByRole('button', { name: 'Continue to payment' }));
     await waitFor(() => expect(assign).toHaveBeenCalledWith('https://checkout.stripe.com/c/pay/cs_test_1'));
     const sent = bodyOf(fn, '/checkout');
+    expect(sent.accept_terms).toBe(true);
     expect(sent.event_session_id).toBe('s1');
     expect(sent.items).toEqual([{ ticket_type_id: 't1', quantity: 1 }, { ticket_type_id: 't3', quantity: 1 }]);
     expect(sent.attendees).toEqual([{ name: 'Alex', ticket_type_id: 't1' }, { name: 'Bo', ticket_type_id: 't3' }]);
@@ -396,6 +398,7 @@ describe('buyer booking form', () => {
     fireEvent.submit(screen.getByRole('form', { name: 'Book tickets' }));
     expect(await screen.findByText('Choose a session.')).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText('Session'), 's1');
+    await user.click(screen.getByLabelText(/I agree to the/));
     await user.click(screen.getByRole('button', { name: 'Continue to payment' }));
     expect(await screen.findByText(/no longer available in the requested quantity/)).toBeInTheDocument();
   });

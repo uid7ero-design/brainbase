@@ -11,7 +11,7 @@ import sql from '@/lib/db';
 // Neutral vocabulary — never product-specific names. Stable: a type is a
 // CHECK-constrained literal in the schema, so renaming one is a
 // migration, not a code edit.
-export const NOTIFICATION_TYPES = ['ORDER_CANCELLED', 'ORDER_REFUNDED', 'EVENT_CANCELLED', 'EVENT_REMINDER'] as const;
+export const NOTIFICATION_TYPES = ['ORDER_CANCELLED', 'ORDER_REFUNDED', 'EVENT_CANCELLED', 'EVENT_REMINDER', 'EVENT_UPDATED'] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
 // event-notification:<TYPE>:<orderId> — deterministic, built from
@@ -186,6 +186,109 @@ export async function expireIneligibleReminderNotifications(limit: number = REMI
           WHERE eo.id = n.order_id AND eo.organisation_id = n.organisation_id
             AND eo.status = 'CONFIRMED' AND eo.payment_status IN ('NOT_REQUIRED', 'PAID')
             AND e.status = 'PUBLISHED' AND e.reminder_enabled = true AND e.starts_at > NOW()
+        )
+      LIMIT ${limit}
+    )
+    RETURNING id
+  `;
+  return rows.length;
+}
+
+// ── EVENT_UPDATED — material date / time / venue change ──────────────────
+//
+// Buyer-safe payload stored in event_notifications.payload (JSON object):
+// ONLY the before/after of the three material fields and the committed change
+// version. Never purchaser data, tokens, secrets or internal configuration.
+export type EventUpdatedSnapshot = { starts_at: string; ends_at: string; venue: string | null };
+export type EventUpdatedPayload = {
+  before: EventUpdatedSnapshot;
+  after: EventUpdatedSnapshot;
+  change_version: string;
+};
+
+// event-notification:EVENT_UPDATED:<orderId>:<committed event version>.
+// The version is the events row's own updated_at (epoch microseconds) written
+// by the very UPDATE that made the change — NOT a hash of the new values, so a
+// replay of the same committed change is a no-op while a later distinct change
+// (including reverting to an earlier date, time or venue) is a new notice.
+export function buildEventUpdatedIdempotencyKey(orderId: string, changeVersion: string): string {
+  return `${NOTIFICATION_IDEMPOTENCY_PREFIX}EVENT_UPDATED:${orderId}:${changeVersion}`;
+}
+
+// Bounded like EVENT_CANCELLED: the PATCH sends this many inline, the hourly
+// recovery run delivers the rest.
+export const EVENT_UPDATED_INLINE_SEND_LIMIT = 10;
+
+// Schedules EVENT_UPDATED for every ELIGIBLE order of ONE event in one
+// idempotent statement (rows + audit). Eligible = the same live bookings an
+// EVENT_REMINDER goes to: CONFIRMED with NOT_REQUIRED / PAID payment, a
+// non-empty purchaser email, created BEFORE the change (an order placed after
+// it already saw the new details). Cancelled, refunded, expired, pending and
+// failed orders are never notified, and nothing is scheduled unless the event
+// is PUBLISHED now. changedAt is the committed events.updated_at as text.
+export async function scheduleEventUpdatedNotifications(params: {
+  organisationId: string;
+  eventId: string;
+  actorUserId: string | null;
+  payload: EventUpdatedPayload;
+  changedAt: string;
+}): Promise<string[]> {
+  const payloadJson = JSON.stringify(params.payload);
+  const version = params.payload.change_version;
+  const rows = await sql`
+    WITH scheduled AS (
+      INSERT INTO event_notifications (organisation_id, event_id, order_id, notification_type, recipient_email, idempotency_key, payload)
+      SELECT eo.organisation_id, eo.event_id, eo.id, 'EVENT_UPDATED', eo.purchaser_email,
+             'event-notification:EVENT_UPDATED:' || eo.id || ':' || ${version}::text,
+             ${payloadJson}::jsonb
+      FROM event_orders eo
+      JOIN events e ON e.id = eo.event_id AND e.organisation_id = eo.organisation_id
+      WHERE eo.event_id = ${params.eventId} AND eo.organisation_id = ${params.organisationId}
+        AND e.status = 'PUBLISHED'
+        AND eo.status = 'CONFIRMED' AND eo.payment_status IN ('NOT_REQUIRED', 'PAID')
+        AND eo.purchaser_email IS NOT NULL AND btrim(eo.purchaser_email) <> ''
+        AND eo.created_at < ${params.changedAt}::timestamptz
+      ON CONFLICT (idempotency_key) DO NOTHING
+      RETURNING id, organisation_id, order_id, recipient_email
+    ),
+    audited AS (
+      INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
+      SELECT gen_random_uuid()::text, organisation_id, ${params.actorUserId}::text, 'event_order.notification_scheduled', 'event_order', order_id,
+        NULL,
+        jsonb_build_object(
+          'source', 'event_updated',
+          'notification_type', 'EVENT_UPDATED',
+          'notification_id', id,
+          'recipient_masked', left(recipient_email, 1) || '***' || substring(recipient_email from '@.*$')
+        )
+      FROM scheduled
+      RETURNING resource_id
+    )
+    SELECT id FROM scheduled
+  `;
+  return (rows as { id: string }[]).map(r => r.id);
+}
+
+// An EVENT_UPDATED that can no longer be sent honestly (the order was
+// cancelled or refunded, or the event is no longer published) is closed out
+// as a terminal 'failed' with a readable reason rather than retried forever.
+// Mirrors expireIneligibleReminderNotifications; never touches 'sending' rows
+// or other types.
+export async function expireIneligibleEventUpdatedNotifications(limit: number = REMINDER_SCHEDULE_BATCH_SIZE): Promise<number> {
+  const rows = await sql`
+    UPDATE event_notifications
+    SET status = 'failed', next_attempt_at = NULL, failed_at = NOW(), updated_at = NOW(),
+        last_error = 'Event update notice no longer applicable: the event or order changed before it was sent.'
+    WHERE id IN (
+      SELECT n.id FROM event_notifications n
+      WHERE n.notification_type = 'EVENT_UPDATED'
+        AND (n.status = 'pending' OR (n.status = 'failed' AND n.next_attempt_at IS NOT NULL))
+        AND NOT EXISTS (
+          SELECT 1 FROM event_orders eo
+          JOIN events e ON e.id = eo.event_id AND e.organisation_id = eo.organisation_id
+          WHERE eo.id = n.order_id AND eo.organisation_id = n.organisation_id
+            AND eo.status = 'CONFIRMED' AND eo.payment_status IN ('NOT_REQUIRED', 'PAID')
+            AND e.status = 'PUBLISHED'
         )
       LIMIT ${limit}
     )

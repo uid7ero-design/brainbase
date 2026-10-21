@@ -37,7 +37,7 @@ const read = (rel: string) => readFileSync(path.join(process.cwd(), rel), 'utf8'
 const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
 
 const GATE = { 'x-ticketing-api-key': process.env.TICKETING_API_SECRET! }
-const VALID = { items: [{ ticket_type_id: 't1', quantity: 1 }], purchaser_name: 'Sam', purchaser_email: 's@x.test', attendees: [{ name: 'Sam', ticket_type_id: 't1' }] }
+const VALID = { items: [{ ticket_type_id: 't1', quantity: 1 }], purchaser_name: 'Sam', purchaser_email: 's@x.test', attendees: [{ name: 'Sam', ticket_type_id: 't1' }], accept_terms: true }
 const gated = (body: unknown, headers: Record<string, string> = {}, url = 'http://bb.test/x') =>
   new Request(url, { method: 'POST', body: JSON.stringify(body), headers: { ...GATE, 'content-type': 'application/json', ...headers } })
 
@@ -169,7 +169,7 @@ describe('source containment', () => {
   })
 
   it('both services write the column in the SAME INSERT as the order, from their validated input', () => {
-    expect(paid).toMatch(/INSERT INTO event_orders \([\s\S]*?product_surface\s*\)\s*SELECT[\s\S]*?\$\{productSurface\}\s*FROM gate/)
+    expect(paid).toMatch(/INSERT INTO event_orders \([\s\S]*?product_surface(?:,\s*terms_accepted_at,\s*terms_version,\s*refunds_version)?\s*\)\s*SELECT[\s\S]*?\$\{productSurface\}[\s\S]*?FROM gate/)
     expect(free).toMatch(/INSERT INTO event_orders \([^)]*product_surface\)\s*SELECT[^;]*\$\{productSurface\}\s*FROM gate/)
     expect(paid).toMatch(/isProductSurface\(input\.productSurface\)/)
     expect(free).toMatch(/isProductSurface\(input\.productSurface\)/)

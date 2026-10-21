@@ -1,5 +1,5 @@
 import 'server-only';
-import { checkoutCancelUrl, checkoutSuccessUrl, publicTicketUrl } from '@ticketing/core';
+import { checkoutCancelUrl, checkoutSuccessUrl, publicTicketUrl, currentEveLegalAcceptance, isDraftLegalVersion } from '@ticketing/core';
 import { getPublicEventDetail } from '@/lib/events/publicEventDetail';
 import { getPublicTicketDetail } from '@/lib/events/publicTicket';
 import { getPublicBookingDetail } from '@/lib/events/publicBooking';
@@ -173,6 +173,25 @@ export async function handleTicketingCheckout(req: Request, params: EventParams)
   } catch {
     return ticketingJson({ error: 'Invalid request body.' }, 400);
   }
+  // Paid checkout needs explicit acceptance of the Terms and the Refunds &
+  // cancellations policy. Checked HERE, server-side, before the event is
+  // resolved or anything is reserved: the browser checkbox is only a prompt and
+  // a client that omits or falsifies the field is refused. (Acceptance itself
+  // is persisted on the order by startPaidCheckout — ADR 0013 — and never waives consumer
+  // rights.)
+  if ((rawBody as { accept_terms?: unknown } | null)?.accept_terms !== true) {
+    return ticketingJson({ error: 'Please agree to the Terms and the Refunds & cancellations policy to continue.', code: 'TERMS_NOT_ACCEPTED' }, 400);
+  }
+  // Versions are trusted server constants, never request values. Production
+  // refuses to record a draft version: it would be evidence of acceptance of
+  // unpublished text.
+  const legalAcceptance = currentEveLegalAcceptance();
+  if (
+    process.env.VERCEL_ENV === 'production' &&
+    (isDraftLegalVersion(legalAcceptance.termsVersion) || isDraftLegalVersion(legalAcceptance.refundsVersion))
+  ) {
+    return ticketingJson({ error: 'Paid checkout is not currently available.' }, 503);
+  }
   const validated = validatePublicRegistrationInput(rawBody);
   if (typeof validated === 'string') return ticketingJson({ error: validated }, 400);
 
@@ -187,6 +206,7 @@ export async function handleTicketingCheckout(req: Request, params: EventParams)
     // Product identity comes from this trusted entry point (the request has
     // passed the server-to-server gate), never from the request body.
     productSurface: 'EVE',
+    legalAcceptance,
     // Same best-effort CRM hook as the public checkout route (purchaser
     // contact only; never attendees or answers).
     onReserved: async (orderId) => {
