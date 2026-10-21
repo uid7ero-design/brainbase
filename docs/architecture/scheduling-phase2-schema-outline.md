@@ -26,21 +26,20 @@ under-specified.
 
 Refinements, now binding on this design:
 
-**0.1 Timezones.** Organisations support configurable IANA timezones.
-Resolution order, evaluated by the host adapter and passed in through
-`TenantContext.timezone`: schedule timezone, else scheduling settings
-timezone, else the organisation's canonical timezone, else `Australia/Adelaide`.
-The fallback is applied **at read time, never by backfilling** existing
-organisations (the F.2A script deliberately adds a nullable column with no
-default, and no existing row is modified). Status caveat: the F.2A script
-(`scripts/add-organisations-timezone.sql`) exists, but whether it has been
-applied to Production was not checked here. Wiring note: the containment test
-`organisationTimezoneSchema.test.ts` fails if any file under `app/api` or `lib`
-mentions `organisations.timezone` / `org.timezone`. The Phase 2 adapter must be
-the deliberate, reviewed change that reads it, and that test is updated in the
-same PR with a stated reason (it is a "nothing consumes this yet" guard, not a
-permanent rule). Until then the adapter's tenant builder keeps taking the
-timezone as an input.
+**0.1 Timezones.** Organisations support configurable IANA timezones, with no
+duplicate setting. Resolution order, evaluated by the host adapter and passed in
+through `TenantContext.timezone`: **schedule timezone** (nullable override), else
+**`organisations.timezone`** (the existing nullable column), else `Australia/Adelaide`.
+There is no timezone on scheduling settings. The fallback is applied **at read time,
+never by backfilling**: the F.2A script deliberately adds a nullable column with no
+default. Verified on a Production-derived copy: the column **exists** (F.2A is applied),
+and all 6 organisations are NULL, so the fallback applies to every organisation today.
+Wiring note: `organisationTimezoneSchema.test.ts` fails if any file under `app/api` or
+`lib` mentions the organisation timezone column. The Phase 2 adapter must be the
+deliberate, reviewed change that reads it, and that test is updated in the same PR
+with a stated reason (details and exact edit in
+`scheduling-crm-and-timezone-findings.md` section 2.3). Until then the adapter
+keeps taking the timezone as an input. No production migration is proposed.
 
 **0.2 CRM matching.** Organisation-scoped, normalised email only, never names,
 booking snapshots preserved (design in section 3).
@@ -82,7 +81,7 @@ programme.
 
 ```
 organisation (host)
-  └─ scheduling_settings        1 row: default timezone, default currency, defaults only
+  └─ scheduling_settings        1 row: default currency, defaults only (no timezone: see 0.1)
        └─ scheduling_schedules  n rows: preset_key, name, public_slug, terminology,
             │                   cancellation_policy, timezone?, config_version
             └─ scheduling_offerings   (belong to exactly one schedule)
@@ -111,42 +110,78 @@ chosen preset. Nothing in the schema limits it to one.
 
 ## 3. Public booking, CRM matching and snapshots
 
-Customer table used in BrainBase: the Phase 1 mapping targets `contacts` (the
-LD Tennis CRM, `UNIQUE(organisation_id, email)`). **Open question:** the
-platform also has `crm_contacts` (classification, used by Events sync). Which is
-the scheduling customer table for non-tennis organisations needs an owner
-decision before 2B.
+Evidence for everything in this section is in
+`scheduling-crm-and-timezone-findings.md` (live catalog and aggregate counts from a
+Production-derived copy, plus repository references).
+
+**Authoritative customer table: `crm_contacts`.** It is the platform's generic CRM
+(uuid id, `organisation_id` TEXT, `first_name`/`last_name`, capability-gated by `crm`,
+a governed `classification` vocabulary, referenced by Events, Commercial, deals and
+activities). `contacts` is a self-described LD Tennis vertical table (text id,
+single `name`, an unconstrained `status`, no capability gate). The two share no keys
+and no sync, and in the snapshot each organisation uses exactly one: `ld-tennis` has
+5 `contacts` and 0 `crm_contacts`; the other two active organisations use only
+`crm_contacts`. **LD Tennis exception:** its customers live in `contacts`, so for that
+tenant the BrainBase adapter's `CustomerProvider` resolves against `contacts` until a
+separately approved migration. This is an adapter detail only: the shared schema stores
+`customer_id` as plain TEXT plus a booking snapshot, and `@scheduling/core` sees only
+`CustomerRef`. A standalone host supplies its own customer store through the same port.
+Scheduling creates no CRM tables.
 
 Find-or-create (all steps scoped to the tenant's organisation):
 
-1. Normalise the email: trim and lowercase only. Do **not** strip dots or
-   `+tag` suffixes; those are distinct mailboxes to us. Reject malformed input.
-2. No email → `customer_id` stays NULL. The reservation is customer-less and
-   carries its snapshot; staff may link it manually later. A name is never used
-   to find or merge a customer, in any path.
-3. Email present → look up `WHERE organisation_id = $org AND LOWER(TRIM(email)) = $norm`.
-   Use the lower-cased lookup because the existing unique constraint is
-   case-sensitive, so legacy rows may hold mixed case.
-4. Not found → `INSERT … (organisation_id, name, email = normalised, phone,
-   status = 'lead') ON CONFLICT (organisation_id, email) DO NOTHING RETURNING id`;
-   if nothing returns, re-select (another request created it first). This is
-   race-safe for new addresses. The residual gap is a legacy mixed-case row
-   racing a new lower-case insert, which the case-sensitive index cannot see;
-   a functional unique index on `(organisation_id, lower(email))` closes it but
-   needs a duplicate audit first, so it is a separately approved hardening.
-5. Found → use it as is. **Never overwrite** the contact's name or phone from
-   public input; the person who types an email is not authenticated.
-6. Every reservation stores a snapshot captured at booking time: name, email
-   (as typed), normalised email, phone, plus `contact_link` (`matched`,
-   `created`, `none`). Later contact edits do not rewrite booking history.
-   Comparing snapshot name with the contact's current name lets staff spot a
-   different person on a shared address without any automatic action.
+1. Normalise the email: trim and lowercase only. Do **not** strip dots or `+tag`
+   suffixes. Reject malformed input.
+2. No email: `customer_id` stays NULL. The reservation is customer-less and carries its
+   snapshot; staff may link it later. A name is never used to find or merge a customer,
+   in any path.
+3. Look up `WHERE organisation_id = $org AND lower(btrim(email)) = $norm`. The lower-cased
+   lookup is required: `contacts`' unique constraint is case-sensitive (the snapshot has
+   1 case-variant duplicate pair), and `crm_contacts` has no unique constraint at all.
+4. Not found: create. **On `crm_contacts` there is no unique key, so `ON CONFLICT` is not
+   available, and the single-statement lock-lookup-insert shape used by Events sync is
+   unsafe** (reproduced: 6 contacts for one email under forced overlap, because the
+   statement's snapshot predates the lock wait). Use a host-owned database function that
+   takes `pg_advisory_xact_lock(hashtext(org), hashtext('email:' || norm))`, then runs the
+   lookup as a **separate statement**, then inserts if absent (1 contact for 6 overlapping
+   callers in the same test). It is part of the BrainBase host migration, not the shared
+   DDL. Optional hardening, needing a product decision: a unique index on
+   `(organisation_id, lower(btrim(email)))` for `crm_contacts` (0 duplicates today).
+   On `contacts` (LD Tennis): lookup first, then `INSERT ... ON CONFLICT (organisation_id,
+   email) DO NOTHING RETURNING id`, re-select if nothing returned.
+5. Found: use it as is. **Never overwrite** the contact's name, phone or classification
+   from public input; the person who types an email is not authenticated.
+6. Every reservation stores a snapshot captured at booking time: name, email (as typed),
+   normalised email, phone, plus `contact_link` (`matched`, `created`, `none`) and
+   the timezone used. Later contact edits do not rewrite booking history. Comparing the
+   snapshot name with the contact's current name lets staff spot a different person on a
+   shared address without any automatic action.
 
-The new-contact status (`lead`, matching `/api/lead`) is an assumption for
-approval; in LD Tennis "Squad" means `active`, so a booking alone must not make
-someone a squad member.
+**Classification of a contact created by a public booking.** `crm_contacts`:
+`classification = 'LEAD'` (existing value; "known person, relationship not confirmed by
+staff"; mirrors LD Tennis, where the public enquiry creates `status = 'lead'` and only
+staff promote to `active`/squad). `contacts` (LD Tennis): `status = 'lead'`. A booking
+alone never produces `active`. `CLIENT` would assert an unconfirmed relationship,
+`EVENT_CONTACT` is Events-specific, `OTHER` is meaningless, NULL hides the person from
+classification filters. **Documented gap, not filled:** no existing value means "booked
+customer", and there is no first-class source field (Events uses an informal `notes`
+marker; scheduling writes `Scheduling / Public Booking` the same way). A distinct
+classification would be a CHECK-constraint change on `crm_contacts` and is not proposed.
 
 ## 4. Timezones and DST
+
+**Configuration (least disruptive, no duplicate settings).** Reuse the existing
+organisation column (nullable, no default, all NULL today); add one nullable `timezone` on
+the schedule as an override; remove `timezone` from scheduling settings. Resolution at read
+time: schedule, else organisation column, else `Australia/Adelaide`; no backfill (the NULL
+means "not configured" and the fallback already gives the intended answer). The
+organisation-level value is a host concept (BrainBase column; a standalone tenant table) that
+arrives through `TenantContext.timezone`, so the shared DDL carries only the schedule
+override and the per-row snapshot. Unrelated existing settings stay as they are: the per-user
+preference (`users.timezone`, default Adelaide) is a display setting, and each event has its
+own required timezone. Validation reuses the `Intl.supportedValuesOf('timeZone')` approach
+already in `packages/ticketing/src/validation.ts`, exposed once as `isIanaTimezone` in the
+core; offsets and abbreviations are rejected.
 
 - **Source of truth for the future is the local wall clock**: store
   `local_date`, `local_start_time`, `timezone` and the derived `starts_at` /
@@ -341,7 +376,7 @@ tables and its own host migration with the same shared scheduling DDL.
 
 | Table | Key columns | Constraints and notes |
 | --- | --- | --- |
-| `scheduling_settings` | `organisation_id` PK, `timezone` NULL, `currency`, `default_cancellation_policy` jsonb | IANA name validated on write; currency 3 upper letters |
+| `scheduling_settings` | `organisation_id` PK, `currency`, `default_cancellation_policy` jsonb | currency 3 upper letters; **no timezone column** (organisation timezone is host-owned, schedule override lives on the schedule) |
 | `scheduling_schedules` | `id`, `organisation_id`, `preset_key`, `name`, `public_slug`, `terminology` jsonb, `cancellation_policy` jsonb, `timezone` NULL, `config_version` int, `archived_at` | `UNIQUE(organisation_id, public_slug)`; `preset_key` CHECK against the six keys; `UNIQUE(id, organisation_id)` |
 | `scheduling_resources` | `id`, `organisation_id`, `kind`, `name`, `capacity`, `min_party` NULL, `active` | `capacity > 0`; organisation level, shared across schedules |
 | `scheduling_offerings` | `id`, `organisation_id`, `schedule_id`, `name`, `type_key`, `colour_key`, `duration_minutes` NULL, `capacity` NULL, `price_cents`, `currency`, recurrence columns, buffers, `min_notice_minutes`, `max_advance_days`, `duration_by_party` jsonb NULL, `checkin_time` / `checkout_time` NULL, `external_ref_kind` / `external_ref_id` NULL, `archived_at` | composite FK to schedules `(schedule_id, organisation_id)`; `price_cents >= 0` |
@@ -361,7 +396,7 @@ A change fails review if any item is false.
 | --- | --- | --- |
 | 1 | The shared scheduling DDL references no BrainBase table (`organisations`, `users`, `contacts`, `crm_contacts`, `bookings`, `sessions`, `session_instances`) | Static test over the shared migration files |
 | 2 | `organisation_id` is TEXT with no FK to a host table in the shared DDL; the FK to the host tenant table is added by a per-host migration | Same static test; host migration reviewed separately |
-| 3 | `customer_id` is plain nullable TEXT; the host adds its own FK (`contacts` for BrainBase) | Same |
+| 3 | `customer_id` is plain nullable TEXT with **no database foreign key** in the shared DDL: it must hold `crm_contacts` uuids, LD Tennis `contacts` text ids and standalone ids. Integrity is the adapter's organisation-scoped lookup plus the booking snapshot | Same |
 | 4 | Tenant integrity between scheduling tables uses composite `(id, organisation_id)` FKs inside the shared DDL | Real-Postgres test |
 | 5 | The core and the repository contract suite run with no host import | Existing boundary test; contract suite on real Postgres |
 | 6 | The same SQL file set applies to an empty database with only a host tenant table | CI job: empty Postgres + minimal host migration |
@@ -372,8 +407,8 @@ A change fails review if any item is false.
 ## 9. Phase 2 sequence (updated)
 
 - **2.0 Decisions and prerequisites** (no code): owner answers section 10;
-  confirm whether the F.2A organisation timezone column is applied in
-  Production; run the overbooking-detection query; disposable-branch check of
+  the F.2A organisation timezone column is confirmed present (all
+  NULL); run the overbooking-detection query; disposable-branch check of
   `btree_gist`, trigger-maintained counters and interactive-transaction support.
 - **Core update (small PR):** the Phase 1 core changes in section 2, with tests;
   still no database.
@@ -394,9 +429,11 @@ A change fails review if any item is false.
 ## 10. Outstanding approvals and open questions before 2A
 
 1. Approve the schedule-level preset model (section 2) over a preset on each offering.
-2. Which table is the scheduling customer table for non-tennis organisations:
-   `contacts` or `crm_contacts`? (section 3)
-3. Status given to a contact created by a public booking (`lead` assumed).
+2. **Recommended, confirm:** `crm_contacts` is the authoritative customer table; LD Tennis
+   resolves against `contacts` until a separately approved migration (section 3).
+3. **Recommended, confirm:** a contact created by a public booking is `LEAD` (`crm_contacts`)
+   / `status = 'lead'` (`contacts`). No existing value means "booked customer"; that gap is
+   documented, not filled.
 4. ~~Approve a disposable-branch verification~~ Partly done: the advisory-lock count trigger
    and interactive transactions (WebSocket `Pool`, pooled and direct) were verified on a
    disposable branch for the LD Tennis fix; `btree_gist` is available but an exclusion
@@ -404,7 +441,11 @@ A change fails review if any item is false.
    unproven. Approve the 2A rehearsal branch.
 5. Accept the first-release deferrals: automatic table combining, pooled hotel
    inventory and overbooking policy, waitlists.
-6. A duplicate-email audit of `contacts` so the functional unique index can be
-   proposed.
-7. Confirm where an organisation sets its timezone (scheduling settings in 2D,
-   or the organisation settings that F.2A anticipates).
+6. Done in part: `crm_contacts` has 0 duplicate-email groups; `contacts` has 1 (case
+   variants, LD Tennis). Choose find-or-create hardening: the host function (recommended, no CRM
+   schema change) or an optional unique index on `crm_contacts` (a CRM rule change).
+7. Approve: reuse `organisations.timezone` (exists in Production, all NULL) plus a schedule
+   override, with the read-time `Australia/Adelaide` fallback, and no timezone on scheduling
+   settings. The F.2A column is applied; only the setting surface (2D) is missing.
+8. Separately, outside scheduling: the Events CRM sync can create duplicate contacts when two
+   bookings by one new purchaser overlap (reproduced; findings section 1.5). Decide whether to fix.
