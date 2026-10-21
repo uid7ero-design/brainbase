@@ -1,6 +1,7 @@
 // Real Next server + real login/session/capability paths; disposable Postgres.
 // SQL-over-HTTP is a local wire adapter, not an HR/session response fixture.
-import { createServer } from 'node:http';
+import { createServer, request as proxyRequest } from 'node:http';
+import { createServer as createTlsServer } from 'node:https';
 import { spawn, execFileSync } from 'node:child_process';
 import { readFileSync, existsSync, renameSync, rmSync, mkdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -16,13 +17,18 @@ import { verifyHrSetup } from './helpers/hrLocalSetup.mjs';
 const root = process.cwd();
 if (!existsSync(path.join(root, 'scripts/create-hr-people.sql'))) throw new Error('Run from the repository worktree.');
 const name = `hr-full-local-${randomUUID().slice(0, 8)}`;
+const productionMode = process.argv.includes('--production');
+const contextOptions = productionMode ? { ignoreHTTPSErrors: true } : {};
 const nextDirectory = path.resolve(root, '.next');
-const devCache = path.resolve(nextDirectory, 'dev');
-const previousCache = path.resolve(nextDirectory, `${name}-previous-dev`);
-if (path.dirname(devCache) !== nextDirectory || path.dirname(previousCache) !== nextDirectory) throw new Error('Invalid local cache paths.');
-let cacheOwned = false, cacheBackedUp = false;
+const taskDirectory = path.resolve(root, `.${name}`);
+const buildCache = productionMode ? nextDirectory : path.resolve(nextDirectory, 'dev');
+const previousCache = productionMode ? path.join(taskDirectory, 'previous-next') : path.resolve(nextDirectory, `${name}-previous-dev`);
+if (path.dirname(taskDirectory) !== root || (productionMode
+  ? path.dirname(buildCache) !== root || path.dirname(previousCache) !== taskDirectory
+  : path.dirname(buildCache) !== nextDirectory || path.dirname(previousCache) !== nextDirectory)) throw new Error('Invalid local cache paths.');
+let cacheOwned = false, cacheBackedUp = false, taskOwned = false;
 const password = randomUUID();
-let pool, bridge, app, browser;
+let pool, bridge, app, browser, tlsProxy;
 let appOrigin;
 let logs = '';
 const exec = (command, args, options = {}) => execFileSync(command, args, { encoding: 'utf8', timeout: 120000, ...options });
@@ -30,9 +36,10 @@ const listen = server => new Promise(resolve => server.listen(0, '127.0.0.1', ()
 const close = server => new Promise(resolve => server?.close(resolve) ?? resolve());
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 try {
-  if (existsSync(path.join(devCache, 'lock'))) throw new Error('Close the existing Next development server before this proof.');
-  mkdirSync(nextDirectory, { recursive: true });
-  if (existsSync(devCache)) { renameSync(devCache, previousCache); cacheBackedUp = true; }
+  if (existsSync(path.join(nextDirectory, 'dev/lock')) || existsSync(path.join(nextDirectory, 'lock'))) throw new Error('Close the existing Next server/build before this proof.');
+  if (productionMode) { mkdirSync(taskDirectory); taskOwned = true; }
+  else mkdirSync(nextDirectory, { recursive: true });
+  if (existsSync(buildCache)) { renameSync(buildCache, previousCache); cacheBackedUp = true; }
   cacheOwned = true;
   console.log('Starting isolated full-app HR proof.');
   exec('docker', ['run', '-d', '--name', name, '-e', `POSTGRES_PASSWORD=${password}`, '-e', 'POSTGRES_DB=hrproof', '-p', '127.0.0.1::5432', 'postgres:16-alpine']);
@@ -49,10 +56,10 @@ try {
   // Prevent inherited credentials and dotenv settings from selecting live services.
   const env = { ...process.env, NODE_OPTIONS: '' };
   for (const key of Object.keys(env)) if (/TOKEN|SECRET|API_KEY|PASSWORD|DATABASE_URL|DIRECT_URL/i.test(key)) env[key] = '';
-  for (const file of ['.env', '.env.local', '.env.development', '.env.development.local']) {
+  for (const file of ['.env', '.env.local', '.env.development', '.env.development.local', ...(productionMode ? ['.env.production', '.env.production.local'] : [])]) {
     if (existsSync(file)) for (const match of readFileSync(file, 'utf8').matchAll(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/gm)) env[match[1]] = '';
   }
-  Object.assign(env, { DATABASE_URL: appDatabaseUrl, DIRECT_URL: databaseUrl, SESSION_SECRET: randomUUID() + randomUUID(), NODE_ENV: 'development', NEXT_TELEMETRY_DISABLED: '1', CHECKPOINT_DISABLE: '1', PRISMA_HIDE_UPDATE_MESSAGE: '1' });
+  Object.assign(env, { DATABASE_URL: appDatabaseUrl, DIRECT_URL: databaseUrl, SESSION_SECRET: randomUUID() + randomUUID(), NODE_ENV: productionMode ? 'production' : 'development', NEXT_TELEMETRY_DISABLED: '1', CHECKPOINT_DISABLE: '1', PRISMA_HIDE_UPDATE_MESSAGE: '1' });
   console.log('Applying repository Prisma schema to disposable database.');
   exec(process.execPath, ['node_modules/prisma/build/index.js', 'db', 'push', '--skip-generate'], { env });
   const q = (text, values) => pool.query(text, values);
@@ -153,19 +160,57 @@ try {
   console.log('PASS: fetch/SDK external egress and non-fixture SQL are rejected.');
   // Use the supported Webpack dev bundler: Windows Turbopack intermittently
   // omits nested routes even with a cold cache. Production builds stay unchanged.
-  app = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev', '--webpack', '--hostname', '127.0.0.1', '--port', String(appPort)], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  if (productionMode) {
+    console.log('Building optimized local production app with provider egress blocked.');
+    // Keep the parent event loop available for local SQL requests from static generation.
+    await new Promise((resolve, reject) => {
+      const build = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'build', '--webpack'], { env, stdio: 'inherit', windowsHide: true });
+      const timeout = setTimeout(() => {
+        if (process.platform === 'win32') { try { exec('taskkill', ['/PID', String(build.pid), '/T', '/F'], { stdio: 'ignore' }); } catch { /* exit handler reports failure */ } }
+        else build.kill('SIGKILL');
+      }, 600000);
+      build.once('error', error => { clearTimeout(timeout); reject(error); });
+      build.once('exit', code => {
+        clearTimeout(timeout);
+        if (code === 0) resolve();
+        else reject(new Error(`Local production build exited ${code}.`));
+      });
+    });
+  }
+  app = spawn(process.execPath, ['node_modules/next/dist/bin/next', productionMode ? 'start' : 'dev', ...(productionMode ? [] : ['--webpack']), '--hostname', '127.0.0.1', '--port', String(appPort)], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   for (const stream of [app.stdout, app.stderr]) stream.on('data', chunk => { logs = (logs + chunk).slice(-24000); });
-  const origin = `http://127.0.0.1:${appPort}`;
-  appOrigin = origin;
+  appOrigin = `http://127.0.0.1:${appPort}`;
+  let origin = appOrigin;
+  if (productionMode) {
+    const keyFile = path.join(taskDirectory, 'loopback.key');
+    const certFile = path.join(taskDirectory, 'loopback.crt');
+    const openssl = process.platform === 'win32' ? 'C:/Program Files/Git/usr/bin/openssl.exe' : 'openssl';
+    exec(openssl, ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', keyFile, '-out', certFile,
+      '-days', '1', '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1'], { env: { ...process.env, MSYS_NO_PATHCONV: '1' }, stdio: 'ignore' });
+    tlsProxy = createTlsServer({ key: readFileSync(keyFile), cert: readFileSync(certFile) }, (req, res) => {
+      const upstream = proxyRequest(`${appOrigin}${req.url}`, { method: req.method,
+        headers: { ...req.headers, 'x-forwarded-host': req.headers.host, 'x-forwarded-proto': 'https' } }, incoming => {
+        res.writeHead(incoming.statusCode, incoming.headers); incoming.pipe(res);
+      });
+      upstream.on('error', () => {
+        if (res.destroyed) return;
+        if (res.headersSent) { res.destroy(); return; }
+        res.writeHead(502); res.end();
+      });
+      res.once('close', () => upstream.destroy());
+      req.pipe(upstream);
+    });
+    origin = `https://127.0.0.1:${await listen(tlsProxy)}`;
+  }
   console.log('Starting real Next server with all external fetches blocked.');
   const readyDeadline = Date.now() + 120000;
   for (;;) {
-    try { if ((await fetch(`${origin}/login`, { signal: AbortSignal.timeout(5000) })).ok) break; } catch { /* startup */ }
+    try { if ((await fetch(`${appOrigin}/login`, { signal: AbortSignal.timeout(5000) })).ok) break; } catch { /* startup */ }
     if (app.exitCode !== null || Date.now() > readyDeadline) throw new Error('Local Next server did not become ready.');
     await sleep(1000);
   }
   browser = await chromium.launch();
-  const context = await browser.newContext();
+  const context = await browser.newContext(contextOptions);
   await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort('blockedbyclient'));
   const page = await context.newPage();
   await page.goto(`${origin}/login`);
@@ -180,6 +225,8 @@ try {
   console.log('Real login issued its session cookie. Checking actual HR routes.');
   const session = (await context.cookies()).find(cookie => cookie.name === 'session');
   assert.ok(session?.httpOnly); assert.equal(session.sameSite, 'Lax');
+  assert.equal(session.secure, productionMode); assert.equal(session.path, '/');
+  if (productionMode) assert.equal(await page.evaluate(() => document.cookie.includes('session=')), false);
   const people = await context.request.get(`${origin}/api/hr/people`);
   assert.equal(people.status(), 200);
   const payload = await people.json(); assert.equal(payload.canManage, true);
@@ -211,7 +258,7 @@ try {
   assert.equal(history.versions.length, 2); assert.equal(history.versions.filter(version => version.is_current).length, 1);
   const verification = await context.request.post(`${base}/versions/${replacementId}/verifications`, { data: { decision: 'VERIFIED' } });
   assert.equal(verification.status(), 201, await verification.text());
-  const employeeContext = await browser.newContext();
+  const employeeContext = await browser.newContext(contextOptions);
   await employeeContext.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort('blockedbyclient'));
   const employeePage = await employeeContext.newPage();
   await employeePage.goto(`${origin}/login`);
@@ -231,7 +278,7 @@ try {
   assert.equal((await employeeContext.request.post(`${base}/versions/${replacementId}/acknowledgements`)).status(), 201);
   assert.equal((await employeeContext.request.post(`${base}/versions/${replacementId}/verifications`, { data: { decision: 'VERIFIED' } })).status(), 403);
   assert.equal((await employeeContext.request.delete(base)).status(), 403);
-  const invalidContext = await browser.newContext();
+  const invalidContext = await browser.newContext(contextOptions);
   await invalidContext.addCookies([{ name: 'session', value: 'tampered-fixture-token', url: origin }]);
   assert.equal((await invalidContext.request.get(`${origin}/api/hr/people`)).status(), 401);
   await invalidContext.close();
@@ -242,7 +289,7 @@ try {
   assert.equal((await q('SELECT count(*)::int AS count FROM hr_employee_document_versions WHERE document_id=$1', [docId])).rows[0].count, 2);
   assert.equal(objects.size, 2);
   await verifyHrSetup({ origin, page, person, q });
-  await verifyRemainingWorkflows({ origin, context, page, employeeContext, employeePage, person, q, emails, cronSecret: env.CRON_SECRET, password, browser });
+  await verifyRemainingWorkflows({ origin, context, page, employeeContext, employeePage, person, q, emails, cronSecret: env.CRON_SECRET, password, browser, contextOptions });
   assert.equal((await employeeContext.request.post(`${origin}/api/auth/logout`)).status(), 200);
   assert.ok(!(await employeeContext.cookies()).some(cookie => cookie.name === 'session'));
   assert.equal((await employeeContext.request.get(`${origin}/api/hr/people`)).status(), 401);
@@ -260,6 +307,7 @@ try {
   console.error(error.stack); console.error(logs); process.exitCode = 1;
 } finally {
   await browser?.close();
+  tlsProxy?.closeAllConnections(); await close(tlsProxy);
   if (app?.pid) {
     if (process.platform === 'win32') { try { exec('taskkill', ['/PID', String(app.pid), '/T', '/F'], { stdio: 'ignore' }); } catch { /* verify the listener below */ } }
     else app.kill('SIGTERM');
@@ -270,9 +318,13 @@ try {
   }
   if (cacheOwned) {
     try {
-      rmSync(devCache, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
-      if (cacheBackedUp) renameSync(previousCache, devCache);
+      rmSync(buildCache, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      if (cacheBackedUp) renameSync(previousCache, buildCache);
     } catch { console.error(`Local cache cleanup failed; preserved cache path: ${previousCache}`); process.exitCode = 1; }
+  }
+  if (taskOwned && !existsSync(previousCache)) {
+    try { rmSync(taskDirectory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); }
+    catch { console.error(`Local fixture cleanup failed: ${taskDirectory}`); process.exitCode = 1; }
   }
   bridge?.closeAllConnections(); await close(bridge); await pool?.end();
   try { exec('docker', ['rm', '-f', name]); } catch { /* failed startup */ }

@@ -3,7 +3,7 @@ import { requireLifecycleWorkflowContext } from '@/lib/hr/lifecycleWorkflowRoute
 import { loadRegisterPage } from '@/lib/hr/registerPageQueries';
 import { parseRegisterQuery, HR_REGISTER_MAX_BYTES } from '@/lib/hr/registerPaging';
 
-export async function GET(request: Request = new Request('http://localhost/')) {
+export async function GET(request: Request) {
   try {
     const result = await requireLifecycleWorkflowContext();
     if (!result.ok) {
