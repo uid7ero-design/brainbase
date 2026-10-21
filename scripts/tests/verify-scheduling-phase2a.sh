@@ -43,7 +43,7 @@ URL="postgres://postgres:pw@127.0.0.1:${PORT}/postgres"
 echo "   version: $(docker exec "$NAME" psql -U postgres -Atc 'select version()' | cut -c1-40)"
 
 # A BrainBase-shaped host table (the real organisations.id is TEXT) and a sentinel that must survive everything.
-psql_c -c "CREATE TABLE organisations (id TEXT PRIMARY KEY, name TEXT); CREATE TABLE ld_sentinel (id int primary key, note text); INSERT INTO ld_sentinel VALUES (1, 'untouched');"
+psql_c -c "CREATE TABLE organisations (id TEXT PRIMARY KEY, name TEXT, slug TEXT); CREATE TABLE ld_sentinel (id int primary key, note text); INSERT INTO ld_sentinel VALUES (1, 'untouched');"
 
 step "1. preflight on an empty database (read-only)"
 # The Neon-role column of step 4 does not exist on plain Postgres; run each statement and expect only that one to differ.

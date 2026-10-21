@@ -1,8 +1,7 @@
 import { Client } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { PostgresReservationRepository, fromPgLike } from '@scheduling/postgres';
 import type { CreateReservationResult } from '@scheduling/core';
-import { FixedClock, TEST_URL, closePool, count, ensureSchema, getPool, hasDatabase, resetData, seedClass, seedOccurrence, seedResource, staff } from './support/pgHarness';
+import { TEST_URL, closePool, count, ensureSchema, getPool, hasDatabase, resetData, seedClass, seedOccurrence, seedResource, staff } from './support/pgHarness';
 import { classBooking, liveHolds, makeWorld, person, slotBooking, stayBooking, type World } from './support/builders';
 
 // Real concurrency: every call below goes through pg.Pool, so each racer is its own connection
@@ -10,6 +9,7 @@ import { classBooking, liveHolds, makeWorld, person, slotBooking, stayBooking, t
 // one transaction, no interactive transaction available).
 
 const ORG = 'org-c';
+const POOLED_HOST = /-pooler./.test(TEST_URL); // PgBouncer multiplexes sessions, so session-state tests are direct-host only
 let w: World;
 const wins = (rs: CreateReservationResult[]) => rs.filter(r => r.ok).length;
 const reasons = (rs: CreateReservationResult[]) => rs.filter(r => !r.ok).map(r => (r as { reason: string }).reason);
@@ -270,29 +270,43 @@ describe.skipIf(!hasDatabase)('concurrency (database-enforced)', () => {
       }
     });
 
-    it('with a lock_timeout the waiter fails with a RAW 55P03 (never disguised as a business refusal) and nothing is written', async () => {
+    it('the function-level lock_timeout bounds a stuck waiter: it fails with a RAW 55P03 (never a business refusal) and writes nothing', async () => {
+      // No session setting is used on purpose: the Neon HTTP driver and PgBouncer cannot carry one.
       await seedClass(ORG, { schedule: 'sc', offering: 'of', occurrence: 'oc' }, 5);
       const holder = new Client({ connectionString: TEST_URL });
-      const waiter = new Client({ connectionString: TEST_URL });
       await holder.connect();
-      await waiter.connect();
       try {
-        await waiter.query("SET lock_timeout = '250ms'");
-        const strictRepo = new PostgresReservationRepository({ sql: fromPgLike(waiter), clock: new FixedClock() });
         await holder.query('BEGIN');
         await holder.query("SELECT pg_advisory_xact_lock(hashtextextended('scheduling_capacity:' || $1 || ':oc', 0))", [ORG]);
-        await expect(strictRepo.create(w.staff, classBooking('oc', { schedule: 'sc', offering: 'of' }))).rejects.toMatchObject({ code: '55P03' });
+        const started = Date.now();
+        await expect(w.repo.create(w.staff, classBooking('oc', { schedule: 'sc', offering: 'of' }))).rejects.toMatchObject({ code: '55P03' });
+        const waited = Date.now() - started;
+        expect(waited).toBeGreaterThanOrEqual(4500);
+        expect(waited).toBeLessThan(15000);
         await holder.query('ROLLBACK');
         expect(await count('SELECT count(*) FROM scheduling_reservations')).toBe(0);
-        // the connection is still usable, and the same call now succeeds
-        expect((await strictRepo.create(w.staff, classBooking('oc', { schedule: 'sc', offering: 'of' }))).ok).toBe(true);
+        expect((await w.repo.create(w.staff, classBooking('oc', { schedule: 'sc', offering: 'of' }))).ok).toBe(true); // recovers
       } finally {
         await holder.end();
-        await waiter.end();
       }
-    });
+    }, 30000);
 
-    it('refuses to run under REPEATABLE READ: the capacity count would use a stale snapshot', async () => {
+    it('the same bound applies to the per-resource lock', async () => {
+      const holder = new Client({ connectionString: TEST_URL });
+      await holder.connect();
+      try {
+        await holder.query('BEGIN');
+        await holder.query("SELECT pg_advisory_xact_lock(hashtextextended('scheduling_resource:' || $1 || ':court-1', 0))", [ORG]);
+        await expect(w.repo.create(w.staff, slotBooking('court-1', '2026-12-07', '16:00', 60, w.hire))).rejects.toMatchObject({ code: '55P03' });
+        await holder.query('ROLLBACK');
+        expect(await count('SELECT count(*) FROM scheduling_reservations')).toBe(0);
+      } finally {
+        await holder.end();
+      }
+    }, 30000);
+
+    // Needs a real session (BEGIN ISOLATION LEVEL ...), which PgBouncer transaction pooling does not keep.
+    it.skipIf(POOLED_HOST)('refuses to run under REPEATABLE READ: the capacity count would use a stale snapshot', async () => {
       await seedClass(ORG, { schedule: 'sc', offering: 'of', occurrence: 'oc' }, 5);
       const c = new Client({ connectionString: TEST_URL });
       await c.connect();
@@ -311,7 +325,7 @@ describe.skipIf(!hasDatabase)('concurrency (database-enforced)', () => {
     });
   });
 
-  it('the pool really is concurrent (guards the guard): 30 connections were in use at once', async () => {
+  it.skipIf(POOLED_HOST)('the pool really is concurrent (guards the guard): 10 distinct backend connections at once', async () => {
     const pool = getPool();
     const clients = await Promise.all(range(10).map(() => pool.connect()));
     const pids = new Set((await Promise.all(clients.map(c => c.query('SELECT pg_backend_pid() AS pid')))).map(r => r.rows[0].pid));

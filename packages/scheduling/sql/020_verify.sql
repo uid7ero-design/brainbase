@@ -22,7 +22,7 @@ SELECT (SELECT count(*) FROM information_schema.tables WHERE table_schema = 'pub
 -- 4. The exclusion constraint exists, is partial, and covers organisation + resource + range.
 SELECT conname, pg_get_constraintdef(oid) AS definition
   FROM pg_constraint WHERE conrelid = 'scheduling_resource_holds'::regclass AND contype = 'x';
--- EXPECTED: scheduling_holds_no_overlap ... EXCLUDE USING gist (organisation_id WITH =, resource_id WITH =, during WITH &&) WHERE (released_at IS NULL)
+-- EXPECTED: scheduling_holds_no_overlap ... EXCLUDE USING gist (organisation_id WITH =, resource_id WITH =, during WITH &&) WHERE ((released_at IS NULL))
 
 -- 5. btree_gist is installed.
 SELECT e.extname, e.extversion, n.nspname AS schema

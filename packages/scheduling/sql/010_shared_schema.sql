@@ -38,6 +38,11 @@
 --     Refusal: SQLSTATE SCCAP.
 --   * Exclusive resources: one EXCLUDE USING gist constraint on scheduling_resource_holds
 --     (organisation_id, resource_id, during &&) WHERE released_at IS NULL. Refusal: 23P01.
+--   * Timeouts: the four functions that can WAIT (capacity guard, hold serialiser, occurrence guard,
+--     cancel_occurrence) carry SET lock_timeout = '5s' on the function itself. The Neon HTTP driver and
+--     PgBouncer (transaction mode) cannot hold per-session settings, so a caller-side SET would silently
+--     not apply; a function-level setting always does. A waiter that exceeds it fails with SQLSTATE 55P03,
+--     which the adapter deliberately leaves UNMAPPED (an operational error, never a business refusal).
 --   * A reservation holds EITHER an occurrence (headcount) OR a resource (exclusive), never
 --     both (CHECK), so the two lock families are disjoint and cannot form a cycle.
 --
@@ -416,7 +421,7 @@ CREATE INDEX IF NOT EXISTS scheduling_holds_occurrence_idx ON scheduling_resourc
 
 -- BEFORE INSERT on reservations: capacity, occurrence state and resource state.
 CREATE OR REPLACE FUNCTION scheduling_reservation_guard() RETURNS trigger
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql SET lock_timeout = '5s' AS $$
 DECLARE
   occ        record;
   res_active boolean;
@@ -577,7 +582,7 @@ $$;
 -- (a reservation targets an occurrence XOR a resource), so no cycle between them exists. A future
 -- statement that inserts several holds MUST insert them in resource_id order.
 CREATE OR REPLACE FUNCTION scheduling_hold_serialise() RETURNS trigger
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql SET lock_timeout = '5s' AS $$
 BEGIN
   IF NEW.released_at IS NULL THEN
     PERFORM pg_advisory_xact_lock(hashtextextended('scheduling_resource:' || NEW.organisation_id || ':' || NEW.resource_id, 0));
@@ -589,7 +594,7 @@ $$;
 -- BEFORE UPDATE on occurrences: only status and capacity may change; lowering capacity below
 -- the live headcount is refused under the same advisory lock the booking guard uses.
 CREATE OR REPLACE FUNCTION scheduling_occurrence_guard() RETURNS trigger
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql SET lock_timeout = '5s' AS $$
 DECLARE
   live_count bigint;
 BEGIN
@@ -636,7 +641,7 @@ $$;
 -- occurrence update waited is still caught by the second statement.
 CREATE OR REPLACE FUNCTION scheduling_cancel_occurrence(p_org text, p_occurrence text, p_reason text)
 RETURNS text[]
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql SET lock_timeout = '5s' AS $$
 DECLARE
   closed int;
   ids    text[];

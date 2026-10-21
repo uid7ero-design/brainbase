@@ -35,7 +35,7 @@ async function ownInventory(): Promise<{ tables: number; functions: number; trig
 
 describe.skipIf(!hasDatabase)('migration safety', () => {
   beforeAll(async () => {
-    await q('CREATE TABLE IF NOT EXISTS organisations (id TEXT PRIMARY KEY, name TEXT)');
+    await q('CREATE TABLE IF NOT EXISTS organisations (id TEXT PRIMARY KEY, name TEXT, slug TEXT)');
     await q('CREATE TABLE IF NOT EXISTS phase2a_sentinel (id int primary key, note text)');
     await q("INSERT INTO phase2a_sentinel VALUES (1, 'must survive') ON CONFLICT DO NOTHING");
     await ensureSchema();
@@ -112,8 +112,14 @@ describe.skipIf(!hasDatabase)('migration safety', () => {
 
       // a scheduling row for an organisation that does not exist is now refused; a real one is fine
       await expect(seedSchedule('host-missing', uid('s'))).rejects.toMatchObject({ code: '23503' });
-      await q("INSERT INTO organisations VALUES ('host-real', 'Real')");
-      await seedSchedule('host-real', uid('s'));
+      // Use an organisation that already exists (a real BrainBase copy has several, with columns this
+      // test must not know about); only the throwaway stub used on plain Postgres gets one inserted.
+      let real = (await q('SELECT id FROM organisations LIMIT 1')).rows[0]?.id as string | undefined;
+      if (!real) {
+        await q("INSERT INTO organisations (id, name, slug) VALUES ('host-real', 'Real', 'host-real')");
+        real = 'host-real';
+      }
+      await seedSchedule(real, uid('s'));
 
       await resetData();
       await runScript(hostSqlFile('190_brainbase_host_rollback.sql'));

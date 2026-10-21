@@ -121,3 +121,10 @@ tickets it uses Events; scheduling never grows a second ticketing system.
 ## Tests
 
 `npx vitest run --project packages` from the repository root.
+
+## Database foundation (Phase 2A)
+
+`sql/` holds the shared, host-free schema (`001_preflight`, `010_shared_schema`, `020_verify`, `090_rollback`).
+It is applied manually (see `docs/architecture/scheduling-phase2a-migration-package.md`) and is not applied anywhere
+yet. The persistence adapter is `packages/scheduling-postgres` (`@scheduling/postgres`). Real-Postgres suites:
+`bash scripts/tests/verify-scheduling-phase2a.sh [16|17]` (disposable Docker container).
