@@ -247,3 +247,21 @@ real paid checkout through Eve. Decision: add an explicit, fail-closed server-si
 The legal version is now `2026-10-21` and the last-updated date `21 October 2026`; the
 approved text is unchanged. `EVE_LEGAL_PUBLISHED` stays unset, so Production legal pages
 still render "Not yet published".
+
+## 9. Eve sender domain and Reply-To (2026-10-21)
+
+Eve buyer email is sent by BrainBase (one Resend account, one `sendEmail()`), from
+`EVE_EMAIL_FROM`. The target sender is `Eve <tickets@mail.eveevents.com.au>` (Resend domain
+`mail.eveevents.com.au`, verified); the previous `eve-mail.thebrainbase.com.au` domain stays
+verified as the rollback until Production is proven on the new one.
+
+Replies to a transactional sender address would go nowhere, so an Eve buyer email now carries
+`Reply-To: <EVE_SUPPORT_EMAIL>`:
+
+- `sendEmail()` gained an optional `replyTo` (sent as Resend `reply_to` only when passed; no
+  default, no env source). BrainBase and LD Tennis callers do not pass it, so their request body is
+  unchanged.
+- `resolveBuyerProduct` sets `replyTo` for Eve orders only, from `EVE_SUPPORT_EMAIL` under the same
+  validation as the footer Support link (real address, not a placeholder domain). A missing or
+  malformed value yields no Reply-To — never a BrainBase address — and does not block the send.
+- Only the two Eve-aware send sites (`ticketEmail.ts`, `notificationDelivery.ts`) forward it.

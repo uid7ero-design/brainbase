@@ -14,7 +14,8 @@ import { eveLinkBase, productSurfaceFromRow, type ProductSurface } from '@/lib/e
 // path). This module only decides, per product:
 //   - the link base buyer links are built on (ticket, booking wallet);
 //   - the shell presentation (wordmark / copyright line);
-//   - the sender (From). No Reply-To is set for any product.
+//   - the sender (From) and, for Eve only, the Reply-To (the validated
+//     EVE_SUPPORT_EMAIL); BrainBase orders never carry a Reply-To.
 //
 // Links/branding and sender enablement are separate failure domains, so an
 // operator can have one without the other:
@@ -31,9 +32,18 @@ export function eveFooterLinks(linkBase: string, supportEmail: string | undefine
     { label: 'Privacy', url: `${linkBase}/privacy` },
     { label: 'Refunds & cancellations', url: `${linkBase}/refunds` },
   ];
-  const s = (supportEmail ?? '').trim();
-  if (/^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(s) && !PLACEHOLDER_DOMAIN.test(s.split('@')[1])) links.push({ label: 'Support', url: `mailto:${s}` });
+  const s = validEveSupportEmail(supportEmail);
+  if (s) links.push({ label: 'Support', url: `mailto:${s}` });
   return links;
+}
+
+// The configured Eve support address, or null when missing, malformed or on a
+// placeholder domain. One rule for the footer Support link and the Reply-To, so
+// both appear together or not at all.
+export function validEveSupportEmail(raw: string | undefined): string | null {
+  const s = (raw ?? '').trim();
+  if (/^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(s) && !PLACEHOLDER_DOMAIN.test(s.split('@')[1])) return s;
+  return null;
 }
 
 export type BuyerProductFailureCode = 'EVE_LINK_BASE_UNAVAILABLE' | 'EVE_SENDER_UNCONFIGURED';
@@ -47,6 +57,10 @@ export type BuyerProductContext = {
   presentation: EmailProductPresentation | null;
   // null => sendEmail()'s default sender (BrainBase).
   from: string | null;
+  // Reply-To for the product's buyer emails. null => none is sent (BrainBase
+  // default, or an Eve deployment with no valid EVE_SUPPORT_EMAIL — never a
+  // BrainBase address).
+  replyTo: string | null;
 };
 
 export type BuyerProductResult =
@@ -56,7 +70,7 @@ export type BuyerProductResult =
 // The BrainBase context — exactly what every buyer email used before this
 // phase: BASE_URL links, default shell, default sender.
 export function brainbaseBuyerContext(): BuyerProductContext {
-  return { surface: 'BRAINBASE', linkBase: BASE_URL, presentation: null, from: null };
+  return { surface: 'BRAINBASE', linkBase: BASE_URL, presentation: null, from: null, replyTo: null };
 }
 
 const PLACEHOLDER_DOMAIN = /(^|\.)(invalid|test|example|localhost|local)$/i;
@@ -109,6 +123,7 @@ export function resolveBuyerProduct(rowSurface: unknown): BuyerProductResult {
       linkBase: links.publicBaseUrl,
       presentation: { wordmark: 'EVE', footerName: 'Eve', footerLinks: eveFooterLinks(links.publicBaseUrl, process.env.EVE_SUPPORT_EMAIL) },
       from,
+      replyTo: validEveSupportEmail(process.env.EVE_SUPPORT_EMAIL),
     },
   };
 }

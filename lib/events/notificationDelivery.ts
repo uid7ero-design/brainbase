@@ -320,6 +320,7 @@ async function sendLifecycleEmail(to: string, email: { subject: string; html: st
     const sent = await sendEmail({
       to, subject: email.subject, html: email.html, text: email.text, idempotencyKey,
       ...(product.from ? { from: product.from } : {}),
+      ...(product.replyTo ? { replyTo: product.replyTo } : {}),
     });
     if (sent.status === 'not_configured') return { result: 'not_configured' };
     return { result: 'sent', providerMessageId: sent.id };
