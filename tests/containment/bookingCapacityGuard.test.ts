@@ -211,6 +211,14 @@ describe('locking discipline: no booking write path bypasses the guard handling'
     });
   }
 
+  it('no insert-site file can send an email, take a payment or notify: a refused booking has no side effect to undo', () => {
+    for (const f of sites) {
+      const src = read(f);
+      expect(src, f).not.toMatch(/from '[^']*(email|resend|stripe|notif|payment)[^']*'/i);
+      expect(src, f).not.toMatch(/\b(sendEmail|sendMail|stripe\.|resend\.|notify\w*\()/i);
+    }
+  });
+
   it('recurring propagation reaches the guard through the same insert in lib/tennisRecurrence.ts (reconcile, pause-clear, weekly toggle and generate all call it)', () => {
     for (const f of ['lib/tennisSchedule.ts', 'app/api/dashboard/enrolments/[id]/route.ts', 'app/api/dashboard/enrolments/[id]/pause/route.ts']) {
       expect(read(f), f).toMatch(/tennisRecurrence/);
@@ -257,6 +265,11 @@ describe('scripts/add-booking-capacity-guard.sql', () => {
     expect(code).toMatch(/WHERE session_instance_id = NEW\.session_instance_id\s+AND status != 'cancelled'/);
     expect(code).toMatch(/NEW\.session_instance_id IS NULL OR NEW\.status IS NOT DISTINCT FROM 'cancelled'/);
     expect(code).toMatch(/live_count >= instance_capacity/);
+  });
+
+  it('fails closed under REPEATABLE READ with its own SQLSTATE', () => {
+    expect(code).toMatch(/current_setting\('transaction_isolation'\) = 'repeatable read'/);
+    expect(code).toMatch(/ERRCODE = 'BKISO'/);
   });
 
   it('is additive: no table, column, index, constraint or row is changed or removed', () => {

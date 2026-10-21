@@ -34,6 +34,23 @@
 --     instance (verified by search), so inserts are the only way the count grows.
 -- The error carries SQLSTATE 'BKCAP' (lib/bookingCapacity.ts maps it to the existing 409s).
 --
+-- ISOLATION: correctness relies on READ COMMITTED (the default, and what every booking path uses:
+-- plain autocommit statements, or sql.transaction with ReadCommitted). Under REPEATABLE READ the
+-- transaction keeps its first snapshot, so the count taken after the lock wait could be stale and
+-- admit an extra booking. The guard therefore REFUSES to run in a REPEATABLE READ transaction
+-- (SQLSTATE 'BKISO') instead of silently weakening the guarantee. SERIALIZABLE is not used by any
+-- booking path and is not covered by the tests.
+--
+-- LOCKING: the advisory lock is the only lock the guard takes. It never takes a row lock on
+-- session_instances or bookings, and no booking-writing transaction in the application also
+-- updates instances or bookings, so the guard cannot take part in a lock-ordering cycle. The key is
+-- hashtextextended('booking_capacity:' || instance_id, 0): a 64-bit hash with a prefix no other
+-- advisory lock in the application uses; a (vanishingly unlikely) collision between two instances
+-- would only make their inserts queue behind each other, never admit a wrong booking.
+-- A manual SQL session that INSERTs a booking and then idles in an open transaction holds the lock
+-- for that instance until it ends; booking inserts for that one instance would wait. All
+-- application paths are single statements.
+--
 -- PRE-CHECK (read-only; lists instances ALREADY over capacity. The guard does not touch
 -- them, it only blocks further inserts into them):
 --   SELECT si.id, si.date, si.max_capacity,
@@ -61,6 +78,11 @@ DECLARE
 BEGIN
   IF NEW.session_instance_id IS NULL OR NEW.status IS NOT DISTINCT FROM 'cancelled' THEN
     RETURN NEW;
+  END IF;
+
+  IF current_setting('transaction_isolation') = 'repeatable read' THEN
+    RAISE EXCEPTION 'booking_capacity_guard requires READ COMMITTED'
+      USING ERRCODE = 'BKISO';
   END IF;
 
   PERFORM pg_advisory_xact_lock(hashtextextended('booking_capacity:' || NEW.session_instance_id, 0));

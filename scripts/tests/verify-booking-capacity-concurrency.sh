@@ -28,10 +28,13 @@ MODE="${1:-both}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 GUARD_SQL="$REPO_ROOT/scripts/add-booking-capacity-guard.sql"
 TEST_FILE="scripts/tests/bookingCapacityConcurrency.integration.test.ts"
-CONTAINERS=()
+CONTAINER_LIST="$(mktemp)"
 
 cleanup() {
-  for c in "${CONTAINERS[@]:-}"; do [ -n "$c" ] && docker rm -f "$c" >/dev/null 2>&1 || true; done
+  if [ -f "$CONTAINER_LIST" ]; then
+    while read -r c; do [ -n "$c" ] && docker rm -f "$c" >/dev/null 2>&1 || true; done < "$CONTAINER_LIST"
+    rm -f "$CONTAINER_LIST"
+  fi
 }
 trap cleanup EXIT
 
@@ -102,7 +105,9 @@ run_phase() {
   local phase="$1" expect_guard="$2"
   local container="booking-capacity-harness-${phase}-$$"
   local port=$((20000 + RANDOM % 20000))
-  CONTAINERS+=("$container")
+  # Recorded in a file, not an array: run_phase executes inside $(...) so array appends would be lost
+  # and the EXIT trap would leak the container.
+  echo "$container" >> "$CONTAINER_LIST"
 
   echo "[$phase] starting disposable postgres:16-alpine ($container) on host port $port..."
   docker run -d --name "$container" -e POSTGRES_PASSWORD=test -e POSTGRES_DB=testdb \

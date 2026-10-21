@@ -311,3 +311,151 @@ describe('LD Tennis booking capacity under concurrent requests (real Postgres)',
     expect(rows[0].c).toBe(GUARD_EXPECTED ? 1 : 0);
   });
 });
+
+// ─── Safety properties of the guard itself (only meaningful when the guard is installed) ──────
+
+const errorCode = (err: unknown): string | undefined =>
+  (err as { meta?: { code?: string } })?.meta?.code ?? (err as { code?: string })?.code;
+
+describe.skipIf(!GUARD_EXPECTED)('booking capacity guard: safety properties (real Postgres)', () => {
+  it('fails closed under REPEATABLE READ (BKISO) and works under READ COMMITTED and SERIALIZABLE', async () => {
+    const { sessionId, instanceId } = await freshInstance(5);
+    const insert = (tx: { $executeRawUnsafe: (q: string, ...v: unknown[]) => Promise<number> }, id: string) =>
+      tx.$executeRawUnsafe(
+        `INSERT INTO bookings (id, organisation_id, session_id, session_instance_id, client_name, date, time, session_type, status) VALUES ($1, $2, $3, $4, 'Iso', '2026-12-07', '16:00', 'X', 'confirmed')`,
+        id, ORG, sessionId, instanceId);
+
+    let rr: string | undefined;
+    try { await prisma.$transaction(tx => insert(tx, `iso-rr-${++seq}`), { isolationLevel: 'RepeatableRead' }); } catch (e) { rr = errorCode(e); }
+    expect(rr).toBe('BKISO');
+    await prisma.$transaction(tx => insert(tx, `iso-rc-${++seq}`), { isolationLevel: 'ReadCommitted' });
+    await prisma.$transaction(tx => insert(tx, `iso-ser-${++seq}`), { isolationLevel: 'Serializable' });
+    expect(await liveCount(instanceId)).toBe(2);
+  });
+
+  it('coexists with other INSERT triggers: a BEFORE trigger that edits the row and an AFTER trigger that writes elsewhere both run, and capacity still holds under concurrency', async () => {
+    await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS booking_audit_probe (booking_id text, seen_notes text)`);
+    await prisma.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION a_probe_before() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW.notes := 'touched-by-before'; RETURN NEW; END $$`);
+    await prisma.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION z_probe_after() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN INSERT INTO booking_audit_probe VALUES (NEW.id, NEW.notes); RETURN NEW; END $$`);
+    await prisma.$executeRawUnsafe(`CREATE TRIGGER a_probe_before BEFORE INSERT ON bookings FOR EACH ROW EXECUTE FUNCTION a_probe_before()`);
+    await prisma.$executeRawUnsafe(`CREATE TRIGGER z_probe_after AFTER INSERT ON bookings FOR EACH ROW EXECUTE FUNCTION z_probe_after()`);
+    try {
+      const { instanceId } = await freshInstance(3);
+      const results = await Promise.all(Array.from({ length: 12 }, (_, i) =>
+        publicBook(req('http://localhost/x', { session_instance_id: instanceId, name: `T${i}`, email: `trig_${i}@example.com` }))));
+      const by = await statuses(results);
+      expect(await liveCount(instanceId), JSON.stringify(by)).toBe(3);
+      expect(by[201]).toBe(3);
+      expect(Object.keys(by).sort()).toEqual(['201', '409']);
+      const audit = await prisma.$queryRawUnsafe<{ c: number; touched: number }[]>(
+        `SELECT COUNT(*)::int AS c, COUNT(*) FILTER (WHERE seen_notes = 'touched-by-before')::int AS touched FROM booking_audit_probe a JOIN bookings b ON b.id = a.booking_id WHERE b.session_instance_id = $1`, instanceId);
+      expect(audit[0]).toEqual({ c: 3, touched: 3 }); // both foreign triggers ran for exactly the 3 admitted rows
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS a_probe_before ON bookings`);
+      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS z_probe_after ON bookings`);
+      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS a_probe_before()`);
+      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS z_probe_after()`);
+      await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS booking_audit_probe`);
+    }
+  });
+
+  it('a multi-row INSERT ... SELECT cannot exceed capacity: the whole statement is refused and nothing is inserted', async () => {
+    const { sessionId, instanceId } = await freshInstance(2);
+    let code: string | undefined;
+    try {
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO bookings (id, organisation_id, session_id, session_instance_id, client_name, date, time, session_type, status)
+         SELECT 'multi-' || g, $1, $2, $3, 'Multi ' || g, '2026-12-07', '16:00', 'X', 'confirmed' FROM generate_series(1, 4) g`,
+        ORG, sessionId, instanceId);
+    } catch (e) { code = errorCode(e); }
+    expect(code).toBe('BKCAP');
+    expect(await liveCount(instanceId)).toBe(0);
+  });
+
+  it('ON CONFLICT DO NOTHING (recurring lineage): a duplicate on a non-full instance is a silent no-op; on a full instance the guard refuses it', async () => {
+    const { sessionId, instanceId } = await freshInstance(2);
+    const upsert = (id: string) => prisma.$queryRawUnsafe<{ id: string }[]>(
+      `INSERT INTO bookings (id, organisation_id, session_id, session_instance_id, client_name, date, time, session_type, status, is_recurring, recurring_group_id)
+       VALUES ($1, $2, $3, $4, 'Lineage', '2026-12-07', '16:00', 'X', 'confirmed', true, 'grp-same')
+       ON CONFLICT (session_instance_id, recurring_group_id) WHERE status != 'cancelled' AND recurring_group_id IS NOT NULL DO NOTHING RETURNING id`,
+      id, ORG, sessionId, instanceId);
+    expect(await upsert(`lin-a-${++seq}`)).toHaveLength(1);
+    expect(await upsert(`lin-b-${++seq}`)).toHaveLength(0); // 1 of 2 places used: conflict path, no error
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO bookings (id, organisation_id, session_id, session_instance_id, client_name, date, time, session_type, status) VALUES ($1, $2, $3, $4, 'Fill', '2026-12-07', '16:00', 'X', 'confirmed')`,
+      `lin-fill-${++seq}`, ORG, sessionId, instanceId);
+    let code: string | undefined;
+    try { await upsert(`lin-c-${++seq}`); } catch (e) { code = errorCode(e); }
+    expect(code).toBe('BKCAP'); // full: the guard fires before the conflict check
+    expect(await liveCount(instanceId)).toBe(2);
+  });
+
+  it('an archive-style transaction (cancel bookings, then update the instance) racing with bookings: no deadlock, capacity holds', async () => {
+    for (let round = 0; round < 3; round++) {
+      const { sessionId, instanceId } = await freshInstance(3, 2);
+      const work: Promise<unknown>[] = [];
+      for (let i = 0; i < 10; i++) {
+        work.push(publicBook(req('http://localhost/x', { session_instance_id: instanceId, name: `AR${i}`, email: `ar${round}_${i}@example.com` })));
+        if (i % 2 === 0) {
+          work.push(prisma.$transaction([
+            prisma.$executeRawUnsafe(`UPDATE bookings SET status = 'cancelled' WHERE session_instance_id = $1 AND client_name LIKE 'Pre %'`, instanceId),
+            prisma.$executeRawUnsafe(`UPDATE session_instances SET status = status, max_capacity = 3 WHERE id = $1`, instanceId),
+          ]));
+        }
+      }
+      const settled = await Promise.allSettled(work);
+      const rejected = settled.filter(s => s.status === 'rejected').map(s => String((s as PromiseRejectedResult).reason));
+      expect(rejected, `round ${round}`).toEqual([]);
+      expect(await liveCount(instanceId)).toBeLessThanOrEqual(3);
+      void sessionId;
+    }
+  });
+
+  it('a cancel racing with inserts on a full instance never lets the live count exceed capacity', async () => {
+    for (let round = 0; round < 4; round++) {
+      const { instanceId } = await freshInstance(2, 2);
+      const work: Promise<unknown>[] = [];
+      work.push(prisma.$executeRawUnsafe(`UPDATE bookings SET status = 'cancelled' WHERE session_instance_id = $1 AND client_name = 'Pre 0'`, instanceId));
+      for (let i = 0; i < 8; i++) work.push(publicBook(req('http://localhost/x', { session_instance_id: instanceId, name: `CR${i}`, email: `cr${round}_${i}@example.com` })));
+      const settled = await Promise.allSettled(work);
+      expect(settled.filter(s => s.status === 'rejected')).toHaveLength(0);
+      expect(await liveCount(instanceId), `round ${round}`).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it('rollback removes only the guard: every other trigger, function, table and index is untouched', async () => {
+    const inventory = async () => {
+      const q = async (sql: string) => (await prisma.$queryRawUnsafe<{ n: string }[]>(sql)).map(r => r.n).sort().join('|');
+      return {
+        functions: await q(`SELECT p.proname || '/' || pg_get_function_identity_arguments(p.oid) AS n FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace WHERE ns.nspname = 'public'`),
+        triggers: await q(`SELECT tgrelid::regclass::text || '.' || tgname AS n FROM pg_trigger WHERE NOT tgisinternal`),
+        tables: await q(`SELECT tablename AS n FROM pg_tables WHERE schemaname = 'public'`),
+        indexes: await q(`SELECT indexname AS n FROM pg_indexes WHERE schemaname = 'public'`),
+        constraints: await q(`SELECT conrelid::regclass::text || '.' || conname AS n FROM pg_constraint WHERE connamespace = 'public'::regnamespace`),
+      };
+    };
+    const withGuard = await inventory();
+    expect(withGuard.triggers).toContain('bookings.bookings_capacity_guard');
+    expect(withGuard.functions).toContain('booking_capacity_guard/');
+
+    await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS bookings_capacity_guard ON public.bookings`);
+    await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS public.booking_capacity_guard()`);
+    const without = await inventory();
+
+    const minus = (a: string, b: string) => a.split('|').filter(x => x && !b.split('|').includes(x));
+    expect(minus(withGuard.triggers, without.triggers)).toEqual(['bookings.bookings_capacity_guard']);
+    expect(minus(withGuard.functions, without.functions)).toEqual(['booking_capacity_guard/']);
+    expect(minus(without.triggers, withGuard.triggers)).toEqual([]);
+    expect(minus(without.functions, withGuard.functions)).toEqual([]);
+    expect(without.tables).toBe(withGuard.tables);
+    expect(without.indexes).toBe(withGuard.indexes);
+    expect(without.constraints).toBe(withGuard.constraints);
+
+    // behaviour returns to the pre-fix state: a booking beyond capacity is accepted again
+    const { sessionId, instanceId } = await freshInstance(1, 1);
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO bookings (id, organisation_id, session_id, session_instance_id, client_name, date, time, session_type, status) VALUES ($1, $2, $3, $4, 'Over', '2026-12-07', '16:00', 'X', 'confirmed')`,
+      `rb-${++seq}`, ORG, sessionId, instanceId);
+    expect(await liveCount(instanceId)).toBe(2);
+  });
+});
