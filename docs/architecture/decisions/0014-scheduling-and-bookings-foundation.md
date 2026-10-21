@@ -94,18 +94,14 @@ by the adapter but is not seeded in `modules` and is checked nowhere.
 See the baseline document for pre-existing defects found during discovery that
 affect Phase 2 design.
 
-## 7. Amendment (2026-10-21): multiple presets per organisation
+## 7. Amendment (2026-10-21): multiple presets per organisation (implemented)
 
-The owner approved the Phase 2 defaults with one refinement that changes
-section 2.2 and the Phase 1 consequences note: **an organisation may run more
-than one preset**. The preset therefore belongs to a *schedule* (a business
-line within an organisation), not to the organisation; terminology, default
-cancellation policy, timezone override and config version live on the schedule.
-Phase 1's `OrganisationSchedulingConfig`, `defaultConfigForPreset` and
-`validateOrganisationConfig` assume one preset per organisation and will be
-reshaped in a small core update before Phase 2A (nothing outside the core and
-its tests uses them yet). Presets themselves, the ports and the boundary rules
-are unchanged. "Presets will need a schema-version field once organisations
-persist a preset choice" now reads: the config version is stored per schedule.
-Standalone deployability is confirmed as an acceptance criterion for every phase.
+The owner approved the Phase 2 defaults with one refinement: **an organisation may run more than one
+preset**. The preset therefore belongs to a *schedule* (a business line within an organisation), not to
+the organisation. This is implemented in the Phase 1 core (commit `e01fd83b`): `SchedulingSettings`
+(one per organisation) and `ScheduleConfig` (any number, each with its own preset, preset version,
+terminology, cancellation policy and optional timezone override) replace the single
+`OrganisationSchedulingConfig`; reservations snapshot the schedule, preset and version, customer and
+timezone; two schedules with different presets are proved not to leak configuration into each other.
+Standalone deployability is an acceptance criterion for every phase.
 Details: `docs/architecture/scheduling-phase2-schema-outline.md`.

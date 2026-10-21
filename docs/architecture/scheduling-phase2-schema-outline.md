@@ -92,21 +92,22 @@ organisation (host)
 Initial onboarding exposes one schedule per organisation, created from the
 chosen preset. Nothing in the schema limits it to one.
 
-### Phase 1 core changes required (described only; no code changed)
+### Phase 1 core: implemented (commit `e01fd83b` on `feat/scheduling-phase1-foundation`)
 
-| Phase 1 item | Assumption | Minimal change |
-| --- | --- | --- |
-| `OrganisationSchedulingConfig` (`types.ts`) | One `presetKey`, `terminology` and `cancellationPolicy` per organisation | Split into `SchedulingSettings` (organisation id, nullable timezone, currency, default policy) and `ScheduleConfig` (id, organisation id, `presetKey`, name, `terminology`, `cancellationPolicy`, nullable timezone, config version) |
-| `defaultConfigForPreset` (`presets.ts`) | Returns an organisation config | Returns a `ScheduleConfig`; takes a schedule name and slug |
-| `validateOrganisationConfig` (`validation.ts`) | Validates preset, terminology and policy as one record | Becomes `validateScheduleConfig`; a separate small `validateSettings` for timezone and currency; both check the IANA name with a pure `isIanaTimezone` using `Intl.DateTimeFormat` |
-| `resolveTerminology(presetKey, overrides)` | None: it already takes the preset as an argument | Unchanged; callers pass the schedule's preset and overrides |
-| `validateReservationForPreset(r, preset)` | None: preset is an argument | Unchanged; the caller resolves the preset through reservation, offering, schedule |
-| `Offering` | No schedule link | Add `scheduleId`, `bufferBeforeMinutes`, `bufferAfterMinutes`, `minNoticeMinutes`, `maxAdvanceDays`; add a duration-by-party-size rule used by restaurants |
-| `Reservation` | No snapshot, no instants | Add `scheduleId`, a `customerSnapshot` (name, email, normalised email, phone), `timezone`, `startsAt`/`endsAt` instants; `customerId` becomes nullable |
-| `TimeSpan` slot / stay | Local fields only | Carry the timezone and the derived instants alongside the local fields |
-| `CustomerProvider.findOrCreate` | Matching rule undocumented | Document and test the section 3 rule; nothing in the port changes |
-| `PRESETS`, boundary tests, `TenantContext` | None | Unchanged. `TenantContext.timezone` stays the *resolved* timezone |
-| `event_capacity` | Price implied 0 | Add the validation rule that an events-style offering has a zero price (section 6.6) |
+| Item | Result |
+| --- | --- |
+| `OrganisationSchedulingConfig` | Replaced by `SchedulingSettings` (organisation id, currency, nullable default timezone supplied by the host) and `ScheduleConfig` (id, organisation id, name, `presetKey`, `presetVersion`, terminology, cancellation policy, nullable timezone override) |
+| `defaultConfigForPreset` / `validateOrganisationConfig` | `defaultScheduleConfig`, `defaultSettings`; `validateScheduleConfig`, `validateSettings`; deep-copied defaults and a deeply frozen preset registry |
+| Timezone | `isIanaTimezone`, `resolveScheduleTimezone(schedule, settings, fallback)`; the fallback is a host parameter (BrainBase: `Australia/Adelaide`) |
+| `Offering` | `scheduleId` added. Buffers, notice, advance limit and duration-by-party stay out until the engine needs them (no speculative fields) |
+| `Reservation` | Snapshot: `scheduleId`, `presetKey`/`presetVersion`, `customerSnapshot` (with `emailNormalised`), nullable `customerId`, `timezone`, UTC `instants` |
+| Validators | `validateReservationSnapshot`, `validateReservationAgainstSchedule` (judged by the preset the reservation snapshotted) |
+| Ports | `NewReservationInput` carries the snapshot fields; `TenantContext.timezone` stays the resolved zone |
+| Still to add in Phase 2 | the zero-price rule for events-style offerings (6.6); the CRM matching helper tests against a real adapter |
+
+Note on timezone: `SchedulingSettings.timezone` in the core is the *host-resolved organisation default*.
+In BrainBase it comes from the existing organisation timezone column; the scheduling tables store
+**no** organisation-level timezone (no duplicate setting), only the schedule override.
 
 ## 3. Public booking, CRM matching and snapshots
 
@@ -254,14 +255,27 @@ a class occurrence creates one hold for its court regardless of enrolments.
 Buffers are part of the held range. Ranges are half-open, so back-to-back
 bookings and same-day hotel turnover do not collide.
 
-**Verification gate (partly cleared):** `pg_available_extensions` on the Production-derived
-branch lists `btree_gist` 1.7 as available (not installed). `CREATE EXTENSION` and an actual
-exclusion constraint have not been run; that is a 2A rehearsal on a disposable branch. No
-`EXCLUDE` constraint exists in this repository yet. If unavailable, the
-fallback is a slot-grid row per `(resource, slot)` or per `(room, night)` with a
-plain unique key; it works for fixed grids and for hotels but cannot express
-variable-length hire, so hire would then need a locking function. Decide after
-the check.
+**Verified (2A rehearsal, `docs/architecture/scheduling-phase2a-exclusion-rehearsal.md`).** On a
+disposable Neon branch, `btree_gist` 1.7 installs without owner help, idempotently, into a named
+schema; the partial exclusion constraint above rejects overlap (SQLSTATE `23P01`) and accepts adjacent
+half-open ranges; setting `released_at` (or deleting the hold) frees the range; same-day hotel turnover
+works on both Adelaide DST days; 30 concurrent racers for one range give exactly one winner over the HTTP
+and WebSocket drivers on pooled and direct hosts, with no deadlock; the same resource and range in two
+organisations never conflict; a reservation plus its holds can be written in one CTE statement, and a
+multi-row hold insert is all-or-nothing; the migration is idempotent and rolls back cleanly; it coexists
+with the capacity trigger. Consequences for the design:
+
+- **Install in 2A:** `CREATE EXTENSION IF NOT EXISTS btree_gist WITH SCHEMA <named schema>` in the 2A migration.
+- **No "reactivate":** setting `released_at` back to NULL fails with `23P01` if the slot was re-taken, so a
+  cancelled reservation is never revived; a new booking goes through the normal hold path.
+- **One statement:** the repository creates a reservation and its holds in a single CTE.
+- **Composite FK** `(reservation_id, organisation_id)` on holds, with an index for the cancel flow.
+- **Error mapping:** `23P01` -> `resource_conflict`; `23503` -> tenant/programming error; `BKCAP` -> capacity refusal.
+- **Timeouts:** the branch had `statement_timeout` and `lock_timeout` at 0; set explicit timeouts and keep transactions short.
+- **Ambiguous local times:** Postgres resolves Adelaide DST gaps and overlaps silently, so the application
+  must validate local times itself (section 4) instead of relying on the database.
+- **Not tested:** performance at realistic volume, lock-wait behaviour behind an open transaction, Prisma
+  drift reporting (tables stay raw SQL), mixed hourly and nightly use of one resource in one table.
 
 ### 5.3 Other guards
 
@@ -376,7 +390,7 @@ tables and its own host migration with the same shared scheduling DDL.
 
 | Table | Key columns | Constraints and notes |
 | --- | --- | --- |
-| `scheduling_settings` | `organisation_id` PK, `currency`, `default_cancellation_policy` jsonb | currency 3 upper letters; **no timezone column** (organisation timezone is host-owned, schedule override lives on the schedule) |
+| `scheduling_settings` | `organisation_id` PK, `currency` | currency 3 upper letters; **no timezone column** (organisation timezone is host-owned, schedule override lives on the schedule) |
 | `scheduling_schedules` | `id`, `organisation_id`, `preset_key`, `name`, `public_slug`, `terminology` jsonb, `cancellation_policy` jsonb, `timezone` NULL, `config_version` int, `archived_at` | `UNIQUE(organisation_id, public_slug)`; `preset_key` CHECK against the six keys; `UNIQUE(id, organisation_id)` |
 | `scheduling_resources` | `id`, `organisation_id`, `kind`, `name`, `capacity`, `min_party` NULL, `active` | `capacity > 0`; organisation level, shared across schedules |
 | `scheduling_offerings` | `id`, `organisation_id`, `schedule_id`, `name`, `type_key`, `colour_key`, `duration_minutes` NULL, `capacity` NULL, `price_cents`, `currency`, recurrence columns, buffers, `min_notice_minutes`, `max_advance_days`, `duration_by_party` jsonb NULL, `checkin_time` / `checkout_time` NULL, `external_ref_kind` / `external_ref_id` NULL, `archived_at` | composite FK to schedules `(schedule_id, organisation_id)`; `price_cents >= 0` |
@@ -406,12 +420,11 @@ A change fails review if any item is false.
 
 ## 9. Phase 2 sequence (updated)
 
-- **2.0 Decisions and prerequisites** (no code): owner answers section 10;
-  the F.2A organisation timezone column is confirmed present (all
-  NULL); run the overbooking-detection query; disposable-branch check of
-  `btree_gist`, trigger-maintained counters and interactive-transaction support.
-- **Core update (small PR):** the Phase 1 core changes in section 2, with tests;
-  still no database.
+- **2.0 Decisions and prerequisites** (no code): owner answers section 10. Done: the organisation timezone
+  column is present (all NULL); `btree_gist`, exclusion constraints and the capacity trigger are rehearsed
+  on a disposable branch. Still open: run the overbooking-detection query in production (the LD Tennis fix
+  PR documents it).
+- **Core update:** done (`e01fd83b`), no database.
 - **2A — Schema:** shared DDL plus the BrainBase host migration, empty tables,
   idempotent, `NOT VALID` then `VALIDATE`, header with rollback, staged for the
   manual Neon console handoff, Preview first.
@@ -428,19 +441,15 @@ A change fails review if any item is false.
 
 ## 10. Outstanding approvals and open questions before 2A
 
-1. Approve the schedule-level preset model (section 2) over a preset on each offering.
+1. ~~Approve the schedule-level preset model~~ **Approved and implemented** in the Phase 1 core (`e01fd83b`).
 2. **Recommended, confirm:** `crm_contacts` is the authoritative customer table; LD Tennis
    resolves against `contacts` until a separately approved migration (section 3).
 3. **Recommended, confirm:** a contact created by a public booking is `LEAD` (`crm_contacts`)
    / `status = 'lead'` (`contacts`). No existing value means "booked customer"; that gap is
    documented, not filled.
-4. ~~Approve a disposable-branch verification~~ Partly done: the advisory-lock count trigger
-   and interactive transactions (WebSocket `Pool`, pooled and direct) were verified on a
-   disposable branch for the LD Tennis fix; `btree_gist` is available but an exclusion
-   constraint and `CREATE EXTENSION` still need a 2A rehearsal, and the counter variant is
-   unproven. Approve the 2A rehearsal branch.
-5. Accept the first-release deferrals: automatic table combining, pooled hotel
-   inventory and overbooking policy, waitlists.
+4. ~~Rehearse btree_gist and exclusion constraints~~ **Done** (`scheduling-phase2a-exclusion-rehearsal.md`, 17 of 17
+   checks passed). Remaining untested: performance at volume, lock waits behind open transactions, Prisma drift reporting.
+5. ~~Accept the first-release deferrals~~ **Approved** (section 11): table combining, pooled hotel inventory, waitlists.
 6. Done in part: `crm_contacts` has 0 duplicate-email groups; `contacts` has 1 (case
    variants, LD Tennis). Choose find-or-create hardening: the host function (recommended, no CRM
    schema change) or an optional unique index on `crm_contacts` (a CRM rule change).
@@ -449,3 +458,16 @@ A change fails review if any item is false.
    settings. The F.2A column is applied; only the setting surface (2D) is missing.
 8. Separately, outside scheduling: the Events CRM sync can create duplicate contacts when two
    bookings by one new purchaser overlap (reproduced; findings section 1.5). Decide whether to fix.
+
+## 11. Approved first-release limitations (deliberate; schema stays extensible)
+
+These are deferred on purpose. The schema leaves room for each without a rewrite, and nothing speculative is built for them.
+
+| Preset | First release does | First release does NOT do | Room left in the schema |
+| --- | --- | --- | --- |
+| Restaurant tables | A reservation is assigned **one table** (`resource_id`), chosen by party size (`min_party` to `capacity`) | Combine several tables for a large party; auto-assign across combinations | Holds are already one row per resource, so a reservation can later own several holds; the one-statement create writes N hold rows |
+| Accommodation | The bookable thing is an **individually identified unit** (a specific room), held for `[check-in, check-out)` | Pooled room-type inventory ("2 of 5 Deluxe left"), overbooking policy, automatic unit assignment | Offerings can later reference a room type with a pool of units; no pooled counter is introduced now |
+| All presets | Customers book directly; capacity refusals are final | Waitlists and automatic promotion | `waitlisted` already exists as a reservation status and the participants/waitlist tables are named but not created |
+
+Consequence to state to customers and in onboarding: a restaurant cannot seat a party larger than its largest single table
+until table combining ships, and a hotel cannot sell "any room of this type" until pooled inventory ships.
