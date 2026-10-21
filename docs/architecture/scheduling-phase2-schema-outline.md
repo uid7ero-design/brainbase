@@ -91,7 +91,7 @@ elsewhere and the old URL redirects only at cutover.
 | # | Question | Recommended default |
 | --- | --- | --- |
 | 1 | New tables for everything, or evolve legacy in place? | New `scheduling_*` tables (decided in the brief); legacy untouched |
-| 2 | Is the missing automatic top-up for ongoing sessions real in production? | Verify against production first; if real, fix in the legacy stack separately (it is a live defect), not folded into this work |
+| 2 | How should ongoing schedules be topped up in the new engine? | The legacy top-up runs on manager page load only (verified; see `ld-tennis-reconciliation-trigger-evidence.md`). Give the new engine an unattended trigger (a cron-secret-authenticated route), keeping the page-load call as a backstop. Not needed for the legacy stack |
 | 3 | Timezone source | `organisations.timezone`, default `Australia/Adelaide`; engine uses `Clock.today(tz)` |
 | 4 | Customer link for public bookings | Find-or-create a CRM contact by normalised email at booking time (new behaviour; legacy creates none) |
 | 5 | Existing bookings with no email | Do not auto-match; import as customer-less legacy rows flagged for manual review |

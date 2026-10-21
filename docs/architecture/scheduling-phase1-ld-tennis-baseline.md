@@ -96,13 +96,21 @@ gate, and any UI rendering. Unknown rules were reported, not invented:
 
 ## 3. Findings that matter for the replacement
 
-1. **Ongoing sessions have no automatic top-up.** `POST /api/dashboard/sessions/reconcile`
-   is described as "the one automatic top-up trigger", but nothing calls it:
-   no fetch in `app/` or `components/`, and no entry in `vercel.json` crons.
-   Instances are only extended when a session is saved or the "Repair" action
-   (`generate-instances`) is used. This is the original failure mode the
-   rolling horizon was meant to end. Needs an owner check against production
-   behaviour before Phase 2.
+1. **Ongoing-session top-up runs only when a manager opens the sessions page.**
+   (Corrected: an earlier revision of this document said nothing called
+   `POST /api/dashboard/sessions/reconcile`; that came from a literal-string search that missed
+   the template literal `` fetch(`${API}/reconcile`) `` in `app/dashboard/sessions/page.tsx`.)
+   The page calls it once on mount. Other triggers: session create and edit, restore, the manual
+   Repair button, and a wrong-weekday auto-fix on page load. There is no scheduled job:
+   the three production Vercel crons (confirmed from the Vercel project API) are `/api/cron/sync`,
+   `/api/cron/ticket-email-recovery` and `/api/cron/hr-employee-document-reminders`, the repo has no
+   scheduled GitHub workflow, and the route requires a signed-in manager so an unattended
+   scheduler could not call it. Production request logs show the call returning 200 one second
+   after a page load. Consequence: instances are generated 10 weeks ahead of the last page visit,
+   and the public booking list shows only 28 days, so after roughly six weeks with no manager
+   visit the public booking calendar would start to empty. Not a defect today; a dependency to
+   carry into the replacement (an unattended trigger). See
+   `ld-tennis-reconciliation-trigger-evidence.md`.
 2. **Public booking can overbook.** `/api/tennis/book` reads capacity and
    duplicates, then inserts, with no lock or transaction (statement order is
    pinned by a test). The concurrent-create case in the Phase 2 repository
