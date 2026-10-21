@@ -1,0 +1,300 @@
+import Image from 'next/image';
+
+export default function Loading() {
+  return (
+    <main style={styles.page}>
+      <div style={styles.ambientOne} />
+      <div style={styles.ambientTwo} />
+
+      <div style={styles.content}>
+        <div style={styles.logoWrap}>
+          <Image
+            src="/Brand/brainbase-logo-light.svg"
+            alt="BrainBase"
+            width={230}
+            height={54}
+            priority
+            style={{
+              width: '100%',
+              maxWidth: 230,
+              height: 'auto',
+            }}
+          />
+        </div>
+
+        <div style={styles.loader}>
+          <div className="brainbase-loader-ring brainbase-loader-ring-one" />
+          <div className="brainbase-loader-ring brainbase-loader-ring-two" />
+
+          <div style={styles.core}>
+            <div className="brainbase-loader-core" />
+          </div>
+        </div>
+
+        <div style={styles.textBlock}>
+          <div style={styles.loadingText}>Loading BrainBase</div>
+          <div style={styles.subText}>
+            Preparing your workspace
+          </div>
+        </div>
+
+        <div style={styles.progressTrack}>
+          <div className="brainbase-loading-progress" />
+        </div>
+      </div>
+
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            @keyframes brainbaseSpinOne {
+              from {
+                transform: rotate(0deg);
+              }
+              to {
+                transform: rotate(360deg);
+              }
+            }
+
+            @keyframes brainbaseSpinTwo {
+              from {
+                transform: rotate(360deg);
+              }
+              to {
+                transform: rotate(0deg);
+              }
+            }
+
+            @keyframes brainbasePulse {
+              0%, 100% {
+                transform: scale(0.82);
+                opacity: 0.65;
+                box-shadow:
+                  0 0 16px rgba(138, 77, 255, 0.45),
+                  0 0 42px rgba(82, 122, 255, 0.12);
+              }
+
+              50% {
+                transform: scale(1);
+                opacity: 1;
+                box-shadow:
+                  0 0 24px rgba(138, 77, 255, 0.8),
+                  0 0 58px rgba(82, 122, 255, 0.28);
+              }
+            }
+
+            @keyframes brainbaseProgress {
+              0% {
+                transform: translateX(-100%);
+                width: 35%;
+              }
+
+              50% {
+                width: 58%;
+              }
+
+              100% {
+                transform: translateX(290%);
+                width: 35%;
+              }
+            }
+
+            @keyframes brainbaseFadeUp {
+              from {
+                opacity: 0;
+                transform: translateY(8px);
+              }
+
+              to {
+                opacity: 1;
+                transform: translateY(0);
+              }
+            }
+
+            .brainbase-loader-ring {
+              position: absolute;
+              border-radius: 999px;
+              border-style: solid;
+              pointer-events: none;
+            }
+
+            .brainbase-loader-ring-one {
+              inset: 5px;
+              border-width: 1px;
+              border-color:
+                rgba(138, 77, 255, 0.9)
+                rgba(138, 77, 255, 0.08)
+                rgba(87, 116, 255, 0.55)
+                rgba(138, 77, 255, 0.12);
+
+              animation: brainbaseSpinOne 3.6s linear infinite;
+              box-shadow:
+                0 0 28px rgba(138, 77, 255, 0.08),
+                inset 0 0 24px rgba(138, 77, 255, 0.05);
+            }
+
+            .brainbase-loader-ring-two {
+              inset: 17px;
+              border-width: 1px;
+              border-color:
+                rgba(82, 122, 255, 0.08)
+                rgba(82, 122, 255, 0.75)
+                rgba(138, 77, 255, 0.1)
+                rgba(138, 77, 255, 0.42);
+
+              animation: brainbaseSpinTwo 5.4s linear infinite;
+            }
+
+            .brainbase-loader-core {
+              width: 13px;
+              height: 13px;
+              border-radius: 999px;
+              background:
+                radial-gradient(
+                  circle at 35% 30%,
+                  #d9c7ff 0%,
+                  #9d6cff 34%,
+                  #8a4dff 60%,
+                  #596dff 100%
+                );
+
+              animation: brainbasePulse 2s ease-in-out infinite;
+            }
+
+            .brainbase-loading-progress {
+              position: absolute;
+              top: 0;
+              left: 0;
+              height: 100%;
+              border-radius: inherit;
+              background:
+                linear-gradient(
+                  90deg,
+                  transparent,
+                  rgba(138, 77, 255, 0.35),
+                  rgba(155, 108, 255, 1),
+                  rgba(89, 109, 255, 0.75),
+                  transparent
+                );
+
+              animation: brainbaseProgress 1.8s ease-in-out infinite;
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+              .brainbase-loader-ring-one,
+              .brainbase-loader-ring-two,
+              .brainbase-loader-core,
+              .brainbase-loading-progress {
+                animation: none !important;
+              }
+            }
+          `,
+        }}
+      />
+    </main>
+  );
+}
+
+const styles: Record<string, React.CSSProperties> = {
+  page: {
+    position: 'relative',
+    minHeight: '100vh',
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    background:
+      'radial-gradient(circle at 50% 38%, rgba(74, 38, 150, 0.14), transparent 34%), #07070a',
+    color: '#ffffff',
+  },
+
+  ambientOne: {
+    position: 'absolute',
+    width: 520,
+    height: 520,
+    borderRadius: '50%',
+    top: '16%',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    background:
+      'radial-gradient(circle, rgba(138, 77, 255, 0.085) 0%, rgba(138, 77, 255, 0.025) 42%, transparent 72%)',
+    filter: 'blur(14px)',
+    pointerEvents: 'none',
+  },
+
+  ambientTwo: {
+    position: 'absolute',
+    width: 320,
+    height: 320,
+    borderRadius: '50%',
+    top: '34%',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    background:
+      'radial-gradient(circle, rgba(67, 98, 255, 0.06) 0%, transparent 68%)',
+    filter: 'blur(24px)',
+    pointerEvents: 'none',
+  },
+
+  content: {
+    position: 'relative',
+    zIndex: 2,
+    width: 'min(90vw, 420px)',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    animation: 'brainbaseFadeUp 500ms ease-out both',
+  },
+
+  logoWrap: {
+    width: 230,
+    marginBottom: 44,
+    opacity: 0.96,
+  },
+
+  loader: {
+    position: 'relative',
+    width: 92,
+    height: 92,
+    marginBottom: 30,
+  },
+
+  core: {
+    position: 'absolute',
+    inset: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  textBlock: {
+    textAlign: 'center',
+    marginBottom: 25,
+  },
+
+  loadingText: {
+    fontSize: 14,
+    fontWeight: 600,
+    lineHeight: 1.4,
+    letterSpacing: '-0.01em',
+    color: 'rgba(255,255,255,0.92)',
+    marginBottom: 7,
+  },
+
+  subText: {
+    fontSize: 12,
+    fontWeight: 400,
+    lineHeight: 1.5,
+    letterSpacing: '0.01em',
+    color: 'rgba(255,255,255,0.38)',
+  },
+
+  progressTrack: {
+    position: 'relative',
+    width: 150,
+    height: 2,
+    overflow: 'hidden',
+    borderRadius: 999,
+    background: 'rgba(255,255,255,0.06)',
+  },
+};

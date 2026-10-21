@@ -1,5 +1,5 @@
 import sql from '@/lib/db';
-import { createRefund } from '@/lib/events/stripe';
+import { createRefund, expireCheckoutSessionForCancellation } from '@/lib/events/stripe';
 import { logRefunded, logCancelled } from '@/lib/events/auditLog';
 import { dispatchScheduledOrderNotification } from '@/lib/events/notificationDelivery';
 
@@ -160,7 +160,15 @@ export async function refundPaidOrder(input: OrderTransitionInput): Promise<Refu
 
 export type CancelOrderResult =
   | { ok: true; alreadyResolved: boolean }
-  | { ok: false; code: 'NOT_FOUND' | 'NOT_CANCELLABLE' };
+  | { ok: false; code: 'NOT_FOUND' | 'NOT_CANCELLABLE' }
+  // A PENDING order's Checkout Session was completed (paid, or an asynchronous
+  // payment is settling): cancelling now could strand a payment. Nothing changed.
+  | { ok: false; code: 'PAYMENT_IN_PROGRESS' }
+  // The still-payable Checkout Session could not be made unpayable (Stripe error,
+  // identity mismatch, missing account). Nothing changed; the manager can retry.
+  | { ok: false; code: 'STRIPE_EXPIRE_FAILED'; error: string }
+  // The order's session changed (e.g. a Retry) between the read and the update.
+  | { ok: false; code: 'CHANGED_CONCURRENTLY' };
 
 // Cancel a PENDING paid reservation or a CONFIRMED free order. See the
 // cancel route's header comment.
@@ -170,8 +178,11 @@ export async function cancelOrder(input: OrderTransitionInput): Promise<CancelOr
   const eventRows = await sql`SELECT id FROM events WHERE id = ${eventId} AND organisation_id = ${organisationId} LIMIT 1`;
   if (!eventRows.length) return { ok: false, code: 'NOT_FOUND' };
 
-  const orderRows = await sql`SELECT id, status, payment_status FROM event_orders WHERE id = ${orderId} AND event_id = ${eventId} AND organisation_id = ${organisationId} LIMIT 1`;
-  const order = orderRows[0] as { id: string; status: string; payment_status: string } | undefined;
+  const orderRows = await sql`SELECT id, status, payment_status, stripe_checkout_session_id, stripe_account_id FROM event_orders WHERE id = ${orderId} AND event_id = ${eventId} AND organisation_id = ${organisationId} LIMIT 1`;
+  const order = orderRows[0] as {
+    id: string; status: string; payment_status: string;
+    stripe_checkout_session_id?: string | null; stripe_account_id?: string | null;
+  } | undefined;
   if (!order) return { ok: false, code: 'NOT_FOUND' };
 
   const isPendingPaidReservation = order.payment_status === 'PENDING';
@@ -181,9 +192,37 @@ export async function cancelOrder(input: OrderTransitionInput): Promise<CancelOr
     return { ok: false, code: 'NOT_CANCELLABLE' };
   }
 
-  // No Stripe call in either branch — a PENDING reservation was never
-  // charged (that's what makes it cancellable here rather than
-  // refundable), and a free order was never a Stripe concern at all.
+  // A PENDING reservation has not been charged — but if it has a Checkout
+  // Session that is still OPEN, the buyer can still pay it. Cancelling the order
+  // while leaving that session payable would let money be taken for an order that
+  // is already CANCELLED (no ticket, nothing to reconcile it). So the order's own
+  // stored session is made unpayable BEFORE the order is cancelled, using the
+  // order's own stored connected account (never the organisation's current one).
+  // Fail closed: if we cannot be sure the session is dead, nothing is cancelled and
+  // the manager is told why; a manager can simply try again.
+  //   expired / already expired / not found  -> proceed to cancel
+  //   completed (paid or settling)           -> refuse (PAYMENT_IN_PROGRESS)
+  //   anything else (Stripe error, wrong order identity, no account) -> refuse
+  // An order with no stored session id has nothing to expire here: its session (if
+  // one is being created right now) is expired by the creating request, which can no
+  // longer write the id back to a non-PENDING order (see paidCheckout's write-back).
+  // A free order never reaches this block.
+  const sessionIdAtRead = isPendingPaidReservation ? (order.stripe_checkout_session_id ?? null) : null;
+  if (sessionIdAtRead) {
+    if (!order.stripe_account_id) {
+      return { ok: false, code: 'STRIPE_EXPIRE_FAILED', error: 'The order has a Checkout Session but no recorded Stripe account.' };
+    }
+    const expiry = await expireCheckoutSessionForCancellation({
+      sessionId: sessionIdAtRead, connectedAccountId: order.stripe_account_id, orderId,
+    });
+    if (expiry.outcome === 'complete') return { ok: false, code: 'PAYMENT_IN_PROGRESS' };
+    if (expiry.outcome === 'failed') return { ok: false, code: 'STRIPE_EXPIRE_FAILED', error: expiry.error };
+  }
+
+  // The only Stripe interaction in this function is the session expiry above (never
+  // a charge, never a refund) — a PENDING reservation was never charged (that's what
+  // makes it cancellable here rather than refundable), and a free order was never a
+  // Stripe concern at all.
   // Phase 5B: each conditional UPDATE also schedules the purchaser's
   // ORDER_CANCELLED notification in the SAME statement (see the refund
   // path's identical comment) — a repeat cancel that updates zero rows
@@ -195,6 +234,7 @@ export async function cancelOrder(input: OrderTransitionInput): Promise<CancelOr
         UPDATE event_orders
         SET status = 'CANCELLED', payment_status = 'EXPIRED'
         WHERE id = ${orderId} AND organisation_id = ${organisationId} AND payment_status = 'PENDING'
+          AND stripe_checkout_session_id IS NOT DISTINCT FROM ${sessionIdAtRead}
         RETURNING id, organisation_id, event_id, purchaser_email
         ),
         scheduled AS (
@@ -225,6 +265,16 @@ export async function cancelOrder(input: OrderTransitionInput): Promise<CancelOr
         SELECT updated.id, scheduled.id AS notification_id FROM updated LEFT JOIN scheduled ON TRUE
       `;
   if (!updated.length) {
+    // The UPDATE is also tied to the exact session id this request inspected
+    // (and expired). If the order is STILL pending, zero rows means its session
+    // changed under us (a Retry replaced it): that new session was never
+    // expired here, so this is not "already resolved" — report it, change nothing.
+    if (isPendingPaidReservation) {
+      const recheck = await sql`SELECT payment_status FROM event_orders WHERE id = ${orderId} AND organisation_id = ${organisationId} LIMIT 1`;
+      if ((recheck[0] as { payment_status?: string } | undefined)?.payment_status === 'PENDING') {
+        return { ok: false, code: 'CHANGED_CONCURRENTLY' };
+      }
+    }
     // Already resolved by a concurrent request (webhook expiry, another
     // manager double-clicking) between the read above and this UPDATE
     // — not an error, and exactly what makes a repeat cancel click on

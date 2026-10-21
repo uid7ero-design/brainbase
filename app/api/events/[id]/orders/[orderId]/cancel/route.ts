@@ -99,5 +99,14 @@ export async function POST(_req: Request, { params }: Ctx) {
       return NextResponse.json({ error: 'Not found.' }, { status: 404 });
     case 'NOT_CANCELLABLE':
       return NextResponse.json({ error: 'Only a pending payment or a confirmed free order can be cancelled this way.' }, { status: 409 });
+    case 'PAYMENT_IN_PROGRESS':
+      // The buyer has completed (or is completing) payment. Nothing was changed.
+      return NextResponse.json({ error: 'A payment for this reservation has been completed or is being processed, so it cannot be cancelled. Wait for it to be confirmed, then refund it if needed.' }, { status: 409 });
+    case 'CHANGED_CONCURRENTLY':
+      return NextResponse.json({ error: 'This order changed while it was being cancelled. Reload and try again.' }, { status: 409 });
+    case 'STRIPE_EXPIRE_FAILED':
+      // The payable Checkout Session could not be closed, so the order was NOT cancelled.
+      console.error('[events order cancel] could not expire the order\'s Checkout Session; order left PENDING', result.error);
+      return NextResponse.json({ error: 'The order was not cancelled because its payment session could not be closed. Please try again.' }, { status: 502 });
   }
 }

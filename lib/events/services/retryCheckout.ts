@@ -5,6 +5,7 @@ import {
   type RetrySafetyDecision,
 } from '@/lib/events/stripe';
 import { buildCartLockStatements } from '@/lib/events/services/cart';
+import { reservationHoldSeconds } from '@/lib/events/services/reservationHold';
 import { buildCheckoutLineItems, assertCheckoutLineItemsTotal, promotionRedemptionAvailable } from '@/lib/events/services/promotions';
 import { buildFeeLineItem } from '@/lib/events/services/fees';
 import { feeSnapshotReconciles, type FeeMode } from '@/lib/events/feeCalculation';
@@ -411,7 +412,7 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
             AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
         )
         UPDATE event_orders eo
-        SET expires_at = NOW() + make_interval(secs => ${RESERVATION_WINDOW_SECONDS}), stripe_checkout_session_id = NULL
+        SET expires_at = NOW() + make_interval(secs => ${reservationHoldSeconds(RESERVATION_WINDOW_SECONDS)}), stripe_checkout_session_id = NULL
         FROM sold_sess
         WHERE eo.id = ${orderId} AND eo.organisation_id = ${organisationId} AND eo.payment_status = 'PENDING'
           AND eo.stripe_checkout_session_id IS NOT DISTINCT FROM ${verifiedSessionId}
@@ -524,7 +525,7 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
     const writeBack = await sql`
       UPDATE event_orders SET stripe_checkout_session_id = ${sessionId}
       WHERE id = ${orderId} AND organisation_id = ${organisationId}
-        AND stripe_checkout_session_id IS NULL AND (extract(epoch FROM expires_at) * 1000000)::bigint IS NOT DISTINCT FROM ${reacquiredExpiresAtStamp}::bigint
+        AND stripe_checkout_session_id IS NULL AND payment_status = 'PENDING' AND (extract(epoch FROM expires_at) * 1000000)::bigint IS NOT DISTINCT FROM ${reacquiredExpiresAtStamp}::bigint
       RETURNING id
     `;
     if (!writeBack.length) {

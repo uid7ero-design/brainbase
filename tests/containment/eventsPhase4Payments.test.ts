@@ -292,9 +292,9 @@ describe('Checkout-vs-Retry race closure (PR #231 follow-up)', () => {
   }
   const CTX = { params: Promise.resolve({ organisationSlug: 'org', eventSlug: 'evt' }) }
 
-  it('the write-back UPDATE is guarded on BOTH stripe_checkout_session_id IS NULL and expires_at IS NOT DISTINCT FROM the captured generation marker — no longer unconditional', () => {
+  it('the write-back UPDATE is guarded on stripe_checkout_session_id IS NULL, payment_status = PENDING (a manager-cancelled order never receives a payable session) and expires_at IS NOT DISTINCT FROM the captured generation marker — no longer unconditional', () => {
     const code = routeSrc()
-    expect(code).toMatch(/WHERE id = \$\{orderId\} AND stripe_checkout_session_id IS NULL\s*\n\s*AND \(extract\(epoch FROM expires_at\) \* 1000000\)::bigint IS NOT DISTINCT FROM \$\{capturedExpiresAtStamp\}::bigint/)
+    expect(code).toMatch(/WHERE id = \$\{orderId\} AND stripe_checkout_session_id IS NULL AND payment_status = 'PENDING'\s*\n\s*AND \(extract\(epoch FROM expires_at\) \* 1000000\)::bigint IS NOT DISTINCT FROM \$\{capturedExpiresAtStamp\}::bigint/)
   })
 
   it('capturedExpiresAt is read from the order row BEFORE createCheckoutSession is called, not after', () => {
@@ -612,7 +612,8 @@ describe('processStripeWebhookEvent — checkout.session.async_payment_succeeded
     const { processStripeWebhookEvent } = await import('@/lib/events/stripe')
     queue([{ id: 'order-1', organisation_id: 'org-a' }], [{ id: 'att-1' }])
     const result = await processStripeWebhookEvent(asyncSucceededEvent())
-    expect(result).toEqual({ handled: true, type: 'checkout.session.async_payment_succeeded' })
+    // paidOrderId lets the webhook route make one prompt (idempotent) ticket-email attempt
+    expect(result).toEqual({ handled: true, type: 'checkout.session.async_payment_succeeded', paidOrderId: 'order-1' })
     // order-flip+audit CTE, attendee-lookup SELECT, ticket-token UPDATE, booking-token UPDATE
     expect(sqlMock).toHaveBeenCalledTimes(4)
     const firstCallText = ((sqlMock.mock.calls[0] as unknown[])[0] as string[]).join('')
@@ -646,9 +647,12 @@ describe('processStripeWebhookEvent — checkout.session.async_payment_succeeded
     queue([{ id: 'order-1', organisation_id: 'org-a' }], [{ id: 'att-1' }])
     await processStripeWebhookEvent(asyncSucceededEvent())
     queue([], [])
+    // A replay still reports the paid order id: the route's email attempt is idempotent
+    // (the delivery claim finds it already claimed/sent), so nothing is sent twice.
     await expect(processStripeWebhookEvent(asyncSucceededEvent())).resolves.toEqual({
       handled: true,
       type: 'checkout.session.async_payment_succeeded',
+      paidOrderId: 'order-1',
     })
   })
 
@@ -901,8 +905,10 @@ describe('Phase 3E.3 — paid order ticket-email scheduling: containment', () =>
     expect(STRIPE_SOURCE).not.toMatch(/from ['"]@\/lib\/email['"]/)
   })
 
-  it('the Stripe webhook route itself also never imports or calls the ticket-email system — the boundary holds at both layers', () => {
-    expect(WEBHOOK_ROUTE_SOURCE).not.toMatch(/attemptAutomaticTicketEmail|sendTicketEmail|sendEmail|ticketEmail/)
+  it('the webhook HANDLER (lib/events/stripe.ts) never sends; the route makes exactly one prompt attempt through the idempotent delivery machinery, after its response (see evePaidWebhookPromptEmail.test.ts)', () => {
+    expect(WEBHOOK_ROUTE_SOURCE).not.toMatch(/sendTicketEmail|sendEmail|from '@\/lib\/email'/)
+    expect(WEBHOOK_ROUTE_SOURCE.match(/attemptAutomaticTicketEmail\(/g) ?? []).toHaveLength(1)
+    expect(WEBHOOK_ROUTE_SOURCE).toMatch(/after\(async \(\) => \{[\s\S]*?attemptAutomaticTicketEmail\(orderId\)/)
   })
 
   it('the async-payment-method gap is now closed: checkout.session.async_payment_succeeded is handled via the SAME finalisation path as checkout.session.completed, never a duplicated/second implementation; payment_intent.succeeded deliberately remains unhandled (Stripe\'s own fulfilment guidance keys off the Checkout Session, not a second PaymentIntent-level listener)', () => {
