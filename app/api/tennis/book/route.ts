@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import sql from '@/lib/db'
+import { isBookingCapacityError } from '@/lib/bookingCapacity'
 import { checkRateLimit } from '@/lib/rateLimit'
 import { getClientIp } from '@/lib/clientIp'
 
@@ -84,24 +85,37 @@ export async function POST(req: NextRequest) {
 
     // Create booking
     const bookingId = crypto.randomUUID()
-    await sql`
-      INSERT INTO bookings (
-        id, organisation_id, session_id, session_instance_id, pipeline_id,
-        client_name, client_email, date, time, session_type, status
-      ) VALUES (
-        ${bookingId},
-        ${ORG_ID},
-        ${inst.session_id},
-        ${body.session_instance_id},
-        ${pipelineId},
-        ${body.name.trim()},
-        ${body.email.trim()},
-        ${inst.date}::timestamp,
-        ${inst.start_time},
-        ${inst.session_type},
-        'confirmed'
-      )
-    `
+    try {
+      await sql`
+        INSERT INTO bookings (
+          id, organisation_id, session_id, session_instance_id, pipeline_id,
+          client_name, client_email, date, time, session_type, status
+        ) VALUES (
+          ${bookingId},
+          ${ORG_ID},
+          ${inst.session_id},
+          ${body.session_instance_id},
+          ${pipelineId},
+          ${body.name.trim()},
+          ${body.email.trim()},
+          ${inst.date}::timestamp,
+          ${inst.start_time},
+          ${inst.session_type},
+          'confirmed'
+        )
+      `
+    } catch (err) {
+      // The database capacity guard refused the insert: another request took the last place
+      // between the capacity check above and this INSERT. Remove the pipeline request created
+      // for this attempt so a refused booking leaves nothing behind, then answer exactly as
+      // the pre-insert capacity check does.
+      if (isBookingCapacityError(err)) {
+        await sql`DELETE FROM client_pipeline WHERE id = ${pipelineId}::uuid AND organisation_id = ${ORG_ID}`
+          .catch(e => console.error('[tennis/book] pipeline cleanup error:', e))
+        return NextResponse.json({ error: 'This session is full' }, { status: 409 })
+      }
+      throw err
+    }
 
     // Pipeline message
     await sql`

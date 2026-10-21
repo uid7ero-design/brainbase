@@ -1,5 +1,6 @@
 import 'server-only'
 import sql from '@/lib/db'
+import { isBookingCapacityError } from '@/lib/bookingCapacity'
 
 // Single shared propagation algorithm for LD Tennis recurring enrolments.
 // Used by:
@@ -184,6 +185,9 @@ export async function enrolLineageIntoInstance(params: {
     // lineage into this instance — same observable outcome as "already present".
     return inserted.length > 0 ? 'enrolled' : 'already_present'
   } catch (err) {
+    // The database capacity guard refused the insert (a concurrent request took the last
+    // place): the same outcome as the pre-insert capacity check, not an error.
+    if (isBookingCapacityError(err)) return 'capacity_blocked'
     console.error('[tennisRecurrence] enrol insert failed for', instance.date, err)
     return 'error'
   }
