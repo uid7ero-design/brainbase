@@ -265,3 +265,22 @@ Replies to a transactional sender address would go nowhere, so an Eve buyer emai
   validation as the footer Support link (real address, not a placeholder domain). A missing or
   malformed value yields no Reply-To — never a BrainBase address — and does not block the send.
 - Only the two Eve-aware send sites (`ticketEmail.ts`, `notificationDelivery.ts`) forward it.
+
+### Proof status (Preview, 2026-10-21)
+
+One free Preview registration was sent from `Eve <tickets@mail.eveevents.com.au>` and delivered to
+Gmail with `Reply-To: support@eveevents.com.au`:
+
+- DKIM: pass (`d=mail.eveevents.com.au`, selector `resend`).
+- SPF: pass (return-path `rsend.mail.eveevents.com.au`).
+- Domain alignment: DKIM and SPF domains are the From domain or a subdomain of it, so the message
+  would align.
+- DMARC: **not configured / no result.** `eveevents.com.au` publishes no `_dmarc` record, so Gmail
+  reported no DMARC verdict. DMARC is not claimed as passing. Publishing a monitoring record is a
+  separate, optional DNS step.
+- Delivered webhook: **not demonstrated in Preview.** The Preview delivery row stayed `accepted`. The
+  Resend webhook is account-wide and has a single Enabled endpoint (the Production URL); it received
+  the `email.delivered` event for the Preview message (200), but that message id has no row in the
+  Production database, so the handler correctly did nothing. The Preview deployment has no webhook
+  endpoint or signing secret of its own. The `delivered` outcome for the new sender is therefore
+  expected to be demonstrated only by the controlled Production test, not shown here.
