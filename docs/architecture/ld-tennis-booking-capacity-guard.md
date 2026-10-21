@@ -76,7 +76,7 @@ is applied the error never occurs, so the code is inert.
 
 ## 5. Neon evidence (disposable branch, never Production)
 
-Branch `temp/ld-booking-capacity-guard-proof-20261021`, a copy of Production's branch, a throwaway role,
+Branch `temp/ld-booking-capacity-guard-proof-20261021` (since deleted; the script that produced these numbers is `scripts/tests/neon-booking-capacity-guard-proof.cjs`), a copy of Production's branch, a throwaway role,
 a scratch schema (no production table written), Postgres 17.11, default isolation READ COMMITTED.
 
 | Check | Result |
@@ -169,5 +169,7 @@ code needs no revert (the mapping is inert without the trigger). Verified on the
 
 ## 8. Disposable resources
 
-Neon branch `br-quiet-lake-a74p2jfi` and role `bk_tester` were proof-only. Their disposition is recorded in
-the pull request / completion report.
+Neon branch `br-quiet-lake-a74p2jfi` and its throwaway role `bk_tester` were proof-only and were deleted on
+2026-10-21 after the evidence above was committed. They were not used by any preview deployment or other
+workstream (no child branches, no Vercel environment variable pointing at them, only Neon system sessions
+connected).
