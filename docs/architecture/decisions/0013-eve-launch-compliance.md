@@ -284,3 +284,29 @@ Gmail with `Reply-To: support@eveevents.com.au`:
   Production database, so the handler correctly did nothing. The Preview deployment has no webhook
   endpoint or signing secret of its own. The `delivered` outcome for the new sender is therefore
   expected to be demonstrated only by the controlled Production test, not shown here.
+
+## 10. Paid-checkout readiness fixes (2026-10-22)
+
+Found by the paid-checkout readiness review; all generic to the shared paid-order engine (BrainBase,
+LD Tennis and Eve), none changes pricing, Stripe objects or the kill switch.
+
+- **Cancelling a PENDING paid order closes its Checkout Session first.** `cancelOrder` retrieves the
+  order's own stored session on the order's own stored connected account, checks that the session's
+  order id matches, and expires it if open. Already expired / not found => cancel proceeds. Completed
+  (paid or settling) => refused (`PAYMENT_IN_PROGRESS`), nothing changes. Any other failure => refused
+  (`STRIPE_EXPIRE_FAILED`), the order stays PENDING and the manager can retry — there is no state where
+  the database says cancelled while a known-payable session is open. The cancel UPDATE is tied to the
+  session id that was inspected (a concurrent Retry yields `CHANGED_CONCURRENTLY`). A session id can no
+  longer be written back to an order that is no longer PENDING (checkout and Retry), so a cancel that
+  lands between reservation and session creation cannot end up with a payable session.
+- **Late webhook after the hold lapsed.** The seat hold (`event_orders.expires_at`) now outlasts the
+  Stripe payment window by `RESERVATION_HOLD_GRACE_SECONDS` (60 min), so a delayed webhook for a payment
+  made near the end of the session finds the seat still held. The Stripe session length is unchanged;
+  abandoned sessions still release when `checkout.session.expired` arrives. Residual risk, not closed:
+  a webhook delayed beyond the grace (an outage of over an hour) and any payment method that settles
+  asynchronously (days). Keep asynchronous methods (e.g. bank debit) disabled for Eve until the hold
+  is extended on `completed` with an unpaid status.
+- **Prompt paid ticket email.** The webhook handler still only schedules (`ticket_email_status =
+  'pending'`). The webhook route now makes one delivery attempt after its response (`after()`) through
+  the same claim-lease / deterministic idempotency-key machinery; a replay finds nothing to claim.
+  The hourly recovery cron remains the fallback for failures. This applies to every product surface.
