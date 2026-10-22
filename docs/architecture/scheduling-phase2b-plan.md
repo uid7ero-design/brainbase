@@ -21,7 +21,7 @@ packages that each merge, and can be enabled, on their own.
 
 ## 2. Scope
 
-In scope (internal staff workflow, one internal organisation first):
+In scope (internal staff workflow, a dedicated internal test organisation only):
 
 1. Organisation scheduling capability
 2. Schedule creation and preset selection (several schedules per organisation)
@@ -72,7 +72,8 @@ and a disposable copy exactly as 2A was:
 
 - `120_brainbase_capability.sql`: insert the `scheduling` row into `modules` (`active = true`) and **no**
   `organisation_modules` row. Seeding nothing for any organisation keeps every organisation without the module.
-  Enabling the first organisation is a separate, later one-row statement (section 8).
+  Enabling the test organisation is a separate, later one-row statement (section 8). Creating that organisation is a
+  third reviewed, manual statement (section 5, decision 1); it is not part of the numbered files.
 - `130_brainbase_crm_link.sql`: a host function that finds or creates a `crm_contacts` row for an organisation by
   normalised email under a per-(organisation, email) advisory lock, so two simultaneous bookings by a new customer
   cannot create two contacts (`crm_contacts` has no unique email index and the Events sync can duplicate; the
@@ -88,6 +89,8 @@ No change to shared SQL. If a gap in the shared schema is found, it ships as its
   `TenantContext` the repositories require. Mirrors the existing `authorizeCommercialRequest` shape.
 - `lib/scheduling/runtime.ts`: builds `createPostgresScheduling` over the app's existing `lib/db` executor. A test
   proves the Neon HTTP driver works through it (the 2A driver matrix is the model).
+- Resolves the role's data scope with the permission: `viewer` receives the reduced, privacy-preserving shape (section 5);
+  the reduction happens in the server read layer, not in the UI.
 - Fails closed: no entitlement row, a disabled row or an inactive module all give the same denial.
 - Tests: capability on/off, role matrix, cross-organisation denial, super_admin override handling as other modules do it.
 
@@ -102,7 +105,7 @@ No change to shared SQL. If a gap in the shared schema is found, it ships as its
 - Organisation timezone setting surface (reuses `organisations.timezone`; fallback Australia/Adelaide), plus the
   per-schedule override. The first reader of `organisations.timezone` updates `organisationTimezoneSchema.test.ts`
   deliberately.
-- Initial presets exposed: `classes_coaching`, `appointments`, `resource_hire` (owner decision 2). The other three
+- Initial presets exposed: `classes_coaching`, `appointments`, `resource_hire` (approved decision 2). The other three
   stay in the core and database but are not offered in the UI yet.
 
 ### 2B.3 Availability
@@ -122,7 +125,7 @@ No change to shared SQL. If a gap in the shared schema is found, it ships as its
   statement (already modelled). Any statement inserting several holds orders them by `resource_id` (rule from 2A).
 - Route `app/api/cron/scheduling-top-up` protected by `CRON_SECRET` with `secureCompare` (same pattern as the existing
   cron routes), registered in `vercel.json` only in the PR that is approved to turn it on. Runs per enabled
-  organisation, bounded work per run (organisation and offering caps), a rolling horizon (owner decision 4), and
+  organisation, bounded work per run (organisation and offering caps), a rolling horizon (approved decision 4: 8 weeks ahead, run daily, at most 500 occurrences per organisation per run), and
   returns a summary. A `contention_timeout` ends that offering's turn and is retried on the next tick; it never fails
   the whole run.
 - Safety: a master kill switch (environment flag, default off), a dry-run mode that returns the plan without writing,
@@ -135,7 +138,7 @@ No change to shared SQL. If a gap in the shared schema is found, it ships as its
 - Read-only week and day views of occurrences and slot/stay reservations, filtered by schedule and resource, using
   the schedule's timezone for display and UTC instants underneath. Keyboard and screen-reader friendly, 390px layout,
   both themes.
-- Read APIs paginate by date window; no unbounded queries; every query is tenant scoped in SQL.
+- Read APIs return the reduced shape for `viewer` (section 5) and paginate by date window; no unbounded queries; every query is tenant scoped in SQL.
 - Resource rows show holds, so a court taken by a class and by a hire is visible in one place.
 
 ### 2B.6 Internal reservations and cancellation, CRM linking
@@ -144,7 +147,7 @@ No change to shared SQL. If a gap in the shared schema is found, it ships as its
   with an idempotency key (`createAssigned` for exclusive presets; staff may name the provider or take the assignment;
   customers are never asked to choose an internal resource).
 - Customer linking: look up by normalised email in the organisation (never by name), otherwise create through the
-  2B.0 function with classification `LEAD` (owner decision 3). `customer_id` holds the `crm_contacts` id as text; the
+  2B.0 function with classification `LEAD` (approved decision 3). `customer_id` holds the `crm_contacts` id as text; the
   booking keeps its immutable name/email snapshot.
 - Cancellation (single and "this and future" for a series), attendance, and refusal messages that map the domain
   errors honestly: full, resource taken, closed, busy-try-again (`contention_timeout` with one bounded retry, as in
@@ -159,17 +162,39 @@ No change to shared SQL. If a gap in the shared schema is found, it ships as its
   Preview branch, and publish the numbers again. Repeat the Windows-host note if it recurs.
 - Docs: runbook for enabling, disabling and rolling back an organisation.
 
-## 5. Owner decisions needed before 2B.0
+## 5. Approved defaults (2026-10-22) and what is still open
 
-1. **First internal organisation** to enable (suggest the BrainBase HQ organisation, as the Assurance rollout did).
-2. **Which presets the UI offers in 2B.** Recommended: `classes_coaching`, `appointments`, `resource_hire`.
-3. **Customer table and status.** Confirm `crm_contacts` is authoritative and public/new customers are `LEAD`
-   (outline items 2 and 3). LD Tennis keeps resolving against `contacts`.
-4. **Top-up horizon and cadence.** Recommended: 8 weeks ahead, daily run, cap 500 occurrences per organisation per run.
-5. **Names.** `crm_contacts.first_name` and `last_name` are both NOT NULL. Recommended: split on the last space; a
-   single word becomes first name with last name `-`. Never used for matching.
-6. **Who may do what.** Recommended as in the Phase 1 adapter (viewer sees; manager and above book and cancel).
-   Confirm whether `viewer` may see customer email and phone on the calendar.
+The owner approved these defaults. They are inputs to 2B.0; changing one reopens the affected package.
+
+| # | Decision | Approved default | Effect on the plan |
+| --- | --- | --- | --- |
+| 1 | First organisation | A **dedicated internal test organisation**: not BrainBase HQ, not any customer, not LD Tennis | Creating it is a data change on Production and is approved separately (2B.0). No real customer data ever enters it |
+| 2 | Presets offered | The first three: `classes_coaching`, `appointments`, `resource_hire` | The other three stay in the core and database, hidden in the UI |
+| 3 | Customer table and status | `crm_contacts`; new customers are classified `LEAD` | LD Tennis keeps resolving against `contacts` and is not touched |
+| 4 | Top-up | **Daily, 8 weeks ahead, capped at 500 occurrences** per organisation per run | 2B.4 |
+| 5 | Names | Split on the last space; one word becomes first name with last name `-`; never used for matching | 2B.6 |
+| 6 | Viewer permissions | **Privacy preserving**, rules below | 2B.1, 2B.5 |
+
+### Viewer permissions (decision 6)
+
+| Role | Sees | Never sees |
+| --- | --- | --- |
+| `viewer` | Schedules, offerings, resources, occurrences, times, headcount and remaining capacity, reservation status, and whether a slot or court is taken | Customer name, email, phone, notes, the CRM link, price paid, cancellation reason text. A booking shows as "Booked" or a neutral label |
+| `analyst` | Nothing (denied, as in the Phase 1 adapter) | Everything |
+| `manager`, `admin`, `super_admin` | Everything above plus customer name, email, phone and notes | Not applicable |
+
+These rules are enforced **on the server**: the read API returns a reduced shape for `viewer`, so withheld fields never
+reach the browser (they are not merely hidden in the UI). A test asserts that a viewer's responses contain none of the
+withheld fields, including in error bodies. Viewers cannot reach the customer search or the reservation detail route.
+Reading customer details as a manager is not audited per view in 2B (no read audit exists elsewhere in BrainBase); this
+is recorded as a known limit.
+
+### Still open (do not block planning, do block 2B.0)
+
+- **Creating the test organisation.** The route by which organisations are created, and whether a billing or onboarding
+  record is required, is checked in the 2B.0 design. The default is a single reviewed one-row statement run manually,
+  named so it cannot be mistaken for a customer, with a stated deletion plan.
+- **Staff accounts in it.** Which internal users belong to the test organisation, with which roles.
 
 ## 6. Audit logging
 
@@ -196,7 +221,8 @@ action says system).
 
 1. Merge 2B.1 to 2B.7 as they are approved. Each is inert until the capability is enabled for an organisation.
 2. Production SQL (separately approved, manual, backup branch first): `010` and `110` from 2A, then `120`, then `130`.
-3. Enable the capability for **one internal organisation** (one `organisation_modules` row). No customer organisation.
+3. Create the **dedicated internal test organisation** (reviewed one-row statement, separately approved), then enable the
+   capability for it (one `organisation_modules` row). No customer organisation, no BrainBase HQ, no LD Tennis.
 4. Run the top-up in dry-run for a week, then switch the kill switch on for that organisation.
 5. Review before any second organisation, any public surface or any LD Tennis work.
 
@@ -212,5 +238,7 @@ rollbacks. No existing table is altered by any step.
 | Duplicate CRM contacts | Host function under an advisory lock; matching by normalised email only |
 | DST errors in generated times | Single resolver, gap and overlap tests across Adelaide and Perth |
 | Scope creep into public booking or payments | Explicit exclusions; separate phases and reviews |
+| A viewer sees customer personal data | Server-side reduced response shape, response-shape tests, no customer routes for viewers |
+| The test organisation is mistaken for, or mixed with, a real one | Dedicated name, reviewed one-row creation, no customer data, deletion plan, capability never enabled elsewhere in 2B |
 | Merging code that redeploys Production | Every package is inert without the capability; merges to `main` redeploy Production, so merges are scheduled and approved |
 | Local proof harness instability on Windows | Documented in the contention doc; CI does not depend on it |

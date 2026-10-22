@@ -1,8 +1,8 @@
 diff --git a/docs/architecture/decisions/0014-scheduling-and-bookings-foundation.md b/docs/architecture/decisions/0014-scheduling-and-bookings-foundation.md
-index f154ed8f..080fdeda 100644
+index f154ed8f..b024f9b9 100644
 --- a/docs/architecture/decisions/0014-scheduling-and-bookings-foundation.md
 +++ b/docs/architecture/decisions/0014-scheduling-and-bookings-foundation.md
-@@ -105,3 +105,23 @@ terminology, cancellation policy and optional timezone override) replace the sin
+@@ -105,3 +105,19 @@ terminology, cancellation policy and optional timezone override) replace the sin
  timezone; two schedules with different presets are proved not to leak configuration into each other.
  Standalone deployability is an acceptance criterion for every phase.
  Details: `docs/architecture/scheduling-phase2-schema-outline.md`.
@@ -22,7 +22,3 @@ index f154ed8f..080fdeda 100644
 +- The SQL is applied by hand through the Neon SQL Editor, never by application code. Phase 2A applies it nowhere.
 +- Details, differences from the approved outline and evidence:
 +  `scheduling-phase2a-schema.md`, `scheduling-phase2a-migration-package.md`, `scheduling-phase2a-rehearsal.md`.
-+- Final corrections (2026-10-22): the appointments preset is version 2 and requires a concrete internal resource
-+  (practitioner, room or an explicit virtual capacity), like every other exclusive-resource preset. A lock-wait
-+  timeout (`55P03`) is reported as the retryable `contention_timeout`, never as a booking refusal; deadlocks stay
-+  raw. Retry is opt-in, bounded and relies on idempotency keys. See `scheduling-phase2a-contention.md`.

@@ -16,7 +16,7 @@ Production. No PR has been merged.
 | Other effect of merging | The `neon-preview-cleanup` workflow deletes the Neon preview branch of a merged PR's source branch (`preview/feat/scheduling-phase2a-db-foundation` on merging #466) |
 | New code connected to existing workflows | **No.** The only files outside the scheduling packages, docs and tests are two new files under `lib/scheduling/` that nothing imports, plus the `@scheduling/*` aliases in `tsconfig.json` and the vitest configs. Containment tests pin that no app route, page or job imports them |
 | LD Tennis | Unchanged. No LD Tennis runtime file is touched (the diff touches only LD Tennis *documents*, and a Phase 1 compatibility map in `lib/scheduling/compatibility/tennis`, which nothing imports) |
-| Retargeting after #461 merges | #463 and #466 are both based on the Phase 1 branch, so GitHub retargets them to `main` automatically when #461 merges; required checks then rerun. Merge #463 first, then apply the ADR resolution when merging #466 |
+| Retargeting after #461 merges | #463 and #466 are both based on the Phase 1 branch. **Correction (2026-10-22):** GitHub retargets them to `main` only if the source branch is deleted on merge, which is not confirmed for this repository. Set each base to `main` by hand and check the file list; see `scheduling-release-checklist.md`. Merge #463 first, then apply the ADR resolution when merging #466 |
 
 Why merging was not done: the merge deploys Production, no rollout has been approved, and this environment has no
 GitHub write access.
