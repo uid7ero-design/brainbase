@@ -235,6 +235,7 @@ export default defineConfig({
       'scripts/tests/essioIntegrationB2.integration.test.ts',
       'scripts/tests/essioIntegrationB3.integration.test.ts',
       'packages/scheduling-postgres/tests/*.integration.test.ts',
+      'scripts/tests/crmContactDuplicatePrevention.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,
