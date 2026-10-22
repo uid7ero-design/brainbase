@@ -70,4 +70,4 @@ A child branch of the validated Preview was used: `temp/scheduling-2a-rollback-r
 | `110`, then `190` | works both ways |
 | Full schema suite on the copy (includes the rollback-and-reapply test) | **32 of 32** pass |
 
-The copy is left in place pending approval to delete it (it holds a copy of Production data and the temporary role).
+The copy was deleted on 2026-10-22 with the owner's approval after a dependency recheck (no children, no sessions, not protected); its temporary role went with it. See `scheduling-release-checklist.md`, section 8.

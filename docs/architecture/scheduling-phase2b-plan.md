@@ -77,7 +77,9 @@ and a disposable copy exactly as 2A was:
 - `130_brainbase_crm_link.sql`: a host function that finds or creates a `crm_contacts` row for an organisation by
   normalised email under a per-(organisation, email) advisory lock, so two simultaneous bookings by a new customer
   cannot create two contacts (`crm_contacts` has no unique email index and the Events sync can duplicate; the
-  function removes that race for scheduling without changing the CRM schema). Names are never used to match.
+  function removes that race for scheduling without changing the CRM schema). Names are never used to match. The
+  function takes **structured** `first_name` and `last_name` arguments and **raises** if either is blank after trimming
+  when it has to create a contact; it never defaults, derives or substitutes a value (see "Customer names", section 5).
 
 No change to shared SQL. If a gap in the shared schema is found, it ships as its own numbered file with its own review.
 
@@ -148,7 +150,9 @@ No change to shared SQL. If a gap in the shared schema is found, it ships as its
   customers are never asked to choose an internal resource).
 - Customer linking: look up by normalised email in the organisation (never by name), otherwise create through the
   2B.0 function with classification `LEAD` (approved decision 3). `customer_id` holds the `crm_contacts` id as text; the
-  booking keeps its immutable name/email snapshot.
+  booking keeps its immutable name/email snapshot. Names follow "Customer names" in section 5: the staff form has a
+  display name plus, when a new CRM contact is wanted, separate first-name and last-name fields; nothing is split or
+  filled in on the staff member's behalf. A booking with only a display name is saved unlinked.
 - Cancellation (single and "this and future" for a series), attendance, and refusal messages that map the domain
   errors honestly: full, resource taken, closed, busy-try-again (`contention_timeout` with one bounded retry, as in
   the 2A retry policy).
@@ -172,7 +176,7 @@ The owner approved these defaults. They are inputs to 2B.0; changing one reopens
 | 2 | Presets offered | The first three: `classes_coaching`, `appointments`, `resource_hire` | The other three stay in the core and database, hidden in the UI |
 | 3 | Customer table and status | `crm_contacts`; new customers are classified `LEAD` | LD Tennis keeps resolving against `contacts` and is not touched |
 | 4 | Top-up | **Daily, 8 weeks ahead, capped at 500 occurrences** per organisation per run | 2B.4 |
-| 5 | Names | Split on the last space; one word becomes first name with last name `-`; never used for matching | 2B.6 |
+| 5 | Names (**corrected 2026-10-22**) | The original display name is preserved verbatim. **No surname is ever invented, derived or replaced by a placeholder, and no display name is split.** A CRM contact is created only from separately entered, validated first and last names; otherwise the booking is saved without a CRM link. See "Customer names" below | 2B.0, 2B.6 |
 | 6 | Viewer permissions | **Privacy preserving**, rules below | 2B.1, 2B.5 |
 
 ### Viewer permissions (decision 6)
@@ -188,6 +192,34 @@ reach the browser (they are not merely hidden in the UI). A test asserts that a 
 withheld fields, including in error bodies. Viewers cannot reach the customer search or the reservation detail route.
 Reading customer details as a manager is not audited per view in 2B (no read audit exists elsewhere in BrainBase); this
 is recorded as a known limit.
+
+### Customer names (decision 5, corrected)
+
+Constraints found in the code: `crm_contacts.first_name` and `last_name` are both NOT NULL and `POST /api/crm/contacts`
+rejects a blank value of either with a 400. The reservation already stores the person as one `customer_name` (required,
+non-blank) and `customer_id` is nullable, so a reservation does not need a CRM contact to exist.
+
+Policy:
+
+1. **The display name is the record.** `customer_name` is stored exactly as the staff member typed it (trimmed at the
+   ends only). It is shown as typed everywhere in scheduling and is never rewritten from, or into, the CRM.
+2. **Nothing is invented.** No splitting of a display name, no guessing which word is the surname, no `-`, "Unknown",
+   initial or any other placeholder, in the application, the host function or any backfill.
+3. **A CRM contact needs structured input.** To create one, the form collects first name and last name as separate
+   fields and validates both non-blank after trimming, using the same rule as the CRM contacts API. Failing the rule
+   gives a field-level error; it never auto-fills.
+4. **No structured names, no new contact.** A booking with only a display name (a walk-in "Sam", a one-word name, a
+   business name) is saved with `customer_id` empty and appears as "No CRM contact". Staff can add first and last name
+   later, which creates and links a contact. The 2B.7 operational view counts unlinked bookings.
+5. **Existing contacts are linked, not edited.** If the normalised email matches an existing contact in the organisation,
+   the booking links to it without needing names, and the existing contact's names are left untouched. Names are never
+   used to match.
+6. New contacts get classification `LEAD` (decision 3) and nothing else is written beyond what the form collected.
+
+Tests: a one-word display name saves unlinked and creates no contact; a blank last name is refused for contact creation
+and the booking is not blocked; a display name with extra internal spaces, non-ASCII characters or a single word is
+stored and returned verbatim; no code path or SQL function contains a literal placeholder surname (a grep-style
+containment test); the host function raises on blank structured names and creates nothing.
 
 ### Still open (do not block planning, do block 2B.0)
 
