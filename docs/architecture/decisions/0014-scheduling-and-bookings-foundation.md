@@ -93,3 +93,15 @@ by the adapter but is not seeded in `modules` and is checked nowhere.
 
 See the baseline document for pre-existing defects found during discovery that
 affect Phase 2 design.
+
+## 7. Amendment (2026-10-21): multiple presets per organisation (implemented)
+
+The owner approved the Phase 2 defaults with one refinement: **an organisation may run more than one
+preset**. The preset therefore belongs to a *schedule* (a business line within an organisation), not to
+the organisation. This is implemented in the Phase 1 core (commit `e01fd83b`): `SchedulingSettings`
+(one per organisation) and `ScheduleConfig` (any number, each with its own preset, preset version,
+terminology, cancellation policy and optional timezone override) replace the single
+`OrganisationSchedulingConfig`; reservations snapshot the schedule, preset and version, customer and
+timezone; two schedules with different presets are proved not to leak configuration into each other.
+Standalone deployability is an acceptance criterion for every phase.
+Details: `docs/architecture/scheduling-phase2-schema-outline.md`.
