@@ -50,7 +50,7 @@ describe('legal routes', () => {
     expect(screen.getByTestId('legal-draft-banner')).toBeInTheDocument();
     expect(container.querySelectorAll('mark[data-placeholder="true"]').length).toBe(0);
     expect(container.textContent).not.toMatch(/\[[A-Z/ ]+\]|\{\{/);
-    expect(container.textContent).toMatch(/Last updated: 21 October 2026/);
+    expect(container.textContent).toMatch(/Last updated: 22 October 2026/);
     expect(container.textContent).not.toMatch(FOREIGN);
   });
 
@@ -85,9 +85,9 @@ describe('legal routes', () => {
     expect(getLegalConfig({ EVE_SUPPORT_EMAIL: 'support@eveevents.com.au' }).unresolved).toEqual([]);
   });
 
-  it('the legal version is the dated 2026-10-21 version, the publish switch stays off and Preview is never final', () => {
-    expect(LEGAL_DOCUMENT_VERSION).toBe('2026-10-21');
-    expect(LEGAL_LAST_UPDATED).toBe('21 October 2026');
+  it('the legal version is the dated 2026-10-22 version, the publish switch stays off and Preview is never final', () => {
+    expect(LEGAL_DOCUMENT_VERSION).toBe('2026-10-22');
+    expect(LEGAL_LAST_UPDATED).toBe('22 October 2026');
     const cfg = getLegalConfig({ VERCEL_ENV: 'preview', EVE_SUPPORT_EMAIL: 'support@eveevents.com.au' });
     expect(cfg.published).toBe(false);
     expect(cfg.isFinal).toBe(false);
@@ -173,15 +173,40 @@ describe('legal routes', () => {
   });
 
   it('private beta: states the limited availability, free-booking position and that the operator may be the Event Organiser', () => {
-    const note = 'Eve is currently being made available on a limited basis. Some features, including paid ticketing and access for third-party organisers, may not yet be available.';
+    const note = 'Eve is currently being made available on a limited basis. Some features, including access for third-party organisers, may not yet be available. Paid tickets may be offered for some events, and only where an event shows a ticket price.';
     const terms = TERMS.sections.flatMap(x => x.body).join(' ');
     const refunds = refundsDoc(true).sections.flatMap(x => x.body).join(' ');
     expect(terms).toContain(note);
     expect(refunds).toContain(note);
     expect(terms).toMatch(/During the private beta the Event Organiser may be the operator of Eve/);
     expect(refunds).toMatch(/Free bookings have no ticket price, so there is nothing to refund/);
-    expect(refunds).toMatch(/Paid ticketing is not currently available/);
-    expect(terms).toMatch(/Paid ticketing is not currently available/);
+  });
+
+  it('NO published legal page says paid ticketing is unavailable, future-only or hypothetical', () => {
+    for (const [name, text] of [['terms', allText([TERMS])], ['privacy', allText([PRIVACY])], ['refunds (notices on)', allText([refundsDoc(true)])], ['refunds (notices off)', allText([refundsDoc(false)])]] as const) {
+      expect(text, name).not.toMatch(/paid (ticketing|tickets?)[^.]*(is|are) not (currently |yet )?available|paid ticketing is unavailable/i);
+      expect(text, name).not.toMatch(/if paid ticketing|if it is offered in future|offered in future|when paid ticketing is available|paid tickets are offered in future|would be entered|would not refund|would go directly|would keep|would process|are expected to be (made|processed)/i);
+    }
+  });
+
+  it('paid ticketing is described accurately: Stripe via the Event Organiser\'s account, card details not seen or stored, full-order refunds processed by a person, no tax position taken', () => {
+    const terms = allText([TERMS]);
+    const privacy = allText([PRIVACY]);
+    const refunds = allText([refundsDoc(true)]);
+    expect(terms).toMatch(/Card payments for paid tickets are processed by Stripe through the Event Organiser's Stripe account/);
+    expect(terms).toMatch(/we do not see or store them/);
+    expect(terms).toMatch(/we record that you agreed, when, and which version of each/);
+    expect(terms).toMatch(/A paid booking is confirmed only after the payment succeeds/);
+    expect(terms).toMatch(/do not set out how any tax applies to ticket prices/);
+    expect(privacy).toMatch(/Stripe processes the payment through the Event Organiser's Stripe account as an independent payment processor, under its own privacy policy/);
+    expect(privacy).toMatch(/when you agreed to the Terms and the Refunds & cancellations policy and which version of each you agreed to/);
+    expect(refunds).toMatch(/Refunds for paid tickets are made for the full order, to the original payment method, through Stripe/);
+    expect(refunds).toMatch(/A refund is not made automatically when you ask for one/);
+    expect(refunds).toMatch(/Partial refunds are not currently available through Eve/);
+    expect(refunds).toMatch(/the tickets on that order stop being valid and the places are released/);
+    // no unsupported promise: no guaranteed refund, no guaranteed refund time
+    expect(refunds).toMatch(/Asking for a refund does not mean one will be given, except where you are entitled to one under Australian law/);
+    expect(refunds).not.toMatch(/(guarantee|always|within \d+ (days|hours)|instantly)[^.]*refund|refund[^.]*(guarantee|within \d+ (days|hours)|instantly)/i);
   });
 
   it('the documents do not imply third-party organisers are onboarded, paid ticketing is live, legal review, or settled Privacy Act coverage', () => {
@@ -191,10 +216,10 @@ describe('legal routes', () => {
     expect(all).not.toMatch(/we comply with|fully compliant|compliant with the (Privacy Act|APPs|Australian Privacy)/i);
     const priv = PRIVACY.sections.flatMap(x => x.body).join(' ');
     expect(priv).toContain('to the extent the Australian Privacy Principles and the Privacy Act 1988 (Cth) apply to us');
-    // Stripe appears only as a future / conditional processor.
+    // Stripe is described as the payment processor for paid tickets, never as hypothetical.
     for (const doc of [TERMS, PRIVACY, refundsDoc(true)]) {
       for (const sec of doc.sections) for (const para of sec.body) {
-        if (/Stripe/.test(para)) expect(para, `${doc.slug}: ${para.slice(0, 60)}`).toMatch(/future|if paid ticketing|Paid ticketing is not currently available|expected to be/i);
+        if (/Stripe/.test(para)) expect(para, `${doc.slug}: ${para.slice(0, 60)}`).not.toMatch(/future|if paid ticketing|expected to be/i);
       }
     }
   });
@@ -348,6 +373,17 @@ describe('registration and checkout notices', () => {
     (await import('@testing-library/react')).fireEvent.submit(form); // bypasses the native required check
     expect(await screen.findByText(/agree to the Terms and the Refunds/)).toBeInTheDocument();
     expect(fn.mock.calls.some(c => String(c[0]).endsWith('/checkout'))).toBe(false);
+  });
+
+  it('PAID: tells the buyer, before they pay, that Stripe takes the card details and Eve never sees them; FREE shows no payment notice', async () => {
+    const user = userEvent.setup(); mockFetch();
+    const paid = render(<BuyerBooking organisationSlug="acme" eventSlug="gala" detail={detail(2500) as never} cancelled={false} />);
+    await fill(user);
+    expect(screen.getByTestId('paid-payment-notice')).toHaveTextContent('You will pay securely with Stripe on the next page. Your card details are entered with Stripe and are not seen or stored by us.');
+    paid.unmount();
+    render(<BuyerBooking organisationSlug="acme" eventSlug="gala" detail={detail(0) as never} cancelled={false} />);
+    await fill(user);
+    expect(screen.queryByTestId('paid-payment-notice')).toBeNull();
   });
 
   it('PAID: once ticked the request carries accept_terms: true; FREE never sends it', async () => {

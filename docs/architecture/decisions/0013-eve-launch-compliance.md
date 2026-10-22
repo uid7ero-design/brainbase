@@ -247,3 +247,66 @@ real paid checkout through Eve. Decision: add an explicit, fail-closed server-si
 The legal version is now `2026-10-21` and the last-updated date `21 October 2026`; the
 approved text is unchanged. `EVE_LEGAL_PUBLISHED` stays unset, so Production legal pages
 still render "Not yet published".
+
+## 9. Eve sender domain and Reply-To (2026-10-21)
+
+Eve buyer email is sent by BrainBase (one Resend account, one `sendEmail()`), from
+`EVE_EMAIL_FROM`. The target sender is `Eve <tickets@mail.eveevents.com.au>` (Resend domain
+`mail.eveevents.com.au`, verified); the previous `eve-mail.thebrainbase.com.au` domain stays
+verified as the rollback until Production is proven on the new one.
+
+Replies to a transactional sender address would go nowhere, so an Eve buyer email now carries
+`Reply-To: <EVE_SUPPORT_EMAIL>`:
+
+- `sendEmail()` gained an optional `replyTo` (sent as Resend `reply_to` only when passed; no
+  default, no env source). BrainBase and LD Tennis callers do not pass it, so their request body is
+  unchanged.
+- `resolveBuyerProduct` sets `replyTo` for Eve orders only, from `EVE_SUPPORT_EMAIL` under the same
+  validation as the footer Support link (real address, not a placeholder domain). A missing or
+  malformed value yields no Reply-To — never a BrainBase address — and does not block the send.
+- Only the two Eve-aware send sites (`ticketEmail.ts`, `notificationDelivery.ts`) forward it.
+
+### Proof status (Preview, 2026-10-21)
+
+One free Preview registration was sent from `Eve <tickets@mail.eveevents.com.au>` and delivered to
+Gmail with `Reply-To: support@eveevents.com.au`:
+
+- DKIM: pass (`d=mail.eveevents.com.au`, selector `resend`).
+- SPF: pass (return-path `rsend.mail.eveevents.com.au`).
+- Domain alignment: DKIM and SPF domains are the From domain or a subdomain of it, so the message
+  would align.
+- DMARC: **not configured / no result.** `eveevents.com.au` publishes no `_dmarc` record, so Gmail
+  reported no DMARC verdict. DMARC is not claimed as passing. Publishing a monitoring record is a
+  separate, optional DNS step.
+- Delivered webhook: **not demonstrated in Preview.** The Preview delivery row stayed `accepted`. The
+  Resend webhook is account-wide and has a single Enabled endpoint (the Production URL); it received
+  the `email.delivered` event for the Preview message (200), but that message id has no row in the
+  Production database, so the handler correctly did nothing. The Preview deployment has no webhook
+  endpoint or signing secret of its own. The `delivered` outcome for the new sender is therefore
+  expected to be demonstrated only by the controlled Production test, not shown here.
+
+## 10. Paid-checkout readiness fixes (2026-10-22)
+
+Found by the paid-checkout readiness review; all generic to the shared paid-order engine (BrainBase,
+LD Tennis and Eve), none changes pricing, Stripe objects or the kill switch.
+
+- **Cancelling a PENDING paid order closes its Checkout Session first.** `cancelOrder` retrieves the
+  order's own stored session on the order's own stored connected account, checks that the session's
+  order id matches, and expires it if open. Already expired / not found => cancel proceeds. Completed
+  (paid or settling) => refused (`PAYMENT_IN_PROGRESS`), nothing changes. Any other failure => refused
+  (`STRIPE_EXPIRE_FAILED`), the order stays PENDING and the manager can retry — there is no state where
+  the database says cancelled while a known-payable session is open. The cancel UPDATE is tied to the
+  session id that was inspected (a concurrent Retry yields `CHANGED_CONCURRENTLY`). A session id can no
+  longer be written back to an order that is no longer PENDING (checkout and Retry), so a cancel that
+  lands between reservation and session creation cannot end up with a payable session.
+- **Late webhook after the hold lapsed.** The seat hold (`event_orders.expires_at`) now outlasts the
+  Stripe payment window by `RESERVATION_HOLD_GRACE_SECONDS` (60 min), so a delayed webhook for a payment
+  made near the end of the session finds the seat still held. The Stripe session length is unchanged;
+  abandoned sessions still release when `checkout.session.expired` arrives. Residual risk, not closed:
+  a webhook delayed beyond the grace (an outage of over an hour) and any payment method that settles
+  asynchronously (days). Keep asynchronous methods (e.g. bank debit) disabled for Eve until the hold
+  is extended on `completed` with an unpaid status.
+- **Prompt paid ticket email.** The webhook handler still only schedules (`ticket_email_status =
+  'pending'`). The webhook route now makes one delivery attempt after its response (`after()`) through
+  the same claim-lease / deterministic idempotency-key machinery; a replay finds nothing to claim.
+  The hourly recovery cron remains the fallback for failures. This applies to every product surface.

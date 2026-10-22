@@ -601,9 +601,9 @@ describe('Retry payment route — write-back guard (checkout-vs-retry race closu
   const ITEM_ROW = { ticket_type_id: 'tt-1', event_session_id: null, quantity: 1, unit_price_cents: 2500, discount_cents: 0 }
   const TT_ROW = { id: 'tt-1', name: 'Premium Guest', active: true, price_cents: 2500, currency: 'AUD' }
 
-  it('the write-back UPDATE is guarded on BOTH stripe_checkout_session_id IS NULL and expires_at IS NOT DISTINCT FROM the reacquired generation marker — no longer unconditional', () => {
+  it('the write-back UPDATE is guarded on stripe_checkout_session_id IS NULL, payment_status = PENDING (a manager-cancelled order never receives a payable session) and expires_at IS NOT DISTINCT FROM the reacquired generation marker — no longer unconditional', () => {
     const code = routeSrc()
-    expect(code).toMatch(/WHERE id = \$\{orderId\} AND organisation_id = \$\{organisationId\}\s*\n\s*AND stripe_checkout_session_id IS NULL AND \(extract\(epoch FROM expires_at\) \* 1000000\)::bigint IS NOT DISTINCT FROM \$\{reacquiredExpiresAtStamp\}::bigint/)
+    expect(code).toMatch(/WHERE id = \$\{orderId\} AND organisation_id = \$\{organisationId\}\s*\n\s*AND stripe_checkout_session_id IS NULL AND payment_status = 'PENDING' AND \(extract\(epoch FROM expires_at\) \* 1000000\)::bigint IS NOT DISTINCT FROM \$\{reacquiredExpiresAtStamp\}::bigint/)
   })
 
   it('reacquiredExpiresAt comes straight from the reacquisition UPDATE\'s own RETURNING clause (both branches) — no extra round trip, and always the value THIS request\'s own successful reacquisition just set', () => {

@@ -243,7 +243,11 @@ async function issueBookingTokenForPaidOrder(orderId: string): Promise<void> {
   `;
 }
 
-export type WebhookProcessResult = { handled: boolean; type: string };
+// paidOrderId: set only for a checkout.session.completed / async_payment_succeeded
+// event whose session is actually paid. The webhook route uses it to attempt the
+// ticket email promptly (after the response); it is an attempt only — the delivery
+// machinery is idempotent, and the hourly recovery cron remains the fallback.
+export type WebhookProcessResult = { handled: boolean; type: string; paidOrderId?: string };
 
 // Central webhook dispatcher — called once per verified Stripe event
 // by the webhook route. Every branch below is idempotent on its own
@@ -303,8 +307,8 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<We
     case 'checkout.session.completed':
     case 'checkout.session.async_payment_succeeded': {
       const session = event.data.object as Stripe.Checkout.Session;
-      await handleCheckoutSessionCompleted(session, eventAccount);
-      return { handled: true, type: event.type };
+      const paidOrderId = await handleCheckoutSessionCompleted(session, eventAccount);
+      return paidOrderId ? { handled: true, type: event.type, paidOrderId } : { handled: true, type: event.type };
     }
     case 'checkout.session.expired': {
       const session = event.data.object as Stripe.Checkout.Session;
@@ -400,17 +404,16 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<We
 // is no crash window between the two facts: they are the same write.
 //
 // Deliberately NOT calling attemptAutomaticTicketEmail (or
-// sendTicketEmail/sendEmail) here — see this file's own module header
-// and the 3E.3 architecture decision: a Stripe webhook handler must stay
-// fast and predictable, and the already-live recovery cron (see
-// vercel.json for its current cadence; lib/events/ticketEmailRecovery.ts,
-// unmodified by this phase) is responsible for actually attempting
-// delivery. ticket_email_status=
-// 'pending' here is scheduling only, never a send.
-async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session, eventAccount: string | null): Promise<void> {
-  if (session.payment_status !== 'paid') return;
+// sendTicketEmail/sendEmail) from this handler — see the 3E.3 architecture
+// decision: the handler must stay fast and predictable. ticket_email_status =
+// 'pending' here is scheduling only, never a send. This handler returns the
+// order id instead, and the webhook ROUTE makes one prompt delivery attempt after
+// its response (via after()); the hourly recovery cron remains the fallback
+// (lib/events/ticketEmailRecovery.ts, unchanged).
+async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session, eventAccount: string | null): Promise<string | null> {
+  if (session.payment_status !== 'paid') return null;
   const orderId = session.metadata?.event_order_id;
-  if (!orderId) return;
+  if (!orderId) return null;
   const paymentIntentId = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id ?? null;
 
   await sql`
@@ -441,6 +444,7 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session, 
   // for an order already PAID still re-reads the (unchanged) current
   // state and performs a no-op-shaped upsert, which is correct.
   await recordEventBookingActivityForOrder(orderId);
+  return orderId;
 }
 
 // Releases a reservation's held capacity the moment Stripe reports the
@@ -648,6 +652,63 @@ export async function expireCheckoutSession(sessionId: string, connectedAccountI
     await stripe.checkout.sessions.expire(sessionId, {}, { stripeAccount: connectedAccountId });
   } catch (err) {
     console.error('[events stripe] failed to expire an orphaned Checkout Session that lost the DB write-back race', sessionId, err);
+  }
+}
+
+// ── Manager cancellation of a PENDING paid order ─────────────────────
+//
+// Cancelling a PENDING reservation releases the seat in the database, but a
+// still-open Checkout Session is still payable: money could be taken for an
+// order that is already CANCELLED, with no ticket and nothing to reconcile it.
+// So a cancel must make the exact session unpayable FIRST. This is the strict
+// counterpart of the best-effort expireCheckoutSession above: it reports what
+// actually happened so the caller can refuse to cancel when it cannot be sure.
+//
+// `connectedAccountId` and `sessionId` MUST be the ORDER's own stored values
+// (never the organisation's current Connect setting). Before expiring anything
+// the session is retrieved and the order id in its own metadata must equal
+// `orderId`: a session that does not carry this order's identity is never
+// expired by this function.
+//
+//   expired          we expired an open session — safe to cancel
+//   already_expired  Stripe already reports it expired — safe to cancel
+//   not_found        Stripe has no such session on that account — nothing payable
+//   complete         the session was completed (paid, or an asynchronous payment
+//                    is still settling) — NOT safe to cancel; the webhook decides
+//   failed           identity mismatch, an open session we could not expire, or
+//                    any Stripe/configuration error — NOT safe to cancel
+export type SessionExpiryOutcome =
+  | { outcome: 'expired' }
+  | { outcome: 'already_expired' }
+  | { outcome: 'not_found' }
+  | { outcome: 'complete'; paymentStatus: string }
+  | { outcome: 'failed'; error: string };
+
+function isStripeNoSuchResource(err: unknown): boolean {
+  const e = err as { code?: unknown; statusCode?: unknown; type?: unknown } | null;
+  return e?.code === 'resource_missing' || (e?.statusCode === 404 && e?.type === 'StripeInvalidRequestError');
+}
+
+export async function expireCheckoutSessionForCancellation(input: {
+  sessionId: string;
+  connectedAccountId: string;
+  orderId: string;
+}): Promise<SessionExpiryOutcome> {
+  const { sessionId, connectedAccountId, orderId } = input;
+  try {
+    const stripe = getStripeClient();
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {}, { stripeAccount: connectedAccountId });
+    if (session.metadata?.event_order_id !== orderId) {
+      return { outcome: 'failed', error: 'The Checkout Session does not belong to this order.' };
+    }
+    if (session.status === 'expired') return { outcome: 'already_expired' };
+    if (session.status === 'complete') return { outcome: 'complete', paymentStatus: session.payment_status };
+    if (session.status !== 'open') return { outcome: 'failed', error: 'The Checkout Session is in an unrecognised state.' };
+    await stripe.checkout.sessions.expire(sessionId, {}, { stripeAccount: connectedAccountId });
+    return { outcome: 'expired' };
+  } catch (err) {
+    if (isStripeNoSuchResource(err)) return { outcome: 'not_found' };
+    return { outcome: 'failed', error: err instanceof Error ? err.message : 'Could not expire the Checkout Session.' };
   }
 }
 

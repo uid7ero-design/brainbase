@@ -1,12 +1,16 @@
 import { EVENT_CHANGE_NOTICES_ENABLED } from '@/config/legal';
 
-// DRAFT wording prepared for a limited, self-published FREE-EVENT PRIVATE BETA.
+// DRAFT wording prepared for a limited, self-published private beta.
 // It has NOT been reviewed or approved by a solicitor or accountant and must
 // never be described as if it had been. Not legal advice and not final.
 //
-// Scope of this beta: free events only, run by the operator; no third-party
-// Event Organisers yet; paid ticketing not available. Paid-ticket wording is kept
-// where it will be needed later and is marked "not currently available".
+// Scope: events run by the operator (no third-party Event Organisers yet). Paid
+// ticketing may be offered for some events: payments are taken by Stripe through the
+// Event Organiser's own Stripe account (a direct charge), refunds are full-order only
+// and are processed by a person, never automatically. The text deliberately takes NO
+// position on GST or any other tax (that decision is open, see ADR 0004 and 0013) and,
+// as the existing test requires while the operator is not registered for GST, never uses
+// the words "GST" or "tax invoice". It says only that tax is not covered and where to ask.
 //
 // {{tokens}} are replaced at render time: operator facts come from the legal
 // config (and stay visibly marked until they are set); nothing here invents an
@@ -18,7 +22,7 @@ export const SUPPORT_REPLY_NOTE = 'We read every message and will reply as soon 
 // Privacy access/correction requests: a reasonable time, aiming for 30 days.
 export const PRIVACY_REQUEST_NOTE = 'We will respond within a reasonable time, and we aim to do so within 30 days.';
 // Private-beta limitation, shown in the Terms and the Refunds policy.
-export const PRIVATE_BETA_NOTE = 'Eve is currently being made available on a limited basis. Some features, including paid ticketing and access for third-party organisers, may not yet be available.';
+export const PRIVATE_BETA_NOTE = 'Eve is currently being made available on a limited basis. Some features, including access for third-party organisers, may not yet be available. Paid tickets may be offered for some events, and only where an event shows a ticket price.';
 // Principle-based retention wording (no fixed periods are promised yet).
 export const RETENTION_PRINCIPLE = 'We keep personal information only for as long as reasonably required for the purposes described in this policy, our operational needs, dispute handling and any applicable legal obligations. When it is no longer reasonably required, we may delete or de-identify it.';
 
@@ -42,19 +46,22 @@ export const TERMS: LegalDoc = {
       heading: '2. Who you contract with',
       body: [
         'When you book a ticket you make a contract for the event with the Event Organiser named on the event page. We provide the ticketing platform, the delivery of your ticket and booking confirmation, and a way to contact us about your booking.',
+        'If you buy a paid ticket, you pay the Event Organiser for it: the payment is processed by Stripe through the Event Organiser\'s Stripe account.',
       ],
     },
     {
       heading: '3. Free and paid tickets',
       body: [
-        'Free tickets cost nothing. Paid ticketing is not currently available.',
-        'If paid tickets are offered in future, the price shown before you pay will be the price you pay, in the currency shown, and any booking fee will be shown separately before you pay.',
+        'Free tickets cost nothing. Paid tickets may be offered for some events. Where a ticket has a price, the event page shows it before you pay, in the currency shown, and any booking fee is shown separately. The total shown at checkout is the amount you will be charged.',
+        'These terms do not set out how any tax applies to ticket prices. The payment summary in your ticket email is a summary of your order. If you have a question about tax on a ticket, or need other payment documents, contact the Event Organiser or {{supportEmail}}.',
       ],
     },
     {
       heading: '4. Payments',
       body: [
-        'No payment is taken for free tickets. If paid ticketing is offered in future, card payments are expected to be processed by Stripe, your card details would be entered with Stripe and not seen or stored by us, and Stripe\'s own terms and privacy policy would apply to the payment.',
+        'No payment is taken for free tickets. Card payments for paid tickets are processed by Stripe through the Event Organiser\'s Stripe account. You enter your card details with Stripe; we do not see or store them, and Stripe\'s own terms and privacy policy apply to the payment.',
+        'Before you pay you are asked to agree to these terms and to our Refunds & cancellations policy; we record that you agreed, when, and which version of each. A paid booking is confirmed only after the payment succeeds. Until then your place is held for a limited time, and if the payment is not completed the booking is released.',
+        'If a payment is taken but you do not receive your ticket, contact {{supportEmail}} with your order reference and we will look into it.',
       ],
     },
     {
@@ -123,13 +130,13 @@ export const PRIVACY: LegalDoc = {
         'If you are an Event Organiser or team member: your username, a one-way hash of your password (never the password itself), your name, role, sign-in times and session records.',
         'When tickets are checked in: the time of check-in and the organiser staff member who recorded it.',
         'Technical data: our hosting provider\'s logs record technical request details such as your IP address. We also use hashed identifiers to limit repeated requests.',
-        'Paid ticketing is not currently available. If it is offered in future, card details would go directly to Stripe and not be seen or stored by us, and we would keep the amount, the Stripe order and payment references, the refund status, and when you agreed to the Terms and the Refunds & cancellations policy and which version of each you agreed to.',
+        'If you buy a paid ticket: the amount and currency and the order details; the references Stripe gives us for the checkout and the payment, and the refund status if a refund is made; and when you agreed to the Terms and the Refunds & cancellations policy and which version of each you agreed to. Your card details go directly to Stripe and are not seen or stored by us.',
       ],
     },
     {
       heading: '3. Why we use it',
       body: [
-        'To process bookings; to issue and deliver tickets; to send booking confirmations and event notices (such as cancellation, event-change and, where the Event Organiser has switched them on, reminder emails); to run organiser accounts and keep them secure; to prevent abuse; and to meet legal obligations.',
+        'To process bookings and, for paid tickets, payments and refunds; to issue and deliver tickets; to send booking confirmations and event notices (such as cancellation, event-change and, where the Event Organiser has switched them on, reminder emails); to run organiser accounts and keep them secure; to prevent abuse; and to meet legal obligations.',
         'We do not currently send marketing email or use your booking details for marketing, and agreeing to the Terms is not consent to marketing.',
       ],
     },
@@ -137,7 +144,7 @@ export const PRIVACY: LegalDoc = {
       heading: '4. Who we share it with',
       body: [
         'The Event Organiser. Your booking details are provided to the Event Organiser so they can administer the booking and communicate with you about the event. Your name, email address and phone number may also appear in the organiser\'s event contact records on our platform. This does not give anyone your consent to marketing. The Event Organiser handles that information under its own privacy practices.',
-        'Our service providers: Vercel (hosting), Neon (database hosting) and Resend (email delivery). If paid ticketing is offered in future, Stripe would process payments as an independent payment processor with its own privacy policy.',
+        'Our service providers: Vercel (hosting), Neon (database hosting) and Resend (email delivery). For paid tickets, Stripe processes the payment through the Event Organiser\'s Stripe account as an independent payment processor, under its own privacy policy. The Event Organiser can see the amount, payment status and refund status of paid bookings.',
         'Where required or permitted by law.',
       ],
     },
@@ -156,7 +163,7 @@ export const PRIVACY: LegalDoc = {
     {
       heading: '7. Where information is processed',
       body: [
-        'Our database is hosted in Australia (Sydney). Our hosting provider processes requests in the United States, and our email provider (Resend) may process information in other countries. This means some personal information may be handled outside Australia.',
+        'Our database is hosted in Australia (Sydney). Our hosting provider processes requests in the United States, and our email provider (Resend) and, for paid tickets, Stripe may process information in other countries. This means some personal information may be handled outside Australia.',
       ],
     },
     {
@@ -195,7 +202,7 @@ export function refundsDoc(changeNotices: boolean = EVENT_CHANGE_NOTICES_ENABLED
         heading: '1. Free tickets and the private beta',
         body: [
           PRIVATE_BETA_NOTE,
-          'Free bookings have no ticket price, so there is nothing to refund. Paid ticketing is not currently available: the sections below about payments and refunds apply only if and when it is offered. If you cannot attend a free event, please tell the Event Organiser so your place can be released.',
+          'Free bookings have no ticket price, so there is nothing to refund. If you cannot attend a free event, please tell the Event Organiser so your place can be released. The sections below about payments and refunds apply to paid tickets, where an event offers them.',
         ],
       },
       {
@@ -208,7 +215,7 @@ export function refundsDoc(changeNotices: boolean = EVENT_CHANGE_NOTICES_ENABLED
         heading: '3. If an event is cancelled',
         body: [
           'If an event is cancelled, we aim to email people with a confirmed booking. We cannot guarantee that an email will be delivered, so please also check the event page.',
-          'If you have paid for a ticket (when paid ticketing is available) you are generally entitled to a remedy under Australian law. This will usually be a refund of what you paid, or a replacement if the Event Organiser offers one that you agree to. Cancelling an event would not refund payments automatically: refunds would go to your original payment method and can take time to appear, depending on your bank.',
+          'If you have paid for a ticket you are generally entitled to a remedy under Australian law. This will usually be a refund of what you paid, or a replacement if the Event Organiser offers one that you agree to. Cancelling an event does not refund payments automatically: a refund is made once it has been approved or is required, and is processed by us or the Event Organiser to your original payment method. It can take time to appear, depending on your bank or card issuer.',
         ],
       },
       {
@@ -228,13 +235,14 @@ export function refundsDoc(changeNotices: boolean = EVENT_CHANGE_NOTICES_ENABLED
       {
         heading: '6. If something is wrong with your booking',
         body: [
-          'If you did not receive your ticket, or think something is wrong with your booking, contact {{supportEmail}} and we will look into it. If paid ticketing is offered in future and you think you were charged incorrectly or twice, contact us in the same way. If we find a charge was made in error, we will correct it.',
+          'If you did not receive your ticket, or think something is wrong with your booking, contact {{supportEmail}} and we will look into it. If you think you were charged incorrectly or twice, contact us in the same way. If we find a charge was made in error, we will correct it.',
         ],
       },
       {
-        heading: '7. How refunds would be made',
+        heading: '7. How refunds are made',
         body: [
-          'Paid ticketing is not currently available. If it is offered in future, refunds for paid tickets are expected to be made for the full order, to the original payment method, through Stripe. Partial refunds are not currently available through Eve, but this does not limit your rights under Australian law.',
+          'Refunds for paid tickets are made for the full order, to the original payment method, through Stripe. A refund is not made automatically when you ask for one: your request is reviewed and, where a refund is approved or required, it is processed by us or the Event Organiser. Asking for a refund does not mean one will be given, except where you are entitled to one under Australian law. Partial refunds are not currently available through Eve, but this does not limit your rights under Australian law.',
+          'When an order is refunded, the tickets on that order stop being valid and the places are released, and we aim to email you to tell you.',
         ],
       },
       {
