@@ -3,19 +3,29 @@ import Stripe from 'stripe';
 import sql from '@/lib/db';
 import { getStripeClient } from './stripe';
 
-// ── Account type decision (§4) ───────────────────────────────────────
+// ── Account configuration decision (§4) ──────────────────────────────
 //
-// Express connected accounts. Stripe hosts onboarding/KYC/bank-detail
-// collection entirely itself (Brainbase never sees or stores any of
-// it — see this file's own functions below, none of which accept or
-// persist a bank number, identity document, or card value); the
-// client manages their own payout details directly with Stripe;
-// Brainbase keeps platform-level integration control (this module is
-// the only place that ever talks to a connected account). This is
-// materially less operational burden than Custom accounts, which
-// would make Brainbase responsible for building its own KYC/
-// compliance UI — no product requirement here justifies that.
-export const CONNECTED_ACCOUNT_TYPE = 'express' as const;
+// New connected accounts are created with Stripe's controller properties
+// (Accounts v1), not the legacy `type` field, and match the platform's
+// live Connect profile: Stripe carries losses from negative balances
+// ("Managed Risk"), Stripe charges its fees to the connected account,
+// Stripe collects onboarding/KYC requirements through its hosted
+// onboarding, and the organiser gets the full Stripe Dashboard. This is
+// the controller equivalent of a Standard account. Stripe rejects
+// `type: 'express'` for this platform in live mode because Express makes
+// the platform the losses collector (2026-10-22).
+//
+// Brainbase still never sees or stores bank, identity or card details —
+// none of this file's functions accept or persist them — and direct
+// charges (below) are unchanged. Existing accounts keep whatever they
+// were created with; only new account creation uses this. Dashboard type
+// can't be changed on an existing account.
+export const CONNECTED_ACCOUNT_CONTROLLER = {
+  losses: { payments: 'stripe' },
+  fees: { payer: 'account' },
+  requirement_collection: 'stripe',
+  stripe_dashboard: { type: 'full' },
+} as const satisfies Stripe.AccountCreateParams.Controller;
 
 // ── Charge model decision (§12) ──────────────────────────────────────
 //
@@ -138,7 +148,7 @@ export async function getOrCreateConnectedAccount(organisationId: string): Promi
 
   const stripe = getStripeClient();
   const account = await stripe.accounts.create({
-    type: CONNECTED_ACCOUNT_TYPE,
+    controller: CONNECTED_ACCOUNT_CONTROLLER,
     business_profile: { name: orgName, product_description: 'Event ticketing' },
   });
 
@@ -159,7 +169,7 @@ export async function getOrCreateConnectedAccount(organisationId: string): Promi
   return { accountId: finalState.accountId ?? account.id, created: true };
 }
 
-// Stripe Connect Express onboarding (§6): a fresh, single-use Account
+// Stripe-hosted Connect onboarding (§6): a fresh, single-use Account
 // Link — Stripe's own hosted onboarding UI. `refreshUrl` is where
 // STRIPE sends the browser if this specific link has expired or was
 // already used (not a Brainbase-initiated action); `returnUrl` is
