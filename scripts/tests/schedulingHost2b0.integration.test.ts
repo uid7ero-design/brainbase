@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({ session: null as null | Record<string, unknown
 
 vi.mock('@/lib/db', async () => {
   const { Pool: P } = await import('pg');
-  const p = new P({ connectionString: process.env.SCHEDULING_TEST_DATABASE_URL, max: 10 });
+  const p = new P({ connectionString: process.env.SCHEDULING_TEST_DATABASE_URL, max: 60 });
   const tag = (strings: TemplateStringsArray, ...values: unknown[]) =>
     p.query(strings.reduce((acc, s, i) => acc + s + (i < values.length ? `$${i + 1}` : ''), ''), values).then(r => r.rows);
   return { default: tag };
@@ -34,7 +34,9 @@ vi.mock('@/lib/org', () => ({
 const { authorizeSchedulingRequest } = await import('@/lib/scheduling/access');
 
 const ROOT = path.resolve(__dirname, '../..');
-const sqlOf = (rel: string) => readFileSync(path.join(ROOT, rel), 'utf8');
+// Strip CRs: a Windows checkout (core.autocrlf) turns the committed LF files into CRLF, which changes the stored text of
+// every function body (and so its definition hash). The proof must apply the committed bytes.
+const sqlOf = (rel: string) => readFileSync(path.join(ROOT, rel), 'utf8').split(String.fromCharCode(13)).join('');
 const HOST = (f: string) => `scripts/scheduling/${f}`;
 const MANUAL = (f: string) => `scripts/scheduling/manual/${f}`;
 const TEST_ORG_SLUG = 'zz-scheduling-internal-test';
@@ -537,6 +539,111 @@ suite('Phase 2B.0 on real Postgres', () => {
       expect(await q('SELECT organisation_id FROM organisation_modules')).toEqual([{ organisation_id: 'org-b' }]);
       expect(await otherOrgsHash()).toBe(others);
       await apply(MANUAL('internal-test-org-9-remove.sql')); // absent: a notice, not an error
+    });
+  });
+
+  // ─── The OTHER writers of crm_contacts, measured against the real code (informational; nothing here changes them) ───
+
+  describe('other crm_contacts writers: measured, not changed', () => {
+    const EMAIL = 'events.race@example.test';
+    const enableCrm = async () => {
+      await q("INSERT INTO modules (key, name, active) VALUES ('crm', 'CRM', true) ON CONFLICT (key) DO NOTHING");
+      await q("INSERT INTO organisation_modules (organisation_id, module_key, enabled) VALUES ('org-a', 'crm', true) ON CONFLICT (organisation_id, module_key) DO UPDATE SET enabled = true");
+      await q('CREATE TABLE IF NOT EXISTS event_orders (id text PRIMARY KEY, organisation_id text, crm_contact_id uuid)');
+      await q('DELETE FROM event_orders');
+    };
+    const eventsBuy = async (i: number, email: string | null = EMAIL) => {
+      const { syncEventOrderContact } = await import('@/lib/crm/eventSync');
+      await syncEventOrderContact({ organisationId: 'org-a', orderId: `order-${i}`, purchaserName: 'Pat Buyer', purchaserEmail: email, purchaserPhone: null });
+    };
+    const contactsFor = (email: string) => count('crm_contacts', `organisation_id = 'org-a' AND lower(btrim(email)) = '${email}'`);
+
+    it('Events sync (real syncEventOrderContact): 30 simultaneous purchases by one new customer', async () => {
+      await enableCrm();
+      await Promise.all(Array.from({ length: 30 }, (_, i) => eventsBuy(i)));
+      const n = await contactsFor(EMAIL);
+      console.log(`CRM-WRITERS events sync: 30 simultaneous same-email purchases -> ${n} contact(s)`);
+      expect(n).toBeGreaterThanOrEqual(1);
+    }, 60_000);
+
+    it('Events sync and Scheduling together: 20 + 20 simultaneous calls for one new customer', async () => {
+      await enableCrm();
+      await Promise.all([
+        ...Array.from({ length: 20 }, (_, i) => eventsBuy(100 + i)),
+        ...Array.from({ length: 20 }, (_, i) => callFn('org-a', EMAIL, `F${i}`, `L${i}`)),
+      ]);
+      const n = await contactsFor(EMAIL);
+      console.log(`CRM-WRITERS events sync + scheduling together: 40 simultaneous calls -> ${n} contact(s)`);
+      expect(n).toBeGreaterThanOrEqual(1);
+    }, 60_000);
+
+    it('FORCED overlap: Events sync statements already running when another writer commits the same email (the real function)', async () => {
+      await enableCrm();
+      const WAITERS = 6;
+      const holder = await pool.connect();
+      try {
+        await holder.query('BEGIN');
+        await holder.query("SELECT pg_advisory_xact_lock(hashtext('org-a'), hashtext('email:' || 'forced.overlap@example.test'))");
+        // Start the Events syncs; each takes its statement snapshot and then blocks on the held lock.
+        const running = Array.from({ length: WAITERS }, (_, i) => eventsBuy(300 + i, 'forced.overlap@example.test'));
+        await new Promise(r => setTimeout(r, 1500)); // let every statement start and block
+        // Another writer (here: this transaction, standing in for Scheduling, the CRM API or an import) commits the contact.
+        await holder.query("INSERT INTO crm_contacts (organisation_id, first_name, last_name, email) VALUES ('org-a', 'First', 'Writer', 'forced.overlap@example.test')");
+        await holder.query('COMMIT');
+        await Promise.all(running);
+      } finally {
+        await holder.query('ROLLBACK').catch(() => undefined);
+        holder.release();
+      }
+      const n = await contactsFor('forced.overlap@example.test');
+      console.log(`CRM-WRITERS events sync, FORCED overlap: ${WAITERS} statements waiting on the lock while one other writer committed -> ${n} contact(s) (1 = the waiters reused it; ${1 + WAITERS} = each waiter inserted a duplicate)`);
+      expect(n).toBeGreaterThanOrEqual(1);
+    }, 30_000);
+
+    it('FORCED overlap, Scheduling function for comparison: the same shape', async () => {
+      const WAITERS = 6;
+      const holder = await pool.connect();
+      try {
+        await holder.query('BEGIN');
+        await holder.query("SELECT pg_advisory_xact_lock(hashtext('org-a'), hashtext('email:' || 'forced.sched@example.test'))");
+        const running = Array.from({ length: WAITERS }, (_, i) => callFn('org-a', 'forced.sched@example.test', `W${i}`, 'Waiter'));
+        await new Promise(r => setTimeout(r, 1500));
+        await holder.query("INSERT INTO crm_contacts (organisation_id, first_name, last_name, email) VALUES ('org-a', 'First', 'Writer', 'forced.sched@example.test')");
+        await holder.query('COMMIT');
+        await Promise.all(running);
+      } finally {
+        await holder.query('ROLLBACK').catch(() => undefined);
+        holder.release();
+      }
+      const n = await contactsFor('forced.sched@example.test');
+      console.log(`CRM-WRITERS scheduling function, FORCED overlap: ${WAITERS} statements waiting on the lock while one other writer committed -> ${n} contact(s)`);
+      expect(n).toBe(1);
+    }, 30_000);
+
+    it('Events sync with no email and no phone never dedupes (documented design): two purchases, two contacts', async () => {
+      await enableCrm();
+      await eventsBuy(200, null);
+      await eventsBuy(201, null);
+      const n = await count('crm_contacts', "organisation_id = 'org-a' AND email IS NULL");
+      console.log(`CRM-WRITERS events sync, no email/phone: 2 purchases -> ${n} contacts (by design)`);
+      expect(n).toBe(2);
+    });
+
+    it('the CRM API insert (same statement shape as POST /api/crm/contacts) has no duplicate check at all: 20 posts, 20 contacts', async () => {
+      await Promise.all(Array.from({ length: 20 }, () => q("INSERT INTO crm_contacts (organisation_id, first_name, last_name, email) VALUES ('org-a', 'Api', 'Dup', 'api.dup@example.test')")));
+      const n = await contactsFor('api.dup@example.test');
+      console.log(`CRM-WRITERS CRM API insert: 20 simultaneous posts of one email -> ${n} contacts (no check by design)`);
+      expect(n).toBe(20);
+    });
+
+    it('the CRM API edit path can create a duplicate by changing an email to one that already exists', async () => {
+      const [{ id }] = await q<{ id: string }>("INSERT INTO crm_contacts (organisation_id, first_name, last_name, email) VALUES ('org-a', 'Edit', 'Me', 'edit.me@example.test') RETURNING id");
+      await q("INSERT INTO crm_contacts (organisation_id, first_name, last_name, email) VALUES ('org-a', 'Already', 'There', 'already@example.test')");
+      await q("UPDATE crm_contacts SET email = 'already@example.test' WHERE id = $1", [id]);
+      expect(await contactsFor('already@example.test')).toBe(2);
+      // The scheduling function stays deterministic in that state: the oldest wins, nothing is merged.
+      const r = await callFn('org-a', 'already@example.test', null, null);
+      expect(r.outcome).toBe('matched');
     });
   });
 
