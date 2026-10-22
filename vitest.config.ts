@@ -49,6 +49,10 @@ export default defineConfig({
       // '@ticketing/core' paths. Subpath first so it matches before the bare name.
       '@ticketing/core/': path.resolve(__dirname, 'packages/ticketing/src') + '/',
       '@ticketing/core': path.resolve(__dirname, 'packages/ticketing/src/index.ts'),
+      // Shared scheduling core (packages/scheduling) — mirrors tsconfig's
+      // '@scheduling/core' paths. Subpath first so it matches before the bare name.
+      '@scheduling/core/': path.resolve(__dirname, 'packages/scheduling/src') + '/',
+      '@scheduling/core': path.resolve(__dirname, 'packages/scheduling/src/index.ts'),
       // See tests/stubs/server-only.ts for why this alias exists.
       'server-only': path.resolve(__dirname, 'tests/stubs/server-only.ts'),
     },

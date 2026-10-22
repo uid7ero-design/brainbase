@@ -164,6 +164,12 @@ export async function createCheckoutSession(input: CreateCheckoutSessionInput): 
       success_url: input.successUrl,
       cancel_url: input.cancelUrl,
       ...(applicationFeeCents > 0 ? { payment_intent_data: { application_fee_amount: applicationFeeCents } } : {}),
+      // Eve launch: card only. Without an explicit list, Checkout offers whatever the connected
+      // account has switched on (seen in the sandbox proof: card, Klarna and Link), including
+      // delayed or buy-now-pay-later methods Eve does not support. 'card' still covers Apple Pay
+      // and Google Pay, which Stripe settles as ordinary card payments; Link is not offered unless
+      // listed. BrainBase orders (no surface, or 'BRAINBASE') keep the exact parameters they had.
+      ...(input.productSurface === 'EVE' ? { payment_method_types: ['card'] } : {}),
     },
     { stripeAccount: input.connectedAccountId },
   );

@@ -119,6 +119,26 @@ describe('ticket page and booking wallet', () => {
     expect(screen.queryByRole('img', { name: 'Ticket QR code' })).toBeNull();
   });
 
+  // The real QR (lib/events/qr.ts, qrcode's SVG output) has a viewBox and no width/height, so it
+  // has no size of its own: the wrapper must give it one, or it renders at 0x0 (seen on Preview).
+  it('gives the real, viewBox-only QR SVG a fixed square size without changing its markup', async () => {
+    const realShape = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 51 51" shape-rendering="crispEdges"><path fill="#FFFFFF" d="M0 0h51v51H0z"></path><path stroke="#0B0B12" d="M1 1.5h7"></path></svg>';
+    gw.getTicket.mockResolvedValueOnce({ status: 'ok', data: { ...base, status: 'VALID', checked_in_at: null, qr_svg: realShape } });
+    const r = await renderPage(TicketPage({ params: Promise.resolve({ token: 'tkn' }) }));
+    const box = screen.getByRole('img', { name: 'Ticket QR code' });
+    expect(box.innerHTML).toBe(realShape);
+    expect(box.className.split(' ')).toEqual(expect.arrayContaining(['aspect-square', 'w-60', 'max-w-full', 'bg-white', 'p-3', '[&>svg]:block', '[&>svg]:h-full', '[&>svg]:w-full']));
+    expect(box.className).not.toMatch(/inline-block/);
+    expect(await axe(r.container)).toHaveNoViolations();
+  });
+
+  it.each(['CANCELLED', 'EVENT_CANCELLED'] as const)('a %s ticket shows the invalid state and no QR even when the API sends one', async (status) => {
+    gw.getTicket.mockResolvedValueOnce({ status: 'ok', data: { ...base, status, checked_in_at: null, qr_svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 51 51"></svg>' } });
+    await renderPage(TicketPage({ params: Promise.resolve({ token: 'tkn' }) }));
+    expect(screen.getByText(/not valid for entry/)).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Ticket QR code' })).toBeNull();
+  });
+
   it('shows event-cancelled and checked-in states', async () => {
     gw.getTicket.mockResolvedValueOnce({ status: 'ok', data: { ...base, status: 'EVENT_CANCELLED', checked_in_at: null, qr_svg: null } });
     let r = await renderPage(TicketPage({ params: Promise.resolve({ token: 'x' }) }));
