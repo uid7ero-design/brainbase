@@ -37,7 +37,15 @@ export function TicketCard({ attendeeName, eventName, venue, startsAt, timezone,
         {checkedIn ? <div><dt className="inline text-eve-muted">Checked in: </dt><dd className="inline">{formatDateTime(checkedInAt, timezone)}</dd></div> : null}
       </dl>
       {qrSvg && status === 'VALID' ? (
-        <div className="mt-5 inline-block rounded-lg bg-white p-3" role="img" aria-label="Ticket QR code" dangerouslySetInnerHTML={{ __html: qrSvg }} />
+        // The QR SVG carries only a viewBox (no width/height), so the box gives it its size: a
+        // fixed square that shrinks with narrow screens, with the SVG filling it. The white padding
+        // plus the SVG's own one-module margin keeps a quiet zone of roughly four modules.
+        <div
+          className="mt-5 aspect-square w-60 max-w-full rounded-lg bg-white p-3 [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
+          role="img"
+          aria-label="Ticket QR code"
+          dangerouslySetInnerHTML={{ __html: qrSvg }}
+        />
       ) : null}
     </article>
   );
