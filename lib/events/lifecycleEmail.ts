@@ -103,11 +103,18 @@ function formatDateTime(iso: string, timeZone: string): string {
   }
 }
 
-function formatDate(iso: string | null): string | null {
+// Calendar date in the event's timezone, same as "When" above — never the
+// server's (UTC on Vercel), which dated an 8 am Adelaide refund the day before.
+function formatDate(iso: string | null, timeZone: string): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  return new Intl.DateTimeFormat('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }).format(d);
+  const opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'long', year: 'numeric' };
+  try {
+    return new Intl.DateTimeFormat('en-AU', { ...opts, timeZone }).format(d);
+  } catch {
+    return new Intl.DateTimeFormat('en-AU', opts).format(d);
+  }
 }
 
 function truncate(s: string, max: number): string {
@@ -255,7 +262,7 @@ function refundStateSentence(data: LifecycleEmailData): string {
   switch (data.paymentStatus) {
     case 'REFUNDED': {
       const amount = money(data.refundedCents ?? data.paymentTotalCents, data.currency);
-      const on = formatDate(data.refundedAt);
+      const on = formatDate(data.refundedAt, data.eventTimezone);
       return `Your payment of ${amount} was refunded${on ? ` on ${on}` : ''} to your original payment method.`;
     }
     case 'PAID':
@@ -296,8 +303,8 @@ function buildOrderCancelled(data: LifecycleEmailData): LifecycleEmail {
 function buildOrderRefunded(data: LifecycleEmailData): LifecycleEmail {
   const refunded = data.refundedCents ?? data.paymentTotalCents;
   const facts = eventFacts(data);
-  const paidOn = formatDate(data.paidAt);
-  const refundedOn = formatDate(data.refundedAt);
+  const paidOn = formatDate(data.paidAt, data.eventTimezone);
+  const refundedOn = formatDate(data.refundedAt, data.eventTimezone);
   facts.push({ label: 'Amount paid', value: `${money(data.paymentTotalCents, data.currency)}${paidOn ? ` on ${paidOn}` : ''}` });
   const feeRefunded = data.platformFeeRefundedCents ?? 0;
   if (data.feeMode === 'PASS_THROUGH' && feeRefunded > 0) {
