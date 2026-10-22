@@ -15,6 +15,7 @@ import { normaliseFeePolicyRow, buildFeeLineItem, type FeePolicyResolution } fro
 import { computeOrderFinancials, type FeeComputation } from '@/lib/events/feeCalculation';
 import type { LegalAcceptance } from '@ticketing/core';
 import { isProductSurface, type ProductSurface } from '@/lib/events/productSurface';
+import { reservationHoldSeconds } from '@/lib/events/services/reservationHold';
 
 // Shared ticketing service — paid public checkout reservation + Stripe
 // Checkout Session creation.
@@ -409,7 +410,7 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
           )
           SELECT
             ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone},
-            'PENDING', ${totalCents}, 'PENDING', 'stripe', ${cart.currency}, NOW() + make_interval(secs => ${RESERVATION_WINDOW_SECONDS}), ${connectedAccountId},
+            'PENDING', ${totalCents}, 'PENDING', 'stripe', ${cart.currency}, NOW() + make_interval(secs => ${reservationHoldSeconds(RESERVATION_WINDOW_SECONDS)}), ${connectedAccountId},
             ${financials.platform_fee_cents}, ${financials.fee_mode}, ${financials.payment_total_cents}, ${feePolicyId}, ${feePolicyVersion},
             ${feePercentBps}, ${feeFixedPerOrderCents}, ${feeFixedPerTicketCents}, ${feeMinCents}, ${feeMaxCents}, ${feeTaxTreatment}, ${feeLabel},
             ${discountCents}, ${promotionCodeId}, ${promotionCodeSnapshot}, ${accessCodeId}, ${accessCodeSnapshot},
@@ -554,7 +555,7 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
     // even on failure).
     const writeBack = await sql`
       UPDATE event_orders SET stripe_checkout_session_id = ${sessionId}
-      WHERE id = ${orderId} AND stripe_checkout_session_id IS NULL
+      WHERE id = ${orderId} AND stripe_checkout_session_id IS NULL AND payment_status = 'PENDING'
         AND (extract(epoch FROM expires_at) * 1000000)::bigint IS NOT DISTINCT FROM ${capturedExpiresAtStamp}::bigint
       RETURNING id
     `;

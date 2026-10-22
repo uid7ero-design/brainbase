@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { constructWebhookEvent, processStripeWebhookEvent, StripeNotConfiguredError } from '@/lib/events/stripe';
+import { attemptAutomaticTicketEmail } from '@/lib/events/ticketEmailDelivery';
 
 // Stripe webhook receiver — the ONLY place a paid order is allowed to
 // become ACTIVE (§5, §15: the browser's success-page redirect alone is
@@ -35,8 +36,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid signature.' }, { status: 400 });
   }
 
+  let paidOrderId: string | undefined;
   try {
-    await processStripeWebhookEvent(event);
+    paidOrderId = (await processStripeWebhookEvent(event))?.paidOrderId;
   } catch (err) {
     // A transient failure here (DB hiccup) must surface as a non-2xx
     // response so Stripe retries with its own backoff — every handler
@@ -45,6 +47,24 @@ export async function POST(req: NextRequest) {
     // of double-processing.
     console.error('[stripe webhook] processing failed', event.type, err);
     return NextResponse.json({ error: 'Processing failed.' }, { status: 500 });
+  }
+
+  // Prompt ticket email for a paid order this event finalised — AFTER the response, so
+  // the webhook stays fast and a slow or failing email never turns into a Stripe
+  // retry. The webhook itself only scheduled the delivery (ticket_email_status =
+  // 'pending'); this is one attempt through the same idempotent claim/lease/
+  // idempotency-key machinery every other send uses, so a replayed webhook finds the
+  // delivery already claimed or sent and sends nothing more. It never throws. If it
+  // fails or the process ends first, the hourly recovery cron still delivers.
+  if (paidOrderId) {
+    const orderId = paidOrderId;
+    after(async () => {
+      try {
+        await attemptAutomaticTicketEmail(orderId);
+      } catch (err) {
+        console.error('[stripe webhook] prompt ticket email attempt failed (the recovery cron will retry)', err, { orderId });
+      }
+    });
   }
 
   return NextResponse.json({ received: true });
