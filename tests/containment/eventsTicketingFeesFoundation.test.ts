@@ -471,6 +471,34 @@ describe('ZERO-FEE BACKWARD COMPATIBILITY — an organisation with no policy row
     }
   })
 
+  it('the REAL createCheckoutSession restricts an EVE session to card only and leaves BrainBase sessions without payment_method_types', async () => {
+    const base = { organisationId: 'org-a', eventId: 'event-1', orderId: 'order-1', lineItems: [{ name: 'Adult', unitAmountCents: 100, quantity: 1 }], currency: 'AUD', purchaserEmail: 'p@example.com', successUrl: 'https://eve.example/s', cancelUrl: 'https://eve.example/c', connectedAccountId: 'acct_org_a' }
+    await realStripe.createCheckoutSession({ ...base, productSurface: 'EVE' })
+    await realStripe.createCheckoutSession({ ...base, productSurface: 'EVE', applicationFeeCents: 10 })
+    await realStripe.createCheckoutSession({ ...base, productSurface: 'BRAINBASE' })
+    await realStripe.createCheckoutSession(base)
+    const calls = stripeSessionsCreateMock.mock.calls as unknown as [Record<string, unknown>, Record<string, unknown>][]
+    expect(calls).toHaveLength(4)
+    const [eve, eveWithFee, brainbase, noSurface] = calls
+    // Eve: exactly one extra key, card only; everything else as before (metadata, URLs, expiry, direct charge).
+    expect(eve[0].payment_method_types).toEqual(['card'])
+    expect(Object.keys(eve[0]).sort()).toEqual(['cancel_url', 'customer_email', 'expires_at', 'line_items', 'metadata', 'mode', 'payment_method_types', 'success_url'])
+    expect(eve[0].metadata).toEqual({ event_order_id: 'order-1', organisation_id: 'org-a', event_id: 'event-1', product_surface: 'EVE' })
+    expect(eve[0].success_url).toBe('https://eve.example/s')
+    expect(eve[0].cancel_url).toBe('https://eve.example/c')
+    expect(eve[1]).toEqual({ stripeAccount: 'acct_org_a' })
+    expect(eveWithFee[0].payment_method_types).toEqual(['card'])
+    expect(eveWithFee[0].payment_intent_data).toEqual({ application_fee_amount: 10 })
+    // BrainBase (and LD Tennis, which checks out as a BrainBase organisation): unchanged.
+    expect(brainbase[0]).not.toHaveProperty('payment_method_types')
+    expect(Object.keys(brainbase[0]).sort()).toEqual(['cancel_url', 'customer_email', 'expires_at', 'line_items', 'metadata', 'mode', 'success_url'])
+    expect(noSurface[0]).not.toHaveProperty('payment_method_types')
+    expect(Object.keys(noSurface[0]).sort()).toEqual(['cancel_url', 'customer_email', 'expires_at', 'line_items', 'metadata', 'mode', 'success_url'])
+    for (const c of calls) {
+      expect(JSON.stringify(c[0])).not.toMatch(/klarna|afterpay|au_becs_debit|payto|customer_balance|link/)
+    }
+  })
+
   it('a zero-fee refund calls createRefund with exactly the two historical arguments (no options) and records refunded_cents / platform_fee_refunded_cents in the same UPDATE', async () => {
     resolver = combine(
       text => (/SELECT id FROM events WHERE id = /.test(text) ? [{ id: 'event-1' }] : undefined),
