@@ -81,6 +81,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
         WITH conflict AS (
           SELECT c.id FROM crm_contacts c
           WHERE c.organisation_id = ${session.organisationId} AND lower(trim(c.email)) = ${normEmail} AND c.id <> ${id}
+            AND EXISTS (SELECT 1 FROM crm_contacts tgt WHERE tgt.id = ${id} AND tgt.organisation_id = ${session.organisationId})
             AND NOT EXISTS (
               SELECT 1 FROM crm_contacts me
               WHERE me.id = ${id} AND me.organisation_id = ${session.organisationId} AND lower(trim(me.email)) = ${normEmail}

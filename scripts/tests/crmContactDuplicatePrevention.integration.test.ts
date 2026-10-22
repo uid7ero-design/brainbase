@@ -344,6 +344,15 @@ suite('CRM duplicate prevention (real Postgres, real application code)', () => {
       expect((await edit(a, 'later@example.test')).status).toBe(200);
     });
 
+    it('an unknown or other-organisation id is 404, not 409, even when the email is held by a contact in my organisation', async () => {
+      await seed('org-a', 'Holder', 'held@example.test');
+      const theirs = await seed('org-b', 'Theirs', 'theirs@example.test');
+      const before = await tableHash('crm_contacts');
+      expect((await edit('00000000-0000-0000-0000-000000000000', 'held@example.test')).status).toBe(404);
+      expect((await edit(theirs, 'held@example.test')).status).toBe(404);
+      expect(await tableHash('crm_contacts')).toBe(before);
+    });
+
     it('unknown id with an email is 404', async () => {
       expect((await edit('00000000-0000-0000-0000-000000000000', 'nobody@example.test')).status).toBe(404);
     });

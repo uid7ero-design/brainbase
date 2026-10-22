@@ -54,11 +54,11 @@ Refusing a second contact with a shared email is a behaviour change for people w
 
 ## 4. Verification
 
-`bash scripts/tests/verify-crm-contact-duplicate-prevention.sh [16|17]` starts a disposable container and runs `scripts/tests/crmContactDuplicatePrevention.integration.test.ts` (28 tests) against the **real** `syncEventOrderContact`, `executeEventContactBackfill` and the two route handlers. Only the database client (a pool that reproduces Neon's lazy queries and `sql.transaction`) and the session are replaced.
+`bash scripts/tests/verify-crm-contact-duplicate-prevention.sh [16|17]` starts a disposable container and runs `scripts/tests/crmContactDuplicatePrevention.integration.test.ts` (29 tests) against the **real** `syncEventOrderContact`, `executeEventContactBackfill` and the two route handlers. Only the database client (a pool that reproduces Neon's lazy queries and `sql.transaction`) and the session are replaced.
 
 - **Forced overlap:** a holder transaction owns the identity lock while the writers start and block, then commits a contact and releases. Every writer must reuse it.
 - **Negative control:** the previous single-statement shape, run under the same forced overlap, still produces 7 contacts, so the harness can detect the defect.
-- **The suite fails on the old code:** with the four production files reverted, 14 of the 28 fail (7 contacts instead of 1, 20 creates instead of 1, edits not refused, mixed writers 18 contacts), and the 14 that must not change (distinct emails, tenant isolation of the API, no-email creates, unchanged-email edits, cross-tenant 404, capability disabled) pass on both.
+- **The suite fails on the old code:** with the four production files reverted, 14 of the 28 original fail (7 contacts instead of 1, 20 creates instead of 1, edits not refused, mixed writers 18 contacts), and the 14 that must not change (distinct emails, tenant isolation of the API, no-email creates, unchanged-email edits, cross-tenant 404, capability disabled) pass on both.
 - Also covered: tenant isolation (same email in two organisations never contends), different emails in parallel are not serialised, existing data unchanged (table hash before and after), refused creates leave the table byte-identical, mixed writers (Events + backfill + API) together and under forced overlap leave one contact.
 - Passes on PostgreSQL 16.14 and 17.11.
 
