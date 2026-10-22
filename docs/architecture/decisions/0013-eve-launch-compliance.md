@@ -310,3 +310,23 @@ LD Tennis and Eve), none changes pricing, Stripe objects or the kill switch.
   'pending'`). The webhook route now makes one delivery attempt after its response (`after()`) through
   the same claim-lease / deterministic idempotency-key machinery; a replay finds nothing to claim.
   The hourly recovery cron remains the fallback for failures. This applies to every product surface.
+
+## 11. Eve paid-checkout organisation allow-list (2026-10-22)
+
+`EVE_PAID_CHECKOUT_ENABLED` opens Eve paid checkout for every organisation at once, and
+Production has other organisations with published paid tickets (`ld-tennis`, whose stored
+Connect account is not a live account, and `school-test-organisation`). Decision: Eve paid
+checkout also needs the organisation to be allow-listed, so a controlled live proof can open
+one organisation only.
+
+- `EVE_PAID_CHECKOUT_ORGS` (BrainBase project env): comma-separated organisation slugs, e.g.
+  `brainbase`. Each entry must be a lowercase slug; no trimming, no wildcard. Unset, empty or
+  any malformed entry (`*`, `Brainbase`, ` brainbase`, a trailing comma) denies every
+  organisation. There is no allow-all fallback.
+- Both controls are required: the global flag exactly `true` AND the request's organisation
+  slug on the list (exact match, the same exact slug `resolvePublicEvent` uses). Enforced at the
+  same point as the flag, before the limiter, body, event lookup, reservation, order or Stripe
+  call, with the same 503 body.
+- Same scope as the flag: Eve paid checkout only. Free Eve registration and BrainBase's own
+  public checkout are unaffected.
+- **Both must stay unset in Production** except during an approved, time-boxed proof.
