@@ -15,12 +15,37 @@ async function foreignInventory(): Promise<string> {
         WHERE n.nspname = 'public' AND c.relname NOT LIKE 'scheduling\\_%' ESCAPE '\\'
       UNION ALL SELECT 'fn:' || p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
         WHERE n.nspname = 'public' AND p.proname NOT LIKE 'scheduling\\_%' ESCAPE '\\'
+      UNION ALL SELECT 'col:' || c.relname || '.' || a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':' || a.attnotnull::text || ':' || coalesce(pg_get_expr(d.adbin, d.adrelid), '')
+        FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+        WHERE n.nspname = 'public' AND c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped AND c.relname NOT LIKE 'scheduling\_%' ESCAPE '\'
+      UNION ALL SELECT 'idx:' || indexdef FROM pg_indexes WHERE schemaname = 'public' AND tablename NOT LIKE 'scheduling\_%' ESCAPE '\'
       UNION ALL SELECT 'trg:' || t.tgname FROM pg_trigger t WHERE NOT t.tgisinternal AND t.tgname NOT LIKE 'scheduling\\_%' ESCAPE '\\'
       UNION ALL SELECT 'con:' || con.conname FROM pg_constraint con JOIN pg_class c ON c.oid = con.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = 'public' AND c.relname NOT LIKE 'scheduling\\_%' ESCAPE '\\'
     ) q`);
   return `${r.rows[0].n}:${r.rows[0].h}`;
 }
+
+/** Exact definitions of everything scheduling owns: a re-apply must reproduce them byte for byte. */
+async function ownDefinitions(): Promise<string> {
+  const r = await q(`
+    SELECT md5(string_agg(x, E'\n' ORDER BY x)) AS h FROM (
+      SELECT 'fn:' || pg_get_functiondef(p.oid) AS x FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname LIKE 'scheduling\_%' ESCAPE '\'
+      UNION ALL SELECT 'trg:' || pg_get_triggerdef(t.oid) FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid WHERE NOT t.tgisinternal AND c.relname LIKE 'scheduling\_%' ESCAPE '\'
+      UNION ALL SELECT 'idx:' || indexdef FROM pg_indexes WHERE schemaname = 'public' AND tablename LIKE 'scheduling\_%' ESCAPE '\'
+      UNION ALL SELECT 'con:' || c.relname || ':' || con.conname || ':' || pg_get_constraintdef(con.oid) FROM pg_constraint con JOIN pg_class c ON c.oid = con.conrelid WHERE c.relname LIKE 'scheduling\_%' ESCAPE '\'
+      UNION ALL SELECT 'col:' || c.relname || '.' || a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':' || a.attnotnull::text || ':' || coalesce(pg_get_expr(d.adbin, d.adrelid), '')
+        FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+        WHERE n.nspname = 'public' AND c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped AND c.relname LIKE 'scheduling\_%' ESCAPE '\'
+    ) q`);
+  return r.rows[0].h as string;
+}
+
+const FUNCTIONS = [
+  'scheduling_cancel_occurrence', 'scheduling_hold_guard', 'scheduling_hold_serialise', 'scheduling_is_timezone', 'scheduling_occurrence_guard',
+  'scheduling_occurrence_release_holds', 'scheduling_require_hold', 'scheduling_reservation_guard', 'scheduling_reservation_lifecycle',
+  'scheduling_reservation_release_holds', 'scheduling_touch_updated_at',
+];
 
 async function ownInventory(): Promise<{ tables: number; functions: number; triggers: number; constraints: number; indexes: number }> {
   const r = await q(`
@@ -32,6 +57,8 @@ async function ownInventory(): Promise<{ tables: number; functions: number; trig
       (SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename LIKE 'scheduling\\_%' ESCAPE '\\')::int AS indexes`);
   return r.rows[0];
 }
+
+const pinnedIndexCount = 37; // set from the first clean apply; a new index must be added here on purpose
 
 describe.skipIf(!hasDatabase)('migration safety', () => {
   beforeAll(async () => {
@@ -59,7 +86,24 @@ describe.skipIf(!hasDatabase)('migration safety', () => {
     await runScript(sqlFile('010_shared_schema.sql'));
     expect(await ownInventory()).toEqual(before);
     expect(await foreignInventory()).toBe(foreign);
-    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2a.1'")).toBe(1);
+    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2a.2'")).toBe(1);
+    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2a.1'")).toBe(0);
+  });
+
+  it('re-applying reproduces every function, trigger, index, constraint and column definition byte for byte', async () => {
+    const before = await ownDefinitions();
+    await runScript(sqlFile('010_shared_schema.sql'));
+    expect(await ownDefinitions()).toBe(before);
+  });
+
+  it('the object list is pinned: exactly these 11 functions and 13 tables, so an unexpected function, trigger or index change fails here', async () => {
+    const fns = (await q("SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname LIKE 'scheduling\_%' ESCAPE '\' ORDER BY 1")).rows.map(r => r.proname);
+    expect(fns).toEqual([...FUNCTIONS].sort());
+    const trg = (await q("SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid WHERE NOT t.tgisinternal AND c.relname LIKE 'scheduling\_%' ESCAPE '\' ORDER BY 1")).rows.map(r => r.tgname);
+    expect(trg).toHaveLength(16);
+    expect(trg.every(n => /^scheduling_/.test(n))).toBe(true);
+    const inv = await ownInventory();
+    expect(inv.indexes).toBe(pinnedIndexCount);
   });
 
   it('is additive: it creates no foreign key to, and reads nothing from, any LD Tennis / CRM table', async () => {
@@ -99,6 +143,7 @@ describe.skipIf(!hasDatabase)('migration safety', () => {
     it('adds exactly three foreign keys, idempotently, and reverses cleanly', async () => {
       await resetData(); // VALIDATE would (rightly) refuse rows whose organisation does not exist
       const own = await ownInventory();
+      const foreignBefore110 = await foreignInventory();
       await runScript(hostSqlFile('110_brainbase_host.sql'));
       await runScript(hostSqlFile('110_brainbase_host.sql'));
       const fks = await q(`SELECT conrelid::regclass::text AS t, confrelid::regclass::text AS ref FROM pg_constraint
@@ -109,6 +154,7 @@ describe.skipIf(!hasDatabase)('migration safety', () => {
         { t: 'scheduling_settings', ref: 'organisations' },
       ]);
       expect((await ownInventory()).constraints).toBe(own.constraints + 3);
+      expect(await foreignInventory()).toBe(foreignBefore110); // host tables, columns, indexes and triggers are untouched by the host migration
 
       // a scheduling row for an organisation that does not exist is now refused; a real one is fine
       await expect(seedSchedule('host-missing', uid('s'))).rejects.toMatchObject({ code: '23503' });
@@ -328,13 +374,32 @@ describe.skipIf(!hasDatabase)('reservation lifecycle and snapshot constraints', 
     const slotInsert = (id: string, extra = '') =>
       q(`INSERT INTO scheduling_reservations (id, organisation_id, schedule_id, preset_key, preset_version, offering_id, span_kind, resource_id, customer_name, timezone,
           local_start_date, local_start_time, local_end_date, local_end_time, starts_at, ends_at, party_size, currency)
-         VALUES ($1, 'org-l', 's', 'classes_coaching', 1, 'o', 'slot', 'court-1', 'X', 'Australia/Adelaide', '2026-12-07', '16:00', '2026-12-07', '17:00', '2026-12-07T05:30:00Z', '2026-12-07T06:30:00Z', 1, 'AUD') ${extra}`, [id]);
+         VALUES ($1, 'org-l', 's', 'resource_hire', 1, 'o', 'slot', 'court-1', 'X', 'Australia/Adelaide', '2026-12-07', '16:00', '2026-12-07', '17:00', '2026-12-07T05:30:00Z', '2026-12-07T06:30:00Z', 1, 'AUD') ${extra}`, [id]);
 
     beforeEach(() => seedResource('org-l', 'court-1', 'court'));
 
     it('an exclusive reservation inserted WITHOUT a hold is refused at the end of the statement (SCHLD)', async () => {
       await expect(slotInsert('no-hold')).rejects.toMatchObject({ code: 'SCHLD' });
       expect(await count("SELECT count(*) FROM scheduling_reservations WHERE id = 'no-hold'")).toBe(0);
+    });
+
+    it('the preset decides the span: an appointment can only be a slot with a concrete resource, never an occurrence or a resourceless slot', async () => {
+      const insert = (preset: string, span: string, target: string) =>
+        q(`INSERT INTO scheduling_reservations (id, organisation_id, schedule_id, preset_key, preset_version, offering_id, span_kind, ${target.split('=')[0]}, customer_name, timezone,
+            local_start_date, local_start_time, local_end_date, local_end_time, starts_at, ends_at, party_size, currency)
+           VALUES ('x', 'org-l', 's', $1, 2, 'o', $2, ${target.split('=')[1]}, 'X', 'Australia/Adelaide', '2026-12-07', '16:00', '2026-12-07', '17:00', '2026-12-07T05:30:00Z', '2026-12-07T06:30:00Z', 1, 'AUD')`, [preset, span]);
+      // an appointment as a headcount occurrence booking
+      await expect(insert('appointments', 'occurrence', "occurrence_id='oc'")).rejects.toMatchObject({ code: '23514' });
+      // an appointment slot with no resource (neither target set) is refused by the one-target rule
+      await expect(
+        q(`INSERT INTO scheduling_reservations (id, organisation_id, schedule_id, preset_key, preset_version, offering_id, span_kind, customer_name, timezone,
+            local_start_date, local_start_time, local_end_date, local_end_time, starts_at, ends_at, party_size, currency)
+           VALUES ('y', 'org-l', 's', 'appointments', 2, 'o', 'slot', 'X', 'Australia/Adelaide', '2026-12-07', '16:00', '2026-12-07', '17:00', '2026-12-07T05:30:00Z', '2026-12-07T06:30:00Z', 1, 'AUD')`),
+      ).rejects.toMatchObject({ code: '23514' });
+      // a stay preset cannot be a slot, a headcount preset cannot be a slot
+      await expect(insert('accommodation', 'slot', "resource_id='court-1'")).rejects.toMatchObject({ code: '23514' });
+      await expect(insert('classes_coaching', 'slot', "resource_id='court-1'")).rejects.toMatchObject({ code: '23514' });
+      expect(await count('SELECT count(*) FROM scheduling_reservations')).toBe(0);
     });
 
     it('a hold must have exactly one owner and a half-open, bounded, non-empty range', async () => {

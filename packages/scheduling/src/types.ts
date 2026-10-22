@@ -60,7 +60,13 @@ export type ResourceKind =
   | 'room'
   | 'practitioner'
   | 'equipment'
-  | 'space';
+  | 'space'
+  /**
+   * An explicitly modelled online capacity (a video room, a telehealth line) with its own
+   * `capacity` and its own hold, so remote appointments are exclusive in exactly the same way
+   * as in-person ones. Created deliberately by staff; never invented during booking.
+   */
+  | 'virtual';
 
 export type ResourceRequirement = 'none' | 'optional' | 'required';
 

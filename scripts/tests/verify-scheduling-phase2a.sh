@@ -10,10 +10,11 @@
 #   2. shared migration (010)     applied TWICE (idempotency)
 #   3. verification (020)         read-only
 #   4. BrainBase host (110)       applied TWICE, then rolled back (190) and re-applied
-#   5. suites                     contract, exclusive, concurrency, schema (incl. rollback), repositories
+#   5. suites                     contract, exclusive, appointments, concurrency, contention (load), schema (incl. rollback), repositories
 #   6. rollback (090)             on the empty schema, then clean re-apply
 #
-# USAGE   bash scripts/tests/verify-scheduling-phase2a.sh [PG_MAJOR]      (default 16)
+# USAGE   [SCHED_REPORT_DIR=<dir>] bash scripts/tests/verify-scheduling-phase2a.sh [PG_MAJOR]      (default 16)
+#         SCHED_REPORT_DIR, when set, receives contention-pg<N>.jsonl (latency distributions and outcome counts).
 # Not wired into CI (Docker is not part of the standard CI workflow in this repo).
 
 set -uo pipefail
@@ -35,7 +36,7 @@ psql_c() { docker exec -i -e PGOPTIONS="-c client_min_messages=warning" "$NAME" 
 check() { if [ "$1" -ne 0 ]; then echo "   FAIL: $2"; FAIL=1; else echo "   ok: $2"; fi; }
 
 step "start postgres:${PG_MAJOR}-alpine"
-docker run -d --name "$NAME" -e POSTGRES_PASSWORD=pw -p 127.0.0.1::5432 "postgres:${PG_MAJOR}-alpine" >/dev/null || exit 2
+docker run -d --name "$NAME" -e POSTGRES_PASSWORD=pw -p 127.0.0.1::5432 "postgres:${PG_MAJOR}-alpine" -c max_connections=300 >/dev/null || exit 2
 for _ in $(seq 1 40); do docker exec "$NAME" pg_isready -U postgres >/dev/null 2>&1 && break; sleep 1; done
 sleep 2
 PORT="$(docker port "$NAME" 5432/tcp | head -n1 | sed 's/.*://')"
@@ -56,7 +57,7 @@ psql_c < "$SQL_DIR/010_shared_schema.sql" >/dev/null; check $? "010 second apply
 
 step "3. verification"
 OUT="$(docker exec -i "$NAME" psql -U postgres -At -F'|' < "$SQL_DIR/020_verify.sql" 2>&1)"
-echo "$OUT" | grep -q "^2a.1|" ; check $? "version marker 2a.1 present"
+echo "$OUT" | grep -q "^2a.2|" ; check $? "version marker 2a.2 present"
 [ "$(echo "$OUT" | grep -c '^scheduling_.*|[0-9]*$')" -eq 13 ]; check $? "13 scheduling tables listed"
 echo "$OUT" | grep -q "scheduling_holds_no_overlap"; check $? "exclusion constraint present"
 echo "$OUT" | grep -qE "^0$"; check $? "0 legacy dependencies"
@@ -70,10 +71,24 @@ psql_c < "$HOST_DIR/190_brainbase_host_rollback.sql" >/dev/null; check $? "190 r
 
 step "5. suites (real Postgres, one file at a time)"
 cd "$REPO_ROOT" || exit 2
-for f in contract exclusive concurrency schema repositories; do
+for f in contract exclusive appointments concurrency contention schema repositories; do
   echo "   -- $f"
-  SCHEDULING_TEST_DATABASE_URL="$URL" npx vitest run --config vitest.integration.config.ts "packages/scheduling-postgres/tests/$f.integration.test.ts" 2>&1 | grep -E "^ +(Tests|Test Files) |FAIL|AssertionError" | sed 's/^/      /'
-  RC=${PIPESTATUS[0]}
+  RC=1
+  # A vitest worker that DIES (no test result at all) is retried, up to 5 attempts: on a Windows host with
+  # thousands of TIME_WAIT sockets the node process is sometimes killed silently mid-run. A suite that RUNS
+  # and fails an assertion is never retried.
+  for attempt in 1 2 3 4 5; do
+    LOG="$(SCHEDULING_CONTENTION_TARGET="docker-pg${PG_MAJOR}" SCHEDULING_CONTENTION_REPORT="${SCHED_REPORT_DIR:+$SCHED_REPORT_DIR/contention-pg${PG_MAJOR}.jsonl}" SCHEDULING_TEST_DATABASE_URL="$URL" npx vitest run --config vitest.integration.config.ts "packages/scheduling-postgres/tests/$f.integration.test.ts" 2>&1)"
+    RC=$?
+    echo "$LOG" | grep -E "^ +(Tests|Test Files) |FAIL|AssertionError" | sed 's/^/      /'
+    if [ "$RC" -ne 0 ] && echo "$LOG" | grep -q "Worker exited unexpectedly"; then
+      echo "      NOTE: the test worker process died (attempt $attempt of 5); retrying after 30 s"
+      [ -n "${SCHED_REPORT_DIR:-}" ] && rm -f "$SCHED_REPORT_DIR/contention-pg${PG_MAJOR}.jsonl"
+      sleep 30
+      continue
+    fi
+    break
+  done
   check "$RC" "$f suite"
 done
 

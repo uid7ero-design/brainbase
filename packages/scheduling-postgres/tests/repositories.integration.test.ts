@@ -46,7 +46,7 @@ describe.skipIf(!hasDatabase)('config repository', () => {
     const b = await w.config.createSchedule(w.staff, scheduleInput({ name: 'Coaching', presetKey: 'classes_coaching', presetVersion: PRESETS.classes_coaching.version, publicSlug: null }));
     expect(await w.config.getSchedule(w.staff, a.id)).toMatchObject({ presetKey: 'restaurant_tables', timezone: 'Australia/Perth', publicSlug: 'dine', terminology: { reservationPlural: 'Covers' } });
     expect(await w.config.getSchedule(w.staff, b.id)).toMatchObject({ presetKey: 'classes_coaching', timezone: null, publicSlug: null });
-    expect((await w.config.listSchedules(w.staff)).map(s => s.presetKey).sort()).toEqual(['accommodation', 'classes_coaching', 'classes_coaching', 'resource_hire', 'restaurant_tables']);
+    expect((await w.config.listSchedules(w.staff)).map(s => s.presetKey).sort()).toEqual(['accommodation', 'appointments', 'classes_coaching', 'classes_coaching', 'resource_hire', 'restaurant_tables']);
   });
 
   it('validates in the domain before touching SQL: bad timezone, slug, policy and preset version', async () => {
@@ -69,7 +69,7 @@ describe.skipIf(!hasDatabase)('config repository', () => {
     const nobody = staff(ORG, []);
     expect(await thrown(w.config.createSchedule(viewer, scheduleInput()))).toMatchObject({ code: 'permission_denied' });
     expect(await thrown(w.config.createResource(viewer, { kind: 'court', name: 'C', capacity: 1, minParty: null, active: true }))).toMatchObject({ code: 'permission_denied' });
-    expect(await w.config.listSchedules(viewer)).toHaveLength(3);
+    expect(await w.config.listSchedules(viewer)).toHaveLength(4);
     expect(await thrown(w.config.listSchedules(nobody))).toMatchObject({ code: 'permission_denied' });
     expect(await thrown(w.config.listResources(nobody))).toMatchObject({ code: 'permission_denied' });
   });

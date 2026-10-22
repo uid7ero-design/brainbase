@@ -52,13 +52,16 @@ at another tenant's row; `created_at`/`updated_at` (trigger-maintained) and `cre
 | 12 | Cancel releases holds (app) | Trigger releases holds on any cancelling write; `scheduling_cancel_occurrence()` function closes an occurrence and cancels its reservations atomically | Every writer is covered, and the HTTP driver cannot run two statements in one transaction |
 | 13 | (not specified) | Deferred constraint triggers: an exclusive reservation or a resource-bearing occurrence must own a live hold | A writer that skips the hold cannot create an un-protected booking |
 | 14 | (not specified) | Local wall-clock columns derived **in SQL** from the instants and timezone | They cannot disagree; DST legality is checked in TypeScript (`time.ts`) because Postgres resolves gaps and overlaps silently |
+| 15 | Resource kinds: court, table, room, practitioner, equipment, space | Adds `virtual` | An online appointment line is modelled explicitly, with its own capacity and hold, so remote and in-person appointments are exclusive in exactly the same way. Staff create it deliberately; booking never invents one |
+| 16 | (not specified) | CHECK `scheduling_reservations_preset_span_ck`: preset decides span (headcount presets = occurrence; appointments, restaurant tables, facility hire = slot; accommodation = stay) | With the existing one-target and span checks, an appointment can never be stored without a concrete resource, or as a headcount booking |
+| 17 | (not specified) | Resource eligibility inside the single create statement: kind accepted by the preset; for customers and the public additionally an active resource linked to the offering | A customer cannot reach an unrelated or internal-only resource by guessing an id |
+| 18 | Version marker `2a.1` | `2a.2`; `010` stops with SQLSTATE `SCVER` on a `2a.1` install | 2a.1 existed only on a disposable branch. Two CHECKs changed, and `CREATE TABLE IF NOT EXISTS` cannot alter them, so an old install must be rolled back (090) first rather than silently keep the old rules |
 
 ### Findings that change earlier statements
 
-- **Appointments preset.** Phase 1 says an appointments reservation's resource is `optional`. The database cannot
-  enforce exclusivity without a resource, so 2A requires one for every slot or stay. A business with no named
-  practitioner should create one `practitioner` resource for itself. Tightening the preset to `required` is a preset
-  version bump and an owner decision; it is **not** done here.
+- **Appointments preset (resolved in the final corrections).** Phase 1 said an appointment's resource was
+  `optional`, but the database cannot enforce exclusivity without one. The preset is now **version 2**:
+  `requirement: 'required'`, kinds `practitioner`, `room` and `virtual`. See section 9.
 - **The earlier "no deadlock" claim.** The Neon exclusion rehearsal (17/17) reported no deadlock with 30 racers on one
   identical range. With *different but overlapping* ranges, plain exclusion-constraint inserts deadlock
   (`40P01`) intermittently: first seen as a failed run of the full proof on Postgres 16, then in 1 of 6 repeat runs, and made reliable by a
@@ -106,7 +109,8 @@ never takes an advisory lock.
 ### 5.4 Timeouts and transaction boundaries
 
 The Neon HTTP driver runs one statement as one implicit transaction; nothing here assumes more. Waiting functions carry
-`SET lock_timeout = '5s'`; a stuck waiter fails with `55P03`, which is **not** mapped to a business error. Statement
+`SET lock_timeout = '5s'`; a stuck waiter fails with `55P03`, which the adapter maps to the retryable
+`contention_timeout` (never to a business refusal; see section 6 and `scheduling-phase2a-contention.md`). Statement
 timeouts are the caller's choice (none is imposed by the schema).
 
 ## 6. Error mapping (`@scheduling/postgres` `mapPgError`)
@@ -122,7 +126,9 @@ timeouts are the caller's choice (none is imposed by the schema).
 | `SCWIN`, `23514`, `23502`, `22P02`, `22007` | `invalid_input` |
 | `SCLIF`, `SCIMM`, `SCREA`, `SCHLD` | `lifecycle_violation` |
 | `SCISO` | `unsafe_isolation` |
-| `40P01`, `40001`, `55P03`, `57014`, connection errors | **unmapped** (rethrown) |
+| `55P03` raised by our `lock_timeout` (message "canceling statement due to lock timeout", or a `scheduling_*` function in the context) | `contention_timeout` (`retryable: true`; nothing was written) |
+| `55P03` from anything else (NOWAIT, another system) | **unmapped** (rethrown) |
+| `40P01`, `40001`, `57014`, connection errors | **unmapped** (rethrown). A deadlock cannot happen in this schema by design; if one ever did it is a defect to surface, not to retry |
 
 ## 7. Actors and tenancy
 
@@ -148,7 +154,21 @@ organisation) is a host concern and is not built in 2A.
 
 A standalone deployment with its own Neon project applies `001`, `010`, `020` and omits `110`.
 
-## 9. Not built (by design)
+## 9. Appointments need a resource (preset v2)
+
+| Question | Answer |
+| --- | --- |
+| What changed | `appointments` preset **version 2**: resource `required`; kinds `practitioner`, `room`, `virtual`. Same exclusive-resource model as restaurant tables, accommodation and facility hire |
+| What is "virtual" | A deliberately created resource (a video room, a telehealth line) with a capacity and a hold like any other. It is never created during a booking |
+| Can a customer choose? | Yes: `createAssigned` with a `resourceId` books that provider (customers may name only an active resource linked to the offering). No: `createAssigned` without one assigns a free linked, active resource of an accepted kind, least-booked first |
+| Does the customer see the resource? | Never required to. The core exports `withoutInternalResource()` for the customer-facing shape; the host decides what to render |
+| When is the resource fixed? | At insert. A reservation row cannot exist without it (CHECKs), and its hold is written in the same statement, so an appointment is never "confirmed" without a concrete resource |
+| No resource configured | `offering_unavailable` (a configuration gap), distinct from `resource_conflict` ("all busy"). Nothing is created on the way |
+| Existing schedules | A schedule stamped v1 stays valid (`validateScheduleConfig` accepts 1..2) and books under the current rule; `upgradeScheduleConfig()` moves the stamp, keeping terminology, timezone and policy. An old in-memory v1 snapshot without a resource is still read as v1 history (`PRESET_VERSION_NOTES`); new bookings need the current rule. Nothing is persisted at v1 anywhere, and the Phase 2A database never allowed a resourceless appointment |
+| A business with no named practitioner | Creates one `practitioner` (or `room`) resource for itself and links it to its services |
+| Not in 2A | An appointment needing two resources at once (practitioner **and** room). The holds table already allows several holds per reservation; the booking path is a later phase |
+
+## 10. Not built (by design)
 
 Availability search, occurrence generation and top-up, recurrence reconciliation, payments, notifications, public
 booking pages, CRM find-or-create (the host function from the Phase 2 design), routes, navigation, the module

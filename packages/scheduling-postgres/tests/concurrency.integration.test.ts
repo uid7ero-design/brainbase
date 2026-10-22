@@ -1,6 +1,7 @@
 import { Client } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { CreateReservationResult } from '@scheduling/core';
+import { INTERACTIVE_RETRY, retryOnContention, type CreateReservationResult } from '@scheduling/core';
+import { mapPgError, translating } from '@scheduling/postgres';
 import { TEST_URL, closePool, count, ensureSchema, getPool, hasDatabase, resetData, seedClass, seedOccurrence, seedResource, staff } from './support/pgHarness';
 import { classBooking, liveHolds, makeWorld, person, slotBooking, stayBooking, type World } from './support/builders';
 
@@ -270,7 +271,7 @@ describe.skipIf(!hasDatabase)('concurrency (database-enforced)', () => {
       }
     });
 
-    it('the function-level lock_timeout bounds a stuck waiter: it fails with a RAW 55P03 (never a business refusal) and writes nothing', async () => {
+    it('the function-level lock_timeout bounds a stuck waiter: it fails as a retryable contention_timeout (never a business refusal) and writes nothing', async () => {
       // No session setting is used on purpose: the Neon HTTP driver and PgBouncer cannot carry one.
       await seedClass(ORG, { schedule: 'sc', offering: 'of', occurrence: 'oc' }, 5);
       const holder = new Client({ connectionString: TEST_URL });
@@ -279,7 +280,7 @@ describe.skipIf(!hasDatabase)('concurrency (database-enforced)', () => {
         await holder.query('BEGIN');
         await holder.query("SELECT pg_advisory_xact_lock(hashtextextended('scheduling_capacity:' || $1 || ':oc', 0))", [ORG]);
         const started = Date.now();
-        await expect(w.repo.create(w.staff, classBooking('oc', { schedule: 'sc', offering: 'of' }))).rejects.toMatchObject({ code: '55P03' });
+        await expect(w.repo.create(w.staff, classBooking('oc', { schedule: 'sc', offering: 'of' }))).rejects.toMatchObject({ name: 'SchedulingError', code: 'contention_timeout', retryable: true });
         const waited = Date.now() - started;
         expect(waited).toBeGreaterThanOrEqual(4500);
         expect(waited).toBeLessThan(15000);
@@ -297,13 +298,100 @@ describe.skipIf(!hasDatabase)('concurrency (database-enforced)', () => {
       try {
         await holder.query('BEGIN');
         await holder.query("SELECT pg_advisory_xact_lock(hashtextextended('scheduling_resource:' || $1 || ':court-1', 0))", [ORG]);
-        await expect(w.repo.create(w.staff, slotBooking('court-1', '2026-12-07', '16:00', 60, w.hire))).rejects.toMatchObject({ code: '55P03' });
+        await expect(w.repo.create(w.staff, slotBooking('court-1', '2026-12-07', '16:00', 60, w.hire))).rejects.toMatchObject({ name: 'SchedulingError', code: 'contention_timeout', retryable: true });
         await holder.query('ROLLBACK');
         expect(await count('SELECT count(*) FROM scheduling_reservations')).toBe(0);
       } finally {
         await holder.end();
       }
     }, 30000);
+
+    it('a REAL deadlock (40P01) raised by Postgres is never translated or hidden: translating() rethrows it untouched', async () => {
+      // Two sessions take two advisory locks in opposite order. The schema is built so its own
+      // statements cannot do this; this proves the adapter would not disguise one if anything did.
+      const a = new Client({ connectionString: TEST_URL });
+      const b = new Client({ connectionString: TEST_URL });
+      await Promise.all([a.connect(), b.connect()]);
+      try {
+        await a.query('BEGIN');
+        await b.query('BEGIN');
+        await a.query('SELECT pg_advisory_xact_lock(940001)');
+        await b.query('SELECT pg_advisory_xact_lock(940002)');
+        const settle = (p: Promise<unknown>) => p.then(() => null, (e: unknown) => e);
+        const [ea, eb] = await Promise.all([
+          settle(a.query('SELECT pg_advisory_xact_lock(940002)')),
+          settle(new Promise(r => setTimeout(r, 300)).then(() => b.query('SELECT pg_advisory_xact_lock(940001)'))),
+        ]);
+        const deadlock = [ea, eb].find(e => (e as { code?: string } | null)?.code === '40P01');
+        expect(deadlock).toBeDefined();
+        expect(mapPgError(deadlock)).toBeNull();
+        await expect(translating(async () => { throw deadlock; })).rejects.toBe(deadlock);
+      } finally {
+        await a.query('ROLLBACK').catch(() => undefined);
+        await b.query('ROLLBACK').catch(() => undefined);
+        await Promise.all([a.end().catch(() => undefined), b.end().catch(() => undefined)]);
+      }
+    }, 30000);
+
+    describe('bounded retry of a lock timeout (opt-in, safe because nothing was written)', () => {
+      const env = (retries: unknown[]) => ({ sleep: (ms: number) => new Promise<void>(r => setTimeout(r, ms)), random: Math.random, onRetry: (i: unknown) => void retries.push(i) });
+      const holdResourceLock = async () => {
+        const holder = new Client({ connectionString: TEST_URL });
+        await holder.connect();
+        await holder.query('BEGIN');
+        await holder.query("SELECT pg_advisory_xact_lock(hashtextextended('scheduling_resource:' || $1 || ':court-1', 0))", [ORG]);
+        return holder;
+      };
+
+      it('one retry after the lock is freed books exactly once: attempt 1 times out and writes nothing, attempt 2 wins', async () => {
+        const holder = await holdResourceLock();
+        const retries: unknown[] = [];
+        let attempts = 0;
+        const booking = slotBooking('court-1', '2026-12-07', '16:00', 60, w.hire, { idempotencyKey: 'retry-1' });
+        const running = retryOnContention(() => { attempts++; return w.repo.create(w.staff, booking); }, INTERACTIVE_RETRY, env(retries));
+        await new Promise(r => setTimeout(r, 5600)); // attempt 1 has timed out by now
+        expect(await count('SELECT count(*) FROM scheduling_reservations')).toBe(0);
+        await holder.query('ROLLBACK');
+        await holder.end();
+        const result = await running;
+        expect(result.ok).toBe(true);
+        expect(attempts).toBe(2);
+        expect(retries).toHaveLength(1);
+        expect(await count('SELECT count(*) FROM scheduling_reservations')).toBe(1);
+        expect(await liveHolds(ORG, 'court-1')).toBe(1);
+        // a further blind repeat is a replay of the same reservation, not a second booking
+        const again = await w.repo.create(w.staff, booking);
+        expect(again).toMatchObject({ ok: true, replayed: true });
+        expect(await count('SELECT count(*) FROM scheduling_reservations')).toBe(1);
+      }, 40000);
+
+      it('a lock that stays stuck is retried once only, then surfaces contention_timeout: bounded, nothing written', async () => {
+        const holder = await holdResourceLock();
+        try {
+          const retries: unknown[] = [];
+          let attempts = 0;
+          const started = Date.now();
+          await expect(
+            retryOnContention(() => { attempts++; return w.repo.create(w.staff, slotBooking('court-1', '2026-12-07', '16:00', 60, w.hire)); }, INTERACTIVE_RETRY, env(retries)),
+          ).rejects.toMatchObject({ code: 'contention_timeout', retryable: true });
+          expect(attempts).toBe(2);
+          expect(retries).toHaveLength(1);
+          expect(Date.now() - started).toBeLessThan(15000);
+          expect(await count('SELECT count(*) FROM scheduling_reservations')).toBe(0);
+        } finally {
+          await holder.query('ROLLBACK').catch(() => undefined);
+          await holder.end().catch(() => undefined);
+        }
+      }, 40000);
+
+      it('a real refusal is never retried: a full slot is answered once', async () => {
+        await w.repo.create(w.staff, slotBooking('court-1', '2026-12-07', '16:00', 60, w.hire));
+        let attempts = 0;
+        const result = await retryOnContention(() => { attempts++; return w.repo.create(w.staff, slotBooking('court-1', '2026-12-07', '16:00', 60, w.hire)); }, INTERACTIVE_RETRY, env([]));
+        expect(result).toEqual({ ok: false, reason: 'resource_conflict' });
+        expect(attempts).toBe(1);
+      });
+    });
 
     // Needs a real session (BEGIN ISOLATION LEVEL ...), which PgBouncer transaction pooling does not keep.
     it.skipIf(POOLED_HOST)('refuses to run under REPEATABLE READ: the capacity count would use a stale snapshot', async () => {

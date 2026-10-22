@@ -1,9 +1,16 @@
 import { SchedulingError } from '@scheduling/core';
 
 // Maps Postgres errors raised by the scheduling schema onto domain errors, so callers never
-// pattern-match SQLSTATEs. Unknown errors are returned untouched (the caller rethrows): a
-// deadlock, statement timeout or lock timeout must stay visible, never be disguised as a
-// business refusal.
+// pattern-match SQLSTATEs. Unknown errors are returned untouched (the caller rethrows).
+//
+// Three failures are deliberately NOT business refusals:
+//   55P03 lock_not_available  -> 'contention_timeout' (retryable). The 5-second lock_timeout on the
+//         waiting functions fired: nothing was written, and the place or resource may well be free.
+//         Reporting it as "full" or "unavailable" would turn a busy database into lost bookings.
+//   40P01 deadlock_detected   -> unmapped. The schema is built so this cannot happen (per-resource
+//         advisory lock, disjoint lock families); if it ever does it is a defect to surface, and a
+//         generic retry would hide it.
+//   40001 / 57014 / connection errors -> unmapped: outcome or cause unknown.
 
 /** Custom SQLSTATEs raised by packages/scheduling/sql/010_shared_schema.sql. */
 export const SCHEDULING_SQLSTATE = {
@@ -16,6 +23,8 @@ export const SCHEDULING_SQLSTATE = {
   immutable: 'SCIMM',
   holdReactivation: 'SCREA',
   missingHold: 'SCHLD',
+  /** Raised by the migration only (an older install must be rolled back first); never at runtime. */
+  staleInstall: 'SCVER',
 } as const;
 
 interface PgErrorLike {
@@ -35,6 +44,20 @@ export function sqlstateOf(err: unknown): string | null {
 export function constraintOf(err: unknown): string | null {
   const c = asPg(err)?.constraint;
   return typeof c === 'string' ? c : null;
+}
+
+/**
+ * True when a 55P03 is the lock_timeout expiring inside a scheduling statement. 55P03 is also what
+ * NOWAIT and other lock failures raise, which this schema never issues, so those stay unmapped.
+ * The server's message for a lock_timeout is "canceling statement due to lock timeout"; the
+ * PL/pgSQL context ("where") names the scheduling_* function when the driver supplies it.
+ */
+export function isSchedulingLockTimeout(err: unknown): boolean {
+  if (sqlstateOf(err) !== '55P03') return false;
+  const e = asPg(err) as { message?: unknown; where?: unknown } | null;
+  const message = typeof e?.message === 'string' ? e.message : '';
+  const where = typeof e?.where === 'string' ? e.where : '';
+  return /lock timeout/i.test(message) || /scheduling_/i.test(where);
 }
 
 const DUPLICATE_RESERVATION_CONSTRAINTS = new Set([
@@ -70,6 +93,8 @@ export function mapPgError(err: unknown): SchedulingError | null {
     case SCHEDULING_SQLSTATE.holdReactivation:
     case SCHEDULING_SQLSTATE.missingHold:
       return make('lifecycle_violation');
+    case '55P03': // lock_not_available: only a lock wait that timed out under OUR lock_timeout
+      return isSchedulingLockTimeout(err) ? make('contention_timeout') : null;
     case '23P01': // exclusion_violation: the resource is already held for an overlapping range
       return make('resource_conflict');
     case '23505': // unique_violation

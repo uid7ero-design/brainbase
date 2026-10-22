@@ -83,6 +83,11 @@ export function stayBooking(roomId: string, checkIn: string, checkOut: string, i
   };
 }
 
+/** An appointment (preset v2). resourceId null asks the repository to assign one. */
+export function appointmentBooking(resourceId: string | null, date: string, time: string, minutes: number, ids: { schedule: string; offering: string }, over: Partial<NewReservationInput> = {}): NewReservationInput {
+  return { ...slotBooking(resourceId as string, date, time, minutes, ids, { presetKey: 'appointments', presetVersion: PRESETS.appointments.version, price: { amountCents: 9000, currency: 'AUD' }, ...over }), resourceId };
+}
+
 export interface World {
   org: string;
   staff: TenantContext;
@@ -90,6 +95,7 @@ export interface World {
   config: PostgresSchedulingConfigRepository;
   hire: { schedule: string; offering: string };
   stay: { schedule: string; offering: string };
+  appt: { schedule: string; offering: string };
   cls: { schedule: string; offering: string };
 }
 
@@ -98,10 +104,13 @@ export async function makeWorld(org: string, staffTenant: TenantContext, clock =
   const hire = { schedule: `${org}-sched-hire`, offering: `${org}-off-hire` };
   const stay = { schedule: `${org}-sched-stay`, offering: `${org}-off-stay` };
   const cls = { schedule: `${org}-sched-class`, offering: `${org}-off-class` };
+  const appt = { schedule: `${org}-sched-appt`, offering: `${org}-off-appt` };
   await seedSchedule(org, hire.schedule, 'resource_hire');
   await seedOffering(org, hire.offering, hire.schedule, { capacity: null });
   await seedSchedule(org, stay.schedule, 'accommodation');
   await seedOffering(org, stay.offering, stay.schedule, { capacity: null, durationMinutes: null });
+  await seedSchedule(org, appt.schedule, 'appointments');
+  await seedOffering(org, appt.offering, appt.schedule, { capacity: null, durationMinutes: 30 });
   await seedSchedule(org, cls.schedule, 'classes_coaching');
   await seedOffering(org, cls.offering, cls.schedule, { capacity: 10 });
   await seedResource(org, 'court-1', 'court');
@@ -113,6 +122,7 @@ export async function makeWorld(org: string, staffTenant: TenantContext, clock =
     config: new PostgresSchedulingConfigRepository({ sql: sql() }),
     hire,
     stay,
+    appt,
     cls,
   };
 }

@@ -1,0 +1,36 @@
+(node:23408) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.
+In the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.
+
+To prepare for this change:
+- If you want the current behavior, explicitly use 'sslmode=verify-full'
+- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'
+
+See https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.
+(Use `node --trace-warnings ...` to show where the warning was created)
+foreign (non-scheduling) fingerprint {"h":"14ac107c7bf1ab963e85f744501631cd","n":6917}
+baseline {"tables":212,"functions":58,"triggers":64,"scheduling_tables":0}
+server PostgreSQL 17.11 (11592b3) on aarch64-un
+PASS  001 preflight runs (read-only)  {"statements":8}
+PASS  preflight 4: role may create objects and the extension  {"can_create_schema":true,"can_create_in_public":true,"can_create_extension":true}
+PASS  010 shared migration, first apply
+PASS  010 shared migration, second apply (idempotent)
+PASS  second apply reproduces every scheduling definition byte for byte
+PASS  010 changed nothing outside scheduling_* (tables, columns, indexes, constraints, triggers, functions)  {"h":"14ac107c7bf1ab963e85f744501631cd","n":6917}
+PASS  inventory delta is +13 tables, +11 functions, +16 triggers  {"tables":225,"functions":69,"triggers":80,"scheduling_tables":13}
+PASS  020 verification runs  {"statements":8}
+PASS  verify 1: version marker 2a.2
+PASS  verify 2: 13 tables, all empty but the marker
+PASS  verify 4: exclusion constraint definition
+PASS  verify 5: btree_gist installed  {"extname":"btree_gist","extversion":"1.7","schema":"scheduling_ext"}
+PASS  verify 6: 16 triggers, all enabled
+PASS  verify 7: no foreign key to a host table before the host migration
+PASS  verify 8: no dependency on LD Tennis / CRM tables
+PASS  110 BrainBase host migration, first apply
+PASS  110 second apply (idempotent)
+PASS  host migration added exactly 3 FKs, all to organisations  [{"t":"scheduling_resources","ref":"organisations"},{"t":"scheduling_schedules","ref":"organisations"},{"t":"scheduling_settings","ref":"organisations"}]
+PASS  190 host rollback
+PASS  host rollback removed them
+PASS  110/190 changed nothing outside scheduling_* either  {"h":"14ac107c7bf1ab963e85f744501631cd","n":6917}
+PASS  110 re-apply after rollback
+
+REHEARSAL STEPS: ALL PASS

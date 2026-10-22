@@ -1,4 +1,4 @@
-import type { SchedulingPlatform, TenantContext } from './contracts';
+import type { CreateReservationResult, NewReservationInput, ReservationRepository, TenantContext } from './contracts';
 import type {
   AvailabilityException,
   AvailabilityRule,
@@ -8,6 +8,7 @@ import type {
   LocalTime,
   Occurrence,
   Offering,
+  Reservation,
   Resource,
   ScheduleConfig,
   SchedulingSettings,
@@ -31,12 +32,20 @@ export type SchedulingErrorCode =
   | 'duplicate_reservation'
   | 'offering_unavailable'
   | 'lifecycle_violation' // an illegal status change, or an attempt to rewrite a snapshot
-  | 'unsafe_isolation'; // the capacity guard refuses REPEATABLE READ / SERIALIZABLE
+  | 'unsafe_isolation' // the capacity guard refuses REPEATABLE READ / SERIALIZABLE
+  | 'contention_timeout'; // a lock wait exceeded its bound; NOTHING was written; retryable, and NOT a booking refusal
 
 export class SchedulingError extends Error {
   readonly code: SchedulingErrorCode;
   /** The database constraint that fired, when the failure came from one (for adapters and tests). */
   readonly constraint: string | null;
+  /**
+   * True only when the statement was aborted before writing anything and may be repeated. Today
+   * that is `contention_timeout` alone. Callers still bound the repeats (see retryOnContention).
+   */
+  get retryable(): boolean {
+    return this.code === 'contention_timeout';
+  }
   constructor(code: SchedulingErrorCode, message?: string, constraint: string | null = null) {
     super(message ?? code);
     this.name = 'SchedulingError';
@@ -172,9 +181,29 @@ export interface SchedulingConfigRepository {
   listHoldsForReservation(tenant: TenantContext, reservationId: string): Promise<ResourceHold[]>;
 }
 
+/**
+ * A booking request in which the resource is optional. With a resourceId the customer (or staff)
+ * chose a provider; with null the repository assigns one. Either way the stored reservation
+ * names a concrete resource, and the customer is never required to know it exists.
+ */
+export type AssignedReservationInput = Omit<NewReservationInput, 'resourceId'> & { resourceId?: string | null };
+
+export type CreateAssignedReservationResult =
+  | { ok: true; reservation: Reservation; replayed?: boolean; assigned: boolean }
+  | Extract<CreateReservationResult, { ok: false }>;
+
+/**
+ * Exclusive-resource presets (appointments, restaurant tables, accommodation, facility hire):
+ * a reservation that resolves its resource from the offering's linked, active, permitted
+ * resources. It NEVER creates a resource; when none is free it reports resource_conflict.
+ */
+export interface ResourceAssigningReservationRepository extends ReservationRepository {
+  createAssigned(tenant: TenantContext, input: AssignedReservationInput): Promise<CreateAssignedReservationResult>;
+}
+
 /** What a 2A host hands the persistence layer, on top of the Phase 1 platform. */
 export interface SchedulingPersistence {
   readonly config: SchedulingConfigRepository;
-  readonly reservations: SchedulingPlatform['reservations'];
+  readonly reservations: ResourceAssigningReservationRepository;
 }
 

@@ -131,7 +131,8 @@ export const PRESETS: Readonly<Record<PresetKey, PresetDefinition>> = deepFreeze
 
   appointments: {
     key: 'appointments',
-    version: 1,
+    // v2: every appointment holds a concrete internal resource (see PRESET_VERSION_NOTES).
+    version: 2,
     name: 'Appointments',
     description:
       'One-to-one services where the customer picks a start time within a provider\'s working hours.',
@@ -150,7 +151,7 @@ export const PRESETS: Readonly<Record<PresetKey, PresetDefinition>> = deepFreeze
     },
     timeModel: 'bookable_slot',
     durationSource: 'offering_fixed',
-    resources: { requirement: 'optional', kinds: ['practitioner', 'room'] },
+    resources: { requirement: 'required', kinds: ['practitioner', 'room', 'virtual'] },
     capacity: { semantics: 'exclusive_resource', partySize: 'always_one' },
     booking: {
       requiredFields: ['customer_name', 'customer_email'],
@@ -347,6 +348,37 @@ export function getPreset(key: PresetKey): PresetDefinition {
 
 export function listPresets(): PresetDefinition[] {
   return PRESET_KEYS.map(k => PRESETS[k]);
+}
+
+/**
+ * What changed between preset versions, for the versions that changed how a booking is
+ * interpreted. Only the current definition is kept in PRESETS; this records the one rule that
+ * older SNAPSHOTS were made under so history stays valid. A preset absent from this table has
+ * never changed meaning.
+ *
+ *   appointments v1 -> v2: the resource requirement went from 'optional' to 'required'. No
+ *   persisted v1 appointment ever lacked a resource (the Phase 2A database refuses one), so v1
+ *   data needs no rewrite; only in-memory Phase 1 data could, and it is still read as v1.
+ */
+export const PRESET_VERSION_NOTES: Readonly<
+  Partial<Record<PresetKey, Readonly<Record<number, { readonly resourceRequirement: ResourceRequirement }>>>>
+> = deepFreeze({
+  appointments: { 1: { resourceRequirement: 'optional' } },
+});
+
+/** The resource requirement in force at `version` of a preset (the current rule when unchanged). */
+export function resourceRequirementAtVersion(key: PresetKey, version: number): ResourceRequirement {
+  return PRESET_VERSION_NOTES[key]?.[version]?.resourceRequirement ?? PRESETS[key].resources.requirement;
+}
+
+/**
+ * Brings a schedule recorded under an older preset version to the current one. Terminology and
+ * cancellation policy are the schedule's own and are kept; only the version stamp moves, so new
+ * bookings are made under the current rules. Returns the same object when already current.
+ */
+export function upgradeScheduleConfig<T extends { presetKey: PresetKey; presetVersion: number }>(schedule: T): T {
+  const current = PRESETS[schedule.presetKey].version;
+  return schedule.presetVersion >= current ? schedule : { ...schedule, presetVersion: current };
 }
 
 export const TERM_KEYS: readonly TermKey[] = Object.freeze(

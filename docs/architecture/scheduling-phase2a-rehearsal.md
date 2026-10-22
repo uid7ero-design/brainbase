@@ -1,6 +1,6 @@
 # Scheduling Phase 2A: rehearsal and test evidence
 
-Date: 2026-10-22. Nothing was applied to Production or to any shared Preview database. Every database below was
+Date: 2026-10-22 (final corrections re-run on the same day). Nothing was applied to Production or to any shared Preview database. Every database below was
 disposable.
 
 ## 1. Disposable Postgres (Docker): `scripts/tests/verify-scheduling-phase2a.sh [16|17]`
@@ -13,10 +13,14 @@ A fresh `postgres:<n>-alpine` container per run, removed on exit. Steps and resu
 | `010` applied twice | idempotent (second apply creates nothing) |
 | `020` verification | version marker, 13 tables, exclusion constraint, 0 legacy dependencies |
 | `110` twice, `190`, `110`, `190` | idempotent and reversible |
-| Suites, one file at a time | contract 13, exclusive 13, concurrency 23, schema 29, repositories 28 = **106 pass** |
+| Suites, one file at a time | contract 13, exclusive 13, appointments 21, concurrency 27, contention 16, schema 32, repositories 28 = **150 pass** on 16.14 and on 17.11 |
 | `090` while reservations exist | **refuses** (data guard) |
 | `090` after clearing test data | removes every `scheduling_*` table; an unrelated sentinel table is untouched |
 | `010` re-applied | clean |
+
+Raw logs: `scheduling-phase2a-evidence/docker-pg16-proof.txt` and `docker-pg17-proof.txt`. On the Postgres 17 run the vitest worker
+process died once during the contention suite (no assertion failed) and the script's dead-worker retry re-ran it, which passed;
+see `scheduling-phase2a-contention.md` section 6.
 
 Unit and boundary tests (no database): 251 in the `packages` project (includes the 14 DST tests, the error-mapping table
 and the boundary checks); 12 Phase 2A containment tests.
@@ -40,6 +44,27 @@ One guard was broken at a time on a fresh schema and the suites re-run without r
 | TypeScript: tenant filter dropped from `getById` | contract (1) |
 | TypeScript: domain validation skipped | repositories (4) |
 | TypeScript: published-only restriction removed | repositories (11; caused indirectly by a broken parameter list, so this one detects, but not for the intended reason) |
+
+### 2.1 Mutation checks added in the final corrections
+
+Each rule was broken on its own and a test failed for it (restored afterwards):
+
+| Mutation | Detected by |
+| --- | --- |
+| preset/span CHECK dropped | schema suite |
+| preset resource-kind test made permissive | appointments suite |
+| customer link/active condition removed | appointments suite |
+| candidate query ignores inactive resources | appointments suite |
+| candidate query ignores which offering a resource is linked to | appointments suite |
+| assignment tries only the first candidate | appointments suite (2 tests) |
+| `55P03` left unmapped | concurrency suite (4) and error unit tests (3) |
+| lock timeout reported as `resource_conflict` | concurrency suite (4) and error unit tests (4) |
+| deadlock `40P01` disguised as `resource_conflict` | concurrency suite (real deadlock test) and error unit tests (3) |
+| every error treated as retryable | retry unit tests (2) |
+| appointments requirement back to optional | appointment unit tests (6) |
+
+Two earlier mutations were first written in a way that broke the SQL instead of the rule; they were re-run with a precise
+change (the first attempt is not counted as evidence).
 
 ## 3. Neon rehearsal: disposable branch of `brainbase-db` (PostgreSQL 17.11)
 
@@ -74,6 +99,25 @@ Branch `temp/scheduling-2a-rehearsal-20261022` (copy of Production, throwaway ro
 - The deadlock described in `scheduling-phase2a-schema.md` section 3 was found by running the suites repeatedly; it
   appeared on Docker before it was looked for on Neon. The fix was then proven on both.
 
+## 3.1 Neon final-corrections run (disposable branch `br-muddy-wind-a7bfn6m9`, PostgreSQL 17.11)
+
+The same disposable branch was reused (no further copy of production data). It started at exactly 212 tables / 58 functions / 64
+triggers, with no scheduling objects.
+
+| Step | Result |
+| --- | --- |
+| preflight, `010` twice, `020` | pass; second apply reproduces every scheduling function, trigger, index, constraint and column definition **byte for byte** |
+| Fingerprint of every non-scheduling object (6,917 relation, column, index, constraint, trigger and function definitions) | **identical** before, after `010`, and after `110` / `190` |
+| inventory | 225 / 69 / 80 after apply (+13 tables, +11 functions, +16 triggers) |
+| `110` twice, `190`, `110` | exactly 3 foreign keys, all to `organisations`; removed cleanly |
+| Suites, **direct** host | contract 13, exclusive 13, appointments 21, concurrency 27, contention 16, schema 32, repositories 28, driver matrix 76: **all pass** |
+| Suites, **pooled** (PgBouncer) host | same, with 2 session-state concurrency tests and 1 contention test skipped by design (they need a real session): **all pass** |
+| `090` after truncating test data | branch back to exactly **212 / 58 / 64**, 0 scheduling tables |
+
+Driver matrix (76 tests): Neon HTTP, Neon WebSocket, each against direct and pooled hosts, now also covering the stuck-lock
+`contention_timeout` mapping and array-parameter assignment through each driver. Raw logs are in
+`scheduling-phase2a-evidence/`.
+
 ## 4. CI-equivalent commands
 
 See the PR description for the results of `npx tsc --noEmit`, the CI `vitest run` with its three excludes, and
@@ -81,6 +125,6 @@ See the PR description for the results of `npx tsc --noEmit`, the CI `vitest run
 
 ## 5. Clean-up
 
-The Neon branch and its throwaway role are left in place pending approval to delete them (deleting a branch is a
-destructive action). Docker containers are removed by the scripts. No secret is committed; the connection strings were
+The Neon branch and its throwaway role were approved for deletion after this evidence was saved into
+`scheduling-phase2a-evidence/`; see the PR for confirmation. Docker containers are removed by the scripts. No secret is committed; the connection strings were
 kept in a scratch file outside the repository.

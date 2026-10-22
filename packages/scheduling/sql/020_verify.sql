@@ -3,7 +3,7 @@
 
 -- 1. Version marker.
 SELECT version, applied_at FROM scheduling_schema_migrations ORDER BY version;
--- EXPECTED: one row, version 2a.1.
+-- EXPECTED: one row, version 2a.2.
 
 -- 2. The 13 tables exist and are empty (apart from the version marker).
 SELECT t.table_name,

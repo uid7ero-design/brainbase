@@ -57,7 +57,7 @@ Always Preview/disposable first, Production only after separate approval.
 | --- | --- | --- | --- | --- |
 | 0 | Backup branch | Neon console | branch `ready` | branch not ready |
 | 1 | `001_preflight.sql` | read-only | section 4.1 | any listed STOP condition |
-| 2 | `010_shared_schema.sql` | write | no error; ends in `COMMIT` | any error (the transaction rolls back; nothing changed) |
+| 2 | `010_shared_schema.sql` | write | no error; ends in `COMMIT` | any error (the transaction rolls back; nothing changed). `SCVER` means a pre-release `2a.1` install exists: run `090` first (it only ever existed on a disposable branch) |
 | 3 | `020_verify.sql` | read-only | section 4.3 | any mismatch |
 | 4 | `110_brainbase_host.sql` | write | no error; `COMMIT` | `VALIDATE` fails (a scheduling row names a missing organisation) |
 | 5 | `020_verify.sql` again | read-only | check 7 now returns 3 rows, all to `organisations` | other than 3 |
@@ -88,7 +88,7 @@ Success is the absence of an error and a final `COMMIT`. A re-run prints only "a
 
 | Check | Expected |
 | --- | --- |
-| 1 | one row `2a.1` |
+| 1 | one row `2a.2` |
 | 2 | 13 tables; `row_count` 0 except `scheduling_schema_migrations` = 1 |
 | 3 | tables +13, functions +11, triggers +16 (production copy: **225 / 69 / 80**) |
 | 4 | `scheduling_holds_no_overlap ... EXCLUDE USING gist (organisation_id WITH =, resource_id WITH =, during WITH &&) WHERE ((released_at IS NULL))` |
@@ -117,15 +117,18 @@ Application code needs no revert: nothing references these tables.
 - First 24 h: nothing should have changed for LD Tennis or any other module. Watch Neon for unexpected lock waits
   (`pg_stat_activity` waiting on `Lock`) and the runtime error rate; both should be flat because nothing queries
   the new tables.
-- Once Phase 2B code runs against it: alert on SQLSTATE `55P03` (a stuck waiter) and `40P01` (must stay at zero; the
-  per-resource lock exists to prevent it), and watch the refusal mix (`SCCAP`, `23P01`) for abnormal ratios.
+- Once Phase 2B code runs against it: alert on `contention_timeout` (SQLSTATE `55P03`, a stuck waiter) and on any raw
+  `40P01` (must stay at zero; the per-resource lock exists to prevent it), and watch the refusal mix (`SCCAP`,
+  `23P01`) for abnormal ratios. A rise in `contention_timeout` means a long transaction is holding a booking lock, not
+  that places have run out.
 
 ## 7. Known operational limits
 
-- A booking that waits more than 5 s for a capacity or resource lock fails with `55P03`. The adapter leaves it
-  unmapped so it is visible, and the caller should retry.
-- The per-resource lock serialises writes to one resource. Each hold insert is a few milliseconds, so contention only
-  matters for a very hot resource; not measured at volume.
+- A booking that waits more than 5 s for a capacity or resource lock fails with `55P03`, which the adapter reports as
+  the retryable `contention_timeout` (never as "full"). Nothing was written. Retry policy: `scheduling-phase2a-contention.md`.
+- The per-resource lock serialises writes to one resource. Measured on the disposable databases (see
+  `scheduling-phase2a-contention.md`): 100 simultaneous requests for one resource complete in well under a second on a
+  local container. That is a correctness result, not a production capacity figure.
 - Session-level settings (`SET lock_timeout`, isolation level) do not survive the Neon HTTP driver or PgBouncer; the
   design does not depend on them.
 

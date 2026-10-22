@@ -1,10 +1,11 @@
 import { Pool as NeonPool, neon, neonConfig } from '@neondatabase/serverless';
+import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { CreateReservationResult } from '@scheduling/core';
 import { PostgresReservationRepository, PostgresSchedulingConfigRepository, fromNeonHttpLike, fromPgLike, type SqlExecutor } from '@scheduling/postgres';
 import { describeReservationRepositoryContract } from '../../scheduling/tests/support/reservationRepositoryContract';
-import { FixedClock, closePool, ensureSchema, getPool, hasDatabase, resetData, seedClass, seedOccurrence, seedOffering, seedSchedule, staff } from './support/pgHarness';
-import { classBooking, liveHolds, makeWorld, slotBooking } from './support/builders';
+import { FixedClock, closePool, count, ensureSchema, getPool, hasDatabase, resetData, seedClass, seedOccurrence, seedOffering, seedResource, seedSchedule, staff } from './support/pgHarness';
+import { appointmentBooking, classBooking, liveHolds, makeWorld, slotBooking } from './support/builders';
 
 // Driver and connection-mode compatibility on a real Neon branch. The SAME repositories run over
 // every way the application could reach the database:
@@ -94,6 +95,41 @@ describe.skipIf(!enabled)('Neon drivers and connection modes', () => {
           for (const s of settled) if (s.status === 'rejected') raw.push((s.reason as { code?: string }).code ?? String(s.reason));
         }
         expect(raw).toEqual([]);
+      });
+
+      it('a stuck lock surfaces as the retryable contention_timeout through this driver and this host (never full / unavailable), and writes nothing', async () => {
+        await resetData();
+        const w = await makeWorld(ORG, staff(ORG));
+        const repo = new PostgresReservationRepository({ sql: exec, clock: new FixedClock() });
+        const holder = new Client({ connectionString: DIRECT, ssl: { rejectUnauthorized: false } });
+        await holder.connect();
+        try {
+          await holder.query('BEGIN');
+          await holder.query("SELECT pg_advisory_xact_lock(hashtextextended('scheduling_resource:' || $1 || ':court-1', 0))", [ORG]);
+          const started = Date.now();
+          await expect(repo.create(w.staff, slotBooking('court-1', '2026-12-07', '16:00', 60, w.hire))).rejects.toMatchObject({ name: 'SchedulingError', code: 'contention_timeout', retryable: true });
+          expect(Date.now() - started).toBeGreaterThan(4000);
+          expect(Date.now() - started).toBeLessThan(15000);
+          await holder.query('ROLLBACK');
+          expect(await count('SELECT count(*) FROM scheduling_reservations')).toBe(0);
+          expect((await repo.create(w.staff, slotBooking('court-1', '2026-12-07', '16:00', 60, w.hire))).ok).toBe(true); // recovers at once
+        } finally {
+          await holder.end().catch(() => undefined);
+        }
+      }, 40000);
+
+      it('automatic assignment through this driver: 8 racers, 2 linked practitioners, exactly 2 winners on distinct resources (array parameters work)', async () => {
+        await resetData();
+        const w = await makeWorld(ORG, staff(ORG));
+        const repo = new PostgresReservationRepository({ sql: exec, clock: new FixedClock() });
+        for (const r of ['dr-a', 'dr-b']) {
+          await seedResource(ORG, r, 'practitioner', { capacity: 1 });
+          await getPool().query('INSERT INTO scheduling_offering_resources (organisation_id, offering_id, resource_id) VALUES ($1, $2, $3)', [ORG, w.appt.offering, r]);
+        }
+        const settled = await Promise.allSettled(range(8).map(() => repo.createAssigned(w.staff, appointmentBooking(null, '2026-12-08', '10:00', 30, w.appt))));
+        expect(settled.filter(s => s.status === 'rejected')).toEqual([]);
+        const ok = settled.flatMap(s => (s.status === 'fulfilled' && s.value.ok ? [s.value.reservation.resourceId] : []));
+        expect(ok.sort()).toEqual(['dr-a', 'dr-b']);
       });
 
       it('idempotent retries return one reservation; cancel releases the hold; the repositories round-trip config', async () => {

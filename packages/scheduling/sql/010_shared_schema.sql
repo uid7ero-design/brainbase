@@ -1,4 +1,4 @@
--- Scheduling & Bookings — Phase 2A: shared database foundation (version 2a.1)
+-- Scheduling & Bookings — Phase 2A: shared database foundation (version 2a.2)
 --
 -- STATUS: NOT APPLIED ANYWHERE. Staged for review. Do not run against
 -- Production without the approvals listed in docs/architecture/scheduling-phase2a-migration-package.md.
@@ -50,6 +50,7 @@
 --   SCCAP capacity exceeded      SCISO unsafe isolation level   SCCLS occurrence not open
 --   SCWIN window mismatch        SCRES resource inactive        SCLIF illegal lifecycle change
 --   SCIMM immutable column       SCREA hold reactivation        SCHLD exclusive booking has no hold
+--   SCVER an older (2a.1) install must be rolled back before this file applies
 
 BEGIN;
 
@@ -84,6 +85,18 @@ CREATE TABLE IF NOT EXISTS scheduling_schema_migrations (
   description text NOT NULL,
   applied_at  timestamptz NOT NULL DEFAULT now()
 );
+
+-- 2a.1 was applied only to a disposable rehearsal branch. 2a.2 changes two CHECK constraints that
+-- CREATE TABLE IF NOT EXISTS cannot alter, so a 2a.1 install must be rolled back (090) first.
+-- Stopping here is safer than silently leaving the old constraints in place.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM scheduling_schema_migrations WHERE version = '2a.1')
+     AND NOT EXISTS (SELECT 1 FROM scheduling_schema_migrations WHERE version = '2a.2') THEN
+    RAISE EXCEPTION 'a version 2a.1 scheduling schema is installed; run 090_rollback.sql first (2a.1 was only ever applied to a disposable branch)'
+      USING ERRCODE = 'SCVER';
+  END IF;
+END $$;
 
 -- ─── Organisation-wide settings (one row per organisation) ──────────────────
 -- No timezone column on purpose: the organisation timezone is host-owned (BrainBase:
@@ -122,7 +135,7 @@ CREATE TABLE IF NOT EXISTS scheduling_schedules (
 CREATE TABLE IF NOT EXISTS scheduling_resources (
   id              text NOT NULL,
   organisation_id text NOT NULL CHECK (btrim(organisation_id) <> ''),
-  kind            text NOT NULL CHECK (kind IN ('court','table','room','practitioner','equipment','space')),
+  kind            text NOT NULL CHECK (kind IN ('court','table','room','practitioner','equipment','space','virtual')),
   name            text NOT NULL CHECK (btrim(name) <> ''),
   capacity        integer NOT NULL CHECK (capacity > 0),
   min_party       integer CHECK (min_party IS NULL OR (min_party >= 1 AND min_party <= capacity)),
@@ -353,6 +366,13 @@ CREATE TABLE IF NOT EXISTS scheduling_reservations (
   updated_at                timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT scheduling_reservations_window_ck CHECK (ends_at > starts_at),
   CONSTRAINT scheduling_reservations_one_target_ck CHECK (num_nonnulls(occurrence_id, resource_id) = 1),
+  -- The preset decides the span: headcount presets reserve an occurrence, every other preset
+  -- (appointments, restaurant tables, facility hire, accommodation) must hold a concrete
+  -- resource for a slot or a stay. An appointment can never be stored without one.
+  CONSTRAINT scheduling_reservations_preset_span_ck CHECK (
+    (preset_key IN ('classes_coaching','event_capacity') AND span_kind = 'occurrence')
+    OR (preset_key IN ('appointments','restaurant_tables','resource_hire') AND span_kind = 'slot')
+    OR (preset_key = 'accommodation' AND span_kind = 'stay')),
   CONSTRAINT scheduling_reservations_span_ck CHECK (
     (span_kind = 'occurrence' AND occurrence_id IS NOT NULL)
     OR (span_kind IN ('slot','stay') AND resource_id IS NOT NULL)),
@@ -714,7 +734,7 @@ CREATE OR REPLACE TRIGGER scheduling_holds_serialise BEFORE INSERT ON scheduling
 -- ─── Version marker ──────────────────────────────────────────────────────────
 
 INSERT INTO scheduling_schema_migrations (version, description)
-VALUES ('2a.1', 'Phase 2A shared scheduling schema: settings, schedules, resources, offerings, availability, occurrences, series, reservations, resource holds')
+VALUES ('2a.2', 'Phase 2A shared scheduling schema: settings, schedules, resources, offerings, availability, occurrences, series, reservations, resource holds; appointments require a resource, virtual resource kind')
 ON CONFLICT (version) DO NOTHING;
 
 COMMIT;

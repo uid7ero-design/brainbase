@@ -42,6 +42,48 @@ describe('mapPgError: Postgres errors raised by the scheduling schema become dom
     }
   });
 
+  describe('55P03 lock timeout and 40P01 deadlock', () => {
+    const TIMEOUT_MESSAGE = 'canceling statement due to lock timeout';
+    const withWhere = (code: string, message: string, where: string) => Object.assign(pgError(code, undefined, message), { where });
+
+    it('the lock_timeout expiring inside a scheduling statement becomes a retryable contention_timeout', () => {
+      const mapped = mapPgError(pgError('55P03', undefined, TIMEOUT_MESSAGE));
+      expect(mapped).toBeInstanceOf(SchedulingError);
+      expect(mapped?.code).toBe('contention_timeout');
+      expect(mapped?.retryable).toBe(true);
+      expect(mapped?.message).toBe(TIMEOUT_MESSAGE); // the server's words are preserved for logs
+    });
+
+    it('is recognised from the PL/pgSQL context too, when the message is reworded by a driver', () => {
+      const err = withWhere('55P03', 'timeout', 'PL/pgSQL function scheduling_reservation_guard() line 12 at SQL statement');
+      expect(mapPgError(err)?.code).toBe('contention_timeout');
+    });
+
+    it('is NOT a business refusal: never capacity_exceeded, resource_conflict or offering_unavailable', () => {
+      const mapped = mapPgError(pgError('55P03', undefined, TIMEOUT_MESSAGE));
+      expect(['capacity_exceeded', 'resource_conflict', 'offering_unavailable', 'duplicate_reservation']).not.toContain(mapped?.code);
+    });
+
+    it('a 55P03 that is not our lock_timeout (NOWAIT, another system) stays raw', () => {
+      expect(mapPgError(pgError('55P03', undefined, 'could not obtain lock on row in relation "ld_contacts"'))).toBeNull();
+      expect(mapPgError(withWhere('55P03', 'x', 'PL/pgSQL function some_other_system() line 3'))).toBeNull();
+    });
+
+    it('a deadlock and a serialization failure are never translated or retried: they are defects to surface', async () => {
+      for (const code of ['40P01', '40001']) {
+        const e = pgError(code, undefined, 'deadlock detected');
+        expect(mapPgError(e)).toBeNull();
+        await expect(translating(async () => { throw e; })).rejects.toBe(e);
+      }
+    });
+
+    it('translating() rethrows our timeout as a SchedulingError and any other 55P03 untouched', async () => {
+      await expect(translating(async () => { throw pgError('55P03', undefined, TIMEOUT_MESSAGE); })).rejects.toMatchObject({ name: 'SchedulingError', code: 'contention_timeout' });
+      const foreign = pgError('55P03', undefined, 'could not obtain lock on row');
+      await expect(translating(async () => { throw foreign; })).rejects.toBe(foreign);
+    });
+  });
+
   it('ignores anything that is not a Postgres error', () => {
     expect(mapPgError(new Error('plain'))).toBeNull();
     expect(mapPgError(null)).toBeNull();

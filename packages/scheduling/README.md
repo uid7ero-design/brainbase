@@ -101,7 +101,7 @@ through validated terminology overrides and policy values.
 | Preset | Time model | Capacity | Resource | Availability |
 | --- | --- | --- | --- | --- |
 | `classes_coaching` | fixed occurrence | headcount per occurrence | optional | generated occurrences |
-| `appointments` | bookable slot | exclusive resource | optional | weekly hours |
+| `appointments` | bookable slot | exclusive resource | required (v2) | weekly hours |
 | `restaurant_tables` | bookable slot | party fits resource | table, required | service periods |
 | `accommodation` | date range | exclusive resource | room, required | nightly inventory |
 | `resource_hire` | bookable slot | exclusive resource | required | weekly hours |

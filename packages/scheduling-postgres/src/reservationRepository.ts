@@ -6,14 +6,16 @@ import {
   resolveLocalTime,
   validateReservationForPreset,
   validateReservationSnapshot,
+  type AssignedReservationInput,
   type AttendanceStatus,
   type CancellationOutcome,
   type CancellationRequest,
   type Clock,
+  type CreateAssignedReservationResult,
   type CreateReservationResult,
   type NewReservationInput,
   type Reservation,
-  type ReservationRepository,
+  type ResourceAssigningReservationRepository,
   type TenantContext,
   type TimeSpan,
 } from '@scheduling/core';
@@ -123,7 +125,7 @@ export interface ReservationRepositoryOptions {
   newId?: () => string;
 }
 
-export class PostgresReservationRepository implements ReservationRepository {
+export class PostgresReservationRepository implements ResourceAssigningReservationRepository {
   private readonly sql: SqlExecutor;
   private readonly clock: Clock;
   private readonly newId: () => string;
@@ -222,6 +224,7 @@ export class PostgresReservationRepository implements ReservationRepository {
           actorLabel(tenant), // $25
           selfService, // $26
           this.newId(), // $27 (hold id)
+          getPreset(input.presetKey).resources.kinds, // $28 (resource kinds the preset accepts)
         ]),
       );
     } catch (err) {
@@ -240,13 +243,81 @@ export class PostgresReservationRepository implements ReservationRepository {
     if (rows.length === 0) {
       // The INSERT selected nothing: the offering is missing, in another tenant, archived, or
       // (for self-service) its schedule is not published. Say "not found" only when it is absent.
-      const exists = await this.sql.query<{ n: number }>(
-        `SELECT 1 AS n FROM scheduling_offerings WHERE organisation_id = $1 AND id = $2 AND schedule_id = $3`,
-        [tenant.organisationId, input.offeringId, input.scheduleId],
+      // A resource that does not exist in this tenant is "not found" (the same answer for another
+      // tenant's resource); one that exists but is the wrong kind, inactive or not offered to a
+      // customer is "offering_unavailable".
+      const known = await this.sql.query<{ offering: boolean; resource: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM scheduling_offerings WHERE organisation_id = $1 AND id = $2 AND schedule_id = $3) AS offering,
+                ($4::text IS NULL OR EXISTS (SELECT 1 FROM scheduling_resources WHERE organisation_id = $1 AND id = $4)) AS resource`,
+        [tenant.organisationId, input.offeringId, input.scheduleId, resourceId],
       );
-      return { ok: false, reason: exists.length === 0 ? 'not_found' : 'offering_unavailable' };
+      return { ok: false, reason: known[0]?.offering && known[0]?.resource ? 'offering_unavailable' : 'not_found' };
     }
     return { ok: true, reservation: toReservation(rows[0]) };
+  }
+
+  /**
+   * Books an exclusive-resource preset, resolving the resource when the caller did not choose one.
+   *
+   * - With `resourceId`: that resource is used as given (create() still enforces tenant, the
+   *   preset's resource kinds and, for customers, the offering link).
+   * - Without: candidates are the offering's LINKED, ACTIVE resources of a kind the preset accepts
+   *   that are free for the window right now, least-booked first. Each is tried in turn; a
+   *   candidate lost to a concurrent booking (resource_conflict) wrote nothing, so the next is
+   *   simply tried. At most MAX_ASSIGNMENT_ATTEMPTS are made, so it cannot loop.
+   * - A resource is never created here. No linked resource at all is `offering_unavailable`
+   *   (a configuration gap); linked resources that are all busy is `resource_conflict`.
+   *
+   * A repeated call with the same idempotencyKey returns the original reservation whichever
+   * resource it was assigned, so a retry can never take a second one.
+   */
+  async createAssigned(tenant: TenantContext, input: AssignedReservationInput): Promise<CreateAssignedReservationResult> {
+    const preset = getPreset(input.presetKey);
+    if (preset.resources.requirement !== 'required' || input.span.kind === 'occurrence') {
+      throw new SchedulingError('invalid_input', `${preset.key} reservations are not assigned a resource`);
+    }
+    const selfService = isSelfService(tenant);
+    if (!tenant.can('scheduling.reserve') && !selfService) {
+      throw new SchedulingError('permission_denied', 'scheduling.reserve is required');
+    }
+    const requested = input.resourceId ?? null;
+    const problems = this.validateInput(tenant, { ...input, resourceId: requested ?? PENDING_ASSIGNMENT });
+    if (problems.length > 0) throw new SchedulingError('invalid_input', problems.join('; '));
+
+    const key = input.idempotencyKey ?? null;
+    if (key !== null) {
+      const existing = await this.findByKey(tenant, key);
+      if (existing) {
+        const same =
+          existing.offeringId === input.offeringId &&
+          existing.instants.startsAt === input.instants.startsAt &&
+          existing.instants.endsAt === input.instants.endsAt &&
+          existing.customerSnapshot.emailNormalised === input.customerSnapshot.emailNormalised &&
+          (requested === null || existing.resourceId === requested);
+        return same ? { ok: true, reservation: existing, replayed: true, assigned: requested === null } : { ok: false, reason: 'duplicate_reservation' };
+      }
+    }
+
+    if (requested !== null) {
+      const result = await this.create(tenant, { ...input, resourceId: requested });
+      return result.ok ? { ...result, assigned: false } : result;
+    }
+
+    const candidates = await this.sql.query<{ id: string; busy: boolean }>(CANDIDATES_SQL, [
+      tenant.organisationId,
+      input.offeringId,
+      input.scheduleId,
+      preset.resources.kinds,
+      input.instants.startsAt,
+      input.instants.endsAt,
+    ]);
+    if (candidates.length === 0) return { ok: false, reason: 'offering_unavailable' };
+    for (const candidate of candidates.filter(c => !c.busy).slice(0, MAX_ASSIGNMENT_ATTEMPTS)) {
+      const result = await this.create(tenant, { ...input, resourceId: candidate.id });
+      if (result.ok) return { ...result, assigned: true };
+      if (result.reason !== 'resource_conflict') return result;
+    }
+    return { ok: false, reason: 'resource_conflict' };
   }
 
   async cancel(tenant: TenantContext, request: CancellationRequest): Promise<CancellationOutcome> {
@@ -393,6 +464,30 @@ function actorLabel(tenant: TenantContext): string {
   }
 }
 
+/** A placeholder that satisfies "a slot needs a resourceId" while the real one is still being chosen. */
+const PENDING_ASSIGNMENT = 'pending-assignment';
+/** Upper bound on candidates tried for one booking; far above any realistic provider count. */
+const MAX_ASSIGNMENT_ATTEMPTS = 25;
+
+// The offering's linked, active resources of a permitted kind, with whether each is already held
+// during the window. Tenant-scoped on every table. A soft filter only: the exclusion constraint at
+// insert time is what decides, so a stale "free" costs one more attempt, never a double booking.
+// Ordered by how booked the resource is in the 12 hours either side (spreads load), then id.
+const CANDIDATES_SQL = `
+SELECT rs.id,
+       EXISTS (SELECT 1 FROM scheduling_resource_holds h
+                WHERE h.organisation_id = rs.organisation_id AND h.resource_id = rs.id AND h.released_at IS NULL
+                  AND h.during && tstzrange($5::timestamptz, $6::timestamptz, '[)')) AS busy
+  FROM scheduling_offerings o
+  JOIN scheduling_offering_resources l ON l.organisation_id = o.organisation_id AND l.offering_id = o.id
+  JOIN scheduling_resources rs ON rs.organisation_id = l.organisation_id AND rs.id = l.resource_id
+ WHERE o.organisation_id = $1::text AND o.id = $2::text AND o.schedule_id = $3::text
+   AND o.archived_at IS NULL AND rs.active AND rs.kind = ANY($4::text[])
+ ORDER BY (SELECT count(*) FROM scheduling_resource_holds h2
+            WHERE h2.organisation_id = rs.organisation_id AND h2.resource_id = rs.id AND h2.released_at IS NULL
+              AND h2.during && tstzrange($5::timestamptz - interval '12 hours', $5::timestamptz + interval '12 hours', '[)')),
+          rs.id`;
+
 // One statement: the reservation and its resource hold are written together, so there is no
 // instant at which one exists without the other, and every capacity / overlap / tenant check
 // fires inside this statement. Local wall-clock columns are derived from the instants and the
@@ -417,6 +512,14 @@ WITH res AS (
    WHERE o.id = $6::text AND o.organisation_id = $1::text AND o.schedule_id = $3::text
      AND o.archived_at IS NULL AND s.archived_at IS NULL
      AND ($26::boolean = false OR s.public_slug IS NOT NULL)
+     -- The resource, when there is one, must be of a kind the preset accepts; a customer or the
+     -- public may additionally use only an active resource the offering is linked to.
+     AND ($9::text IS NULL OR EXISTS (
+           SELECT 1 FROM scheduling_resources rs
+            WHERE rs.organisation_id = o.organisation_id AND rs.id = $9::text AND rs.kind = ANY($28::text[])
+              AND ($26::boolean = false OR (rs.active AND EXISTS (
+                     SELECT 1 FROM scheduling_offering_resources l
+                      WHERE l.organisation_id = o.organisation_id AND l.offering_id = o.id AND l.resource_id = rs.id)))))
   RETURNING *
 ), hold AS (
   INSERT INTO scheduling_resource_holds (id, organisation_id, resource_id, during, reservation_id)

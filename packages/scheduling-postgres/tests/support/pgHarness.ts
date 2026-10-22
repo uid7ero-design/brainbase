@@ -10,6 +10,8 @@ import { fromPgLike, type SqlExecutor } from '@scheduling/postgres';
 // The suites run against a DISPOSABLE database named by SCHEDULING_TEST_DATABASE_URL (a Docker
 // container started by scripts/tests/verify-scheduling-phase2a.sh, or a throwaway Neon branch).
 // They never read DATABASE_URL, so they cannot reach the application's database by accident.
+// Pools keep idle connections for 2 minutes: re-opening hundreds of sockets per round exhausts the
+// ephemeral ports of a Windows machine (thousands of TIME_WAIT sockets) and kills the test process.
 // pg.Pool gives each concurrent statement its own connection, which is what makes the
 // concurrency tests real races rather than serialised calls.
 
@@ -20,11 +22,26 @@ const SQL_DIR = path.resolve(__dirname, '../../../scheduling/sql');
 export const sqlFile = (name: string) => readFileSync(path.join(SQL_DIR, name), 'utf8');
 export const hostSqlFile = (name: string) => readFileSync(path.resolve(__dirname, '../../../../scripts/scheduling', name), 'utf8');
 
+/**
+ * An idle pooled connection that the server or the OS drops emits an 'error' event; without a listener
+ * Node treats it as an uncaught exception and the test process dies silently. Log it and carry on: the pool
+ * discards the dead client and the next query opens a new one.
+ */
+function withErrorLog(p: Pool): Pool {
+  p.on('error', err => console.error('[pgHarness] idle client error:', (err as { code?: string }).code ?? err.message));
+  return p;
+}
+
 let pool: Pool | null = null;
 export function getPool(): Pool {
   if (!hasDatabase) throw new Error('SCHEDULING_TEST_DATABASE_URL is not set');
-  pool ??= new Pool({ connectionString: TEST_URL, max: 40, ssl: /sslmode=require|neon\.tech/.test(TEST_URL) ? { rejectUnauthorized: false } : undefined });
+  pool ??= withErrorLog(new Pool({ connectionString: TEST_URL, max: 40, idleTimeoutMillis: 120_000, ssl: /sslmode=require|neon\.tech/.test(TEST_URL) ? { rejectUnauthorized: false } : undefined }));
   return pool;
+}
+/** A separate pool for load tests (SCHEDULING_TEST_POOL_MAX overrides the size). Caller ends it. */
+export function makePool(max: number): Pool {
+  if (!hasDatabase) throw new Error('SCHEDULING_TEST_DATABASE_URL is not set');
+  return withErrorLog(new Pool({ connectionString: TEST_URL, max, idleTimeoutMillis: 120_000, ssl: /sslmode=require|neon.tech/.test(TEST_URL) ? { rejectUnauthorized: false } : undefined }));
 }
 export async function closePool() {
   await pool?.end();
@@ -114,7 +131,7 @@ export async function seedSchedule(org: string, id: string, presetKey: PresetKey
   );
 }
 
-export async function seedResource(org: string, id: string, kind: 'court' | 'table' | 'room' | 'practitioner' | 'equipment' | 'space' = 'court', over: { capacity?: number; active?: boolean } = {}) {
+export async function seedResource(org: string, id: string, kind: 'court' | 'table' | 'room' | 'practitioner' | 'equipment' | 'space' | 'virtual' = 'court', over: { capacity?: number; active?: boolean } = {}) {
   await getPool().query(
     `INSERT INTO scheduling_resources (id, organisation_id, kind, name, capacity, active) VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (organisation_id, id) DO NOTHING`,
