@@ -1,0 +1,24 @@
+Validated Preview schema record, taken read-only on 2026-10-22 (after the owner rebuild, before any merge)
+Project brainbase-db (empty-fire-62164682), branch preview/feat/scheduling-phase2a-db-foundation (br-falling-mouse-a7wsum7i)
+Database neondb | PostgreSQL 17.11
+
+Per-kind definition hashes (md5 over "<kind>:<name>:<definition>" ordered by name, definition; scheduling_* objects, public schema):
+  constraints  n=106  e02124d4728e89046a923c9bddab4f46
+  functions    n=11   ead0e19768405bc1357638b627192c54
+  indexes      n=37   a52b9844ea55b29bb1289bf3c869b8f5
+  triggers     n=16   286f585e9ae53d43291f36e68a2bd33d
+Scheduling tables: 13, all owned by neondb_owner
+Schema markers: 2a.1-brainbase, 2a.2
+Reservations: 0 rows
+
+Whole-schema fingerprint recorded earlier (functions, triggers, indexes, constraints, columns; 325 definitions):
+  52d792c7d93701285c1af6e9db123cea
+
+Re-check after a real migration: run the query in scripts used for this record (see scheduling-phase2a-merge-and-preview.md, section 2)
+and compare. The per-kind query is:
+  WITH q AS (
+    SELECT 'fn' AS k, p.proname::text AS nm, pg_get_functiondef(p.oid) AS x FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname LIKE 'scheduling\_%'
+    UNION ALL SELECT 'trg', t.tgname::text, pg_get_triggerdef(t.oid) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid WHERE NOT t.tgisinternal AND c.relname LIKE 'scheduling\_%'
+    UNION ALL SELECT 'idx', indexname::text, indexdef FROM pg_indexes WHERE schemaname='public' AND tablename LIKE 'scheduling\_%'
+    UNION ALL SELECT 'con', c.relname||'.'||con.conname, pg_get_constraintdef(con.oid) FROM pg_constraint con JOIN pg_class c ON c.oid=con.conrelid WHERE c.relname LIKE 'scheduling\_%'
+  ) SELECT k, count(*)::int AS n, md5(string_agg(k||':'||nm||':'||x, E'\n' ORDER BY nm, x)) AS h FROM q GROUP BY k ORDER BY k;
