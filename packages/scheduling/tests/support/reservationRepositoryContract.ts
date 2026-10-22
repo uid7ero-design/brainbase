@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type {
   CreateReservationResult,
+  PresetKey,
   NewReservationInput,
   Reservation,
   ReservationRepository,
@@ -17,11 +18,29 @@ export function tenantFor(organisationId: string, can: TenantContext['can'] = ()
   return { organisationId, timezone: 'Australia/Adelaide', actor: { kind: 'staff', userId: `user-of-${organisationId}` }, can };
 }
 
+export interface SeedOfferingOptions {
+  /** The schedule the offering belongs to; defaults to 'sched-1'. */
+  scheduleId?: string;
+  /** The preset of that schedule; defaults to 'classes_coaching'. */
+  presetKey?: PresetKey;
+}
+
+export interface SeedOccurrenceOptions {
+  /** Defaults to Australia/Adelaide and the window of newInput(). */
+  timezone?: string;
+  startsAt?: string;
+  endsAt?: string;
+}
+
 export interface ContractHarness {
   repo: ReservationRepository;
-  /** Make an offering exist for a tenant with a headcount capacity. */
-  seedOffering(tenant: TenantContext, offeringId: string, capacity: number): void;
-  seedOccurrence(tenant: TenantContext, occurrenceId: string, offeringId: string): void;
+  /**
+   * Make an offering (and its schedule) exist for a tenant with a headcount capacity. Seeding an
+   * existing offering again changes its capacity, including on occurrences already seeded.
+   * May be asynchronous: a database-backed harness has to write rows.
+   */
+  seedOffering(tenant: TenantContext, offeringId: string, capacity: number, options?: SeedOfferingOptions): void | Promise<void>;
+  seedOccurrence(tenant: TenantContext, occurrenceId: string, offeringId: string, options?: SeedOccurrenceOptions): void | Promise<void>;
 }
 
 export function newInput(over: Partial<NewReservationInput> = {}): NewReservationInput {
@@ -49,17 +68,17 @@ function expectOk(r: CreateReservationResult): Reservation {
   return r.reservation;
 }
 
-export function describeReservationRepositoryContract(name: string, make: () => ContractHarness) {
+export function describeReservationRepositoryContract(name: string, make: () => ContractHarness | Promise<ContractHarness>) {
   describe(`ReservationRepository contract: ${name}`, () => {
     const a = tenantFor('org-a');
     const b = tenantFor('org-b');
     let h: ContractHarness;
 
-    beforeEach(() => {
-      h = make();
+    beforeEach(async () => {
+      h = await make();
       for (const t of [a, b]) {
-        h.seedOffering(t, 'offering-1', 2);
-        h.seedOccurrence(t, 'occ-1', 'offering-1');
+        await h.seedOffering(t, 'offering-1', 2);
+        await h.seedOccurrence(t, 'occ-1', 'offering-1');
       }
     });
 
@@ -130,25 +149,28 @@ export function describeReservationRepositoryContract(name: string, make: () => 
     });
 
     it("an offering or occurrence that belongs to another organisation does not exist for this one", async () => {
-      h.seedOffering(b, 'only-b-offering', 5);
-      h.seedOccurrence(b, 'only-b-occ', 'only-b-offering');
+      await h.seedOffering(b, 'only-b-offering', 5);
+      await h.seedOccurrence(b, 'only-b-occ', 'only-b-offering');
       const r = await h.repo.create(a, newInput({ offeringId: 'only-b-offering', span: { kind: 'occurrence', occurrenceId: 'only-b-occ' } }));
       expect(r).toEqual({ ok: false, reason: 'not_found' });
     });
 
     it('stores the booking-time snapshot verbatim: schedule, preset and version, customer, timezone and UTC window', async () => {
       const snapshot = { displayName: 'Sam Taylor', email: 'Sam@Example.com', emailNormalised: 'sam@example.com', phone: '0400 000 000' };
+      const window = { startsAt: '2026-12-07T10:00:00Z', endsAt: '2026-12-07T11:30:00Z' };
+      await h.seedOffering(a, 'offering-7', 5, { scheduleId: 'sched-7', presetKey: 'event_capacity' });
+      await h.seedOccurrence(a, 'occ-7', 'offering-7', { timezone: 'Australia/Perth', ...window });
       const r = expectOk(await h.repo.create(a, newInput({
-        scheduleId: 'sched-7', presetKey: 'restaurant_tables', presetVersion: 1, customerId: null,
-        customerSnapshot: snapshot, timezone: 'Australia/Perth',
-        instants: { startsAt: '2026-12-07T10:00:00Z', endsAt: '2026-12-07T11:30:00Z' },
+        offeringId: 'offering-7', scheduleId: 'sched-7', presetKey: 'event_capacity', presetVersion: 1, customerId: null,
+        customerSnapshot: snapshot, timezone: 'Australia/Perth', instants: window,
+        span: { kind: 'occurrence', occurrenceId: 'occ-7' },
       })));
       expect(r.scheduleId).toBe('sched-7');
-      expect(r.presetKey).toBe('restaurant_tables');
+      expect(r.presetKey).toBe('event_capacity');
       expect(r.customerId).toBeNull();
       expect(r.customerSnapshot).toEqual(snapshot);
       expect(r.timezone).toBe('Australia/Perth');
-      expect(r.instants).toEqual({ startsAt: '2026-12-07T10:00:00Z', endsAt: '2026-12-07T11:30:00Z' });
+      expect(r.instants).toEqual(window);
     });
 
     it('an unlinked booking is a duplicate only on the same normalised email within the tenant, never on a name', async () => {
@@ -160,7 +182,7 @@ export function describeReservationRepositoryContract(name: string, make: () => 
       // same name, different email: a different person
       expectOk(await h.repo.create(a, mk('Sam Taylor', 'other@example.com')));
       // no email at all, same name: cannot be matched, never merged
-      h.seedOffering(a, 'offering-1', 10);
+      await h.seedOffering(a, 'offering-1', 10);
       expectOk(await h.repo.create(a, mk('Sam Taylor', null)));
       expectOk(await h.repo.create(a, mk('Sam Taylor', null)));
       // same email, different case: the same person

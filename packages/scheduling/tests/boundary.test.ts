@@ -18,7 +18,7 @@ function stripComments(src: string): string {
 
 describe('@scheduling/core package boundary', () => {
   it('ships the documented modules', () => {
-    for (const m of ['index', 'types', 'presets', 'contracts', 'validation']) {
+    for (const m of ['index', 'types', 'presets', 'contracts', 'validation', 'time', 'persistence']) {
       expect(files, m).toContain(`${m}.ts`);
     }
   });

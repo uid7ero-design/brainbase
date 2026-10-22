@@ -1,5 +1,5 @@
 import type { TenantContext } from './contracts';
-import { PRESETS, TERM_KEYS, getPreset } from './presets';
+import { PRESETS, TERM_KEYS, getPreset, resourceRequirementAtVersion } from './presets';
 import type { PresetDefinition } from './presets';
 import type {
   AvailabilityRule,
@@ -227,7 +227,8 @@ export function validateReservationAgainstSchedule(r: Reservation, schedule: Sch
   if (r.organisationId !== schedule.organisationId) problems.push('reservation and schedule belong to different organisations');
   if (r.scheduleId !== schedule.id) problems.push('reservation belongs to a different schedule');
   problems.push(...validateReservationSnapshot(r));
-  if ((PRESET_KEYS as readonly string[]).includes(r.presetKey)) problems.push(...validateReservationForPreset(r, getPreset(r.presetKey)));
+  // History is judged by the rules the snapshot was made under (appointments v1 allowed no resource).
+  if ((PRESET_KEYS as readonly string[]).includes(r.presetKey)) problems.push(...validateReservationForPreset(r, getPreset(r.presetKey), { asSnapshotted: true }));
   return problems;
 }
 
@@ -235,8 +236,16 @@ export function validateReservationAgainstSchedule(r: Reservation, schedule: Sch
  * A reservation's shape must agree with its organisation's preset: the time
  * model decides which kind of span is legal, the capacity semantics decide
  * whether a resource is needed and how party size behaves.
+ *
+ * By default the CURRENT rules apply, which is what a new booking must satisfy whatever version
+ * its schedule was last stamped with. `asSnapshotted` judges an existing reservation by the
+ * preset version recorded on it instead.
  */
-export function validateReservationForPreset(r: Reservation, preset: PresetDefinition): string[] {
+export function validateReservationForPreset(
+  r: Reservation,
+  preset: PresetDefinition,
+  options: { asSnapshotted?: boolean } = {},
+): string[] {
   const problems: string[] = [...validateTimeSpan(r.span)];
 
   const expectedSpan: Record<PresetDefinition['timeModel'], TimeSpan['kind']> = {
@@ -251,7 +260,8 @@ export function validateReservationForPreset(r: Reservation, preset: PresetDefin
   if (preset.capacity.partySize === 'always_one' && r.partySize !== 1) {
     problems.push(`${preset.key} reservations are for exactly one person`);
   }
-  if (preset.resources.requirement === 'required' && r.resourceId === null) {
+  const requirement = options.asSnapshotted ? resourceRequirementAtVersion(preset.key, r.presetVersion) : preset.resources.requirement;
+  if (requirement === 'required' && r.resourceId === null) {
     problems.push(`${preset.key} reservations require a resource`);
   }
   if (preset.resources.requirement === 'none' && r.resourceId !== null) {

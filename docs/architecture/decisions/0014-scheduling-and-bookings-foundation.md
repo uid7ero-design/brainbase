@@ -104,4 +104,18 @@ terminology, cancellation policy and optional timezone override) replace the sin
 `OrganisationSchedulingConfig`; reservations snapshot the schedule, preset and version, customer and
 timezone; two schedules with different presets are proved not to leak configuration into each other.
 Standalone deployability is an acceptance criterion for every phase.
-Details: `docs/architecture/scheduling-phase2-schema-outline.md`.
+Details: `docs/architecture/scheduling-phase2-schema-outline.md`.\n\n## Amendment: Phase 2A database foundation (2026-10-22)
+
+- The persistence layer is a second package, `@scheduling/postgres`, that takes an injected `SqlExecutor`. It imports
+  only `@scheduling/core`; the Neon HTTP driver, node-postgres and any standalone host's driver are wrapped
+  structurally, never imported. Every repository operation is one SQL statement, so the Neon HTTP driver (no
+  interactive transactions) is sufficient.
+- Booking safety lives in the database, for every writer: a per-occurrence advisory lock plus a count under READ
+  COMMITTED for headcount, and one `btree_gist` exclusion constraint on resource holds for exclusive resources, with a
+  per-resource advisory lock taken first because plain exclusion-constraint inserts deadlock under overlapping
+  concurrent writers (found and fixed in 2A).
+- The shared SQL is host-free (ids are unique per tenant, composite tenant foreign keys, `customer_id` is plain TEXT).
+  Host foreign keys live in per-host files (`scripts/scheduling/110_brainbase_host.sql`).
+- The SQL is applied by hand through the Neon SQL Editor, never by application code. Phase 2A applies it nowhere.
+- Details, differences from the approved outline and evidence:
+  `scheduling-phase2a-schema.md`, `scheduling-phase2a-migration-package.md`, `scheduling-phase2a-rehearsal.md`.

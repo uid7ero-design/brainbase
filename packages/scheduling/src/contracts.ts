@@ -98,10 +98,17 @@ export interface NewReservationInput {
   price: Money;
   seriesId: string | null;
   notes: string | null;
+  /**
+   * Optional client-supplied key making a retry safe: a second create with the same key in the
+   * same tenant returns the original reservation (replayed: true) instead of booking twice.
+   */
+  idempotencyKey?: string | null;
+  /** How the customer record was linked at booking time (snapshot). Defaults from customerId. */
+  contactLink?: 'matched' | 'created' | 'none';
 }
 
 export type CreateReservationResult =
-  | { ok: true; reservation: Reservation }
+  | { ok: true; reservation: Reservation; replayed?: boolean }
   | {
       ok: false;
       reason:
