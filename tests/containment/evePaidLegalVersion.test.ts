@@ -11,6 +11,7 @@ process.env.EVE_SESSION_SECRET = 'eve-test-secret-0123456789abcdef0123456789abcd
 process.env.TICKETING_API_SECRET = 'gate-test-secret-0123456789abcdef0123456789abcdef'
 process.env.EVE_PUBLIC_BASE_URL = 'https://eve.example'
 process.env.EVE_PAID_CHECKOUT_ENABLED = 'true'
+process.env.EVE_PAID_CHECKOUT_ORGS = 'brainbase'
 
 const svc = { resolvePublicEvent: vi.fn(), startPaidCheckout: vi.fn(), db: vi.fn() }
 vi.mock('@/lib/db', () => ({ default: async (...a: unknown[]) => { svc.db(...a); return [] } }))
