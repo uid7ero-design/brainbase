@@ -5,6 +5,22 @@ Production schema changes go through the Neon SQL editor handoff (no `vercel env
 pull`, no scripted Production connection). Nothing here enables questions on any
 event.
 
+## Prerequisites before the Production migration (all required)
+
+- [ ] **Legal wording approved:** Privacy sections 2, 3, 4, 5 and 8, and the in-form notices, per
+      `docs/compliance/eve-registration-questions-legal-review-pack.md` (questions 1–10 answered).
+- [ ] **Copy-cleanup actions approved and executed**, enough to make "deleted information may remain
+      in our controlled backups for a limited period" true. At minimum: group A deleted, group B
+      decided by owners, and dates recorded for C/D in `docs/compliance/eve-production-data-copies.md`.
+      The operating standard must be adopted.
+- [ ] **Final category / consent wording settled:**
+      - the THIRD_PARTY confirmation wording;
+      - the CONSENT retention period (`RETENTION_POLICY.CONSENT` in `lib/events/answerRetention.ts`;
+        3 years is provisional, `afterEnd: null` = not removed automatically).
+- [ ] **Migration re-reviewed against the final legal decisions** (e.g. if advice changes a category
+      or adds a field, amend `scripts/add-eve-registration-questions.sql` before it is applied).
+- [ ] **Privacy "last updated" date prepared** for publication day (`LEGAL_LAST_UPDATED`), not set earlier.
+
 ## Gates (in order)
 
 1. Operator approves the retention/category model (done 2026-10-24, ADR 0013 §4b).
@@ -57,7 +73,7 @@ WHERE table_schema = 'public' AND (table_name, column_name) IN (
   ('event_orders','answers_legal_hold'),
   ('event_registration_questions','data_category'), ('event_registration_questions','template_key'),
   ('event_registration_responses','data_category_snapshot'), ('event_registration_responses','question_help_text_snapshot'),
-  ('event_registration_responses','sensitive_consent_at'), ('event_registration_responses','redacted_at'),
+  ('event_registration_responses','buyer_acknowledged_at'), ('event_registration_responses','redacted_at'),
   ('event_registration_responses','answer'))
 ORDER BY 1, 2;
 -- expected:
@@ -68,7 +84,7 @@ ORDER BY 1, 2;
 --  event_registration_responses data_category_snapshot      text                     NO   'STANDARD'::text
 --  event_registration_responses question_help_text_snapshot text                     YES  NULL
 --  event_registration_responses redacted_at                 timestamp with time zone YES  NULL
---  event_registration_responses sensitive_consent_at        timestamp with time zone YES  NULL
+--  event_registration_responses buyer_acknowledged_at        timestamp with time zone YES  NULL
 --  events                       answers_legal_hold          text                     YES  NULL
 --  events                       cancelled_at                timestamp with time zone YES  NULL
 --  events                       eve_questions_enabled       boolean                  NO   false
@@ -88,7 +104,7 @@ SELECT count(*) AS events,
 FROM events;
 SELECT count(*) FILTER (WHERE answers_legal_hold IS NOT NULL) AS held_orders FROM event_orders;   -- 0
 SELECT data_category, count(*), count(template_key) FROM event_registration_questions GROUP BY 1; -- STANDARD | 6 | 0
-SELECT data_category_snapshot, count(*), count(redacted_at), count(sensitive_consent_at), count(question_help_text_snapshot)
+SELECT data_category_snapshot, count(*), count(redacted_at), count(buyer_acknowledged_at), count(question_help_text_snapshot)
 FROM event_registration_responses GROUP BY 1;                                                     -- STANDARD | 14 | 0 | 0 | 0
 
 -- 4. Existing data unchanged: equal to the release-day baseline

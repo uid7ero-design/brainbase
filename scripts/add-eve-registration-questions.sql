@@ -33,9 +33,13 @@
 --   never the live question. Existing answers stay STANDARD.
 -- event_registration_responses.question_help_text_snapshot (NULL)
 --   The help text shown when answered (e.g. a consent statement).
--- event_registration_responses.sensitive_consent_at (NULL)
---   When an Eve buyer gave the explicit agreement for a SENSITIVE or
---   THIRD_PARTY answer.
+-- event_registration_responses.buyer_acknowledged_at (NULL)
+--   When the PURCHASER on Eve gave the acknowledgement required for this
+--   row's category: for SENSITIVE, their agreement to the organiser
+--   collecting it; for THIRD_PARTY, their confirmation that the other person
+--   knows their details are being given to the organiser. It is the
+--   purchaser's own statement — NEVER the third party's consent — and is
+--   named accordingly.
 -- event_registration_responses.redacted_at (NULL) + answer becomes NULLable
 --   Retention removes the answer value (answer := NULL) and stamps
 --   redacted_at; the row keeps only structure (question, snapshots of
@@ -47,7 +51,7 @@
 --   ALTER TABLE event_registration_responses DROP CONSTRAINT IF EXISTS event_registration_responses_redaction_chk;
 --   -- only if no row has answer IS NULL:
 --   ALTER TABLE event_registration_responses ALTER COLUMN answer SET NOT NULL;
---   ALTER TABLE event_registration_responses DROP COLUMN IF EXISTS redacted_at, DROP COLUMN IF EXISTS sensitive_consent_at,
+--   ALTER TABLE event_registration_responses DROP COLUMN IF EXISTS redacted_at, DROP COLUMN IF EXISTS buyer_acknowledged_at,
 --     DROP COLUMN IF EXISTS question_help_text_snapshot, DROP COLUMN IF EXISTS data_category_snapshot;
 --   ALTER TABLE event_registration_questions DROP COLUMN IF EXISTS template_key, DROP COLUMN IF EXISTS data_category;
 --   ALTER TABLE event_orders DROP COLUMN IF EXISTS answers_legal_hold;
@@ -72,7 +76,7 @@ ALTER TABLE event_registration_questions
 ALTER TABLE event_registration_responses
   ADD COLUMN IF NOT EXISTS data_category_snapshot TEXT NOT NULL DEFAULT 'STANDARD',
   ADD COLUMN IF NOT EXISTS question_help_text_snapshot TEXT,
-  ADD COLUMN IF NOT EXISTS sensitive_consent_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS buyer_acknowledged_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS redacted_at TIMESTAMPTZ;
 
 ALTER TABLE event_registration_responses ALTER COLUMN answer DROP NOT NULL;

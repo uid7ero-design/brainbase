@@ -3356,8 +3356,10 @@ model EventRegistrationResponse {
   question_help_text_snapshot String?
   // Category in force when answered; retention uses this, not the live question.
   data_category_snapshot  String   @default("STANDARD")
-  // When an Eve buyer gave explicit agreement for a SENSITIVE/THIRD_PARTY answer.
-  sensitive_consent_at    DateTime? @db.Timestamptz(6)
+  // When the Eve PURCHASER gave the acknowledgement this row's category needs
+  // (SENSITIVE: agreed to collection; THIRD_PARTY: confirmed the person knows).
+  // The purchaser's own statement, never a third party's consent.
+  buyer_acknowledged_at   DateTime? @db.Timestamptz(6)
   // Retention: answer removed (NULL) and this stamped; CHECK keeps them in step.
   redacted_at             DateTime? @db.Timestamptz(6)
   answer                  Json?

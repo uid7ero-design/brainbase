@@ -105,7 +105,7 @@ const validated = (typeId: string, consent: boolean) => ({
   purchaser_name: 'Jane', purchaser_email: 'jane@example.com', purchaser_phone: null,
   attendees: [{ name: 'Jane', email: null, ticket_type_id: typeId, responses: [{ question_id: 'q-access', answer: 'Step-free access' }, { question_id: 'q-hear-a', answer: 'Radio' }] }],
   order_responses: [{ question_id: 'q-ec', answer: 'Sam Contact' }, { question_id: 'q-photo', answer: false }],
-  promotion_code: null, access_code: null, sensitive_consent: consent,
+  promotion_code: null, access_code: null, agree_sensitive: consent, confirm_third_party: consent,
 })
 const URLS = async () => ({ successUrl: 'https://example.test/s', cancelUrl: 'https://example.test/c' })
 
@@ -116,9 +116,9 @@ describe.runIf(HAS_DOCKER)('real Postgres — Eve registration questions: catego
   const q = async <T = Record<string, unknown>>(text: string, values: unknown[] = []) => (await db.pool.query(text, values)).rows as T[]
   type Row = {
     question_id: string; question_label_snapshot: string; question_help_text_snapshot: string | null; data_category_snapshot: string;
-    sensitive_consent_at: Date | null; redacted_at: Date | null; answer: unknown; attendee_id: string | null; order_id: string;
+    buyer_acknowledged_at: Date | null; redacted_at: Date | null; answer: unknown; attendee_id: string | null; order_id: string;
   }
-  const responses = () => q<Row>(`SELECT question_id, question_label_snapshot, question_help_text_snapshot, data_category_snapshot, sensitive_consent_at, redacted_at, answer, attendee_id, order_id FROM event_registration_responses ORDER BY order_id, question_id`)
+  const responses = () => q<Row>(`SELECT question_id, question_label_snapshot, question_help_text_snapshot, data_category_snapshot, buyer_acknowledged_at, redacted_at, answer, attendee_id, order_id FROM event_registration_responses ORDER BY order_id, question_id`)
   const book = async () => {
     const r = await registerFreeOrder({ organisationId: 'org-a', productSurface: 'EVE', event: EVENT(true), validated: validated('tt-free', true) })
     if (!r.ok) throw new Error(JSON.stringify(r))
@@ -193,7 +193,7 @@ describe.runIf(HAS_DOCKER)('real Postgres — Eve registration questions: catego
     const [oldQ] = await q<{ data_category: string; template_key: unknown }>(`SELECT data_category, template_key FROM event_registration_questions WHERE id = 'q-old'`)
     expect(oldQ).toEqual({ data_category: 'STANDARD', template_key: null })
     const [old] = await q<Row>(`SELECT * FROM event_registration_responses WHERE order_id = 'order-old'`)
-    expect(old).toMatchObject({ data_category_snapshot: 'STANDARD', answer: 'wheelchair access', redacted_at: null, sensitive_consent_at: null, question_help_text_snapshot: null })
+    expect(old).toMatchObject({ data_category_snapshot: 'STANDARD', answer: 'wheelchair access', redacted_at: null, buyer_acknowledged_at: null, question_help_text_snapshot: null })
   })
 
   it('migration: constraints — only the four categories, only the four hold reasons, and answer/redacted_at always in step', async () => {
@@ -210,10 +210,10 @@ describe.runIf(HAS_DOCKER)('real Postgres — Eve registration questions: catego
     const by = Object.fromEntries(rows.map(r => [r.question_id, r]))
     expect(by['q-ec']).toMatchObject({ data_category_snapshot: 'THIRD_PARTY', answer: 'Sam Contact' })
     expect(by['q-access']).toMatchObject({ data_category_snapshot: 'SENSITIVE', answer: 'Step-free access' })
-    expect(by['q-photo']).toMatchObject({ data_category_snapshot: 'CONSENT', answer: false, sensitive_consent_at: null, question_help_text_snapshot: 'Photos may be used in event promotion.' })
-    expect(by['q-hear-a']).toMatchObject({ data_category_snapshot: 'STANDARD', answer: 'Radio', sensitive_consent_at: null })
-    expect(by['q-ec'].sensitive_consent_at).toBeInstanceOf(Date)
-    expect(by['q-access'].sensitive_consent_at).toBeInstanceOf(Date)
+    expect(by['q-photo']).toMatchObject({ data_category_snapshot: 'CONSENT', answer: false, buyer_acknowledged_at: null, question_help_text_snapshot: 'Photos may be used in event promotion.' })
+    expect(by['q-hear-a']).toMatchObject({ data_category_snapshot: 'STANDARD', answer: 'Radio', buyer_acknowledged_at: null })
+    expect(by['q-ec'].buyer_acknowledged_at).toBeInstanceOf(Date)
+    expect(by['q-access'].buyer_acknowledged_at).toBeInstanceOf(Date)
   })
 
   it('EVE refused submissions write nothing (THIRD_PARTY/SENSITIVE without agreement; opt-in off)', async () => {
@@ -271,7 +271,7 @@ describe.runIf(HAS_DOCKER)('real Postgres — Eve registration questions: catego
     expect(acc.answer).toBeNull()
     expect(acc.redacted_at).toBeInstanceOf(Date)
     expect(acc).toMatchObject({ question_label_snapshot: 'Accessibility or support requirements', field_type_snapshot: 'LONG_TEXT', data_category_snapshot: 'SENSITIVE' })
-    expect(acc.sensitive_consent_at).toBeInstanceOf(Date)
+    expect(acc.buyer_acknowledged_at).toBeInstanceOf(Date)
     expect(JSON.stringify(await q(`SELECT * FROM event_registration_responses WHERE order_id = $1 AND redacted_at IS NOT NULL`, [orderId]))).not.toMatch(/Step-free|Sam Contact/)
     // The order, its attendee and its ticket are untouched.
     expect(await q(`SELECT 1 FROM event_orders WHERE id = $1`, [orderId])).toHaveLength(1)
@@ -344,6 +344,27 @@ describe.runIf(HAS_DOCKER)('real Postgres — Eve registration questions: catego
     expect(again).toMatchObject({ due: 0, redacted: 0 })
     const [secondRow] = await q<{ redacted_at: Date }>(`SELECT redacted_at FROM event_registration_responses WHERE order_id = $1 AND question_id = 'q-ec'`, [orderId])
     expect(secondRow.redacted_at.getTime()).toBe(firstRow.redacted_at.getTime()) // not re-stamped
+  })
+
+  it('the policy table is revisable without code changes elsewhere: CONSENT "never automatically" (null), or a different period', async () => {
+    const { RETENTION_POLICY } = await import('@/lib/events/answerRetention')
+    const orderId = await book()
+    const neverConsent = { ...RETENTION_POLICY, CONSENT: { afterEnd: null, afterCancel: null } }
+    await runAnswerRetention({ mode: 'enforce', now: new Date('2060-01-01T00:00:00Z'), policy: neverConsent })
+    expect(await removedIds(orderId)).toEqual(['q-access', 'q-ec', 'q-hear-a']) // consent kept; everything else gone
+    const fiveYears = { ...RETENTION_POLICY, CONSENT: { afterEnd: '5 years', afterCancel: null } }
+    await runAnswerRetention({ mode: 'enforce', now: new Date('2034-12-31T00:00:00Z'), policy: fiveYears })
+    expect(await removedIds(orderId)).toEqual(['q-access', 'q-ec', 'q-hear-a'])
+    await runAnswerRetention({ mode: 'enforce', now: new Date('2035-01-01T12:00:00Z'), policy: fiveYears })
+    expect(await removedIds(orderId)).toEqual(['q-access', 'q-ec', 'q-hear-a', 'q-photo'])
+    // The shipped default is still the provisional 3 years.
+    expect(RETENTION_POLICY.CONSENT).toEqual({ afterEnd: '3 years', afterCancel: null })
+  })
+
+  it('a booking that confirms THIRD_PARTY but does not agree to SENSITIVE is refused when both are answered', async () => {
+    const v = { ...validated('tt-free', true), agree_sensitive: false }
+    expect(await registerFreeOrder({ organisationId: 'org-a', productSurface: 'EVE', event: EVENT(true), validated: v })).toMatchObject({ ok: false, code: 'RESPONSES_INVALID' })
+    expect(await q(`SELECT 1 FROM event_orders WHERE id <> 'order-old'`)).toHaveLength(0)
   })
 
   it('audit: one row per event, ids and counts only — never answer text or labels; user is the system (null)', async () => {

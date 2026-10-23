@@ -73,7 +73,7 @@ export type PublicQuestion = {
 export type RecordedAnswer = {
   label: string; field_type: string; help_text: string | null;
   answer: string | boolean | string[] | null; data_category: DataCategory;
-  sensitive_consent_at: string | null; redacted_at: string | null;
+  buyer_acknowledged_at: string | null; redacted_at: string | null;
 };
 
 export type PublicEventDetail = {

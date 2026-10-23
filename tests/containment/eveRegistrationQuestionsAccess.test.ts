@@ -40,7 +40,7 @@ vi.mock('@/lib/ticketing/rateLimit', () => ({ LIMITS: {}, limit: async () => ({ 
 const ANSWER = (label: string, answer: unknown, category = 'STANDARD') => ({
   id: `r-${label}`, question_id: `q-${label}`, label, field_type: typeof answer === 'boolean' ? 'YES_NO' : 'SHORT_TEXT', answer,
   help_text: null, data_category: category,
-  sensitive_consent_at: category === 'SENSITIVE' || category === 'THIRD_PARTY' ? '2026-10-23T10:00:00.000Z' : null, redacted_at: null,
+  buyer_acknowledged_at: category === 'SENSITIVE' || category === 'THIRD_PARTY' ? '2026-10-23T10:00:00.000Z' : null, redacted_at: null,
 })
 const REG_ROWS = [{
   id: 'order-1', purchaser_name: 'Jane', purchaser_email: 'jane@example.test', status: 'CONFIRMED', payment_status: 'NOT_REQUIRED',
@@ -96,8 +96,8 @@ describe('Eve organiser API: answers are manager+ only', () => {
     ticketingRole = role
     const orders = await (await organiserApi.handleOrganiserOrders(orgReq(), 'event-1')).json()
     expect(orders.orders[0].answers).toEqual([
-      { label: 'Emergency Contact Name', field_type: 'SHORT_TEXT', help_text: null, answer: 'Sam Contact', data_category: 'THIRD_PARTY', sensitive_consent_at: '2026-10-23T10:00:00.000Z', redacted_at: null },
-      { label: 'Consent to event photography/videography', field_type: 'YES_NO', help_text: null, answer: false, data_category: 'CONSENT', sensitive_consent_at: null, redacted_at: null },
+      { label: 'Emergency Contact Name', field_type: 'SHORT_TEXT', help_text: null, answer: 'Sam Contact', data_category: 'THIRD_PARTY', buyer_acknowledged_at: '2026-10-23T10:00:00.000Z', redacted_at: null },
+      { label: 'Consent to event photography/videography', field_type: 'YES_NO', help_text: null, answer: false, data_category: 'CONSENT', buyer_acknowledged_at: null, redacted_at: null },
     ])
     const attendees = await (await organiserApi.handleOrganiserAttendees(orgReq(), 'event-1')).json()
     expect(attendees.attendees[0].answers[0]).toMatchObject({ label: 'Accessibility requirements', answer: 'Step-free access', data_category: 'SENSITIVE' })

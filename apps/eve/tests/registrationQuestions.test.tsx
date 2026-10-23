@@ -2,8 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'jest-axe';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { BuyerBooking } from '@/components/buyer/BuyerBooking';
+import { categoryNote } from '@/components/buyer/QuestionField';
 import { RecordedAnswers } from '@/components/organiser/RecordedAnswers';
+import { PRIVACY } from '@/content/legal';
 
 // Eve registration questions (ADR 0013 §4a) on the buyer form. Display and
 // UX checks only — the ticketing API re-validates everything server-side
@@ -59,7 +63,8 @@ describe('no-question events render and submit exactly as before', () => {
     view(detail(extra));
     await start(user);
     expect(screen.queryByTestId('order-questions')).toBeNull();
-    expect(screen.queryByTestId('sensitive-consent')).toBeNull();
+    expect(screen.queryByTestId('agree-sensitive')).toBeNull();
+    expect(screen.queryByTestId('confirm-third-party')).toBeNull();
     expect(screen.getByTestId('collection-notice')).toHaveTextContent("Your booking details (your name, email and phone, and the attendees' names) are provided to the event organiser");
     await user.click(screen.getByRole('button', { name: 'Complete registration' }));
     await screen.findByTestId('free-confirmation');
@@ -145,28 +150,51 @@ describe('in-form privacy notices (ADR 0013 §4b)', () => {
     expect(screen.queryByTestId('note-STANDARD')).toBeNull();
   });
 
-  it('THIRD_PARTY answers need the unticked agreement too, worded for another person\'s details', async () => {
+  it('THIRD_PARTY answers need the purchaser\'s own CONFIRMATION (not "agreement", not the other person\'s consent), separate from the sensitive box', async () => {
     const user = userEvent.setup(); const fn = mockFetch();
     view(detail({ questions: [Q.ecName] }));
     await start(user);
     await user.type(screen.getByLabelText('Emergency Contact Name'), 'Sam Contact');
-    const box = within(screen.getByTestId('sensitive-consent')).getByRole('checkbox');
+    expect(screen.queryByTestId('agree-sensitive')).toBeNull();
+    const box = within(screen.getByTestId('confirm-third-party')).getByRole('checkbox');
     expect(box).not.toBeChecked();
-    expect(screen.getByTestId('sensitive-consent').querySelector('label')!.textContent).toBe(
-      'I agree to Acme Events collecting my answers to Emergency Contact Name for this event, including another person’s details. Only answer what you are comfortable sharing.',
-    );
+    const text = screen.getByTestId('confirm-third-party').querySelector('label')!.textContent!;
+    expect(text).toBe('I confirm that the person whose details I have given (Emergency Contact Name) knows I am giving them to Acme Events for this event, or that I am allowed to give them.');
+    expect(text).not.toMatch(/consent|on (their|his|her) behalf|agree/i);
     fireEvent.submit(screen.getByRole('form', { name: 'Book tickets' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(/confirm you agree/);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Please confirm the person whose details you have given knows you are giving them to the organiser.');
     expect(fn.mock.calls.some(c => String(c[0]).endsWith('/register'))).toBe(false);
+    await user.click(box);
+    await user.click(screen.getByRole('button', { name: 'Complete registration' }));
+    await screen.findByTestId('free-confirmation');
+    const body = sent(fn, '/register');
+    expect(body.confirm_third_party).toBe(true);
+    expect(body).not.toHaveProperty('agree_sensitive');
   });
 
-  it('CONSENT and STANDARD answers never trigger the agreement box', async () => {
+  it('SENSITIVE + THIRD_PARTY together: two separate boxes, each required, neither stands in for the other', async () => {
+    const user = userEvent.setup(); const fn = mockFetch();
+    view(detail({ questions: [Q.ecName, Q.access] }));
+    await start(user);
+    await user.type(screen.getByLabelText('Emergency Contact Name'), 'Sam');
+    await user.type(screen.getByLabelText('Accessibility requirements (optional)'), 'Step-free');
+    await user.click(within(screen.getByTestId('agree-sensitive')).getByRole('checkbox'));
+    fireEvent.submit(screen.getByRole('form', { name: 'Book tickets' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/person whose details you have given/);
+    await user.click(within(screen.getByTestId('confirm-third-party')).getByRole('checkbox'));
+    await user.click(screen.getByRole('button', { name: 'Complete registration' }));
+    await screen.findByTestId('free-confirmation');
+    expect(sent(fn, '/register')).toMatchObject({ agree_sensitive: true, confirm_third_party: true });
+  });
+
+  it('CONSENT and STANDARD answers never trigger either acknowledgement box', async () => {
     const user = userEvent.setup(); mockFetch();
     view(detail({ questions: [Q.photo, Q.hear] }));
     await start(user);
     await user.click(within(screen.getByRole('group', { name: Q.photo.label })).getByRole('radio', { name: 'Yes' }));
     await user.selectOptions(screen.getByLabelText('How did you hear about this event? (optional)'), 'Radio');
-    expect(screen.queryByTestId('sensitive-consent')).toBeNull();
+    expect(screen.queryByTestId('agree-sensitive')).toBeNull();
+    expect(screen.queryByTestId('confirm-third-party')).toBeNull();
   });
 
   it('the approved Riverlights set (Accessibility SENSITIVE per attendee + How did you hear STANDARD per booking) renders and submits; axe-clean', async () => {
@@ -175,14 +203,14 @@ describe('in-form privacy notices (ADR 0013 §4b)', () => {
     await start(user);
     await user.type(screen.getByLabelText('Accessibility requirements (optional)'), 'Step-free access');
     await user.selectOptions(screen.getByLabelText('How did you hear about this event? (optional)'), 'Radio');
-    await user.click(within(screen.getByTestId('sensitive-consent')).getByRole('checkbox'));
+    await user.click(within(screen.getByTestId('agree-sensitive')).getByRole('checkbox'));
     expect(await axe(container)).toHaveNoViolations();
     await user.click(screen.getByRole('button', { name: 'Complete registration' }));
     await screen.findByTestId('free-confirmation');
     const body = sent(fn, '/register');
     expect(body.attendees[0].responses).toEqual([{ question_id: 'q-access', answer: 'Step-free access' }]);
     expect(body.order_responses).toEqual([{ question_id: 'q-hear', answer: 'Radio' }]);
-    expect(body.sensitive_consent).toBe(true);
+    expect(body.agree_sensitive).toBe(true);
   });
 });
 
@@ -215,21 +243,21 @@ describe('required, optional and consent behaviour', () => {
     const body = sent(fn, '/register');
     expect(body).not.toHaveProperty('order_responses');
     expect(body.attendees[0]).not.toHaveProperty('responses');
-    expect(body).not.toHaveProperty('sensitive_consent');
+    expect(body).not.toHaveProperty('agree_sensitive');
   });
 
   it('sensitive: the acknowledgement appears only once a sensitive question is answered, is never pre-ticked, and blocks submit until ticked', async () => {
     const user = userEvent.setup(); const fn = mockFetch();
     view(detail({ questions: [Q.access, Q.hear] }));
     await start(user);
-    expect(screen.queryByTestId('sensitive-consent')).toBeNull();
+    expect(screen.queryByTestId('agree-sensitive')).toBeNull();
     await user.selectOptions(screen.getByLabelText('How did you hear about this event? (optional)'), 'Radio');
-    expect(screen.queryByTestId('sensitive-consent')).toBeNull(); // non-sensitive answer
+    expect(screen.queryByTestId('agree-sensitive')).toBeNull(); // non-sensitive answer
     await user.type(screen.getByLabelText('Accessibility requirements (optional)'), 'Step-free access');
-    const box = within(screen.getByTestId('sensitive-consent')).getByRole('checkbox');
+    const box = within(screen.getByTestId('agree-sensitive')).getByRole('checkbox');
     expect(box).not.toBeChecked();
     // Exact DOM text (toHaveTextContent normalises whitespace, which would hide a dropped space).
-    expect(screen.getByTestId('sensitive-consent').querySelector('label')!.textContent).toBe(
+    expect(screen.getByTestId('agree-sensitive').querySelector('label')!.textContent).toBe(
       'I agree to Acme Events collecting my answers to Accessibility requirements for this event, including health, disability or accessibility information. Only answer what you are comfortable sharing.',
     );
     fireEvent.submit(screen.getByRole('form', { name: 'Book tickets' }));
@@ -239,7 +267,7 @@ describe('required, optional and consent behaviour', () => {
     await user.click(screen.getByRole('button', { name: 'Complete registration' }));
     await screen.findByTestId('free-confirmation');
     const body = sent(fn, '/register');
-    expect(body.sensitive_consent).toBe(true);
+    expect(body.agree_sensitive).toBe(true);
     expect(body.attendees[0].responses).toEqual([{ question_id: 'q-access', answer: 'Step-free access' }]);
     expect(body.order_responses).toEqual([{ question_id: 'q-hear', answer: 'Radio' }]);
   });
@@ -249,12 +277,12 @@ describe('required, optional and consent behaviour', () => {
     view(detail({ questions: [Q.access] }));
     await start(user);
     await user.type(screen.getByLabelText('Accessibility requirements (optional)'), 'x');
-    await user.click(within(screen.getByTestId('sensitive-consent')).getByRole('checkbox'));
+    await user.click(within(screen.getByTestId('agree-sensitive')).getByRole('checkbox'));
     await user.clear(screen.getByLabelText('Accessibility requirements (optional)'));
-    expect(screen.queryByTestId('sensitive-consent')).toBeNull();
+    expect(screen.queryByTestId('agree-sensitive')).toBeNull();
     await user.click(screen.getByRole('button', { name: 'Complete registration' }));
     await screen.findByTestId('free-confirmation');
-    expect(sent(fn, '/register')).not.toHaveProperty('sensitive_consent');
+    expect(sent(fn, '/register')).not.toHaveProperty('agree_sensitive');
   });
 });
 
@@ -267,7 +295,9 @@ describe('Riverlights-style set: free and paid flows submit every answer', () =>
     await user.selectOptions(screen.getByLabelText('How did you hear about this event? (optional)'), 'Friend');
     await user.click(within(screen.getByRole('group', { name: 'Interests (optional)' })).getByRole('checkbox', { name: 'Art' }));
     await user.click(within(screen.getByRole('group', { name: Q.over18.label })).getByRole('radio', { name: 'Yes' }));
-    await user.click(within(screen.getByTestId('sensitive-consent')).getByRole('checkbox'));
+    // Only the emergency contact (THIRD_PARTY) is answered here; accessibility is left blank.
+    expect(screen.queryByTestId('agree-sensitive')).toBeNull();
+    await user.click(within(screen.getByTestId('confirm-third-party')).getByRole('checkbox'));
   }
   const EXPECTED_ORDER = [
     { question_id: 'q-ec-name', answer: 'Sam Contact' }, { question_id: 'q-ec-phone', answer: '0400 000 000' },
@@ -283,7 +313,8 @@ describe('Riverlights-style set: free and paid flows submit every answer', () =>
     const body = sent(fn, '/register');
     expect(body.order_responses).toEqual(EXPECTED_ORDER);
     expect(body.attendees[0].responses).toEqual([{ question_id: 'q-18', answer: true }]);
-    expect(body.sensitive_consent).toBe(true);
+    expect(body.confirm_third_party).toBe(true);
+    expect(body).not.toHaveProperty('agree_sensitive');
   });
 
   it('paid checkout (answers travel with the paid request, terms still required)', async () => {
@@ -297,7 +328,8 @@ describe('Riverlights-style set: free and paid flows submit every answer', () =>
     await waitFor(() => expect(assign).toHaveBeenCalled());
     const body = sent(fn, '/checkout');
     expect(body.order_responses).toEqual(EXPECTED_ORDER);
-    expect(body.sensitive_consent).toBe(true);
+    expect(body.confirm_third_party).toBe(true);
+    expect(body).not.toHaveProperty('agree_sensitive');
     expect(body.accept_terms).toBe(true);
   });
 });
@@ -317,13 +349,47 @@ describe('event with a required question that is not opted in on Eve', () => {
   });
 });
 
+describe('legal review pack stays in sync with the code (docs/compliance/eve-registration-questions-legal-review-pack.md)', () => {
+  const pack = readFileSync(path.resolve(__dirname, '../../../docs/compliance/eve-registration-questions-legal-review-pack.md'), 'utf8');
+  const quoted = (s: string) => pack.includes(`> ${s}`);
+
+  it('every per-category note quoted in the pack is exactly what the form renders', () => {
+    for (const q of [Q.access, Q.ecName, Q.photo]) {
+      const note = categoryNote(q as never, '{Organiser}');
+      expect(note, q.data_category).not.toBeNull();
+      expect(quoted(note!), q.data_category).toBe(true);
+    }
+  });
+
+  it('the general notice and both acknowledgement checkboxes in the pack match the rendered text', async () => {
+    const user = userEvent.setup(); mockFetch();
+    view({ ...detail({ questions: [Q.ecName, Q.access] }), organisationName: '{Organiser}' });
+    await start(user);
+    await user.type(screen.getByLabelText('Emergency Contact Name'), 'x');
+    await user.type(screen.getByLabelText('Accessibility requirements (optional)'), 'y');
+    const general = screen.getByTestId('questions-notice').textContent!.replace(/How we handle your answers$/, '[How we handle your answers]');
+    expect(quoted(general)).toBe(true);
+    const agree = screen.getByTestId('agree-sensitive').querySelector('label')!.textContent!.replace('Accessibility requirements', '{question labels}');
+    expect(quoted(agree)).toBe(true);
+    const confirm = screen.getByTestId('confirm-third-party').querySelector('label')!.textContent!.replace('Emergency Contact Name', '{question labels}');
+    expect(quoted(confirm)).toBe(true);
+  });
+
+  it('every Privacy paragraph the pack marks NEW / CHANGED is in the policy text exactly', () => {
+    const body = PRIVACY.sections.flatMap(s => s.body).map(p => p.replace('{{supportEmail}}', '[support email]'));
+    const marked = [...pack.matchAll(/^- \*\*\[NEW \/ CHANGED\]\*\* (.+)$/gm)].map(m => m[1]);
+    expect(marked.length).toBeGreaterThanOrEqual(10);
+    for (const p of marked) expect(body, p.slice(0, 60)).toContain(p);
+  });
+});
+
 describe('organiser: recorded answers', () => {
   it('renders answers as recorded (yes/no, lists), labels each protected category, shows retention removal; renders nothing when the API sent none', () => {
-    const base = { help_text: null, sensitive_consent_at: null, redacted_at: null };
+    const base = { help_text: null, buyer_acknowledged_at: null, redacted_at: null };
     const { container, rerender } = render(<RecordedAnswers answers={[
       { ...base, label: 'Consent to event photography/videography', field_type: 'YES_NO', answer: false, data_category: 'CONSENT' },
       { ...base, label: 'Interests', field_type: 'MULTI_SELECT', answer: ['Music', 'Art'], data_category: 'STANDARD' },
-      { ...base, label: 'Accessibility requirements', field_type: 'LONG_TEXT', answer: 'Step-free access', data_category: 'SENSITIVE', sensitive_consent_at: '2026-10-23T10:00:00Z' },
+      { ...base, label: 'Accessibility requirements', field_type: 'LONG_TEXT', answer: 'Step-free access', data_category: 'SENSITIVE', buyer_acknowledged_at: '2026-10-23T10:00:00Z' },
       { ...base, label: 'Emergency contact name', field_type: 'SHORT_TEXT', answer: 'Sam', data_category: 'THIRD_PARTY' },
       { ...base, label: 'Dietary requirements', field_type: 'LONG_TEXT', answer: null, data_category: 'SENSITIVE', redacted_at: '2027-01-01T00:00:00Z' },
     ]} />);

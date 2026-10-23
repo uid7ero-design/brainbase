@@ -150,13 +150,14 @@ export async function registerFreeOrder(input: FreeRegistrationInput): Promise<F
   const answerPolicy = applySurfaceAnswerPolicy({
     productSurface,
     eveQuestionsEnabled: event.eve_questions_enabled,
-    sensitiveConsent: validated.sensitive_consent,
+    agreeSensitive: validated.agree_sensitive,
+    confirmThirdParty: validated.confirm_third_party,
     submitted: { orderResponses: validated.order_responses, attendeeResponses: validated.attendees.map(a => a.responses) },
     validated: validatedResponses,
   });
   if (!answerPolicy.ok) return { ok: false, code: 'RESPONSES_INVALID', message: answerPolicy.error };
   // Recorded only on rows whose question is sensitive (see the INSERT).
-  const sensitiveConsentAt = answerPolicy.sensitiveConsentAt;
+  const acknowledgedAt = answerPolicy.acknowledgedAt;
 
   // Attendee names/emails are passed as parallel arrays and expanded
   // server-side via UNNEST — empty string (not SQL NULL) represents "no
@@ -401,10 +402,10 @@ export async function registerFreeOrder(input: FreeRegistrationInput): Promise<F
         ins_order_responses AS (
           INSERT INTO event_registration_responses
             (organisation_id, event_id, question_id, order_id, attendee_id, question_label_snapshot, field_type_snapshot,
-             question_help_text_snapshot, data_category_snapshot, sensitive_consent_at, answer)
+             question_help_text_snapshot, data_category_snapshot, buyer_acknowledged_at, answer)
           SELECT ${organisationId}, ${event.id}, r.question_id, io.id, NULL, r.label, r.field_type,
             NULLIF(r.help_text, ''), r.category,
-            CASE WHEN r.category IN ('SENSITIVE', 'THIRD_PARTY') THEN ${sensitiveConsentAt}::timestamptz END, r.answer_json::jsonb
+            CASE WHEN r.category IN ('SENSITIVE', 'THIRD_PARTY') THEN ${acknowledgedAt}::timestamptz END, r.answer_json::jsonb
           FROM ins_order io, UNNEST(${orderResponseFlat.questionIds}::text[], ${orderResponseFlat.labels}::text[], ${orderResponseFlat.fieldTypes}::text[], ${orderResponseFlat.helpTexts}::text[], ${orderResponseFlat.categories}::text[], ${orderResponseFlat.answersJson}::text[])
             AS r(question_id, label, field_type, help_text, category, answer_json)
           RETURNING id
@@ -412,10 +413,10 @@ export async function registerFreeOrder(input: FreeRegistrationInput): Promise<F
         ins_attendee_responses AS (
           INSERT INTO event_registration_responses
             (organisation_id, event_id, question_id, order_id, attendee_id, question_label_snapshot, field_type_snapshot,
-             question_help_text_snapshot, data_category_snapshot, sensitive_consent_at, answer)
+             question_help_text_snapshot, data_category_snapshot, buyer_acknowledged_at, answer)
           SELECT ${organisationId}, ${event.id}, r.question_id, ia.order_id, ia.id, r.label, r.field_type,
             NULLIF(r.help_text, ''), r.category,
-            CASE WHEN r.category IN ('SENSITIVE', 'THIRD_PARTY') THEN ${sensitiveConsentAt}::timestamptz END, r.answer_json::jsonb
+            CASE WHEN r.category IN ('SENSITIVE', 'THIRD_PARTY') THEN ${acknowledgedAt}::timestamptz END, r.answer_json::jsonb
           FROM ins_attendees ia
           JOIN UNNEST(${attendeeResponseFlat.correlationKeys}::text[], ${attendeeResponseFlat.questionIds}::text[], ${attendeeResponseFlat.labels}::text[], ${attendeeResponseFlat.fieldTypes}::text[], ${attendeeResponseFlat.helpTexts}::text[], ${attendeeResponseFlat.categories}::text[], ${attendeeResponseFlat.answersJson}::text[])
             AS r(ticket_token, question_id, label, field_type, help_text, category, answer_json)

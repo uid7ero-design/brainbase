@@ -31,11 +31,23 @@ import type { DataCategory } from '@/lib/events/registrationQuestions';
 // an overlapping run or a hold placed mid-run cannot double-remove or
 // remove a held answer. 'dry-run' reports what is due and changes nothing.
 
-export const RETENTION_POLICY: Record<DataCategory, { afterEnd: string; afterCancel: string | null }> = {
+// THE single source of every timer (Postgres interval text). Both the report
+// and the removal read it, as SQL parameters, so a change here is the whole
+// change. afterEnd: null means "never removed automatically by this job"
+// (e.g. if legal advice says a consent record must be kept for as long as
+// the organiser uses the media, which this job cannot know). afterCancel:
+// null means a cancellation does not bring removal forward.
+//
+// CONSENT 3 years is a PROVISIONAL default for implementation and testing
+// (ADR 0013 §4b): it is flagged for legal review because the right period
+// may depend on the consent's purpose and continuing use. Revise it here —
+// before EVE_ANSWER_RETENTION_ENFORCE is ever set — once advice is received.
+export type CategoryRetention = { afterEnd: string | null; afterCancel: string | null };
+export const RETENTION_POLICY: Record<DataCategory, CategoryRetention> = {
   STANDARD: { afterEnd: '12 months', afterCancel: null },
   SENSITIVE: { afterEnd: '30 days', afterCancel: '7 days' },
   THIRD_PARTY: { afterEnd: '7 days', afterCancel: '7 days' },
-  CONSENT: { afterEnd: '3 years', afterCancel: null },
+  CONSENT: { afterEnd: '3 years', afterCancel: null }, // PROVISIONAL — pending legal advice
 };
 
 export type RetentionMode = 'dry-run' | 'enforce';
@@ -52,31 +64,40 @@ export type RetentionSummary = {
 
 const DEFAULT_BATCH = 1000;
 
-export async function runAnswerRetention(opts: { mode: RetentionMode; now?: Date; batchSize?: number }): Promise<RetentionSummary> {
+// `policy` defaults to RETENTION_POLICY; tests pass alternatives to prove a
+// revised policy (e.g. CONSENT never removed automatically) works unchanged.
+export async function runAnswerRetention(opts: {
+  mode: RetentionMode; now?: Date; batchSize?: number; policy?: Record<DataCategory, CategoryRetention>;
+}): Promise<RetentionSummary> {
   const started = Date.now();
   const now = (opts.now ?? new Date()).toISOString();
   const batch = Math.max(1, Math.min(opts.batchSize ?? DEFAULT_BATCH, 5000));
+  const p = opts.policy ?? RETENTION_POLICY;
 
-  // Due-ness is defined once, here, and used by both the report and the
-  // removal so they can never disagree.
+  // Due-ness is defined once (the policy CTE + the due_at expression) and
+  // used by both the report and the removal so they can never disagree.
+  //   due_at = LEAST(ends_at + after_end, cancelled-time + after_cancel)
+  // LEAST ignores NULLs; both NULL -> never due. A category missing from
+  // the policy never matches the join -> never removed (fails safe).
   const report = await sql`
-    WITH due AS (
+    WITH policy(category, after_end, after_cancel) AS (VALUES
+      ('STANDARD', ${p.STANDARD.afterEnd}::interval, ${p.STANDARD.afterCancel}::interval),
+      ('SENSITIVE', ${p.SENSITIVE.afterEnd}::interval, ${p.SENSITIVE.afterCancel}::interval),
+      ('THIRD_PARTY', ${p.THIRD_PARTY.afterEnd}::interval, ${p.THIRD_PARTY.afterCancel}::interval),
+      ('CONSENT', ${p.CONSENT.afterEnd}::interval, ${p.CONSENT.afterCancel}::interval)
+    ),
+    due AS (
       SELECT r.id, r.organisation_id, r.event_id, r.data_category_snapshot AS category,
         (e.answers_legal_hold IS NOT NULL OR o.answers_legal_hold IS NOT NULL) AS held
       FROM event_registration_responses r
       JOIN events e ON e.id = r.event_id AND e.organisation_id = r.organisation_id
       JOIN event_orders o ON o.id = r.order_id AND o.organisation_id = r.organisation_id
+      JOIN policy pol ON pol.category = r.data_category_snapshot
       WHERE r.redacted_at IS NULL
-        AND ${now}::timestamptz >= CASE r.data_category_snapshot
-          WHEN 'SENSITIVE' THEN CASE WHEN e.status = 'CANCELLED'
-            THEN LEAST(e.ends_at + interval '30 days', COALESCE(e.cancelled_at, e.updated_at) + interval '7 days')
-            ELSE e.ends_at + interval '30 days' END
-          WHEN 'THIRD_PARTY' THEN CASE WHEN e.status = 'CANCELLED'
-            THEN LEAST(e.ends_at + interval '7 days', COALESCE(e.cancelled_at, e.updated_at) + interval '7 days')
-            ELSE e.ends_at + interval '7 days' END
-          WHEN 'CONSENT' THEN e.ends_at + interval '3 years'
-          ELSE e.ends_at + interval '12 months'
-        END
+        AND ${now}::timestamptz >= LEAST(
+          e.ends_at + pol.after_end,
+          CASE WHEN e.status = 'CANCELLED' THEN COALESCE(e.cancelled_at, e.updated_at) + pol.after_cancel END
+        )
     )
     SELECT event_id, category, held, count(*)::int AS n FROM due GROUP BY event_id, category, held
   ` as { event_id: string; category: string; held: boolean; n: number }[];
@@ -96,6 +117,12 @@ export async function runAnswerRetention(opts: { mode: RetentionMode; now?: Date
   if (opts.mode === 'enforce' && due > 0) {
     // One statement: re-checks due-ness and holds at the moment of removal.
     const removed = await sql`
+      WITH policy(category, after_end, after_cancel) AS (VALUES
+        ('STANDARD', ${p.STANDARD.afterEnd}::interval, ${p.STANDARD.afterCancel}::interval),
+        ('SENSITIVE', ${p.SENSITIVE.afterEnd}::interval, ${p.SENSITIVE.afterCancel}::interval),
+        ('THIRD_PARTY', ${p.THIRD_PARTY.afterEnd}::interval, ${p.THIRD_PARTY.afterCancel}::interval),
+        ('CONSENT', ${p.CONSENT.afterEnd}::interval, ${p.CONSENT.afterCancel}::interval)
+      )
       UPDATE event_registration_responses r
       SET answer = NULL, redacted_at = ${now}::timestamptz
       FROM events e, event_orders o
@@ -103,17 +130,12 @@ export async function runAnswerRetention(opts: { mode: RetentionMode; now?: Date
           SELECT r2.id FROM event_registration_responses r2
           JOIN events e2 ON e2.id = r2.event_id AND e2.organisation_id = r2.organisation_id
           JOIN event_orders o2 ON o2.id = r2.order_id AND o2.organisation_id = r2.organisation_id
+          JOIN policy pol ON pol.category = r2.data_category_snapshot
           WHERE r2.redacted_at IS NULL AND e2.answers_legal_hold IS NULL AND o2.answers_legal_hold IS NULL
-            AND ${now}::timestamptz >= CASE r2.data_category_snapshot
-              WHEN 'SENSITIVE' THEN CASE WHEN e2.status = 'CANCELLED'
-                THEN LEAST(e2.ends_at + interval '30 days', COALESCE(e2.cancelled_at, e2.updated_at) + interval '7 days')
-                ELSE e2.ends_at + interval '30 days' END
-              WHEN 'THIRD_PARTY' THEN CASE WHEN e2.status = 'CANCELLED'
-                THEN LEAST(e2.ends_at + interval '7 days', COALESCE(e2.cancelled_at, e2.updated_at) + interval '7 days')
-                ELSE e2.ends_at + interval '7 days' END
-              WHEN 'CONSENT' THEN e2.ends_at + interval '3 years'
-              ELSE e2.ends_at + interval '12 months'
-            END
+            AND ${now}::timestamptz >= LEAST(
+              e2.ends_at + pol.after_end,
+              CASE WHEN e2.status = 'CANCELLED' THEN COALESCE(e2.cancelled_at, e2.updated_at) + pol.after_cancel END
+            )
           ORDER BY r2.id
           LIMIT ${batch}
         )

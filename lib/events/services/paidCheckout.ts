@@ -225,12 +225,13 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
   const answerPolicy = applySurfaceAnswerPolicy({
     productSurface,
     eveQuestionsEnabled: event.eve_questions_enabled,
-    sensitiveConsent: validated.sensitive_consent,
+    agreeSensitive: validated.agree_sensitive,
+    confirmThirdParty: validated.confirm_third_party,
     submitted: { orderResponses: validated.order_responses, attendeeResponses: validated.attendees.map(a => a.responses) },
     validated: validatedResponses,
   });
   if (!answerPolicy.ok) return { ok: false, code: 'RESPONSES_INVALID', message: answerPolicy.error };
-  const sensitiveConsentAt = answerPolicy.sensitiveConsentAt;
+  const acknowledgedAt = answerPolicy.acknowledgedAt;
 
   const attendeeNames = validated.attendees.map(a => a.name);
   const attendeeEmails = validated.attendees.map(a => a.email ?? '');
@@ -496,7 +497,7 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
   // rather than sending an anonymous purchaser into a paid checkout
   // whose attendee-requirement answers are already lost.
   try {
-    await writeRegistrationResponses(organisationId, event.id, orderId, attendeeIds, validatedResponses, sensitiveConsentAt);
+    await writeRegistrationResponses(organisationId, event.id, orderId, attendeeIds, validatedResponses, acknowledgedAt);
   } catch (err) {
     console.error('[public checkout] response write failed, releasing reservation', err, { orderId });
     // Guarded the same way as the Stripe-creation write-back below

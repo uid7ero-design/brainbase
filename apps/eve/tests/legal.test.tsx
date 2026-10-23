@@ -272,6 +272,8 @@ describe('legal routes', () => {
     expect(priv).toMatch(/may include health or disability information/);
     expect(priv).toMatch(/we ask you to agree to the Event Organiser collecting it, and we record when you agreed\. Nothing is ticked for you/);
     expect(priv).toMatch(/make sure they know you are giving their details to the Event Organiser for this event/);
+    // The purchaser's confirmation is never presented as the other person's consent.
+    expect(priv).toMatch(/That confirmation is yours; it is not that person.s consent/);
     expect(PRIVACY.sections.find(s => s.id === 'registration-questions')?.heading).toBe('5. Registration questions and sensitive information');
     expect(priv).not.toMatch(/answers to registration questions that the Event Organiser asks/);
     expect(priv).not.toMatch(/attendee.s name and optional email/); // Eve collects attendee names only

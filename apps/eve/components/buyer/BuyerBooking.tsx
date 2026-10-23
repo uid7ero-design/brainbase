@@ -80,7 +80,13 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
   const [orderAnswers, setOrderAnswers] = useState<Record<string, Answer>>({});
   const [slotAnswers, setSlotAnswers] = useState<Record<string, Record<string, Answer>>>({});
   // Unticked by default; shown only once a sensitive question is answered.
-  const [sensitiveConsent, setSensitiveConsent] = useState(false);
+  // The purchaser's own acknowledgements (ADR 0013 §4b), each unticked by
+  // default and shown only once a question of that kind is answered:
+  // agreeing to the organiser collecting SENSITIVE answers, and confirming
+  // that a THIRD_PARTY (e.g. emergency contact) knows their details are being
+  // given. The second is NOT that person's consent.
+  const [agreeSensitive, setAgreeSensitive] = useState(false);
+  const [confirmThirdParty, setConfirmThirdParty] = useState(false);
 
   const lines = types.filter(t => offered(t) && (qty[t.id] ?? 0) > 0).map(t => ({ type: t, quantity: qty[t.id] }));
   const totalTickets = lines.reduce((n, l) => n + l.quantity, 0);
@@ -115,16 +121,12 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
 
   // SENSITIVE and THIRD_PARTY answers need explicit agreement (ADR 0013 §4b);
   // the server enforces the same rule.
-  const needsAgreement = (q: { data_category?: string }) => q.data_category === 'SENSITIVE' || q.data_category === 'THIRD_PARTY';
-  const answeredProtected = [
-    ...orderQuestions.filter(q => needsAgreement(q) && isAnswered(orderAnswers[q.id])),
-    ...slots.flatMap(s => attendeeQuestions.filter(q => needsAgreement(q) && isAnswered(slotAnswers[slotKey(s)]?.[q.id]))),
-  ];
-  const sensitiveLabels = [...new Set(answeredProtected.map(q => q.label))];
-  const agreementKinds = [
-    answeredProtected.some(q => q.data_category === 'SENSITIVE') ? 'health, disability or accessibility information' : null,
-    answeredProtected.some(q => q.data_category === 'THIRD_PARTY') ? 'another person’s details' : null,
-  ].filter(Boolean).join(' and ');
+  const answeredIn = (category: string) => [...new Set([
+    ...orderQuestions.filter(q => q.data_category === category && isAnswered(orderAnswers[q.id])),
+    ...slots.flatMap(s => attendeeQuestions.filter(q => q.data_category === category && isAnswered(slotAnswers[slotKey(s)]?.[q.id]))),
+  ].map(q => q.label))];
+  const sensitiveLabels = answeredIn('SENSITIVE');
+  const thirdPartyLabels = answeredIn('THIRD_PARTY');
 
   // Only answered questions are sent; the server applies "required".
   const toResponses = (qs: typeof questions, answers: Record<string, Answer> | undefined) =>
@@ -153,8 +155,11 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
     if (totalTickets === 0) { setError('Select at least one ticket.'); return; }
     const missing = firstMissingRequired();
     if (missing) { setError(`${missing} is required.`); return; }
-    if (sensitiveLabels.length > 0 && !sensitiveConsent) {
-      setError('Please confirm you agree to the organiser collecting the health, accessibility or contact details you have given.'); return;
+    if (sensitiveLabels.length > 0 && !agreeSensitive) {
+      setError('Please confirm you agree to the organiser collecting the health, disability or accessibility information you have given.'); return;
+    }
+    if (thirdPartyLabels.length > 0 && !confirmThirdParty) {
+      setError('Please confirm the person whose details you have given knows you are giving them to the organiser.'); return;
     }
     if (anyPaid && !accepted) { setError('Please agree to the Terms and the Refunds & cancellations policy to continue.'); return; }
     setBusy(true);
@@ -169,7 +174,8 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
           return { name: attendeeNames[s.type.id]?.[s.index] || purchaser.name, ticket_type_id: s.type.id, ...(responses.length ? { responses } : {}) };
         }),
         ...(orderQuestions.length && toResponses(orderQuestions, orderAnswers).length ? { order_responses: toResponses(orderQuestions, orderAnswers) } : {}),
-        ...(sensitiveLabels.length > 0 && sensitiveConsent ? { sensitive_consent: true } : {}),
+        ...(sensitiveLabels.length > 0 && agreeSensitive ? { agree_sensitive: true } : {}),
+        ...(thirdPartyLabels.length > 0 && confirmThirdParty ? { confirm_third_party: true } : {}),
         ...(anyPaid ? { accept_terms: true } : {}),
       };
       const res = await fetch(`${base}/${anyPaid ? 'checkout' : 'register'}`, {
@@ -350,11 +356,19 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
       {totalTickets > 0 ? (
         <div className="space-y-3 text-sm" data-testid="booking-notices">
           {sensitiveLabels.length > 0 ? (
-            <div className="flex items-start gap-3 rounded-lg border border-eve-line p-3" data-testid="sensitive-consent">
-              <input id="sensitive-consent" type="checkbox" checked={sensitiveConsent} onChange={e => setSensitiveConsent(e.target.checked)} required className="mt-1 h-5 w-5 shrink-0" />
-              <label htmlFor="sensitive-consent" className="text-eve-ink">
-                {`I agree to ${detail.organisationName} collecting my answers to ${sensitiveLabels.join(', ')} for this event, including ${agreementKinds}. `}
+            <div className="flex items-start gap-3 rounded-lg border border-eve-line p-3" data-testid="agree-sensitive">
+              <input id="agree-sensitive" type="checkbox" checked={agreeSensitive} onChange={e => setAgreeSensitive(e.target.checked)} required className="mt-1 h-5 w-5 shrink-0" />
+              <label htmlFor="agree-sensitive" className="text-eve-ink">
+                {`I agree to ${detail.organisationName} collecting my answers to ${sensitiveLabels.join(', ')} for this event, including health, disability or accessibility information. `}
                 Only answer what you are comfortable sharing.
+              </label>
+            </div>
+          ) : null}
+          {thirdPartyLabels.length > 0 ? (
+            <div className="flex items-start gap-3 rounded-lg border border-eve-line p-3" data-testid="confirm-third-party">
+              <input id="confirm-third-party" type="checkbox" checked={confirmThirdParty} onChange={e => setConfirmThirdParty(e.target.checked)} required className="mt-1 h-5 w-5 shrink-0" />
+              <label htmlFor="confirm-third-party" className="text-eve-ink">
+                {`I confirm that the person whose details I have given (${thirdPartyLabels.join(', ')}) knows I am giving them to ${detail.organisationName} for this event, or that I am allowed to give them.`}
               </label>
             </div>
           ) : null}

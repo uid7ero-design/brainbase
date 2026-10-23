@@ -160,7 +160,7 @@ export const PRIVACY: LegalDoc = {
       body: [
         'Event Organisers may ask questions about their event when you book. You can leave a question marked optional blank.',
         'Answers about accessibility or support needs may include health or disability information. Before you submit an answer to a question like this, we ask you to agree to the Event Organiser collecting it, and we record when you agreed. Nothing is ticked for you.',
-        'If you give another person\'s details, such as an emergency contact, please make sure they know you are giving their details to the Event Organiser for this event. We also ask you to agree before submitting them.',
+        'If you give another person\'s details, such as an emergency contact, please make sure they know you are giving their details to the Event Organiser for this event. Before you submit them, we ask you to confirm this, and we record that you confirmed. That confirmation is yours; it is not that person\'s consent.',
         'Event Organisers should only ask for what they need to run the event.',
       ],
     },

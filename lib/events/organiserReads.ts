@@ -112,7 +112,7 @@ export async function listEventRegistrationRows(organisationId: string, id: stri
               -- Eve buyer gave explicit agreement, and whether retention has
               -- removed the answer (answer is then NULL).
               'help_text', r.question_help_text_snapshot, 'data_category', r.data_category_snapshot,
-              'sensitive_consent_at', r.sensitive_consent_at, 'redacted_at', r.redacted_at
+              'buyer_acknowledged_at', r.buyer_acknowledged_at, 'redacted_at', r.redacted_at
             ) ORDER BY r.created_at)
             FROM event_registration_responses r
             WHERE r.attendee_id = ea.id AND r.organisation_id = ea.organisation_id
@@ -125,7 +125,7 @@ export async function listEventRegistrationRows(organisationId: string, id: stri
         SELECT json_agg(json_build_object(
           'id', r.id, 'question_id', r.question_id, 'label', r.question_label_snapshot, 'field_type', r.field_type_snapshot, 'answer', r.answer,
           'help_text', r.question_help_text_snapshot, 'data_category', r.data_category_snapshot,
-          'sensitive_consent_at', r.sensitive_consent_at, 'redacted_at', r.redacted_at
+          'buyer_acknowledged_at', r.buyer_acknowledged_at, 'redacted_at', r.redacted_at
         ) ORDER BY r.created_at)
         FROM event_registration_responses r
         WHERE r.order_id = eo.id AND r.attendee_id IS NULL AND r.organisation_id = eo.organisation_id

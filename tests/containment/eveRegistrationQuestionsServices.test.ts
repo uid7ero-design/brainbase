@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 
 // Eve registration questions (ADR 0013 §4a) — the shared free/paid services
 // with productSurface 'EVE': the per-event opt-in, the sensitive-answer
@@ -98,21 +100,42 @@ const paid = (eve: boolean, b: Record<string, unknown>) =>
 describe('pure policy: checkEveAnswerPolicy', () => {
   const v = (answers: { q: (typeof ALL)[number]; a: unknown }[]) => ({ orderAnswers: answers.map(x => ({ question: x.q as never, answer: x.a })), attendeeAnswers: [] })
   it('opt-in off: no answers -> allowed; any submitted answer -> refused (even to an optional, non-sensitive question)', () => {
-    expect(rq.checkEveAnswerPolicy({ orderResponses: [], attendeeResponses: [[]] }, v([]), { eveQuestionsEnabled: false, sensitiveConsent: false })).toBeNull()
-    expect(rq.checkEveAnswerPolicy({ orderResponses: [{ question_id: 'q-hear', answer: 'Radio' }], attendeeResponses: [[]] }, v([{ q: Q.hear, a: 'Radio' }]), { eveQuestionsEnabled: false, sensitiveConsent: true }))
+    expect(rq.checkEveAnswerPolicy({ orderResponses: [], attendeeResponses: [[]] }, v([]), { eveQuestionsEnabled: false, agreeSensitive: false, confirmThirdParty: false })).toBeNull()
+    expect(rq.checkEveAnswerPolicy({ orderResponses: [{ question_id: 'q-hear', answer: 'Radio' }], attendeeResponses: [[]] }, v([{ q: Q.hear, a: 'Radio' }]), { eveQuestionsEnabled: false, agreeSensitive: true, confirmThirdParty: true }))
       .toBe('This event is not collecting registration answers here.')
-    expect(rq.checkEveAnswerPolicy({ orderResponses: [], attendeeResponses: [[{ question_id: 'q-18', answer: true }]] }, v([]), { eveQuestionsEnabled: false, sensitiveConsent: false })).not.toBeNull()
+    expect(rq.checkEveAnswerPolicy({ orderResponses: [], attendeeResponses: [[{ question_id: 'q-18', answer: true }]] }, v([]), { eveQuestionsEnabled: false, agreeSensitive: false, confirmThirdParty: false })).not.toBeNull()
   })
   it('opt-in on: SENSITIVE and THIRD_PARTY answers need explicit agreement; STANDARD and CONSENT answers, and unanswered questions, do not', () => {
     const sub = (id: string) => ({ orderResponses: [{ question_id: id, answer: 'x' }], attendeeResponses: [] })
     for (const q of [Q.ecName, Q.access]) {
-      expect(rq.checkEveAnswerPolicy(sub(q.id), v([{ q, a: 'x' }]), { eveQuestionsEnabled: true, sensitiveConsent: false }), q.data_category).toMatch(/confirm you agree/)
-      expect(rq.checkEveAnswerPolicy(sub(q.id), v([{ q, a: 'x' }]), { eveQuestionsEnabled: true, sensitiveConsent: true })).toBeNull()
+      expect(rq.checkEveAnswerPolicy(sub(q.id), v([{ q, a: 'x' }]), { eveQuestionsEnabled: true, agreeSensitive: false, confirmThirdParty: false }), q.data_category).toMatch(/Please confirm/)
+      expect(rq.checkEveAnswerPolicy(sub(q.id), v([{ q, a: 'x' }]), { eveQuestionsEnabled: true, agreeSensitive: true, confirmThirdParty: true })).toBeNull()
     }
     for (const [q, a] of [[Q.hear, 'Radio'], [Q.photo, false], [Q.over18, true]] as const) {
-      expect(rq.checkEveAnswerPolicy(sub(q.id), v([{ q, a }]), { eveQuestionsEnabled: true, sensitiveConsent: false }), q.data_category).toBeNull()
+      expect(rq.checkEveAnswerPolicy(sub(q.id), v([{ q, a }]), { eveQuestionsEnabled: true, agreeSensitive: false, confirmThirdParty: false }), q.data_category).toBeNull()
     }
-    expect(rq.checkEveAnswerPolicy({ orderResponses: [], attendeeResponses: [] }, v([]), { eveQuestionsEnabled: true, sensitiveConsent: false })).toBeNull()
+    expect(rq.checkEveAnswerPolicy({ orderResponses: [], attendeeResponses: [] }, v([]), { eveQuestionsEnabled: true, agreeSensitive: false, confirmThirdParty: false })).toBeNull()
+  })
+  it('the two acknowledgements are separate: agreeing to SENSITIVE never stands in for the THIRD_PARTY confirmation, or vice versa', () => {
+    const sub = (id: string) => ({ orderResponses: [{ question_id: id, answer: 'x' }], attendeeResponses: [] })
+    expect(rq.checkEveAnswerPolicy(sub(Q.ecName.id), v([{ q: Q.ecName, a: 'x' }]), { eveQuestionsEnabled: true, agreeSensitive: true, confirmThirdParty: false }))
+      .toBe('Please confirm the person whose details you have given knows you are giving them to the organiser.')
+    expect(rq.checkEveAnswerPolicy(sub(Q.access.id), v([{ q: Q.access, a: 'x' }]), { eveQuestionsEnabled: true, agreeSensitive: false, confirmThirdParty: true }))
+      .toBe('Please confirm you agree to the organiser collecting the health, disability or accessibility information you have given.')
+    expect(rq.checkEveAnswerPolicy(sub(Q.ecName.id), v([{ q: Q.ecName, a: 'x' }]), { eveQuestionsEnabled: true, agreeSensitive: false, confirmThirdParty: true })).toBeNull()
+  })
+  it('the recorded time is the PURCHASER\'s acknowledgement only — nothing in the policy or schema is named or treated as third-party consent', () => {
+    const r = rq.applySurfaceAnswerPolicy({
+      productSurface: 'EVE', eveQuestionsEnabled: true, agreeSensitive: false, confirmThirdParty: true,
+      submitted: { orderResponses: [{ question_id: Q.ecName.id, answer: 'Sam' }], attendeeResponses: [] },
+      validated: v([{ q: Q.ecName, a: 'Sam' }]),
+    })
+    expect(r).toMatchObject({ ok: true })
+    expect(Object.keys(r)).toEqual(['ok', 'acknowledgedAt'])
+    const migration = readFileSync(path.join(process.cwd(), 'scripts/add-eve-registration-questions.sql'), 'utf8')
+    expect(migration).toMatch(/ADD COLUMN IF NOT EXISTS buyer_acknowledged_at TIMESTAMPTZ/)
+    expect(migration).not.toMatch(/consent_at/)
+    expect(migration).toMatch(/NEVER the third party's consent/)
   })
 })
 
@@ -144,9 +167,17 @@ describe('category model and templates (ADR 0013 §4b)', () => {
 })
 
 describe('request + definition validation', () => {
-  it('sensitive_consent counts only as the literal boolean true', () => {
-    for (const x of [undefined, 'true', 1, 'yes', {}, null, false]) expect(validated(body({ sensitive_consent: x })).sensitive_consent, String(x)).toBe(false)
-    expect(validated(body({ sensitive_consent: true })).sensitive_consent).toBe(true)
+  it('agree_sensitive and confirm_third_party each count only as the literal boolean true, independently', () => {
+    for (const x of [undefined, 'true', 1, 'yes', {}, null, false]) {
+      const v1 = validated(body({ agree_sensitive: x, confirm_third_party: x }))
+      expect(v1.agree_sensitive, String(x)).toBe(false)
+      expect(v1.confirm_third_party, String(x)).toBe(false)
+    }
+    expect(validated(body({ agree_sensitive: true })).confirm_third_party).toBe(false)
+    expect(validated(body({ confirm_third_party: true })).agree_sensitive).toBe(false)
+    // The old combined field is ignored, not silently mapped to either.
+    const legacy = validated(body({ sensitive_consent: true }))
+    expect([legacy.agree_sensitive, legacy.confirm_third_party]).toEqual([false, false])
   })
   it('each supported type: valid shapes accepted, tampered shapes refused (server is authoritative)', () => {
     const val = (q: (typeof ALL)[number], answer: unknown) => rq.validateSubmittedResponses(ALL as never, q.scope === 'ORDER' ? [{ question_id: q.id, answer }] : [], q.scope === 'ATTENDEE' ? [[{ question_id: q.id, answer }]] : [[]])
@@ -172,7 +203,7 @@ describe('request + definition validation', () => {
 describe('free registration through Eve', () => {
   it('opt-in OFF: answers are refused before anything is written', async () => {
     responseQueue = [FREE_TYPE_ROW, ALL as never]
-    const r = await free(false, body({ sensitive_consent: true }))
+    const r = await free(false, body({ agree_sensitive: true, confirm_third_party: true }))
     expect(r).toEqual({ ok: false, code: 'RESPONSES_INVALID', message: 'This event is not collecting registration answers here.' })
     expect(transactionMock).not.toHaveBeenCalled()
   })
@@ -186,7 +217,7 @@ describe('free registration through Eve', () => {
 
   it('opt-in ON: a required question left out is refused before anything is written', async () => {
     responseQueue = [FREE_TYPE_ROW, ALL as never]
-    const b = body({ sensitive_consent: true })
+    const b = body({ agree_sensitive: true, confirm_third_party: true })
     b.order_responses = FULL_ANSWERS.order_responses.filter(r => r.question_id !== 'q-photo')
     const r = await free(true, b)
     expect(r).toMatchObject({ ok: false, code: 'RESPONSES_INVALID', message: `${Q.photo.label} is required.` })
@@ -203,12 +234,12 @@ describe('free registration through Eve', () => {
   it('opt-in ON with agreement: every answer is written atomically with snapshots; agreement time only on SENSITIVE/THIRD_PARTY rows; "No" stays false', async () => {
     responseQueue = [FREE_TYPE_ROW, ALL as never]
     const before = Date.now()
-    const r = await free(true, body({ sensitive_consent: true }))
+    const r = await free(true, body({ agree_sensitive: true, confirm_third_party: true }))
     expect(r.ok).toBe(true)
     expect(transactionMock).toHaveBeenCalledTimes(1)
     const call = responsesStatement()!
     const text = (call[0] as TemplateStringsArray).join(' ')
-    expect(text).toMatch(/question_help_text_snapshot, data_category_snapshot, sensitive_consent_at/)
+    expect(text).toMatch(/question_help_text_snapshot, data_category_snapshot, buyer_acknowledged_at/)
     expect(text).toMatch(/CASE WHEN r\.category IN \('SENSITIVE', 'THIRD_PARTY'\) THEN/)
     expect(JSON.stringify(call.slice(1))).toContain('THIRD_PARTY')
     const params = call.slice(1)
@@ -225,7 +256,7 @@ describe('free registration through Eve', () => {
     const r = await free(false, body(), 'BRAINBASE')
     expect(r.ok).toBe(true)
     const params = responsesStatement()!.slice(1)
-    expect(params).toContain(null) // sensitiveConsentAt bound as null
+    expect(params).toContain(null) // acknowledgedAt bound as null
     expect(params.some(p => typeof p === 'string' && /^\d{4}-\d\d-\d\dT\d\d:/.test(p))).toBe(false)
   })
 })
@@ -233,7 +264,7 @@ describe('free registration through Eve', () => {
 describe('paid checkout through Eve', () => {
   it('opt-in OFF: answers refused before any reservation or Stripe call', async () => {
     responseQueue = [PAID_TYPE_ROW, ALL as never]
-    const r = await paid(false, body({ sensitive_consent: true }))
+    const r = await paid(false, body({ agree_sensitive: true, confirm_third_party: true }))
     expect(r).toMatchObject({ ok: false, code: 'RESPONSES_INVALID' })
     expect(transactionMock).not.toHaveBeenCalled()
     expect(createCheckoutSessionMock).not.toHaveBeenCalled()
@@ -257,7 +288,7 @@ describe('paid checkout through Eve', () => {
     createCheckoutSessionMock.mockImplementation(async () => { order.push('stripe'); return { sessionId: 'cs_test_1', url: 'https://checkout.stripe.com/pay/cs_test_1' } })
     transactionFinalResult = [{ id: 'order-1' }]
     transactionMock.mockImplementation(async () => [[], [], [], [{ id: 'order-1' }], [{ id: 'att-1' }]] as never)
-    await paid(true, body({ sensitive_consent: true }))
+    await paid(true, body({ agree_sensitive: true, confirm_third_party: true }))
     expect(order[0]).toBe('responses')
     const params = responsesStatement()!.slice(1)
     expect(params.some(p => typeof p === 'string' && /^\d{4}-\d\d-\d\dT/.test(p))).toBe(true)

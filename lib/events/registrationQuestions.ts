@@ -39,9 +39,11 @@ export type QuestionRow = {
 // THIRD_PARTY  another person's details (e.g. an emergency contact).
 // CONSENT      evidence of a choice the buyer made (e.g. photo consent).
 //
-// On Eve, answering a SENSITIVE or THIRD_PARTY question needs the buyer's
-// explicit agreement (AGREEMENT_CATEGORIES). Retention timers per category
-// live in lib/events/answerRetention.ts.
+// On Eve, answering a SENSITIVE or THIRD_PARTY question needs a separate
+// acknowledgement from the PURCHASER (AGREEMENT_CATEGORIES; see
+// checkEveAnswerPolicy) — for THIRD_PARTY that is the purchaser's
+// confirmation, never the other person's consent. Retention timers per
+// category live in lib/events/answerRetention.ts (RETENTION_POLICY).
 export const DATA_CATEGORIES = ['STANDARD', 'SENSITIVE', 'THIRD_PARTY', 'CONSENT'] as const;
 export type DataCategory = typeof DATA_CATEGORIES[number];
 export const AGREEMENT_CATEGORIES: readonly DataCategory[] = ['SENSITIVE', 'THIRD_PARTY'];
@@ -338,24 +340,33 @@ export function validateSubmittedResponses(
 //     accepts no answers at all through Eve, even to optional questions a
 //     tampered client might submit — its questions were never shown on Eve
 //     or covered by Eve's notices;
-//   - an answer to a SENSITIVE or THIRD_PARTY question needs the buyer's
-//     explicit agreement (sensitive_consent === true, never defaulted). An
-//     unanswered optional question needs nothing.
+//   - the PURCHASER'S own acknowledgements, never defaulted, one per kind:
+//       SENSITIVE answer   -> agreeSensitive: the purchaser agrees to the
+//                             organiser collecting it;
+//       THIRD_PARTY answer -> confirmThirdParty: the purchaser confirms the
+//                             other person knows their details are being
+//                             given to the organiser (or that they may give
+//                             them).
+//     Neither is, or is recorded as, the OTHER person's consent: the platform
+//     never treats a purchaser's confirmation as third-party consent.
+//   An unanswered optional question needs nothing.
 // Returns an error message, or null when the submission may proceed. The
 // BrainBase surface is unaffected (its form has no such control).
 export function checkEveAnswerPolicy(
   submitted: { orderResponses: SubmittedAnswer[]; attendeeResponses: SubmittedAnswer[][] },
   validated: ValidatedResponses,
-  opts: { eveQuestionsEnabled: boolean; sensitiveConsent: boolean },
+  opts: { eveQuestionsEnabled: boolean; agreeSensitive: boolean; confirmThirdParty: boolean },
 ): string | null {
   const anySubmitted = submitted.orderResponses.length > 0 || submitted.attendeeResponses.some(a => a.length > 0);
   if (!opts.eveQuestionsEnabled) {
     return anySubmitted ? 'This event is not collecting registration answers here.' : null;
   }
-  const needsAgreement = [...validated.orderAnswers, ...validated.attendeeAnswers.flat()]
-    .some(a => AGREEMENT_CATEGORIES.includes(a.question.data_category));
-  if (needsAgreement && !opts.sensitiveConsent) {
-    return 'Please confirm you agree to the organiser collecting the health, accessibility or contact details you have given.';
+  const answered = [...validated.orderAnswers, ...validated.attendeeAnswers.flat()];
+  if (answered.some(a => a.question.data_category === 'SENSITIVE') && !opts.agreeSensitive) {
+    return 'Please confirm you agree to the organiser collecting the health, disability or accessibility information you have given.';
+  }
+  if (answered.some(a => a.question.data_category === 'THIRD_PARTY') && !opts.confirmThirdParty) {
+    return 'Please confirm the person whose details you have given knows you are giving them to the organiser.';
   }
   return null;
 }
@@ -363,22 +374,28 @@ export function checkEveAnswerPolicy(
 // The single place the services ask "what does this product surface require
 // of these answers?" — so the shared free/paid services stay product-neutral
 // (they pass the surface through; they never branch on it themselves).
-// Returns the refusal message, or the agreement timestamp to store on
-// SENSITIVE/THIRD_PARTY rows (null when there is none to record).
+// Returns the refusal message, or the time to store as buyer_acknowledged_at
+// on SENSITIVE / THIRD_PARTY rows: when the PURCHASER gave the acknowledgement
+// required for that row's category (see checkEveAnswerPolicy). null when
+// there is none to record. It is never a third party's consent.
 export function applySurfaceAnswerPolicy(params: {
   productSurface: string;
   eveQuestionsEnabled: boolean | undefined;
-  sensitiveConsent: boolean | undefined;
+  agreeSensitive: boolean | undefined;
+  confirmThirdParty: boolean | undefined;
   submitted: { orderResponses: SubmittedAnswer[]; attendeeResponses: SubmittedAnswer[][] };
   validated: ValidatedResponses;
-}): { ok: false; error: string } | { ok: true; sensitiveConsentAt: string | null } {
-  if (params.productSurface !== 'EVE') return { ok: true, sensitiveConsentAt: null };
+}): { ok: false; error: string } | { ok: true; acknowledgedAt: string | null } {
+  if (params.productSurface !== 'EVE') return { ok: true, acknowledgedAt: null };
+  const agreeSensitive = params.agreeSensitive === true;
+  const confirmThirdParty = params.confirmThirdParty === true;
   const error = checkEveAnswerPolicy(params.submitted, params.validated, {
-    eveQuestionsEnabled: params.eveQuestionsEnabled === true,
-    sensitiveConsent: params.sensitiveConsent === true,
+    eveQuestionsEnabled: params.eveQuestionsEnabled === true, agreeSensitive, confirmThirdParty,
   });
   if (error) return { ok: false, error };
-  return { ok: true, sensitiveConsentAt: params.sensitiveConsent === true ? new Date().toISOString() : null };
+  // The policy above guarantees each answered SENSITIVE / THIRD_PARTY row's
+  // own acknowledgement was given, so one timestamp is accurate for both.
+  return { ok: true, acknowledgedAt: agreeSensitive || confirmThirdParty ? new Date().toISOString() : null };
 }
 
 // ── Flattening helpers — shared by both response-write paths ────────
@@ -481,9 +498,10 @@ export async function writeRegistrationResponses(
   orderId: string,
   attendeeIds: string[],
   responses: ValidatedResponses,
-  // ISO timestamp of the Eve buyer's explicit agreement, or null. Stored
-  // only on SENSITIVE / THIRD_PARTY rows.
-  sensitiveConsentAt: string | null = null,
+  // When the Eve purchaser gave the acknowledgement each SENSITIVE /
+  // THIRD_PARTY row needs (stored as buyer_acknowledged_at on those rows
+  // only), or null. Never a third party's consent.
+  acknowledgedAt: string | null = null,
 ): Promise<void> {
   const order = flattenOrderAnswers(responses.orderAnswers);
   const attendee = flattenAttendeeAnswers(responses.attendeeAnswers, attendeeIds);
@@ -503,10 +521,10 @@ export async function writeRegistrationResponses(
   await sql`
     INSERT INTO event_registration_responses
       (organisation_id, event_id, question_id, order_id, attendee_id, question_label_snapshot, field_type_snapshot,
-       question_help_text_snapshot, data_category_snapshot, sensitive_consent_at, answer)
+       question_help_text_snapshot, data_category_snapshot, buyer_acknowledged_at, answer)
     SELECT ${organisationId}, ${eventId}, a.question_id, ${orderId}, NULLIF(a.attendee_id, ''), a.label, a.field_type,
       NULLIF(a.help_text, ''), a.category,
-      CASE WHEN a.category IN ('SENSITIVE', 'THIRD_PARTY') THEN ${sensitiveConsentAt}::timestamptz END, a.answer_json::jsonb
+      CASE WHEN a.category IN ('SENSITIVE', 'THIRD_PARTY') THEN ${acknowledgedAt}::timestamptz END, a.answer_json::jsonb
     FROM UNNEST(${questionIds}::text[], ${attendeeIdColumn}::text[], ${labels}::text[], ${fieldTypes}::text[], ${helpTexts}::text[], ${categories}::text[], ${answersJson}::text[])
       AS a(question_id, attendee_id, label, field_type, help_text, category, answer_json)
   `;

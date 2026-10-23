@@ -108,7 +108,7 @@ purchaser data, tokens, secrets or internal configuration.
 ## 4. Sensitive registration questions — DEFERRED (explicit launch limitation)
 
 The proposed `event_registration_questions.may_collect_sensitive_information` and
-`event_registration_responses.sensitive_consent_at` schema/control is **not built**
+`event_registration_responses.buyer_acknowledged_at` schema/control is **not built**
 and no migration exists for it. Reason: **Eve does not render registration
 questions** — its booking form never shows or submits them, so no sensitive
 answer can be collected through Eve today, and an event with a REQUIRED question
@@ -178,6 +178,24 @@ removal for that event/order only.
 **Copies:** Preview/test branches and manual snapshots hold Production data; see
 `docs/compliance/eve-production-data-copies.md` for the inventory, rule and
 cleanup plan, which must be in force before Eve collects Production answers.
+
+**Purchaser acknowledgements (2026-10-24 clarification).** The purchaser gives two
+separate, unticked acknowledgements:
+- `agree_sensitive`: agreement to the organiser collecting SENSITIVE answers;
+- `confirm_third_party`: confirmation that the person whose details they gave knows
+  those details are being given to the organiser, or that they may give them.
+
+Both are the purchaser's own statements. The platform never records or treats either
+one as the third party's consent. The column is accordingly
+`buyer_acknowledged_at`, not "consent". The draft name `sensitive_consent_at` never
+reached any database.
+
+**CONSENT retention is provisional.** 3 years is the default for implementation and
+testing, pending legal advice. All timers live in one table (`RETENTION_POLICY`), and
+`afterEnd: null` means "not removed automatically". Enforcement stays off until the
+period is settled.
+
+**Legal review pack:** `docs/compliance/eve-registration-questions-legal-review-pack.md`.
 
 ## 5. Remaining limits (unchanged)
 
