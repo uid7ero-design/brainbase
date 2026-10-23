@@ -41,7 +41,7 @@ import {
   type StoredSeries,
   type TenantContext,
 } from '@scheduling/core';
-import { translating } from './errors';
+import { SCHEDULING_SQLSTATE, mapPgError, sqlstateOf, translating } from './errors';
 import type { SqlExecutor } from './executor';
 import { isSelfService, newId as defaultNewId } from './support';
 
@@ -313,7 +313,7 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
 
   async setResourceActive(tenant: TenantContext, resourceId: string, active: boolean): Promise<boolean> {
     this.manage(tenant);
-    const rows = await this.sql.query<Row>('UPDATE scheduling_resources SET active = $3 WHERE organisation_id = $1 AND id = $2 RETURNING id', [tenant.organisationId, resourceId, active]);
+    const rows = await translating(() => this.sql.query<Row>('UPDATE scheduling_resources SET active = $3 WHERE organisation_id = $1 AND id = $2 RETURNING id', [tenant.organisationId, resourceId, active]));
     return rows.length > 0;
   }
 
@@ -592,16 +592,21 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
       if (changes.active === false) guards.push(`(r.active = false OR NOT EXISTS (SELECT 1 FROM scheduling_resource_holds h WHERE ${liveHold}))`);
     }
 
-    const rows = await translating(() =>
-      this.sql.query<Row>(
+    let rows: Row[];
+    try {
+      rows = await this.sql.query<Row>(
         `WITH u AS (
            UPDATE scheduling_resources r SET ${sets.join(', ')}
             WHERE r.organisation_id = $1 AND r.id = $2 AND r.updated_at = $3::timestamptz ${guards.map(g => `AND ${g}`).join(' ')}
            RETURNING r.*)
          SELECT ${RESOURCE_COLUMNS} FROM u r`,
         params,
-      ),
-    );
+      );
+    } catch (err) {
+      // 030_resource_concurrency.sql: a booking or a link committed while this statement ran, which its own guards could not see.
+      if (sqlstateOf(err) === SCHEDULING_SQLSTATE.resourceInUse) return { ok: false, reason: 'resource_in_use', detail: 'a reservation or a link was created for this resource at the same moment' };
+      throw mapPgError(err) ?? err;
+    }
     if (rows[0]) return { ok: true, value: toResource(rows[0]) };
 
     const why = await this.sql.query<Row>(
@@ -635,13 +640,20 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
     const liveForThisOffering = `h.organisation_id = l.organisation_id AND h.resource_id = l.resource_id AND h.released_at IS NULL AND upper(h.during) > now()
       AND (EXISTS (SELECT 1 FROM scheduling_reservations v WHERE v.organisation_id = h.organisation_id AND v.id = h.reservation_id AND v.offering_id = l.offering_id)
         OR EXISTS (SELECT 1 FROM scheduling_occurrences o WHERE o.organisation_id = h.organisation_id AND o.id = h.occurrence_id AND o.offering_id = l.offering_id))`;
-    const deleted = await this.sql.query<Row>(
+    let deleted: Row[];
+    try {
+      deleted = await this.sql.query<Row>(
       `DELETE FROM scheduling_offering_resources l
         WHERE l.organisation_id = $1 AND l.offering_id = $2 AND l.resource_id = $3
           AND NOT EXISTS (SELECT 1 FROM scheduling_resource_holds h WHERE ${liveForThisOffering})
        RETURNING 1 AS gone`,
       [tenant.organisationId, offeringId, resourceId],
-    );
+      );
+    } catch (err) {
+      // 030_resource_concurrency.sql: a reservation holding this resource committed while the delete ran.
+      if (sqlstateOf(err) === SCHEDULING_SQLSTATE.allocationInUse) return { ok: false, reason: 'allocation_in_use', detail: 'a live reservation holds this resource for this offering' };
+      throw mapPgError(err) ?? err;
+    }
     if (deleted.length > 0) return { ok: true, value: { removed: true } };
 
     const why = await this.sql.query<Row>(

@@ -54,6 +54,8 @@ check $? "001_preflight.sql ran without error"
 step "2. shared migration, applied twice"
 psql_c < "$SQL_DIR/010_shared_schema.sql" >/dev/null; check $? "010 first apply"
 psql_c < "$SQL_DIR/010_shared_schema.sql" >/dev/null; check $? "010 second apply (idempotent)"
+psql_c < "$SQL_DIR/030_resource_concurrency.sql" >/dev/null; check $? "030 first apply (resource concurrency)"
+psql_c < "$SQL_DIR/030_resource_concurrency.sql" >/dev/null; check $? "030 second apply (idempotent)"
 
 step "3. verification"
 OUT="$(docker exec -i "$NAME" psql -U postgres -At -F'|' < "$SQL_DIR/020_verify.sql" 2>&1)"
@@ -71,7 +73,7 @@ psql_c < "$HOST_DIR/190_brainbase_host_rollback.sql" >/dev/null; check $? "190 r
 
 step "5. suites (real Postgres, one file at a time)"
 cd "$REPO_ROOT" || exit 2
-for f in contract exclusive appointments concurrency contention configEditing schema repositories; do
+for f in contract exclusive appointments concurrency contention configEditing resourceConcurrency schema repositories; do
   echo "   -- $f"
   RC=1
   # A vitest worker that DIES (no test result at all) is retried, up to 5 attempts: on a Windows host with
@@ -91,6 +93,12 @@ for f in contract exclusive appointments concurrency contention configEditing sc
   done
   check "$RC" "$f suite"
 done
+
+step "5b. 030 rollback (091) on a database that holds data, then re-apply"
+psql_c < "$SQL_DIR/091_resource_concurrency_rollback.sql" >/dev/null; check $? "091 rollback (no data touched)"
+[ "$(docker exec "$NAME" psql -U postgres -Atc "select count(*) from pg_trigger where tgname in ('scheduling_resources_guard','scheduling_holds_resource_state','scheduling_offering_resources_guard','scheduling_offering_resources_release_guard')")" = "0" ]; check $? "091 removed all 4 triggers"
+psql_c < "$SQL_DIR/091_resource_concurrency_rollback.sql" >/dev/null; check $? "091 second run (idempotent)"
+psql_c < "$SQL_DIR/030_resource_concurrency.sql" >/dev/null; check $? "030 re-apply after 091"
 
 step "6. rollback of the shared migration, then clean re-apply"
 # The suites leave rows behind. First show the data guard REFUSES, then clear the test data and roll back.

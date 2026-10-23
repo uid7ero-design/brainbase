@@ -85,9 +85,10 @@ describe.skipIf(!hasDatabase)('appointments: a concrete resource for every confi
     it('never creates a resource and never uses an unlinked, inactive or wrong-kind one', async () => {
       await seedResource(ORG, 'dr-unlinked', 'practitioner'); // exists, linked only to a different offering
       await link(ORG, w.cls.offering, 'dr-unlinked');
-      await seedResource(ORG, 'dr-inactive', 'practitioner', { active: false });
+      await seedResource(ORG, 'dr-inactive', 'practitioner'); // linked while active, deactivated afterwards (030 refuses to LINK an inactive one)
       await link(ORG, w.appt.offering, 'dr-inactive');
-      await link(ORG, w.appt.offering, 'court-1'); // linked but not a kind appointments accept
+      await getPool().query("UPDATE scheduling_resources SET active = false WHERE organisation_id = $1 AND id = 'dr-inactive'", [ORG]);
+      await expect(link(ORG, w.appt.offering, 'court-1')).rejects.toMatchObject({ code: 'SCKND' }); // a kind appointments do not accept can no longer be linked at all
       const before = await resourceCount();
       const used = new Set<string>();
       for (let i = 0; i < 3; i++) used.add(ok(await w.repo.createAssigned(w.staff, appointmentBooking(null, DATE, '12:00', 30, w.appt))).reservation.resourceId as string);
