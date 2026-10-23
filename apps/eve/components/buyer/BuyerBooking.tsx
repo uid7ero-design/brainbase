@@ -60,7 +60,16 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
     return inventory.find(p => p.ticket_type_id === typeId && p.event_session_id === sessionId)?.remaining ?? fallback;
   }
 
-  const lines = types.filter(t => (qty[t.id] ?? 0) > 0).map(t => ({ type: t, quantity: qty[t.id] }));
+  // Paid checkout is offered only when the server says so for this
+  // organisation; missing or anything but true means it is not. Paid types
+  // stay listed with their price but cannot be selected, so the paid flow
+  // (details, terms, "Continue to payment") never starts. Free types are
+  // unaffected. The checkout API enforces the same gate regardless.
+  const paidOpen = detail.paid_checkout_available === true;
+  const offered = (t: { price_cents: number }) => paidOpen || t.price_cents <= 0;
+  const anyOffered = types.some(offered);
+
+  const lines = types.filter(t => offered(t) && (qty[t.id] ?? 0) > 0).map(t => ({ type: t, quantity: qty[t.id] }));
   const totalTickets = lines.reduce((n, l) => n + l.quantity, 0);
   const grossCents = lines.reduce((n, l) => n + l.type.price_cents * l.quantity, 0);
   const anyPaid = lines.some(l => l.type.price_cents > 0);
@@ -97,6 +106,7 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    if (!anyOffered) return;
     if (!sessionId && sessions.length > 0) { setError('Choose a session.'); return; }
     if (totalTickets === 0) { setError('Select at least one ticket.'); return; }
     if (anyPaid && !accepted) { setError('Please agree to the Terms and the Refunds & cancellations policy to continue.'); return; }
@@ -171,8 +181,8 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
             const others = totalTickets - (qty[t.id] ?? 0);
             const sessionCap = selectedSession ? selectedSession.remaining - others : Number.POSITIVE_INFINITY;
             const max = Math.max(0, Math.min(remaining, MAX_ORDER_TICKETS - others, sessionCap));
-            const state = locked ? 'Access code required' : !onSale ? (t.sale_status === 'COMING_SOON' ? `On sale ${formatDateTime(t.sale_starts_at, detail.event.timezone)}` : 'Sales ended') : remaining <= 0 ? 'Sold out' : `${remaining} remaining`;
-            const disabled = locked || !onSale || max <= 0;
+            const state = !offered(t) ? 'Not currently on sale' : locked ? 'Access code required' : !onSale ? (t.sale_status === 'COMING_SOON' ? `On sale ${formatDateTime(t.sale_starts_at, detail.event.timezone)}` : 'Sales ended') : remaining <= 0 ? 'Sold out' : `${remaining} remaining`;
+            const disabled = !offered(t) || locked || !onSale || max <= 0;
             return (
               <li key={t.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
                 <div>
@@ -191,9 +201,9 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
         </ul>
       </fieldset>
 
-      {types.some(t => t.requires_access_code) || detail.has_promotions ? (
+      {types.some(t => offered(t) && t.requires_access_code) || (anyOffered && detail.has_promotions) ? (
         <div className="grid gap-4 sm:grid-cols-2">
-          {types.some(t => t.requires_access_code) ? (
+          {types.some(t => offered(t) && t.requires_access_code) ? (
             <div>
               <label htmlFor="access" className={label}>Access code</label>
               <div className="flex gap-2">
@@ -203,7 +213,7 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
               {quote?.access_error ? <p role="alert" className="mt-1 text-sm text-red-700">{quote.access_error}</p> : null}
             </div>
           ) : null}
-          {detail.has_promotions ? (
+          {anyOffered && detail.has_promotions ? (
             <div>
               <label htmlFor="promo" className={label}>Promotional code</label>
               <div className="flex gap-2">
@@ -279,9 +289,15 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
       ) : null}
 
       {error ? <p role="alert" className="text-sm font-medium text-red-700">{error}</p> : null}
-      <button type="submit" disabled={busy || totalTickets === 0} className="min-h-12 w-full rounded-full bg-eve-ink px-6 text-sm font-semibold text-white disabled:opacity-50">
-        {busy ? 'Please wait…' : anyPaid ? 'Continue to payment' : 'Complete registration'}
-      </button>
+      {anyOffered ? (
+        <button type="submit" disabled={busy || totalTickets === 0} className="min-h-12 w-full rounded-full bg-eve-ink px-6 text-sm font-semibold text-white disabled:opacity-50">
+          {busy ? 'Please wait…' : anyPaid ? 'Continue to payment' : 'Complete registration'}
+        </button>
+      ) : (
+        <p role="status" data-testid="not-on-sale" className="rounded-lg bg-eve-surface-alt p-4 text-center text-sm font-medium text-eve-ink">
+          Tickets are not currently on sale.
+        </p>
+      )}
     </form>
   );
 }
