@@ -1,7 +1,7 @@
 # Copies of Production data — inventory, cleanup plan and operating standard
 
-**Status:** Operating direction approved 2026-10-24. Group A was partly deleted on
-2026-10-24; two items are held on a Vercel dependency (see the cleanup log). Group B awaits
+**Status:** Operating direction approved 2026-10-24. Group A was fully deleted on
+2026-10-24 (see the cleanup log). Group B awaits
 owner decisions; silence is not approval. The standard is **not** enforced automatically
 across other workstreams without owner review. This must be in place, to the extent needed
 to make the Privacy Policy's backup statement true, **before** the Eve registration-questions
@@ -27,12 +27,12 @@ PR states read from GitHub on 2026-10-24.
 
 | # | Name / id | Type | Created | Owner / workstream | Personal data | Still needed | Proposed delete | Protected | Group |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | preview/feat/eve-launch-compliance · br-rough-mode-a7kh690l | Preview | 2026-10-21 | Eve | yes | no — PR #455 merged 2026-10-21 | **HELD** — Vercel dependency (see log) | no | **A** |
-| 2 | preview/feat/hr7e7b-employee-acknowledgement-ui · br-solitary-mud-a7q1iq74 (archived) | Preview | 2026-10-05 | HR | yes | no — PR #331 closed 2026-10-06 | **HELD** — Vercel dependency (see log) | no | **A** |
+| 1 | preview/feat/eve-launch-compliance · br-rough-mode-a7kh690l | Preview | 2026-10-21 | Eve | yes | no — PR #455 merged 2026-10-21 | **DELETED 2026-10-24** | no | **A** |
+| 2 | preview/feat/hr7e7b-employee-acknowledgement-ui · br-solitary-mud-a7q1iq74 (archived) | Preview | 2026-10-05 | HR | yes | no — PR #331 closed 2026-10-06 | **DELETED 2026-10-24** | no | **A** |
 | 3 | temp/eve-phase3-1-product-surface-proof · br-solitary-king-a79pas6t | proof | 2026-10-17 | Eve | yes | no — proof reported, work merged | **DELETED 2026-10-24** | no | **A** |
 | 4 | snap-odd-math-a7unns1t · c1-pre-production-migration-2026-09-04 | snapshot | 2026-09-04 | Commercial (C1) | yes | no — C1 migration verified long ago | **DELETED 2026-10-24** | n/a | **A** |
-| 5 | preview/fix/scheduling-reservation-integrity · br-withered-snow-a7xze8gz | Preview | 2026-10-23 | Scheduling | yes | no — PR #484 **merged** 2026-10-23 | owner — now | no | **B** |
-| 6 | preview/feat/scheduling-phase2b2c-dashboard · br-morning-tree-a7gshdt2 | Preview | 2026-10-23 | Scheduling | yes | while PR #485 open | PR close, max 2026-11-06 | no | **B** |
+| 5 | preview/fix/scheduling-reservation-integrity · br-withered-snow-a7xze8gz | Preview | 2026-10-23 | Scheduling | yes | — | **gone** — absent from the 2026-10-24 re-list; removed outside this cleanup | no | **B** |
+| 6 | preview/feat/scheduling-phase2b2c-dashboard · br-morning-tree-a7gshdt2 | Preview | 2026-10-23 | Scheduling | yes | — | **gone** — absent from the 2026-10-24 re-list; removed outside this cleanup | no | **B** |
 | 7 | preview/docs/scheduling-phase2b2-plan · br-still-mountain-a7p5p3qp | Preview | 2026-10-23 | Scheduling | yes | while PR #477 (draft) open | PR close, max 2026-11-06 | no | **B** |
 | 8 | preview/docs/datahub-pilot-v2-mapping-proposal · br-royal-king-a75w342t | Preview | 2026-10-23 | Data Hub | yes | while PR #480 open | PR close, max 2026-11-06 | no | **B** |
 | 9 | preview/fix/crm-contact-duplicate-prevention · br-nameless-queen-a7h1dx3f | Preview | 2026-10-22 | CRM | yes | while PR #472 (draft) open | PR close, max 2026-11-05 | no | **B** |
@@ -53,6 +53,14 @@ PR states read from GitHub on 2026-10-24.
 | 24 | migration-backup/scheduling-2a-pre-20261022 · br-quiet-river-a722xo9q | migration backup | 2026-10-22 | Scheduling | yes | yes — rollback point | unprotect + delete 30 days after 2A verified (≈2026-11-21) | **yes** | **D** |
 | 25 | migration-backup/scheduling-2b0-pre-20261023 · br-muddy-bread-a7wkhazl | migration backup | 2026-10-23 | Scheduling | yes | yes — rollback point | unprotect + delete 30 days after 2B.0 verified (≈2026-11-22) | **yes** | **D** |
 | 26 | vercel-dev · br-delicate-wind-a7ja54b8 (archived) | dev | 2026-09-04 | Platform (Vercel Development env) | yes | **investigate** — check whether the Vercel Development environment's DATABASE_URL still points here before deleting | after investigation | no | **D** |
+
+Created after the 2026-10-24 inventory and not yet grouped (Scheduling — owner to classify):
+
+| # | Name / id | Type | Created | Parent | Note |
+|---|---|---|---|---|---|
+| 27 | preview/fix/scheduling-schedule-archive-race · br-sweet-waterfall-a7sgevio | Preview | 2026-10-23 | production | branch-scoped Vercel DATABASE_URL present |
+| 28 | rehearse/scheduling-030-031-20261024 · br-quiet-river-a7m9vn0v | rehearsal | 2026-10-23 | production | has child #29 |
+| 29 | rehearse/scheduling-030-031-rollback-copy-20261024 · br-bitter-recipe-a76cfqh7 | rehearsal | 2026-10-23 | **#28** (not production) | delete before #28 |
 
 Not a copy: `production` itself (kept).
 
@@ -81,29 +89,54 @@ Pre-delete checks for each item:
 |---|---|---|---|---|---|
 | br-solitary-king-a79pas6t · temp/eve-phase3-1-product-surface-proof | Eve 3.1 product_surface proof | 2026-10-17 | merged (7c5cbf3c on main) | none | **deleted** |
 | snap-odd-math-a7unns1t · c1-pre-production-migration-2026-09-04 | C1 pre-migration rollback point | 2026-09-04 | C1 verified | n/a (snapshot) | **deleted** |
-| br-rough-mode-a7kh690l · preview/feat/eve-launch-compliance | PR #455 Preview DB | 2026-10-21 | PR merged 2026-10-21 | `DATABASE_URL` + `DATABASE_URL_UNPOOLED` scoped Preview (feat/eve-launch-compliance), `brainbase`; git branch still on origin | **held** |
-| br-solitary-mud-a7q1iq74 · preview/feat/hr7e7b-employee-acknowledgement-ui | PR #331 Preview DB | 2026-10-05 | PR closed unmerged 2026-10-06 | `DATABASE_URL` + `DATABASE_URL_UNPOOLED` scoped Preview (feat/hr7e7b-employee-acknowledgement-ui), `brainbase`; git branch still on origin | **held** |
+| br-rough-mode-a7kh690l · preview/feat/eve-launch-compliance | PR #455 Preview DB | 2026-10-21 | PR merged 2026-10-21; later commits on the branch are all on main (#468) | removed first (below) | **deleted 2026-10-23T23:58Z** |
+| br-solitary-mud-a7q1iq74 · preview/feat/hr7e7b-employee-acknowledgement-ui | PR #331 Preview DB | 2026-10-05 | PR closed unmerged 2026-10-06 | removed first (below) | **deleted 2026-10-23T23:58Z** |
 
-Why the two are held:
-- The Neon integration normally removes these branch-scoped vars when a PR closes. For these two it did not; for #484 it did.
-- A push to either git branch would deploy against a deleted database.
-- To unblock (needs approval):
-  1. remove the two branch-scoped env vars, or delete the stale git branches;
-  2. re-check;
-  3. delete the Neon branches.
+The two Preview branches were first held because the Neon integration had not removed their branch-scoped Vercel vars on PR close.
+
+Approved the same day, these were removed:
+- Command: `vercel env rm <key> preview <branch>`, run 2026-10-23T23:56:49Z–23:56:58Z.
+- Project: `brainbase` only.
+- Entries: all integration-managed, `icfg_GE0tnru22Wz5NmKlUcJgFa87`.
+
+| Env entry id | Key | Scope |
+|---|---|---|
+| b3tYQ1a0QEZ9qt4v | DATABASE_URL | Preview · feat/eve-launch-compliance |
+| Z4HiIGYTDuoIygbX | DATABASE_URL_UNPOOLED | Preview · feat/eve-launch-compliance |
+| sbhmzrZuu6JHrcC1 | DATABASE_URL | Preview · feat/hr7e7b-employee-acknowledgement-ui |
+| ns3cJjPDpSnIfwXj | DATABASE_URL_UNPOOLED | Preview · feat/hr7e7b-employee-acknowledgement-ui |
+
+Checks after the env removal, before deleting:
+- Neither branch has a DB var left.
+- Production, Development and all other Preview DB vars are unchanged.
+- No deployment was created by the env change.
+- Neither Neon branch has a child.
+
+Not changed:
+- non-DB vars still scoped to feat/eve-launch-compliance in `brainbase` and `eve`;
+- the git branches.
+
+The old feat/eve-launch-compliance Preview deployments (last built 2026-10-22) lost their database. They are superseded previews of a merged PR, not aliased to production.
 
 Post-delete verification:
 - `production` is present and still restricted from deletion.
 - Read-only baseline equals 2026-10-23: 6 events, 41 orders, 6 questions, 14 responses; answers_md5 `2aeccf4f8c51a8afdcba1d77d88d6d3c`; questions_md5 `460bea39ba500c494b2a8e3e47a96759`.
 - 20 non-production branches and 2 snapshots remain. Every other item is unchanged.
 - `br-dry-hat-a776i1ru` (#17) was already absent, and was not deleted by this cleanup.
+- Re-checked 2026-10-23T23:58Z after the last two deletions:
+  - same baseline and checksums;
+  - `production` present;
+  - 20 non-production branches + 2 snapshots remain;
+  - Groups C/D and the PR #483 Preview are untouched.
+- #5 and #6 had also disappeared, removed outside this cleanup. #27–#29 are new.
+- Also found: an orphan `DATABASE_URL_UNPOOLED` scoped Preview (test/c73c74-smoke-202609231055), 31 days old, with no matching Neon branch. Left unchanged.
 
 ### Group B — owner actions (2026-10-24; nothing deleted)
 
 | # | Branch | Owner | PR | Age | Vercel Preview DATABASE_URL | Documented purpose | Recommended action |
 |---|---|---|---|---|---|---|---|
-| 5 | br-withered-snow-a7xze8gz | Scheduling | #484 merged 10-23 | 1 d | none (removed on merge) | none | **delete** |
-| 6 | br-morning-tree-a7gshdt2 | Scheduling | #485 open | 1 d | yes | PR Preview | retain until PR close, max 2026-11-06 |
+| 5 | br-withered-snow-a7xze8gz | Scheduling | #484 merged 10-23 | — | none | — | already gone (no action) |
+| 6 | br-morning-tree-a7gshdt2 | Scheduling | #485 | — | none | — | already gone (no action) |
 | 7 | br-still-mountain-a7p5p3qp | Scheduling | #477 open draft | 1 d | yes | PR Preview | retain until PR close, max 2026-11-06 |
 | 8 | br-royal-king-a75w342t | Data Hub | #480 open | 1 d | yes | PR Preview | retain until PR close, max 2026-11-06 |
 | 9 | br-nameless-queen-a7h1dx3f | CRM | #472 open draft | 2 d | yes | PR Preview | retain until PR close, max 2026-11-05 |
