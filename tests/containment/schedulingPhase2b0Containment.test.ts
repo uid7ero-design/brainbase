@@ -138,12 +138,13 @@ describe('the TypeScript modules are staged, not wired', () => {
   it('there is still no scheduling page, cron or navigation entry, and the only scheduling routes are the two 2B.1 foundation routes', () => {
     // Deliberately updated in Phase 2B.1: app/api/scheduling now exists, but holds exactly the status and audit routes
     // (tests/containment/schedulingPhase2b1Containment.test.ts pins the guard on each). Any other route fails here.
-    for (const p of ['app/api/cron/scheduling-top-up', 'app/dashboard/scheduling', 'app/scheduling', 'app/book']) expect(existsSync(path.join(ROOT, p)), p).toBe(false);
+    for (const p of ['app/api/cron/scheduling-top-up', 'app/dashboard/scheduling', 'app/book']) expect(existsSync(path.join(ROOT, p)), p).toBe(false);
     const routes = walk(path.join(ROOT, 'app/api/scheduling'), /^route.ts$/).map(rel).sort();
     // Phase 2B.2b (deliberate, reviewed change): the configuration API routes are pinned one by one in schedulingPhase2b2bContainment.test.ts.
     expect(routes).toEqual(expect.arrayContaining(['app/api/scheduling/audit/route.ts', 'app/api/scheduling/status/route.ts']));
     expect(routes.every(r => r.startsWith('app/api/scheduling/'))).toBe(true);
-    expect(read('components/nav/navModel.ts')).not.toMatch(/scheduling/i);
+    // Phase 2B.2c (deliberate, reviewed change): one capability-gated navigation entry exists; schedulingPhase2b2cContainment.test.ts pins it.
+    expect((read('components/nav/navModel.ts').match(/scheduling/gi) ?? []).length).toBeGreaterThan(0);
     expect(read('vercel.json')).not.toMatch(/scheduling/i);
   });
 
@@ -159,7 +160,8 @@ describe('the TypeScript modules are staged, not wired', () => {
     const fn = sources.filter(f => /find_or_create_contact/.test(readFileSync(f, 'utf8'))).map(rel);
     expect(fn).toEqual(['lib/scheduling/crmLink.ts']);
     const cap = sources.filter(f => !rel(f).startsWith('lib/scheduling/adapters/')).filter(f => /SCHEDULING_CAPABILITY_KEY/.test(readFileSync(f, 'utf8'))).map(rel);
-    expect(cap).toEqual(['lib/scheduling/access.ts']);
+    // Phase 2B.2c (deliberate, reviewed change): the dashboard's page gate (lib/scheduling/pageAccess.ts) reads the key too, for UX only.
+    expect(cap).toEqual(['lib/scheduling/access.ts', 'lib/scheduling/pageAccess.ts']);
   });
 
   it('the access gate takes no organisation parameter and reads only the session organisation', () => {
