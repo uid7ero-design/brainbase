@@ -24,11 +24,57 @@ export type QuestionRow = {
   options: string[] | null;
   sort_order: number;
   active: boolean;
-  // Eve (ADR 0013 §4): answers may reveal sensitive information (health/
-  // accessibility, a third party's details). On Eve, answering one needs
-  // the buyer's explicit acknowledgement — see checkEveAnswerPolicy.
-  sensitive: boolean;
+  // ADR 0013 §4b — what kind of information the answers are; drives the
+  // buyer notice, explicit agreement, staff labels and retention.
+  data_category: DataCategory;
+  // Built-in template the question came from (fixes a protected category).
+  template_key: TemplateKey | null;
 };
+
+// ── Data categories and built-in templates (ADR 0013 §4b) ─────────────
+//
+// STANDARD     ordinary personal information (e.g. how did you hear).
+// SENSITIVE    may reveal health, disability or similar (e.g. accessibility,
+//              dietary needs, which can reveal health or religious belief).
+// THIRD_PARTY  another person's details (e.g. an emergency contact).
+// CONSENT      evidence of a choice the buyer made (e.g. photo consent).
+//
+// On Eve, answering a SENSITIVE or THIRD_PARTY question needs the buyer's
+// explicit agreement (AGREEMENT_CATEGORIES). Retention timers per category
+// live in lib/events/answerRetention.ts.
+export const DATA_CATEGORIES = ['STANDARD', 'SENSITIVE', 'THIRD_PARTY', 'CONSENT'] as const;
+export type DataCategory = typeof DATA_CATEGORIES[number];
+export const AGREEMENT_CATEGORIES: readonly DataCategory[] = ['SENSITIVE', 'THIRD_PARTY'];
+// A templated question in one of these categories keeps it: the organiser
+// cannot lower the protection a built-in question was designed with.
+const PROTECTED_CATEGORIES: readonly DataCategory[] = ['SENSITIVE', 'THIRD_PARTY', 'CONSENT'];
+
+export function isDataCategory(v: unknown): v is DataCategory {
+  return typeof v === 'string' && (DATA_CATEGORIES as readonly string[]).includes(v);
+}
+
+export const QUESTION_TEMPLATES = {
+  DIETARY: { label: 'Dietary requirements', field_type: 'LONG_TEXT', scope: 'ATTENDEE', data_category: 'SENSITIVE', options: null },
+  ACCESSIBILITY: { label: 'Accessibility or support requirements', field_type: 'LONG_TEXT', scope: 'ATTENDEE', data_category: 'SENSITIVE', options: null },
+  SPECIAL_REQUESTS: { label: 'Special requests or anything else we should know?', field_type: 'LONG_TEXT', scope: 'ORDER', data_category: 'STANDARD', options: null },
+  EMERGENCY_CONTACT_NAME: { label: 'Emergency contact name', field_type: 'SHORT_TEXT', scope: 'ORDER', data_category: 'THIRD_PARTY', options: null },
+  EMERGENCY_CONTACT_PHONE: { label: 'Emergency contact phone number', field_type: 'SHORT_TEXT', scope: 'ORDER', data_category: 'THIRD_PARTY', options: null },
+  PHOTO_CONSENT: { label: 'Consent to event photography/videography', field_type: 'YES_NO', scope: 'ATTENDEE', data_category: 'CONSENT', options: null },
+  HOW_DID_YOU_HEAR: { label: 'How did you hear about this event?', field_type: 'SINGLE_SELECT', scope: 'ORDER', data_category: 'STANDARD', options: ['Social media', 'Friend or family', 'Search engine', 'Poster or flyer', 'Radio', 'Other'] },
+} as const satisfies Record<string, { label: string; field_type: FieldType; scope: QuestionScope; data_category: DataCategory; options: readonly string[] | null }>;
+export type TemplateKey = keyof typeof QUESTION_TEMPLATES;
+
+export function isTemplateKey(v: unknown): v is TemplateKey {
+  return typeof v === 'string' && Object.prototype.hasOwnProperty.call(QUESTION_TEMPLATES, v);
+}
+
+// The category a templated question must keep, or null when the organiser
+// may choose (no template, or a STANDARD template that may be raised).
+export function lockedCategoryFor(templateKey: string | null | undefined): DataCategory | null {
+  if (!isTemplateKey(templateKey)) return null;
+  const c = QUESTION_TEMPLATES[templateKey].data_category;
+  return PROTECTED_CATEGORIES.includes(c) ? c : null;
+}
 
 // ── Manager CRUD (§4) ─────────────────────────────────────────────────
 // Every function below is tenant-scoped by (organisationId, eventId)
@@ -39,7 +85,7 @@ export type QuestionRow = {
 
 export async function listAllQuestions(organisationId: string, eventId: string): Promise<QuestionRow[]> {
   const rows = await sql`
-    SELECT id, label, help_text, field_type, required, scope, options, sort_order, active, sensitive
+    SELECT id, label, help_text, field_type, required, scope, options, sort_order, active, data_category, template_key
     FROM event_registration_questions
     WHERE organisation_id = ${organisationId} AND event_id = ${eventId}
     ORDER BY scope, sort_order, created_at
@@ -56,7 +102,7 @@ export async function listAllQuestions(organisationId: string, eventId: string):
 // this list).
 export async function listActiveQuestions(organisationId: string, eventId: string): Promise<QuestionRow[]> {
   const rows = await sql`
-    SELECT id, label, help_text, field_type, required, scope, options, sort_order, active, sensitive
+    SELECT id, label, help_text, field_type, required, scope, options, sort_order, active, data_category, template_key
     FROM event_registration_questions
     WHERE organisation_id = ${organisationId} AND event_id = ${eventId} AND active = true
     ORDER BY scope, sort_order, created_at
@@ -72,7 +118,8 @@ export type QuestionInput = {
   scope: QuestionScope;
   options: string[] | null;
   sort_order: number;
-  sensitive: boolean;
+  data_category: DataCategory;
+  template_key: TemplateKey | null;
 };
 
 // Returns a human-readable error string on failure, or null if the
@@ -81,7 +128,7 @@ export type QuestionInput = {
 // lib/events/publicValidation.ts already established.
 export function validateQuestionInput(body: {
   label?: unknown; help_text?: unknown; field_type?: unknown; required?: unknown;
-  scope?: unknown; options?: unknown; sort_order?: unknown; sensitive?: unknown;
+  scope?: unknown; options?: unknown; sort_order?: unknown; data_category?: unknown; template_key?: unknown;
 }): string | QuestionInput {
   if (typeof body.label !== 'string' || !body.label.trim() || body.label.length > MAX_LABEL_LENGTH) {
     return `Label is required and must be ${MAX_LABEL_LENGTH} characters or fewer.`;
@@ -99,8 +146,21 @@ export function validateQuestionInput(body: {
     return `scope must be one of: ${QUESTION_SCOPES.join(', ')}.`;
   }
   const required = body.required === true;
-  if (body.sensitive !== undefined && typeof body.sensitive !== 'boolean') return 'sensitive must be a boolean.';
-  const sensitive = body.sensitive === true;
+  let templateKey: TemplateKey | null = null;
+  if (body.template_key !== undefined && body.template_key !== null) {
+    if (!isTemplateKey(body.template_key)) return 'Unknown question template.';
+    templateKey = body.template_key;
+  }
+  if (body.data_category !== undefined && !isDataCategory(body.data_category)) {
+    return `data_category must be one of: ${DATA_CATEGORIES.join(', ')}.`;
+  }
+  const locked = lockedCategoryFor(templateKey);
+  let dataCategory: DataCategory = isDataCategory(body.data_category) ? body.data_category
+    : templateKey ? QUESTION_TEMPLATES[templateKey].data_category : 'STANDARD';
+  if (locked && dataCategory !== locked) {
+    return `This built-in question is always ${locked.replace('_', ' ').toLowerCase()} information; its category cannot be changed. Add your own question instead.`;
+  }
+  if (locked) dataCategory = locked;
   const sortOrder = Number.isInteger(body.sort_order) ? (body.sort_order as number) : 0;
 
   let options: string[] | null = null;
@@ -134,7 +194,8 @@ export function validateQuestionInput(body: {
     scope: body.scope as QuestionScope,
     options,
     sort_order: sortOrder,
-    sensitive,
+    data_category: dataCategory,
+    template_key: templateKey,
   };
 }
 
@@ -277,9 +338,9 @@ export function validateSubmittedResponses(
 //     accepts no answers at all through Eve, even to optional questions a
 //     tampered client might submit — its questions were never shown on Eve
 //     or covered by Eve's notices;
-//   - an answer to a question marked sensitive needs the buyer's explicit
-//     acknowledgement (sensitive_consent === true, never defaulted). An
-//     unanswered optional sensitive question needs nothing.
+//   - an answer to a SENSITIVE or THIRD_PARTY question needs the buyer's
+//     explicit agreement (sensitive_consent === true, never defaulted). An
+//     unanswered optional question needs nothing.
 // Returns an error message, or null when the submission may proceed. The
 // BrainBase surface is unaffected (its form has no such control).
 export function checkEveAnswerPolicy(
@@ -291,9 +352,10 @@ export function checkEveAnswerPolicy(
   if (!opts.eveQuestionsEnabled) {
     return anySubmitted ? 'This event is not collecting registration answers here.' : null;
   }
-  const answeredSensitive = [...validated.orderAnswers, ...validated.attendeeAnswers.flat()].some(a => a.question.sensitive);
-  if (answeredSensitive && !opts.sensitiveConsent) {
-    return 'Please confirm you agree to the organiser collecting the information marked as sensitive.';
+  const needsAgreement = [...validated.orderAnswers, ...validated.attendeeAnswers.flat()]
+    .some(a => AGREEMENT_CATEGORIES.includes(a.question.data_category));
+  if (needsAgreement && !opts.sensitiveConsent) {
+    return 'Please confirm you agree to the organiser collecting the health, accessibility or contact details you have given.';
   }
   return null;
 }
@@ -301,8 +363,8 @@ export function checkEveAnswerPolicy(
 // The single place the services ask "what does this product surface require
 // of these answers?" — so the shared free/paid services stay product-neutral
 // (they pass the surface through; they never branch on it themselves).
-// Returns the refusal message, or the consent timestamp to store on
-// sensitive rows (null when there is none to record).
+// Returns the refusal message, or the agreement timestamp to store on
+// SENSITIVE/THIRD_PARTY rows (null when there is none to record).
 export function applySurfaceAnswerPolicy(params: {
   productSurface: string;
   eveQuestionsEnabled: boolean | undefined;
@@ -330,16 +392,19 @@ export function applySurfaceAnswerPolicy(params: {
 // own flattening logic.
 
 // helpTexts uses '' for "no help text" (NULLIF'd back to NULL on insert);
-// sensitives are 'true'/'false' text (cast ::boolean on insert) — the same
-// text-array UNNEST discipline as every other column here.
+// categories is the question's data_category at answer time (snapshotted
+// into data_category_snapshot) — the same text-array UNNEST discipline as
+// every other column here.
 export type FlattenedOrderResponses = {
   questionIds: string[];
   labels: string[];
   fieldTypes: string[];
   helpTexts: string[];
-  sensitives: string[];
+  categories: string[];
   answersJson: string[];
 };
+
+const categoryOf = (q: QuestionRow): DataCategory => (isDataCategory(q.data_category) ? q.data_category : 'STANDARD');
 
 export function flattenOrderAnswers(orderAnswers: ValidatedAnswer[]): FlattenedOrderResponses {
   return {
@@ -347,7 +412,7 @@ export function flattenOrderAnswers(orderAnswers: ValidatedAnswer[]): FlattenedO
     labels: orderAnswers.map(a => a.question.label),
     fieldTypes: orderAnswers.map(a => a.question.field_type),
     helpTexts: orderAnswers.map(a => a.question.help_text ?? ''),
-    sensitives: orderAnswers.map(a => String(a.question.sensitive === true)),
+    categories: orderAnswers.map(a => categoryOf(a.question)),
     answersJson: orderAnswers.map(a => JSON.stringify(a.answer)),
   };
 }
@@ -363,7 +428,7 @@ export type FlattenedAttendeeResponses = {
   labels: string[];
   fieldTypes: string[];
   helpTexts: string[];
-  sensitives: string[];
+  categories: string[];
   answersJson: string[];
 };
 
@@ -371,7 +436,7 @@ export function flattenAttendeeAnswers(
   attendeeAnswers: ValidatedAnswer[][],
   correlationKeys: string[],
 ): FlattenedAttendeeResponses {
-  const out: FlattenedAttendeeResponses = { correlationKeys: [], questionIds: [], labels: [], fieldTypes: [], helpTexts: [], sensitives: [], answersJson: [] };
+  const out: FlattenedAttendeeResponses = { correlationKeys: [], questionIds: [], labels: [], fieldTypes: [], helpTexts: [], categories: [], answersJson: [] };
   attendeeAnswers.forEach((answersForAttendee, idx) => {
     const key = correlationKeys[idx];
     for (const ans of answersForAttendee) {
@@ -380,7 +445,7 @@ export function flattenAttendeeAnswers(
       out.labels.push(ans.question.label);
       out.fieldTypes.push(ans.question.field_type);
       out.helpTexts.push(ans.question.help_text ?? '');
-      out.sensitives.push(String(ans.question.sensitive === true));
+      out.categories.push(categoryOf(ans.question));
       out.answersJson.push(JSON.stringify(ans.answer));
     }
   });
@@ -416,8 +481,8 @@ export async function writeRegistrationResponses(
   orderId: string,
   attendeeIds: string[],
   responses: ValidatedResponses,
-  // ISO timestamp of the Eve buyer's sensitive-information acknowledgement,
-  // or null. Stored only on rows whose question is sensitive.
+  // ISO timestamp of the Eve buyer's explicit agreement, or null. Stored
+  // only on SENSITIVE / THIRD_PARTY rows.
   sensitiveConsentAt: string | null = null,
 ): Promise<void> {
   const order = flattenOrderAnswers(responses.orderAnswers);
@@ -430,7 +495,7 @@ export async function writeRegistrationResponses(
   const labels = [...order.labels, ...attendee.labels];
   const fieldTypes = [...order.fieldTypes, ...attendee.fieldTypes];
   const helpTexts = [...order.helpTexts, ...attendee.helpTexts];
-  const sensitives = [...order.sensitives, ...attendee.sensitives];
+  const categories = [...order.categories, ...attendee.categories];
   const answersJson = [...order.answersJson, ...attendee.answersJson];
 
   if (!questionIds.length) return;
@@ -438,10 +503,11 @@ export async function writeRegistrationResponses(
   await sql`
     INSERT INTO event_registration_responses
       (organisation_id, event_id, question_id, order_id, attendee_id, question_label_snapshot, field_type_snapshot,
-       question_help_text_snapshot, sensitive_snapshot, sensitive_consent_at, answer)
+       question_help_text_snapshot, data_category_snapshot, sensitive_consent_at, answer)
     SELECT ${organisationId}, ${eventId}, a.question_id, ${orderId}, NULLIF(a.attendee_id, ''), a.label, a.field_type,
-      NULLIF(a.help_text, ''), a.sensitive::boolean, CASE WHEN a.sensitive::boolean THEN ${sensitiveConsentAt}::timestamptz END, a.answer_json::jsonb
-    FROM UNNEST(${questionIds}::text[], ${attendeeIdColumn}::text[], ${labels}::text[], ${fieldTypes}::text[], ${helpTexts}::text[], ${sensitives}::text[], ${answersJson}::text[])
-      AS a(question_id, attendee_id, label, field_type, help_text, sensitive, answer_json)
+      NULLIF(a.help_text, ''), a.category,
+      CASE WHEN a.category IN ('SENSITIVE', 'THIRD_PARTY') THEN ${sensitiveConsentAt}::timestamptz END, a.answer_json::jsonb
+    FROM UNNEST(${questionIds}::text[], ${attendeeIdColumn}::text[], ${labels}::text[], ${fieldTypes}::text[], ${helpTexts}::text[], ${categories}::text[], ${answersJson}::text[])
+      AS a(question_id, attendee_id, label, field_type, help_text, category, answer_json)
   `;
 }

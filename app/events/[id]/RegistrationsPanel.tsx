@@ -99,7 +99,10 @@ export function withAnswerArrays<T>(rows: T[]): T[] {
 function formatAnswerValue(value: unknown): string {
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   if (Array.isArray(value)) return value.join(', ');
-  if (value === null || value === undefined || value === '') return '—';
+  // A stored answer is only ever NULL once the retention policy removed it
+  // (ADR 0013 §4b); the row itself stays as evidence an answer existed.
+  if (value === null) return 'Removed under the retention policy';
+  if (value === undefined || value === '') return '—';
   return String(value);
 }
 

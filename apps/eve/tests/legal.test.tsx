@@ -163,13 +163,24 @@ describe('legal routes', () => {
     expect(all).not.toMatch(/supportResponseTime|privacyContact|retentionPeriods|aim to respond within|business days|within \d+ (business )?(days|hours)(?!\.)(?<!30 days)/i);
   });
 
-  it('retention is principle-based: the exact principle sentence, no promised period (7 years etc.), no implied automatic deletion', () => {
-    const s8 = PRIVACY.sections.find(x => x.heading.startsWith('8.'))!.body.join(' ');
+  it('retention is principle-based except for the approved registration-answer schedule: no other promised period, no other automatic deletion', () => {
+    const body = PRIVACY.sections.find(x => x.heading.startsWith('8.'))!.body;
+    const s8 = body.join(' ');
     expect(s8).toContain('We keep personal information only for as long as reasonably required for the purposes described in this policy, our operational needs, dispute handling and any applicable legal obligations. When it is no longer reasonably required, we may delete or de-identify it.');
-    expect(s8).toMatch(/do not currently delete information automatically/);
+    expect(s8).toMatch(/Apart from registration answers, we do not currently delete information automatically/);
     expect(allText()).not.toMatch(/\b(7|seven) years?\b|financial (and tax )?record-keeping|for 7 years/i);
-    expect(s8).not.toMatch(/\b\d+ (days|weeks|months|years)\b/); // no fixed period is published
-    expect(s8).not.toMatch(/automatically (delete|remove)s?(?! )|are deleted after|is deleted after|we delete .* after \d/i);
+    // ADR 0013 §4b — the ONLY fixed periods are the approved registration-answer schedule (PENDING LEGAL REVIEW).
+    const schedule = body.find(p => p.startsWith('Answers to registration questions are removed on a set schedule'))!;
+    expect(schedule).toBeDefined();
+    for (const period of ['about 7 days after', 'about 30 days after', 'about 3 years after', 'about 12 months after', 'about 7 days after the cancellation']) {
+      expect(schedule, period).toContain(period);
+    }
+    expect(schedule).toMatch(/complaint, incident, dispute or legal obligation/);
+    expect(schedule).toMatch(/booking, payment and ticket records are not affected/);
+    expect(s8).toContain('Deleted information may remain in our controlled backups for a limited period before those copies expire.');
+    const rest = body.filter(p => p !== schedule).join(' ');
+    expect(rest).not.toMatch(/\b\d+ (days|weeks|months|years)\b/); // no other fixed period is published
+    expect(rest).not.toMatch(/automatically (delete|remove)s?(?! )|are deleted after|is deleted after|we delete .* after \d/i);
   });
 
   it('private beta: states the limited availability, free-booking position and that the operator may be the Event Organiser', () => {
@@ -250,12 +261,18 @@ describe('legal routes', () => {
     expect(all).not.toMatch(/separate agreement/i);
     expect(all).not.toMatch(/By using Eve you understand/i);
     const priv = PRIVACY.sections.flatMap(s => s.body).join(' ');
-    // Registration questions (ADR 0013 §4a) — wording PENDING LEGAL REVIEW.
+    // Registration questions (ADR 0013 §4a/§4b) — wording PENDING LEGAL REVIEW.
     expect(priv).not.toMatch(/does not currently ask registration questions/);
-    expect(priv).toMatch(/your answers to any registration questions the Event Organiser has chosen to ask for that event/);
-    expect(priv).toMatch(/only the organiser.s team members with a manager role or higher can see them/);
+    expect(priv).toMatch(/your answers to any registration questions the Event Organiser asks for that event/);
+    expect(priv).toMatch(/used to run that event/);
+    // Never "only organiser staff": platform administrators are disclosed.
+    expect(priv).toMatch(/organiser.s team members with a manager or administrator role, and by our own authorised administrators where that is needed for support or legal reasons/);
+    expect(priv).not.toMatch(/only the organiser.s team members/);
     expect(priv).toMatch(/not added to the organiser.s contact records, not included in ticket emails, and not used for marketing/);
-    expect(priv).toMatch(/we ask you to confirm you agree before your answer is submitted, and we record when you did/);
+    expect(priv).toMatch(/may include health or disability information/);
+    expect(priv).toMatch(/we ask you to agree to the Event Organiser collecting it, and we record when you agreed\. Nothing is ticked for you/);
+    expect(priv).toMatch(/make sure they know you are giving their details to the Event Organiser for this event/);
+    expect(PRIVACY.sections.find(s => s.id === 'registration-questions')?.heading).toBe('5. Registration questions and sensitive information');
     expect(priv).not.toMatch(/answers to registration questions that the Event Organiser asks/);
     expect(priv).not.toMatch(/attendee.s name and optional email/); // Eve collects attendee names only
     expect(priv).toMatch(/This means some personal information may be handled outside Australia/);

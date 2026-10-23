@@ -108,9 +108,11 @@ export async function listEventRegistrationRows(organisationId: string, id: stri
               -- every other field here is unchanged from before this
               -- phase.
               'id', r.id, 'question_id', r.question_id, 'label', r.question_label_snapshot, 'field_type', r.field_type_snapshot, 'answer', r.answer,
-              -- Eve (ADR 0013 §4) — the wording/sensitivity as answered, and
-              -- when an Eve buyer acknowledged a sensitive answer.
-              'help_text', r.question_help_text_snapshot, 'sensitive', r.sensitive_snapshot, 'sensitive_consent_at', r.sensitive_consent_at
+              -- ADR 0013 §4b — the wording and category as answered, when an
+              -- Eve buyer gave explicit agreement, and whether retention has
+              -- removed the answer (answer is then NULL).
+              'help_text', r.question_help_text_snapshot, 'data_category', r.data_category_snapshot,
+              'sensitive_consent_at', r.sensitive_consent_at, 'redacted_at', r.redacted_at
             ) ORDER BY r.created_at)
             FROM event_registration_responses r
             WHERE r.attendee_id = ea.id AND r.organisation_id = ea.organisation_id
@@ -122,7 +124,8 @@ export async function listEventRegistrationRows(organisationId: string, id: stri
       COALESCE((
         SELECT json_agg(json_build_object(
           'id', r.id, 'question_id', r.question_id, 'label', r.question_label_snapshot, 'field_type', r.field_type_snapshot, 'answer', r.answer,
-          'help_text', r.question_help_text_snapshot, 'sensitive', r.sensitive_snapshot, 'sensitive_consent_at', r.sensitive_consent_at
+          'help_text', r.question_help_text_snapshot, 'data_category', r.data_category_snapshot,
+          'sensitive_consent_at', r.sensitive_consent_at, 'redacted_at', r.redacted_at
         ) ORDER BY r.created_at)
         FROM event_registration_responses r
         WHERE r.order_id = eo.id AND r.attendee_id IS NULL AND r.organisation_id = eo.organisation_id

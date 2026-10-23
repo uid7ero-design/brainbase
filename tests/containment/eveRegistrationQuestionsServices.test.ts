@@ -37,12 +37,12 @@ const rq = await import('@/lib/events/registrationQuestions')
 
 // Riverlights-style question set (test data only — never added to any real event).
 const Q = {
-  ecName: { id: 'q-ec-name', label: 'Emergency Contact Name', help_text: null, field_type: 'SHORT_TEXT', required: true, scope: 'ORDER', options: null, sort_order: 0, active: true, sensitive: true },
-  ecPhone: { id: 'q-ec-phone', label: 'Emergency Contact Phone Number', help_text: null, field_type: 'SHORT_TEXT', required: true, scope: 'ORDER', options: null, sort_order: 1, active: true, sensitive: true },
-  access: { id: 'q-access', label: 'Accessibility requirements', help_text: 'Tell us anything that helps you attend.', field_type: 'LONG_TEXT', required: false, scope: 'ATTENDEE', options: null, sort_order: 0, active: true, sensitive: true },
-  over18: { id: 'q-18', label: 'Are you over 18 years of age?', help_text: null, field_type: 'YES_NO', required: true, scope: 'ATTENDEE', options: null, sort_order: 1, active: true, sensitive: false },
-  photo: { id: 'q-photo', label: 'Consent to event photography/videography', help_text: 'Photos may be used in event promotion.', field_type: 'YES_NO', required: true, scope: 'ORDER', options: null, sort_order: 2, active: true, sensitive: false },
-  hear: { id: 'q-hear', label: 'How did you hear about this event?', help_text: null, field_type: 'SINGLE_SELECT', required: false, scope: 'ORDER', options: ['Social media', 'Friend', 'Radio', 'Other'], sort_order: 3, active: true, sensitive: false },
+  ecName: { id: 'q-ec-name', label: 'Emergency Contact Name', help_text: null, field_type: 'SHORT_TEXT', required: true, scope: 'ORDER', options: null, sort_order: 0, active: true, data_category: 'THIRD_PARTY', template_key: null },
+  ecPhone: { id: 'q-ec-phone', label: 'Emergency Contact Phone Number', help_text: null, field_type: 'SHORT_TEXT', required: true, scope: 'ORDER', options: null, sort_order: 1, active: true, data_category: 'THIRD_PARTY', template_key: null },
+  access: { id: 'q-access', label: 'Accessibility requirements', help_text: 'Tell us anything that helps you attend.', field_type: 'LONG_TEXT', required: false, scope: 'ATTENDEE', options: null, sort_order: 0, active: true, data_category: 'SENSITIVE', template_key: null },
+  over18: { id: 'q-18', label: 'Are you over 18 years of age?', help_text: null, field_type: 'YES_NO', required: true, scope: 'ATTENDEE', options: null, sort_order: 1, active: true, data_category: 'STANDARD', template_key: null },
+  photo: { id: 'q-photo', label: 'Consent to event photography/videography', help_text: 'Photos may be used in event promotion.', field_type: 'YES_NO', required: true, scope: 'ORDER', options: null, sort_order: 2, active: true, data_category: 'CONSENT', template_key: null },
+  hear: { id: 'q-hear', label: 'How did you hear about this event?', help_text: null, field_type: 'SINGLE_SELECT', required: false, scope: 'ORDER', options: ['Social media', 'Friend', 'Radio', 'Other'], sort_order: 3, active: true, data_category: 'STANDARD', template_key: null },
 } as const
 const ALL = Object.values(Q)
 
@@ -103,12 +103,43 @@ describe('pure policy: checkEveAnswerPolicy', () => {
       .toBe('This event is not collecting registration answers here.')
     expect(rq.checkEveAnswerPolicy({ orderResponses: [], attendeeResponses: [[{ question_id: 'q-18', answer: true }]] }, v([]), { eveQuestionsEnabled: false, sensitiveConsent: false })).not.toBeNull()
   })
-  it('opt-in on: a sensitive answer needs the acknowledgement; non-sensitive answers and unanswered sensitive questions do not', () => {
-    expect(rq.checkEveAnswerPolicy({ orderResponses: [{ question_id: 'q-ec-name', answer: 'x' }], attendeeResponses: [] }, v([{ q: Q.ecName, a: 'x' }]), { eveQuestionsEnabled: true, sensitiveConsent: false }))
-      .toMatch(/confirm you agree/)
-    expect(rq.checkEveAnswerPolicy({ orderResponses: [{ question_id: 'q-ec-name', answer: 'x' }], attendeeResponses: [] }, v([{ q: Q.ecName, a: 'x' }]), { eveQuestionsEnabled: true, sensitiveConsent: true })).toBeNull()
-    expect(rq.checkEveAnswerPolicy({ orderResponses: [{ question_id: 'q-hear', answer: 'Radio' }], attendeeResponses: [] }, v([{ q: Q.hear, a: 'Radio' }]), { eveQuestionsEnabled: true, sensitiveConsent: false })).toBeNull()
+  it('opt-in on: SENSITIVE and THIRD_PARTY answers need explicit agreement; STANDARD and CONSENT answers, and unanswered questions, do not', () => {
+    const sub = (id: string) => ({ orderResponses: [{ question_id: id, answer: 'x' }], attendeeResponses: [] })
+    for (const q of [Q.ecName, Q.access]) {
+      expect(rq.checkEveAnswerPolicy(sub(q.id), v([{ q, a: 'x' }]), { eveQuestionsEnabled: true, sensitiveConsent: false }), q.data_category).toMatch(/confirm you agree/)
+      expect(rq.checkEveAnswerPolicy(sub(q.id), v([{ q, a: 'x' }]), { eveQuestionsEnabled: true, sensitiveConsent: true })).toBeNull()
+    }
+    for (const [q, a] of [[Q.hear, 'Radio'], [Q.photo, false], [Q.over18, true]] as const) {
+      expect(rq.checkEveAnswerPolicy(sub(q.id), v([{ q, a }]), { eveQuestionsEnabled: true, sensitiveConsent: false }), q.data_category).toBeNull()
+    }
     expect(rq.checkEveAnswerPolicy({ orderResponses: [], attendeeResponses: [] }, v([]), { eveQuestionsEnabled: true, sensitiveConsent: false })).toBeNull()
+  })
+})
+
+describe('category model and templates (ADR 0013 §4b)', () => {
+  const base = { label: 'x', field_type: 'SHORT_TEXT', scope: 'ORDER' }
+  it('category defaults to STANDARD; only the four categories are accepted', () => {
+    expect((rq.validateQuestionInput(base) as { data_category: string }).data_category).toBe('STANDARD')
+    for (const c of ['STANDARD', 'SENSITIVE', 'THIRD_PARTY', 'CONSENT']) {
+      expect((rq.validateQuestionInput({ ...base, data_category: c }) as { data_category: string }).data_category).toBe(c)
+    }
+    for (const bad of ['sensitive', 'HEALTH', true, 1]) expect(rq.validateQuestionInput({ ...base, data_category: bad })).toMatch(/data_category must be one of/)
+  })
+  it('a template sets its category; protected templates cannot be lowered, unknown templates are refused', () => {
+    const t = (template_key: string, extra: Record<string, unknown> = {}) => rq.validateQuestionInput({ label: 'L', field_type: 'LONG_TEXT', scope: 'ATTENDEE', template_key, ...extra })
+    expect((t('ACCESSIBILITY') as { data_category: string }).data_category).toBe('SENSITIVE')
+    expect((t('DIETARY') as { data_category: string }).data_category).toBe('SENSITIVE')
+    expect((t('EMERGENCY_CONTACT_NAME') as { data_category: string }).data_category).toBe('THIRD_PARTY')
+    expect((t('PHOTO_CONSENT') as { data_category: string }).data_category).toBe('CONSENT')
+    expect(t('ACCESSIBILITY', { data_category: 'STANDARD' })).toMatch(/cannot be changed/)
+    expect(t('EMERGENCY_CONTACT_PHONE', { data_category: 'SENSITIVE' })).toMatch(/cannot be changed/)
+    expect(t('PHOTO_CONSENT', { data_category: 'STANDARD' })).toMatch(/cannot be changed/)
+    // A STANDARD template may be raised (more protection), never forced down.
+    expect((t('SPECIAL_REQUESTS', { data_category: 'SENSITIVE' }) as { data_category: string }).data_category).toBe('SENSITIVE')
+    expect(t('NOT_A_TEMPLATE')).toBe('Unknown question template.')
+    expect(rq.lockedCategoryFor('ACCESSIBILITY')).toBe('SENSITIVE')
+    expect(rq.lockedCategoryFor('HOW_DID_YOU_HEAR')).toBeNull()
+    expect(rq.lockedCategoryFor(null)).toBeNull()
   })
 })
 
@@ -116,11 +147,6 @@ describe('request + definition validation', () => {
   it('sensitive_consent counts only as the literal boolean true', () => {
     for (const x of [undefined, 'true', 1, 'yes', {}, null, false]) expect(validated(body({ sensitive_consent: x })).sensitive_consent, String(x)).toBe(false)
     expect(validated(body({ sensitive_consent: true })).sensitive_consent).toBe(true)
-  })
-  it('question definitions: sensitive must be a boolean, defaults to false', () => {
-    expect(rq.validateQuestionInput({ label: 'x', field_type: 'SHORT_TEXT', scope: 'ORDER', sensitive: 'yes' })).toBe('sensitive must be a boolean.')
-    expect((rq.validateQuestionInput({ label: 'x', field_type: 'SHORT_TEXT', scope: 'ORDER' }) as { sensitive: boolean }).sensitive).toBe(false)
-    expect((rq.validateQuestionInput({ label: 'x', field_type: 'SHORT_TEXT', scope: 'ORDER', sensitive: true }) as { sensitive: boolean }).sensitive).toBe(true)
   })
   it('each supported type: valid shapes accepted, tampered shapes refused (server is authoritative)', () => {
     const val = (q: (typeof ALL)[number], answer: unknown) => rq.validateSubmittedResponses(ALL as never, q.scope === 'ORDER' ? [{ question_id: q.id, answer }] : [], q.scope === 'ATTENDEE' ? [[{ question_id: q.id, answer }]] : [[]])
@@ -130,15 +156,15 @@ describe('request + definition validation', () => {
     expect(val(Q.hear, 'Television')).toBe(`${Q.hear.label} must be one of the provided options.`)
     expect(val(Q.ecName, 123)).toBe(`${Q.ecName.label} must be text.`)
     expect(val(Q.ecName, 'x'.repeat(301))).toBe(`${Q.ecName.label} must be 300 characters or fewer.`)
-    const multi = { id: 'q-m', label: 'Interests', help_text: null, field_type: 'MULTI_SELECT', required: false, scope: 'ORDER', options: ['Music', 'Art'], sort_order: 9, active: true, sensitive: false }
+    const multi = { id: 'q-m', label: 'Interests', help_text: null, field_type: 'MULTI_SELECT', required: false, scope: 'ORDER', options: ['Music', 'Art'], sort_order: 9, active: true, data_category: 'STANDARD', template_key: null }
     expect(ok(rq.validateSubmittedResponses([multi] as never, [{ question_id: 'q-m', answer: ['Music', 'Art'] }], []))).toBe(true)
     expect(rq.validateSubmittedResponses([multi] as never, [{ question_id: 'q-m', answer: ['Music', 'Cooking'] }], [])).toBe('Interests contains an invalid option.')
     expect(rq.validateSubmittedResponses([multi] as never, [{ question_id: 'other-event-q', answer: 'x' }], [])).toBe('Invalid response — unknown question.')
   })
-  it('flatteners carry the help-text and sensitivity snapshots', () => {
+  it('flatteners carry the help-text and category snapshots', () => {
     const f = rq.flattenOrderAnswers([{ question: Q.ecName as never, answer: 'Sam' }, { question: Q.photo as never, answer: false }])
     expect(f.helpTexts).toEqual(['', 'Photos may be used in event promotion.'])
-    expect(f.sensitives).toEqual(['true', 'false'])
+    expect(f.categories).toEqual(['THIRD_PARTY', 'CONSENT'])
     expect(f.answersJson).toEqual(['"Sam"', 'false'])
   })
 })
@@ -174,7 +200,7 @@ describe('free registration through Eve', () => {
     expect(transactionMock).not.toHaveBeenCalled()
   })
 
-  it('opt-in ON with acknowledgement: every answer is written atomically with snapshots; consent time only on sensitive rows; "No" stays false', async () => {
+  it('opt-in ON with agreement: every answer is written atomically with snapshots; agreement time only on SENSITIVE/THIRD_PARTY rows; "No" stays false', async () => {
     responseQueue = [FREE_TYPE_ROW, ALL as never]
     const before = Date.now()
     const r = await free(true, body({ sensitive_consent: true }))
@@ -182,8 +208,9 @@ describe('free registration through Eve', () => {
     expect(transactionMock).toHaveBeenCalledTimes(1)
     const call = responsesStatement()!
     const text = (call[0] as TemplateStringsArray).join(' ')
-    expect(text).toMatch(/question_help_text_snapshot, sensitive_snapshot, sensitive_consent_at/)
-    expect(text).toMatch(/CASE WHEN r\.sensitive::boolean THEN/)
+    expect(text).toMatch(/question_help_text_snapshot, data_category_snapshot, sensitive_consent_at/)
+    expect(text).toMatch(/CASE WHEN r\.category IN \('SENSITIVE', 'THIRD_PARTY'\) THEN/)
+    expect(JSON.stringify(call.slice(1))).toContain('THIRD_PARTY')
     const params = call.slice(1)
     const consentAt = params.find(p => typeof p === 'string' && /^\d{4}-\d\d-\d\dT/.test(p)) as string
     expect(new Date(consentAt).getTime()).toBeGreaterThanOrEqual(before - 1000)

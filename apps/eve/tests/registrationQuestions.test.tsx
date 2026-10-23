@@ -12,14 +12,14 @@ import { RecordedAnswers } from '@/components/organiser/RecordedAnswers';
 
 const TYPE = { id: 't1', name: 'General', description: null, price_cents: 0, capacity: 100, remaining: 40, sale_starts_at: null, sale_ends_at: null, sale_status: 'ON_SALE', requires_access_code: false };
 const Q = {
-  ecName: { id: 'q-ec-name', label: 'Emergency Contact Name', help_text: null, field_type: 'SHORT_TEXT', required: true, scope: 'ORDER', options: null, sort_order: 0, sensitive: true },
-  ecPhone: { id: 'q-ec-phone', label: 'Emergency Contact Phone Number', help_text: null, field_type: 'SHORT_TEXT', required: true, scope: 'ORDER', options: null, sort_order: 1, sensitive: true },
-  photo: { id: 'q-photo', label: 'Consent to event photography/videography', help_text: 'Photos may be used in event promotion.', field_type: 'YES_NO', required: true, scope: 'ORDER', options: null, sort_order: 2, sensitive: false },
-  hear: { id: 'q-hear', label: 'How did you hear about this event?', help_text: null, field_type: 'SINGLE_SELECT', required: false, scope: 'ORDER', options: ['Social media', 'Friend', 'Radio'], sort_order: 3, sensitive: false },
-  interests: { id: 'q-int', label: 'Interests', help_text: null, field_type: 'MULTI_SELECT', required: false, scope: 'ORDER', options: ['Music', 'Art'], sort_order: 4, sensitive: false },
-  notes: { id: 'q-notes', label: 'Anything else?', help_text: null, field_type: 'LONG_TEXT', required: false, scope: 'ORDER', options: null, sort_order: 5, sensitive: false },
-  access: { id: 'q-access', label: 'Accessibility requirements', help_text: 'Tell us anything that helps you attend.', field_type: 'LONG_TEXT', required: false, scope: 'ATTENDEE', options: null, sort_order: 0, sensitive: true },
-  over18: { id: 'q-18', label: 'Are you over 18 years of age?', help_text: null, field_type: 'YES_NO', required: true, scope: 'ATTENDEE', options: null, sort_order: 1, sensitive: false },
+  ecName: { id: 'q-ec-name', label: 'Emergency Contact Name', help_text: null, field_type: 'SHORT_TEXT', required: true, scope: 'ORDER', options: null, sort_order: 0, data_category: 'THIRD_PARTY' },
+  ecPhone: { id: 'q-ec-phone', label: 'Emergency Contact Phone Number', help_text: null, field_type: 'SHORT_TEXT', required: true, scope: 'ORDER', options: null, sort_order: 1, data_category: 'THIRD_PARTY' },
+  photo: { id: 'q-photo', label: 'Consent to event photography/videography', help_text: 'Photos may be used in event promotion.', field_type: 'YES_NO', required: true, scope: 'ORDER', options: null, sort_order: 2, data_category: 'CONSENT' },
+  hear: { id: 'q-hear', label: 'How did you hear about this event?', help_text: null, field_type: 'SINGLE_SELECT', required: false, scope: 'ORDER', options: ['Social media', 'Friend', 'Radio'], sort_order: 3, data_category: 'STANDARD' },
+  interests: { id: 'q-int', label: 'Interests', help_text: null, field_type: 'MULTI_SELECT', required: false, scope: 'ORDER', options: ['Music', 'Art'], sort_order: 4, data_category: 'STANDARD' },
+  notes: { id: 'q-notes', label: 'Anything else?', help_text: null, field_type: 'LONG_TEXT', required: false, scope: 'ORDER', options: null, sort_order: 5, data_category: 'STANDARD' },
+  access: { id: 'q-access', label: 'Accessibility requirements', help_text: 'Tell us anything that helps you attend.', field_type: 'LONG_TEXT', required: false, scope: 'ATTENDEE', options: null, sort_order: 0, data_category: 'SENSITIVE' },
+  over18: { id: 'q-18', label: 'Are you over 18 years of age?', help_text: null, field_type: 'YES_NO', required: true, scope: 'ATTENDEE', options: null, sort_order: 1, data_category: 'STANDARD' },
 };
 const ALL = Object.values(Q);
 const detail = (extra: Record<string, unknown> = {}) => ({
@@ -89,7 +89,9 @@ describe('rendering each supported type', () => {
     const interests = within(order).getByRole('group', { name: 'Interests (optional)' });
     for (const c of within(interests).getAllByRole('checkbox')) expect(c).not.toBeChecked();
     const attendee = screen.getByTestId('attendee-t1-0');
-    expect(within(attendee).getByLabelText('Accessibility requirements (optional)')).toHaveAccessibleDescription('Tell us anything that helps you attend.');
+    expect(within(attendee).getByLabelText('Accessibility requirements (optional)')).toHaveAccessibleDescription(
+      'Tell us anything that helps you attend. This may include health, disability or accessibility information. Acme Events asks so they can make arrangements for you at this event. Only share what you’re comfortable with.',
+    );
     expect(within(attendee).getByRole('group', { name: 'Are you over 18 years of age?' })).toBeInTheDocument();
     // Native fields are not duplicated: one name, one email, one phone.
     expect(screen.getAllByLabelText('Full name')).toHaveLength(1);
@@ -108,6 +110,79 @@ describe('rendering each supported type', () => {
       expect(within(fs).getByLabelText('Attendee name')).toBeRequired();
       expect(within(fs).getByRole('group', { name: 'Are you over 18 years of age?' })).toBeInTheDocument();
     }
+  });
+});
+
+describe('in-form privacy notices (ADR 0013 §4b)', () => {
+  it('the collection notice sits immediately BEFORE the questions, names the organiser, and links to the Privacy section', async () => {
+    const user = userEvent.setup(); mockFetch();
+    view(detail({ questions: [Q.hear, Q.access] }));
+    await start(user);
+    const notice = screen.getByTestId('questions-notice');
+    expect(notice).toHaveTextContent('Acme Events asks these questions to help run this event. Your answers go to Acme Events for this event. You can leave optional questions blank. How we handle your answers');
+    expect(within(notice).getByRole('link', { name: 'How we handle your answers' })).toHaveAttribute('href', '/privacy#registration-questions');
+    // Document order: notice → booking questions → attendee questions.
+    const order = screen.getByTestId('order-questions');
+    const attendee = screen.getByTestId('attendee-t1-0');
+    expect(notice.compareDocumentPosition(order) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(notice.compareDocumentPosition(attendee) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(notice.previousElementSibling?.tagName).toBe('FIELDSET'); // right after "Your details"
+  });
+
+  it('no questions → no questions notice', async () => {
+    const user = userEvent.setup(); mockFetch();
+    view(detail({ questions: [] }));
+    await start(user);
+    expect(screen.queryByTestId('questions-notice')).toBeNull();
+  });
+
+  it('per-category notes: THIRD_PARTY asks the buyer to tell the person; CONSENT says No is fine; STANDARD has none', async () => {
+    const user = userEvent.setup(); mockFetch();
+    view(detail({ questions: [Q.ecName, Q.photo, Q.hear] }));
+    await start(user);
+    expect(screen.getByLabelText('Emergency Contact Name')).toHaveAccessibleDescription('Please make sure this person knows you’re giving their details to Acme Events for this event.');
+    expect(screen.getByTestId('note-CONSENT')).toHaveTextContent('Choosing No won’t affect your booking.');
+    expect(screen.queryByTestId('note-STANDARD')).toBeNull();
+  });
+
+  it('THIRD_PARTY answers need the unticked agreement too, worded for another person\'s details', async () => {
+    const user = userEvent.setup(); const fn = mockFetch();
+    view(detail({ questions: [Q.ecName] }));
+    await start(user);
+    await user.type(screen.getByLabelText('Emergency Contact Name'), 'Sam Contact');
+    const box = within(screen.getByTestId('sensitive-consent')).getByRole('checkbox');
+    expect(box).not.toBeChecked();
+    expect(screen.getByTestId('sensitive-consent').querySelector('label')!.textContent).toBe(
+      'I agree to Acme Events collecting my answers to Emergency Contact Name for this event, including another person’s details. Only answer what you are comfortable sharing.',
+    );
+    fireEvent.submit(screen.getByRole('form', { name: 'Book tickets' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/confirm you agree/);
+    expect(fn.mock.calls.some(c => String(c[0]).endsWith('/register'))).toBe(false);
+  });
+
+  it('CONSENT and STANDARD answers never trigger the agreement box', async () => {
+    const user = userEvent.setup(); mockFetch();
+    view(detail({ questions: [Q.photo, Q.hear] }));
+    await start(user);
+    await user.click(within(screen.getByRole('group', { name: Q.photo.label })).getByRole('radio', { name: 'Yes' }));
+    await user.selectOptions(screen.getByLabelText('How did you hear about this event? (optional)'), 'Radio');
+    expect(screen.queryByTestId('sensitive-consent')).toBeNull();
+  });
+
+  it('the approved Riverlights set (Accessibility SENSITIVE per attendee + How did you hear STANDARD per booking) renders and submits; axe-clean', async () => {
+    const user = userEvent.setup(); const fn = mockFetch();
+    const { container } = view(detail({ questions: [Q.access, { ...Q.hear, options: ['Social media', 'Friend or family', 'Radio', 'Other'] }] }));
+    await start(user);
+    await user.type(screen.getByLabelText('Accessibility requirements (optional)'), 'Step-free access');
+    await user.selectOptions(screen.getByLabelText('How did you hear about this event? (optional)'), 'Radio');
+    await user.click(within(screen.getByTestId('sensitive-consent')).getByRole('checkbox'));
+    expect(await axe(container)).toHaveNoViolations();
+    await user.click(screen.getByRole('button', { name: 'Complete registration' }));
+    await screen.findByTestId('free-confirmation');
+    const body = sent(fn, '/register');
+    expect(body.attendees[0].responses).toEqual([{ question_id: 'q-access', answer: 'Step-free access' }]);
+    expect(body.order_responses).toEqual([{ question_id: 'q-hear', answer: 'Radio' }]);
+    expect(body.sensitive_consent).toBe(true);
   });
 });
 
@@ -155,7 +230,7 @@ describe('required, optional and consent behaviour', () => {
     expect(box).not.toBeChecked();
     // Exact DOM text (toHaveTextContent normalises whitespace, which would hide a dropped space).
     expect(screen.getByTestId('sensitive-consent').querySelector('label')!.textContent).toBe(
-      "I agree to Acme Events collecting my answers to Accessibility requirements for this event. These answers may include health, accessibility or another person's details. Only answer what you are comfortable sharing.",
+      'I agree to Acme Events collecting my answers to Accessibility requirements for this event, including health, disability or accessibility information. Only answer what you are comfortable sharing.',
     );
     fireEvent.submit(screen.getByRole('form', { name: 'Book tickets' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/confirm you agree/);
@@ -243,16 +318,21 @@ describe('event with a required question that is not opted in on Eve', () => {
 });
 
 describe('organiser: recorded answers', () => {
-  it('renders answers as recorded (yes/no, lists) and labels sensitive ones; renders nothing when the API sent none', () => {
+  it('renders answers as recorded (yes/no, lists), labels each protected category, shows retention removal; renders nothing when the API sent none', () => {
+    const base = { help_text: null, sensitive_consent_at: null, redacted_at: null };
     const { container, rerender } = render(<RecordedAnswers answers={[
-      { label: 'Consent to event photography/videography', field_type: 'YES_NO', help_text: null, answer: false, sensitive: false, sensitive_consent_at: null },
-      { label: 'Interests', field_type: 'MULTI_SELECT', help_text: null, answer: ['Music', 'Art'], sensitive: false, sensitive_consent_at: null },
-      { label: 'Accessibility requirements', field_type: 'LONG_TEXT', help_text: null, answer: 'Step-free access', sensitive: true, sensitive_consent_at: '2026-10-23T10:00:00Z' },
+      { ...base, label: 'Consent to event photography/videography', field_type: 'YES_NO', answer: false, data_category: 'CONSENT' },
+      { ...base, label: 'Interests', field_type: 'MULTI_SELECT', answer: ['Music', 'Art'], data_category: 'STANDARD' },
+      { ...base, label: 'Accessibility requirements', field_type: 'LONG_TEXT', answer: 'Step-free access', data_category: 'SENSITIVE', sensitive_consent_at: '2026-10-23T10:00:00Z' },
+      { ...base, label: 'Emergency contact name', field_type: 'SHORT_TEXT', answer: 'Sam', data_category: 'THIRD_PARTY' },
+      { ...base, label: 'Dietary requirements', field_type: 'LONG_TEXT', answer: null, data_category: 'SENSITIVE', redacted_at: '2027-01-01T00:00:00Z' },
     ]} />);
     const dl = screen.getByTestId('recorded-answers');
-    expect(dl).toHaveTextContent('Consent to event photography/videographyNo');
+    expect(dl).toHaveTextContent('Consent to event photography/videographyConsentNo');
     expect(dl).toHaveTextContent('InterestsMusic, Art');
     expect(dl).toHaveTextContent('Accessibility requirementsSensitiveStep-free access');
+    expect(dl).toHaveTextContent('Emergency contact nameAnother person’s detailsSam');
+    expect(dl).toHaveTextContent('Dietary requirementsSensitiveRemoved under the retention policy');
     rerender(<RecordedAnswers answers={undefined} />);
     expect(container.innerHTML).toBe('');
   });

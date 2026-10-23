@@ -133,20 +133,51 @@ before the code deploys):
   definitions and the shared services refuse any answer submitted through the EVE
   surface; an event with a required question shows "Online registration isn't
   available for this event." on Eve instead of failing at submit.
-- `event_registration_questions.sensitive`: organiser-marked. On Eve, any answer to
-  a sensitive question requires `sensitive_consent: true` (a separate, unticked
-  checkbox naming the questions); enforced server-side for the EVE surface.
-- `event_registration_responses.question_help_text_snapshot`, `sensitive_snapshot`,
-  `sensitive_consent_at`: the wording and sensitivity as answered, and when the Eve
-  buyer acknowledged. Yes/no questions have no default on Eve.
+- Category model (superseded the first draft's `sensitive` boolean before any
+  migration ran) — see §4b.
 - Answer visibility: manager+ only, in both the Eve organiser API and the BrainBase
   registrations read (previously viewer+ in BrainBase; no viewer/analyst users
-  existed in any affected organisation on 2026-10-23). Unchanged: never in CRM,
-  emails, the CSV export, audit-log content, search, or any buyer/public endpoint.
+  existed in any affected organisation on 2026-10-23). Answer COUNTS are manager+
+  too. Unchanged: never in CRM, emails, the CSV export, audit-log content, search,
+  or any buyer/public endpoint.
 - Once a question has answers its type and scope are locked and select options can
   only be added.
-- Privacy Policy sections 2–5 rewritten for registration questions — **requires
-  legal review before merge** (merging publishes it).
+- Privacy Policy sections 2, 3, 4, 5 and 8 rewritten — **requires legal review
+  before merge** (merging publishes it).
+
+### 4b. Privacy decisions (2026-10-24) — categories, retention, legal hold
+
+Decided by the operator on 2026-10-24; implemented on the same branch, not live.
+
+**Categories** (`event_registration_questions.data_category`, snapshotted per
+answer as `data_category_snapshot`):
+
+| Category | Meaning | Explicit agreement on Eve | Removed |
+|---|---|---|---|
+| STANDARD | ordinary personal information | no | 12 months after event end |
+| SENSITIVE | may reveal health/disability (accessibility, dietary) | yes | 30 days after event end; cancelled: 7 days after cancellation |
+| THIRD_PARTY | another person's details (emergency contact) | yes | 7 days after event end; cancelled: 7 days after cancellation |
+| CONSENT | a recorded choice (photo consent) | no | 3 years after event end |
+
+Existing questions and answers default to STANDARD (no guessing). Built-in
+templates carry a category; a template in a protected category (SENSITIVE,
+THIRD_PARTY, CONSENT) cannot be lowered and its template link cannot be changed.
+
+**Retention** (`lib/events/answerRetention.ts`, daily cron
+`/api/cron/registration-answer-retention`): removal sets `answer := NULL` and
+`redacted_at`; the row keeps only structure (question, label/type/category/help
+snapshots, timestamps, agreement time). Orders, payments, refunds, tickets,
+check-in, legal acceptance and audit history are never touched. Report-only unless
+`EVE_ANSWER_RETENTION_ENFORCE` is exactly `true`. Audit: one
+`event_responses.redacted` row per event with ids and counts only.
+
+**Legal hold** (`events.answers_legal_hold`, `event_orders.answers_legal_hold`; reason
+code COMPLAINT | INCIDENT | DISPUTE | LEGAL_OBLIGATION), admin+, audited. Pauses
+removal for that event/order only.
+
+**Copies:** Preview/test branches and manual snapshots hold Production data; see
+`docs/compliance/eve-production-data-copies.md` for the inventory, rule and
+cleanup plan, which must be in force before Eve collects Production answers.
 
 ## 5. Remaining limits (unchanged)
 

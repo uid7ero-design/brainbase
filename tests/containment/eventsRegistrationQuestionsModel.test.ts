@@ -12,7 +12,7 @@ import { validateQuestionInput, validateSubmittedResponses, type QuestionRow } f
 function question(overrides: Partial<QuestionRow> = {}): QuestionRow {
   return {
     id: 'q-1', label: 'Dietary requirements', help_text: null, field_type: 'LONG_TEXT',
-    required: false, scope: 'ATTENDEE', options: null, sort_order: 0, active: true, sensitive: false,
+    required: false, scope: 'ATTENDEE', options: null, sort_order: 0, active: true, data_category: 'STANDARD', template_key: null,
     ...overrides,
   }
 }

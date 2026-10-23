@@ -3,6 +3,7 @@ import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { validateQuestionInput } from '@/lib/events/registrationQuestions';
 import { logEventEveQuestionsToggled } from '@/lib/events/auditLog';
+import { roleGte } from '@/lib/session';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -15,10 +16,12 @@ async function loadOwnedEvent(eventId: string, organisationId: string) {
 
 // GET — every question (active AND inactive) for the manager builder
 // UI (§4) — viewer+, matching every other Events read's own role floor.
-// Definitions only (never answers). response_count lets the builder show
-// which questions have been answered (their type and scope are then
-// locked — see the [questionId] route). eve_questions_enabled is the
-// event's Eve opt-in (ADR 0013 §4).
+// Definitions only (never answers). eve_questions_enabled is the event's
+// Eve opt-in (ADR 0013 §4).
+// response_count (how many answers a question has; answered questions have
+// their type/scope locked — see the [questionId] route) is manager+ only:
+// a count on, say, "Accessibility requirements" can itself reveal personal
+// information (ADR 0013 §4b), so below manager the key is absent.
 export async function GET(_req: NextRequest, { params }: Ctx) {
   const auth = await authorizeEventsRequest('viewer');
   if (!auth.ok) return auth.response;
@@ -28,13 +31,21 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   const event = await loadOwnedEvent(id, session.organisationId);
   if (!event) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
 
-  const questions = await sql`
-    SELECT q.id, q.label, q.help_text, q.field_type, q.required, q.scope, q.options, q.sort_order, q.active, q.sensitive,
-      (SELECT count(*)::int FROM event_registration_responses r WHERE r.question_id = q.id AND r.organisation_id = q.organisation_id) AS response_count
-    FROM event_registration_questions q
-    WHERE q.event_id = ${id} AND q.organisation_id = ${session.organisationId}
-    ORDER BY q.scope, q.sort_order, q.created_at
-  `;
+  const withCounts = roleGte(session.role, 'manager');
+  const questions = withCounts
+    ? await sql`
+        SELECT q.id, q.label, q.help_text, q.field_type, q.required, q.scope, q.options, q.sort_order, q.active, q.data_category, q.template_key,
+          (SELECT count(*)::int FROM event_registration_responses r WHERE r.question_id = q.id AND r.organisation_id = q.organisation_id) AS response_count
+        FROM event_registration_questions q
+        WHERE q.event_id = ${id} AND q.organisation_id = ${session.organisationId}
+        ORDER BY q.scope, q.sort_order, q.created_at
+      `
+    : await sql`
+        SELECT q.id, q.label, q.help_text, q.field_type, q.required, q.scope, q.options, q.sort_order, q.active, q.data_category, q.template_key
+        FROM event_registration_questions q
+        WHERE q.event_id = ${id} AND q.organisation_id = ${session.organisationId}
+        ORDER BY q.scope, q.sort_order, q.created_at
+      `;
   return NextResponse.json({ questions, eve_questions_enabled: event.eve_questions_enabled === true });
 }
 
@@ -60,13 +71,13 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   if (typeof validated === 'string') return NextResponse.json({ error: validated }, { status: 400 });
 
   const rows = await sql`
-    INSERT INTO event_registration_questions (organisation_id, event_id, label, help_text, field_type, required, scope, options, sort_order, sensitive)
+    INSERT INTO event_registration_questions (organisation_id, event_id, label, help_text, field_type, required, scope, options, sort_order, data_category, template_key)
     VALUES (
       ${session.organisationId}, ${id}, ${validated.label}, ${validated.help_text}, ${validated.field_type},
       ${validated.required}, ${validated.scope}, ${validated.options ? JSON.stringify(validated.options) : null}::jsonb, ${validated.sort_order},
-      ${validated.sensitive}
+      ${validated.data_category}, ${validated.template_key}
     )
-    RETURNING id, label, help_text, field_type, required, scope, options, sort_order, active, sensitive
+    RETURNING id, label, help_text, field_type, required, scope, options, sort_order, active, data_category, template_key
   `;
   return NextResponse.json({ question: rows[0] }, { status: 201 });
 }

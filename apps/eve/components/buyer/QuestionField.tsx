@@ -26,13 +26,35 @@ export function isAnswered(a: Answer): boolean {
 const input = 'mt-1 block min-h-11 w-full rounded-lg border border-eve-line bg-white px-3 text-sm text-eve-ink';
 const labelCls = 'block text-sm font-medium text-eve-ink';
 
-export function QuestionField({ question: q, idPrefix, value, onChange }: {
-  question: PublicQuestion; idPrefix: string; value: Answer; onChange: (next: Answer) => void;
+// In-context privacy notes by category (ADR 0013 §4b), shown under the
+// field and announced with it (aria-describedby).
+export function categoryNote(q: PublicQuestion, organiserName: string): string | null {
+  switch (q.data_category) {
+    case 'SENSITIVE':
+      return `This may include health, disability or accessibility information. ${organiserName} asks so they can make arrangements for you at this event. Only share what you’re comfortable with.`;
+    case 'THIRD_PARTY':
+      return `Please make sure this person knows you’re giving their details to ${organiserName} for this event.`;
+    case 'CONSENT':
+      return q.field_type === 'YES_NO' ? 'Choosing No won’t affect your booking.' : null;
+    default:
+      return null;
+  }
+}
+
+export function QuestionField({ question: q, idPrefix, value, onChange, organiserName }: {
+  question: PublicQuestion; idPrefix: string; value: Answer; onChange: (next: Answer) => void; organiserName: string;
 }) {
   const id = `${idPrefix}-${q.id}`;
-  const helpId = q.help_text ? `${id}-help` : undefined;
+  const note = categoryNote(q, organiserName);
+  const helpIds = [q.help_text ? `${id}-help` : null, note ? `${id}-note` : null].filter(Boolean).join(' ');
+  const helpId = helpIds || undefined;
   const title = `${q.label}${q.required ? '' : ' (optional)'}`;
-  const help = q.help_text ? <p id={helpId} className="mt-1 text-xs text-eve-muted">{q.help_text}</p> : null;
+  const help = (
+    <>
+      {q.help_text ? <p id={`${id}-help`} className="mt-1 text-xs text-eve-muted">{q.help_text}</p> : null}
+      {note ? <p id={`${id}-note`} className="mt-1 text-xs text-eve-ink" data-testid={`note-${q.data_category}`}>{note}</p> : null}
+    </>
+  );
 
   switch (q.field_type) {
     case 'SHORT_TEXT':

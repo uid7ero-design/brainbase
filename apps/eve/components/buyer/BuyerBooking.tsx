@@ -113,11 +113,18 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
   const slots = useMemo(() => lines.flatMap(l => Array.from({ length: l.quantity }, (_, i) => ({ type: l.type, index: i }))), [cartKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const slotKey = (s: { type: { id: string }; index: number }) => `${s.type.id}-${s.index}`;
 
-  const answeredSensitive = [
-    ...orderQuestions.filter(q => q.sensitive && isAnswered(orderAnswers[q.id])),
-    ...slots.flatMap(s => attendeeQuestions.filter(q => q.sensitive && isAnswered(slotAnswers[slotKey(s)]?.[q.id]))),
+  // SENSITIVE and THIRD_PARTY answers need explicit agreement (ADR 0013 §4b);
+  // the server enforces the same rule.
+  const needsAgreement = (q: { data_category?: string }) => q.data_category === 'SENSITIVE' || q.data_category === 'THIRD_PARTY';
+  const answeredProtected = [
+    ...orderQuestions.filter(q => needsAgreement(q) && isAnswered(orderAnswers[q.id])),
+    ...slots.flatMap(s => attendeeQuestions.filter(q => needsAgreement(q) && isAnswered(slotAnswers[slotKey(s)]?.[q.id]))),
   ];
-  const sensitiveLabels = [...new Set(answeredSensitive.map(q => q.label))];
+  const sensitiveLabels = [...new Set(answeredProtected.map(q => q.label))];
+  const agreementKinds = [
+    answeredProtected.some(q => q.data_category === 'SENSITIVE') ? 'health, disability or accessibility information' : null,
+    answeredProtected.some(q => q.data_category === 'THIRD_PARTY') ? 'another person’s details' : null,
+  ].filter(Boolean).join(' and ');
 
   // Only answered questions are sent; the server applies "required".
   const toResponses = (qs: typeof questions, answers: Record<string, Answer> | undefined) =>
@@ -147,7 +154,7 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
     const missing = firstMissingRequired();
     if (missing) { setError(`${missing} is required.`); return; }
     if (sensitiveLabels.length > 0 && !sensitiveConsent) {
-      setError('Please confirm you agree to the organiser collecting the information marked as sensitive.'); return;
+      setError('Please confirm you agree to the organiser collecting the health, accessibility or contact details you have given.'); return;
     }
     if (anyPaid && !accepted) { setError('Please agree to the Terms and the Refunds & cancellations policy to continue.'); return; }
     setBusy(true);
@@ -280,11 +287,19 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
             <div><label htmlFor="pphone" className={label}>Phone (optional)</label><input id="pphone" type="tel" className={input} value={purchaser.phone} onChange={e => setPurchaser({ ...purchaser, phone: e.target.value })} autoComplete="tel" /></div>
           </fieldset>
 
+          {questions.length > 0 ? (
+            // Collection notice, immediately before the organiser's questions (ADR 0013 §4b).
+            <p data-testid="questions-notice" className="rounded-lg bg-eve-surface-alt p-3 text-sm text-eve-ink">
+              {`${detail.organisationName} asks these questions to help run this event. Your answers go to ${detail.organisationName} for this event. You can leave optional questions blank. `}
+              <Link href="/privacy#registration-questions" target="_blank" rel="noopener" className="underline">How we handle your answers</Link>
+            </p>
+          ) : null}
+
           {orderQuestions.length > 0 ? (
             <fieldset className="space-y-4" data-testid="order-questions">
               <legend className="text-sm font-semibold">About your booking</legend>
               {orderQuestions.map(q => (
-                <QuestionField key={q.id} question={q} idPrefix="oq" value={orderAnswers[q.id]}
+                <QuestionField key={q.id} question={q} idPrefix="oq" value={orderAnswers[q.id]} organiserName={detail.organisationName}
                   onChange={v => setOrderAnswers(prev => ({ ...prev, [q.id]: v }))} />
               ))}
             </fieldset>
@@ -302,7 +317,7 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
                   </div>
                 ) : null}
                 {attendeeQuestions.map(q => (
-                  <QuestionField key={q.id} question={q} idPrefix={`aq-${slotKey(s)}`} value={slotAnswers[slotKey(s)]?.[q.id]}
+                  <QuestionField key={q.id} question={q} idPrefix={`aq-${slotKey(s)}`} value={slotAnswers[slotKey(s)]?.[q.id]} organiserName={detail.organisationName}
                     onChange={v => setSlotAnswers(prev => ({ ...prev, [slotKey(s)]: { ...prev[slotKey(s)], [q.id]: v } }))} />
                 ))}
               </fieldset>
@@ -338,8 +353,8 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
             <div className="flex items-start gap-3 rounded-lg border border-eve-line p-3" data-testid="sensitive-consent">
               <input id="sensitive-consent" type="checkbox" checked={sensitiveConsent} onChange={e => setSensitiveConsent(e.target.checked)} required className="mt-1 h-5 w-5 shrink-0" />
               <label htmlFor="sensitive-consent" className="text-eve-ink">
-                {`I agree to ${detail.organisationName} collecting my answers to ${sensitiveLabels.join(', ')} for this event. `}
-                These answers may include health, accessibility or another person&apos;s details. Only answer what you are comfortable sharing.
+                {`I agree to ${detail.organisationName} collecting my answers to ${sensitiveLabels.join(', ')} for this event, including ${agreementKinds}. `}
+                Only answer what you are comfortable sharing.
               </label>
             </div>
           ) : null}

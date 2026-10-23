@@ -59,12 +59,16 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   }
 
   const existingRows = await sql`
-    SELECT id, question_id, field_type_snapshot FROM event_registration_responses
+    SELECT id, question_id, field_type_snapshot, redacted_at FROM event_registration_responses
     WHERE id = ${responseId} AND order_id = ${orderId} AND event_id = ${eventId} AND organisation_id = ${session.organisationId}
     LIMIT 1
   `;
-  const existing = existingRows[0] as { id: string; question_id: string; field_type_snapshot: string } | undefined;
+  const existing = existingRows[0] as { id: string; question_id: string; field_type_snapshot: string; redacted_at: unknown } | undefined;
   if (!existing) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
+  // Removed under the answer-retention policy (ADR 0013 §4b): never re-entered.
+  if (existing.redacted_at) {
+    return NextResponse.json({ error: 'This answer was removed under the retention policy and cannot be edited.' }, { status: 409 });
+  }
 
   const validated = validateAnswerAgainstSnapshot(existing.field_type_snapshot, body.answer);
   if (!validated.ok) return NextResponse.json({ error: validated.error }, { status: 400 });
@@ -73,6 +77,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     UPDATE event_registration_responses
     SET answer = ${JSON.stringify(validated.value)}::jsonb
     WHERE id = ${responseId} AND order_id = ${orderId} AND event_id = ${eventId} AND organisation_id = ${session.organisationId}
+      AND redacted_at IS NULL
     RETURNING id, question_id, question_label_snapshot, field_type_snapshot, answer
   `;
   if (!updated.length) return NextResponse.json({ error: 'Not found.' }, { status: 404 });

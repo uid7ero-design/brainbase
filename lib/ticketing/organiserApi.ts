@@ -151,7 +151,7 @@ const ATTENDEE_FIELDS = ['id', 'name', 'email', 'checked_in_at', 'checked_in_by'
 // entirely. Each answer is the snapshot as answered (label, type, help
 // text, sensitivity), never the live question — and never the response or
 // question ids (Eve has no answer editing).
-const ANSWER_FIELDS = ['label', 'field_type', 'help_text', 'answer', 'sensitive', 'sensitive_consent_at'] as const;
+const ANSWER_FIELDS = ['label', 'field_type', 'help_text', 'answer', 'data_category', 'sensitive_consent_at', 'redacted_at'] as const;
 
 function answersFor(ctx: TicketingContext, responses: unknown): Json[] | undefined {
   if (!roleGte(ctx.role, 'manager')) return undefined;
