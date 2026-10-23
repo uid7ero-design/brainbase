@@ -24,6 +24,10 @@ export type QuestionRow = {
   options: string[] | null;
   sort_order: number;
   active: boolean;
+  // Eve (ADR 0013 §4): answers may reveal sensitive information (health/
+  // accessibility, a third party's details). On Eve, answering one needs
+  // the buyer's explicit acknowledgement — see checkEveAnswerPolicy.
+  sensitive: boolean;
 };
 
 // ── Manager CRUD (§4) ─────────────────────────────────────────────────
@@ -35,7 +39,7 @@ export type QuestionRow = {
 
 export async function listAllQuestions(organisationId: string, eventId: string): Promise<QuestionRow[]> {
   const rows = await sql`
-    SELECT id, label, help_text, field_type, required, scope, options, sort_order, active
+    SELECT id, label, help_text, field_type, required, scope, options, sort_order, active, sensitive
     FROM event_registration_questions
     WHERE organisation_id = ${organisationId} AND event_id = ${eventId}
     ORDER BY scope, sort_order, created_at
@@ -52,7 +56,7 @@ export async function listAllQuestions(organisationId: string, eventId: string):
 // this list).
 export async function listActiveQuestions(organisationId: string, eventId: string): Promise<QuestionRow[]> {
   const rows = await sql`
-    SELECT id, label, help_text, field_type, required, scope, options, sort_order, active
+    SELECT id, label, help_text, field_type, required, scope, options, sort_order, active, sensitive
     FROM event_registration_questions
     WHERE organisation_id = ${organisationId} AND event_id = ${eventId} AND active = true
     ORDER BY scope, sort_order, created_at
@@ -68,6 +72,7 @@ export type QuestionInput = {
   scope: QuestionScope;
   options: string[] | null;
   sort_order: number;
+  sensitive: boolean;
 };
 
 // Returns a human-readable error string on failure, or null if the
@@ -76,7 +81,7 @@ export type QuestionInput = {
 // lib/events/publicValidation.ts already established.
 export function validateQuestionInput(body: {
   label?: unknown; help_text?: unknown; field_type?: unknown; required?: unknown;
-  scope?: unknown; options?: unknown; sort_order?: unknown;
+  scope?: unknown; options?: unknown; sort_order?: unknown; sensitive?: unknown;
 }): string | QuestionInput {
   if (typeof body.label !== 'string' || !body.label.trim() || body.label.length > MAX_LABEL_LENGTH) {
     return `Label is required and must be ${MAX_LABEL_LENGTH} characters or fewer.`;
@@ -94,6 +99,8 @@ export function validateQuestionInput(body: {
     return `scope must be one of: ${QUESTION_SCOPES.join(', ')}.`;
   }
   const required = body.required === true;
+  if (body.sensitive !== undefined && typeof body.sensitive !== 'boolean') return 'sensitive must be a boolean.';
+  const sensitive = body.sensitive === true;
   const sortOrder = Number.isInteger(body.sort_order) ? (body.sort_order as number) : 0;
 
   let options: string[] | null = null;
@@ -127,6 +134,7 @@ export function validateQuestionInput(body: {
     scope: body.scope as QuestionScope,
     options,
     sort_order: sortOrder,
+    sensitive,
   };
 }
 
@@ -261,6 +269,56 @@ export function validateSubmittedResponses(
   return { orderAnswers, attendeeAnswers };
 }
 
+// ── Eve answer policy (ADR 0013 §4) ──────────────────────────────────
+//
+// Applied by the shared free/paid services for productSurface 'EVE' only,
+// AFTER validateSubmittedResponses and BEFORE anything is reserved:
+//   - an event that has not opted in (events.eve_questions_enabled = false)
+//     accepts no answers at all through Eve, even to optional questions a
+//     tampered client might submit — its questions were never shown on Eve
+//     or covered by Eve's notices;
+//   - an answer to a question marked sensitive needs the buyer's explicit
+//     acknowledgement (sensitive_consent === true, never defaulted). An
+//     unanswered optional sensitive question needs nothing.
+// Returns an error message, or null when the submission may proceed. The
+// BrainBase surface is unaffected (its form has no such control).
+export function checkEveAnswerPolicy(
+  submitted: { orderResponses: SubmittedAnswer[]; attendeeResponses: SubmittedAnswer[][] },
+  validated: ValidatedResponses,
+  opts: { eveQuestionsEnabled: boolean; sensitiveConsent: boolean },
+): string | null {
+  const anySubmitted = submitted.orderResponses.length > 0 || submitted.attendeeResponses.some(a => a.length > 0);
+  if (!opts.eveQuestionsEnabled) {
+    return anySubmitted ? 'This event is not collecting registration answers here.' : null;
+  }
+  const answeredSensitive = [...validated.orderAnswers, ...validated.attendeeAnswers.flat()].some(a => a.question.sensitive);
+  if (answeredSensitive && !opts.sensitiveConsent) {
+    return 'Please confirm you agree to the organiser collecting the information marked as sensitive.';
+  }
+  return null;
+}
+
+// The single place the services ask "what does this product surface require
+// of these answers?" — so the shared free/paid services stay product-neutral
+// (they pass the surface through; they never branch on it themselves).
+// Returns the refusal message, or the consent timestamp to store on
+// sensitive rows (null when there is none to record).
+export function applySurfaceAnswerPolicy(params: {
+  productSurface: string;
+  eveQuestionsEnabled: boolean | undefined;
+  sensitiveConsent: boolean | undefined;
+  submitted: { orderResponses: SubmittedAnswer[]; attendeeResponses: SubmittedAnswer[][] };
+  validated: ValidatedResponses;
+}): { ok: false; error: string } | { ok: true; sensitiveConsentAt: string | null } {
+  if (params.productSurface !== 'EVE') return { ok: true, sensitiveConsentAt: null };
+  const error = checkEveAnswerPolicy(params.submitted, params.validated, {
+    eveQuestionsEnabled: params.eveQuestionsEnabled === true,
+    sensitiveConsent: params.sensitiveConsent === true,
+  });
+  if (error) return { ok: false, error };
+  return { ok: true, sensitiveConsentAt: params.sensitiveConsent === true ? new Date().toISOString() : null };
+}
+
 // ── Flattening helpers — shared by both response-write paths ────────
 //
 // Pure array-building only, no DB access — reused by both the atomic
@@ -271,10 +329,15 @@ export function validateSubmittedResponses(
 // write). Kept as plain data builders rather than each duplicating its
 // own flattening logic.
 
+// helpTexts uses '' for "no help text" (NULLIF'd back to NULL on insert);
+// sensitives are 'true'/'false' text (cast ::boolean on insert) — the same
+// text-array UNNEST discipline as every other column here.
 export type FlattenedOrderResponses = {
   questionIds: string[];
   labels: string[];
   fieldTypes: string[];
+  helpTexts: string[];
+  sensitives: string[];
   answersJson: string[];
 };
 
@@ -283,6 +346,8 @@ export function flattenOrderAnswers(orderAnswers: ValidatedAnswer[]): FlattenedO
     questionIds: orderAnswers.map(a => a.question.id),
     labels: orderAnswers.map(a => a.question.label),
     fieldTypes: orderAnswers.map(a => a.question.field_type),
+    helpTexts: orderAnswers.map(a => a.question.help_text ?? ''),
+    sensitives: orderAnswers.map(a => String(a.question.sensitive === true)),
     answersJson: orderAnswers.map(a => JSON.stringify(a.answer)),
   };
 }
@@ -297,6 +362,8 @@ export type FlattenedAttendeeResponses = {
   questionIds: string[];
   labels: string[];
   fieldTypes: string[];
+  helpTexts: string[];
+  sensitives: string[];
   answersJson: string[];
 };
 
@@ -304,7 +371,7 @@ export function flattenAttendeeAnswers(
   attendeeAnswers: ValidatedAnswer[][],
   correlationKeys: string[],
 ): FlattenedAttendeeResponses {
-  const out: FlattenedAttendeeResponses = { correlationKeys: [], questionIds: [], labels: [], fieldTypes: [], answersJson: [] };
+  const out: FlattenedAttendeeResponses = { correlationKeys: [], questionIds: [], labels: [], fieldTypes: [], helpTexts: [], sensitives: [], answersJson: [] };
   attendeeAnswers.forEach((answersForAttendee, idx) => {
     const key = correlationKeys[idx];
     for (const ans of answersForAttendee) {
@@ -312,6 +379,8 @@ export function flattenAttendeeAnswers(
       out.questionIds.push(ans.question.id);
       out.labels.push(ans.question.label);
       out.fieldTypes.push(ans.question.field_type);
+      out.helpTexts.push(ans.question.help_text ?? '');
+      out.sensitives.push(String(ans.question.sensitive === true));
       out.answersJson.push(JSON.stringify(ans.answer));
     }
   });
@@ -347,6 +416,9 @@ export async function writeRegistrationResponses(
   orderId: string,
   attendeeIds: string[],
   responses: ValidatedResponses,
+  // ISO timestamp of the Eve buyer's sensitive-information acknowledgement,
+  // or null. Stored only on rows whose question is sensitive.
+  sensitiveConsentAt: string | null = null,
 ): Promise<void> {
   const order = flattenOrderAnswers(responses.orderAnswers);
   const attendee = flattenAttendeeAnswers(responses.attendeeAnswers, attendeeIds);
@@ -357,15 +429,19 @@ export async function writeRegistrationResponses(
   const attendeeIdColumn = [...order.questionIds.map(() => ''), ...attendee.correlationKeys];
   const labels = [...order.labels, ...attendee.labels];
   const fieldTypes = [...order.fieldTypes, ...attendee.fieldTypes];
+  const helpTexts = [...order.helpTexts, ...attendee.helpTexts];
+  const sensitives = [...order.sensitives, ...attendee.sensitives];
   const answersJson = [...order.answersJson, ...attendee.answersJson];
 
   if (!questionIds.length) return;
 
   await sql`
     INSERT INTO event_registration_responses
-      (organisation_id, event_id, question_id, order_id, attendee_id, question_label_snapshot, field_type_snapshot, answer)
-    SELECT ${organisationId}, ${eventId}, a.question_id, ${orderId}, NULLIF(a.attendee_id, ''), a.label, a.field_type, a.answer_json::jsonb
-    FROM UNNEST(${questionIds}::text[], ${attendeeIdColumn}::text[], ${labels}::text[], ${fieldTypes}::text[], ${answersJson}::text[])
-      AS a(question_id, attendee_id, label, field_type, answer_json)
+      (organisation_id, event_id, question_id, order_id, attendee_id, question_label_snapshot, field_type_snapshot,
+       question_help_text_snapshot, sensitive_snapshot, sensitive_consent_at, answer)
+    SELECT ${organisationId}, ${eventId}, a.question_id, ${orderId}, NULLIF(a.attendee_id, ''), a.label, a.field_type,
+      NULLIF(a.help_text, ''), a.sensitive::boolean, CASE WHEN a.sensitive::boolean THEN ${sensitiveConsentAt}::timestamptz END, a.answer_json::jsonb
+    FROM UNNEST(${questionIds}::text[], ${attendeeIdColumn}::text[], ${labels}::text[], ${fieldTypes}::text[], ${helpTexts}::text[], ${sensitives}::text[], ${answersJson}::text[])
+      AS a(question_id, attendee_id, label, field_type, help_text, sensitive, answer_json)
   `;
 }

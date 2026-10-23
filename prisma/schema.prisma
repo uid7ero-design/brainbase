@@ -2710,6 +2710,9 @@ model Event {
   // scripts/create-events-notifications.sql). Default false for every
   // existing and new event; only an organiser's PATCH turns it on.
   reminder_enabled Boolean          @default(false)
+  // Eve — per-event opt-in to show registration questions on Eve (see
+  // scripts/add-eve-registration-questions.sql). Default false.
+  eve_questions_enabled Boolean     @default(false)
   created_by      String?
   created_at      DateTime          @default(now()) @db.Timestamptz(6)
   updated_at      DateTime          @updatedAt @db.Timestamptz(6)
@@ -3316,6 +3319,9 @@ model EventRegistrationQuestion {
   options         Json?
   sort_order      Int      @default(0)
   active          Boolean  @default(true)
+  // Answers may reveal sensitive information (health/accessibility,
+  // third-party details). Eve requires an explicit acknowledgement.
+  sensitive       Boolean  @default(false)
   created_at      DateTime @default(now()) @db.Timestamptz(6)
   updated_at      DateTime @updatedAt @db.Timestamptz(6)
 
@@ -3337,6 +3343,10 @@ model EventRegistrationResponse {
   attendee_id             String?
   question_label_snapshot String
   field_type_snapshot     String
+  question_help_text_snapshot String?
+  sensitive_snapshot      Boolean  @default(false)
+  // Set when an Eve buyer acknowledged collection of a sensitive answer.
+  sensitive_consent_at    DateTime? @db.Timestamptz(6)
   answer                  Json
   created_at              DateTime @default(now()) @db.Timestamptz(6)
 

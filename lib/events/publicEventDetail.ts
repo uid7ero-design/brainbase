@@ -66,6 +66,9 @@ export type PublicQuestion = {
   scope: QuestionScope;
   options: string[] | null;
   sort_order: number;
+  // Whether the organiser marked answers as possibly sensitive — drives
+  // the acknowledgement Eve shows. Part of the definition, not an answer.
+  sensitive: boolean;
 };
 
 export type PublicEventDetail = {
@@ -110,8 +113,11 @@ export type PublicEventDetail = {
   organisationName: string;
 };
 
+// eveQuestionsEnabled sits beside `detail`, not inside it: only the Eve
+// event read uses it (to decide whether Eve shows the questions), and it is
+// never part of the public body as such.
 export type PublicEventDetailResult =
-  | { ok: true; detail: PublicEventDetail }
+  | { ok: true; detail: PublicEventDetail; eveQuestionsEnabled: boolean }
   | { ok: false };
 
 // Shared by both the public API route and the public page's own
@@ -276,12 +282,13 @@ export async function getPublicEventDetail(
       session_inventory: inventoryRows as unknown as PublicSessionInventory[],
       questions: questionRows.map(q => ({
         id: q.id, label: q.label, help_text: q.help_text, field_type: q.field_type,
-        required: q.required, scope: q.scope, options: q.options, sort_order: q.sort_order,
+        required: q.required, scope: q.scope, options: q.options, sort_order: q.sort_order, sensitive: q.sensitive === true,
       })),
       has_promotions: promotionRows.length > 0,
       booking_fee: publicFeeDisclosure(feeResolution.policy),
       branding,
       organisationName,
     },
+    eveQuestionsEnabled: event.eve_questions_enabled === true,
   };
 }

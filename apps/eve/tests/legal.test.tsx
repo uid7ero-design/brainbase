@@ -250,8 +250,13 @@ describe('legal routes', () => {
     expect(all).not.toMatch(/separate agreement/i);
     expect(all).not.toMatch(/By using Eve you understand/i);
     const priv = PRIVACY.sections.flatMap(s => s.body).join(' ');
+    // Registration questions (ADR 0013 §4a) — wording PENDING LEGAL REVIEW.
+    expect(priv).not.toMatch(/does not currently ask registration questions/);
+    expect(priv).toMatch(/your answers to any registration questions the Event Organiser has chosen to ask for that event/);
+    expect(priv).toMatch(/only the organiser.s team members with a manager role or higher can see them/);
+    expect(priv).toMatch(/not added to the organiser.s contact records, not included in ticket emails, and not used for marketing/);
+    expect(priv).toMatch(/we ask you to confirm you agree before your answer is submitted, and we record when you did/);
     expect(priv).not.toMatch(/answers to registration questions that the Event Organiser asks/);
-    expect(priv).toMatch(/does not currently ask registration questions, so we do not currently collect answers to them/);
     expect(priv).not.toMatch(/attendee.s name and optional email/); // Eve collects attendee names only
     expect(priv).toMatch(/This means some personal information may be handled outside Australia/);
   });

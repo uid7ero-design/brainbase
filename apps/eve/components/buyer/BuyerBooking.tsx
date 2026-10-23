@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import type { PublicEventDetail } from '@/lib/ticketing/gateway';
 import { formatAmount, formatDateTime, formatMoney } from '@/lib/format';
+import { QuestionField, isAnswered, type Answer } from './QuestionField';
 
 // The buyer's booking form. It talks only to this product's own origin
 // (/api/buyer/...); the server relays to the ticketing API, which owns
@@ -66,8 +67,20 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
   // (details, terms, "Continue to payment") never starts. Free types are
   // unaffected. The checkout API enforces the same gate regardless.
   const paidOpen = detail.paid_checkout_available === true;
-  const offered = (t: { price_cents: number }) => paidOpen || t.price_cents <= 0;
+  // A required registration question the event has not opted in to on Eve
+  // would make any booking here fail, so nothing is offered (server-derived).
+  const blocked = detail.questions_block_booking === true;
+  const offered = (t: { price_cents: number }) => !blocked && (paidOpen || t.price_cents <= 0);
   const anyOffered = types.some(offered);
+
+  // Registration questions (only present when the event is opted in on Eve).
+  const questions = detail.questions ?? [];
+  const orderQuestions = questions.filter(q => q.scope === 'ORDER');
+  const attendeeQuestions = questions.filter(q => q.scope === 'ATTENDEE');
+  const [orderAnswers, setOrderAnswers] = useState<Record<string, Answer>>({});
+  const [slotAnswers, setSlotAnswers] = useState<Record<string, Record<string, Answer>>>({});
+  // Unticked by default; shown only once a sensitive question is answered.
+  const [sensitiveConsent, setSensitiveConsent] = useState(false);
 
   const lines = types.filter(t => offered(t) && (qty[t.id] ?? 0) > 0).map(t => ({ type: t, quantity: qty[t.id] }));
   const totalTickets = lines.reduce((n, l) => n + l.quantity, 0);
@@ -98,6 +111,28 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
   }, [cartKey]);
 
   const slots = useMemo(() => lines.flatMap(l => Array.from({ length: l.quantity }, (_, i) => ({ type: l.type, index: i }))), [cartKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const slotKey = (s: { type: { id: string }; index: number }) => `${s.type.id}-${s.index}`;
+
+  const answeredSensitive = [
+    ...orderQuestions.filter(q => q.sensitive && isAnswered(orderAnswers[q.id])),
+    ...slots.flatMap(s => attendeeQuestions.filter(q => q.sensitive && isAnswered(slotAnswers[slotKey(s)]?.[q.id]))),
+  ];
+  const sensitiveLabels = [...new Set(answeredSensitive.map(q => q.label))];
+
+  // Only answered questions are sent; the server applies "required".
+  const toResponses = (qs: typeof questions, answers: Record<string, Answer> | undefined) =>
+    qs.filter(q => isAnswered(answers?.[q.id])).map(q => {
+      const a = answers![q.id];
+      return { question_id: q.id, answer: typeof a === 'string' ? a.trim() : a };
+    });
+
+  function firstMissingRequired(): string | null {
+    for (const q of orderQuestions) if (q.required && !isAnswered(orderAnswers[q.id])) return q.label;
+    for (const s of slots) for (const q of attendeeQuestions) {
+      if (q.required && !isAnswered(slotAnswers[slotKey(s)]?.[q.id])) return q.label;
+    }
+    return null;
+  }
 
   function setQuantity(typeId: string, next: number, max: number) {
     setQty(prev => ({ ...prev, [typeId]: Math.max(0, Math.min(next, max)) }));
@@ -109,6 +144,11 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
     if (!anyOffered) return;
     if (!sessionId && sessions.length > 0) { setError('Choose a session.'); return; }
     if (totalTickets === 0) { setError('Select at least one ticket.'); return; }
+    const missing = firstMissingRequired();
+    if (missing) { setError(`${missing} is required.`); return; }
+    if (sensitiveLabels.length > 0 && !sensitiveConsent) {
+      setError('Please confirm you agree to the organiser collecting the information marked as sensitive.'); return;
+    }
     if (anyPaid && !accepted) { setError('Please agree to the Terms and the Refunds & cancellations policy to continue.'); return; }
     setBusy(true);
     try {
@@ -117,7 +157,12 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
         event_session_id: sessionId || undefined,
         purchaser_name: purchaser.name, purchaser_email: purchaser.email, purchaser_phone: purchaser.phone || undefined,
         promotion_code: promo ?? undefined, access_code: access ?? undefined,
-        attendees: slots.map(s => ({ name: attendeeNames[s.type.id]?.[s.index] || purchaser.name, ticket_type_id: s.type.id })),
+        attendees: slots.map(s => {
+          const responses = toResponses(attendeeQuestions, slotAnswers[slotKey(s)]);
+          return { name: attendeeNames[s.type.id]?.[s.index] || purchaser.name, ticket_type_id: s.type.id, ...(responses.length ? { responses } : {}) };
+        }),
+        ...(orderQuestions.length && toResponses(orderQuestions, orderAnswers).length ? { order_responses: toResponses(orderQuestions, orderAnswers) } : {}),
+        ...(sensitiveLabels.length > 0 && sensitiveConsent ? { sensitive_consent: true } : {}),
         ...(anyPaid ? { accept_terms: true } : {}),
       };
       const res = await fetch(`${base}/${anyPaid ? 'checkout' : 'register'}`, {
@@ -181,7 +226,7 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
             const others = totalTickets - (qty[t.id] ?? 0);
             const sessionCap = selectedSession ? selectedSession.remaining - others : Number.POSITIVE_INFINITY;
             const max = Math.max(0, Math.min(remaining, MAX_ORDER_TICKETS - others, sessionCap));
-            const state = !offered(t) ? 'Not currently on sale' : locked ? 'Access code required' : !onSale ? (t.sale_status === 'COMING_SOON' ? `On sale ${formatDateTime(t.sale_starts_at, detail.event.timezone)}` : 'Sales ended') : remaining <= 0 ? 'Sold out' : `${remaining} remaining`;
+            const state = !offered(t) && !blocked ? 'Not currently on sale' : locked ? 'Access code required' : !onSale ? (t.sale_status === 'COMING_SOON' ? `On sale ${formatDateTime(t.sale_starts_at, detail.event.timezone)}` : 'Sales ended') : remaining <= 0 ? 'Sold out' : `${remaining} remaining`;
             const disabled = !offered(t) || locked || !onSale || max <= 0;
             return (
               <li key={t.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
@@ -235,7 +280,34 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
             <div><label htmlFor="pphone" className={label}>Phone (optional)</label><input id="pphone" type="tel" className={input} value={purchaser.phone} onChange={e => setPurchaser({ ...purchaser, phone: e.target.value })} autoComplete="tel" /></div>
           </fieldset>
 
-          {totalTickets > 1 ? (
+          {orderQuestions.length > 0 ? (
+            <fieldset className="space-y-4" data-testid="order-questions">
+              <legend className="text-sm font-semibold">About your booking</legend>
+              {orderQuestions.map(q => (
+                <QuestionField key={q.id} question={q} idPrefix="oq" value={orderAnswers[q.id]}
+                  onChange={v => setOrderAnswers(prev => ({ ...prev, [q.id]: v }))} />
+              ))}
+            </fieldset>
+          ) : null}
+
+          {attendeeQuestions.length > 0 ? (
+            slots.map(s => (
+              <fieldset key={slotKey(s)} className="space-y-4" data-testid={`attendee-${slotKey(s)}`}>
+                <legend className="text-sm font-semibold">{s.type.name} ticket {s.index + 1}</legend>
+                {totalTickets > 1 ? (
+                  <div>
+                    <label htmlFor={`att-${s.type.id}-${s.index}`} className={label}>Attendee name</label>
+                    <input id={`att-${s.type.id}-${s.index}`} className={input} required value={attendeeNames[s.type.id]?.[s.index] ?? ''}
+                      onChange={e => setAttendeeNames(prev => { const arr = [...(prev[s.type.id] ?? [])]; arr[s.index] = e.target.value; return { ...prev, [s.type.id]: arr }; })} />
+                  </div>
+                ) : null}
+                {attendeeQuestions.map(q => (
+                  <QuestionField key={q.id} question={q} idPrefix={`aq-${slotKey(s)}`} value={slotAnswers[slotKey(s)]?.[q.id]}
+                    onChange={v => setSlotAnswers(prev => ({ ...prev, [slotKey(s)]: { ...prev[slotKey(s)], [q.id]: v } }))} />
+                ))}
+              </fieldset>
+            ))
+          ) : totalTickets > 1 ? (
             <fieldset className="space-y-4">
               <legend className="text-sm font-semibold">Attendee names</legend>
               {slots.map(s => (
@@ -262,8 +334,17 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
 
       {totalTickets > 0 ? (
         <div className="space-y-3 text-sm" data-testid="booking-notices">
+          {sensitiveLabels.length > 0 ? (
+            <div className="flex items-start gap-3 rounded-lg border border-eve-line p-3" data-testid="sensitive-consent">
+              <input id="sensitive-consent" type="checkbox" checked={sensitiveConsent} onChange={e => setSensitiveConsent(e.target.checked)} required className="mt-1 h-5 w-5 shrink-0" />
+              <label htmlFor="sensitive-consent" className="text-eve-ink">
+                {`I agree to ${detail.organisationName} collecting my answers to ${sensitiveLabels.join(', ')} for this event. `}
+                These answers may include health, accessibility or another person&apos;s details. Only answer what you are comfortable sharing.
+              </label>
+            </div>
+          ) : null}
           <p data-testid="collection-notice" className="text-eve-muted">
-            Your booking details (your name, email and phone, and the attendees&apos; names) are provided to the event organiser so they can run the booking and contact you about the event. Your name, email and phone may also appear in the organiser&apos;s event contact records. This is not consent to marketing. See the{' '}
+            Your booking details (your name, email and phone, {questions.length > 0 ? <>the attendees&apos; names, and your answers to the organiser&apos;s questions</> : <>and the attendees&apos; names</>}) are provided to the event organiser so they can run the booking and contact you about the event. Your name, email and phone may also appear in the organiser&apos;s event contact records. This is not consent to marketing. See the{' '}
             <Link href="/privacy" target="_blank" rel="noopener" className="underline">Privacy Policy</Link>.
           </p>
           {anyPaid ? (
@@ -295,7 +376,7 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
         </button>
       ) : (
         <p role="status" data-testid="not-on-sale" className="rounded-lg bg-eve-surface-alt p-4 text-center text-sm font-medium text-eve-ink">
-          Tickets are not currently on sale.
+          {blocked ? 'Online registration isn’t available for this event.' : 'Tickets are not currently on sale.'}
         </p>
       )}
     </form>

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
 import { listEventRegistrationRows } from '@/lib/events/organiserReads';
+import { roleGte } from '@/lib/session';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -45,5 +46,24 @@ export async function GET(req: Request, { params }: Ctx) {
   // registrations).
   const orderIds = new Set((orders as { id: string }[]).map(o => o.id));
 
-  return NextResponse.json({ orders, crm_enabled: crmCapability.allowed, order_count: orderIds.size });
+  // Registration answers are personal and may be sensitive (health/
+  // accessibility, a third party's details): manager+ only, the same rule
+  // as the Eve organiser API (ADR 0013 §4). Below manager the keys are
+  // removed entirely, not emptied, so nothing hints at whether answers exist.
+  const rows = roleGte(session.role, 'manager')
+    ? orders
+    : (orders as Record<string, unknown>[]).map(row => {
+        const out: Record<string, unknown> = { ...row };
+        delete out.order_responses;
+        if (Array.isArray(row.attendees)) {
+          out.attendees = row.attendees.map(a => {
+            const att: Record<string, unknown> = { ...((a ?? {}) as Record<string, unknown>) };
+            delete att.responses;
+            return att;
+          });
+        }
+        return out;
+      });
+
+  return NextResponse.json({ orders: rows, crm_enabled: crmCapability.allowed, order_count: orderIds.size });
 }

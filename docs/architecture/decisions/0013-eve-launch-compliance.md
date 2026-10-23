@@ -123,6 +123,31 @@ cannot be booked on Eve at all.
   sensitive flag + consent control (and the matching Privacy wording) behind a new
   schema gate.
 
+### 4a. Built (2026-10-23, branch `feat/eve-registration-questions`) — not yet live
+
+Schema gate `scripts/add-eve-registration-questions.sql` (additive; must be applied
+before the code deploys):
+
+- `events.eve_questions_enabled` (default false): per-event Eve opt-in, manager+,
+  audited (`event.eve_questions_toggled`). Off, Eve receives no question
+  definitions and the shared services refuse any answer submitted through the EVE
+  surface; an event with a required question shows "Online registration isn't
+  available for this event." on Eve instead of failing at submit.
+- `event_registration_questions.sensitive`: organiser-marked. On Eve, any answer to
+  a sensitive question requires `sensitive_consent: true` (a separate, unticked
+  checkbox naming the questions); enforced server-side for the EVE surface.
+- `event_registration_responses.question_help_text_snapshot`, `sensitive_snapshot`,
+  `sensitive_consent_at`: the wording and sensitivity as answered, and when the Eve
+  buyer acknowledged. Yes/no questions have no default on Eve.
+- Answer visibility: manager+ only, in both the Eve organiser API and the BrainBase
+  registrations read (previously viewer+ in BrainBase; no viewer/analyst users
+  existed in any affected organisation on 2026-10-23). Unchanged: never in CRM,
+  emails, the CSV export, audit-log content, search, or any buyer/public endpoint.
+- Once a question has answers its type and scope are locked and select options can
+  only be added.
+- Privacy Policy sections 2–5 rewritten for registration questions — **requires
+  legal review before merge** (merging publishes it).
+
 ## 5. Remaining limits (unchanged)
 
 - All legal text is DRAFT; operator name/ABN/address/state/retention/GST are

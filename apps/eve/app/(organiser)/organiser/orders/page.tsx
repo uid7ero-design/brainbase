@@ -5,6 +5,7 @@ import { requireOrganiser } from '@/lib/organiserAuth';
 import { identityOf } from '@/lib/identity';
 import { loadEvents, loadOrders, pickEvent } from '@/lib/organiserData';
 import { formatAmount, formatDateTime } from '@/lib/format';
+import { RecordedAnswers } from '@/components/organiser/RecordedAnswers';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,7 +36,7 @@ export default async function OrganiserOrdersPage({ searchParams }: Props) {
                 <tbody>
                   {orders.map(o => (
                     <tr key={o.id} className="border-t border-eve-line">
-                      <th scope="row" className="p-3 font-medium">{o.purchaser_name}<span className="block text-xs font-normal text-eve-muted">{o.purchaser_email}</span></th>
+                      <th scope="row" className="p-3 font-medium">{o.purchaser_name}<span className="block text-xs font-normal text-eve-muted">{o.purchaser_email}</span><RecordedAnswers answers={o.answers} /></th>
                       <td className="p-3">{o.lines.map((l, i) => <span key={i} className="block">{l.quantity} × {l.ticket_type_name ?? 'Ticket'}{l.session_name ? ` (${l.session_name})` : ''}</span>)}</td>
                       <td className="p-3">{o.payment_status}</td>
                       <td className="p-3">{o.status}</td>

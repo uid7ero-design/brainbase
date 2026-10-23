@@ -126,7 +126,9 @@ export const PRIVACY: LegalDoc = {
     {
       heading: '2. What we collect',
       body: [
-        'If you book a ticket: your name, email address and optional phone number; each attendee\'s name; and any promotion or access code you enter. Eve\'s booking form does not currently ask registration questions, so we do not currently collect answers to them (see section 5).',
+        // LEGAL REVIEW REQUIRED (registration questions, ADR 0013 §4): the
+        // registration-question wording in sections 2, 3, 4 and 5 below.
+        'If you book a ticket: your name, email address and optional phone number; each attendee\'s name; any promotion or access code you enter; and your answers to any registration questions the Event Organiser has chosen to ask for that event (see section 5). Questions marked as optional can be left blank.',
         'If you are an Event Organiser or team member: your username, a one-way hash of your password (never the password itself), your name, role, sign-in times and session records.',
         'When tickets are checked in: the time of check-in and the organiser staff member who recorded it.',
         'Technical data: our hosting provider\'s logs record technical request details such as your IP address. We also use hashed identifiers to limit repeated requests.',
@@ -137,6 +139,7 @@ export const PRIVACY: LegalDoc = {
       heading: '3. Why we use it',
       body: [
         'To process bookings and, for paid tickets, payments and refunds; to issue and deliver tickets; to send booking confirmations and event notices (such as cancellation, event-change and, where the Event Organiser has switched them on, reminder emails); to run organiser accounts and keep them secure; to prevent abuse; and to meet legal obligations.',
+        'Answers to registration questions are collected for the Event Organiser, so they can run the event (for example catering, access arrangements, or contacting someone in an emergency).',
         'We do not currently send marketing email or use your booking details for marketing, and agreeing to the Terms is not consent to marketing.',
       ],
     },
@@ -144,6 +147,7 @@ export const PRIVACY: LegalDoc = {
       heading: '4. Who we share it with',
       body: [
         'The Event Organiser. Your booking details are provided to the Event Organiser so they can administer the booking and communicate with you about the event. Your name, email address and phone number may also appear in the organiser\'s event contact records on our platform. This does not give anyone your consent to marketing. The Event Organiser handles that information under its own privacy practices.',
+        'Answers to registration questions go to the Event Organiser for that event only. On our platform, only the organiser\'s team members with a manager role or higher can see them. They are not added to the organiser\'s contact records, not included in ticket emails, and not used for marketing.',
         'Our service providers: Vercel (hosting), Neon (database hosting) and Resend (email delivery). For paid tickets, Stripe processes the payment through the Event Organiser\'s Stripe account as an independent payment processor, under its own privacy policy. The Event Organiser can see the amount, payment status and refund status of paid bookings.',
         'Where required or permitted by law.',
       ],
@@ -151,7 +155,9 @@ export const PRIVACY: LegalDoc = {
     {
       heading: '5. Sensitive information',
       body: [
-        'Eve does not currently show registration questions on its booking form, so it does not collect answers to them. If that changes, this policy will be updated first. Event Organisers who ask such questions elsewhere (for example about access or dietary needs) should only ask for what they need, because answers can reveal sensitive information such as health or disability.',
+        'Some registration questions may ask about accessibility or support needs, dietary needs, or an emergency contact. Answers like these can reveal sensitive information, such as health or disability, or another person\'s details. Where the Event Organiser marks a question as sensitive, we ask you to confirm you agree before your answer is submitted, and we record when you did. You do not have to answer an optional question.',
+        'If you give another person\'s details (for example an emergency contact), please make sure they are happy for you to share them for this purpose.',
+        'Event Organisers should only ask for what they need to run the event.',
       ],
     },
     {

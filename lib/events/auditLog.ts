@@ -461,6 +461,19 @@ export async function logEventUpdated(params: { organisationId: string; userId: 
   });
 }
 
+// Eve registration questions (ADR 0013 §4) — the per-event opt-in that
+// starts (or stops) Eve showing this event's questions and accepting
+// answers. Only the boolean itself is recorded.
+export async function logEventEveQuestionsToggled(params: {
+  organisationId: string; userId: string; eventId: string; before: boolean; after: boolean;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event.eve_questions_toggled',
+    resourceType: 'event', resourceId: params.eventId,
+    beforeState: { eve_questions_enabled: params.before }, afterState: { eve_questions_enabled: params.after },
+  });
+}
+
 export async function logEventPublished(params: { organisationId: string; userId: string; eventId: string; before: EventRow; after: EventRow }): Promise<void> {
   const diff = diffFields(params.before, params.after, EVENT_AUDIT_FIELDS);
   await insertAuditLog({

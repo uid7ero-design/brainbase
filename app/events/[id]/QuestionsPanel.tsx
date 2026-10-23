@@ -30,6 +30,9 @@ const SCOPE_LABELS: Record<Scope, string> = { ORDER: 'Once per booking', ATTENDE
 type QuestionRow = {
   id: string; label: string; help_text: string | null; field_type: FieldType; required: boolean;
   scope: Scope; options: string[] | null; sort_order: number; active: boolean;
+  // ADR 0013 §4 — answers may be sensitive; Eve asks the buyer to
+  // acknowledge before submitting one. response_count > 0 locks type/scope.
+  sensitive: boolean; response_count?: number;
 };
 
 // §4 — sensible starter examples, offered as a shortcut that still
@@ -37,9 +40,11 @@ type QuestionRow = {
 // event — see that route's own header comment). Never LD-Tennis or any
 // other organisation-specific wording; these are generic enough to be
 // reusable across any BrainBase organisation running events.
-const COMMON_QUESTIONS: { label: string; field_type: FieldType; scope: Scope }[] = [
+// Accessibility answers can reveal health or disability information, so
+// that template starts marked sensitive (the organiser can still change it).
+const COMMON_QUESTIONS: { label: string; field_type: FieldType; scope: Scope; sensitive?: boolean }[] = [
   { label: 'Dietary requirements', field_type: 'LONG_TEXT', scope: 'ATTENDEE' },
-  { label: 'Accessibility or support requirements', field_type: 'LONG_TEXT', scope: 'ATTENDEE' },
+  { label: 'Accessibility or support requirements', field_type: 'LONG_TEXT', scope: 'ATTENDEE', sensitive: true },
   { label: 'Special requests or anything else we should know?', field_type: 'LONG_TEXT', scope: 'ORDER' },
 ];
 
@@ -47,7 +52,9 @@ export default function QuestionsPanel({ eventId, canManage }: { eventId: string
   const [questions, setQuestions] = useState<QuestionRow[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [createTemplate, setCreateTemplate] = useState<{ label: string; field_type: FieldType; scope: Scope } | null>(null);
+  const [createTemplate, setCreateTemplate] = useState<{ label: string; field_type: FieldType; scope: Scope; sensitive?: boolean } | null>(null);
+  const [eveEnabled, setEveEnabled] = useState<boolean | null>(null);
+  const [eveBusy, setEveBusy] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -72,7 +79,7 @@ export default function QuestionsPanel({ eventId, canManage }: { eventId: string
           return;
         }
         const body = await res.json();
-        if (!cancelled) setQuestions(body.questions ?? []);
+        if (!cancelled) { setQuestions(body.questions ?? []); setEveEnabled(body.eve_questions_enabled === true); }
       } catch {
         if (!cancelled) setLoadError('Failed to load questions.');
       }
@@ -125,6 +132,27 @@ export default function QuestionsPanel({ eventId, canManage }: { eventId: string
     }
   }
 
+  // ADR 0013 §4 — the event's Eve opt-in. Off: Eve shows none of these
+  // questions and refuses answers sent through it. On: Eve shows the
+  // active ones and asks for an acknowledgement before a sensitive answer.
+  async function setEve(next: boolean) {
+    setActionError(null);
+    setEveBusy(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}/questions`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ eve_questions_enabled: next }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setActionError(body.error ?? `Failed to update (${res.status}).`);
+        return;
+      }
+      setEveEnabled(next);
+    } finally {
+      setEveBusy(false);
+    }
+  }
+
   const orderQuestions = (questions ?? []).filter(q => q.scope === 'ORDER');
   const attendeeQuestions = (questions ?? []).filter(q => q.scope === 'ATTENDEE');
 
@@ -164,6 +192,23 @@ export default function QuestionsPanel({ eventId, canManage }: { eventId: string
           </div>
         )}
       />
+
+      {eveEnabled !== null && (
+        <div style={{ ...rowCardStyle, marginBottom: 12, fontSize: 12, color: TEXT_SECONDARY, lineHeight: 1.5 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY }}>
+            <input
+              type="checkbox" checked={eveEnabled} disabled={!canManage || eveBusy}
+              onChange={e => setEve(e.target.checked)} aria-describedby="eve-questions-help"
+            />
+            Ask these questions on Eve
+          </label>
+          <div id="eve-questions-help" style={{ marginTop: 4 }}>
+            {eveEnabled
+              ? 'Eve shows the active questions below on this event’s booking page. Buyers confirm before submitting an answer to a question marked sensitive.'
+              : 'Off: Eve does not show these questions and does not accept answers to them. If any active question is required, Eve tells buyers online registration is not available for this event.'}
+          </div>
+        </div>
+      )}
 
       {loadError && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12, marginBottom: 10 }}>{loadError}</div>}
       {actionError && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12, marginBottom: 10 }}>{actionError}</div>}
@@ -218,7 +263,9 @@ export default function QuestionsPanel({ eventId, canManage }: { eventId: string
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 700, fontSize: 13, color: TEXT_PRIMARY }}>{q.label}</span>
                         {q.required && <StatusBadge label="Required" tone="warning" />}
+                        {q.sensitive && <StatusBadge label="Sensitive" tone="warning" />}
                         {!q.active && <StatusBadge label="Inactive" tone="neutral" />}
+                        {(q.response_count ?? 0) > 0 && <StatusBadge label={`${q.response_count} answer${q.response_count === 1 ? '' : 's'}`} tone="neutral" />}
                       </div>
                       <div style={{ marginTop: 5, fontSize: 12, color: TEXT_SECONDARY }}>
                         {FIELD_TYPE_LABELS[q.field_type]}
@@ -261,7 +308,7 @@ export default function QuestionsPanel({ eventId, canManage }: { eventId: string
 
 type QuestionFormValues = {
   label: string; help_text: string | null; field_type: FieldType; required: boolean;
-  scope: Scope; options: string[] | null; sort_order: number;
+  scope: Scope; options: string[] | null; sort_order: number; sensitive: boolean;
 };
 
 function QuestionForm({ initial, onSubmit, onCancel }: {
@@ -276,7 +323,11 @@ function QuestionForm({ initial, onSubmit, onCancel }: {
   const [scope, setScope] = useState<Scope>(initial?.scope ?? 'ATTENDEE');
   const [options, setOptions] = useState<string[]>(initial?.options && initial.options.length > 0 ? initial.options : ['']);
   const [sortOrder, setSortOrder] = useState(initial?.sort_order ?? 0);
+  const [sensitive, setSensitive] = useState(initial?.sensitive ?? false);
   const [error, setError] = useState<string | null>(null);
+  // Answered questions keep their type and scope (the server refuses a
+  // change — see the [questionId] route); shown as fixed text instead.
+  const answered = (initial?.response_count ?? 0) > 0;
   const [saving, setSaving] = useState(false);
 
   const isSelect = fieldType === 'SINGLE_SELECT' || fieldType === 'MULTI_SELECT';
@@ -296,7 +347,7 @@ function QuestionForm({ initial, onSubmit, onCancel }: {
       const cleanedOptions = options.map(o => o.trim()).filter(Boolean);
       const res = await onSubmit({
         label, help_text: helpText.trim() || null, field_type: fieldType, required, scope,
-        options: isSelect ? cleanedOptions : null, sort_order: Number(sortOrder),
+        options: isSelect ? cleanedOptions : null, sort_order: Number(sortOrder), sensitive,
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -312,6 +363,12 @@ function QuestionForm({ initial, onSubmit, onCancel }: {
       <label style={fieldStyle}>Question<input required className="bb-evt-input" value={label} onChange={e => setLabel(e.target.value)} style={inputStyle} /></label>
       <label style={fieldStyle}>Help text (optional)<input className="bb-evt-input" value={helpText ?? ''} onChange={e => setHelpText(e.target.value)} style={inputStyle} /></label>
 
+      {answered ? (
+        <div style={{ fontSize: 12, color: TEXT_SECONDARY, lineHeight: 1.5 }}>
+          {FIELD_TYPE_LABELS[fieldType]} · {SCOPE_LABELS[scope]}. This question already has answers, so its answer type and
+          who it is asked of are fixed. To ask something different, deactivate it and add a new question.
+        </div>
+      ) : (
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <label style={fieldStyle}>Answer type
           <FilterDropdown
@@ -334,15 +391,16 @@ function QuestionForm({ initial, onSubmit, onCancel }: {
           />
         </label>
       </div>
+      )}
 
       {isSelect && (
         <div>
           <div style={fieldStyle}>Options</div>
           {isEditingExisting && (
             <div style={{ fontSize: 11.5, color: TEXT_MUTED, marginTop: 4, marginBottom: 2, lineHeight: 1.5 }}>
-              Changing or removing an option here only affects future registrations — anyone who already answered this
-              question keeps their original recorded answer exactly as submitted, even if it referenced an option you
-              later change or remove.
+              {answered
+                ? 'This question already has answers: you can add options, but existing options cannot be removed or renamed. Everyone who answered keeps their recorded answer exactly as submitted.'
+                : 'Changing or removing an option here only affects future registrations.'}
             </div>
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
@@ -369,6 +427,13 @@ function QuestionForm({ initial, onSubmit, onCancel }: {
           <input type="checkbox" checked={required} onChange={e => setRequired(e.target.checked)} /> Required
         </label>
       </div>
+      <label style={{ ...fieldStyle, flexDirection: 'row', alignItems: 'flex-start', gap: 6, lineHeight: 1.5 }}>
+        <input type="checkbox" checked={sensitive} onChange={e => setSensitive(e.target.checked)} style={{ marginTop: 3 }} />
+        <span>
+          Sensitive — answers may reveal health, disability or accessibility needs, or another person&apos;s details (for
+          example an emergency contact). On Eve, buyers must confirm before submitting an answer.
+        </span>
+      </label>
 
       {error && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12 }}>{error}</div>}
       <div style={{ display: 'flex', gap: 8 }}>
