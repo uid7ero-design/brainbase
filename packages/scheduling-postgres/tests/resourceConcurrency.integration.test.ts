@@ -98,9 +98,10 @@ describe.skipIf(!hasDatabase)('resource concurrency hardening (2B.2)', () => {
     it('the same holds for an occurrence that carries a resource (a hold written by a different statement shape)', async () => {
       await seedSchedule(ORG, 'occ-sched', 'classes_coaching');
       await seedOffering(ORG, 'occ-off', 'occ-sched', { capacity: 5 });
+      await w.config.linkOfferingResource(w.staff, 'occ-off', 'court-1'); // assigned while still active (031 requires the assignment)
       await inTransaction(async (tx, finish) => {
         okOrThrow(await tx.config.updateResource(w.staff, 'court-1', await tokenOf('court-1'), { active: false }));
-        const racing = seedOccurrence({ id: 'occ-1', org: ORG, offeringId: 'occ-off', capacity: 5, resourceId: 'court-1' });
+        const racing = seedOccurrence({ id: 'occ-1', org: ORG, offeringId: 'occ-off', capacity: 5, resourceId: 'court-1', autoLink: false });
         expect(await pending(racing)).toBe(true);
         await finish();
         expect(await sqlstateOf(racing)).toBe('SCRES');
@@ -155,15 +156,12 @@ describe.skipIf(!hasDatabase)('resource concurrency hardening (2B.2)', () => {
   });
 
   // ─── race 3: a kind change against a booking or a new link ─────────────────────────────────────────────────────
-
   describe('kind change', () => {
-    it('a reservation in flight holds a kind change back, which is then refused', async () => {
-      await w.config.unlinkOfferingResource(w.staff, w.hire.offering, 'court-1');
+    it('a reservation in flight holds a kind change back, which is then refused (the resource is also assigned, so either guard refuses)', async () => {
       await inTransaction(async (tx, finish) => {
         booked(await hire(tx.repo, 'court-1', '10:00'));
         const racing = w.config.updateResource(w.staff, 'court-1', await tokenOf('court-1'), { kind: 'space' });
-        expect(await pending(racing)).toBe(true);
-        await finish();
+        await finish(); // since 031 a booking needs the assignment, which alone already refuses the kind change: no wait to observe
         expect(await racing).toMatchObject({ ok: false, reason: 'resource_in_use' });
         expect((await w.config.listResources(w.staff)).find(r => r.id === 'court-1')!.kind).toBe('court');
       });
@@ -253,16 +251,17 @@ describe.skipIf(!hasDatabase)('resource concurrency hardening (2B.2)', () => {
 
     it('refuses a new live hold on an inactive resource (SCRES) for a direct hold insert too', async () => {
       await q("UPDATE scheduling_resources SET active = false WHERE organisation_id = $1 AND id = 'court-1'", [ORG]);
-      expect(await sqlstateOf(seedOccurrence({ id: 'occ-x', org: ORG, offeringId: w.cls.offering, capacity: 5, resourceId: 'court-1' }))).toBe('SCRES');
+      expect(await sqlstateOf(seedOccurrence({ id: 'occ-x', org: ORG, offeringId: w.cls.offering, capacity: 5, resourceId: 'court-1', autoLink: false }))).toBe('SCRES');
     });
 
     it('refuses a kind change once the resource is linked or has ever been held (SCRIU); allows it while neither', async () => {
+      await seedResource(ORG, 'free-r', 'court');
+      expect(await sqlstateOf(q("UPDATE scheduling_resources SET kind = 'space' WHERE organisation_id = $1 AND id = 'free-r'", [ORG]))).toBeNull(); // neither
       expect(await sqlstateOf(q("UPDATE scheduling_resources SET kind = 'space' WHERE organisation_id = $1 AND id = 'court-1'", [ORG]))).toBe('SCRIU'); // linked
-      expect(await sqlstateOf(q("UPDATE scheduling_resources SET kind = 'space' WHERE organisation_id = $1 AND id = 'room-1'", [ORG]))).toBeNull(); // neither
-      await w.config.unlinkOfferingResource(w.staff, w.hire.offering, 'court-1');
       booked(await hire(w.repo, 'court-1', '10:00'));
       await q("UPDATE scheduling_resource_holds SET released_at = now() WHERE organisation_id = $1 AND resource_id = 'court-1'", [ORG]);
-      expect(await sqlstateOf(q("UPDATE scheduling_resources SET kind = 'space' WHERE organisation_id = $1 AND id = 'court-1'", [ORG]))).toBe('SCRIU'); // released, but it has been held
+      await w.config.unlinkOfferingResource(w.staff, w.hire.offering, 'court-1'); // released holds never block the unlink
+      expect(await sqlstateOf(q("UPDATE scheduling_resources SET kind = 'space' WHERE organisation_id = $1 AND id = 'court-1'", [ORG]))).toBe('SCRIU'); // unassigned and released, but it has been held
     });
 
     it('refuses to delete a link while a live hold of that offering uses the resource (SCALU); other offerings, released and past holds do not block', async () => {

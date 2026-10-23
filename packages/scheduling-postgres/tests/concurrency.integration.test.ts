@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { INTERACTIVE_RETRY, retryOnContention, type CreateReservationResult } from '@scheduling/core';
 import { mapPgError, translating } from '@scheduling/postgres';
 import { TEST_URL, closePool, count, ensureSchema, getPool, hasDatabase, resetData, seedClass, seedOccurrence, seedResource, staff } from './support/pgHarness';
-import { classBooking, liveHolds, makeWorld, person, slotBooking, stayBooking, type World } from './support/builders';
+import { classBooking, linkResources, liveHolds, makeWorld, person, slotBooking, stayBooking, type World } from './support/builders';
 
 // Real concurrency: every call below goes through pg.Pool, so each racer is its own connection
 // and its own implicit transaction, exactly as it is over the Neon HTTP driver (one statement,
