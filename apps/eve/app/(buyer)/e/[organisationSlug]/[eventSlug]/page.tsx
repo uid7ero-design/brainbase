@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { Container, Unavailable } from '@/components/ui/primitives';
 import { BuyerBooking } from '@/components/buyer/BuyerBooking';
 import { getTicketingGateway } from '@/lib/ticketing/gateway';
-import { formatDateTime } from '@/lib/format';
+import { formatDateTime, formatDateTimeRange } from '@/lib/format';
 
 export const metadata: Metadata = { title: 'Event' };
 export const dynamic = 'force-dynamic';
@@ -42,12 +42,17 @@ export default async function PublicEventPage({ params, searchParams }: Props) {
       <div className="grid gap-10 lg:grid-cols-[1fr_minmax(0,28rem)]">
         <div>
           {event.artwork_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={event.artwork_url} alt="" className="mb-6 max-h-96 w-full rounded-[var(--radius-eve)] object-cover" />
+            // Contained, never cropped: the organiser's artwork keeps its own
+            // aspect ratio (poster text and logos stay whole) and is
+            // letterboxed on the surface colour inside a bounded frame.
+            <div data-testid="event-artwork" className="mb-6 flex justify-center overflow-hidden rounded-[var(--radius-eve)] bg-eve-surface-alt">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={event.artwork_url} alt="" className="block h-auto max-h-[36rem] w-auto max-w-full object-contain" />
+            </div>
           ) : null}
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-eve-accent">{detail.organisationName}</p>
           <h1 className="eve-display mt-2 text-4xl sm:text-5xl">{event.name}</h1>
-          <p className="mt-3 text-eve-muted">{formatDateTime(event.starts_at, event.timezone)}{event.venue ? ` · ${event.venue}` : ''}</p>
+          <p className="mt-3 text-eve-muted">{formatDateTimeRange(event.starts_at, event.ends_at, event.timezone)}{event.venue ? ` · ${event.venue}` : ''}</p>
           {event.description ? <p className="mt-6 max-w-prose whitespace-pre-line">{event.description}</p> : null}
           {detail.sessions.length > 0 ? (
             <section className="mt-8" aria-labelledby="sessions-h">

@@ -94,6 +94,32 @@ describe('public event page', () => {
     expect(r.container.querySelector('form')).toBeNull();
   });
 
+  it('shows the event as a local start–end range in the event timezone', async () => {
+    const riverlights = { ...DETAIL, sessions: [], event: { ...DETAIL.event, starts_at: '2027-03-20T01:30:00Z', ends_at: '2027-03-20T12:30:00Z' } };
+    gw.getPublicEvent.mockResolvedValue({ status: 'ok', data: riverlights });
+    const { container } = await renderPage(PublicEventPage({ params: Promise.resolve({ organisationSlug: 'acme', eventSlug: 'gala' }), searchParams: Promise.resolve({}) }));
+    expect(container.textContent!.replace(/[  ]/g, ' ')).toContain('Sat, 20 Mar 2027, 12:00 pm – 11:00 pm ACDT · Town Hall');
+  });
+
+  it('shows artwork contained in a frame, never cropped, and none when there is no artwork', async () => {
+    gw.getPublicEvent.mockResolvedValueOnce({ status: 'ok', data: { ...DETAIL, event: { ...DETAIL.event, artwork_url: 'https://cdn.example.test/poster.jpg' } } });
+    let r = await renderPage(PublicEventPage({ params: Promise.resolve({ organisationSlug: 'acme', eventSlug: 'gala' }), searchParams: Promise.resolve({}) }));
+    const frame = screen.getByTestId('event-artwork');
+    const img = frame.querySelector('img')!;
+    expect(img.getAttribute('src')).toBe('https://cdn.example.test/poster.jpg');
+    expect(img.className).toContain('object-contain');
+    const classes = img.className.split(/\s+/);
+    expect(classes).toEqual(expect.arrayContaining(['h-auto', 'w-auto', 'max-w-full']));
+    expect(classes).not.toContain('object-cover');
+    expect(classes).not.toContain('w-full');
+    expect(await axe(r.container)).toHaveNoViolations();
+    r.unmount();
+    gw.getPublicEvent.mockResolvedValueOnce({ status: 'ok', data: DETAIL });
+    r = await renderPage(PublicEventPage({ params: Promise.resolve({ organisationSlug: 'acme', eventSlug: 'gala' }), searchParams: Promise.resolve({}) }));
+    expect(screen.queryByTestId('event-artwork')).toBeNull();
+    expect(r.container.querySelector('img')).toBeNull();
+  });
+
   it('has no axe violations', async () => {
     gw.getPublicEvent.mockResolvedValue({ status: 'ok', data: DETAIL });
     const { container } = await renderPage(PublicEventPage({ params: Promise.resolve({ organisationSlug: 'acme', eventSlug: 'gala' }), searchParams: Promise.resolve({ checkout: 'cancelled' }) }));
