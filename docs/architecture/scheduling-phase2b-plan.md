@@ -67,6 +67,8 @@ Each package is one reviewable PR, ordered by dependency. Sizes: S under a day, 
 
 ### 2B.0 Decisions and host SQL
 
+> **Status (2026-10-22): built, applied nowhere.** See `scheduling-phase2b0-foundation.md` for what was built, the evidence and the manual handoff. Deviations from the text below: the host function is named `brainbase_scheduling_find_or_create_contact`; it also **requires an email**; two small rollback files (`191`, `192`) and the `scripts/scheduling/manual/` test-organisation files were added; the fail-closed access gate was pulled forward from 2B.1 (it has no caller).
+
 Two small host files in `scripts/scheduling/`, each idempotent, rollback documented, rehearsed on a Preview branch
 and a disposable copy exactly as 2A was:
 
