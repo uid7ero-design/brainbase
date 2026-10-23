@@ -2,16 +2,20 @@ import type { CreateReservationResult, NewReservationInput, ReservationRepositor
 import type {
   AvailabilityException,
   AvailabilityRule,
+  CancellationPolicy,
   CurrencyCode,
   IanaTimezone,
   LocalDate,
   LocalTime,
   Occurrence,
   Offering,
+  PresetKey,
   Reservation,
+  Recurrence,
   Resource,
   ScheduleConfig,
   SchedulingSettings,
+  TermLabels,
 } from './types';
 
 // Persistence ports for the Phase 2A database foundation. Like contracts.ts, the core defines
@@ -59,6 +63,13 @@ export class SchedulingError extends Error {
 export interface StoredSchedule extends ScheduleConfig {
   /** Present when the schedule is open to self-service booking. */
   publicSlug: string | null;
+  /**
+   * The version token for optimistic concurrency (Phase 2B.2a): the row's updated_at as a UTC instant with MICROSECOND
+   * precision (YYYY-MM-DDTHH:MM:SS.ffffffZ). Opaque to callers: read it, send it back unchanged with an update.
+   * Every write to the row changes it, as does a change to what hangs off it (a new offering under a schedule, a new
+   * offering link on a resource), so a concurrent change is always seen as a stale write.
+   */
+  updatedAt: string;
   archivedAt: string | null;
 }
 
@@ -70,13 +81,20 @@ export interface SettingsInput {
 
 export type NewResourceInput = Omit<Resource, 'id' | 'organisationId'>;
 
+/** A resource as stored: the shared Resource plus its version token (see StoredSchedule.updatedAt). */
+export interface StoredResource extends Resource {
+  updatedAt: string;
+}
+
 export interface StoredOffering extends Offering {
   /** Wall-clock start for generated occurrences (null for slot/stay offerings). */
+  /** Version token; see StoredSchedule.updatedAt. */
+  updatedAt: string;
   startTime: LocalTime | null;
 }
 
 /** resourceKinds is derived from the resources linked to the offering, so it is not an input. */
-export type NewOfferingInput = Omit<StoredOffering, 'id' | 'organisationId' | 'archivedAt' | 'resourceKinds'>;
+export type NewOfferingInput = Omit<StoredOffering, 'id' | 'organisationId' | 'archivedAt' | 'resourceKinds' | 'updatedAt'>;
 
 export type NewAvailabilityRuleInput = Omit<AvailabilityRule, 'id' | 'organisationId'> & { kind: 'hours' | 'service_period'; label: string | null };
 export type NewAvailabilityExceptionInput = Omit<AvailabilityException, 'id' | 'organisationId'>;
@@ -143,6 +161,62 @@ export interface ResourceHold {
   releasedAt: string | null;
 }
 
+// ─── Configuration edits (Phase 2B.2a) ──────────────────────────────────────
+//
+// Every edit names the version it was made against (`expectedUpdatedAt`, from a previous read). The write applies only if
+// the row is still at that version; otherwise nothing is written and the result is `stale_write`. The expected business
+// outcomes are results, not exceptions (like CreateOccurrenceResult); malformed input and missing permission still throw
+// SchedulingError ('invalid_input', 'permission_denied'). A row of another tenant is indistinguishable from a missing row:
+// `not_found`.
+
+/** Why a configuration write was not applied. Nothing was written in any of these cases. */
+export type ConfigWriteFailure =
+  | 'not_found' // no such row for this tenant (or a row of another tenant: the two are indistinguishable on purpose)
+  | 'stale_write' // the row changed since it was read (the domain form of STALE_WRITE); re-read and decide again
+  | 'archived' // the row, or the schedule it belongs to, is archived: archived rows are not edited
+  | 'preset_locked' // the schedule already has offerings, so its preset can no longer change
+  | 'resource_in_use' // the resource has live reservations or links that the requested change would break
+  | 'allocation_in_use'; // a live reservation holds this resource for this offering, so it cannot be unlinked
+
+export type ConfigWriteResult<T> = { ok: true; value: T } | { ok: false; reason: ConfigWriteFailure; detail?: string };
+
+/** Fields a schedule edit may change. Absent = unchanged. The public slug and archive state are not edited here. */
+export interface SchedulePatch {
+  name?: string;
+  /** Replaces the schedule's wording overrides as a whole. */
+  terminology?: Partial<TermLabels>;
+  cancellationPolicy?: CancellationPolicy;
+  /** null clears the override (the schedule then inherits the organisation timezone). */
+  timezone?: IanaTimezone | null;
+  /** Allowed only while the schedule has no offerings (archived ones count). The version is the preset's current one. */
+  presetKey?: PresetKey;
+}
+
+/** Fields an offering edit may change. Absent = unchanged; null clears where the field is nullable. Currency never changes. */
+export interface OfferingPatch {
+  name?: string;
+  typeKey?: string | null;
+  colourKey?: string | null;
+  durationMinutes?: number | null;
+  capacity?: number | null;
+  priceCents?: number;
+  startTime?: LocalTime | null;
+  /** Replaces the whole recurrence. Affects occurrences generated LATER only; existing ones are never rewritten. */
+  recurrence?: Recurrence;
+}
+
+/** Fields a resource edit may change. Absent = unchanged. */
+export interface ResourcePatch {
+  name?: string;
+  /** Only while the resource has no offering links and has never been held. */
+  kind?: Resource['kind'];
+  capacity?: number;
+  minParty?: number | null;
+  /** Deactivation is refused while a live (unreleased, not yet ended) hold exists; reactivation is always allowed. */
+  active?: boolean;
+}
+
+
 export interface SchedulingConfigRepository {
   getSettings(tenant: TenantContext): Promise<SchedulingSettings | null>;
   saveSettings(tenant: TenantContext, input: SettingsInput): Promise<SchedulingSettings>;
@@ -152,16 +226,30 @@ export interface SchedulingConfigRepository {
   /** Resolves a published schedule by its public slug within the (already authenticated) tenant. */
   findScheduleByPublicSlug(tenant: TenantContext, slug: string): Promise<StoredSchedule | null>;
   listSchedules(tenant: TenantContext): Promise<StoredSchedule[]>;
+  /** One-way: there is no unarchive. Returns false when the schedule is missing or already archived. */
   archiveSchedule(tenant: TenantContext, scheduleId: string): Promise<boolean>;
+  updateSchedule(tenant: TenantContext, scheduleId: string, expectedUpdatedAt: string, changes: SchedulePatch): Promise<ConfigWriteResult<StoredSchedule>>;
 
-  createResource(tenant: TenantContext, input: NewResourceInput): Promise<Resource>;
-  listResources(tenant: TenantContext): Promise<Resource[]>;
+  createResource(tenant: TenantContext, input: NewResourceInput): Promise<StoredResource>;
+  listResources(tenant: TenantContext): Promise<StoredResource[]>;
+  /** Unguarded toggle kept for compatibility. Configuration screens use updateResource, which enforces the booking rules. */
   setResourceActive(tenant: TenantContext, resourceId: string, active: boolean): Promise<boolean>;
+  updateResource(tenant: TenantContext, resourceId: string, expectedUpdatedAt: string, changes: ResourcePatch): Promise<ConfigWriteResult<StoredResource>>;
 
   createOffering(tenant: TenantContext, scheduleId: string, input: NewOfferingInput): Promise<StoredOffering>;
   getOffering(tenant: TenantContext, offeringId: string): Promise<StoredOffering | null>;
   listOfferings(tenant: TenantContext, scheduleId: string): Promise<StoredOffering[]>;
+  /** One-way: there is no unarchive. Returns false when the offering is missing or already archived. Reservations are untouched. */
+  archiveOffering(tenant: TenantContext, offeringId: string): Promise<boolean>;
+  updateOffering(tenant: TenantContext, offeringId: string, expectedUpdatedAt: string, changes: OfferingPatch): Promise<ConfigWriteResult<StoredOffering>>;
   linkOfferingResource(tenant: TenantContext, offeringId: string, resourceId: string): Promise<void>;
+  /**
+   * Removes the link only (never a reservation, hold or occurrence). Idempotent: removed=false when there was no link.
+   * Refused with allocation_in_use while a live hold of this resource belongs to a reservation or occurrence of this offering.
+   */
+  unlinkOfferingResource(tenant: TenantContext, offeringId: string, resourceId: string): Promise<ConfigWriteResult<{ removed: boolean }>>;
+  /** The resources linked to an offering, this tenant's staff only (needs scheduling.view). */
+  listOfferingResources(tenant: TenantContext, offeringId: string): Promise<StoredResource[]>;
 
   addAvailabilityRule(tenant: TenantContext, ownerKind: 'resource' | 'offering', ownerId: string, input: NewAvailabilityRuleInput): Promise<AvailabilityRule>;
   addAvailabilityException(tenant: TenantContext, ownerKind: 'resource' | 'offering', ownerId: string, input: NewAvailabilityExceptionInput): Promise<AvailabilityException>;
