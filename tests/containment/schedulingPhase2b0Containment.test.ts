@@ -135,8 +135,12 @@ describe('the TypeScript modules are staged, not wired', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('there is still no scheduling route, page, cron or navigation entry', () => {
-    for (const p of ['app/api/scheduling', 'app/api/cron/scheduling-top-up', 'app/dashboard/scheduling', 'app/scheduling', 'app/book']) expect(existsSync(path.join(ROOT, p)), p).toBe(false);
+  it('there is still no scheduling page, cron or navigation entry, and the only scheduling routes are the two 2B.1 foundation routes', () => {
+    // Deliberately updated in Phase 2B.1: app/api/scheduling now exists, but holds exactly the status and audit routes
+    // (tests/containment/schedulingPhase2b1Containment.test.ts pins the guard on each). Any other route fails here.
+    for (const p of ['app/api/cron/scheduling-top-up', 'app/dashboard/scheduling', 'app/scheduling', 'app/book']) expect(existsSync(path.join(ROOT, p)), p).toBe(false);
+    const routes = walk(path.join(ROOT, 'app/api/scheduling'), /^route.ts$/).map(rel).sort();
+    expect(routes).toEqual(['app/api/scheduling/audit/route.ts', 'app/api/scheduling/status/route.ts']);
     expect(read('components/nav/navModel.ts')).not.toMatch(/scheduling/i);
     expect(read('vercel.json')).not.toMatch(/scheduling/i);
   });

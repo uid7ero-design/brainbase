@@ -4,9 +4,10 @@ import { requireCapability, CapabilityAccessError } from '@/lib/capabilities/req
 import type { SchedulingPermission, TenantContext } from '@scheduling/core';
 import { SCHEDULING_CAPABILITY_KEY, permissionsForRole, staffTenantContext } from './adapters/brainbase';
 
-// Phase 2B.0 — the fail-closed gate for every future Scheduling route. NO route, page or job imports this yet
-// (tests/containment/schedulingPhase2b0Containment.test.ts pins that), and the capability is registered for nobody:
-// with 120_brainbase_capability.sql applied there is still no organisation_modules row, so every call below ends in 403.
+// The fail-closed gate for every Scheduling route. Routes never call it directly: they are built with schedulingRoute()
+// in lib/scheduling/route.ts, the one importer of this file (tests/containment/schedulingPhase2b1Containment.test.ts pins
+// that). The capability is registered for nobody (120 adds the module, never an organisation_modules row), so every call
+// below ends in 403 until an organisation is deliberately enabled.
 //
 // Same composed shape as lib/events/authorize.ts and lib/commercial/authorize.ts, in this order:
 //   1. an authenticated, DB-backed session                           -> 401
@@ -33,6 +34,7 @@ const KNOWN_PERMISSIONS: ReadonlySet<string> = new Set<SchedulingPermission>([
   'scheduling.manage',
   'scheduling.reserve',
   'scheduling.attendance',
+  'scheduling.audit.identity',
 ]);
 
 export async function authorizeSchedulingRequest(permission: SchedulingPermission): Promise<SchedulingAuthResult> {

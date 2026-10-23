@@ -136,8 +136,12 @@ describe('Prisma schema files — minimal, matching synchronization (Phase F.2A)
   })
 })
 
-describe('No application consumer wired yet (Phase F.2A is schema-only)', () => {
-  it('no route reads or writes organisations.timezone', () => {
+// Deliberately updated in Phase 2B.1: the Scheduling runtime is now the ONE reader of organisations.timezone, to resolve a
+// tenant's zone (falling back to Australia/Adelaide when NULL). Nothing writes it, and no other consumer may read it.
+const TIMEZONE_READERS_ALLOWED = ['lib/scheduling/runtime.ts']
+
+describe('The only organisations.timezone consumer is the Scheduling runtime (read-only)', () => {
+  it('no route reads or writes organisations.timezone, and only the allow-listed Scheduling runtime reads it', () => {
     // A repo-wide check that no application code (outside this new SQL
     // script/Prisma schema/this test file itself) references
     // "organisations.timezone"-style consumption. Deliberately scoped
@@ -156,9 +160,13 @@ describe('No application consumer wired yet (Phase F.2A is schema-only)', () => 
           if (entry.isDirectory()) { stack.push(full); continue }
           if (!/\.(ts|tsx)$/.test(entry.name)) continue
           const content = fs.readFileSync(full, 'utf-8')
-          if (/organisations?\.timezone\b/i.test(content) || /org\.timezone\b/.test(content)) {
+          const reads = /organisations?\.timezone\b/i.test(content) || /org\.timezone\b/.test(content) || /timezone\s+FROM\s+organisations\b/i.test(content)
+          const relPath = path.relative(path.resolve(__dirname, '../../'), full).split(path.sep).join('/')
+          if (reads && !TIMEZONE_READERS_ALLOWED.includes(relPath)) {
             offenders.push(full)
           }
+          // No writer anywhere: application code never updates organisations.timezone.
+          expect(/UPDATE\s+organisations\s+SET[^;]*timezone/i.test(content), relPath).toBe(false)
         }
       }
     }

@@ -34,7 +34,8 @@ export type SchedulingPermission =
   | 'scheduling.view'
   | 'scheduling.manage' // configure offerings, resources, availability
   | 'scheduling.reserve' // create and change reservations for customers
-  | 'scheduling.attendance'; // record attendance / no-shows
+  | 'scheduling.attendance' // record attendance / no-shows
+  | 'scheduling.audit.identity'; // see customer-identifying detail in the audit trail (everything else in it needs only view)
 
 export type SchedulingActor =
   | { kind: 'staff'; userId: string }
