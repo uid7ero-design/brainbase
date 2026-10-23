@@ -1,18 +1,13 @@
 import { PRESETS, getPreset, validateExpectedUpdatedAt, validateSchedulePatch, type PresetKey, type SchedulePatch, type StoredSchedule } from '@scheduling/core';
 import type { SchedulingRouteContext } from '../route';
 import { schedulingJson } from '../route';
+import { CONFIGURABLE_PRESETS, isConfigurablePreset } from '../configurable';
+// The configurable presets live in a pure module so the dashboard's client components can import them (see ../configurable.ts).
 import { audit, badRequest, changedFields, conflict, failureResponse, guarded, idParam, notFound, omitOrganisation, readBody, splitExpectedUpdatedAt, unknownFields } from './http';
 
 // Phase 2B.2b — schedule create / read / edit / archive. Every handler is reached only through schedulingRoute(), so the
 // session, the organisation's entitlement and the role's permission were checked before it runs; reads need
 // scheduling.view, every write scheduling.manage (declared on the route file, enforced again by the repository).
-
-/**
- * The presets that can be configured through this API (Phase 2B scope). The other three (restaurant tables, accommodation,
- * events) are fully supported by the core and the database, but have no configuration interface yet, so a request to create or
- * switch to one is refused rather than half-supported.
- */
-export const CONFIGURABLE_PRESETS: readonly PresetKey[] = ['classes_coaching', 'appointments', 'resource_hire'];
 
 export const publicSchedule = (s: StoredSchedule) => omitOrganisation(s);
 
@@ -20,7 +15,7 @@ const CREATE_FIELDS = ['name', 'presetKey', 'terminology', 'cancellationPolicy',
 const has = (o: Record<string, unknown>, k: string) => Object.prototype.hasOwnProperty.call(o, k) && o[k] !== undefined;
 
 function presetProblem(value: unknown): string | null {
-  return typeof value === 'string' && (CONFIGURABLE_PRESETS as readonly string[]).includes(value) ? null : `presetKey must be one of: ${CONFIGURABLE_PRESETS.join(', ')}`;
+  return isConfigurablePreset(value) ? null : `presetKey must be one of: ${CONFIGURABLE_PRESETS.join(', ')}`;
 }
 
 export async function listSchedules({ persistence, tenant }: SchedulingRouteContext): Promise<Response> {

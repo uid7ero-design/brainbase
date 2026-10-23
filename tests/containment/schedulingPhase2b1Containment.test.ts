@@ -194,8 +194,9 @@ describe('audit: one writer, one namespace, nothing identifying in the general f
 
 describe('the phase stays a foundation', () => {
   it('no page, cron, navigation entry, public booking or payment appears', () => {
-    for (const p of ['app/dashboard/scheduling', 'app/scheduling', 'app/book', 'app/api/cron/scheduling-top-up', 'app/api/scheduling/public']) expect(existsSync(path.join(ROOT, p)), p).toBe(false);
-    expect(read('components/nav/navModel.ts')).not.toMatch(/scheduling/i);
+    for (const p of ['app/dashboard/scheduling', 'app/book', 'app/api/cron/scheduling-top-up', 'app/api/scheduling/public']) expect(existsSync(path.join(ROOT, p)), p).toBe(false);
+    // Phase 2B.2c (deliberate, reviewed change): one capability-gated navigation entry exists; schedulingPhase2b2cContainment.test.ts pins it.
+    expect((read('components/nav/navModel.ts').match(/scheduling/gi) ?? []).length).toBeGreaterThan(0);
     expect(read('vercel.json')).not.toMatch(/scheduling/i);
   });
 

@@ -124,12 +124,13 @@ describe('handlers stay inside the guard', () => {
 
 describe('the explicit scope', () => {
   it('only the three initial presets can be configured', () => {
-    expect(noTsComments(read('lib/scheduling/config/schedules.ts'))).toMatch(/CONFIGURABLE_PRESETS: readonly PresetKey\[\] = \['classes_coaching', 'appointments', 'resource_hire'\]/);
+    expect(noTsComments(read('lib/scheduling/configurable.ts'))).toMatch(/CONFIGURABLE_PRESETS: readonly PresetKey\[\] = \['classes_coaching', 'appointments', 'resource_hire'\]/);
   });
 
-  it('no dashboard page, navigation entry, cron or public route appears', () => {
-    for (const p of ['app/dashboard/scheduling', 'app/scheduling', 'app/book', 'app/api/cron/scheduling-top-up', 'app/api/scheduling/public']) expect(existsSync(path.join(ROOT, p)), p).toBe(false);
-    expect(read('components/nav/navModel.ts')).not.toMatch(/scheduling/i);
+  it('no cron, public booking route or booking page appears', () => {
+    // Phase 2B.2c (deliberate, reviewed change): the configuration dashboard (app/scheduling) and its navigation entry now exist;
+    // they are pinned in schedulingPhase2b2cContainment.test.ts. Nothing else may.
+    for (const p of ['app/dashboard/scheduling', 'app/book', 'app/api/cron/scheduling-top-up', 'app/api/scheduling/public']) expect(existsSync(path.join(ROOT, p)), p).toBe(false);
     expect(read('vercel.json')).not.toMatch(/scheduling/i);
   });
 
