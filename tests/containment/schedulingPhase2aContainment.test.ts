@@ -65,7 +65,8 @@ describe('Phase 2A wires nothing into the application', () => {
 
 describe('Phase 2A SQL package is exactly what was reviewed', () => {
   it('ships exactly the shared files and the BrainBase host files, nothing else', () => {
-    expect(readdirSync(path.join(ROOT, 'packages/scheduling/sql')).sort()).toEqual(['001_preflight.sql', '010_shared_schema.sql', '020_verify.sql', '090_rollback.sql']);
+    // Phase 2B.2 (deliberate, reviewed change) adds 030 (resource concurrency) and its rollback 091; both are pinned below.
+    expect(readdirSync(path.join(ROOT, 'packages/scheduling/sql')).sort()).toEqual(['001_preflight.sql', '010_shared_schema.sql', '020_verify.sql', '030_resource_concurrency.sql', '090_rollback.sql', '091_resource_concurrency_rollback.sql']);
     // Phase 2B.0 (deliberate, reviewed change) adds 120/130 with their rollbacks and the manual/ folder; each is pinned
     // file by file in schedulingPhase2b0Containment.test.ts.
     expect(readdirSync(path.join(ROOT, 'scripts/scheduling')).sort()).toEqual([
@@ -108,6 +109,46 @@ describe('Phase 2A SQL package is exactly what was reviewed', () => {
     // pg_timezone_names is a system catalogue view; everything else must be scheduling_*
     const reads = [...shared.matchAll(/\b(?:FROM|JOIN)\s+([a-z_]+)/gi)].map(m => m[1]).filter(t => !/^(scheduling_|pg_)/.test(t) && !/^(c|r|o|h|occ|res|hold|c)$/i.test(t) && !/^(old|new)$/i.test(t));
     expect(reads.filter(t => !['the', 'a', 'it'].includes(t))).toEqual([]);
+  });
+
+  it('030 (resource concurrency) is additive: scheduling_* objects only, no table change, no data change but its version marker', () => {
+    const sql = noComments(read('packages/scheduling/sql/030_resource_concurrency.sql'));
+    // objects it creates
+    expect([...sql.matchAll(/CREATE OR REPLACE FUNCTION (\w+)/g)].map(m => m[1]).sort()).toEqual([
+      'scheduling_hold_resource_state', 'scheduling_link_guard', 'scheduling_link_release_guard', 'scheduling_preset_allows_resource_kind', 'scheduling_resource_guard',
+    ]);
+    expect([...sql.matchAll(/CREATE OR REPLACE TRIGGER (\w+) \w+ (?:UPDATE OF [\w, ]+|INSERT|DELETE) ON (\w+)/g)].map(m => `${m[1]} on ${m[2]}`).sort()).toEqual([
+      'scheduling_holds_resource_state on scheduling_resource_holds',
+      'scheduling_offering_resources_guard on scheduling_offering_resources',
+      'scheduling_offering_resources_release_guard on scheduling_offering_resources',
+      'scheduling_resources_guard on scheduling_resources',
+    ]);
+    // it never alters, drops, truncates or deletes, and writes exactly one row: the version marker
+    expect(sql).not.toMatch(/\b(ALTER TABLE|DROP TABLE|DROP FUNCTION|DROP TRIGGER|TRUNCATE|DELETE FROM|CREATE TABLE|UPDATE\s+\w+\s+SET)\b/i);
+    expect([...sql.matchAll(/INSERT INTO (\w+)/g)].map(m => m[1])).toEqual(['scheduling_schema_migrations']);
+    // it reads only scheduling_* tables
+    const reads = [...sql.matchAll(/\b(?:FROM|JOIN)\s+([a-z_]+)/gi)].map(m => m[1]).filter(t => !/^(scheduling_|pg_)/.test(t) && !/^(old|new)$/i.test(t));
+    expect(reads).toEqual([]);
+    // every function takes the per-resource advisory lock before it reads what it guards, and bounds its waits
+    for (const fn of sql.split('CREATE OR REPLACE FUNCTION ').slice(1)) {
+      if (/^scheduling_preset_allows_resource_kind/.test(fn)) continue;
+      expect(fn.slice(0, fn.indexOf('$$;', 20))).toMatch(/lock_timeout = '5s'/);
+      expect(fn).toMatch(/pg_advisory_xact_lock\(hashtextextended\('scheduling_resource:'/);
+    }
+    // no host table is named: a standalone database can apply it
+    expect(sql).not.toMatch(/\b(organisations|users|crm_contacts|contacts|bookings|sessions|audit_logs)\b/);
+  });
+
+  it('091 removes exactly what 030 added and touches no data', () => {
+    const rb = noComments(read('packages/scheduling/sql/091_resource_concurrency_rollback.sql'));
+    expect([...rb.matchAll(/DROP TRIGGER IF EXISTS (\w+)/g)].map(m => m[1]).sort()).toEqual([
+      'scheduling_holds_resource_state', 'scheduling_offering_resources_guard', 'scheduling_offering_resources_release_guard', 'scheduling_resources_guard',
+    ]);
+    expect([...rb.matchAll(/DROP FUNCTION IF EXISTS (\w+)/g)].map(m => m[1]).sort()).toEqual([
+      'scheduling_hold_resource_state', 'scheduling_link_guard', 'scheduling_link_release_guard', 'scheduling_preset_allows_resource_kind', 'scheduling_resource_guard',
+    ]);
+    expect(rb).not.toMatch(/\b(DROP TABLE|TRUNCATE|ALTER TABLE|INSERT INTO)\b/i);
+    expect([...rb.matchAll(/DELETE FROM (\w+)[^;]*;/g)].map(m => m[0].replace(/\s+/g, ' '))).toEqual(["DELETE FROM scheduling_schema_migrations WHERE version = '2b.2.1';"]);
   });
 
   it('the integration tests can only reach a database named by SCHEDULING_TEST_DATABASE_URL, never DATABASE_URL', () => {

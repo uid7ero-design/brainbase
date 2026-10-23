@@ -93,3 +93,29 @@ compares it with the TypeScript presets for every preset and kind, so drift fail
    these functions.
 5. Deploying the code does not need the migration to be applied first: without it the code behaves exactly as 2B.2a (the
    repository guards remain); with it the races are closed. Apply the migration before enabling Scheduling for anyone.
+
+## 6. Verification (recorded 2026-10-23)
+
+- **Failing first.** `resourceConcurrency.integration.test.ts` was written before any fix and failed 17 of 18 tests against the
+  2B.2a code; the two stress tests reproduced the defect directly (a resource left inactive while holding a live hold; a resource
+  that changed kind under a hold). It now has 21 tests (three raw-SQL link races were added after the mutation run found the
+  link guard's lock untested).
+- **Race tests** use a second connection that holds a transaction open, so the order of the two statements is fixed:
+  deactivation vs booking (both orders, and an occurrence-held resource), unlink vs staff booking, unlink vs customer booking
+  (both orders), kind change vs booking, kind change vs repository link, and raw link vs kind change / deactivation. The
+  backstop tests issue direct SQL with no repository. A parity test compares the database preset-kind table with the
+  TypeScript presets for every preset and kind.
+- **Stress**: 40 rounds each of {deactivate, 2 staff bookings, 2 customer bookings, 2 unlinks} and {kind change, link, booking}
+  on one resource: no statement fails with anything but a domain refusal (a `40P01` would show) and every end state satisfies
+  the invariants.
+- **PostgreSQL 16.14 and 17.11**: `scripts/tests/verify-scheduling-phase2a.sh` passes on both (it applies 030 twice, runs all nine
+  suites, rolls 030 back with 091 on a database holding data, re-applies it, then runs the 090 data guard and rollback).
+- **Neon**: a disposable child branch of Production (`temp/scheduling-resource-concurrency-proof-20261023`, PostgreSQL 17.11) had
+  030 applied as one transaction and a disposable role ran `resourceConcurrency` (21/21) and `configEditing` (52/52). The
+  driver-matrix suite was not run there: that branch carries the BrainBase host foreign keys, which the suite's own
+  organisation ids do not satisfy.
+- **Mutation checks** (each makes at least one test fail): removing the advisory lock from each of the four guards; removing
+  the live-hold check (deactivation, unlink); the kind check (resource and link); the inactive check (hold, link); the hold
+  trigger's kind re-check; the customer path's `FOR SHARE`; and a wrong row in the preset-kind table.
+- Existing 2B.2a tests that linked an inactive or wrong-kind resource were rewritten to do so legitimately (link while active,
+  then deactivate; a refused link asserted as `SCKND`), and `schema.integration.test.ts` now pins the 030 objects.
