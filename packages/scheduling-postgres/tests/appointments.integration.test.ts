@@ -33,6 +33,7 @@ describe.skipIf(!hasDatabase)('appointments: a concrete resource for every confi
 
   describe('explicit provider', () => {
     it('books the named practitioner, and the same practitioner cannot be double-booked', async () => {
+      await link(ORG, w.appt.offering, 'dr-a'); // 031: staff too may only book a resource the offering is assigned
       const a = await w.repo.createAssigned(w.staff, appointmentBooking('dr-a', DATE, '10:00', 30, w.appt));
       expect(ok(a).reservation.resourceId).toBe('dr-a');
       expect(a.ok && a.assigned).toBe(false);
@@ -42,6 +43,7 @@ describe.skipIf(!hasDatabase)('appointments: a concrete resource for every confi
     });
 
     it('supports a room and an explicitly modelled virtual capacity exactly like a practitioner', async () => {
+      for (const r of ['room-x', 'tele-1']) await link(ORG, w.appt.offering, r);
       for (const resource of ['room-x', 'tele-1']) {
         ok(await w.repo.createAssigned(w.staff, appointmentBooking(resource, DATE, '11:00', 30, w.appt)));
         expect(await w.repo.createAssigned(w.staff, appointmentBooking(resource, DATE, '11:00', 30, w.appt))).toEqual({ ok: false, reason: 'resource_conflict' });
@@ -192,9 +194,11 @@ describe.skipIf(!hasDatabase)('appointments: a concrete resource for every confi
       await getPool().query("UPDATE scheduling_schedules SET public_slug = 'clinic' WHERE organisation_id = $1 AND id = $2", [ORG, w.appt.schedule]);
       const auto = ok(await w.repo.createAssigned(publicActor(ORG), appointmentBooking(null, DATE, '10:00', 30, w.appt)));
       expect(auto.reservation.resourceId).toBe('dr-a');
-      // dr-b exists but is not offered on this service: a customer cannot pick it, staff can
+      // dr-b exists but is not offered on this service: neither a customer nor (since 031) staff can book it until it is assigned
       expect(await w.repo.createAssigned(customerActor(ORG, 'cust-9'), appointmentBooking('dr-b', DATE, '11:00', 30, w.appt))).toEqual({ ok: false, reason: 'offering_unavailable' });
       expect(await w.repo.create(customerActor(ORG, 'cust-9'), appointmentBooking('dr-b', DATE, '11:00', 30, w.appt))).toEqual({ ok: false, reason: 'offering_unavailable' });
+      expect(await w.repo.createAssigned(w.staff, appointmentBooking('dr-b', DATE, '11:00', 30, w.appt))).toEqual({ ok: false, reason: 'offering_unavailable' });
+      await link(ORG, w.appt.offering, 'dr-b');
       expect(ok(await w.repo.createAssigned(w.staff, appointmentBooking('dr-b', DATE, '11:00', 30, w.appt))).reservation.resourceId).toBe('dr-b');
       expect(await count("SELECT count(*) FROM scheduling_reservations WHERE resource_id = 'dr-b'")).toBe(1);
     });

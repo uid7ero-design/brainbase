@@ -66,8 +66,8 @@ describe('Phase 2A wires nothing into the application', () => {
 
 describe('Phase 2A SQL package is exactly what was reviewed', () => {
   it('ships exactly the shared files and the BrainBase host files, nothing else', () => {
-    // Phase 2B.2 (deliberate, reviewed change) adds 030 (resource concurrency) and its rollback 091; both are pinned below.
-    expect(readdirSync(path.join(ROOT, 'packages/scheduling/sql')).sort()).toEqual(['001_preflight.sql', '010_shared_schema.sql', '020_verify.sql', '030_resource_concurrency.sql', '090_rollback.sql', '091_resource_concurrency_rollback.sql']);
+    // Phase 2B.2 (deliberate, reviewed change) adds 030 (resource concurrency), 031 (reservation integrity) and their rollbacks 091 and 092; all are pinned below.
+    expect(readdirSync(path.join(ROOT, 'packages/scheduling/sql')).sort()).toEqual(['001_preflight.sql', '010_shared_schema.sql', '020_verify.sql', '030_resource_concurrency.sql', '031_reservation_integrity.sql', '090_rollback.sql', '091_resource_concurrency_rollback.sql', '092_reservation_integrity_rollback.sql']);
     // Phase 2B.0 (deliberate, reviewed change) adds 120/130 with their rollbacks and the manual/ folder; each is pinned
     // file by file in schedulingPhase2b0Containment.test.ts.
     expect(readdirSync(path.join(ROOT, 'scripts/scheduling')).sort()).toEqual([
@@ -128,7 +128,7 @@ describe('Phase 2A SQL package is exactly what was reviewed', () => {
     expect(sql).not.toMatch(/\b(ALTER TABLE|DROP TABLE|DROP FUNCTION|DROP TRIGGER|TRUNCATE|DELETE FROM|CREATE TABLE|UPDATE\s+\w+\s+SET)\b/i);
     expect([...sql.matchAll(/INSERT INTO (\w+)/g)].map(m => m[1])).toEqual(['scheduling_schema_migrations']);
     // it reads only scheduling_* tables
-    const reads = [...sql.matchAll(/\b(?:FROM|JOIN)\s+([a-z_]+)/gi)].map(m => m[1]).filter(t => !/^(scheduling_|pg_)/.test(t) && !/^(old|new)$/i.test(t));
+    const reads = [...sql.matchAll(/\b(?:FROM|JOIN)\s+([a-z_]+)/gi)].map(m => m[1]).filter(t => !/^(scheduling_|pg_)/.test(t) && !/^(old|new|off|res)$/i.test(t));
     expect(reads).toEqual([]);
     // every function takes the per-resource advisory lock before it reads what it guards, and bounds its waits
     for (const fn of sql.split('CREATE OR REPLACE FUNCTION ').slice(1)) {
@@ -138,6 +138,37 @@ describe('Phase 2A SQL package is exactly what was reviewed', () => {
     }
     // no host table is named: a standalone database can apply it
     expect(sql).not.toMatch(/\b(organisations|users|crm_contacts|contacts|bookings|sessions|audit_logs)\b/);
+  });
+
+  it('031 (reservation integrity) is additive: scheduling_* objects only, no table change, no data change but its version marker', () => {
+    const sql = noComments(read('packages/scheduling/sql/031_reservation_integrity.sql'));
+    expect([...sql.matchAll(/CREATE OR REPLACE FUNCTION (\w+)/g)].map(m => m[1]).sort()).toEqual(['scheduling_occurrence_integrity', 'scheduling_reservation_integrity', 'scheduling_resource_capacity_guard']);
+    expect([...sql.matchAll(/CREATE OR REPLACE TRIGGER (\w+) \w+ (?:UPDATE OF [\w, ]+|INSERT|DELETE) ON (\w+)/g)].map(m => `${m[1]} on ${m[2]}`).sort()).toEqual([
+      'scheduling_occurrences_integrity on scheduling_occurrences',
+      'scheduling_reservations_integrity on scheduling_reservations',
+      'scheduling_resources_capacity_guard on scheduling_resources',
+    ]);
+    expect(sql).not.toMatch(/\b(ALTER TABLE|DROP TABLE|DROP FUNCTION|DROP TRIGGER|TRUNCATE|DELETE FROM|CREATE TABLE|UPDATE\s+\w+\s+SET)\b/i);
+    expect([...sql.matchAll(/INSERT INTO (\w+)/g)].map(m => m[1])).toEqual(['scheduling_schema_migrations']);
+    const reads = [...sql.matchAll(/\b(?:FROM|JOIN)\s+([a-z_]+)/gi)].map(m => m[1]).filter(t => !/^(scheduling_|pg_)/.test(t) && !/^(old|new|off|res)$/i.test(t));
+    expect(reads).toEqual([]);
+    for (const fn of sql.split('CREATE OR REPLACE FUNCTION ').slice(1)) {
+      expect(fn.slice(0, fn.indexOf('$$;', 20))).toMatch(/lock_timeout = '5s'/);
+      expect(fn).toMatch(/pg_advisory_xact_lock\(hashtextextended\('scheduling_resource:'/);
+    }
+    // the offering row is locked before the resource lock, never the other way round
+    const rf = sql.slice(sql.indexOf('scheduling_reservation_integrity()'), sql.indexOf('scheduling_occurrence_integrity()'));
+    expect(rf.indexOf('FOR SHARE OF o')).toBeGreaterThan(-1);
+    expect(rf.indexOf('FOR SHARE OF o')).toBeLessThan(rf.indexOf('pg_advisory_xact_lock'));
+    expect(sql).not.toMatch(/\b(organisations|users|crm_contacts|contacts|bookings|sessions|audit_logs)\b/);
+  });
+
+  it('092 removes exactly what 031 added and touches no data', () => {
+    const rb = noComments(read('packages/scheduling/sql/092_reservation_integrity_rollback.sql'));
+    expect([...rb.matchAll(/DROP TRIGGER IF EXISTS (\w+)/g)].map(m => m[1]).sort()).toEqual(['scheduling_occurrences_integrity', 'scheduling_reservations_integrity', 'scheduling_resources_capacity_guard']);
+    expect([...rb.matchAll(/DROP FUNCTION IF EXISTS (\w+)/g)].map(m => m[1]).sort()).toEqual(['scheduling_occurrence_integrity', 'scheduling_reservation_integrity', 'scheduling_resource_capacity_guard']);
+    expect(rb).not.toMatch(/\b(DROP TABLE|TRUNCATE|ALTER TABLE|INSERT INTO)\b/i);
+    expect([...rb.matchAll(/DELETE FROM (\w+)[^;]*;/g)].map(m => m[0].replace(/\s+/g, ' '))).toEqual(["DELETE FROM scheduling_schema_migrations WHERE version = '2b.2.2';"]);
   });
 
   it('091 removes exactly what 030 added and touches no data', () => {

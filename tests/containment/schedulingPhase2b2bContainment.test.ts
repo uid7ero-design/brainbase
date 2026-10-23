@@ -88,7 +88,7 @@ describe('handlers stay inside the guard', () => {
   it('no configuration module takes an organisation id as an input: the only organisation is the guard tenant', () => {
     for (const f of CONFIG_LIBS) {
       // omitOrganisation is the one place that names the field, to REMOVE it from a response; it reads no input.
-      const src = noTsComments(read(f)).replace(/\btenant\.organisationId\b/g, '').replace(/export function omitOrganisation[\s\S]*?\n}\n/, '');
+      const src = noTsComments(read(f)).replace(/\btenant\.organisationId\b/g, '').replace(/export function omitOrganisation[\s\S]*?\r?\n}\r?\n/, '');
       expect(src, f).not.toMatch(/organi[sz]ation_?id|organi[sz]ationSlug|org_?id/i);
     }
   });

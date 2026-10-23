@@ -37,6 +37,9 @@ DROP TABLE IF EXISTS scheduling_schedules CASCADE;
 DROP TABLE IF EXISTS scheduling_settings CASCADE;
 DROP TABLE IF EXISTS scheduling_schema_migrations CASCADE;
 
+DROP FUNCTION IF EXISTS scheduling_resource_capacity_guard();
+DROP FUNCTION IF EXISTS scheduling_occurrence_integrity();
+DROP FUNCTION IF EXISTS scheduling_reservation_integrity();
 DROP FUNCTION IF EXISTS scheduling_link_release_guard();
 DROP FUNCTION IF EXISTS scheduling_link_guard();
 DROP FUNCTION IF EXISTS scheduling_hold_resource_state();

@@ -295,9 +295,9 @@ describe.skipIf(!hasDatabase)('configuration edits (2B.2a)', () => {
       await cfg().linkOfferingResource(w.staff, o.id, r.id);
       const linked = (await cfg().listResources(w.staff)).find(x => x.id === r.id)!;
       expect(await cfg().updateResource(w.staff, r.id, linked.updatedAt, { kind: 'court' })).toMatchObject({ ok: false, reason: 'resource_in_use' });
-      // unlinked again but held in the past: still refused (history), and a same-kind "change" is fine
-      expect(okOf(await cfg().unlinkOfferingResource(w.staff, o.id, r.id))).toEqual({ removed: true });
+      // held in the past while assigned, then unassigned (a past hold never blocks the unlink): the kind still cannot change (history)
       await seedOccurrence({ id: 'old-occ', org: ORG, offeringId: o.id, capacity: 4, startsAt: '2020-01-06T00:00:00Z', endsAt: '2020-01-06T01:00:00Z', resourceId: r.id });
+      expect(okOf(await cfg().unlinkOfferingResource(w.staff, o.id, r.id))).toEqual({ removed: true });
       const held = (await cfg().listResources(w.staff)).find(x => x.id === r.id)!;
       expect(await cfg().updateResource(w.staff, r.id, held.updatedAt, { kind: 'court' })).toMatchObject({ ok: false, reason: 'resource_in_use' });
       expect(okOf(await cfg().updateResource(w.staff, r.id, held.updatedAt, { kind: 'space', name: 'Same kind is no change' })).kind).toBe('space');

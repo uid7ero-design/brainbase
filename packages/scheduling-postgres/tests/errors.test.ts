@@ -18,6 +18,10 @@ describe('mapPgError: Postgres errors raised by the scheduling schema become dom
     [SCHEDULING_SQLSTATE.resourceInUse, undefined, 'lifecycle_violation'],
     [SCHEDULING_SQLSTATE.allocationInUse, undefined, 'lifecycle_violation'],
     [SCHEDULING_SQLSTATE.linkRefused, undefined, 'invalid_input'],
+    [SCHEDULING_SQLSTATE.partyFit, undefined, 'capacity_exceeded'],
+    [SCHEDULING_SQLSTATE.notAssigned, undefined, 'offering_unavailable'],
+    [SCHEDULING_SQLSTATE.archived, undefined, 'offering_unavailable'],
+    [SCHEDULING_SQLSTATE.presetMismatch, undefined, 'invalid_input'],
     ['23P01', 'scheduling_holds_no_overlap', 'resource_conflict'],
     ['23505', 'scheduling_reservations_dup_email_uk', 'duplicate_reservation'],
     ['23505', 'scheduling_reservations_dup_customer_uk', 'duplicate_reservation'],
@@ -105,7 +109,7 @@ describe('mapPgError: Postgres errors raised by the scheduling schema become dom
   it('the custom SQLSTATEs are exactly the ones the migration raises', async () => {
     const { readFileSync } = await import('node:fs');
     const path = await import('node:path');
-    const sql = ['010_shared_schema.sql', '030_resource_concurrency.sql'].map(f => readFileSync(path.resolve(__dirname, '../../scheduling/sql', f), 'utf8')).join(' ');
+    const sql = ['010_shared_schema.sql', '030_resource_concurrency.sql', '031_reservation_integrity.sql'].map(f => readFileSync(path.resolve(__dirname, '../../scheduling/sql', f), 'utf8')).join(' ');
     const raised = new Set([...sql.matchAll(/ERRCODE = '([A-Z0-9]{5})'/g)].map(m => m[1]));
     expect(raised).toEqual(new Set(Object.values(SCHEDULING_SQLSTATE)));
   });
