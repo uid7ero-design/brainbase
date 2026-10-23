@@ -10,7 +10,7 @@
 #   2. shared migration (010)     applied TWICE (idempotency)
 #   3. verification (020)         read-only
 #   4. BrainBase host (110)       applied TWICE, then rolled back (190) and re-applied
-#   5. suites                     contract, exclusive, appointments, concurrency, contention (load), schema (incl. rollback), repositories
+#   5. suites                     contract, exclusive, appointments, concurrency, contention (load), configEditing (2B.2a), schema (incl. rollback), repositories
 #   6. rollback (090)             on the empty schema, then clean re-apply
 #
 # USAGE   [SCHED_REPORT_DIR=<dir>] bash scripts/tests/verify-scheduling-phase2a.sh [PG_MAJOR]      (default 16)
@@ -71,7 +71,7 @@ psql_c < "$HOST_DIR/190_brainbase_host_rollback.sql" >/dev/null; check $? "190 r
 
 step "5. suites (real Postgres, one file at a time)"
 cd "$REPO_ROOT" || exit 2
-for f in contract exclusive appointments concurrency contention schema repositories; do
+for f in contract exclusive appointments concurrency contention configEditing schema repositories; do
   echo "   -- $f"
   RC=1
   # A vitest worker that DIES (no test result at all) is retried, up to 5 attempts: on a Windows host with
