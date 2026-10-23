@@ -184,9 +184,11 @@ describe('the internal test organisation is defined but never created or enabled
     expect(sql).not.toMatch(/organisation_modules|crm_contacts|users|stripe|scheduling_/i);
   });
 
-  it('the enable file writes one entitlement row for that organisation and verifies it is the only one', () => {
+  it('the enable file writes one entitlement row and one explicit settings row for that organisation, and verifies it is the only one entitled', () => {
     const sql = noSqlComments(read(`${dir}/${files[1]}`));
-    expect([...sql.matchAll(/INSERT INTO (\w+)/g)].map(m => m[1])).toEqual(['organisation_modules']);
+    expect([...sql.matchAll(/INSERT INTO (\w+)/g)].map(m => m[1])).toEqual(['organisation_modules', 'scheduling_settings']);
+    // explicit (a chosen currency), and an existing row is never overwritten
+    expect(sql).toMatch(/INSERT INTO scheduling_settings \(organisation_id, currency\)\s+VALUES \(org_id, 'AUD'\)\s+ON CONFLICT \(organisation_id\) DO NOTHING/);
     expect(sql).toContain(`WHERE slug = '${SLUG}'`);
     expect(sql).toMatch(/entitled <> 1/);
     expect(sql).toMatch(/n <> 1/);
@@ -194,7 +196,7 @@ describe('the internal test organisation is defined but never created or enabled
 
   it('the remove file can reach only that organisation and refuses while anything belongs to it', () => {
     const sql = noSqlComments(read(`${dir}/${files[2]}`));
-    expect([...sql.matchAll(/DELETE FROM (\w+)/g)].map(m => m[1])).toEqual(['organisation_modules', 'organisations']);
+    expect([...sql.matchAll(/DELETE FROM (\w+)/g)].map(m => m[1])).toEqual(['scheduling_settings', 'organisation_modules', 'organisations']);
     expect(sql).toContain(`WHERE slug = '${SLUG}'`);
     expect(sql).toContain(`WHERE id = org_id AND slug = '${SLUG}'`);
     expect(sql).toMatch(/still holds/);

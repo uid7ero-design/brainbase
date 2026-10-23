@@ -2,10 +2,12 @@
 --
 -- STATUS: DEFINED, NOT RUN ANYWHERE. Manual, separately approved, Preview first.
 --
--- WHAT: deletes the Scheduling entitlement row of the internal test organisation and then the organisation itself.
+-- WHAT: deletes the settings row and the Scheduling entitlement row of the internal test organisation (the two rows
+--   internal-test-org-2 creates) and then the organisation itself.
 --
 -- REFUSES (the whole transaction rolls back, nothing is deleted) while ANY of these still belong to it:
---   * a row in any scheduling_* table (settings, schedules, resources, reservations, ...);
+--   * a row in any scheduling_* table other than the settings row (schedules, resources, reservations, ...);
+--   * a Scheduling audit entry (audit_logs, action 'scheduling.%');
 --   * a CRM contact (crm_contacts) or a user (users);
 --   * any other foreign-key dependent: the organisations foreign keys are NO ACTION / RESTRICT, so Postgres refuses too.
 -- Clear test data through the application or a reviewed statement first; this file never deletes data it did not create.
@@ -31,7 +33,7 @@ BEGIN
   FOR t IN
     SELECT c.relname FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
      WHERE ns.nspname = 'public' AND c.relkind = 'r' AND c.relname LIKE 'scheduling\_%'
-       AND c.relname <> 'scheduling_schema_migrations'
+       AND c.relname NOT IN ('scheduling_schema_migrations', 'scheduling_settings')
      ORDER BY 1
   LOOP
     EXECUTE format('SELECT count(*) FROM %I WHERE organisation_id = $1', t) INTO n USING org_id;
@@ -39,6 +41,14 @@ BEGIN
       RAISE EXCEPTION '% still holds % row(s) for the internal test organisation; remove them first', t, n;
     END IF;
   END LOOP;
+
+  -- scheduling_settings is the one row enablement itself creates (internal-test-org-2): it is configuration, not data, so
+  -- a single row is removed with the organisation. More than one is impossible (primary key); none is fine.
+  -- Scheduling audit entries ARE data: the audit trail of the organisation is never deleted by this file.
+  IF to_regclass('public.audit_logs') IS NOT NULL THEN
+    SELECT count(*) INTO n FROM audit_logs WHERE organisation_id = org_id AND action LIKE 'scheduling.%';
+    IF n > 0 THEN RAISE EXCEPTION 'audit_logs holds % scheduling entr(ies) for the internal test organisation; remove them first', n; END IF;
+  END IF;
 
   IF to_regclass('public.crm_contacts') IS NOT NULL THEN
     SELECT count(*) INTO n FROM crm_contacts WHERE organisation_id = org_id;
@@ -49,6 +59,9 @@ BEGIN
     IF n > 0 THEN RAISE EXCEPTION 'users holds % row(s) for the internal test organisation; remove them first', n; END IF;
   END IF;
 
+  IF to_regclass('public.scheduling_settings') IS NOT NULL THEN
+    DELETE FROM scheduling_settings WHERE organisation_id = org_id;
+  END IF;
   DELETE FROM organisation_modules WHERE organisation_id = org_id;
   DELETE FROM organisations WHERE id = org_id AND slug = 'zz-scheduling-internal-test';
 END $$;

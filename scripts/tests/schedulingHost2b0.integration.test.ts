@@ -20,7 +20,8 @@ vi.mock('@/lib/db', async () => {
   const p = new P({ connectionString: process.env.SCHEDULING_TEST_DATABASE_URL, max: 60 });
   const tag = (strings: TemplateStringsArray, ...values: unknown[]) =>
     p.query(strings.reduce((acc, s, i) => acc + s + (i < values.length ? `$${i + 1}` : ''), ''), values).then(r => r.rows);
-  return { default: tag };
+  const query = (text: string, params: unknown[] = []) => p.query(text, [...params]).then(r => r.rows);
+  return { default: Object.assign(tag, { query }) };
 });
 vi.mock('@/lib/org', () => ({
   requireSession: async () => {
@@ -32,6 +33,7 @@ vi.mock('@/lib/org', () => ({
 }));
 
 const { authorizeSchedulingRequest } = await import('@/lib/scheduling/access');
+const { loadSchedulingRuntime, SchedulingConfigurationError } = await import('@/lib/scheduling/runtime');
 
 const ROOT = path.resolve(__dirname, '../..');
 // Strip CRs: a Windows checkout (core.autocrlf) turns the committed LF files into CRLF, which changes the stored text of
@@ -80,6 +82,7 @@ async function resetHost() {
   await pool.query(`TRUNCATE ${SCHED_TABLES} CASCADE`);
   await pool.query('DELETE FROM organisation_modules');
   await pool.query('DELETE FROM crm_contacts');
+  await pool.query('DELETE FROM audit_logs');
   await pool.query('DELETE FROM users');
   await pool.query('DELETE FROM organisations');
   await pool.query("DELETE FROM modules WHERE key = 'scheduling'");
@@ -487,6 +490,7 @@ suite('Phase 2B.0 on real Postgres', () => {
       expect(await count('users', `organisation_id = '${rows[0].id}'`)).toBe(0);
       expect(await count('crm_contacts', `organisation_id = '${rows[0].id}'`)).toBe(0);
       expect(await count('organisation_modules')).toBe(0);
+      expect(await count('scheduling_settings')).toBe(0);
       expect(await otherOrgsHash()).toBe(others);
     });
 
@@ -503,6 +507,10 @@ suite('Phase 2B.0 on real Postgres', () => {
       };
       expect(await gate(id)).toBe(200);
       for (const other of ['org-a', 'org-b', 'org-c']) expect(await gate(other)).toBe(403);
+      // the settings row was created in the same run, explicitly, with the chosen currency, for that organisation only
+      expect(await q('SELECT organisation_id, currency FROM scheduling_settings')).toEqual([{ organisation_id: id, currency: 'AUD' }]);
+      const rt = await loadSchedulingRuntime({ organisationId: id, userId: 'u', role: 'manager' });
+      expect(rt.settings).toMatchObject({ organisationId: id, currency: 'AUD' });
     });
 
     it('enable refuses, writing nothing, when the capability is not registered, the test organisation is absent, or another organisation is already entitled', async () => {
@@ -511,10 +519,12 @@ suite('Phase 2B.0 on real Postgres', () => {
       await q("INSERT INTO organisation_modules (organisation_id, module_key, enabled) VALUES ('org-a', 'scheduling', true)");
       expect(await failure(MANUAL('internal-test-org-2-enable-capability.sql'))).toMatch(/exactly one organisation may be entitled to scheduling in Phase 2B, found 2/);
       expect(await count('organisation_modules')).toBe(1);
+      expect(await count('scheduling_settings')).toBe(0);
       await q("DELETE FROM organisation_modules");
       await q("UPDATE modules SET active = false WHERE key = 'scheduling'");
       expect(await failure(MANUAL('internal-test-org-2-enable-capability.sql'))).toMatch(/not registered and active/);
       expect(await count('organisation_modules')).toBe(0);
+      expect(await count('scheduling_settings')).toBe(0);
     });
 
     it('remove refuses while ANY scheduling row, CRM contact or user belongs to the test organisation, then removes only it', async () => {
@@ -522,9 +532,16 @@ suite('Phase 2B.0 on real Postgres', () => {
       await apply(MANUAL('internal-test-org-2-enable-capability.sql'));
       const [{ id }] = await q<{ id: string }>('SELECT id FROM organisations WHERE slug = $1', [TEST_ORG_SLUG]);
       await q("INSERT INTO organisation_modules (organisation_id, module_key, enabled) VALUES ('org-b', 'scheduling', false)");
-      await q('INSERT INTO scheduling_settings (organisation_id, currency) VALUES ($1, $2)', [id, 'AUD']);
-      expect(await failure(MANUAL('internal-test-org-9-remove.sql'))).toMatch(/scheduling_settings still holds 1 row/);
-      await q('DELETE FROM scheduling_settings WHERE organisation_id = $1', [id]);
+      await q("INSERT INTO scheduling_settings (organisation_id, currency) VALUES ('org-b', 'NZD')");
+      // the settings row the enable file created is configuration, not data: it alone does not block removal.
+      // Any other Scheduling row, an audit entry, a CRM contact or a user does.
+      await q("INSERT INTO scheduling_schedules (id, organisation_id, name, preset_key, preset_version, cancellation_policy) VALUES ('s-1', $1, 'Test', 'classes_coaching', 1, '{}'::jsonb)", [id]);
+      expect(await failure(MANUAL('internal-test-org-9-remove.sql'))).toMatch(/scheduling_schedules still holds 1 row/);
+      await q('DELETE FROM scheduling_schedules WHERE organisation_id = $1', [id]);
+      await q("INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, created_at) VALUES ('al-1', $1, NULL, 'scheduling.schedule.created', 'scheduling.schedule', 's-1', now())", [id]);
+      expect(await failure(MANUAL('internal-test-org-9-remove.sql'))).toMatch(/audit_logs holds 1 scheduling entr/);
+      await q("DELETE FROM audit_logs WHERE id = 'al-1'");
+      expect(await count('scheduling_settings')).toBe(2); // nothing was deleted by the refusals
       await q("INSERT INTO crm_contacts (organisation_id, first_name, last_name, email) VALUES ($1, 'T', 'T', 't@example.test')", [id]);
       expect(await failure(MANUAL('internal-test-org-9-remove.sql'))).toMatch(/crm_contacts holds 1 row/);
       await q('DELETE FROM crm_contacts WHERE organisation_id = $1', [id]);
@@ -537,8 +554,66 @@ suite('Phase 2B.0 on real Postgres', () => {
       await apply(MANUAL('internal-test-org-9-remove.sql'));
       expect(await count('organisations', `slug = '${TEST_ORG_SLUG}'`)).toBe(0);
       expect(await q('SELECT organisation_id FROM organisation_modules')).toEqual([{ organisation_id: 'org-b' }]);
+      expect(await q('SELECT organisation_id, currency FROM scheduling_settings')).toEqual([{ organisation_id: 'org-b', currency: 'NZD' }]);
       expect(await otherOrgsHash()).toBe(others);
       await apply(MANUAL('internal-test-org-9-remove.sql')); // absent: a notice, not an error
+    });
+    it('enable is atomic: if the settings row cannot be written, the entitlement is not written either (both or neither)', async () => {
+      await apply(MANUAL('internal-test-org-1-create.sql'));
+      await q(`CREATE OR REPLACE FUNCTION zz_refuse_settings() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'settings write refused for the test'; END $$`);
+      await q('CREATE TRIGGER zz_refuse_settings BEFORE INSERT ON scheduling_settings FOR EACH ROW EXECUTE FUNCTION zz_refuse_settings()');
+      try {
+        expect(await failure(MANUAL('internal-test-org-2-enable-capability.sql'))).toMatch(/settings write refused/);
+        expect(await count('organisation_modules')).toBe(0);
+        expect(await count('scheduling_settings')).toBe(0);
+      } finally {
+        await q('DROP TRIGGER zz_refuse_settings ON scheduling_settings');
+        await q('DROP FUNCTION zz_refuse_settings()');
+      }
+      await apply(MANUAL('internal-test-org-2-enable-capability.sql'));
+      expect(await count('organisation_modules')).toBe(1);
+      expect(await count('scheduling_settings')).toBe(1);
+    });
+
+    it('enable refuses when the settings table is missing, writing nothing', async () => {
+      await apply(MANUAL('internal-test-org-1-create.sql'));
+      await q('ALTER TABLE scheduling_settings RENAME TO zz_settings_hidden');
+      try {
+        expect(await failure(MANUAL('internal-test-org-2-enable-capability.sql'))).toMatch(/scheduling_settings does not exist/);
+        expect(await count('organisation_modules')).toBe(0);
+      } finally {
+        await q('ALTER TABLE zz_settings_hidden RENAME TO scheduling_settings');
+      }
+    });
+
+    it('re-applying is safe: the same single entitlement and settings row, and a currency chosen since is never overwritten', async () => {
+      await apply(MANUAL('internal-test-org-1-create.sql'));
+      await apply(MANUAL('internal-test-org-2-enable-capability.sql'));
+      const [{ id }] = await q<{ id: string }>('SELECT id FROM organisations WHERE slug = $1', [TEST_ORG_SLUG]);
+      await q("UPDATE scheduling_settings SET currency = 'NZD' WHERE organisation_id = $1", [id]);
+      await apply(MANUAL('internal-test-org-2-enable-capability.sql'));
+      await apply(MANUAL('internal-test-org-2-enable-capability.sql'));
+      expect(await q('SELECT organisation_id, currency FROM scheduling_settings')).toEqual([{ organisation_id: id, currency: 'NZD' }]);
+      expect(await q('SELECT organisation_id, enabled FROM organisation_modules')).toEqual([{ organisation_id: id, enabled: true }]);
+    });
+
+    it('enable never touches any other organisation: customer organisations get no entitlement and no settings, and stay denied', async () => {
+      await apply(MANUAL('internal-test-org-1-create.sql'));
+      const before = await otherOrgsHash();
+      await apply(MANUAL('internal-test-org-2-enable-capability.sql'));
+      expect(await otherOrgsHash()).toBe(before);
+      expect(await count('organisation_modules', "organisation_id IN ('org-a','org-b','org-c')")).toBe(0);
+      expect(await count('scheduling_settings', "organisation_id IN ('org-a','org-b','org-c')")).toBe(0);
+      expect(await count('scheduling_settings')).toBe(1);
+    });
+
+    it('missing settings fail closed: an entitled organisation without a settings row gets a controlled configuration error, and nothing is created', async () => {
+      await apply(MANUAL('internal-test-org-1-create.sql'));
+      await apply(MANUAL('internal-test-org-2-enable-capability.sql'));
+      const [{ id }] = await q<{ id: string }>('SELECT id FROM organisations WHERE slug = $1', [TEST_ORG_SLUG]);
+      await q('DELETE FROM scheduling_settings WHERE organisation_id = $1', [id]);
+      await expect(loadSchedulingRuntime({ organisationId: id, userId: 'u', role: 'manager' })).rejects.toBeInstanceOf(SchedulingConfigurationError);
+      expect(await count('scheduling_settings')).toBe(0); // the runtime never creates it
     });
   });
 
