@@ -271,6 +271,114 @@ describe('the legal draft guard and the paid flag are independent controls', () 
   })
 })
 
+describe('public event read: server-derived paid_checkout_available (one boolean, same rules as the checkout gate)', () => {
+  const DETAIL = { event: { name: 'Riverlights' }, ticket_types: [{ id: 't1', price_cents: 8900 }], has_promotions: false, organisationName: 'Brainbase' }
+  const read = (p: { organisationSlug: string; eventSlug: string }) =>
+    pub.handleTicketingPublicEvent(new Request('http://bb.test/x', { headers: GATE }), p)
+
+  beforeEach(async () => {
+    const { getPublicEventDetail } = await import('@/lib/events/publicEventDetail')
+    vi.mocked(getPublicEventDetail).mockResolvedValue({ ok: true, detail: DETAIL } as never)
+    vi.stubEnv('VERCEL_ENV', 'preview')
+  })
+
+  const cases: [string, Record<string, string | undefined>, { brainbase: boolean; ldTennis: boolean; schoolTest: boolean }][] = [
+    ['flag absent, brainbase listed', { EVE_PAID_CHECKOUT_ORGS: 'brainbase' }, { brainbase: false, ldTennis: false, schoolTest: false }],
+    ['flag "false"', { EVE_PAID_CHECKOUT_ENABLED: 'false', EVE_PAID_CHECKOUT_ORGS: 'brainbase' }, { brainbase: false, ldTennis: false, schoolTest: false }],
+    ['flag malformed "TRUE"', { EVE_PAID_CHECKOUT_ENABLED: 'TRUE', EVE_PAID_CHECKOUT_ORGS: 'brainbase' }, { brainbase: false, ldTennis: false, schoolTest: false }],
+    ['flag malformed " true "', { EVE_PAID_CHECKOUT_ENABLED: ' true ', EVE_PAID_CHECKOUT_ORGS: 'brainbase' }, { brainbase: false, ldTennis: false, schoolTest: false }],
+    ['flag true, allow-list absent', { EVE_PAID_CHECKOUT_ENABLED: 'true' }, { brainbase: false, ldTennis: false, schoolTest: false }],
+    ['flag true, allow-list malformed', { EVE_PAID_CHECKOUT_ENABLED: 'true', EVE_PAID_CHECKOUT_ORGS: 'brainbase,*' }, { brainbase: false, ldTennis: false, schoolTest: false }],
+    ['flag true, other org only', { EVE_PAID_CHECKOUT_ENABLED: 'true', EVE_PAID_CHECKOUT_ORGS: 'other-org' }, { brainbase: false, ldTennis: false, schoolTest: false }],
+    ['flag true, brainbase listed', { EVE_PAID_CHECKOUT_ENABLED: 'true', EVE_PAID_CHECKOUT_ORGS: 'brainbase' }, { brainbase: true, ldTennis: false, schoolTest: false }],
+  ]
+
+  it.each(cases)('%s -> brainbase/ld-tennis/school-test as expected, and the checkout gate agrees for each', async (_l, env, expected) => {
+    for (const [k, v] of Object.entries(env)) if (v !== undefined) process.env[k] = v
+    for (const [org, mk] of [['brainbase', brainbase], ['ldTennis', params], ['schoolTest', schoolTest]] as const) {
+      const p = mk()
+      const res = await read(p)
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.paid_checkout_available, org).toBe(expected[org])
+      // Parity with the authoritative gate: available <=> checkout gets past every configuration control.
+      const checkout = await pub.handleTicketingCheckout(gated(), p)
+      expect(checkout.status === 503, `${org} checkout`).toBe(!expected[org])
+    }
+  })
+
+  it('returns the event detail unchanged plus exactly one boolean, and nothing about the flag or allow-list', async () => {
+    process.env.EVE_PAID_CHECKOUT_ENABLED = 'true'
+    process.env.EVE_PAID_CHECKOUT_ORGS = 'brainbase,other-org'
+    for (const mk of [brainbase, params]) {
+      const body = await (await read(mk())).json()
+      expect(Object.keys(body).sort()).toEqual([...Object.keys(DETAIL), 'paid_checkout_available'].sort())
+      expect(typeof body.paid_checkout_available).toBe('boolean')
+      const text = JSON.stringify(body)
+      expect(text).not.toMatch(/EVE_PAID|other-org|allow|flag|enabled|orgs/i)
+      expect(text).not.toContain('"true"')
+    }
+  })
+
+  it('fails closed when the product return-URL base is not configured (the checkout gate refuses then too)', async () => {
+    process.env.EVE_PAID_CHECKOUT_ENABLED = 'true'
+    process.env.EVE_PAID_CHECKOUT_ORGS = 'brainbase'
+    vi.stubEnv('EVE_PUBLIC_BASE_URL', '')
+    const p = brainbase()
+    expect((await (await read(p)).json()).paid_checkout_available).toBe(false)
+    expect((await pub.handleTicketingCheckout(gated(), p)).status).toBe(503)
+    expect(svc.startPaidCheckout).not.toHaveBeenCalled()
+  })
+
+  it('fails closed in Production while the legal version is a draft (the checkout gate refuses then too)', async () => {
+    vi.resetModules()
+    vi.doMock('@ticketing/core', async orig => ({ ...(await orig<typeof import('@ticketing/core')>()), isDraftLegalVersion: () => true }))
+    const mod = await import('@/lib/ticketing/publicApi')
+    process.env.EVE_PAID_CHECKOUT_ENABLED = 'true'
+    process.env.EVE_PAID_CHECKOUT_ORGS = 'brainbase'
+    vi.stubEnv('VERCEL_ENV', 'production')
+    const p = brainbase()
+    const res = await mod.handleTicketingPublicEvent(new Request('http://bb.test/x', { headers: GATE }), p)
+    expect((await res.json()).paid_checkout_available).toBe(false)
+    expect((await mod.handleTicketingCheckout(gated(), p)).status).toBe(503)
+    expect(svc.startPaidCheckout).not.toHaveBeenCalled()
+    vi.doUnmock('@ticketing/core')
+  })
+
+  it('the API stays fail-closed independently of the UI: flag off -> checkout 503 with nothing touched, whatever the client sends', async () => {
+    process.env.EVE_PAID_CHECKOUT_ORGS = 'brainbase'
+    const p = brainbase()
+    expect((await (await read(p)).json()).paid_checkout_available).toBe(false)
+    for (const body of [BODY, { ...BODY, paid_checkout_available: true }, { ...BODY, accept_terms: true, force: true }]) {
+      const res = await pub.handleTicketingCheckout(gated(body), p)
+      expect(res.status).toBe(503)
+    }
+    expect(svc.db).not.toHaveBeenCalled()
+    expect(svc.resolvePublicEvent).not.toHaveBeenCalled()
+    expect(svc.startPaidCheckout).not.toHaveBeenCalled()
+    expect(svc.stripeLike).not.toHaveBeenCalled()
+  })
+
+  it('free registration is still available while paid checkout is unavailable', async () => {
+    const p = brainbase()
+    expect((await (await read(p)).json()).paid_checkout_available).toBe(false)
+    const res = await pub.handleTicketingRegister(gated(), p)
+    expect(res.status).toBe(201)
+    expect(svc.registerFreeOrder).toHaveBeenCalledTimes(1)
+    expect(svc.startPaidCheckout).not.toHaveBeenCalled()
+  })
+
+  it('an unknown or draft event is still a plain 404 with no availability field', async () => {
+    const { getPublicEventDetail } = await import('@/lib/events/publicEventDetail')
+    vi.mocked(getPublicEventDetail).mockResolvedValue({ ok: false } as never)
+    process.env.EVE_PAID_CHECKOUT_ENABLED = 'true'
+    process.env.EVE_PAID_CHECKOUT_ORGS = 'brainbase'
+    const res = await read(brainbase())
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: 'Event not available.' })
+  })
+})
+
 describe('scope: only the gated Eve checkout handler reads the flag', () => {
   const root = process.cwd()
   const walk = (dir: string): string[] =>
@@ -287,12 +395,24 @@ describe('scope: only the gated Eve checkout handler reads the flag', () => {
     expect(readers).toEqual(['lib/ticketing/paidCheckoutFlag.ts', 'lib/ticketing/publicApi.ts'])
   })
 
-  it('the flag is checked inside handleTicketingCheckout only (not register, status, or any other handler)', () => {
+  // The read-only availability helper is the one other place allowed to call
+  // the flag functions; it is used only by the public event read and only to
+  // produce a boolean.
+  const availabilitySection = (src: string) =>
+    src.slice(src.indexOf('function isEvePaidCheckoutAvailableFor('), src.indexOf('export async function handleTicketingPublicEvent('))
+
+  it('the flag is enforced inside handleTicketingCheckout; outside it only the read-only availability helper reads it (not register, status, or any other handler)', () => {
     const src = readFileSync(path.join(root, 'lib/ticketing/publicApi.ts'), 'utf8').replace(/\r\n/g, '\n')
     const start = src.indexOf('export async function handleTicketingCheckout(')
     const end = src.indexOf('export async function handleTicketingTicket')
     const checkout = src.slice(start, end)
-    expect(src.replace(checkout, '').match(/isEvePaidCheckoutEnabled\(/g)).toBeNull()
+    const helper = availabilitySection(src)
+    expect(helper).toContain('isEvePaidCheckoutEnabled()')
+    expect(src.replace(checkout, '').replace(helper, '').match(/isEvePaidCheckoutEnabled\(/g)).toBeNull()
+    expect(src.match(/isEvePaidCheckoutAvailableFor\(/g)).toHaveLength(2) // definition + the public event read
+    const eventRead = src.slice(src.indexOf('export async function handleTicketingPublicEvent('), src.indexOf('export async function handleTicketingQuote('))
+    expect(eventRead).toContain('paid_checkout_available: isEvePaidCheckoutAvailableFor(params.organisationSlug)')
+    expect(checkout).not.toContain('isEvePaidCheckoutAvailableFor')
     expect(checkout.indexOf('isEvePaidCheckoutEnabled()')).toBeGreaterThan(checkout.indexOf('checkTicketingGate'))
     for (const later of ['limit(LIMITS.paidCheckout', 'req.json()', 'resolvePublicEvent(', 'startPaidCheckout(']) {
       expect(checkout.indexOf('isEvePaidCheckoutEnabled()'), later).toBeLessThan(checkout.indexOf(later))
@@ -318,7 +438,7 @@ describe('scope: only the gated Eve checkout handler reads the flag', () => {
     const start = flagSrc.indexOf('export async function handleTicketingCheckout(')
     const end = flagSrc.indexOf('export async function handleTicketingTicket')
     const checkout = flagSrc.slice(start, end)
-    expect(flagSrc.replace(checkout, '').match(/isEvePaidCheckoutAllowedForOrg\(/g)).toBeNull()
+    expect(flagSrc.replace(checkout, '').replace(availabilitySection(flagSrc), '').match(/isEvePaidCheckoutAllowedForOrg\(/g)).toBeNull()
     expect(checkout).toContain('isEvePaidCheckoutAllowedForOrg(organisationSlug)')
     for (const later of ['limit(LIMITS.paidCheckout', 'req.json()', 'resolvePublicEvent(', 'startPaidCheckout(']) {
       expect(checkout.indexOf('isEvePaidCheckoutAllowedForOrg('), later).toBeLessThan(checkout.indexOf(later))

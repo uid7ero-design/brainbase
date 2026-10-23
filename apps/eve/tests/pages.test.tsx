@@ -42,7 +42,7 @@ const DETAIL = {
     { id: 't1', name: 'General', description: null, price_cents: 2500, capacity: 100, remaining: 40, sale_starts_at: null, sale_ends_at: null, sale_status: 'ON_SALE', requires_access_code: false },
     { id: 't2', name: 'Presale', description: null, price_cents: 2000, capacity: 10, remaining: 10, sale_starts_at: null, sale_ends_at: null, sale_status: 'ON_SALE', requires_access_code: true },
   ],
-  session_inventory: [], has_promotions: true, organisationName: 'Acme Events',
+  session_inventory: [], has_promotions: true, organisationName: 'Acme Events', paid_checkout_available: true,
 };
 const SESSION_OK = (role = 'manager') => ({ status: 'ok', data: { user: { id: 'u1', name: 'Pat', role }, organisationId: 'org1', organisation: { slug: 'acme', name: 'Acme Events' } } });
 const EVENTS = [
@@ -460,5 +460,123 @@ describe('buyer booking form', () => {
     await user.type(screen.getByLabelText('Access code'), 'early');
     await user.click(screen.getAllByRole('button', { name: 'Apply' })[0]);
     await waitFor(() => expect(screen.getByRole('button', { name: 'More Presale' })).toBeEnabled());
+  });
+});
+
+describe('paid checkout unavailable (server-derived paid_checkout_available)', () => {
+  // Riverlights shape: one paid General Admission type, no sessions, no codes.
+  const GA = { id: 'ga', name: 'General Admission', description: null, price_cents: 8900, capacity: 2000, remaining: 2000, sale_starts_at: null, sale_ends_at: '2027-03-20T01:30:00Z', sale_status: 'ON_SALE', requires_access_code: false };
+  const FREE = { ...GA, id: 'fr', name: 'Community pass', price_cents: 0, capacity: 50, remaining: 50 };
+  const RIVERLIGHTS = {
+    event: { ...DETAIL.event, name: 'Riverlights Music & Arts Festival 2027', artwork_url: 'https://cdn.example.test/riverlights.png', starts_at: '2027-03-20T01:30:00Z', ends_at: '2027-03-20T12:30:00Z' },
+    sessions: [], ticket_types: [GA], session_inventory: [], has_promotions: false, organisationName: 'Acme Events',
+  };
+  const quoteBody = (cents: number) => ({ subtotal_cents: cents, discount_cents: 0, total_cents: cents, currency: 'aud', pricing: cents > 0 ? 'PAID' : 'FREE', promotion: null, promotion_error: null, access: null, access_error: null, cart_error: null });
+  function mockFetch(cents = 0) {
+    const fn = vi.fn(async (url: string, init?: RequestInit) => {
+      void init;
+      const u = String(url);
+      const body = u.endsWith('/quote') ? quoteBody(cents)
+        : u.endsWith('/register') ? { confirmation_reference: 'ref-1', quantity: 1, tickets: [{ attendee_name: 'Sam', ticket_token: 'tk1' }], booking_token: 'bk1' }
+        : { checkout_url: 'https://checkout.stripe.com/c/pay/cs_test_1' };
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fn);
+    return fn;
+  }
+  const page = () => PublicEventPage({ params: Promise.resolve({ organisationSlug: 'acme', eventSlug: 'gala' }), searchParams: Promise.resolve({}) });
+
+  it.each([['false', false], ['missing', undefined], ['not a boolean', 'true']])(
+    'a published paid event (%s) shows the event, artwork, ticket, price and availability, and a neutral not-on-sale message instead of the paid flow',
+    async (_l, value) => {
+      const user = userEvent.setup();
+      const fn = mockFetch(8900);
+      const data = value === undefined ? RIVERLIGHTS : { ...RIVERLIGHTS, paid_checkout_available: value };
+      gw.getPublicEvent.mockResolvedValue({ status: 'ok', data });
+      const { container } = await renderPage(page());
+      expect(screen.getByRole('heading', { level: 1, name: 'Riverlights Music & Arts Festival 2027' })).toBeInTheDocument();
+      expect(screen.getByTestId('event-artwork').querySelector('img')).toHaveAttribute('src', 'https://cdn.example.test/riverlights.png');
+      expect(container.textContent).toContain('General Admission');
+      expect(container.textContent).toContain('$89.00');
+      expect(screen.getByTestId('state-ga')).toHaveTextContent('Not currently on sale');
+      expect(screen.getByTestId('not-on-sale')).toHaveTextContent('Tickets are not currently on sale.');
+      expect(screen.getByRole('button', { name: 'More General Admission' })).toBeDisabled();
+      expect(screen.queryByRole('button', { name: 'Continue to payment' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Complete registration' })).toBeNull();
+      // Even a forced click cannot add a paid line, so no details are asked for and nothing is posted.
+      await user.click(screen.getByRole('button', { name: 'More General Admission' }));
+      fireEvent.submit(screen.getByRole('form', { name: 'Book tickets' }));
+      expect(screen.queryByLabelText('Full name')).toBeNull();
+      expect(screen.queryByLabelText('Email')).toBeNull();
+      expect(screen.queryByRole('checkbox')).toBeNull();
+      expect(screen.queryByTestId('paid-payment-notice')).toBeNull();
+      expect(fn.mock.calls.some(c => /\/(checkout|register)$/.test(String(c[0])))).toBe(false);
+      // Neutral: never sold out, never an error, never internal configuration.
+      expect(container.textContent).not.toMatch(/sold out|error|unavailable|outage|try again|flag|allow|config|EVE_PAID|Stripe/i);
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(await axe(container)).toHaveNoViolations();
+    },
+  );
+
+  it('with promotions and access codes configured, no code fields are offered while nothing can be bought', async () => {
+    gw.getPublicEvent.mockResolvedValue({ status: 'ok', data: { ...RIVERLIGHTS, has_promotions: true, ticket_types: [GA, { ...GA, id: 'pre', name: 'Presale', requires_access_code: true }], paid_checkout_available: false } });
+    await renderPage(page());
+    expect(screen.queryByLabelText('Promotional code')).toBeNull();
+    expect(screen.queryByLabelText('Access code')).toBeNull();
+    expect(screen.getByTestId('state-pre')).toHaveTextContent('Not currently on sale');
+  });
+
+  it('enabled (true): the normal paid flow is unchanged — details, terms, Continue to payment, posts to checkout', async () => {
+    const user = userEvent.setup();
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...window.location, assign });
+    const fn = mockFetch(8900);
+    gw.getPublicEvent.mockResolvedValue({ status: 'ok', data: { ...RIVERLIGHTS, paid_checkout_available: true } });
+    await renderPage(page());
+    expect(screen.getByTestId('state-ga')).toHaveTextContent('2000 remaining');
+    expect(screen.queryByTestId('not-on-sale')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'More General Admission' }));
+    await user.type(screen.getByLabelText('Full name'), 'Sam');
+    await user.type(screen.getByLabelText('Email'), 'sam@x.test');
+    await user.click(screen.getByLabelText(/I agree to the/));
+    await user.click(screen.getByRole('button', { name: 'Continue to payment' }));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('https://checkout.stripe.com/c/pay/cs_test_1'));
+    expect(fn.mock.calls.some(c => String(c[0]).endsWith('/checkout'))).toBe(true);
+  });
+
+  it('free-only event: registration still works while paid checkout is unavailable', async () => {
+    const user = userEvent.setup();
+    const fn = mockFetch(0);
+    gw.getPublicEvent.mockResolvedValue({ status: 'ok', data: { ...RIVERLIGHTS, ticket_types: [FREE], paid_checkout_available: false } });
+    await renderPage(page());
+    expect(screen.queryByTestId('not-on-sale')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'More Community pass' }));
+    await user.type(screen.getByLabelText('Full name'), 'Sam');
+    await user.type(screen.getByLabelText('Email'), 'sam@x.test');
+    await user.click(screen.getByRole('button', { name: 'Complete registration' }));
+    expect(await screen.findByTestId('free-confirmation')).toBeInTheDocument();
+    expect(fn.mock.calls.some(c => String(c[0]).endsWith('/register'))).toBe(true);
+    expect(fn.mock.calls.some(c => String(c[0]).endsWith('/checkout'))).toBe(false);
+  });
+
+  it('paid + free event: the free type can still be registered; the paid type is listed but cannot be added', async () => {
+    const user = userEvent.setup();
+    const fn = mockFetch(0);
+    gw.getPublicEvent.mockResolvedValue({ status: 'ok', data: { ...RIVERLIGHTS, ticket_types: [GA, FREE], paid_checkout_available: false } });
+    const { container } = await renderPage(page());
+    expect(container.textContent).toContain('$89.00');
+    expect(screen.getByTestId('state-ga')).toHaveTextContent('Not currently on sale');
+    expect(screen.getByTestId('state-fr')).toHaveTextContent('50 remaining');
+    expect(screen.getByRole('button', { name: 'More General Admission' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'More Community pass' }));
+    expect(screen.queryByRole('button', { name: 'Continue to payment' })).toBeNull();
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    await user.type(screen.getByLabelText('Full name'), 'Sam');
+    await user.type(screen.getByLabelText('Email'), 'sam@x.test');
+    await user.click(screen.getByRole('button', { name: 'Complete registration' }));
+    expect(await screen.findByTestId('free-confirmation')).toBeInTheDocument();
+    const reg = fn.mock.calls.find(c => String(c[0]).endsWith('/register'))!;
+    expect(JSON.parse(reg[1]!.body as string).items).toEqual([{ ticket_type_id: 'fr', quantity: 1 }]);
+    expect(fn.mock.calls.some(c => String(c[0]).endsWith('/checkout'))).toBe(false);
   });
 });

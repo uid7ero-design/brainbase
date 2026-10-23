@@ -50,13 +50,31 @@ function validEventParams(p: EventParams): boolean {
   return isIdentifier(p.organisationSlug) && isIdentifier(p.eventSlug);
 }
 
+// Read-only answer to "would handleTicketingCheckout get past its
+// configuration gates for this organisation right now?" — the same checks,
+// from the same functions: the kill switch, the organisation allow-list, the
+// product return-URL base, and the Production draft-legal guard. It only
+// tells the buyer page whether to offer the paid flow; handleTicketingCheckout
+// still enforces every one of these itself, so a client that ignores this
+// answer is refused there (503, nothing reserved, no Stripe call).
+function isEvePaidCheckoutAvailableFor(organisationSlug: string): boolean {
+  if (!isEvePaidCheckoutEnabled() || !isEvePaidCheckoutAllowedForOrg(organisationSlug)) return false;
+  if (!eveLinkBase()) return false;
+  const legal = currentEveLegalAcceptance();
+  if (process.env.VERCEL_ENV === 'production' && (isDraftLegalVersion(legal.termsVersion) || isDraftLegalVersion(legal.refundsVersion))) {
+    return false;
+  }
+  return true;
+}
+
 export async function handleTicketingPublicEvent(req: Request, params: EventParams): Promise<Response> {
   const gate = checkTicketingGate(req);
   if (!gate.ok) return gate.response;
   if (!validEventParams(params)) return notAvailable();
   const result = await getPublicEventDetail(params.organisationSlug, params.eventSlug);
   if (!result.ok) return notAvailable();
-  return ticketingJson(result.detail);
+  // One server-derived boolean; never the flag or allow-list values.
+  return ticketingJson({ ...result.detail, paid_checkout_available: isEvePaidCheckoutAvailableFor(params.organisationSlug) });
 }
 
 export async function handleTicketingQuote(req: Request, params: EventParams): Promise<Response> {

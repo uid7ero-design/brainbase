@@ -69,6 +69,9 @@ export type PublicEventDetail = {
   session_inventory: { ticket_type_id: string; event_session_id: string; capacity: number; remaining: number }[];
   has_promotions: boolean;
   organisationName: string;
+  // Server-derived: whether paid checkout is open for this organisation.
+  // Anything other than true (missing, older API) means it is not.
+  paid_checkout_available?: boolean;
 };
 
 export type TicketDetail = {
