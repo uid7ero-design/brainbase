@@ -259,7 +259,7 @@ export async function readClaimedOrderForDelivery(orderId: string, claimId: stri
       eo.id, eo.organisation_id, eo.purchaser_name, eo.purchaser_email, eo.booking_token, eo.product_surface,
       eo.payment_status, eo.currency, eo.total_cents, eo.discount_cents, eo.promotion_code_snapshot,
       eo.platform_fee_cents, eo.fee_mode, eo.fee_label, eo.payment_total_cents, eo.paid_at, eo.refunded_cents, eo.refunded_at,
-      e.name AS event_name,
+      e.name AS event_name, e.timezone AS event_timezone,
       o.name AS organisation_name, o.settings AS organisation_settings,
       COALESCE(
         json_agg(json_build_object('name', ea.attendee_name, 'ticket_token', ea.ticket_token))
@@ -278,7 +278,7 @@ export async function readClaimedOrderForDelivery(orderId: string, claimId: stri
     JOIN event_order_items oi ON oi.order_id = eo.id AND oi.organisation_id = eo.organisation_id
     LEFT JOIN event_attendees ea ON ea.order_item_id = oi.id AND ea.organisation_id = oi.organisation_id
     WHERE eo.id = ${orderId} AND eo.ticket_email_status = 'sending' AND eo.ticket_email_claim_id = ${claimId}
-    GROUP BY eo.id, e.name, o.name, o.settings
+    GROUP BY eo.id, e.name, e.timezone, o.name, o.settings
     LIMIT 1
   `;
   if (!rows.length) return null;

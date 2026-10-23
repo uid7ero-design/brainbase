@@ -42,6 +42,10 @@ export type PaymentReceiptOrder = {
   refunded_cents: number | null;
   refunded_at: string | Date | null;
   lines: PaymentReceiptLine[];
+  // The event's IANA timezone (events.timezone). Paid/refunded dates are
+  // shown as the buyer's local calendar date there, never the server's
+  // (UTC on Vercel), so an 8 am Adelaide payment is not dated the day before.
+  time_zone?: string | null;
 };
 
 export type PaymentReceipt = {
@@ -63,6 +67,7 @@ export type PaymentReceipt = {
   paid_at: string | null;
   refunded_cents: number | null;
   refunded_at: string | null;
+  time_zone: string | null;
 };
 
 function assertCents(value: number, what: string): void {
@@ -117,6 +122,7 @@ export function buildPaymentReceipt(order: PaymentReceiptOrder): PaymentReceipt 
     paid_at: toIso(order.paid_at),
     refunded_cents: order.payment_status === 'REFUNDED' ? (order.refunded_cents ?? totalPaid) : null,
     refunded_at: order.payment_status === 'REFUNDED' ? toIso(order.refunded_at) : null,
+    time_zone: order.time_zone ?? null,
   };
 }
 
@@ -140,6 +146,7 @@ export type ReceiptOrderRow = {
   paid_at?: string | Date | null;
   refunded_cents?: number | null;
   refunded_at?: string | Date | null;
+  event_timezone?: string | null;
   receipt_lines?: { description: string | null; quantity: number; unit_price_cents: number; discount_cents: number | null }[] | null;
 };
 
@@ -167,6 +174,7 @@ export function receiptFromOrderRow(row: ReceiptOrderRow): PaymentReceipt | null
       payment_status: row.payment_status,
       refunded_cents: row.refunded_cents ?? null,
       refunded_at: row.refunded_at ?? null,
+      time_zone: row.event_timezone ?? null,
       lines: (row.receipt_lines ?? []).map(l => ({
         description: l.description ?? 'Ticket',
         quantity: l.quantity,
@@ -186,6 +194,22 @@ export function formatReceiptMoney(cents: number, currency: string): string {
   } catch {
     return `${(cents / 100).toFixed(2)} ${currency.toUpperCase()}`;
   }
+}
+
+// A calendar date ("23 Oct 2026") in `timeZone` when it is a valid IANA
+// zone. Without one (a legacy caller) it keeps the previous behaviour: the
+// runtime's own zone.
+export function formatReceiptDate(iso: string, timeZone: string | null | undefined): string {
+  const d = new Date(iso);
+  const opts: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'short', day: 'numeric' };
+  if (timeZone) {
+    try {
+      return d.toLocaleDateString('en-AU', { ...opts, timeZone });
+    } catch {
+      // Unknown zone: fall through to the runtime default rather than drop the date.
+    }
+  }
+  return d.toLocaleDateString('en-AU', opts);
 }
 
 // Words this receipt must never contain (asserted by the containment
@@ -209,8 +233,8 @@ export function renderPaymentReceiptHtml(receipt: PaymentReceipt, esc: (s: strin
       : `${l.quantity} × ${money(l.unit_price_cents)}`;
     return row(`${esc(l.description)}<br><span style="color:#888;font-size:12px">${detail}</span>`, money(lineTotal));
   }).join('');
-  const paidOn = receipt.paid_at ? new Date(receipt.paid_at).toLocaleDateString('en-AU', { year: 'numeric', month: 'short', day: 'numeric' }) : null;
-  const refundedOn = receipt.refunded_at ? new Date(receipt.refunded_at).toLocaleDateString('en-AU', { year: 'numeric', month: 'short', day: 'numeric' }) : null;
+  const paidOn = receipt.paid_at ? formatReceiptDate(receipt.paid_at, receipt.time_zone) : null;
+  const refundedOn = receipt.refunded_at ? formatReceiptDate(receipt.refunded_at, receipt.time_zone) : null;
   return `
     <div style="margin:24px 0 0;padding:16px 0 0;border-top:1px solid #f0f0f0">
       <p style="margin:0 0 6px;font-size:12px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.04em">Payment summary</p>

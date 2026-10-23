@@ -26,17 +26,29 @@ describe('Phase 2A wires nothing into the application', () => {
   const sources = appDirs.filter(d => existsSync(path.join(ROOT, d))).flatMap(d => walk(path.join(ROOT, d), /\.(ts|tsx|mts)$/));
 
   it('no application code imports @scheduling/postgres', () => {
+    // Phase 2B.1 (deliberate, reviewed change): the BrainBase runtime adapter is the ONE importer; the guard test pins that.
     const offenders = sources.filter(f => /@scheduling\/postgres|scheduling-postgres/.test(readFileSync(f, 'utf8'))).map(rel);
-    expect(offenders).toEqual([]);
+    expect(offenders).toEqual(['lib/scheduling/runtime.ts']);
   });
 
   it('no application code references a scheduling_* table or either migration file', () => {
-    const offenders = sources.filter(f => /scheduling_[a-z_]+|010_shared_schema|110_brainbase_host/.test(readFileSync(f, 'utf8'))).map(rel);
+    // Phase 2B.0 (deliberate, reviewed change): lib/scheduling/crmLink.ts calls the ONE host function
+    // brainbase_scheduling_find_or_create_contact (a function, not a table). Only that exact name is exempt, and only
+    // in that exact file; schedulingPhase2b0Containment.test.ts pins it.
+    const HOST_FUNCTION = 'brainbase_scheduling_find_or_create_contact';
+    const offenders = sources
+      .filter(f => {
+        const text = rel(f) === 'lib/scheduling/crmLink.ts' ? readFileSync(f, 'utf8').split(HOST_FUNCTION).join('') : readFileSync(f, 'utf8');
+        return /scheduling_[a-z_]+|010_shared_schema|110_brainbase_host/.test(text);
+      })
+      .map(rel);
     expect(offenders).toEqual([]);
   });
 
   it('no scheduling route, page or navigation entry exists', () => {
-    for (const p of ['app/api/scheduling', 'app/dashboard/scheduling', 'app/scheduling', 'app/book']) expect(existsSync(path.join(ROOT, p)), p).toBe(false);
+    // Phase 2B.1 (deliberate, reviewed change): app/api/scheduling holds exactly the status and audit foundation routes.
+    for (const p of ['app/dashboard/scheduling', 'app/scheduling', 'app/book']) expect(existsSync(path.join(ROOT, p)), p).toBe(false);
+    expect(readdirSync(path.join(ROOT, 'app/api/scheduling')).sort()).toEqual(['audit', 'status']);
     expect(read('components/nav/navModel.ts')).not.toMatch(/scheduling/i);
   });
 
@@ -54,7 +66,17 @@ describe('Phase 2A wires nothing into the application', () => {
 describe('Phase 2A SQL package is exactly what was reviewed', () => {
   it('ships exactly the shared files and the BrainBase host files, nothing else', () => {
     expect(readdirSync(path.join(ROOT, 'packages/scheduling/sql')).sort()).toEqual(['001_preflight.sql', '010_shared_schema.sql', '020_verify.sql', '090_rollback.sql']);
-    expect(readdirSync(path.join(ROOT, 'scripts/scheduling')).sort()).toEqual(['110_brainbase_host.sql', '190_brainbase_host_rollback.sql']);
+    // Phase 2B.0 (deliberate, reviewed change) adds 120/130 with their rollbacks and the manual/ folder; each is pinned
+    // file by file in schedulingPhase2b0Containment.test.ts.
+    expect(readdirSync(path.join(ROOT, 'scripts/scheduling')).sort()).toEqual([
+      '110_brainbase_host.sql',
+      '120_brainbase_capability.sql',
+      '130_brainbase_crm_link.sql',
+      '190_brainbase_host_rollback.sql',
+      '191_brainbase_capability_rollback.sql',
+      '192_brainbase_crm_link_rollback.sql',
+      'manual',
+    ]);
   });
 
   it('the BrainBase host migration adds exactly three foreign keys, all to organisations, and nothing else', () => {

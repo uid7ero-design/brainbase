@@ -19,10 +19,10 @@ import {
 // packages/scheduling/tests/boundary.test.ts).
 
 /**
- * Reserved capability key for lib/capabilities/requireCapability.ts. NOT
- * seeded in `modules`/`organisation_modules` and NOT checked anywhere: until
- * a later phase adds the row and a route that calls requireCapability, no
- * organisation has the module.
+ * The capability key for lib/capabilities/requireCapability.ts. Phase 2B.0 stages
+ * scripts/scheduling/120_brainbase_capability.sql, which registers this key in `modules`
+ * WITHOUT any `organisation_modules` row (not applied anywhere yet), so every organisation
+ * stays denied. The only reader is lib/scheduling/access.ts, reached only through lib/scheduling/route.ts.
  */
 export const SCHEDULING_CAPABILITY_KEY = 'scheduling' as const;
 
@@ -40,11 +40,14 @@ export type BrainBaseRole = 'super_admin' | 'admin' | 'manager' | 'viewer' | 'an
 // require 'manager' to write; reads are available to any signed-in role.
 // 'analyst' is deliberately absent so it fails closed, matching roleGte()
 // in lib/session.ts (an unrecognised role is denied every privileged action).
+// Customer-identifying audit detail is limited to the roles that can manage; a viewer sees the audit trail without it.
+const MANAGER_PERMISSIONS: readonly SchedulingPermission[] = ['scheduling.view', 'scheduling.manage', 'scheduling.reserve', 'scheduling.attendance', 'scheduling.audit.identity'];
+
 const ROLE_PERMISSIONS: Readonly<Partial<Record<BrainBaseRole, readonly SchedulingPermission[]>>> = {
   viewer: ['scheduling.view'],
-  manager: ['scheduling.view', 'scheduling.manage', 'scheduling.reserve', 'scheduling.attendance'],
-  admin: ['scheduling.view', 'scheduling.manage', 'scheduling.reserve', 'scheduling.attendance'],
-  super_admin: ['scheduling.view', 'scheduling.manage', 'scheduling.reserve', 'scheduling.attendance'],
+  manager: MANAGER_PERMISSIONS,
+  admin: MANAGER_PERMISSIONS,
+  super_admin: MANAGER_PERMISSIONS,
 };
 
 export function permissionsForRole(role: string): readonly SchedulingPermission[] {
@@ -124,7 +127,7 @@ export function contactToCustomerRef(tenant: TenantContext, row: ContactRow): Cu
  */
 export const BRAINBASE_PORT_MAPPING = {
   tenant: 'lib/org.ts requireSession/requireRole plus the organisation timezone setting, via staffTenantContext()',
-  customers: 'CRM `contacts` table (organisation_id TEXT, unique on organisation_id + email)',
+  customers: 'CRM `crm_contacts` (approved Phase 2B decision 3; new customers are LEAD), linked by lib/scheduling/crmLink.ts; the LD Tennis `contacts` table is not touched',
   reservations: 'new scheduling_* tables via the shared Neon client (lib/db.ts), raw SQL',
   availability: 'new scheduling_* tables via the shared Neon client (lib/db.ts), raw SQL',
   payments: 'existing payments foundation (Stripe); optional until a later phase',
