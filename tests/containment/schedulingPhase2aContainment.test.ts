@@ -26,8 +26,9 @@ describe('Phase 2A wires nothing into the application', () => {
   const sources = appDirs.filter(d => existsSync(path.join(ROOT, d))).flatMap(d => walk(path.join(ROOT, d), /\.(ts|tsx|mts)$/));
 
   it('no application code imports @scheduling/postgres', () => {
+    // Phase 2B.1 (deliberate, reviewed change): the BrainBase runtime adapter is the ONE importer; the guard test pins that.
     const offenders = sources.filter(f => /@scheduling\/postgres|scheduling-postgres/.test(readFileSync(f, 'utf8'))).map(rel);
-    expect(offenders).toEqual([]);
+    expect(offenders).toEqual(['lib/scheduling/runtime.ts']);
   });
 
   it('no application code references a scheduling_* table or either migration file', () => {
@@ -45,7 +46,9 @@ describe('Phase 2A wires nothing into the application', () => {
   });
 
   it('no scheduling route, page or navigation entry exists', () => {
-    for (const p of ['app/api/scheduling', 'app/dashboard/scheduling', 'app/scheduling', 'app/book']) expect(existsSync(path.join(ROOT, p)), p).toBe(false);
+    // Phase 2B.1 (deliberate, reviewed change): app/api/scheduling holds exactly the status and audit foundation routes.
+    for (const p of ['app/dashboard/scheduling', 'app/scheduling', 'app/book']) expect(existsSync(path.join(ROOT, p)), p).toBe(false);
+    expect(readdirSync(path.join(ROOT, 'app/api/scheduling')).sort()).toEqual(['audit', 'status']);
     expect(read('components/nav/navModel.ts')).not.toMatch(/scheduling/i);
   });
 

@@ -43,7 +43,7 @@ const session = (role: string, over: Record<string, unknown> = {}) => ({
   name: 'U',
   ...over,
 });
-const ALL = ['scheduling.view', 'scheduling.manage', 'scheduling.reserve', 'scheduling.attendance'] as const;
+const ALL = ['scheduling.view', 'scheduling.manage', 'scheduling.reserve', 'scheduling.attendance', 'scheduling.audit.identity'] as const;
 
 beforeEach(() => {
   requireSession.mockReset();

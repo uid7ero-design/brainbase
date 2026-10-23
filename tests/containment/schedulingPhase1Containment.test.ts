@@ -40,13 +40,18 @@ describe('Phase 1 does not enable the module anywhere', () => {
   it('no application code imports the scheduling core or the scheduling adapters', () => {
     const offenders = sources
       .filter(f => !rel(f).startsWith('lib/scheduling/'))
+      // Phase 2B.1 (deliberate, reviewed change): exactly the two foundation routes import the guard (@/lib/scheduling/route)
+      // and the audit reader. schedulingPhase2b1Containment.test.ts pins that they do nothing else.
+      .filter(f => !['app/api/scheduling/status/route.ts', 'app/api/scheduling/audit/route.ts'].includes(rel(f)))
       .filter(f => /@scheduling\/core|@\/lib\/scheduling|from ['"]\.\.?\/.*scheduling\//.test(readFileSync(f, 'utf8')))
       .map(rel);
     expect(offenders).toEqual([]);
   });
 
   it('no scheduling route or page exists', () => {
-    expect(existsSync(path.join(ROOT, 'app/api/scheduling'))).toBe(false);
+    // Phase 2B.1 (deliberate, reviewed change): app/api/scheduling holds exactly the status and audit foundation routes.
+    const apiRoutes = existsSync(path.join(ROOT, 'app/api/scheduling')) ? readdirSync(path.join(ROOT, 'app/api/scheduling')).sort() : [];
+    expect(apiRoutes).toEqual(['audit', 'status']);
     expect(existsSync(path.join(ROOT, 'app/dashboard/scheduling'))).toBe(false);
     expect(existsSync(path.join(ROOT, 'app/scheduling'))).toBe(false);
   });
@@ -82,6 +87,9 @@ describe('Phase 1 does not enable the module anywhere', () => {
         // Phase 2B.0 (deliberate, reviewed change): the disposable-Postgres proof of the host files names scheduling_*
         // objects by necessity. It reaches only SCHEDULING_TEST_DATABASE_URL (pinned in schedulingPhase2b0Containment.test.ts).
         if (rel(full) === 'scripts/tests/schedulingHost2b0.integration.test.ts') continue;
+        // Phase 2B.1 (deliberate, reviewed change): the disposable-Postgres proof of the runtime names scheduling_settings to
+        // set up fixtures. It reaches only SCHEDULING_TEST_DATABASE_URL and creates no scheduling_* table.
+        if (rel(full) === 'scripts/tests/schedulingRuntime2b1.integration.test.ts') continue;
         if (statSync(full).isDirectory()) scan(full);
         else if (/\.(sql|prisma|ts|mjs|js)$/.test(name) && /scheduling_[a-z_]+/.test(readFileSync(full, 'utf8'))) offenders.push(rel(full));
       }
@@ -147,7 +155,7 @@ describe('BrainBase adapter', () => {
   it('maps BrainBase roles onto scheduling permissions the way the live tennis routes gate them', () => {
     expect(permissionsForRole('viewer')).toEqual(['scheduling.view']);
     for (const role of ['manager', 'admin', 'super_admin']) {
-      expect(permissionsForRole(role)).toEqual(['scheduling.view', 'scheduling.manage', 'scheduling.reserve', 'scheduling.attendance']);
+      expect(permissionsForRole(role)).toEqual(['scheduling.view', 'scheduling.manage', 'scheduling.reserve', 'scheduling.attendance', 'scheduling.audit.identity']);
     }
   });
 
@@ -177,7 +185,7 @@ describe('BrainBase adapter', () => {
     const t = publicTenantContext('org-a', undefined);
     expect(t.actor).toEqual({ kind: 'public' });
     expect(t.timezone).toBe('Australia/Adelaide');
-    for (const p of ['scheduling.view', 'scheduling.manage', 'scheduling.reserve', 'scheduling.attendance'] as const) {
+    for (const p of ['scheduling.view', 'scheduling.manage', 'scheduling.reserve', 'scheduling.attendance', 'scheduling.audit.identity'] as const) {
       expect(t.can(p)).toBe(false);
     }
   });
