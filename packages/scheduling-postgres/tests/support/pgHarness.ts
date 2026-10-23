@@ -76,6 +76,7 @@ const TABLES = [
 export async function ensureSchema() {
   if (process.env.SCHEDULING_TEST_SKIP_MIGRATE === '1') return;
   await runScript(sqlFile('010_shared_schema.sql'));
+  await runScript(sqlFile('030_resource_concurrency.sql'));
 }
 
 export async function resetData() {

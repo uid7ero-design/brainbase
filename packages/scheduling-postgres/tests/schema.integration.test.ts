@@ -46,6 +46,10 @@ const FUNCTIONS = [
   'scheduling_occurrence_release_holds', 'scheduling_require_hold', 'scheduling_reservation_guard', 'scheduling_reservation_lifecycle',
   'scheduling_reservation_release_holds', 'scheduling_touch_updated_at',
 ];
+/** Added by 030_resource_concurrency.sql (version 2b.2.1). */
+const FUNCTIONS_030 = [
+  'scheduling_hold_resource_state', 'scheduling_link_guard', 'scheduling_link_release_guard', 'scheduling_preset_allows_resource_kind', 'scheduling_resource_guard',
+];
 
 async function ownInventory(): Promise<{ tables: number; functions: number; triggers: number; constraints: number; indexes: number }> {
   const r = await q(`
@@ -72,11 +76,11 @@ describe.skipIf(!hasDatabase)('migration safety', () => {
     await closePool();
   });
 
-  it('creates exactly the documented objects: 13 tables, 11 functions, 16 triggers', async () => {
+  it('creates exactly the documented objects: 13 tables, 16 functions (11 + 5 from 030), 20 triggers (16 + 4 from 030)', async () => {
     const inv = await ownInventory();
     expect(inv.tables).toBe(13);
-    expect(inv.functions).toBe(11);
-    expect(inv.triggers).toBe(16);
+    expect(inv.functions).toBe(16);
+    expect(inv.triggers).toBe(20);
   });
 
   it('is idempotent: applying it again changes nothing', async () => {
@@ -96,11 +100,31 @@ describe.skipIf(!hasDatabase)('migration safety', () => {
     expect(await ownDefinitions()).toBe(before);
   });
 
-  it('the object list is pinned: exactly these 11 functions and 13 tables, so an unexpected function, trigger or index change fails here', async () => {
+  it('030 is idempotent byte for byte, and 091 removes exactly what 030 added (back to the 010 inventory) and nothing else, data untouched', async () => {
+    const withBoth = await ownDefinitions();
+    const inv = await ownInventory();
+    await runScript(sqlFile('030_resource_concurrency.sql'));
+    await runScript(sqlFile('030_resource_concurrency.sql'));
+    expect(await ownDefinitions()).toBe(withBoth);
+    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2b.2.1'")).toBe(1);
+
+    await seedClass('org-091', { schedule: 's91', offering: 'o91', occurrence: 'c91' }, 5);
+    const rows = await count('SELECT count(*) FROM scheduling_occurrences');
+    await runScript(sqlFile('091_resource_concurrency_rollback.sql'));
+    await runScript(sqlFile('091_resource_concurrency_rollback.sql')); // twice is harmless
+    expect(await ownInventory()).toEqual({ ...inv, functions: inv.functions - 5, triggers: inv.triggers - 4 });
+    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2b.2.1'")).toBe(0);
+    expect(await count('SELECT count(*) FROM scheduling_occurrences')).toBe(rows); // no data touched
+
+    await runScript(sqlFile('030_resource_concurrency.sql'));
+    expect(await ownDefinitions()).toBe(withBoth); // re-applying after a rollback reproduces it exactly
+  });
+
+  it('the object list is pinned: exactly these 16 functions and 13 tables, so an unexpected function, trigger or index change fails here', async () => {
     const fns = (await q("SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname LIKE 'scheduling\_%' ESCAPE '\' ORDER BY 1")).rows.map(r => r.proname);
-    expect(fns).toEqual([...FUNCTIONS].sort());
+    expect(fns).toEqual([...FUNCTIONS, ...FUNCTIONS_030].sort());
     const trg = (await q("SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid WHERE NOT t.tgisinternal AND c.relname LIKE 'scheduling\_%' ESCAPE '\' ORDER BY 1")).rows.map(r => r.tgname);
-    expect(trg).toHaveLength(16);
+    expect(trg).toHaveLength(20);
     expect(trg.every(n => /^scheduling_/.test(n))).toBe(true);
     const inv = await ownInventory();
     expect(inv.indexes).toBe(pinnedIndexCount);
