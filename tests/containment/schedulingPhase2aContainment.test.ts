@@ -48,7 +48,8 @@ describe('Phase 2A wires nothing into the application', () => {
   it('no scheduling route, page or navigation entry exists', () => {
     // Phase 2B.1 (deliberate, reviewed change): app/api/scheduling holds exactly the status and audit foundation routes.
     for (const p of ['app/dashboard/scheduling', 'app/scheduling', 'app/book']) expect(existsSync(path.join(ROOT, p)), p).toBe(false);
-    expect(readdirSync(path.join(ROOT, 'app/api/scheduling')).sort()).toEqual(['audit', 'status']);
+    // Phase 2B.2b (deliberate, reviewed change): the configuration API adds offerings, resources and schedules.
+    expect(readdirSync(path.join(ROOT, 'app/api/scheduling')).sort()).toEqual(['audit', 'offerings', 'resources', 'schedules', 'status']);
     expect(read('components/nav/navModel.ts')).not.toMatch(/scheduling/i);
   });
 

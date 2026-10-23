@@ -66,8 +66,8 @@ function routeProblems(source: string): string[] {
 const routeFiles = () => walk(path.join(ROOT, 'app/api/scheduling'), /^route\.ts$/);
 
 describe('every Scheduling API route goes through the central access guard', () => {
-  it('there are routes to check, and the set is exactly the two foundation routes', () => {
-    expect(routeFiles().map(rel).sort()).toEqual(['app/api/scheduling/audit/route.ts', 'app/api/scheduling/status/route.ts']);
+  it('the two foundation routes are present (the full route set is pinned by schedulingPhase2b2bContainment.test.ts)', () => {
+    expect(routeFiles().map(rel)).toEqual(expect.arrayContaining(['app/api/scheduling/audit/route.ts', 'app/api/scheduling/status/route.ts']));
   });
 
   it('every route file is compliant', () => {

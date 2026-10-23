@@ -19,6 +19,13 @@ import type { SchedulingPermission } from '@scheduling/core';
 export interface SchedulingRouteContext extends SchedulingRuntime {
   session: OrgSession;
   request: Request;
+  /** The route's dynamic segments (Phase 2B.2b), already awaited. Empty for a route without any. Always strings; never an organisation. */
+  params: Readonly<Record<string, string>>;
+}
+
+/** What Next passes as the second argument of a route handler: `params` is a Promise (Next 15+). */
+export interface SchedulingNextRouteContext {
+  params?: Promise<Record<string, string | string[] | undefined>>;
 }
 
 export type SchedulingRouteHandler = (context: SchedulingRouteContext) => Promise<Response> | Response;
@@ -34,7 +41,7 @@ function withNoStore(response: Response): Response {
 }
 
 export function schedulingRoute(permission: SchedulingPermission, handler: SchedulingRouteHandler) {
-  return async function schedulingRouteHandler(request: Request): Promise<Response> {
+  return async function schedulingRouteHandler(request: Request, routeContext?: SchedulingNextRouteContext): Promise<Response> {
     const auth = await authorizeSchedulingRequest(permission);
     if (!auth.ok) return withNoStore(auth.response);
 
@@ -50,10 +57,19 @@ export function schedulingRoute(permission: SchedulingPermission, handler: Sched
     }
 
     try {
-      return withNoStore(await handler({ ...runtime, session: auth.session, request }));
+      const params = await resolveParams(routeContext);
+      return withNoStore(await handler({ ...runtime, session: auth.session, request, params }));
     } catch (err) {
       console.error('[scheduling] handler failed', (err as { code?: string })?.code ?? (err as Error)?.name);
       return schedulingJson({ error: 'Internal error.' }, { status: 500 });
     }
   };
+}
+
+/** Only plain string segments are kept; anything else (an array from a catch-all, undefined) is dropped, so a handler sees strings or nothing. */
+async function resolveParams(routeContext: SchedulingNextRouteContext | undefined): Promise<Readonly<Record<string, string>>> {
+  const raw = routeContext?.params ? await routeContext.params : {};
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw)) if (typeof value === 'string') out[key] = value;
+  return out;
 }
