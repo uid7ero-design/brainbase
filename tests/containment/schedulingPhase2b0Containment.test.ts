@@ -140,7 +140,9 @@ describe('the TypeScript modules are staged, not wired', () => {
     // (tests/containment/schedulingPhase2b1Containment.test.ts pins the guard on each). Any other route fails here.
     for (const p of ['app/api/cron/scheduling-top-up', 'app/dashboard/scheduling', 'app/scheduling', 'app/book']) expect(existsSync(path.join(ROOT, p)), p).toBe(false);
     const routes = walk(path.join(ROOT, 'app/api/scheduling'), /^route.ts$/).map(rel).sort();
-    expect(routes).toEqual(['app/api/scheduling/audit/route.ts', 'app/api/scheduling/status/route.ts']);
+    // Phase 2B.2b (deliberate, reviewed change): the configuration API routes are pinned one by one in schedulingPhase2b2bContainment.test.ts.
+    expect(routes).toEqual(expect.arrayContaining(['app/api/scheduling/audit/route.ts', 'app/api/scheduling/status/route.ts']));
+    expect(routes.every(r => r.startsWith('app/api/scheduling/'))).toBe(true);
     expect(read('components/nav/navModel.ts')).not.toMatch(/scheduling/i);
     expect(read('vercel.json')).not.toMatch(/scheduling/i);
   });
