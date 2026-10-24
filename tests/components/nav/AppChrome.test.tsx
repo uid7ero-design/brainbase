@@ -324,6 +324,7 @@ describe('AppNav chrome', () => {
       '/crm',
       '/people',
       '/data-hub/import',
+      '/settings/users',
       '/dashboard/integrations',
       '/settings/branding',
       '/admin/founder',

@@ -3,7 +3,7 @@
 import { createServer, request as proxyRequest } from 'node:http';
 import { createServer as createTlsServer } from 'node:https';
 import { spawn, execFileSync } from 'node:child_process';
-import { readFileSync, existsSync, renameSync, rmSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, renameSync, rmSync, mkdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
@@ -13,6 +13,7 @@ import bcrypt from 'bcryptjs';
 import { chromium } from '@playwright/test';
 import { verifyRemainingWorkflows } from './helpers/hrLocalWorkflows.mjs';
 import { verifyHrSetup } from './helpers/hrLocalSetup.mjs';
+import { verifyOrganisationUsers } from './helpers/organisationUsersLocal.mjs';
 
 const root = process.cwd();
 if (!existsSync(path.join(root, 'scripts/create-hr-people.sql'))) throw new Error('Run from the repository worktree.');
@@ -63,10 +64,11 @@ try {
   console.log('Applying repository Prisma schema to disposable database.');
   exec(process.execPath, ['node_modules/prisma/build/index.js', 'db', 'push', '--skip-generate'], { env });
   const q = (text, values) => pool.query(text, values);
-  for (const file of ['create-hr-teams.sql', 'create-hr-people.sql', 'add-hr-teams-archive.sql', 'create-hr-administrators.sql', 'add-hr-people-tenant-unique.sql', 'create-hr-lifecycle-workflows.sql', 'create-hr-employee-documents.sql', 'create-hr-employee-document-assurance.sql', 'create-hr-restricted-cases.sql']) await q(readFileSync(`scripts/${file}`, 'utf8'));
+  for (const file of ['create-organisation-user-administration.sql','create-hr-teams.sql', 'create-hr-people.sql', 'add-hr-teams-archive.sql', 'create-hr-administrators.sql', 'add-hr-people-tenant-unique.sql', 'create-hr-lifecycle-workflows.sql', 'create-hr-employee-documents.sql', 'create-hr-employee-document-assurance.sql', 'create-hr-restricted-cases.sql']) await q(readFileSync(`scripts/${file}`, 'utf8'));
   const hash = await bcrypt.hash(password, 10);
   for (const org of ['local-hr', 'local-other']) await q('INSERT INTO organisations(id,name,slug,updated_at) VALUES($1,$1,$1,now())', [org]);
   for (const user of ['local-admin', 'local-employee', 'local-manager']) await q(`INSERT INTO users(id,organisation_id,username,name,password_hash,updated_at) VALUES($1,'local-hr',$1,$1,$2,now())`, [user, hash]);
+  await q("UPDATE users SET role='ADMIN' WHERE id='local-admin'");
   await q("INSERT INTO modules(key,name,active,updated_at) VALUES('people','People',true,now())");
   await q("INSERT INTO organisation_modules(organisation_id,module_key,enabled,updated_at) VALUES('local-hr','people',true,now())");
   await q("INSERT INTO hr_administrators(organisation_id,user_id) VALUES('local-hr','local-admin')");
@@ -161,6 +163,17 @@ try {
   // Use the supported Webpack dev bundler: Windows Turbopack intermittently
   // omits nested routes even with a cold cache. Production builds stay unchanged.
   if (productionMode) {
+    // Offline font fixture: typography is not this workflow proof's subject.
+    // Use the installed Next devtools font bytes instead of Google network CSS.
+    const fontFixture = path.join(taskDirectory, 'font-fixture.cjs');
+    const fontDirectory = path.join(root,'node_modules/next/dist/esm/next-devtools/server/font').replaceAll('\\','/').replace(/^[A-Za-z]:/,'');
+    writeFileSync(fontFixture, `module.exports = new Proxy({}, { get(_target, url) {
+      if(typeof url !== 'string') return undefined;
+      const family = new URL(url).searchParams.get('family').split(':')[0];
+      const file = family.includes('Mono') ? 'geist-mono-latin.woff2' : 'geist-latin.woff2';
+      return "/* latin */\\n@font-face {font-family: '"+family+"';font-style:normal;font-weight:100 900;src:url(${fontDirectory}/"+file+") format('woff2');}";
+    }});`);
+    env.NEXT_FONT_GOOGLE_MOCKED_RESPONSES = fontFixture;
     console.log('Building optimized local production app with provider egress blocked.');
     // Keep the parent event loop available for local SQL requests from static generation.
     await new Promise((resolve, reject) => {
@@ -223,6 +236,7 @@ try {
     await sleep(1000);
   }
   console.log('Real login issued its session cookie. Checking actual HR routes.');
+  await verifyOrganisationUsers({origin,context,page,q,emails,browser,contextOptions});
   const session = (await context.cookies()).find(cookie => cookie.name === 'session');
   assert.ok(session?.httpOnly); assert.equal(session.sameSite, 'Lax');
   assert.equal(session.secure, productionMode); assert.equal(session.path, '/');

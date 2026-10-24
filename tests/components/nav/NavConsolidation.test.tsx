@@ -259,8 +259,8 @@ describe('Manage menu', () => {
     ['viewer', null],
     ['analyst', null],
     ['manager', ['Integrations']],
-    ['admin', ['Integrations', 'Branding']],
-    ['super_admin', ['Integrations', 'Branding']],
+    ['admin', ['Organisation users', 'Integrations', 'Branding']],
+    ['super_admin', ['Organisation users', 'Integrations', 'Branding']],
   ] as const)('%s → %j', async (role, expected) => {
     const { user } = renderNav(persona(role));
     if (expected === null) {

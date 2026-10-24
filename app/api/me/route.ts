@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { requireSession } from '@/lib/org';
 import { resolveDashboardVariant } from '@/lib/dashboard/clientDashboard';
+import { getUserPermissions } from '@/lib/organisationUsers/access';
 
 export async function GET() {
   // requireSession() (not the raw getSession() JWT decode), for the
@@ -98,6 +99,15 @@ export async function GET() {
   // (this endpoint) can gate LD-Tennis-specific nav items with the same
   // rule the server-rendered path already applies via serverSession.
   const dashboardVariant = await resolveDashboardVariant(session.organisationId, session.role);
+  let managedAccess = false;
+  try {
+    const permissions=session.role==='super_admin'?null:await getUserPermissions(session.organisationId,session.userId);
+    managedAccess=permissions!==null;
+    if(permissions!==null){
+      const visible=(row:{key:string})=>['view','use'].includes(permissions[row.key as keyof typeof permissions]??'none');
+      enabledCapabilities=enabledCapabilities.filter(visible);enabledModules=enabledModules.filter(visible);
+    }
+  } catch { enabledCapabilities=[];enabledModules=[];managedAccess=session.role!=='super_admin'; }
 
   return NextResponse.json({
     userId:         session.userId,
@@ -108,6 +118,7 @@ export async function GET() {
     org:            org ?? null,
     enabledModules,
     enabledCapabilities,
+    managedAccess,
     dashboardVariant,
   });
 }

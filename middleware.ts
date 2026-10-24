@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import sql from '@/lib/db';
+import { managedRequestAllowed, moduleForPath } from '@/lib/organisationUsers/policy';
 import {
   decrypt,
   encrypt,
@@ -15,6 +17,7 @@ const PUBLIC = [
   '/signup',
   '/forgot-password',
   '/reset-password',
+  '/accept-invitation',
   '/verify-email',
   '/terms',
   '/privacy',
@@ -63,6 +66,11 @@ const PUBLIC = [
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  const isApi = pathname.startsWith('/api/');
+  // Service/public endpoints retain their own authentication. They never derive
+  // a staff identity or grant from this permission layer.
+  if (pathname.startsWith('/api/cron/') || pathname.startsWith('/api/public/')) return NextResponse.next();
+  if (!isApi && /^\/(Brand|brand|images|fonts|avatars)\//.test(pathname)) return NextResponse.next();
   const hostname = req.headers.get('host') ?? '';
 
   // ldtennis.com.au root → tennis landing page
@@ -95,6 +103,7 @@ export async function middleware(req: NextRequest) {
   const session = await decrypt(token);
 
   if (!session) {
+    if (isApi) return NextResponse.next(); // existing route owns its 401/public contract
     const url = req.nextUrl.clone();
     url.pathname = '/login';
 
@@ -108,7 +117,35 @@ export async function middleware(req: NextRequest) {
   // Role for roleGte()'s type signature only — its actual runtime safety
   // comes from failing closed (false) for anything not in ROLE_ORDER, the
   // same guarantee requireRole()/lib/org.ts's server-side checks rely on.
-  const role = (session.role?.toLowerCase() ?? '') as Role;
+  let role = (session.role?.toLowerCase() ?? '') as Role;
+  try {
+    const users = await sql`SELECT role,status,organisation_id FROM users WHERE id=${session.userId} LIMIT 1`;
+    const current = users[0];
+    if (!current || current.status !== 'ACTIVE' || current.organisation_id !== session.organisationId) {
+      return isApi ? NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: { 'Cache-Control': 'private, no-store' } })
+        : NextResponse.redirect(new URL('/login', req.url));
+    }
+    role = String(current.role).toLowerCase() as Role;
+    if (role !== 'super_admin') {
+      const rows = await sql`SELECT permissions,organisation_id FROM organisation_user_access WHERE user_id=${session.userId}`;
+      if(rows.length && rows[0].organisation_id!==session.organisationId) return NextResponse.json({error:'Forbidden'},{status:403,headers:{'Cache-Control':'private, no-store'}});
+      if (rows.length) {
+        if (pathname === '/dashboard') return NextResponse.redirect(new URL('/workspace', req.url));
+        let allowed = managedRequestAllowed(rows[0].permissions, pathname, req.method, role);
+        const keys = moduleForPath(pathname);
+        if (allowed && keys.length) {
+          const entitled = await sql`SELECT m.key FROM modules m JOIN organisation_modules om ON om.module_key=m.key
+            WHERE om.organisation_id=${session.organisationId} AND om.enabled=true AND m.active=true`;
+          const effective = Object.fromEntries(Object.entries(rows[0].permissions as Record<string,unknown>)
+            .filter(([key])=>entitled.some(row=>row.key===key)));
+          allowed = managedRequestAllowed(effective, pathname, req.method, role);
+        }
+        if (!allowed) return NextResponse.json({ error: 'Your account does not have access to this area.' }, { status: 403, headers: { 'Cache-Control': 'private, no-store' } });
+      }
+    }
+  } catch {
+    return NextResponse.json({ error: 'Access could not be verified. Please try again.' }, { status: 503, headers: { 'Cache-Control': 'private, no-store' } });
+  }
 
   // Phase C1.6: both checks now use the SAME shared roleGte()/ROLE_ORDER
   // lib/org.ts's requireRole() uses (imported from lib/session.ts, not
@@ -141,6 +178,7 @@ export async function middleware(req: NextRequest) {
   }
 
   const res = NextResponse.next();
+  if(isApi) res.headers.set('Cache-Control','private, no-store');
 
   // Sliding refresh:
   // re-issue cookie if within 2h of expiry
@@ -176,7 +214,8 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
+  runtime: 'nodejs',
   matcher: [
-    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:webp|svg|png|jpg|jpeg|gif|ico|woff2?|ttf|mp3|mp4)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
 };
