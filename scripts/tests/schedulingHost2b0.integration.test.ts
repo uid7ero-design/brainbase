@@ -483,9 +483,11 @@ suite('Phase 2B.0 on real Postgres', () => {
       await apply(SQL('030_resource_concurrency.sql'));
       await apply(SQL('031_reservation_integrity.sql'));
       await apply(SQL('032_schedule_archive_ordering.sql'));
+      await apply(SQL('033_occurrence_integrity.sql'));
     };
     beforeAll(applyIntegrity);
     afterAll(async () => {
+      await apply(SQL('094_occurrence_integrity_rollback.sql'));
       await apply(SQL('093_schedule_archive_ordering_rollback.sql'));
       await apply(SQL('092_reservation_integrity_rollback.sql'));
       await apply(SQL('091_resource_concurrency_rollback.sql'));
@@ -541,7 +543,7 @@ suite('Phase 2B.0 on real Postgres', () => {
       expect(await count('scheduling_settings')).toBe(0);
     });
 
-    it('enable refuses, writing nothing, until the integrity migrations 030, 031 and 032 are applied (each missing version is named), and when a guard trigger is disabled', async () => {
+    it('enable refuses, writing nothing, until the integrity migrations 030, 031, 032 and 033 are applied (each missing version is named), and when a guard trigger is disabled', async () => {
       await apply(MANUAL('internal-test-org-1-create.sql'));
       const refused = async (pattern: RegExp) => {
         expect(await failure(MANUAL('internal-test-org-2-enable-capability.sql'))).toMatch(pattern);
@@ -549,16 +551,18 @@ suite('Phase 2B.0 on real Postgres', () => {
         expect(await count('scheduling_settings')).toBe(0);
       };
       try {
+        await apply(SQL('094_occurrence_integrity_rollback.sql'));
+        await refused(/missing: 2b\.2\.4\);/);
         await apply(SQL('093_schedule_archive_ordering_rollback.sql'));
-        await refused(/missing: 2b\.2\.3\);/);
+        await refused(/missing: 2b\.2\.3, 2b\.2\.4\);/);
         await apply(SQL('092_reservation_integrity_rollback.sql'));
-        await refused(/missing: 2b\.2\.2, 2b\.2\.3\)/);
+        await refused(/missing: 2b\.2\.2, 2b\.2\.3, 2b\.2\.4\)/);
         await apply(SQL('091_resource_concurrency_rollback.sql'));
-        await refused(/missing: 2b\.2\.1, 2b\.2\.2, 2b\.2\.3\)/);
+        await refused(/missing: 2b\.2\.1, 2b\.2\.2, 2b\.2\.3, 2b\.2\.4\)/);
       } finally {
         await applyIntegrity();
       }
-      // all three recorded but a guard switched off: still refused
+      // all four recorded but a guard switched off: still refused
       await q('ALTER TABLE scheduling_reservations DISABLE TRIGGER scheduling_reservations_integrity');
       try {
         await refused(/7 Scheduling integrity triggers to be enabled, found 6/);

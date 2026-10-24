@@ -13,9 +13,9 @@
 -- GUARDS (any failure aborts and rolls back; nothing is written):
 --   * the 'scheduling' capability is registered and active (120 applied) and the settings table exists (110 applied);
 --   * the Scheduling INTEGRITY migrations are applied: versions 2b.2.1 (030 resource concurrency), 2b.2.2 (031 reservation
---     integrity) and 2b.2.3 (032 schedule archive ordering) are recorded AND their seven guard triggers are enabled. An
---     organisation is never entitled on a schema that lacks the booking guards. (033 occurrence integrity is not required
---     here: no route writes occurrences yet; add 2b.2.4 to the list below before the first occurrence-writing route.)
+--     integrity), 2b.2.3 (032 schedule archive ordering) and 2b.2.4 (033 occurrence integrity) are recorded AND their seven
+--     guard triggers are enabled (033 replaces a function, it adds no trigger). An organisation is never entitled on a schema
+--     that lacks the booking and occurrence guards.
 --   * the test organisation's timezone is Australia/Adelaide (internal-test-org-1-create.sql sets it);
 --   * exactly one organisation has the slug below;
 --   * exactly one entitlement row was written;
@@ -50,10 +50,10 @@ BEGIN
     RAISE EXCEPTION 'scheduling_schema_migrations does not exist; apply the Scheduling schema first';
   END IF;
   SELECT string_agg(v, ', ' ORDER BY v) INTO missing
-    FROM unnest(ARRAY['2b.2.1', '2b.2.2', '2b.2.3']) AS v
+    FROM unnest(ARRAY['2b.2.1', '2b.2.2', '2b.2.3', '2b.2.4']) AS v
    WHERE NOT EXISTS (SELECT 1 FROM scheduling_schema_migrations m WHERE m.version = v);
   IF missing IS NOT NULL THEN
-    RAISE EXCEPTION 'the Scheduling integrity migrations are not applied (missing: %); apply 030, 031 and 032 first', missing;
+    RAISE EXCEPTION 'the Scheduling integrity migrations are not applied (missing: %); apply 030, 031, 032 and 033 first', missing;
   END IF;
   SELECT count(*) INTO guards FROM pg_trigger
    WHERE NOT tgisinternal AND tgenabled = 'O'

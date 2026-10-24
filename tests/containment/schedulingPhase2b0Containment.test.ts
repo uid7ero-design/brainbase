@@ -200,7 +200,7 @@ describe('the internal test organisation is defined but never created or enabled
     expect(sql).toContain(`WHERE slug = '${SLUG}'`);
     expect(sql).toMatch(/entitled <> 1/);
     // an organisation is never entitled on a schema that lacks the booking guards, or without an explicit timezone
-    expect(sql).toContain("ARRAY['2b.2.1', '2b.2.2', '2b.2.3']");
+    expect(sql).toContain("ARRAY['2b.2.1', '2b.2.2', '2b.2.3', '2b.2.4']");
     expect(sql).toMatch(/guards <> 7/);
     expect(sql).toContain("timezone = 'Australia/Adelaide'");
     expect(sql.indexOf("ARRAY['2b.2.1'")).toBeLessThan(sql.indexOf("INSERT INTO organisation_modules"));
