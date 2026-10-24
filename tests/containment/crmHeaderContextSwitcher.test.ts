@@ -191,7 +191,8 @@ describe('OrgSwitcher no longer depends entirely on its own client-side fetch pa
   const orgSwitcherSource = stripComments(read('components/admin/OrgSwitcher.tsx'))
 
   it('accepts an initialRole prop and seeds state.role from it, instead of from a bare null — a real super_admin is visible on first paint even before load() resolves', () => {
-    expect(orgSwitcherSource).toMatch(/export default function OrgSwitcher\(\{\s*initialRole\s*\}:\s*\{\s*initialRole:\s*Role \| null\s*\}\)/)
+    // initialSeed (optional) is the server's view of the impersonation, so the first paint is also right about WHICH organisation is in view
+    expect(orgSwitcherSource).toMatch(/export default function OrgSwitcher\(\{\s*initialRole,\s*initialSeed = null\s*\}:\s*\{\s*initialRole:\s*Role \| null;\s*initialSeed\?:/)
     expect(orgSwitcherSource).toMatch(/useState<State>\(\{\s*role:\s*initialRole,/)
     // The old bare-null seed must be gone, not just supplemented.
     expect(orgSwitcherSource).not.toMatch(/useState<State>\(\{\s*role:\s*null,/)
