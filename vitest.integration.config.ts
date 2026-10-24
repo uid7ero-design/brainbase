@@ -213,6 +213,7 @@ export default defineConfig({
       'scripts/tests/dataHubNormalizationExecutor.integration.test.ts',
       'scripts/tests/dataHubNormalizeWorksheetRoute.integration.test.ts',
       'scripts/tests/dataHubDatasetProfileExecution.integration.test.ts',
+      'scripts/tests/dataHubMappingSetup.integration.test.ts',
       'scripts/tests/purchaseMatchAllocationsMigration.integration.test.ts',
       'scripts/tests/purchaseMatchAllocationConcurrency.integration.test.ts',
       'scripts/tests/purchasingCommitments.integration.test.ts',

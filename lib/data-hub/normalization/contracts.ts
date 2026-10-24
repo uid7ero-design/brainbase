@@ -18,7 +18,16 @@ export type { ValueKind, Unit, DatePolicy, TimeZonePolicy, ColumnRuleV2 };
 // it identifies the exact semantics of THIS transformer implementation, and
 // must only ever change when a maintainer deliberately revises those
 // semantics.
-export const NORMALIZER_VERSION = "v1" as const;
+export const NORMALIZER_VERSION = "v2" as const;
+
+// v1 pinned attempts can resume only with their original vocabulary/policies.
+// The added semantics cannot be executed under an old run's version label.
+export function isLegacyCompatiblePlan(version: string, plan: NormalizationPlan | null): boolean {
+  const units = new Set(["kg", "t", "m", "km", "s", "min", "h", "%", "AUD"]);
+  return version === "v1" && plan !== null && [...plan.rulesByColumnId.values()].every(rule =>
+    rule.minimum === undefined && (rule.sourceUnit === undefined || units.has(rule.sourceUnit)) &&
+    (rule.normalizedUnit === undefined || units.has(rule.normalizedUnit)));
+}
 
 // Stable, closed allowlist. A finding's code is data a caller may safely
 // branch on (e.g. to decide whether a defect is worth surfacing to an
@@ -36,6 +45,7 @@ export const NORMALIZATION_FINDING_CODES = [
   "MALFORMED_NUMERIC_STRING",
   "UNSAFE_NUMERIC_VALUE",
   "INTEGER_NOT_WHOLE",
+  "NUMERIC_VALUE_BELOW_MINIMUM",
   "LATITUDE_OUT_OF_RANGE",
   "LONGITUDE_OUT_OF_RANGE",
   // Unit conversion

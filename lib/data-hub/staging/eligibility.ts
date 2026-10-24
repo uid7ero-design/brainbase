@@ -1,6 +1,7 @@
 import { prisma } from "../../prisma";
 import type { GovernedColumnAddress } from "../workbookParser";
 import { headerRowOneBasedFromDocument } from "../schemaProfiles/profileDocument";
+import { hasMappingUseConfirmation } from "../schemaProfiles/mappingSetup";
 
 // Data Hub 6.2D4B — staging-eligibility gate. Read-only; no writes.
 //
@@ -24,7 +25,7 @@ import { headerRowOneBasedFromDocument } from "../schemaProfiles/profileDocument
 // EXCLUSIVELY from the run's own immutable pinned IDs and never reads
 // active_profile_version_id at all.
 
-export type StagingEligibilityFailureCode = "BATCH_NOT_READY" | "STAGING_INELIGIBLE" | "INVALID_STATE";
+export type StagingEligibilityFailureCode = "BATCH_NOT_READY" | "STAGING_INELIGIBLE" | "INVALID_STATE" | "MAPPING_CONFIRMATION_REQUIRED";
 
 export type StagingEligibilityResult =
   | {
@@ -133,6 +134,12 @@ export async function resolveStagingEligibility(context: {
     sourceHeader: c.source_header,
     sensitivityClass: c.sensitivity_class,
   }));
+
+  if (!await hasMappingUseConfirmation({ organisationId, uploadId, sourceSchemaVersionId: batch.source_schema_version_id,
+    worksheetId: worksheet.id, profileId: profile.id, versionId: profileVersion.id, sha256: batch.sha256,
+    columns: governedColumns, profileDocument: profileVersion.profile_document })) {
+    return { ok: false, code: "MAPPING_CONFIRMATION_REQUIRED" };
+  }
 
   return {
     ok: true,

@@ -1,0 +1,13 @@
+.page { max-width: 64rem; margin: 24px auto; padding: 24px; color: var(--bb-text-primary); }
+.page h1 { font-size: 28px; line-height: 1.25; }
+.page p { color: var(--bb-text-secondary); line-height: 1.6; }
+.page a { text-decoration: underline; text-underline-offset: 3px; }
+.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin: 24px 0; }
+.field, .notice { min-width: 0; padding: 20px; border: 1px solid var(--bb-border-default); border-radius: 12px; background: var(--bb-surface-soft); }
+.field legend { font-weight: 600; padding: 0 6px; }
+.field label, .notice label { display: block; margin: 12px 0 6px; }
+.page select { box-sizing: border-box; display: block; width: 100%; max-width: 100%; min-height: 44px; padding: 8px; font: inherit; border-radius: 6px; border: 1px solid var(--bb-border-default); background: var(--bb-surface-soft); color: var(--bb-text-primary); }
+.field .confirm { display: flex; align-items: flex-start; gap: 10px; line-height: 1.5; margin-top: 18px; }
+.confirm input { min-width: 20px; min-height: 20px; accent-color: var(--brand-brainbase-accent); }
+.notice h2 { margin-top: 0; font-size: 20px; }
+@media (max-width: 640px) { .page { padding: 16px; } .fields { grid-template-columns: minmax(0, 1fr); } .field, .notice { padding: 16px; } }
