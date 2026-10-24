@@ -43,11 +43,11 @@ describe('Scoped immutable finance adjustment review',()=>{
   it('uses bounded, session-tenant statements and returns no-store evidence or scoped 404',async()=>{
     authMock.mockResolvedValue({ok:true,session:{organisationId:'org-a'}});queryMock.mockResolvedValue([]);
     const response=await GET(new Request(`http://localhost?periodId=${adjustmentScope.periodId}&currency=AUD&id=${adjustmentHeader.id}&organisationId=foreign`));expect(response.status).toBe(404);expect(response.headers.get('Cache-Control')).toBe('no-store');
-    expect(queryMock.mock.calls[0][1]).toEqual(['org-a',adjustmentScope.periodId,'AUD','',adjustmentHeader.id]);
+    expect(queryMock.mock.calls[0][1]).toEqual(['org-a',adjustmentScope.periodId,'AUD','',adjustmentHeader.id,'','']);
     const sql=queryMock.mock.calls[0][0];expect(sql).toContain('l.organisation_id=a.organisation_id');expect(sql).toContain('e.organisation_id=a.organisation_id');expect(sql).toContain('amount_exclusive_cents::text');expect(sql).not.toMatch(/INSERT|UPDATE|DELETE/);
   });
   it('provides register count/page in one statement and orders lifecycle ties by their stages',async()=>{
-    queryMock.mockResolvedValue([{count:0,adjustments:[]}]);expect((await listFinanceAdjustmentReview('org-a',adjustmentScope,2)).page).toBe(2);expect(queryMock.mock.calls[0][1]).toEqual(['org-a',adjustmentScope.periodId,'AUD','',25]);expect(queryMock.mock.calls[0][0]).toContain('LIMIT 25 OFFSET $5');
+    queryMock.mockResolvedValue([{count:0,adjustments:[]}]);expect((await listFinanceAdjustmentReview('org-a',adjustmentScope,2)).page).toBe(2);expect(queryMock.mock.calls[0][1]).toEqual(['org-a',adjustmentScope.periodId,'AUD','',25,'','']);expect(queryMock.mock.calls[0][0]).toContain('LIMIT 25 OFFSET $5');
     queryMock.mockResolvedValue([]);await getFinanceAdjustmentEvidence('org-a',adjustmentScope,adjustmentHeader.id);expect(queryMock.mock.calls[1][0]).toContain("WHEN 'CREATED' THEN 0 WHEN 'POSTED' THEN 1");
   });
 });

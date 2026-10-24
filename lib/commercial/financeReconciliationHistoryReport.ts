@@ -1,0 +1,25 @@
+import { formatAustralianTimestamp } from './financeSetupDisplay';
+import { formatMoneyCentsExact } from './money';
+import { RECONCILIATION_AMOUNT_FIELDS } from './financeReconciliationEvidenceModel';
+import type { ReconciliationHistory } from './financeReconciliationHistoryModel';
+
+const entities:Record<string,string>={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
+const escape=(value:string|number)=>String(value).replace(/[&<>"']/g,character=>entities[character]);
+const stamp=(value:string)=>`${formatAustralianTimestamp(value)} · ${value}`;
+const text=(value:string|null)=>value===null?'Not recorded':value===''?'Empty saved text':value;
+const pairs=(rows:readonly (readonly [string,string|number])[])=>`<dl>${rows.map(([label,value])=>`<div><dt>${escape(label)}</dt><dd>${escape(value)}</dd></div>`).join('')}</dl>`;
+const labels=['Source Actual','Finance adjustments','Effective Actual','External GL','Variance'];
+
+/** Uses the accepted history page revalidated by the download entry point. */
+export function buildReconciliationHistoryHtml(saved:ReconciliationHistory,readAt:string,exportedAt:string):string{
+  return `<!doctype html><html lang="en-AU"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>Saved reconciliation history — page ${saved.page}</title><style>
+*{box-sizing:border-box}body{font:14px/1.5 Arial,sans-serif;color:#17212b;max-width:1050px;margin:24px auto;padding:24px}h1{font-size:26px}h2{font-size:19px}p,dd,td,th{overflow-wrap:anywhere}dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}dd{margin:3px 0;white-space:pre-wrap}dt{font-size:12px;color:#465562;font-weight:bold}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbc5ce;padding:8px;text-align:left;vertical-align:top}.snapshot{border:1px solid #bbc5ce;border-radius:6px;padding:16px;margin-block:20px}.boundary{border-left:3px solid #687a8b;padding-left:12px}h1,h2{break-after:avoid}footer{font-size:12px;border-top:1px solid #bbc5ce;margin-top:28px;padding-top:12px}@media(max-width:650px){body{margin:0;padding:16px}dl{grid-template-columns:1fr}}@media print{@page{size:A4 portrait;margin:14mm}body{max-width:none;margin:0;padding:0}.print-help{display:none}tr,dl>div{break-inside:avoid}thead{display:table-header-group}}
+</style></head><body><p>BrainBase · Saved reconciliation history</p><h1>Saved snapshot history · page ${saved.page}</h1><p class="boundary">This report includes ${saved.records.length} displayed saved headers of ${saved.totalCount} matching snapshots. Other history pages, comparison items and lifecycle events are not included. Versions are separate observations and must not be summed. This report does not prepare, review or sign off any snapshot.</p>
+<p class="print-help">Use the browser’s Print command to print or save as PDF.</p>${pairs([
+  ['Year ID',saved.scope.yearId],['Period ID',saved.scope.periodId],['Source',saved.scope.source],['Currency',saved.scope.currency],['Lifecycle filter',saved.status||'ALL'],['Read completed at',stamp(readAt)],['Download requested at',stamp(exportedAt)],
+])}<p>Latest means newest saved snapshot in the complete selected scope, independently of this lifecycle filter. Absence of a latest record on this page does not establish that no latest record exists. Status and latest designation reflect the accepted read, not current approval or readiness.</p>
+${saved.records.length?saved.records.map(row=>`<section class="snapshot"><h2>${escape(row.yearName)} · ${escape(row.periodName)} · ${escape(row.status)}</h2>${pairs([
+  ['Reconciliation ID',row.id],['Latest at read',row.latest?'Yes':'No'],['Saved snapshot at',stamp(row.snapshotAt)],['Prepared at',stamp(row.preparedAt)],['Prepared by',row.preparedBy],['Reviewed at',row.reviewedAt?stamp(row.reviewedAt):'Not recorded'],['Reviewed by',text(row.reviewedBy)],['Close reference',row.closeId??'Not linked'],['Unresolved items',row.unresolvedCount],['Saved notes',text(row.notes)],
+])}${row.status==='STALE'?'<p>This stale snapshot retains the amounts of an earlier comparison.</p>':''}<table><thead><tr><th scope="col">Measure</th><th scope="col">Saved header amount</th></tr></thead><tbody>${RECONCILIATION_AMOUNT_FIELDS.map((field,index)=>`<tr><th scope="row">${labels[index]}</th><td>${escape(formatMoneyCentsExact(row[field],row.currency))}</td></tr>`).join('')}</tbody></table></section>`).join(''):'<p>No saved snapshots on this page for the selected lifecycle filter.</p>'}
+<footer>Each saved header remains separate. No cross-version totals or inferred lifecycle transitions are included. Calendar names are current at read. Browser read/download-request times are observations, not database snapshot times or proof of file save. Human-readable times use Australian notation in the generating browser’s timezone, with original timestamps retained. This is read-only evidence, not a restore file or new approval.</footer></body></html>`;
+}
