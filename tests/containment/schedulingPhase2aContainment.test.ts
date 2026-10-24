@@ -67,8 +67,8 @@ describe('Phase 2A wires nothing into the application', () => {
 
 describe('Phase 2A SQL package is exactly what was reviewed', () => {
   it('ships exactly the shared files and the BrainBase host files, nothing else', () => {
-    // Phase 2B.2 (deliberate, reviewed change) adds 030 (resource concurrency), 031 (reservation integrity), 032 (schedule archive ordering) and their rollbacks 091, 092 and 093; all are pinned below.
-    expect(readdirSync(path.join(ROOT, 'packages/scheduling/sql')).sort()).toEqual(['001_preflight.sql', '010_shared_schema.sql', '020_verify.sql', '030_resource_concurrency.sql', '031_reservation_integrity.sql', '032_schedule_archive_ordering.sql', '090_rollback.sql', '091_resource_concurrency_rollback.sql', '092_reservation_integrity_rollback.sql', '093_schedule_archive_ordering_rollback.sql']);
+    // Phase 2B.2 (deliberate, reviewed change) adds 030 (resource concurrency), 031 (reservation integrity), 032 (schedule archive ordering), 033 (occurrence integrity) and their rollbacks 091, 092, 093 and 094; all are pinned below.
+    expect(readdirSync(path.join(ROOT, 'packages/scheduling/sql')).sort()).toEqual(['001_preflight.sql', '010_shared_schema.sql', '020_verify.sql', '030_resource_concurrency.sql', '031_reservation_integrity.sql', '032_schedule_archive_ordering.sql', '033_occurrence_integrity.sql', '090_rollback.sql', '091_resource_concurrency_rollback.sql', '092_reservation_integrity_rollback.sql', '093_schedule_archive_ordering_rollback.sql', '094_occurrence_integrity_rollback.sql']);
     // Phase 2B.0 (deliberate, reviewed change) adds 120/130 with their rollbacks and the manual/ folder; each is pinned
     // file by file in schedulingPhase2b0Containment.test.ts.
     expect(readdirSync(path.join(ROOT, 'scripts/scheduling')).sort()).toEqual([
@@ -197,6 +197,41 @@ describe('Phase 2A SQL package is exactly what was reviewed', () => {
     expect(body('packages/scheduling/sql/093_schedule_archive_ordering_rollback.sql')).toBe(body('packages/scheduling/sql/031_reservation_integrity.sql'));
   });
 
+  it('033 (occurrence integrity) replaces exactly one function: no trigger, table or data change but its version marker; schedule row locked before offering row before the resource lock', () => {
+    const sql = noComments(read('packages/scheduling/sql/033_occurrence_integrity.sql'));
+    expect([...sql.matchAll(/CREATE OR REPLACE FUNCTION (\w+)/g)].map(m => m[1])).toEqual(['scheduling_occurrence_integrity']);
+    expect(sql).not.toMatch(/\b(CREATE OR REPLACE TRIGGER|CREATE TRIGGER|ALTER TABLE|DROP TABLE|DROP FUNCTION|DROP TRIGGER|TRUNCATE|DELETE FROM|CREATE TABLE|UPDATE\s+\w+\s+SET)\b/i);
+    expect([...sql.matchAll(/INSERT INTO (\w+)/g)].map(m => m[1])).toEqual(['scheduling_schema_migrations']);
+    expect(sql).toMatch(/lock_timeout = '5s' AS /);
+    const start = sql.indexOf('CREATE OR REPLACE FUNCTION scheduling_occurrence_integrity()');
+    const fn = sql.slice(start, sql.indexOf('INSERT INTO scheduling_schema_migrations'));
+    const schedule = fn.indexOf('FROM scheduling_schedules s WHERE s.id = sid');
+    const offering = fn.indexOf('FOR SHARE OF o');
+    const resource = fn.indexOf('pg_advisory_xact_lock');
+    expect(schedule).toBeGreaterThan(-1);
+    expect(fn.slice(schedule, fn.indexOf(';', schedule))).toMatch(/FOR SHARE$/);
+    expect(schedule).toBeLessThan(offering);
+    expect(offering).toBeLessThan(resource);
+    // participant capacity is not compared with the resource: the guard never reads a capacity
+    expect(fn).not.toMatch(/\bcapacity\b/);
+    expect(sql).toMatch(/needs 032_schedule_archive_ordering\.sql \(version 2b\.2\.3\)/);
+    expect(sql).not.toMatch(/\b(organisations|users|crm_contacts|contacts|bookings|sessions|audit_logs)\b/);
+  });
+
+  it('094 restores exactly what 031 created for that function and touches no data', () => {
+    const rb = noComments(read('packages/scheduling/sql/094_occurrence_integrity_rollback.sql'));
+    expect([...rb.matchAll(/CREATE OR REPLACE FUNCTION (\w+)/g)].map(m => m[1])).toEqual(['scheduling_occurrence_integrity']);
+    expect(rb).not.toMatch(/\b(DROP TABLE|DROP FUNCTION|DROP TRIGGER|TRUNCATE|ALTER TABLE|INSERT INTO)\b/i);
+    expect([...rb.matchAll(/DELETE FROM (\w+)[^;]*;/g)].map(m => m[0].replace(/\s+/g, ' '))).toEqual(["DELETE FROM scheduling_schema_migrations WHERE version = '2b.2.4';"]);
+    // the restored function is 031's, byte for byte
+    const body = (f: string) => {
+      const t = read(f).replace(/\r\n/g, '\n');
+      const a = t.indexOf('CREATE OR REPLACE FUNCTION scheduling_occurrence_integrity()');
+      return t.slice(a, t.indexOf('END;\n$$;', a) + 8);
+    };
+    expect(body('packages/scheduling/sql/094_occurrence_integrity_rollback.sql')).toBe(body('packages/scheduling/sql/031_reservation_integrity.sql'));
+  });
+
   it('092 removes exactly what 031 added and touches no data', () => {
     const rb = noComments(read('packages/scheduling/sql/092_reservation_integrity_rollback.sql'));
     expect([...rb.matchAll(/DROP TRIGGER IF EXISTS (\w+)/g)].map(m => m[1]).sort()).toEqual(['scheduling_occurrences_integrity', 'scheduling_reservations_integrity', 'scheduling_resources_capacity_guard']);
@@ -245,5 +280,30 @@ describe('LD Tennis is not touched', () => {
   it('no LD Tennis booking, session or recurrence file mentions the scheduling tables or packages', () => {
     expect(tennisFiles.length).toBeGreaterThan(0);
     for (const f of tennisFiles) expect(read(f), f).not.toMatch(/scheduling_|@scheduling\//);
+  });
+});
+
+describe('first-release occurrence restriction lives in the shared layer', () => {
+  const code = (rel: string) => read(rel).replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+
+  it('OCCURRENCE_WRITING_PRESETS is exactly classes_coaching (event_capacity, restaurant, hotel and the rest stay closed)', () => {
+    expect(code('packages/scheduling/src/persistence.ts')).toMatch(/OCCURRENCE_WRITING_PRESETS: readonly string\[\] = \['classes_coaching'\];/);
+  });
+
+  it('createOccurrence filters on the schedule preset inside its INSERT and reports preset_not_supported', () => {
+    const src = code('packages/scheduling-postgres/src/configRepository.ts');
+    expect(src).toContain('AND s.preset_key = ANY($13::text[])');
+    expect(src).toContain('[...OCCURRENCE_WRITING_PRESETS]');
+    expect(src).toContain("'preset_not_supported'");
+  });
+
+  it('only the configuration repository inserts into scheduling_occurrences (no route, job or script writes them around the restriction)', () => {
+    const dirs = ['app', 'lib', 'packages/scheduling/src', 'packages/scheduling-postgres/src'];
+    const writers = dirs
+      .filter(d => existsSync(path.join(ROOT, d)))
+      .flatMap(d => walk(path.join(ROOT, d), /\.(ts|tsx|mts)$/))
+      .filter(f => /INSERT\s+INTO\s+scheduling_occurrences/i.test(readFileSync(f, 'utf8')))
+      .map(rel);
+    expect(writers).toEqual(['packages/scheduling-postgres/src/configRepository.ts']);
   });
 });
