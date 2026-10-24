@@ -11,7 +11,7 @@ try{
   let ready=false;for(let i=0;i<40;i++){try{exec('docker',['exec',container,'pg_isready','-U','postgres','-d','orgusers'],{stdio:'ignore'});ready=true;break;}catch{await new Promise(r=>setTimeout(r,500));}}
   if(!ready)throw Error('Disposable Postgres did not start');
   const url=`postgresql://postgres:${password}@${address}/orgusers`;
-  exec(process.execPath,['node_modules/vitest/vitest.mjs','run','tests/containment/organisationUsersRealPostgres.test.ts','tests/containment/organisationUserPolicy.test.ts','tests/containment/organisationUserMiddleware.test.ts','tests/containment/navModel.test.ts'],{
+  exec(process.execPath,['node_modules/vitest/vitest.mjs','run','tests/containment/organisationUsersRealPostgres.test.ts','tests/containment/organisationUserPolicy.test.ts','tests/containment/organisationUserMiddleware.test.ts','tests/containment/organisationUsersRoute.test.ts','tests/containment/navModel.test.ts'],{
     stdio:'inherit',timeout:120000,env:{...process.env,ORG_USERS_TEST_DATABASE_URL:url,DATABASE_URL:url,DIRECT_URL:url,RESEND_API_KEY:'',SESSION_SECRET:randomBytes(32).toString('hex')},
   });
 }finally{try{exec('docker',['rm','-f',container],{stdio:'ignore'});}catch{/* preserve a failed cleanup for operator inspection */}}

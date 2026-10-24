@@ -87,6 +87,9 @@ try {
         assert.equal(request.headers.authorization, 'Bearer local-email-fixture');
         const chunks = []; for await (const chunk of request) chunks.push(chunk);
         const mail = JSON.parse(Buffer.concat(chunks).toString());
+        if(mail.to==='org-user@example.test' && mail.subject==='Your BrainBase organisation invitation') {
+          emails.push(mail);response.setHeader('Content-Type','application/json');response.end(JSON.stringify({id:'local-invitation'}));return;
+        }
         assert.equal(mail.to, 'employee@local.invalid');
         emails.push(mail);
         if (emails.length === 2) { response.destroy(); return; }

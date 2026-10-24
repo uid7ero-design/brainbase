@@ -33,7 +33,8 @@ export async function verifyOrganisationUsers({origin,context,page,q,emails,brow
   const denied=await guest.request.post(origin+'/api/hr/teams',{data:{name:'Denied write'}});assert.equal(denied.status(),403);assert.match((await denied.json()).error,/access to this area/);
   assert.equal((await guest.request.get(endpoint)).status(),403);
   assert.equal((await guest.request.get(origin+'/api/admin/users')).status(),403);
-  assert.equal((await guest.request.get(origin+'/api/hr/people/foreign-person')).status(),404);
+  const foreignPerson=(await q("SELECT id FROM hr_people WHERE organisation_id='local-other' LIMIT 1")).rows[0];
+  assert.equal((await guest.request.get(origin+'/api/hr/people/'+foreignPerson.id)).status(),404);
   const update={action:'update',id:invited.id,name:'Invited employee',role:'viewer',status:'ACTIVE',permissions:{people:'none'}};
   assert.equal((await context.request.post(endpoint,{data:{...update,id:foreign.id}})).status(),409);
   await page.getByRole('button',{name:'Edit access for Invited employee',exact:true}).click();

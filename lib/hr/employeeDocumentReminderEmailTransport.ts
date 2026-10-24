@@ -26,6 +26,7 @@ type ReminderContextRow = {
   document_title: string;
   person_linked_user_id: string | null;
   is_hr_administrator: boolean;
+  has_people_access: boolean;
 };
 
 type EmailSender = (options: {
@@ -109,7 +110,11 @@ export function createEmployeeDocumentReminderEmailTransport(params: {
         (u.role::text = 'SUPER_ADMIN' OR EXISTS (
           SELECT 1 FROM hr_administrators a
           WHERE a.organisation_id = v.organisation_id AND a.user_id = u.id
-        )) AS is_hr_administrator
+        )) AS is_hr_administrator,
+        (NOT EXISTS(SELECT 1 FROM organisation_user_access a WHERE a.user_id=u.id)
+          OR EXISTS(SELECT 1 FROM organisation_user_access a WHERE a.user_id=u.id
+            AND a.organisation_id=v.organisation_id AND a.permissions->>'people' IN ('view','use'))
+        ) AS has_people_access
       FROM hr_employee_document_versions v
       JOIN hr_employee_documents d
         ON d.organisation_id = v.organisation_id
@@ -134,6 +139,9 @@ export function createEmployeeDocumentReminderEmailTransport(params: {
       };
     }
 
+    if (context.has_people_access !== true) {
+      return { outcome:'definite_failure',failureCode:'recipient_module_access_unavailable' };
+    }
     if (
       context.recipient_status !== 'ACTIVE'
       || !context.recipient_email

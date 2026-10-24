@@ -9,7 +9,10 @@ export async function GET() {
   catch(e) { return response({error:e instanceof UserAdministrationError ? e.message : 'Unable to load organisation users.'}, e instanceof UserAdministrationError ? e.status : 503); }
 }
 export async function POST(req: NextRequest) {
-  if (req.headers.get('origin') && req.headers.get('origin')!==new URL(req.url).origin) return response({error:'Forbidden'},403);
+  // Next may expose the internal HTTP URL behind a TLS proxy. Compare the
+  // browser Origin to the actual Host, never a client-selected organisation.
+  const origin=req.headers.get('origin');
+  if(origin){try{if(new URL(origin).host!==(req.headers.get('host')??new URL(req.url).host))return response({error:'Forbidden'},403);}catch{return response({error:'Forbidden'},403);}}
   let actor;
   try { actor=await requireSession(); } catch { return response({error:'Unauthorized'},401); }
   try { return response(await saveOrganisationUser(actor,await req.json()),200); }
