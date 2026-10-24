@@ -8,6 +8,7 @@ import bcrypt from 'bcryptjs';
 import { SignJWT } from 'jose';
 import { chromium, expect } from '@playwright/test';
 import { parse } from 'csv-parse/sync';
+import { verifyFinanceEvidenceRuntime } from './financeEvidenceRuntime.mjs';
 
 // Run after next build --webpack. No application modules or route handlers are
 // mocked. Ancillary prerequisite tables are minimal fixtures; finance tables use
@@ -35,7 +36,7 @@ const po='00000000-0000-4000-8000-000000000301';
 try {
   const postgresPort=await freePort(), httpPort=await freePort();
   await command('docker',['run','--name',container,'-e','POSTGRES_PASSWORD=test','-p',`127.0.0.1:${postgresPort}:5432`,'-d','postgres:16-alpine']);containerCreated=true;
-  for(let attempt=0;attempt<30;attempt++){try{await command('docker',['exec',container,'pg_isready','-U','postgres']);break;}catch{await pause(500);}}
+  for(let attempt=0;attempt<30;attempt++){try{await command('docker',['exec',container,'pg_isready','-h','127.0.0.1','-U','postgres']);break;}catch{await pause(500);}}
   await command('docker',['exec',container,'createdb','-U','postgres',database]);
   const databaseUrl=`postgresql://postgres:test@127.0.0.1:${postgresPort}/${database}`;
   pool=new Pool({connectionString:databaseUrl});
@@ -135,16 +136,17 @@ try {
   const adjustmentPanel=auditor.page.getByRole('region',{name:'Finance adjustment review',exact:true});await expect(adjustmentPanel).toContainText('4 matching adjustments');
   const inspectAudit=async header=>{await adjustmentPanel.getByRole('button',{name:`Review adjustment ${header.adjustment_number}`,exact:true}).click();return adjustmentPanel.getByRole('region',{name:'Saved adjustment evidence',exact:true});};
   let auditDetail=await inspectAudit(draftAudit);await expect(auditDetail).toContainText('$180,143,985,094,819.86');await expect(auditDetail).toContainText('Unavailable');await expect(auditDetail).toContainText('Unresolved');
-  await adjustmentPanel.getByRole('button',{name:'Close adjustment evidence',exact:true}).click();await expect(adjustmentPanel.getByRole('button',{name:`Review adjustment ${draftAudit.adjustment_number}`,exact:true})).toBeFocused();
+  await adjustmentPanel.getByRole('button',{name:'Close adjustment evidence',exact:true}).first().click();await expect(adjustmentPanel.getByRole('button',{name:`Review adjustment ${draftAudit.adjustment_number}`,exact:true})).toBeFocused();
   auditDetail=await inspectAudit(originalAudit);await expect(auditDetail.getByRole('region',{name:'Adjustment lifecycle history',exact:true})).toContainText('REVERSED');await expect(auditDetail).toContainText('Audit reversal reason');
-  auditDetail=await inspectAudit(auditReversal.body.adjustment);await expect(auditDetail).toContainText('-$1.00');await expect(auditDetail).toContainText(originalAudit.id);await expect(auditDetail.getByRole('region',{name:'Adjustment lifecycle history',exact:true}).locator('tbody tr').filter({hasText:'CREATED'}).locator('td').last()).toHaveText(originalAudit.id);
-  auditDetail=await inspectAudit(zeroAudit);await expect(auditDetail.getByRole('region',{name:'Adjustment line evidence',exact:true})).toContainText('$0.00');await expect(auditDetail.getByRole('region',{name:'Adjustment line evidence',exact:true})).not.toContainText('Unavailable');
+  auditDetail=await inspectAudit(auditReversal.body.adjustment);await expect(auditDetail).toContainText('-$1.00');await expect(auditDetail).toContainText(originalAudit.id);await expect(auditDetail.getByRole('region',{name:'Adjustment lifecycle history',exact:true}).getByRole('listitem').filter({hasText:'Adjustment created'})).toContainText(originalAudit.id);
+  auditDetail=await inspectAudit(zeroAudit);await expect(auditDetail.getByRole('region',{name:'Saved adjustment lines',exact:true})).toContainText('$0.00');await expect(auditDetail.getByRole('region',{name:'Saved adjustment lines',exact:true})).not.toContainText('Unavailable');
   await auditor.page.setViewportSize({width:390,height:844});const adjustmentWidth=await auditor.page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth}));if(adjustmentWidth.width!==adjustmentWidth.scrollWidth)throw new Error('Adjustment review overflows mobile viewport');
-  for(const name of ['Adjustment register table','Adjustment line evidence','Adjustment lifecycle history']){const region=adjustmentPanel.getByRole('region',{name,exact:true});await region.focus();await region.evaluate(element=>{element.scrollLeft=element.scrollWidth;});if(await region.evaluate(element=>element.scrollLeft===0||Math.abs(element.scrollLeft+element.clientWidth-element.scrollWidth)>2))throw new Error('Adjustment evidence last column inaccessible');}
+  await adjustmentPanel.getByRole('button',{name:'Detailed table',exact:true}).click();await auditDetail.getByRole('button',{name:'Detailed line table',exact:true}).click();
+  for(const name of ['Adjustment register table','Adjustment line evidence']){const region=adjustmentPanel.getByRole('region',{name,exact:true});await region.focus();await region.evaluate(element=>{element.scrollLeft=element.scrollWidth;});if(await region.evaluate(element=>element.scrollLeft===0||Math.abs(element.scrollLeft+element.clientWidth-element.scrollWidth)>2))throw new Error('Adjustment evidence last column inaccessible');}
   await auditor.page.evaluate(()=>window.scrollTo(0,0));await auditor.page.screenshot({path:resolve(artifacts,'adjustment-review-mobile.png'),fullPage:true});await auditor.page.setViewportSize({width:1440,height:1000});
   const adjustmentMethods=[];let brokenAdjustmentRead=true;const adjustmentPattern='**/api/commercial/budgeting/finance-adjustments/review*';
   await auditor.page.route(adjustmentPattern,async route=>{adjustmentMethods.push(route.request().method());const response=await route.fetch();const payload=await response.json();if(brokenAdjustmentRead&&payload.report)payload.report.adjustments=null;await route.fulfill({response,json:payload});});
-  await adjustmentPanel.getByRole('button',{name:'Reload adjustment register',exact:true}).click();await expect(adjustmentPanel.getByRole('alert')).toContainText('incomplete or belongs to a different');await expect(adjustmentPanel.getByRole('region',{name:'Saved adjustment evidence',exact:true})).toHaveCount(0);
+  await adjustmentPanel.getByRole('button',{name:'Reload adjustment register',exact:true}).click();await expect(adjustmentPanel.getByRole('alert')).toContainText('incomplete or belongs to');await expect(adjustmentPanel.getByRole('region',{name:'Saved adjustment evidence',exact:true})).toHaveCount(0);
   brokenAdjustmentRead=false;await adjustmentPanel.getByRole('button',{name:'Reload adjustment register',exact:true}).click();await expect(adjustmentPanel).toContainText('4 matching adjustments');await auditor.page.unroute(adjustmentPattern);
   await adjustmentPanel.getByLabel('Adjustment status',{exact:true}).selectOption('DRAFT');await expect(adjustmentPanel).toContainText('1 matching adjustments');await expect(adjustmentPanel.getByRole('button',{name:`Review adjustment ${originalAudit.adjustment_number}`,exact:true})).toHaveCount(0);
   await adjustmentPanel.getByLabel('Adjustment status',{exact:true}).selectOption('');await expect(adjustmentPanel).toContainText('4 matching adjustments');await inspectAudit(originalAudit);await auditor.page.evaluate(()=>window.scrollTo(0,0));await auditor.page.screenshot({path:resolve(artifacts,'adjustment-review-desktop.png'),fullPage:true});
@@ -508,7 +510,10 @@ try {
     const bounds=await page.getByText(date,{exact:true}).boundingBox();
     if(!bounds||bounds.x<0||bounds.x+bounds.width>390)throw new Error('Mobile calendar metric clipped');
   }
-  for(const name of ['Year-close history','Period-close history','Reconciliation control state']){
+  await page.screenshot({path:resolve(artifacts,'finance-cards-mobile.png'),fullPage:true});
+  for(const kind of ['year','period'])await page.getByRole('group',{name:`${kind} close history display`,exact:true}).getByRole('button',{name:'Detailed history table',exact:true}).click();
+  await page.getByRole('button',{name:'Detailed controls table',exact:true}).click();
+  for(const name of ['year close history table','period close history table','Reconciliation control state']){
     const region=page.getByRole('region',{name,exact:true});
     await region.scrollIntoViewIfNeeded();
     const scroll=await region.evaluate(element=>{element.scrollLeft=element.scrollWidth;return {left:element.scrollLeft,width:element.clientWidth,total:element.scrollWidth};});
@@ -526,6 +531,7 @@ try {
   await expect(page.getByRole('status').filter({hasText:'Financial period closed.'})).toContainText('Financial period closed.');
   await page.getByRole('button',{name:'Prepare reconciliation',exact:true}).click();
   await expect(page.locator('[data-reconciliation-id]')).toContainText('PREPARED');
+  await verifyFinanceEvidenceRuntime({page,foreignPage:auditor.page,pool,artifacts});
   await page.getByRole('button',{name:'Review',exact:true}).click();
   await expect(page.getByRole('button',{name:'Sign off',exact:true})).toBeEnabled();
   await page.getByRole('button',{name:'Sign off',exact:true}).click();

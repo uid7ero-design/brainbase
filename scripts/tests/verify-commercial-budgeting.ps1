@@ -31,12 +31,12 @@ function Mark([string]$Name, [scriptblock]$Action) {
 
 try {
   Write-Host '=== C7.7B disposable PostgreSQL Budgeting validation ==='
-  docker run --name $container -e POSTGRES_PASSWORD=test -e POSTGRES_DB=testdb -p ($port.ToString() + ':5432') -d postgres:16-alpine | Out-Null
+  docker run --name $container -e POSTGRES_PASSWORD=test -e POSTGRES_DB=testdb -p ('127.0.0.1:' + $port.ToString() + ':5432') -d postgres:16-alpine | Out-Null
   if ($LASTEXITCODE -ne 0) { throw 'docker run failed' }
 
   $ready = $false
   for ($i=0; $i -lt 30; $i++) {
-    docker exec $container pg_isready -U postgres -d testdb *> $null
+    docker exec $container pg_isready -h 127.0.0.1 -U postgres -d testdb *> $null
     if ($LASTEXITCODE -eq 0) { $ready = $true; break }
     Start-Sleep -Seconds 1
   }
