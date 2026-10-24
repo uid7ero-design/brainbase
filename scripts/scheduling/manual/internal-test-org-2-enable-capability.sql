@@ -12,6 +12,11 @@
 --
 -- GUARDS (any failure aborts and rolls back; nothing is written):
 --   * the 'scheduling' capability is registered and active (120 applied) and the settings table exists (110 applied);
+--   * the Scheduling INTEGRITY migrations are applied: versions 2b.2.1 (030 resource concurrency), 2b.2.2 (031 reservation
+--     integrity) and 2b.2.3 (032 schedule archive ordering) are recorded AND their seven guard triggers are enabled. An
+--     organisation is never entitled on a schema that lacks the booking guards. (033 occurrence integrity is not required
+--     here: no route writes occurrences yet; add 2b.2.4 to the list below before the first occurrence-writing route.)
+--   * the test organisation's timezone is Australia/Adelaide (internal-test-org-1-create.sql sets it);
 --   * exactly one organisation has the slug below;
 --   * exactly one entitlement row was written;
 --   * afterwards exactly one organisation in the whole database is entitled to Scheduling, and it is this one;
@@ -31,6 +36,8 @@ DECLARE
   n bigint;
   entitled bigint;
   unconfigured bigint;
+  missing text;
+  guards bigint;
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM modules WHERE key = 'scheduling' AND active = true) THEN
     RAISE EXCEPTION 'the scheduling capability is not registered and active; run 120_brainbase_capability.sql first';
@@ -39,11 +46,32 @@ BEGIN
     RAISE EXCEPTION 'scheduling_settings does not exist; apply the Scheduling schema first';
   END IF;
 
+  IF to_regclass('public.scheduling_schema_migrations') IS NULL THEN
+    RAISE EXCEPTION 'scheduling_schema_migrations does not exist; apply the Scheduling schema first';
+  END IF;
+  SELECT string_agg(v, ', ' ORDER BY v) INTO missing
+    FROM unnest(ARRAY['2b.2.1', '2b.2.2', '2b.2.3']) AS v
+   WHERE NOT EXISTS (SELECT 1 FROM scheduling_schema_migrations m WHERE m.version = v);
+  IF missing IS NOT NULL THEN
+    RAISE EXCEPTION 'the Scheduling integrity migrations are not applied (missing: %); apply 030, 031 and 032 first', missing;
+  END IF;
+  SELECT count(*) INTO guards FROM pg_trigger
+   WHERE NOT tgisinternal AND tgenabled = 'O'
+     AND tgname IN ('scheduling_resources_guard', 'scheduling_holds_resource_state', 'scheduling_offering_resources_guard',
+                    'scheduling_offering_resources_release_guard', 'scheduling_reservations_integrity',
+                    'scheduling_occurrences_integrity', 'scheduling_resources_capacity_guard');
+  IF guards <> 7 THEN
+    RAISE EXCEPTION 'expected the 7 Scheduling integrity triggers to be enabled, found % enabled', guards;
+  END IF;
+
   SELECT count(*) INTO n FROM organisations WHERE slug = 'zz-scheduling-internal-test';
   IF n <> 1 THEN
     RAISE EXCEPTION 'expected exactly one internal test organisation, found %', n;
   END IF;
   SELECT id INTO org_id FROM organisations WHERE slug = 'zz-scheduling-internal-test';
+  IF NOT EXISTS (SELECT 1 FROM organisations WHERE id = org_id AND timezone = 'Australia/Adelaide') THEN
+    RAISE EXCEPTION 'the internal test organisation timezone is not Australia/Adelaide; run the current internal-test-org-1-create.sql or fix it by a reviewed statement';
+  END IF;
 
   INSERT INTO organisation_modules (organisation_id, module_key, enabled, config)
   VALUES (org_id, 'scheduling', true, '{}'::jsonb)

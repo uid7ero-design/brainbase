@@ -185,6 +185,10 @@ describe('the internal test organisation is defined but never created or enabled
     expect([...sql.matchAll(/INSERT INTO (\w+)/g)].map(m => m[1])).toEqual(['organisations']);
     expect(sql).toContain(`'ZZ Scheduling Internal Test (no customer data)', '${SLUG}'`);
     expect(sql).toContain('ON CONFLICT (slug) DO NOTHING');
+    // the timezone is explicit, never left to the platform fallback, and a pre-existing row is refused rather than edited
+    expect(sql).toContain('INSERT INTO organisations (id, name, slug, timezone, updated_at)');
+    expect(sql).toContain(`'ZZ Scheduling Internal Test (no customer data)', '${SLUG}', 'Australia/Adelaide', now()`);
+    expect(sql).not.toMatch(/\bUPDATE\b/i);
     expect(sql).not.toMatch(/organisation_modules|crm_contacts|users|stripe|scheduling_/i);
   });
 
@@ -195,6 +199,11 @@ describe('the internal test organisation is defined but never created or enabled
     expect(sql).toMatch(/INSERT INTO scheduling_settings \(organisation_id, currency\)\s+VALUES \(org_id, 'AUD'\)\s+ON CONFLICT \(organisation_id\) DO NOTHING/);
     expect(sql).toContain(`WHERE slug = '${SLUG}'`);
     expect(sql).toMatch(/entitled <> 1/);
+    // an organisation is never entitled on a schema that lacks the booking guards, or without an explicit timezone
+    expect(sql).toContain("ARRAY['2b.2.1', '2b.2.2', '2b.2.3']");
+    expect(sql).toMatch(/guards <> 7/);
+    expect(sql).toContain("timezone = 'Australia/Adelaide'");
+    expect(sql.indexOf("ARRAY['2b.2.1'")).toBeLessThan(sql.indexOf("INSERT INTO organisation_modules"));
     expect(sql).toMatch(/n <> 1/);
   });
 

@@ -478,14 +478,26 @@ suite('Phase 2B.0 on real Postgres', () => {
 
   describe('internal test organisation scripts', () => {
     const otherOrgsHash = async () => JSON.stringify(await q('SELECT id, name, slug, plan, status FROM organisations WHERE slug <> $1 ORDER BY id', [TEST_ORG_SLUG]));
+    const SQL = (f: string) => `packages/scheduling/sql/${f}`;
+    const applyIntegrity = async () => {
+      await apply(SQL('030_resource_concurrency.sql'));
+      await apply(SQL('031_reservation_integrity.sql'));
+      await apply(SQL('032_schedule_archive_ordering.sql'));
+    };
+    beforeAll(applyIntegrity);
+    afterAll(async () => {
+      await apply(SQL('093_schedule_archive_ordering_rollback.sql'));
+      await apply(SQL('092_reservation_integrity_rollback.sql'));
+      await apply(SQL('091_resource_concurrency_rollback.sql'));
+    });
 
-    it('create makes exactly one clearly named organisation, no user, no entitlement, and is idempotent', async () => {
+    it('create makes exactly one clearly named organisation with an EXPLICIT Adelaide timezone, no user, no entitlement, and is idempotent', async () => {
       const others = await otherOrgsHash();
       await apply(MANUAL('internal-test-org-1-create.sql'));
       await apply(MANUAL('internal-test-org-1-create.sql'));
       const rows = await q<{ id: string; name: string; slug: string; plan: string; status: string; timezone: string | null }>('SELECT id, name, slug, plan, status, timezone FROM organisations WHERE slug = $1', [TEST_ORG_SLUG]);
       expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({ name: 'ZZ Scheduling Internal Test (no customer data)', slug: TEST_ORG_SLUG, plan: 'TRIAL', status: 'ACTIVE', timezone: null });
+      expect(rows[0]).toMatchObject({ name: 'ZZ Scheduling Internal Test (no customer data)', slug: TEST_ORG_SLUG, plan: 'TRIAL', status: 'ACTIVE', timezone: 'Australia/Adelaide' });
       expect(rows[0].id).toMatch(/^[0-9a-f-]{36}$/);
       expect(await count('users', `organisation_id = '${rows[0].id}'`)).toBe(0);
       expect(await count('crm_contacts', `organisation_id = '${rows[0].id}'`)).toBe(0);
@@ -511,6 +523,51 @@ suite('Phase 2B.0 on real Postgres', () => {
       expect(await q('SELECT organisation_id, currency FROM scheduling_settings')).toEqual([{ organisation_id: id, currency: 'AUD' }]);
       const rt = await loadSchedulingRuntime({ organisationId: id, userId: 'u', role: 'manager' });
       expect(rt.settings).toMatchObject({ organisationId: id, currency: 'AUD' });
+      // the timezone is the organisation's own, set by the create file, not the platform fallback
+      expect(rt.timezone).toEqual({ value: 'Australia/Adelaide', source: 'organisation' });
+    });
+
+    it('create refuses, changing nothing, an existing organisation with that slug but another timezone; it never edits an existing row', async () => {
+      await q("INSERT INTO organisations (id, name, slug, timezone, updated_at) VALUES ('zz-pre', 'Pre-existing', $1, 'UTC', now())", [TEST_ORG_SLUG]);
+      expect(await failure(MANUAL('internal-test-org-1-create.sql'))).toMatch(/timezone is not Australia\/Adelaide/);
+      expect(await q('SELECT id, name, timezone FROM organisations WHERE slug = $1', [TEST_ORG_SLUG])).toEqual([{ id: 'zz-pre', name: 'Pre-existing', timezone: 'UTC' }]);
+    });
+
+    it('enable refuses an organisation whose timezone is not Australia/Adelaide (for example one made by an older create file), writing nothing', async () => {
+      await apply(MANUAL('internal-test-org-1-create.sql'));
+      await q('UPDATE organisations SET timezone = NULL WHERE slug = $1', [TEST_ORG_SLUG]);
+      expect(await failure(MANUAL('internal-test-org-2-enable-capability.sql'))).toMatch(/timezone is not Australia\/Adelaide/);
+      expect(await count('organisation_modules')).toBe(0);
+      expect(await count('scheduling_settings')).toBe(0);
+    });
+
+    it('enable refuses, writing nothing, until the integrity migrations 030, 031 and 032 are applied (each missing version is named), and when a guard trigger is disabled', async () => {
+      await apply(MANUAL('internal-test-org-1-create.sql'));
+      const refused = async (pattern: RegExp) => {
+        expect(await failure(MANUAL('internal-test-org-2-enable-capability.sql'))).toMatch(pattern);
+        expect(await count('organisation_modules')).toBe(0);
+        expect(await count('scheduling_settings')).toBe(0);
+      };
+      try {
+        await apply(SQL('093_schedule_archive_ordering_rollback.sql'));
+        await refused(/missing: 2b\.2\.3\);/);
+        await apply(SQL('092_reservation_integrity_rollback.sql'));
+        await refused(/missing: 2b\.2\.2, 2b\.2\.3\)/);
+        await apply(SQL('091_resource_concurrency_rollback.sql'));
+        await refused(/missing: 2b\.2\.1, 2b\.2\.2, 2b\.2\.3\)/);
+      } finally {
+        await applyIntegrity();
+      }
+      // all three recorded but a guard switched off: still refused
+      await q('ALTER TABLE scheduling_reservations DISABLE TRIGGER scheduling_reservations_integrity');
+      try {
+        await refused(/7 Scheduling integrity triggers to be enabled, found 6/);
+      } finally {
+        await q('ALTER TABLE scheduling_reservations ENABLE TRIGGER scheduling_reservations_integrity');
+      }
+      await apply(MANUAL('internal-test-org-2-enable-capability.sql')); // and with everything in place it succeeds
+      expect(await count('organisation_modules')).toBe(1);
+      expect(await count('scheduling_settings')).toBe(1);
     });
 
     it('enable refuses, writing nothing, when the capability is not registered, the test organisation is absent, or another organisation is already entitled', async () => {
