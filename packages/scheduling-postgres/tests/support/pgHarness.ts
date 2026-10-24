@@ -76,6 +76,8 @@ const TABLES = [
 export async function ensureSchema() {
   if (process.env.SCHEDULING_TEST_SKIP_MIGRATE === '1') return;
   await runScript(sqlFile('010_shared_schema.sql'));
+  await runScript(sqlFile('030_resource_concurrency.sql'));
+  await runScript(sqlFile('031_reservation_integrity.sql'));
 }
 
 export async function resetData() {
@@ -157,8 +159,13 @@ export interface OccurrenceSeed {
   startsAt?: string;
   endsAt?: string;
   resourceId?: string | null;
+  /** 031: an occurrence may only hold a resource its offering is assigned. The seam assigns it first unless a test says otherwise. */
+  autoLink?: boolean;
 }
 export async function seedOccurrence(o: OccurrenceSeed) {
+  if (o.resourceId && o.autoLink !== false) {
+    await getPool().query('INSERT INTO scheduling_offering_resources (organisation_id, offering_id, resource_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [o.org, o.offeringId, o.resourceId]);
+  }
   const tz = o.timezone ?? 'Australia/Adelaide';
   const startsAt = o.startsAt ?? '2026-12-07T05:30:00Z';
   const endsAt = o.endsAt ?? '2026-12-07T06:30:00Z';

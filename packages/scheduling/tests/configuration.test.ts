@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateExpectedUpdatedAt, validateOfferingPatch, validateResourcePatch, validateSchedulePatch, type OfferingPatch, type ResourcePatch, type PresetKey, type SchedulePatch } from '../src';
+import { validateExpectedUpdatedAt, validateOfferingForPreset, validateOfferingPatch, validateResourcePatch, validateSchedulePatch, type OfferingPatch, type ResourcePatch, type PresetKey, type SchedulePatch } from '../src';
 
 // Phase 2B.2a: the pure rules behind configuration edits. Every rule has a positive case and a negative one.
 
@@ -106,5 +106,38 @@ describe('resource patch', () => {
     bad({ minParty: 0 }, /minParty must be a positive integer/);
     bad({ capacity: 2, minParty: 3 }, /minParty must be between 1 and capacity/);
     bad({ active: 'no' }, /active must be true or false/);
+  });
+});
+
+describe('offering rules for a preset (2B.2b)', () => {
+  const none = { kind: 'none' } as const;
+  const weekly = { kind: 'weekly', dayOfWeek: 2, startDate: null, end: { mode: 'ongoing' } } as const;
+  const base = { name: 'Session', durationMinutes: 60 as number | null, capacity: 8 as number | null, startTime: null as string | null, recurrence: none as typeof none | typeof weekly };
+  const problems = (over: Partial<typeof base>, preset: PresetKey) => validateOfferingForPreset({ ...base, ...over }, preset);
+
+  it('accepts a valid offering for each initial preset', () => {
+    expect(problems({}, 'classes_coaching')).toEqual([]);
+    expect(problems({ durationMinutes: 30, capacity: null }, 'appointments')).toEqual([]);
+    expect(problems({ durationMinutes: 60, capacity: null }, 'resource_hire')).toEqual([]);
+    expect(problems({ durationMinutes: null, capacity: null }, 'resource_hire')).toEqual([]); // the customer chooses the duration
+  });
+  it('classes need a headcount limit and a duration', () => {
+    expect(problems({ capacity: null }, 'classes_coaching').join()).toMatch(/need a capacity/);
+    expect(problems({ capacity: 0 }, 'classes_coaching').join()).toMatch(/need a capacity/);
+    expect(problems({ durationMinutes: null }, 'classes_coaching').join()).toMatch(/need a duration/);
+  });
+  it('exclusive-resource presets leave capacity to the resource', () => {
+    expect(problems({ durationMinutes: 30, capacity: 4 }, 'appointments').join()).toMatch(/capacity must be empty/);
+    expect(problems({ capacity: 4 }, 'resource_hire').join()).toMatch(/capacity must be empty/);
+  });
+  it('appointments need a duration; nights and turn-time presets have none', () => {
+    expect(problems({ durationMinutes: null, capacity: null }, 'appointments').join()).toMatch(/need a duration/);
+    expect(problems({ durationMinutes: 60, capacity: null }, 'accommodation').join()).toMatch(/no fixed duration/);
+    expect(problems({ durationMinutes: 60, capacity: null }, 'restaurant_tables').join()).toMatch(/no fixed duration/);
+  });
+  it('a weekly offering needs its start time, a blank name is refused', () => {
+    expect(problems({ recurrence: weekly }, 'classes_coaching').join()).toMatch(/needs a startTime/);
+    expect(problems({ recurrence: weekly, startTime: '16:00' }, 'classes_coaching')).toEqual([]);
+    expect(problems({ name: '  ' }, 'classes_coaching').join()).toMatch(/name is required/);
   });
 });

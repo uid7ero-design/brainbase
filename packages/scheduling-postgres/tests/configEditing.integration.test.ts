@@ -287,20 +287,20 @@ describe.skipIf(!hasDatabase)('configuration edits (2B.2a)', () => {
 
     it('the kind changes only while the resource is unlinked AND has never been held', async () => {
       const r = await mkResource();
-      const out = okOf(await cfg().updateResource(w.staff, r.id, r.updatedAt, { kind: 'room' }));
-      expect(out.kind).toBe('room');
+      const out = okOf(await cfg().updateResource(w.staff, r.id, r.updatedAt, { kind: 'space' }));
+      expect(out.kind).toBe('space');
       // linked: refused
       const s = await mkSchedule();
       const o = await mkOffering(s.id);
       await cfg().linkOfferingResource(w.staff, o.id, r.id);
       const linked = (await cfg().listResources(w.staff)).find(x => x.id === r.id)!;
       expect(await cfg().updateResource(w.staff, r.id, linked.updatedAt, { kind: 'court' })).toMatchObject({ ok: false, reason: 'resource_in_use' });
-      // unlinked again but held in the past: still refused (history), and a same-kind "change" is fine
-      expect(okOf(await cfg().unlinkOfferingResource(w.staff, o.id, r.id))).toEqual({ removed: true });
+      // held in the past while assigned, then unassigned (a past hold never blocks the unlink): the kind still cannot change (history)
       await seedOccurrence({ id: 'old-occ', org: ORG, offeringId: o.id, capacity: 4, startsAt: '2020-01-06T00:00:00Z', endsAt: '2020-01-06T01:00:00Z', resourceId: r.id });
+      expect(okOf(await cfg().unlinkOfferingResource(w.staff, o.id, r.id))).toEqual({ removed: true });
       const held = (await cfg().listResources(w.staff)).find(x => x.id === r.id)!;
       expect(await cfg().updateResource(w.staff, r.id, held.updatedAt, { kind: 'court' })).toMatchObject({ ok: false, reason: 'resource_in_use' });
-      expect(okOf(await cfg().updateResource(w.staff, r.id, held.updatedAt, { kind: 'room', name: 'Same kind is no change' })).kind).toBe('room');
+      expect(okOf(await cfg().updateResource(w.staff, r.id, held.updatedAt, { kind: 'space', name: 'Same kind is no change' })).kind).toBe('space');
     });
 
     it('deactivation is refused while a live hold exists, and allowed once the hold is released, ended, or the resource is unused', async () => {
@@ -313,9 +313,10 @@ describe.skipIf(!hasDatabase)('configuration edits (2B.2a)', () => {
       court = (await cfg().listResources(w.staff)).find(x => x.id === 'court-1')!;
       expect(okOf(await cfg().updateResource(w.staff, 'court-1', court.updatedAt, { active: false })).active).toBe(false);
       // a hold that has already ended never blocks
-      await seedOccurrence({ id: 'past-occ', org: ORG, offeringId: w.cls.offering, capacity: 4, startsAt: '2020-01-06T00:00:00Z', endsAt: '2020-01-06T01:00:00Z', resourceId: 'room-1' });
-      const room = (await cfg().listResources(w.staff)).find(x => x.id === 'room-1')!;
-      expect(okOf(await cfg().updateResource(w.staff, 'room-1', room.updatedAt, { active: false })).active).toBe(false);
+      await seedResource(ORG, 'space-1', 'space'); // (classes accept a space; a room would be refused by the 030 hold guard)
+      await seedOccurrence({ id: 'past-occ', org: ORG, offeringId: w.cls.offering, capacity: 4, startsAt: '2020-01-06T00:00:00Z', endsAt: '2020-01-06T01:00:00Z', resourceId: 'space-1' });
+      const room = (await cfg().listResources(w.staff)).find(x => x.id === 'space-1')!;
+      expect(okOf(await cfg().updateResource(w.staff, 'space-1', room.updatedAt, { active: false })).active).toBe(false);
     });
 
     it('capacity cannot drop below a live reservation party, nor minParty rise above it; released reservations do not count', async () => {
@@ -372,13 +373,14 @@ describe.skipIf(!hasDatabase)('configuration edits (2B.2a)', () => {
       const s = await mkSchedule();
       const o = await mkOffering(s.id);
       await cfg().linkOfferingResource(w.staff, o.id, 'court-1');
-      await cfg().linkOfferingResource(w.staff, o.id, 'room-1');
-      expect((await cfg().listOfferingResources(w.staff, o.id)).map(r => r.id)).toEqual(['court-1', 'room-1']);
+      await seedResource(ORG, 'space-1', 'space');
+      await cfg().linkOfferingResource(w.staff, o.id, 'space-1');
+      expect((await cfg().listOfferingResources(w.staff, o.id)).map(r => r.id)).toEqual(['court-1', 'space-1']);
       expect(okOf(await cfg().unlinkOfferingResource(w.staff, o.id, 'court-1'))).toEqual({ removed: true });
       expect(okOf(await cfg().unlinkOfferingResource(w.staff, o.id, 'court-1'))).toEqual({ removed: false });
-      expect((await cfg().listOfferingResources(w.staff, o.id)).map(r => r.id)).toEqual(['room-1']);
+      expect((await cfg().listOfferingResources(w.staff, o.id)).map(r => r.id)).toEqual(['space-1']);
       expect((await cfg().listResources(w.staff)).map(r => r.id)).toContain('court-1');
-      expect((await cfg().getOffering(w.staff, o.id))!.resourceKinds).toEqual(['room']);
+      expect((await cfg().getOffering(w.staff, o.id))!.resourceKinds).toEqual(['space']);
     });
 
     it('an unknown offering is not_found; a resource never linked is removed=false', async () => {
@@ -396,15 +398,16 @@ describe.skipIf(!hasDatabase)('configuration edits (2B.2a)', () => {
       expect(await cfg().unlinkOfferingResource(w.staff, w.hire.offering, 'court-1')).toMatchObject({ ok: false, reason: 'allocation_in_use' });
       expect((await cfg().listOfferingResources(w.staff, w.hire.offering)).map(r => r.id)).toEqual(['court-1']);
       expect(okOf(await cfg().unlinkOfferingResource(w.staff, other.id, 'court-1'))).toEqual({ removed: true }); // the hold is not this offering's
+      await seedResource(ORG, 'space-1', 'space');
       // an occurrence-held resource of THIS offering also blocks
       const s = await mkSchedule();
       const o = await mkOffering(s.id);
-      await cfg().linkOfferingResource(w.staff, o.id, 'room-1');
-      await seedOccurrence({ id: 'occ-live', org: ORG, offeringId: o.id, capacity: 4, startsAt: '2035-07-01T01:00:00Z', endsAt: '2035-07-01T02:00:00Z', resourceId: 'room-1' });
-      expect(await cfg().unlinkOfferingResource(w.staff, o.id, 'room-1')).toMatchObject({ ok: false, reason: 'allocation_in_use' });
+      await cfg().linkOfferingResource(w.staff, o.id, 'space-1');
+      await seedOccurrence({ id: 'occ-live', org: ORG, offeringId: o.id, capacity: 4, startsAt: '2035-07-01T01:00:00Z', endsAt: '2035-07-01T02:00:00Z', resourceId: 'space-1' });
+      expect(await cfg().unlinkOfferingResource(w.staff, o.id, 'space-1')).toMatchObject({ ok: false, reason: 'allocation_in_use' });
       // once the occurrence is cancelled its hold is released and the link can go
       await cfg().cancelOccurrence(w.staff, 'occ-live', 'test');
-      expect(okOf(await cfg().unlinkOfferingResource(w.staff, o.id, 'room-1'))).toEqual({ removed: true });
+      expect(okOf(await cfg().unlinkOfferingResource(w.staff, o.id, 'space-1'))).toEqual({ removed: true });
     });
 
     it('unlinking never deletes a reservation, occurrence or hold: booking history is intact', async () => {

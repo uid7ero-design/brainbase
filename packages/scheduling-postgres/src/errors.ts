@@ -23,6 +23,20 @@ export const SCHEDULING_SQLSTATE = {
   immutable: 'SCIMM',
   holdReactivation: 'SCREA',
   missingHold: 'SCHLD',
+  /** 030_resource_concurrency.sql: a resource that is booked / linked cannot be deactivated or change kind. */
+  resourceInUse: 'SCRIU',
+  /** 030: a link cannot be removed while a live reservation of that offering holds the resource. */
+  allocationInUse: 'SCALU',
+  /** 030: a resource cannot be linked when it is inactive or its kind does not fit the offering's preset. */
+  linkRefused: 'SCKND',
+  /** 031: a reservation's party size does not fit the resource (capacity / minimum party). */
+  partyFit: 'SCPTY',
+  /** 031: the resource is not assigned to the offering (any actor). */
+  notAssigned: 'SCLNK',
+  /** 031: the reservation's preset is not the preset of its schedule. */
+  presetMismatch: 'SCPRE',
+  /** 031: the offering (or its schedule) is archived. */
+  archived: 'SCARC',
   /** Raised by the migration only (an older install must be rolled back first); never at runtime. */
   staleInstall: 'SCVER',
 } as const;
@@ -80,11 +94,14 @@ export function mapPgError(err: unknown): SchedulingError | null {
 
   switch (code) {
     case SCHEDULING_SQLSTATE.capacity:
+    case SCHEDULING_SQLSTATE.partyFit:
       return make('capacity_exceeded');
     case SCHEDULING_SQLSTATE.isolation:
       return make('unsafe_isolation');
     case SCHEDULING_SQLSTATE.occurrenceClosed:
     case SCHEDULING_SQLSTATE.resourceInactive:
+    case SCHEDULING_SQLSTATE.notAssigned:
+    case SCHEDULING_SQLSTATE.archived:
       return make('offering_unavailable');
     case SCHEDULING_SQLSTATE.windowMismatch:
       return make('invalid_input');
@@ -92,7 +109,12 @@ export function mapPgError(err: unknown): SchedulingError | null {
     case SCHEDULING_SQLSTATE.immutable:
     case SCHEDULING_SQLSTATE.holdReactivation:
     case SCHEDULING_SQLSTATE.missingHold:
+    case SCHEDULING_SQLSTATE.resourceInUse:
+    case SCHEDULING_SQLSTATE.allocationInUse:
       return make('lifecycle_violation');
+    case SCHEDULING_SQLSTATE.linkRefused:
+    case SCHEDULING_SQLSTATE.presetMismatch:
+      return make('invalid_input');
     case '55P03': // lock_not_available: only a lock wait that timed out under OUR lock_timeout
       return isSchedulingLockTimeout(err) ? make('contention_timeout') : null;
     case '23P01': // exclusion_violation: the resource is already held for an overlapping range
