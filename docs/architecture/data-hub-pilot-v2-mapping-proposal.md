@@ -8,6 +8,8 @@ Production schema `dhcfg-onk-mwco-sv1` is ACTIVE with an activation record. All 
 
 Ten DATA worksheets need explicit v2 rules. Overview, Trends and Service Exception Totals remain SUMMARY; Definitions remains METADATA. Their existing dispositions must not be converted into staging datasets merely to complete a test.
 
+Update 24 October: the [Runs readiness bundle](data-hub-runs-pilot-readiness-bundle.md) reviews all 21 fields against the actual parser/transformer and records the owner's provisional tonnes/days/working-hours guidance. PR #480 now also includes a manager-only draft review collector with an explicitly non-activating download. It is not yet a durable mapping editor or a preparation gate. The full 272-field matrix remains unconfirmed. Day/rate support, confirmed source formats, versioned configuration approval and fresh pilot acceptance remain required.
+
 ## Recommended first activation
 
 Start with **Runs**, with all 21 governed columns explicitly covered. This is a bounded operational slice before expanding to the other nine DATA worksheets. Keep schema v1, governed column IDs, header row 3 and the existing profile identity. Append a new immutable mapping-profile version containing a validated `documentVersion: 2` document. Retain profile version 1 for structural schema matching, which deliberately reads that version. Do not rewrite either historical version or the schema's structural metadata.
@@ -17,7 +19,7 @@ The table below is a review proposal inferred from labels, not established sourc
 | Position | Governed field | Candidate kind | Required owner confirmation |
 | --- | --- | --- | --- |
 | 1 | Id | IDENTIFIER | Confirm identifier semantics and leading-zero preservation; do not coerce to a number. |
-| 2 | Date | DATE | Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy. |
+| 2 | Date | DATE | Confirm AU_DD_MM_YYYY versus ISO_8601 and source representation. Genuine Excel date cells may decode to exact ISO UTC-midnight text; bare numeric serials are unsupported. DATE has no timezone policy. |
 | 3 | Run | IDENTIFIER | Confirm identifier semantics and leading-zero preservation; do not coerce to a number. |
 | 4 | Vehicles | STRING | Confirm whether a list of identifiers, descriptive text or a count; do not split/coerce automatically. |
 | 5 | Service Type | STRING | Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification. |
