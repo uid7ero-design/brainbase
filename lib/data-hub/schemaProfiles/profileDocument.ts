@@ -79,11 +79,11 @@ const TIME_ZONE_POLICY_REQUIRED_KINDS: ReadonlySet<ValueKind> = new Set(["DATETI
 // Minimum required vocabulary. Never extend implicitly from a column
 // heading — a new unit may only be added here, explicitly, by a future
 // phase.
-export const UNITS = ["kg", "t", "m", "km", "s", "min", "h", "%", "AUD"] as const;
+export const UNITS = ["kg", "t", "m", "km", "s", "min", "h", "%", "AUD", "d", "kg/h", "t/h", "bins/h"] as const;
 export type Unit = (typeof UNITS)[number];
 const UNIT_SET: ReadonlySet<string> = new Set(UNITS);
 
-type UnitFamily = "MASS" | "LENGTH" | "DURATION" | "PERCENTAGE" | "CURRENCY";
+type UnitFamily = "MASS" | "LENGTH" | "DURATION" | "PERCENTAGE" | "CURRENCY" | "MASS_RATE" | "BIN_RATE";
 
 const UNIT_FAMILY: Record<Unit, UnitFamily> = {
   kg: "MASS",
@@ -95,6 +95,10 @@ const UNIT_FAMILY: Record<Unit, UnitFamily> = {
   h: "DURATION",
   "%": "PERCENTAGE",
   AUD: "CURRENCY",
+  d: "DURATION",
+  "kg/h": "MASS_RATE",
+  "t/h": "MASS_RATE",
+  "bins/h": "BIN_RATE",
 };
 
 // Which unit families a valueKind may declare sourceUnit/normalizedUnit
@@ -104,7 +108,7 @@ const UNIT_FAMILY: Record<Unit, UnitFamily> = {
 // conversion semantics.
 const VALUE_KIND_UNIT_FAMILIES: Partial<Record<ValueKind, readonly UnitFamily[]>> = {
   INTEGER: ["MASS", "LENGTH"],
-  DECIMAL: ["MASS", "LENGTH"],
+  DECIMAL: ["MASS", "LENGTH", "MASS_RATE", "BIN_RATE"],
   DURATION: ["DURATION"],
   PERCENTAGE: ["PERCENTAGE"],
   CURRENCY: ["CURRENCY"],
@@ -129,6 +133,8 @@ export interface ColumnRuleV2 {
   /** Both present or both absent — never exactly one. Same unit family required; INTEGER additionally requires sourceUnit === normalizedUnit. */
   sourceUnit?: Unit;
   normalizedUnit?: Unit;
+  /** Explicit whole-count policy. Omission preserves historical signed-integer behavior. */
+  minimum?: "0";
 }
 
 export interface ProfileDocumentV2 {
@@ -166,7 +172,7 @@ function parseV1(doc: Record<string, unknown>): ProfileDocumentParseResult {
   return { ok: true, document: { documentVersion: 1, schemaStatus: doc.schemaStatus, headerRowOneBased: doc.headerRowOneBased } };
 }
 
-const COLUMN_RULE_KEYS = new Set(["sourceSchemaColumnId", "valueKind", "datePolicy", "preserveLeadingZeros", "timeZonePolicy", "sourceUnit", "normalizedUnit"]);
+const COLUMN_RULE_KEYS = new Set(["sourceSchemaColumnId", "valueKind", "datePolicy", "preserveLeadingZeros", "timeZonePolicy", "sourceUnit", "normalizedUnit", "minimum"]);
 
 function parseTimeZonePolicy(raw: unknown, where: string): { ok: true; policy: TimeZonePolicy } | { ok: false; errors: string[] } {
   if (!isPlainObject(raw)) {
@@ -215,6 +221,10 @@ function parseColumnRule(raw: unknown, index: number): { ok: true; rule: ColumnR
     return { ok: false, errors: [`${where}.valueKind must be one of: ${VALUE_KINDS.join(", ")}`] };
   }
   const valueKind = raw.valueKind as ValueKind;
+  const hasMinimum = Object.prototype.hasOwnProperty.call(raw, "minimum");
+  if (hasMinimum && (valueKind !== "INTEGER" || raw.minimum !== "0")) {
+    return { ok: false, errors: [`${where}.minimum only supports the literal string 0 for INTEGER`] };
+  }
 
   const hasDatePolicy = Object.prototype.hasOwnProperty.call(raw, "datePolicy");
   const hasPreserveLeadingZeros = Object.prototype.hasOwnProperty.call(raw, "preserveLeadingZeros");
@@ -303,6 +313,7 @@ function parseColumnRule(raw: unknown, index: number): { ok: true; rule: ColumnR
   }
 
   const rule: ColumnRuleV2 = { sourceSchemaColumnId: raw.sourceSchemaColumnId, valueKind };
+  if (hasMinimum) rule.minimum = "0";
   if (hasDatePolicy) rule.datePolicy = raw.datePolicy as DatePolicy;
   if (hasPreserveLeadingZeros) rule.preserveLeadingZeros = true;
   if (timeZonePolicy) rule.timeZonePolicy = timeZonePolicy;

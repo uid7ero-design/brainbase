@@ -232,6 +232,10 @@ export default function SourcesAdminClient({ isAdmin }: { isAdmin: boolean }) {
         Onkaparinga export&apos;s <code>Ticket #</code> column to the platform&apos;s generic{" "}
         <code>source_external_id</code> identity field. This does not import any data itself.
       </p>
+      <p style={{ marginBottom: 24 }}>
+        <Link href="/data-hub/sources/runs-review">Review the Onkaparinga Runs field meanings</Link>
+        {" "}and download a draft for approval before setting up preparation.
+      </p>
       {!isAdmin && (
         <div style={{ background: "var(--bg-sunken)", border: `1px solid ${BORDER}`, borderRadius: 8, padding: "10px 12px", fontSize: 12.5, color: TEXT_SECONDARY, marginBottom: 20 }}>
           You can view existing source configuration, but creating, editing, or activating anything here requires the

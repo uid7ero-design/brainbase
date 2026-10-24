@@ -108,7 +108,14 @@ done
 echo "DATABASE_URL=$DATABASE_URL (disposable container only)"
 echo ""
 echo "=== Running dataset-profile execution and D4D5N upload count integration proofs ==="
-npx vitest run --config vitest.integration.config.ts scripts/tests/dataHubDatasetProfileExecution.integration.test.ts
+if [ "${DATAHUB_MAPPING_PROOF:-}" = "1" ]; then
+  for f in "$REPO_ROOT/scripts/create-datahub-governed-schema-immutability.sql" "$REPO_ROOT/scripts/create-datahub-mapping-confirmations.sql" "$REPO_ROOT/scripts/create-datahub-mapping-confirmations.sql"; do
+    docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1 < "$f" >"$DIAG_OUT" 2>&1 || { cat "$DIAG_OUT"; exit 2; }
+  done
+  npx vitest run --config vitest.integration.config.ts scripts/tests/dataHubMappingSetup.integration.test.ts
+else
+  npx vitest run --config vitest.integration.config.ts scripts/tests/dataHubDatasetProfileExecution.integration.test.ts
+fi
 RESULT=$?
 
 # Opt-in full browser proof uses the same freshly provisioned disposable DB.
@@ -129,6 +136,19 @@ if [ $RESULT -eq 0 ]; then
       "SELECT md5(COALESCE(jsonb_agg(to_jsonb(r) ORDER BY id)::text,'[]')) FROM data_hub_analysis_reviews r")
     if [ -z "$REVIEW_DIGEST" ] || [ "$REVIEW_DIGEST" != "$REVIEW_DIGEST_AFTER" ]; then
       echo "ERROR: D4D5Q reapplication changed stored review history." >&2; RESULT=1
+    fi
+  fi
+fi
+
+if [ $RESULT -eq 0 ] && [ "${DATAHUB_MAPPING_PROOF:-}" = "1" ]; then
+  MAPPING_DIGEST_SQL="SELECT md5(jsonb_build_array((SELECT COALESCE(jsonb_agg(to_jsonb(a) ORDER BY profile_version_id),'[]'::jsonb) FROM data_hub_mapping_approvals a),(SELECT COALESCE(jsonb_agg(to_jsonb(c) ORDER BY upload_id,profile_version_id),'[]'::jsonb) FROM data_hub_mapping_use_confirmations c),(SELECT COALESCE(jsonb_agg(to_jsonb(v) ORDER BY id),'[]'::jsonb) FROM worksheet_mapping_profile_versions v))::text)"
+  MAPPING_DIGEST=$(docker exec "$CONTAINER" psql -X -A -t -U postgres -d testdb -v ON_ERROR_STOP=1 -c "$MAPPING_DIGEST_SQL")
+  if ! docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1 < "$REPO_ROOT/scripts/create-datahub-mapping-confirmations.sql" >"$DIAG_OUT" 2>&1; then
+    echo "ERROR: mapping migration reapplication failed." >&2; cat "$DIAG_OUT"; RESULT=1
+  else
+    MAPPING_DIGEST_AFTER=$(docker exec "$CONTAINER" psql -X -A -t -U postgres -d testdb -v ON_ERROR_STOP=1 -c "$MAPPING_DIGEST_SQL")
+    if [ -z "$MAPPING_DIGEST" ] || [ "$MAPPING_DIGEST" != "$MAPPING_DIGEST_AFTER" ]; then
+      echo "ERROR: mapping migration changed approvals, confirmations or version history." >&2; RESULT=1
     fi
   fi
 fi

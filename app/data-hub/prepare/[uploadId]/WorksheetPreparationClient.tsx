@@ -17,6 +17,7 @@ const statusLabel: Record<PreparationStatus, string> = {
   SUCCEEDED: "Complete", FAILED: "Needs attention", ABANDONED: "Interrupted",
 };
 function recovery(code: string) {
+  if (code === "MAPPING_CONFIRMATION_REQUIRED") return "Review the workbook’s units and confirm its saved mapping before preparing source rows.";
   if (["UNAUTHORIZED", "FORBIDDEN", "UPLOAD_NOT_FOUND"].includes(code)) return "This worksheet is unavailable to your account. Sign in again or return to imports.";
   if (["STAGING_INELIGIBLE", "NORMALIZATION_INELIGIBLE", "PROFILE_DOCUMENT_INVALID", "NORMALIZATION_PLAN_INVALID"].includes(code)) return "Check the worksheet’s governed schema and mapping in imports, then refresh its status.";
   if (code === "INTERACTIVE_PROFILE_LIMIT") return "This worksheet exceeds the interactive profile limit of 100,000 cells. Use a smaller worksheet or ask an administrator for help.";
@@ -79,6 +80,7 @@ export default function WorksheetPreparationClient({ uploadId }: { uploadId: str
       <p>Run each preparation step when you’re ready. Completed work is kept if you leave this page.</p>
     </header>
     <p className={styles.reference}>Worksheet: {uploadId}</p>
+    <p><Link href={`/data-hub/prepare/${encodeURIComponent(uploadId)}/mapping`}>Review units and saved mapping before first preparation</Link></p>
     <div className={styles.toolbar}>
       <Button type="button" disabled={busy} onClick={() => void run()}>Refresh status</Button>
       {busy ? <Button type="button" variant="ghost" onClick={() => { stopReason.current = "CANCELLED"; controller.current?.abort(); }}>Stop waiting</Button> : null}

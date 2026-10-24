@@ -197,7 +197,7 @@ describe("6.2D4C-A profile document contract — v2 acceptance and structural in
       min: "DURATION",
       h: "DURATION",
       "%": "PERCENTAGE",
-      AUD: "CURRENCY",
+      AUD: "CURRENCY", d: "DURATION", "kg/h": "DECIMAL", "t/h": "DECIMAL", "bins/h": "DECIMAL",
     };
     for (const unit of UNITS) {
       const doc = {

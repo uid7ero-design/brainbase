@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../prisma";
 import sql from "../../db";
 import { buildNormalizationPlan } from "../normalization/plan";
-import { NORMALIZER_VERSION } from "../normalization/contracts";
+import { NORMALIZER_VERSION, isLegacyCompatiblePlan } from "../normalization/contracts";
 import type { NormalizationPlan } from "../normalization/contracts";
 import { resolveLeaseSeconds } from "../staging/stagingConfig";
 
@@ -266,7 +266,7 @@ export async function createOrResumeNormalizationRun(context: {
     }
     // POST_TAKEOVER_DB_FAILURE_END
 
-    if (run.normalizer_version !== NORMALIZER_VERSION) {
+    if (run.normalizer_version !== NORMALIZER_VERSION && !isLegacyCompatiblePlan(run.normalizer_version, planResult.ok ? planResult.plan : null)) {
       return failResumedRunAndReturn(organisationId, run.id, newToken, "NORMALIZER_VERSION_UNSUPPORTED");
     }
 

@@ -1,0 +1,2257 @@
+{
+  "proposalVersion": "review-only-v1",
+  "status": "DRAFT_FOR_OWNER_REVIEW",
+  "activationAllowed": false,
+  "observedAt": "2026-10-23",
+  "source": "Governed metadata only; no customer cell values inspected",
+  "pilotSchemaId": "dhcfg-onk-mwco-sv1",
+  "observedActiveDocumentVersion": 1,
+  "worksheets": [
+    {
+      "worksheetId": "dhcfg-onk-mwco-sv1-ws-runs",
+      "name": "Runs",
+      "headerRowOneBased": 3,
+      "fields": [
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c000",
+          "header": "Id",
+          "ordinal": 0,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c001",
+          "header": "Date",
+          "ordinal": 1,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c002",
+          "header": "Run",
+          "ordinal": 2,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c003",
+          "header": "Vehicles",
+          "ordinal": 3,
+          "candidate": "STRING",
+          "confirm": "Confirm whether a list of identifiers, descriptive text or a count; do not split/coerce automatically.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c004",
+          "header": "Service Type",
+          "ordinal": 4,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c005",
+          "header": "Drivers",
+          "ordinal": 5,
+          "candidate": "STRING",
+          "confirm": "Confirm whether a list of identifiers, descriptive text or a count; do not split/coerce automatically.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c006",
+          "header": "Loads",
+          "ordinal": 6,
+          "candidate": "INTEGER",
+          "confirm": "Confirm this is a whole-number count, how blanks differ from zero, and whether negatives are valid.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c007",
+          "header": "Collections Booked",
+          "ordinal": 7,
+          "candidate": "INTEGER",
+          "confirm": "Confirm this is a whole-number count, how blanks differ from zero, and whether negatives are valid.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c008",
+          "header": "Collections Performed",
+          "ordinal": 8,
+          "candidate": "INTEGER",
+          "confirm": "Confirm this is a whole-number count, how blanks differ from zero, and whether negatives are valid.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c009",
+          "header": "Not Presented",
+          "ordinal": 9,
+          "candidate": "INTEGER",
+          "confirm": "Confirm this is a whole-number count, how blanks differ from zero, and whether negatives are valid.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c010",
+          "header": "Contaminated",
+          "ordinal": 10,
+          "candidate": "INTEGER",
+          "confirm": "Confirm this is a whole-number count, how blanks differ from zero, and whether negatives are valid.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c011",
+          "header": "Total Weight",
+          "ordinal": 11,
+          "candidate": "DECIMAL",
+          "confirm": "Confirm numeric representation and explicit units. Rates need their own meaning; no inferred conversion or unsupported rate-unit token.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c012",
+          "header": "Ave Bin Weight",
+          "ordinal": 12,
+          "candidate": "DECIMAL",
+          "confirm": "Confirm numeric representation and explicit units. Rates need their own meaning; no inferred conversion or unsupported rate-unit token.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c013",
+          "header": "Bins Per Hour",
+          "ordinal": 13,
+          "candidate": "DECIMAL",
+          "confirm": "Confirm numeric representation and explicit units. Rates need their own meaning; no inferred conversion or unsupported rate-unit token.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c014",
+          "header": "Weight Per Hour",
+          "ordinal": 14,
+          "candidate": "DECIMAL",
+          "confirm": "Confirm numeric representation and explicit units. Rates need their own meaning; no inferred conversion or unsupported rate-unit token.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c015",
+          "header": "Travel Time Hrs",
+          "ordinal": 15,
+          "candidate": "DURATION",
+          "confirm": "Confirm source representation and explicit source/target units. Do not infer units from the header.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c016",
+          "header": "Collection Time Hrs",
+          "ordinal": 16,
+          "candidate": "DURATION",
+          "confirm": "Confirm source representation and explicit source/target units. Do not infer units from the header.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c017",
+          "header": "Duration",
+          "ordinal": 17,
+          "candidate": "DURATION",
+          "confirm": "Confirm source representation and explicit source/target units. Do not infer units from the header.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c018",
+          "header": "Travel Distance Kms",
+          "ordinal": 18,
+          "candidate": "DECIMAL",
+          "confirm": "Confirm numeric representation and explicit units. Rates need their own meaning; no inferred conversion or unsupported rate-unit token.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c019",
+          "header": "Collection Distance Kms",
+          "ordinal": 19,
+          "candidate": "DECIMAL",
+          "confirm": "Confirm numeric representation and explicit units. Rates need their own meaning; no inferred conversion or unsupported rate-unit token.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-runs-c020",
+          "header": "Total Distance",
+          "ordinal": 20,
+          "candidate": "DECIMAL",
+          "confirm": "Confirm numeric representation and explicit units. Rates need their own meaning; no inferred conversion or unsupported rate-unit token.",
+          "confirmed": false
+        }
+      ]
+    },
+    {
+      "worksheetId": "dhcfg-onk-mwco-sv1-ws-driver_run",
+      "name": "Driver Run",
+      "headerRowOneBased": 3,
+      "fields": [
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c000",
+          "header": "Driver Name",
+          "ordinal": 0,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c001",
+          "header": "Employee Id",
+          "ordinal": 1,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c002",
+          "header": "Vehicle",
+          "ordinal": 2,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c003",
+          "header": "Run Date",
+          "ordinal": 3,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c004",
+          "header": "Run",
+          "ordinal": 4,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c005",
+          "header": "Run Number",
+          "ordinal": 5,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c006",
+          "header": "Service Type",
+          "ordinal": 6,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c007",
+          "header": "Waste Type",
+          "ordinal": 7,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c008",
+          "header": "Shift Start Date",
+          "ordinal": 8,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c009",
+          "header": "Shift Start Time",
+          "ordinal": 9,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c010",
+          "header": "Shift End Date",
+          "ordinal": 10,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c011",
+          "header": "Shift End Time",
+          "ordinal": 11,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c012",
+          "header": "Shift Duration",
+          "ordinal": 12,
+          "candidate": "DURATION",
+          "confirm": "Confirm source representation and explicit source/target units. Do not infer units from the header.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c013",
+          "header": "Run Start Time",
+          "ordinal": 13,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c014",
+          "header": "Run End Time",
+          "ordinal": 14,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c015",
+          "header": "Run Time Hrs",
+          "ordinal": 15,
+          "candidate": "DURATION",
+          "confirm": "Confirm source representation and explicit source/target units. Do not infer units from the header.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c016",
+          "header": "Depot Depart Time",
+          "ordinal": 16,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c017",
+          "header": "Depot Depart Odo",
+          "ordinal": 17,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c018",
+          "header": "Depot Return Time",
+          "ordinal": 18,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c019",
+          "header": "Depot Return Odo",
+          "ordinal": 19,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c020",
+          "header": "Loads",
+          "ordinal": 20,
+          "candidate": "INTEGER",
+          "confirm": "Confirm this is a whole-number count, how blanks differ from zero, and whether negatives are valid.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c021",
+          "header": "Collections Performed",
+          "ordinal": 21,
+          "candidate": "INTEGER",
+          "confirm": "Confirm this is a whole-number count, how blanks differ from zero, and whether negatives are valid.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c022",
+          "header": "Total Weight",
+          "ordinal": 22,
+          "candidate": "DECIMAL",
+          "confirm": "Confirm numeric representation and explicit units. Rates need their own meaning; no inferred conversion or unsupported rate-unit token.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c023",
+          "header": "Travel Time Hrs",
+          "ordinal": 23,
+          "candidate": "DURATION",
+          "confirm": "Confirm source representation and explicit source/target units. Do not infer units from the header.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c024",
+          "header": "Collection Time Hrs",
+          "ordinal": 24,
+          "candidate": "DURATION",
+          "confirm": "Confirm source representation and explicit source/target units. Do not infer units from the header.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c025",
+          "header": "Travel Kms",
+          "ordinal": 25,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c026",
+          "header": "Collection Kms",
+          "ordinal": 26,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c027",
+          "header": "Rest 1 Date",
+          "ordinal": 27,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c028",
+          "header": "Rest 1 Time",
+          "ordinal": 28,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c029",
+          "header": "Rest 1 Duration Mins",
+          "ordinal": 29,
+          "candidate": "DURATION",
+          "confirm": "Confirm source representation and explicit source/target units. Do not infer units from the header.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c030",
+          "header": "Rest 2 Date",
+          "ordinal": 30,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c031",
+          "header": "Rest 2 Time",
+          "ordinal": 31,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-driver_run-c032",
+          "header": "Rest 2 Duration Mins",
+          "ordinal": 32,
+          "candidate": "DURATION",
+          "confirm": "Confirm source representation and explicit source/target units. Do not infer units from the header.",
+          "confirmed": false
+        }
+      ]
+    },
+    {
+      "worksheetId": "dhcfg-onk-mwco-sv1-ws-loads",
+      "name": "Loads",
+      "headerRowOneBased": 3,
+      "fields": [
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c000",
+          "header": "Run Name",
+          "ordinal": 0,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c001",
+          "header": "Run Number",
+          "ordinal": 1,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c002",
+          "header": "Service Type",
+          "ordinal": 2,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c003",
+          "header": "Waste Type",
+          "ordinal": 3,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c004",
+          "header": "Run Date",
+          "ordinal": 4,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c005",
+          "header": "Load Number",
+          "ordinal": 5,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c006",
+          "header": "Driver",
+          "ordinal": 6,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c007",
+          "header": "Vehicle",
+          "ordinal": 7,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c008",
+          "header": "Vehicle Rego",
+          "ordinal": 8,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c009",
+          "header": "Depot Depart Time",
+          "ordinal": 9,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c010",
+          "header": "Depot Depart Date",
+          "ordinal": 10,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c011",
+          "header": "Depot Depart Odo",
+          "ordinal": 11,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c012",
+          "header": "Mins To Col Start",
+          "ordinal": 12,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c013",
+          "header": "Kms To Col Start",
+          "ordinal": 13,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c014",
+          "header": "Col Start Time",
+          "ordinal": 14,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c015",
+          "header": "Col Start Lat",
+          "ordinal": 15,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c016",
+          "header": "Col Start Lng",
+          "ordinal": 16,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c017",
+          "header": "Col Start Location",
+          "ordinal": 17,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c018",
+          "header": "Col Start Odometer",
+          "ordinal": 18,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c019",
+          "header": "Col End Time",
+          "ordinal": 19,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c020",
+          "header": "Col End Lat",
+          "ordinal": 20,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c021",
+          "header": "Col End Lng",
+          "ordinal": 21,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c022",
+          "header": "Col End Location",
+          "ordinal": 22,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c023",
+          "header": "Col End Odometer",
+          "ordinal": 23,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c024",
+          "header": "Collection Time",
+          "ordinal": 24,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c025",
+          "header": "Collection Distance",
+          "ordinal": 25,
+          "candidate": "DECIMAL",
+          "confirm": "Confirm numeric representation and explicit units. Rates need their own meaning; no inferred conversion or unsupported rate-unit token.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c026",
+          "header": "Collections Performed",
+          "ordinal": 26,
+          "candidate": "INTEGER",
+          "confirm": "Confirm this is a whole-number count, how blanks differ from zero, and whether negatives are valid.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c027",
+          "header": "Mins To Tip",
+          "ordinal": 27,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c028",
+          "header": "Kms To Tip",
+          "ordinal": 28,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c029",
+          "header": "Tip Arrival",
+          "ordinal": 29,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c030",
+          "header": "Tip Arrive Odometer",
+          "ordinal": 30,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c031",
+          "header": "Tip Departure",
+          "ordinal": 31,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c032",
+          "header": "Tipping Facility",
+          "ordinal": 32,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c033",
+          "header": "Run Net Weight",
+          "ordinal": 33,
+          "candidate": "DECIMAL",
+          "confirm": "Confirm numeric representation and explicit units. Rates need their own meaning; no inferred conversion or unsupported rate-unit token.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c034",
+          "header": "Tipping Weight Net",
+          "ordinal": 34,
+          "candidate": "DECIMAL",
+          "confirm": "Confirm numeric representation and explicit units. Rates need their own meaning; no inferred conversion or unsupported rate-unit token.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c035",
+          "header": "Tipping Weight Gross",
+          "ordinal": 35,
+          "candidate": "DECIMAL",
+          "confirm": "Confirm numeric representation and explicit units. Rates need their own meaning; no inferred conversion or unsupported rate-unit token.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c036",
+          "header": "Tipping Weight Tare",
+          "ordinal": 36,
+          "candidate": "DECIMAL",
+          "confirm": "Confirm numeric representation and explicit units. Rates need their own meaning; no inferred conversion or unsupported rate-unit token.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c037",
+          "header": "Tipping Docket",
+          "ordinal": 37,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c038",
+          "header": "Disposal Time",
+          "ordinal": 38,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c039",
+          "header": "Split Percentage",
+          "ordinal": 39,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c040",
+          "header": "Global Id",
+          "ordinal": 40,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c041",
+          "header": "Tip Depot Travel Mins",
+          "ordinal": 41,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c042",
+          "header": "Tip Depot Travel Kms",
+          "ordinal": 42,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c043",
+          "header": "Tip Date",
+          "ordinal": 43,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c044",
+          "header": "Depot First Job Time Mins",
+          "ordinal": 44,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c045",
+          "header": "Depot First Job Distance",
+          "ordinal": 45,
+          "candidate": "DECIMAL",
+          "confirm": "Confirm numeric representation and explicit units. Rates need their own meaning; no inferred conversion or unsupported rate-unit token.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c046",
+          "header": "Depot Return Date",
+          "ordinal": 46,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c047",
+          "header": "Depot Return Time",
+          "ordinal": 47,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-loads-c048",
+          "header": "Depot Return Odo",
+          "ordinal": 48,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        }
+      ]
+    },
+    {
+      "worksheetId": "dhcfg-onk-mwco-sv1-ws-jobs",
+      "name": "Jobs",
+      "headerRowOneBased": 3,
+      "fields": [
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c000",
+          "header": "Id",
+          "ordinal": 0,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c001",
+          "header": "Run Name",
+          "ordinal": 1,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c002",
+          "header": "Run Date",
+          "ordinal": 2,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c003",
+          "header": "Vehicle",
+          "ordinal": 3,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c004",
+          "header": "Driver",
+          "ordinal": 4,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c005",
+          "header": "Service Type",
+          "ordinal": 5,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c006",
+          "header": "Service Code",
+          "ordinal": 6,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c007",
+          "header": "Status",
+          "ordinal": 7,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c008",
+          "header": "Property Id",
+          "ordinal": 8,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c009",
+          "header": "Unit Number",
+          "ordinal": 9,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c010",
+          "header": "Street No",
+          "ordinal": 10,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c011",
+          "header": "Street Name",
+          "ordinal": 11,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c012",
+          "header": "Suburb",
+          "ordinal": 12,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c013",
+          "header": "Postcode",
+          "ordinal": 13,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c014",
+          "header": "Commenced Date",
+          "ordinal": 14,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c015",
+          "header": "Commenced Time",
+          "ordinal": 15,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c016",
+          "header": "Completed Date",
+          "ordinal": 16,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c017",
+          "header": "Completed Time",
+          "ordinal": 17,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c018",
+          "header": "Duration",
+          "ordinal": 18,
+          "candidate": "DURATION",
+          "confirm": "Confirm source representation and explicit source/target units. Do not infer units from the header.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c019",
+          "header": "Job Lat",
+          "ordinal": 19,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c020",
+          "header": "Job Lng",
+          "ordinal": 20,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c021",
+          "header": "Collection Lat",
+          "ordinal": 21,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c022",
+          "header": "Collection Lng",
+          "ordinal": 22,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c023",
+          "header": "Site Collection Delta",
+          "ordinal": 23,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c024",
+          "header": "Collections Booked",
+          "ordinal": 24,
+          "candidate": "INTEGER",
+          "confirm": "Confirm this is a whole-number count, how blanks differ from zero, and whether negatives are valid.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c025",
+          "header": "Collections Performed",
+          "ordinal": 25,
+          "candidate": "INTEGER",
+          "confirm": "Confirm this is a whole-number count, how blanks differ from zero, and whether negatives are valid.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c026",
+          "header": "Missed",
+          "ordinal": 26,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c027",
+          "header": "Not Presented",
+          "ordinal": 27,
+          "candidate": "INTEGER",
+          "confirm": "Confirm this is a whole-number count, how blanks differ from zero, and whether negatives are valid.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c028",
+          "header": "Not Accessible",
+          "ordinal": 28,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c029",
+          "header": "Contaminated",
+          "ordinal": 29,
+          "candidate": "INTEGER",
+          "confirm": "Confirm this is a whole-number count, how blanks differ from zero, and whether negatives are valid.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c030",
+          "header": "Allocated Sequence",
+          "ordinal": 30,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c031",
+          "header": "Collection Sequence",
+          "ordinal": 31,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c032",
+          "header": "Global Uuid",
+          "ordinal": 32,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c033",
+          "header": "Exception 1",
+          "ordinal": 33,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c034",
+          "header": "Count 1",
+          "ordinal": 34,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c035",
+          "header": "Exception 2",
+          "ordinal": 35,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c036",
+          "header": "Count 2",
+          "ordinal": 36,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c037",
+          "header": "Exception 3",
+          "ordinal": 37,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c038",
+          "header": "Count 3",
+          "ordinal": 38,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c039",
+          "header": "Exception 4",
+          "ordinal": 39,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c040",
+          "header": "Count 4",
+          "ordinal": 40,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c041",
+          "header": "Exception 5",
+          "ordinal": 41,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c042",
+          "header": "Count 5",
+          "ordinal": 42,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c043",
+          "header": "Street Number",
+          "ordinal": 43,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-jobs-c044",
+          "header": "Site Category",
+          "ordinal": 44,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        }
+      ]
+    },
+    {
+      "worksheetId": "dhcfg-onk-mwco-sv1-ws-tickets",
+      "name": "Tickets",
+      "headerRowOneBased": 3,
+      "fields": [
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c000",
+          "header": "Id",
+          "ordinal": 0,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c001",
+          "header": "Priority",
+          "ordinal": 1,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c002",
+          "header": "Movement",
+          "ordinal": 2,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c003",
+          "header": "Category",
+          "ordinal": 3,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c004",
+          "header": "Type",
+          "ordinal": 4,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c005",
+          "header": "Asset Type",
+          "ordinal": 5,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c006",
+          "header": "Serial",
+          "ordinal": 6,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c007",
+          "header": "Rfid",
+          "ordinal": 7,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c008",
+          "header": "Site Category",
+          "ordinal": 8,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c009",
+          "header": "Property Id",
+          "ordinal": 9,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c010",
+          "header": "Account Number",
+          "ordinal": 10,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c011",
+          "header": "Lot Number",
+          "ordinal": 11,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c012",
+          "header": "Unit Number",
+          "ordinal": 12,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c013",
+          "header": "Street Number",
+          "ordinal": 13,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c014",
+          "header": "Street Name",
+          "ordinal": 14,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c015",
+          "header": "Suburb",
+          "ordinal": 15,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c016",
+          "header": "Postcode",
+          "ordinal": 16,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c017",
+          "header": "Zone",
+          "ordinal": 17,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c018",
+          "header": "Requested Date",
+          "ordinal": 18,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c019",
+          "header": "Requested Time",
+          "ordinal": 19,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c020",
+          "header": "Run",
+          "ordinal": 20,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c021",
+          "header": "Status",
+          "ordinal": 21,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c022",
+          "header": "Closed Date",
+          "ordinal": 22,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c023",
+          "header": "Closed Time",
+          "ordinal": 23,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c024",
+          "header": "First Service",
+          "ordinal": 24,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c025",
+          "header": "Final Service",
+          "ordinal": 25,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c026",
+          "header": "Type Of Service",
+          "ordinal": 26,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c027",
+          "header": "Notes",
+          "ordinal": 27,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c028",
+          "header": "Other Details Columns",
+          "ordinal": 28,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c029",
+          "header": "Created By",
+          "ordinal": 29,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c030",
+          "header": "Call Date",
+          "ordinal": 30,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c031",
+          "header": "Call Time",
+          "ordinal": 31,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c032",
+          "header": "Reported By",
+          "ordinal": 32,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c033",
+          "header": "Contact Number",
+          "ordinal": 33,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c034",
+          "header": "Tasks Completed",
+          "ordinal": 34,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c035",
+          "header": "Tasks Incomplete",
+          "ordinal": 35,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-tickets-c036",
+          "header": "Full Address",
+          "ordinal": 36,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        }
+      ]
+    },
+    {
+      "worksheetId": "dhcfg-onk-mwco-sv1-ws-ticket_tasks",
+      "name": "Ticket Tasks",
+      "headerRowOneBased": 3,
+      "fields": [
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c000",
+          "header": "Ticket Id",
+          "ordinal": 0,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c001",
+          "header": "Ticket Category",
+          "ordinal": 1,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c002",
+          "header": "Ticket Type",
+          "ordinal": 2,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c003",
+          "header": "Ticket Status",
+          "ordinal": 3,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c004",
+          "header": "Call Date",
+          "ordinal": 4,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c005",
+          "header": "Call Time",
+          "ordinal": 5,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c006",
+          "header": "Auth Date",
+          "ordinal": 6,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c007",
+          "header": "Auth Time",
+          "ordinal": 7,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c008",
+          "header": "Auth Agent",
+          "ordinal": 8,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c009",
+          "header": "Auth Result",
+          "ordinal": 9,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c010",
+          "header": "Auth Note",
+          "ordinal": 10,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c011",
+          "header": "Property Category",
+          "ordinal": 11,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c012",
+          "header": "Property Id",
+          "ordinal": 12,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c013",
+          "header": "Lot Number",
+          "ordinal": 13,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c014",
+          "header": "Unit Number",
+          "ordinal": 14,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c015",
+          "header": "Street Number",
+          "ordinal": 15,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c016",
+          "header": "Address",
+          "ordinal": 16,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c017",
+          "header": "Suburb",
+          "ordinal": 17,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c018",
+          "header": "Postcode",
+          "ordinal": 18,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c019",
+          "header": "Zone",
+          "ordinal": 19,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c020",
+          "header": "Task",
+          "ordinal": 20,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c021",
+          "header": "Task Detail",
+          "ordinal": 21,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c022",
+          "header": "Task Result",
+          "ordinal": 22,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c023",
+          "header": "Task Commenced",
+          "ordinal": 23,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c024",
+          "header": "Task Completed",
+          "ordinal": 24,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c025",
+          "header": "Handheld",
+          "ordinal": 25,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c026",
+          "header": "User",
+          "ordinal": 26,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c027",
+          "header": "Notes",
+          "ordinal": 27,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c028",
+          "header": "Type Of Service",
+          "ordinal": 28,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c029",
+          "header": "Driver Notes",
+          "ordinal": 29,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c030",
+          "header": "Service Exceptions",
+          "ordinal": 30,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c031",
+          "header": "Resolution Note",
+          "ordinal": 31,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-ticket_tasks-c032",
+          "header": "Notes",
+          "ordinal": 32,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        }
+      ]
+    },
+    {
+      "worksheetId": "dhcfg-onk-mwco-sv1-ws-vouchers",
+      "name": "Vouchers",
+      "headerRowOneBased": 3,
+      "fields": [
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-vouchers-c000",
+          "header": "Voucher Number",
+          "ordinal": 0,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-vouchers-c001",
+          "header": "Customer Name",
+          "ordinal": 1,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-vouchers-c002",
+          "header": "Phone Number",
+          "ordinal": 2,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-vouchers-c003",
+          "header": "Address",
+          "ordinal": 3,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-vouchers-c004",
+          "header": "Status",
+          "ordinal": 4,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-vouchers-c005",
+          "header": "Expiration",
+          "ordinal": 5,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-vouchers-c006",
+          "header": "Service Type",
+          "ordinal": 6,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-vouchers-c007",
+          "header": "Created Date",
+          "ordinal": 7,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-vouchers-c008",
+          "header": "Created Time",
+          "ordinal": 8,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-vouchers-c009",
+          "header": "Booked By",
+          "ordinal": 9,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        }
+      ]
+    },
+    {
+      "worksheetId": "dhcfg-onk-mwco-sv1-ws-prestart_checks",
+      "name": "Prestart Checks",
+      "headerRowOneBased": 3,
+      "fields": [
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-prestart_checks-c000",
+          "header": "Vehicle",
+          "ordinal": 0,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-prestart_checks-c001",
+          "header": "Driver",
+          "ordinal": 1,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-prestart_checks-c002",
+          "header": "Result",
+          "ordinal": 2,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-prestart_checks-c003",
+          "header": "Problem Count",
+          "ordinal": 3,
+          "candidate": "INTEGER",
+          "confirm": "Confirm this is a whole-number count, how blanks differ from zero, and whether negatives are valid.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-prestart_checks-c004",
+          "header": "Date",
+          "ordinal": 4,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-prestart_checks-c005",
+          "header": "Time",
+          "ordinal": 5,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        }
+      ]
+    },
+    {
+      "worksheetId": "dhcfg-onk-mwco-sv1-ws-contamination_inspections",
+      "name": "Contamination Inspections",
+      "headerRowOneBased": 3,
+      "fields": [
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-contamination_inspections-c000",
+          "header": "Username",
+          "ordinal": 0,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-contamination_inspections-c001",
+          "header": "Date",
+          "ordinal": 1,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-contamination_inspections-c002",
+          "header": "Time",
+          "ordinal": 2,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-contamination_inspections-c003",
+          "header": "Property Id",
+          "ordinal": 3,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-contamination_inspections-c004",
+          "header": "Site Id",
+          "ordinal": 4,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-contamination_inspections-c005",
+          "header": "Site Full Address",
+          "ordinal": 5,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-contamination_inspections-c006",
+          "header": "Suburb",
+          "ordinal": 6,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-contamination_inspections-c007",
+          "header": "Asset Id",
+          "ordinal": 7,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-contamination_inspections-c008",
+          "header": "Asset Type Name",
+          "ordinal": 8,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-contamination_inspections-c009",
+          "header": "Serial",
+          "ordinal": 9,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-contamination_inspections-c010",
+          "header": "Result",
+          "ordinal": 10,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-contamination_inspections-c011",
+          "header": "Level",
+          "ordinal": 11,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-contamination_inspections-c012",
+          "header": "Contaminants",
+          "ordinal": 12,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        }
+      ]
+    },
+    {
+      "worksheetId": "dhcfg-onk-mwco-sv1-ws-service_exceptions",
+      "name": "Service Exceptions",
+      "headerRowOneBased": 3,
+      "fields": [
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c000",
+          "header": "Id",
+          "ordinal": 0,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c001",
+          "header": "Classification",
+          "ordinal": 1,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c002",
+          "header": "Category",
+          "ordinal": 2,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c003",
+          "header": "Type",
+          "ordinal": 3,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c004",
+          "header": "Recorded Date",
+          "ordinal": 4,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c005",
+          "header": "Recorded Time",
+          "ordinal": 5,
+          "candidate": "TIME",
+          "confirm": "Confirm clock format, midnight/blank behavior and any timezone meaning; not elapsed duration.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c006",
+          "header": "Property Id",
+          "ordinal": 6,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c007",
+          "header": "Waste Type",
+          "ordinal": 7,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c008",
+          "header": "Service Type",
+          "ordinal": 8,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c009",
+          "header": "Run Name",
+          "ordinal": 9,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c010",
+          "header": "Run Number",
+          "ordinal": 10,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c011",
+          "header": "Service Code",
+          "ordinal": 11,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c012",
+          "header": "Service Name",
+          "ordinal": 12,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c013",
+          "header": "Run Date",
+          "ordinal": 13,
+          "candidate": "DATE",
+          "confirm": "Confirm AU_DD_MM_YYYY versus ISO_8601, source cell representation and any required datetime timezone policy.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c014",
+          "header": "Vehicle",
+          "ordinal": 14,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c015",
+          "header": "Driver",
+          "ordinal": 15,
+          "candidate": "IDENTIFIER",
+          "confirm": "Confirm identifier semantics and leading-zero preservation; do not coerce to a number.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c016",
+          "header": "Unit No",
+          "ordinal": 16,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c017",
+          "header": "Street No",
+          "ordinal": 17,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c018",
+          "header": "Street Name",
+          "ordinal": 18,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c019",
+          "header": "Suburb",
+          "ordinal": 19,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c020",
+          "header": "Postcode",
+          "ordinal": 20,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c021",
+          "header": "Geocoded Address",
+          "ordinal": 21,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c022",
+          "header": "Lat",
+          "ordinal": 22,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c023",
+          "header": "Lng",
+          "ordinal": 23,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        },
+        {
+          "id": "dhcfg-onk-mwco-sv1-ws-service_exceptions-c024",
+          "header": "Google Maps Link",
+          "ordinal": 24,
+          "candidate": "STRING",
+          "confirm": "Preserve text unless the owner confirms a narrower supported value kind; retain sensitivity classification.",
+          "confirmed": false
+        }
+      ]
+    }
+  ]
+}

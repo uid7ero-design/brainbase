@@ -84,8 +84,10 @@ describe("6.2D4C-B2B1 — findings carry ONLY governed metadata/lineage", () => 
     const codes = [...(codesMatch?.[1] ?? "").matchAll(/"([A-Z_]+)"/g)].map((m) => m[1]);
     expect(codes.length).toBeGreaterThan(20);
     expect(MIGRATION_CODE).toContain("data_hub_normalization_findings_code_check");
-    const idx = MIGRATION_CODE.indexOf("data_hub_normalization_findings_code_check");
-    const region = MIGRATION_CODE.slice(idx, idx + 3000);
+    // The additive mapping migration extends the frozen B2B1 vocabulary.
+    const update = fs.readFileSync(path.join(ROOT, "scripts/create-datahub-mapping-confirmations.sql"), "utf8");
+    const idx = update.indexOf("ADD CONSTRAINT data_hub_normalization_findings_code_check");
+    const region = update.slice(idx, update.indexOf("));", idx) + 3);
     for (const code of codes) {
       expect(region, code).toContain(`'${code}'`);
     }
