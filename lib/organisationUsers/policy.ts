@@ -4,16 +4,12 @@ export const USER_MODULES = {
   crm: { name: 'CRM', path: '/crm' },
   events: { name: 'Events', path: '/events' },
   assurance: { name: 'Assurance', path: '/assurance' },
-  debtors: { name: 'Debtors', path: '/debtors' },
   scheduling: { name: 'Scheduling', path: '/scheduling' },
   data_hub: { name: 'Data Hub', path: '/data-hub/import' },
-  sales: { name: 'Sales', path: '/commercial/sales' },
   quotes: { name: 'Quotes', path: '/commercial/quotes' },
   invoicing: { name: 'Invoicing', path: '/commercial/invoices' },
-  purchasing: { name: 'Purchasing', path: '/commercial/purchasing' },
-  expenses: { name: 'Expenses', path: '/commercial/expenses' },
-  budgeting: { name: 'Budgeting', path: '/commercial/budgeting' },
-  finance_intelligence: { name: 'Finance intelligence', path: '/commercial/finance' },
+  purchasing: { name: 'Purchasing', path: '/commercial/purchasing/purchase-orders' },
+  budgeting: { name: 'Budgeting', path: '/commercial/budgeting/finance-controls' },
 } as const;
 export type ModuleKey = keyof typeof USER_MODULES;
 export type AccessLevel = 'none' | 'view' | 'use';
@@ -34,13 +30,13 @@ export function moduleForPath(path: string): ModuleKey[] {
   const plain = path.startsWith('/api/') ? path.slice(4) : path;
   if (matches(plain, '/hr') || matches(plain, '/people')) return ['people'];
   if (matches(plain, '/uploads') || matches(plain, '/upload') || matches(plain, '/data-hub')) return ['data_hub'];
-  for (const key of ['organiser', 'crm', 'events', 'assurance', 'debtors', 'scheduling'] as const) {
+  for (const key of ['organiser', 'crm', 'events', 'assurance', 'scheduling'] as const) {
     if (matches(plain, '/' + key)) return [key];
   }
   if (matches(plain, '/commercial')) {
     const segment = plain.split('/')[2];
-    const aliases: Record<string, ModuleKey> = { invoices: 'invoicing', finance: 'finance_intelligence' };
-    if (segment && (segment in USER_MODULES || segment in aliases)) return [aliases[segment] ?? segment as ModuleKey];
+    const aliases: Record<string, ModuleKey> = { invoices: 'invoicing' };
+    if (segment && (['quotes','invoicing','purchasing','budgeting'].includes(segment) || Object.hasOwn(aliases,segment))) return [aliases[segment] ?? segment as ModuleKey];
     if (!segment) return ['quotes','invoicing','purchasing','budgeting'];
     if (['customers','products'].includes(segment)) return ['quotes','invoicing'];
     if (['purchase-orders','purchase-receipts','supplier-bills','suppliers'].includes(segment)) return ['purchasing'];
@@ -50,7 +46,7 @@ export function moduleForPath(path: string): ModuleKey[] {
   return [];
 }
 export function managedRequestAllowed(permissions: unknown, path: string, method: string, role: string): boolean {
-  if (path==='/account/profile'||path==='/api/account/profile'||path === '/api/me' || path === '/workspace') return true;
+  if (path==='/account/profile'||path==='/api/account/profile'||path==='/api/account/avatar'||path === '/api/me' || path === '/workspace') return true;
   if (matches(path, '/settings/users') || matches(path, '/api/organisation/users')) return role === 'admin';
   let parsed: UserPermissions;
   try { parsed = parsePermissions(permissions); } catch { return false; }

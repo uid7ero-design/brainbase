@@ -71,6 +71,9 @@ export async function middleware(req: NextRequest) {
   // a staff identity or grant from this permission layer.
   if (pathname.startsWith('/api/cron/') || pathname.startsWith('/api/public/')) return NextResponse.next();
   if (!isApi && /^\/(Brand|brand|images|fonts|avatars)\//.test(pathname)) return NextResponse.next();
+  // Root-level public media is not a staff route. API and nested module
+  // filenames still go through the boundary (including e.g. /api/hr/file.pdf).
+  if(!isApi && /^\/[^/]+\.(?:webp|svg|png|jpg|jpeg|gif|ico|woff2?|ttf|mp3|mp4)$/.test(pathname)) return NextResponse.next();
   const hostname = req.headers.get('host') ?? '';
 
   // ldtennis.com.au root → tennis landing page

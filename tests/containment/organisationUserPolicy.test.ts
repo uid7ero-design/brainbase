@@ -1,7 +1,10 @@
 import { describe,it,expect } from 'vitest';
-import { managedRequestAllowed as allowed,moduleForPath,parsePermissions } from '@/lib/organisationUsers/policy';
+import { managedRequestAllowed as allowed,moduleForPath,parsePermissions,USER_MODULES } from '@/lib/organisationUsers/policy';
+import {existsSync} from 'node:fs';
+import path from 'node:path';
 import { resolveNav } from '@/components/nav/navModel';
 describe('organisation user permission boundary',()=>{
+  it('only offers module destinations that actually exist',()=>{for(const m of Object.values(USER_MODULES))expect(existsSync(path.join(process.cwd(),'app',m.path,'page.tsx')),m.path).toBe(true);});
   it('denies unassigned modules and unknown routes',()=>{expect(allowed({},'/api/hr/people','GET','viewer')).toBe(false);expect(allowed({people:'use'},'/api/unmapped','POST','admin')).toBe(false);});
   it.each(['POST','PUT','PATCH','DELETE'])('denies %s for view-only accounts',method=>expect(allowed({people:'view'},'/api/hr/people',''+method,'admin')).toBe(false));
   it('allows view reads and module use without granting platform access',()=>{expect(allowed({people:'view'},'/people','GET','viewer')).toBe(true);expect(allowed({people:'use'},'/api/hr/people','POST','viewer')).toBe(true);expect(allowed({people:'use'},'/api/admin/users','GET','admin')).toBe(false);});

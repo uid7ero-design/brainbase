@@ -17,4 +17,5 @@ describe('actual middleware user module gate',()=>{
   it('fails closed if policy storage is unavailable',async()=>{state.rows=[[user]];expect((await middleware(req('/api/hr/people'))).status).toBe(503);});
   it('keeps unmodified legacy account access and public service routes unchanged',async()=>{state.rows=[[user],[]];expect((await middleware(req('/people'))).headers.get('x-middleware-next')).toBe('1');state.rows=[];expect((await middleware(req('/api/public/events'))).headers.get('x-middleware-next')).toBe('1');});
   it('maps extension-shaped and unknown API paths through the same deny boundary',async()=>{state.rows=[[user],[{organisation_id:'a',permissions:{}}]];expect((await middleware(req('/api/hr/file.pdf'))).status).toBe(403);state.rows=[[user],[{organisation_id:'a',permissions:{people:'use'}}]];expect((await middleware(req('/api/unmapped/action','POST'))).status).toBe(403);});
+  it('does not turn public root media into a login page',async()=>{state.rows=[];expect((await middleware(req('/ld-tennis-logo.svg'))).headers.get('x-middleware-next')).toBe('1');});
 });
