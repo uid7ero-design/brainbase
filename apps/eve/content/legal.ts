@@ -158,10 +158,11 @@ export const PRIVACY: LegalDoc = {
       id: 'registration-questions',
       heading: '5. Registration questions and sensitive information',
       body: [
-        'Event Organisers may ask questions about their event when you book. You can leave a question marked optional blank.',
-        'Answers about accessibility or support needs may include health or disability information. Before you submit an answer to a question like this, we ask you to agree to the Event Organiser collecting it, and we record when you agreed. Nothing is ticked for you.',
-        'If you give another person\'s details, such as an emergency contact, please make sure they know you are giving their details to the Event Organiser for this event. Before you submit them, we ask you to confirm this, and we record that you confirmed. That confirmation is yours; it is not that person\'s consent.',
-        'Event Organisers should only ask for what they need to run the event.',
+        'Eve provides the ticketing platform. We handle the core booking and platform information needed to run the service, such as your contact details, your tickets and, for paid tickets, the payment records.',
+        'Each Event Organiser decides which registration questions to ask for its event, why it asks them, and whether each one is required or optional. We collect and store your answers on the Event Organiser\'s behalf. You can leave a question marked optional blank.',
+        'Event Organisers should only ask for information that is reasonably needed to run their event, for example accessibility or support needs, dietary requirements, an emergency contact, or other details the event genuinely needs. The Event Organiser remains responsible for its own use of the answers and for any copies it makes.',
+        'Answers about accessibility, support or dietary needs may include health or disability information. Before you submit an answer to a question like this, we ask you to agree to the Event Organiser collecting it, and we record when you agreed. Nothing is ticked for you.',
+        'If you give another person\'s details, such as an emergency contact, please make sure they know you are giving their details to the Event Organiser for this event. Before you submit them, we ask you to confirm this, and we record that you confirmed. That confirmation is yours; it is not that person\'s consent. Event Organisers should only ask for another person\'s details where the event genuinely needs them, for example to contact someone in an emergency.',
       ],
     },
     {
@@ -180,7 +181,9 @@ export const PRIVACY: LegalDoc = {
       heading: '8. How long we keep information',
       body: [
         RETENTION_PRINCIPLE,
-        'Answers to registration questions are removed on a set schedule after the event: another person\'s details (such as an emergency contact) about 7 days after; health, accessibility and other sensitive answers about 30 days after; a consent choice (such as for photography), where a record of it needs to be kept, about 3 years after; and other answers about 12 months after. If an event is cancelled, sensitive answers and other people\'s details are removed about 7 days after the cancellation. We keep an answer longer only where a complaint, incident, dispute or legal obligation requires it. Your booking, payment and ticket records are not affected by this schedule.',
+        // Principle-based on purpose: the exact per-category timers are internal
+        // (RETENTION_POLICY in lib/events/answerRetention.ts, ADR 0013 §4b/§4c).
+        'We keep registration-question answers only for as long as they are reasonably needed for the event and their purpose. Sensitive information and details about other people are generally removed sooner than ordinary event information. We may keep information longer where reasonably required for an incident, complaint, dispute or legal obligation. Removing answers does not affect your booking, payment or ticket records.',
         'Deleted information may remain in our controlled backups for a limited period before those copies expire.',
         'Apart from registration answers, we do not currently delete information automatically. If you would like us to review your information, contact {{supportEmail}}. Sign-in sessions expire after 8 hours.',
       ],

@@ -221,5 +221,5 @@ Where a Preview row has an env var, remove the branch-scoped var (or the git bra
 - **PITR is on `production` only and lasts 6 hours.** After the retention job removes an answer, the removed value can be recovered through PITR for at most 6 hours. After that it is gone from `production`'s history.
 - **Branches and snapshots are separate.** They are not shortened by PITR; they last until deleted. That is why rules 1–5 bound their life.
 - **Worst case under this standard:** a removed answer may persist in a controlled copy for up to about **30 days** (migration backups and snapshots), or until an investigation hold ends. Previews last at most 14 days and proofs at most 7.
-- Together this is the "limited period" the Privacy Policy refers to. Whether that wording is acceptable is legal question 6 in the review pack.
+- Together this is the "limited period" the Privacy Policy refers to. The wording is unchanged and is no longer a separate legal question (review pack §E, "No longer asked").
 - Copies the organiser makes themselves (screenshots, spreadsheets) are outside this standard; the Privacy Policy states they are the organiser's responsibility.

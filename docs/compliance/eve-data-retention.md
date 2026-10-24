@@ -4,7 +4,7 @@ Status: **DRAFT — retention periods PENDING LEGAL/ACCOUNTING APPROVAL.**
 Nothing in this document is a public statement. It records what the system does
 today so that the public Privacy Policy never claims more than exists.
 
-**Public policy (Phase 3.6, draft):** the published Privacy text is principle-based only (kept for as long as reasonably required for the stated purposes, operational needs, dispute handling and legal obligations; may be deleted or de-identified when no longer required) and promises no fixed period and no automated deletion. The 7-year financial-record period is a recommendation pending accountant confirmation and is NOT published; it can be finalised before paid events launch. The per-category periods below are internal recommendations only and are NOT published.
+**Public policy (Phase 3.6, draft):** the published Privacy text is principle-based only (kept for as long as reasonably required for the stated purposes, operational needs, dispute handling and legal obligations; may be deleted or de-identified when no longer required) and promises no fixed period and no automated deletion. The 7-year financial-record period is a recommendation pending accountant confirmation and is NOT published; it can be finalised before paid events launch. The per-category periods below are internal recommendations only and are NOT published. Registration-answer timers are implemented (`RETENTION_POLICY`) but, since 2026-10-24, the Privacy Policy describes them by purpose only, with no exact period (ADR 0013 §4c).
 
 **There is no automated retention, anonymisation or erasure for event, order,
 attendee or registration-answer data.** Nothing is deleted by a schedule. The

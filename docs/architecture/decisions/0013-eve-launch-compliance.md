@@ -197,6 +197,72 @@ period is settled.
 
 **Legal review pack:** `docs/compliance/eve-registration-questions-legal-review-pack.md`.
 
+### 4c. Privacy model refinement (2026-10-24) — internal
+
+Decided by the operator on 2026-10-24; implemented in the draft Privacy text on the same
+branch, not live.
+
+**Platform / organiser responsibility.** The Privacy Policy (§5) now says, in plain
+Australian English and without GDPR controller/processor terms:
+- Eve/HLNA provides the platform and handles the core booking and platform information.
+- The Event Organiser decides which questions to ask, why, and whether each is required.
+- Eve collects and stores the answers on the organiser's behalf.
+- Organisers should ask only for what is reasonably needed to run the event.
+- The organiser remains responsible for its own use of the answers and any copies.
+
+**Controls unchanged.** All of these are unchanged:
+- the four categories;
+- the separate unticked SENSITIVE and THIRD_PARTY acknowledgements, where the purchaser's
+  confirmation is never the third party's consent;
+- Manager/Admin/Super Admin-only access and tenant isolation;
+- question/answer snapshots and legal holds;
+- no answer text in audits;
+- no CRM, ticket-email or marketing copying;
+- Eve questions default OFF;
+- retention enforcement report-only.
+
+**Public retention wording simplified.** Privacy §8 describes answer retention by
+purpose only:
+- answers are kept only as long as reasonably needed for the event and their purpose;
+- sensitive and other-person details are generally removed sooner;
+- answers may be kept longer for an incident, complaint, dispute or legal obligation;
+- backups expire after a limited period.
+
+No exact period is published. The internal timers are unchanged:
+- `RETENTION_POLICY`: STANDARD 12 months; SENSITIVE 30 days; THIRD_PARTY 7 days;
+  CONSENT 3 years (provisional);
+- on cancellation, SENSITIVE and THIRD_PARTY answers are removed 7 days after
+  cancellation;
+- legal holds pause removal.
+
+The timers are recorded here (§4b), in `docs/compliance/eve-data-retention.md` and in
+the review pack §C, and are pinned by a test.
+
+**Exports — future feature, not in the initial release.** Answers stay out of the
+registrations CSV export (`app/api/events/[id]/orders/export/route.ts`). Adding them
+later needs all of the following before it ships:
+- a permission model (who may export which categories);
+- sensitive-data handling (whether SENSITIVE/THIRD_PARTY answers are exportable at all,
+  and on what terms);
+- auditing of each export;
+- a privacy review, including the Privacy wording, because an exported copy is the
+  organiser's copy and is outside Eve's retention.
+
+**Future product idea (not built).** Consider asking for detailed attendee information
+through post-checkout registration questions, to reduce checkout friction. Not
+implemented and not scheduled. If it is pursued, it needs its own design and privacy
+review.
+
+**Benchmark note.** Eve's design was benchmarked against established ticketing-platform
+practice. Observed facts:
+- event hosts commonly ask custom registration questions;
+- those questions can include accessibility, dietary and next-of-kin information;
+- ticketing platforms commonly distinguish platform data from host/event-specific data;
+- mature platforms use finite retention periods for checkout-question answers.
+
+Eve deliberately adopts shorter, category-based retention and tighter access controls.
+No other platform's policy text is reused in Eve's public policy.
+
 ## 5. Remaining limits (unchanged)
 
 - All legal text is DRAFT; operator name/ABN/address/state/retention/GST are

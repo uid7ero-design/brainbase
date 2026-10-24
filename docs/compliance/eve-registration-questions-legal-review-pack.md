@@ -14,6 +14,13 @@ Built-in templates (accessibility, dietary, emergency contact, photo consent) ca
 category the organiser cannot lower. Nothing is ticked for the buyer. Answers never go to
 CRM/contact records, emails, exports, marketing or other buyers.
 
+**Responsibility model (revised 2026-10-24).** Eve/HLNA provides the platform and handles
+the core booking and platform information. The Event Organiser decides which questions to
+ask, why, and whether each is required; Eve collects and stores the answers on the
+organiser's behalf; the organiser remains responsible for its own use of them and any
+copies it makes. The public retention wording is now principle-based (section A, §8); the
+exact timers stay internal (section C).
+
 ---
 
 ## A. Privacy Policy — proposed sections 2, 3, 4, 5 and 8 (exact text)
@@ -46,22 +53,23 @@ from the code (`apps/eve/content/legal.ts`) against the published version, not r
 
 #### 5. Registration questions and sensitive information  — **[HEADING CHANGED; was: 5. Sensitive information]**
 
-- **[NEW / CHANGED]** Event Organisers may ask questions about their event when you book. You can leave a question marked optional blank.
-- **[NEW / CHANGED]** Answers about accessibility or support needs may include health or disability information. Before you submit an answer to a question like this, we ask you to agree to the Event Organiser collecting it, and we record when you agreed. Nothing is ticked for you.
-- **[NEW / CHANGED]** If you give another person's details, such as an emergency contact, please make sure they know you are giving their details to the Event Organiser for this event. Before you submit them, we ask you to confirm this, and we record that you confirmed. That confirmation is yours; it is not that person's consent.
-- **[NEW / CHANGED]** Event Organisers should only ask for what they need to run the event.
+- **[NEW / CHANGED]** Eve provides the ticketing platform. We handle the core booking and platform information needed to run the service, such as your contact details, your tickets and, for paid tickets, the payment records.
+- **[NEW / CHANGED]** Each Event Organiser decides which registration questions to ask for its event, why it asks them, and whether each one is required or optional. We collect and store your answers on the Event Organiser's behalf. You can leave a question marked optional blank.
+- **[NEW / CHANGED]** Event Organisers should only ask for information that is reasonably needed to run their event, for example accessibility or support needs, dietary requirements, an emergency contact, or other details the event genuinely needs. The Event Organiser remains responsible for its own use of the answers and for any copies it makes.
+- **[NEW / CHANGED]** Answers about accessibility, support or dietary needs may include health or disability information. Before you submit an answer to a question like this, we ask you to agree to the Event Organiser collecting it, and we record when you agreed. Nothing is ticked for you.
+- **[NEW / CHANGED]** If you give another person's details, such as an emergency contact, please make sure they know you are giving their details to the Event Organiser for this event. Before you submit them, we ask you to confirm this, and we record that you confirmed. That confirmation is yours; it is not that person's consent. Event Organisers should only ask for another person's details where the event genuinely needs them, for example to contact someone in an emergency.
 - **[REMOVED]** ~~Eve does not currently show registration questions on its booking form, so it does not collect answers to them. If that changes, this policy will be updated first. Event Organisers who ask such questions elsewhere (for example about access or dietary needs) should only ask for what they need, because answers can reveal sensitive information such as health or disability.~~
 
 #### 8. How long we keep information
 
 - _(unchanged)_ We keep personal information only for as long as reasonably required for the purposes described in this policy, our operational needs, dispute handling and any applicable legal obligations. When it is no longer reasonably required, we may delete or de-identify it.
-- **[NEW / CHANGED]** Answers to registration questions are removed on a set schedule after the event: another person's details (such as an emergency contact) about 7 days after; health, accessibility and other sensitive answers about 30 days after; a consent choice (such as for photography), where a record of it needs to be kept, about 3 years after; and other answers about 12 months after. If an event is cancelled, sensitive answers and other people's details are removed about 7 days after the cancellation. We keep an answer longer only where a complaint, incident, dispute or legal obligation requires it. Your booking, payment and ticket records are not affected by this schedule.
+- **[NEW / CHANGED]** We keep registration-question answers only for as long as they are reasonably needed for the event and their purpose. Sensitive information and details about other people are generally removed sooner than ordinary event information. We may keep information longer where reasonably required for an incident, complaint, dispute or legal obligation. Removing answers does not affect your booking, payment or ticket records.
 - **[NEW / CHANGED]** Deleted information may remain in our controlled backups for a limited period before those copies expire.
 - **[NEW / CHANGED]** Apart from registration answers, we do not currently delete information automatically. If you would like us to review your information, contact [support email]. Sign-in sessions expire after 8 hours.
 - **[REMOVED]** ~~We do not currently delete information automatically. If you would like us to review your information, contact [support email]. Sign-in sessions expire after 8 hours.~~
 
 
-**Context, unchanged (relevant to questions 8 and 10):**
+**Context, unchanged (relevant to questions 5 and 6):**
 
 - §1: "{{operatorLegalName}} ({{entityType}}, {{entityIdentifier}}), {{operatorLocation}}, operates Eve at https://eveevents.com.au. We aim to handle personal information responsibly and, to the extent the Australian Privacy Principles and the Privacy Act 1988 (Cth) apply to us, in line with them." (operator facts are still placeholders pending confirmation)
 - §7: "Our database is hosted in Australia (Sydney). Our hosting provider processes requests in the United States, and our email provider (Resend) and, for paid tickets, Stripe may process information in other countries. This means some personal information may be handled outside Australia."
@@ -102,14 +110,18 @@ A "No" to a consent question is stored as No.
 
 ---
 
-## C. Retention schedule (answers only)
+## C. Retention schedule (answers only) — internal, not published
+
+These timers are implemented (`RETENTION_POLICY` in `lib/events/answerRetention.ts`) but
+are deliberately **not** stated in the public Privacy Policy, which describes retention by
+purpose (section A, §8).
 
 | Category | Example | Answer removed |
 |---|---|---|
 | STANDARD | how did you hear | 12 months after the event ends |
 | SENSITIVE | accessibility, dietary | 30 days after the event ends; if cancelled, 7 days after cancellation |
 | THIRD_PARTY | emergency contact | 7 days after the event ends; if cancelled, 7 days after cancellation |
-| CONSENT | photo/video consent | **3 years after the event ends — PROVISIONAL, pending advice (Q5)** |
+| CONSENT | photo/video consent | **3 years after the event ends — PROVISIONAL, pending advice (Q4)** |
 
 - **"Removed"** means the answer value is deleted. A structural record remains (question wording, type, category, timestamps, acknowledgement time), so it can be shown that an answer existed.
 - **Never affected:** orders, payments, refunds, tickets/check-in, acceptance of the Terms/Refunds policy, audit history.
@@ -130,15 +142,41 @@ A "No" to a consent question is stored as No.
 
 ## E. Questions for the reviewer
 
-We are asking for advice on each of these; none is treated as settled.
+The review is narrowed (2026-10-24) to the six points below. We are asking for advice on
+each of them; none is treated as settled.
 
-1. Are the proposed collection notices (B.1–B.6, and Privacy sections 2–5) sufficient for STANDARD, SENSITIVE and THIRD_PARTY information?
-2. Is a separate, unticked agreement checkbox (B.4, SENSITIVE) adequate where an answer may reveal health or disability information? Does anything change where the purchaser answers an attendee-level SENSITIVE question **about another attendee** (e.g. booking for a family member)?
-3. Is the THIRD_PARTY wording (B.3, B.4 and section 5) appropriate? Does it make clear that the purchaser is **not** consenting on the third party's behalf? Is "or that I am allowed to give them" appropriate?
-4. Are the category-specific retention periods (section C) reasonable?
-5. What retention period should apply to CONSENT evidence, particularly photography/media consent, given that the record may need to exist for as long as the media is used? Should it be event-based, use-based, or set per question?
-6. Is "Deleted information may remain in our controlled backups for a limited period before those copies expire" acceptable, given the backup and copy lifecycle in section C?
-7. Is any additional disclosure needed because authorised platform administrators can access answers (section D)?
-8. Given the actual hosting and providers (database in Sydney; hosting in the United States; Resend and Stripe), does section 7 adequately cover registration answers, or is more specific overseas/cloud disclosure needed?
-9. Do any State/Territory privacy laws or event-specific obligations (e.g. health records legislation, venue or licensing requirements) materially change this approach?
-10. Does Eve / HLNA currently fall within the Privacy Act 1988 (Cth) or the small-business exemption? Does voluntarily applying APP-style controls change anything we should disclose, or how section 1 should be worded?
+1. **Organiser / platform responsibility.** Does section 5 (paragraphs 1–3) accurately and
+   adequately describe the split: Eve provides the platform and core booking information;
+   the Event Organiser decides which questions to ask, why, and whether each is required;
+   Eve collects and stores the answers on the organiser's behalf; the organiser remains
+   responsible for its own use and copies? Is "should only ask for information that is
+   reasonably needed to run their event" the right standard?
+2. **Sensitive-information acknowledgement.** Is a separate, unticked agreement checkbox
+   (B.2, B.4, section 5 paragraph 4) adequate where an answer may reveal health or disability
+   information? Does anything change where the purchaser answers an attendee-level SENSITIVE
+   question **about another attendee** (e.g. booking for a family member)?
+3. **Third-party acknowledgement.** Is the THIRD_PARTY wording (B.3, B.4, section 5
+   paragraph 5) appropriate? Does it make clear that the purchaser is **not** consenting on
+   the other person's behalf? Is "or that I am allowed to give them" appropriate?
+4. **CONSENT retention.** What retention period should apply to CONSENT evidence,
+   particularly photography/media consent, given that the record may need to exist for as
+   long as the media is used? Should it be event-based, use-based, or set per question?
+   (Currently 3 years, provisional; section C.)
+5. **Overseas / cloud wording.** Given the actual hosting and providers (database in Sydney;
+   hosting in the United States; Resend and Stripe), does section 7 adequately cover
+   registration answers, or is more specific disclosure needed?
+6. **Privacy Act / small-business applicability.** Does Eve / HLNA currently fall within
+   the Privacy Act 1988 (Cth) or the small-business exemption? Does voluntarily applying
+   APP-style controls change anything we should disclose, or how section 1 should be worded?
+
+**No longer asked (settled product/engineering decisions; the reviewer may still comment):**
+
+- General notice sufficiency for STANDARD answers: covered by the general notice (B.1, B.6)
+  and section 5; the protected categories are covered by questions 1–3.
+- Category retention periods: an operator decision (ADR 0013 §4b), implemented as internal
+  timers. The public policy now describes retention by purpose only (section A, §8).
+- The backup-copy statement: wording unchanged; it is made true operationally by the
+  data-copies standard (`docs/compliance/eve-production-data-copies.md`).
+- Platform-administrator access: already disclosed in section 4.
+- State/Territory and event-specific obligations: not asked separately. Please flag any
+  that would materially change the approach.

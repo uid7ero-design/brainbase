@@ -164,6 +164,15 @@ describe('category model and templates (ADR 0013 §4b)', () => {
     expect(rq.lockedCategoryFor('HOW_DID_YOU_HEAR')).toBeNull()
     expect(rq.lockedCategoryFor(null)).toBeNull()
   })
+  it('internal retention timers are pinned (ADR 0013 §4b); the public policy describes them only by purpose (§4c)', async () => {
+    const { RETENTION_POLICY } = await import('@/lib/events/answerRetention')
+    expect(RETENTION_POLICY).toEqual({
+      STANDARD: { afterEnd: '12 months', afterCancel: null },
+      SENSITIVE: { afterEnd: '30 days', afterCancel: '7 days' },
+      THIRD_PARTY: { afterEnd: '7 days', afterCancel: '7 days' },
+      CONSENT: { afterEnd: '3 years', afterCancel: null },
+    })
+  })
 })
 
 describe('request + definition validation', () => {

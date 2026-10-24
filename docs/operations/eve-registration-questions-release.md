@@ -8,7 +8,7 @@ event.
 ## Prerequisites before the Production migration (all required)
 
 - [ ] **Legal wording approved:** Privacy sections 2, 3, 4, 5 and 8, and the in-form notices, per
-      `docs/compliance/eve-registration-questions-legal-review-pack.md` (questions 1–10 answered).
+      `docs/compliance/eve-registration-questions-legal-review-pack.md` (questions 1–6 answered).
 - [ ] **Copy-cleanup actions approved and executed**, enough to make "deleted information may remain
       in our controlled backups for a limited period" true. At minimum: group A deleted, group B
       decided by owners, and dates recorded for C/D in `docs/compliance/eve-production-data-copies.md`.
