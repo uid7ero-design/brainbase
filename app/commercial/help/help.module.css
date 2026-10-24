@@ -1,0 +1,24 @@
+.guide { max-width: 1040px; min-width: 0; line-height: 1.65; color: var(--text-primary); overflow-wrap: anywhere; }
+.guide p { margin: 0 0 16px; }
+.guide a { color: var(--brand-brainbase-accent); text-underline-offset: 3px; }
+.guide a:focus-visible, .guide summary:focus-visible, .tableScroll:focus-visible { outline: 2px solid var(--brand-brainbase-accent); outline-offset: 4px; }
+.topics { display: flex; flex-wrap: wrap; gap: 10px 20px; margin: 16px 0 24px; }
+.section { border-top: 1px solid var(--border); padding-block: 24px; scroll-margin-top: 120px; }
+.section h2 { margin: 0 0 16px; font-size: 19px; line-height: 1.4; }
+.section h3 { margin: 0 0 10px; font-size: 15px; }
+.section li { padding-left: 4px; margin-bottom: 12px; }
+.section ol, .section ul { padding-left: 24px; }
+.tasks { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 16px; }
+.tasks > section { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 18px; min-width: 0; }
+.tableScroll { overflow-x: auto; margin-block: 20px; }
+.guide table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.guide caption { text-align: left; font-weight: 600; margin-bottom: 8px; }
+.guide th, .guide td { text-align: left; padding: 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.guide td:nth-child(2), .guide td:nth-child(3) { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.terms { margin: 0; }
+.terms > div { padding-block: 12px; border-bottom: 1px solid var(--border); }
+.terms dt { font-weight: 600; }
+.terms dd { margin: 4px 0 0; color: var(--text-secondary); }
+.section summary { cursor: pointer; font-weight: 600; padding-block: 8px; }
+@media (max-width: 600px) { .guide th, .guide td { padding: 8px 6px; } }
+@media print { .topics { display: none; } .section { break-inside: auto; } .tasks > section, .terms > div, .guide tr { break-inside: avoid; } }
