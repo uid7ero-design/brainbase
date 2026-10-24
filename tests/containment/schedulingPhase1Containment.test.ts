@@ -102,6 +102,10 @@ describe('Phase 1 does not enable the module anywhere', () => {
         // Phase 2B.2b (deliberate, reviewed change): the disposable-Postgres proof of the configuration API names scheduling_* tables to
         // set up and compare fixtures. It reaches only SCHEDULING_TEST_DATABASE_URL and creates no scheduling_* table.
         if (rel(full) === 'scripts/tests/schedulingConfigApi2b2b.integration.test.ts') continue;
+        // Scheduling browser harness (deliberate, reviewed change): it applies the committed Scheduling SQL to a DISPOSABLE Docker
+        // database and seeds one scheduling_settings row per fixture organisation (the application never creates settings). Its
+        // network guard refuses every non-loopback request and every non-fixture SQL connection; it creates no scheduling_* table itself.
+        if (rel(full) === 'scripts/tests/helpers/schedulingBrowserEnv.mjs') continue;
         if (statSync(full).isDirectory()) scan(full);
         else if (/\.(sql|prisma|ts|mjs|js)$/.test(name) && /scheduling_[a-z_]+/.test(readFileSync(full, 'utf8'))) offenders.push(rel(full));
       }
