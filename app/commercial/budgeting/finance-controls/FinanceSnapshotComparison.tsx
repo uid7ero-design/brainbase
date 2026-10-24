@@ -39,7 +39,7 @@ export function FinanceSnapshotComparison({scope,baselineId,comparisonId,onClose
     try{const file=buildSnapshotComparisonDownload(comparison,new Date().toISOString(),kind);setNotice(requestFinanceEvidenceDownload(file));}
     catch{setDownloadError('Unable to download this comparison. Reload both saved snapshots before trying again.');}
   }
-  return <section aria-label="Saved snapshot total comparison" style={{border:'1px solid var(--border)',borderRadius:10,padding:16,marginTop:16,minWidth:0,overflowWrap:'anywhere'}}>
+  return <section aria-label="Saved snapshot total comparison" style={{border:'1px solid var(--border)',borderRadius:8,padding:16,marginTop:16,minWidth:0,overflowWrap:'anywhere'}}>
     <h3 ref={heading} tabIndex={-1} style={{fontSize:16,marginTop:0,scrollMarginTop:120}}>Compare saved snapshot totals</h3>
     <p style={{fontSize:12}}>Source: {source} · {currency}. Every change is comparison minus baseline, regardless of which snapshot was prepared first. This compares header totals, not individual items, and creates no accounting fact or approval.</p>
     <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBlock:12}}><button type="button" disabled={loading} onClick={()=>{setNotice('');setDownloadError('');setReload(value=>value+1);}} {...buttonProps('secondary','sm')}>Reload both snapshot totals</button><button type="button" onClick={onClose} {...buttonProps('secondary','sm')}>Close total comparison</button></div>
