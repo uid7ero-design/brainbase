@@ -112,7 +112,7 @@ vi.mock('@/lib/capabilities/requireCapability', async (importOriginal) => {
 
 const sqlMock = vi.fn();
 vi.mock('@/lib/db', () => ({
-  default: (...args: unknown[]) => sqlMock(...args),
+  default: Object.assign((...args: unknown[]) => sqlMock(...args), { transaction: (queries: unknown[]) => Promise.all(queries) }),
 }));
 
 const SESSION = { userId: 'u1', organisationId: 'org-a', role: 'manager' };
@@ -157,8 +157,10 @@ describe('POST/PUT /api/crm/contacts — request body / SQL no longer reference 
     }));
     const res = await contactsRoute.POST(req);
     expect(res.status).toBe(201);
-    expect(sqlCallText(0)).toMatch(/first_name/);
-    expect(sqlCallText(0)).toMatch(/job_title/);
+    // With an email the insert runs after the identity lock (statement 0), in the guarded statement that follows.
+    const insertText = sqlMock.mock.calls.map((_, i) => sqlCallText(i)).find(t => t.includes('INSERT INTO crm_contacts')) ?? '';
+    expect(insertText).toMatch(/first_name/);
+    expect(insertText).toMatch(/job_title/);
   });
 
   it('POST silently ignores stale vertical-only fields in the request body rather than erroring (defense-in-depth for cached/old clients)', async () => {

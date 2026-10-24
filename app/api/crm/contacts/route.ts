@@ -3,6 +3,8 @@ import sql from '@/lib/db';
 import { requireSession, unauthorized, forbidden } from '@/lib/org';
 import { requireCapability, CapabilityDatabaseError } from '@/lib/capabilities/requireCapability';
 import { isValidCrmContactClassification } from '@/lib/crm/classification';
+import { normalizeEmail } from '@/lib/crm/eventSync';
+import { contactIdentityLock } from '@/lib/crm/contactIdentityLock';
 
 export async function GET(req: NextRequest) {
   let session;
@@ -74,6 +76,48 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid classification.' }, { status: 400 });
   }
   const normalizedClassification = classification || null;
+
+  // Duplicate policy: one contact per (organisation, email), compared case-insensitively and ignoring
+  // surrounding spaces, the same rule Events sync and Scheduling use. A second create with an email that
+  // already exists in THIS organisation is refused with 409 and the existing contact's id; nothing is written
+  // and the existing contact is never modified. The check runs under the shared identity lock in a LATER
+  // statement of the same transaction (lib/crm/contactIdentityLock.ts), so two simultaneous creates cannot both
+  // pass it. A contact with no email has no identity to protect and is created as before.
+  const normEmail = normalizeEmail(typeof email === 'string' ? email : null);
+  if (normEmail) {
+    const [, guarded] = await sql.transaction([
+      contactIdentityLock(session.organisationId, 'email', normEmail),
+      sql`
+        WITH dup AS (
+          SELECT id FROM crm_contacts
+          WHERE organisation_id = ${session.organisationId} AND lower(trim(email)) = ${normEmail}
+          ORDER BY created_at ASC
+          LIMIT 1
+        ),
+        ins AS (
+          INSERT INTO crm_contacts (
+            organisation_id, created_by, first_name, last_name, email, phone, job_title, company_id, notes, classification
+          )
+          SELECT
+            ${session.organisationId}, ${session.userId}, ${first_name.trim()}, ${last_name.trim()},
+            ${email ?? null}, ${phone ?? null}, ${job_title ?? null}, ${company_id ?? null}, ${notes ?? null},
+            ${normalizedClassification}
+          WHERE NOT EXISTS (SELECT 1 FROM dup)
+          RETURNING id
+        )
+        SELECT (SELECT id FROM dup) AS duplicate_id, (SELECT id FROM ins) AS created_id
+      `,
+    ]);
+    const outcome = (guarded as { duplicate_id: string | null; created_id: string | null }[])[0];
+    if (outcome?.duplicate_id) {
+      return NextResponse.json(
+        { error: 'A contact with this email already exists.', code: 'DUPLICATE_EMAIL', existing_contact_id: outcome.duplicate_id },
+        { status: 409 },
+      );
+    }
+    const created = await sql`SELECT * FROM crm_contacts WHERE id = ${outcome?.created_id ?? null} AND organisation_id = ${session.organisationId}`;
+    return NextResponse.json({ contact: created[0] }, { status: 201 });
+  }
 
   const rows = await sql`
     INSERT INTO crm_contacts (
