@@ -21,8 +21,7 @@ type FieldSpec = { id: string; header: string; ordinal: number; sensitivity: str
   representations: Representation[]; units: ReviewUnit[]; suggestedRepresentation: Representation;
   suggestedUnit: ReviewUnit | null; count: boolean };
 
-export const RUNS_SCHEMA_ID = "dhcfg-onk-mwco-sv1";
-export const RUNS_WORKSHEET_ID = `${RUNS_SCHEMA_ID}-ws-runs`;
+export const RUNS_REVIEW_TEMPLATE = "onkaparinga-runs-review-v1";
 // This small, public-label inventory avoids shipping the other 274 governed
 // columns to the browser. A behavioral test checks it against the source manifest.
 const HEADERS = ["Id", "Date", "Run", "Vehicles", "Service Type", "Drivers", "Loads", "Collections Booked",
@@ -46,24 +45,25 @@ export const RUNS_REVIEW_FIELDS: readonly FieldSpec[] = HEADERS.map((header, ord
     representations = ["DECIMAL_NUMBER", "EXCEL_DAY_FRACTION", "CLOCK_DURATION"];
     units = ["h", "d", "min", "s"]; suggestedUnit = ordinal === 17 ? "d" : "h";
   } else if (ordinal >= 18) { units = ["km", "m"]; suggestedUnit = null; }
-  return { id: `${RUNS_WORKSHEET_ID}-c${String(ordinal).padStart(3, "0")}`, header,
+  // Template references deliberately cannot stand in for governed schema IDs.
+  return { id: `runs-field-${String(ordinal).padStart(2, "0")}`, header,
     ordinal, sensitivity: ordinal === 5 ? "PERSONALLY_IDENTIFIABLE" : "CONFIDENTIAL", representations, units,
     suggestedRepresentation: ordinal === 1 ? "ISO_DATE_TEXT" : representations[0], suggestedUnit,
     count: ordinal >= 6 && ordinal <= 10 };
 });
 
-export type FieldReview = { columnId: string; representation: Representation | null; unit: ReviewUnit | null;
+export type FieldReview = { fieldKey: string; representation: Representation | null; unit: ReviewUnit | null;
   negativePolicy: "ALLOW" | "FORBID" | null; confirmed: boolean };
-export type RunsPilotReview = { reviewVersion: 1; schemaId: typeof RUNS_SCHEMA_ID; worksheetId: typeof RUNS_WORKSHEET_ID;
+export type RunsPilotReview = { reviewVersion: 1; template: typeof RUNS_REVIEW_TEMPLATE;
   activationAllowed: false; missingPolicy: "NULL_ONLY" | "ADDITIONAL_MARKERS" | null; fields: FieldReview[] };
 
 export function createRunsPilotReview(): RunsPilotReview {
-  return { reviewVersion: 1, schemaId: RUNS_SCHEMA_ID, worksheetId: RUNS_WORKSHEET_ID, activationAllowed: false,
-    missingPolicy: null, fields: RUNS_REVIEW_FIELDS.map(f => ({ columnId: f.id, representation: f.suggestedRepresentation,
+  return { reviewVersion: 1, template: RUNS_REVIEW_TEMPLATE, activationAllowed: false,
+    missingPolicy: null, fields: RUNS_REVIEW_FIELDS.map(f => ({ fieldKey: f.id, representation: f.suggestedRepresentation,
       unit: f.suggestedUnit, negativePolicy: null, confirmed: false })) };
 }
 
-export type ReviewBlocker = { columnId?: string; code: "DAY_UNIT_NEEDS_SUPPORT" | "RATE_UNIT_NEEDS_SUPPORT" |
+export type ReviewBlocker = { fieldKey?: string; code: "DAY_UNIT_NEEDS_SUPPORT" | "RATE_UNIT_NEEDS_SUPPORT" |
   "CLOCK_DURATION_NEEDS_SUPPORT" | "NUMERIC_IDENTIFIER_NEEDS_DECISION" | "NONNEGATIVE_COUNTS_NEED_RULE" |
   "MISSING_MARKERS_NEED_RULE" | "SOURCE_REPRESENTATION_UNIT_MISMATCH" | "PROFILE_RULE_UNSUPPORTED" };
 export const BLOCKER_COPY: Record<ReviewBlocker["code"], string> = {
@@ -93,45 +93,45 @@ export function evaluateRunsPilotReview(raw: unknown):
   { ok: false; activationAllowed: false; code: "INVALID_REVIEW" } |
   { ok: true; activationAllowed: false; review: RunsPilotReview; confirmedCount: number; reviewComplete: boolean; blockers: ReviewBlocker[] } {
   const invalid = { ok: false, activationAllowed: false, code: "INVALID_REVIEW" } as const;
-  if (!object(raw) || !exactKeys(raw, ["reviewVersion", "schemaId", "worksheetId", "activationAllowed", "missingPolicy", "fields"]) ||
-    raw.reviewVersion !== 1 || raw.schemaId !== RUNS_SCHEMA_ID || raw.worksheetId !== RUNS_WORKSHEET_ID || raw.activationAllowed !== false ||
+  if (!object(raw) || !exactKeys(raw, ["reviewVersion", "template", "activationAllowed", "missingPolicy", "fields"]) ||
+    raw.reviewVersion !== 1 || raw.template !== RUNS_REVIEW_TEMPLATE || raw.activationAllowed !== false ||
     ![null, "NULL_ONLY", "ADDITIONAL_MARKERS"].includes(raw.missingPolicy as null | string) ||
     !Array.isArray(raw.fields) || raw.fields.length !== RUNS_REVIEW_FIELDS.length) return invalid;
   const seen = new Set<string>();
   const fields: FieldReview[] = [];
   for (const item of raw.fields) {
-    if (!object(item) || !exactKeys(item, ["columnId", "representation", "unit", "negativePolicy", "confirmed"])) return invalid;
-    const spec = RUNS_REVIEW_FIELDS.find(f => f.id === item.columnId);
+    if (!object(item) || !exactKeys(item, ["fieldKey", "representation", "unit", "negativePolicy", "confirmed"])) return invalid;
+    const spec = RUNS_REVIEW_FIELDS.find(f => f.id === item.fieldKey);
     if (!spec || seen.has(spec.id) || typeof item.confirmed !== "boolean" ||
       (item.representation !== null && !spec.representations.includes(item.representation as Representation)) ||
       (item.unit !== null && !spec.units.includes(item.unit as ReviewUnit)) ||
       ![null, "ALLOW", "FORBID"].includes(item.negativePolicy as null | string) ||
       (item.representation !== "WHOLE_NUMBER" && item.negativePolicy !== null)) return invalid;
     seen.add(spec.id);
-    fields.push({ columnId: spec.id, representation: item.representation as Representation | null,
+    fields.push({ fieldKey: spec.id, representation: item.representation as Representation | null,
       unit: item.unit as ReviewUnit | null, negativePolicy: item.negativePolicy as FieldReview["negativePolicy"], confirmed: item.confirmed });
   }
-  fields.sort((a, b) => RUNS_REVIEW_FIELDS.findIndex(f => f.id === a.columnId) - RUNS_REVIEW_FIELDS.findIndex(f => f.id === b.columnId));
-  const review: RunsPilotReview = { reviewVersion: 1, schemaId: RUNS_SCHEMA_ID, worksheetId: RUNS_WORKSHEET_ID,
+  fields.sort((a, b) => RUNS_REVIEW_FIELDS.findIndex(f => f.id === a.fieldKey) - RUNS_REVIEW_FIELDS.findIndex(f => f.id === b.fieldKey));
+  const review: RunsPilotReview = { reviewVersion: 1, template: RUNS_REVIEW_TEMPLATE,
     activationAllowed: false, missingPolicy: raw.missingPolicy as RunsPilotReview["missingPolicy"], fields };
   const blockers: ReviewBlocker[] = [];
   if (review.missingPolicy === "ADDITIONAL_MARKERS") blockers.push({ code: "MISSING_MARKERS_NEED_RULE" });
   for (const field of fields) {
     if (!field.confirmed || !fieldReviewComplete(field)) continue;
-    const add = (code: ReviewBlocker["code"]) => blockers.push({ columnId: field.columnId, code });
+    const add = (code: ReviewBlocker["code"]) => blockers.push({ fieldKey: field.fieldKey, code });
     if (field.unit === "d") add("DAY_UNIT_NEEDS_SUPPORT");
     if (field.unit?.includes("/")) add("RATE_UNIT_NEEDS_SUPPORT");
     if (field.representation === "CLOCK_DURATION") add("CLOCK_DURATION_NEEDS_SUPPORT");
     if (field.representation === "IDENTIFIER_NUMBER") add("NUMERIC_IDENTIFIER_NEEDS_DECISION");
     if (field.negativePolicy === "FORBID") add("NONNEGATIVE_COUNTS_NEED_RULE");
     if (field.representation === "EXCEL_DAY_FRACTION" && field.unit !== "d") add("SOURCE_REPRESENTATION_UNIT_MISMATCH");
-    if (blockers.some(b => b.columnId === field.columnId)) continue;
-    const ordinal = RUNS_REVIEW_FIELDS.find(f => f.id === field.columnId)!.ordinal;
+    if (blockers.some(b => b.fieldKey === field.fieldKey)) continue;
+    const ordinal = RUNS_REVIEW_FIELDS.find(f => f.id === field.fieldKey)!.ordinal;
     const valueKind = field.representation === "IDENTIFIER_TEXT" ? "IDENTIFIER" :
       field.representation === "TEXT" ? "STRING" : field.representation === "WHOLE_NUMBER" ? "INTEGER" :
       ["AU_DATE_TEXT", "ISO_DATE_TEXT", "EXCEL_DATE"].includes(field.representation!) ? "DATE" :
       ordinal >= 15 && ordinal <= 17 ? "DURATION" : "DECIMAL";
-    const rule = { sourceSchemaColumnId: field.columnId, valueKind,
+    const rule = { sourceSchemaColumnId: field.fieldKey, valueKind,
       ...(valueKind === "IDENTIFIER" ? { preserveLeadingZeros: true } : {}),
       ...(valueKind === "DATE" ? { datePolicy: field.representation === "AU_DATE_TEXT" ? "AU_DD_MM_YYYY" : "ISO_8601" } : {}),
       ...(field.unit !== "NONE" ? { sourceUnit: field.unit, normalizedUnit: field.unit } : {}) };

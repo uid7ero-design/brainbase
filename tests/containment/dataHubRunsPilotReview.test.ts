@@ -13,17 +13,19 @@ import type { RawCellInput } from "@/lib/data-hub/normalization/contracts";
 const N = (rawValue: number): RawCellInput => ({ rawValueType: "NUMBER", rawValue });
 const S = (rawValue: string): RawCellInput => ({ rawValueType: "STRING", rawValue });
 const NULL: RawCellInput = { rawValueType: "NULL", rawValue: null };
+const GOVERNED_RUNS = matrix.worksheets.find(w => w.name === "Runs")!.fields;
 
 function confirmedReview() {
   const review = createRunsPilotReview(); review.missingPolicy = "NULL_ONLY";
-  review.fields.forEach(field => { field.confirmed = true; field.unit ??= "km";
-    if (field.columnId.endsWith("c012")) field.unit = "kg";
+  review.fields.forEach((field, index) => { field.confirmed = true; field.unit ??= "km";
+    if (index === 12) field.unit = "kg";
     if (field.representation === "WHOLE_NUMBER") field.negativePolicy = "ALLOW"; });
   return review;
 }
 function syntheticProfile() {
   // Synthetic conventions ONLY: no claim about the real pilot source values.
-  const columnRules: ColumnRuleV2[] = RUNS_REVIEW_FIELDS.map(({ id, ordinal }) => {
+  const columnRules: ColumnRuleV2[] = RUNS_REVIEW_FIELDS.map(({ ordinal }) => {
+    const id = GOVERNED_RUNS[ordinal].id;
     if ([0, 2].includes(ordinal)) return { sourceSchemaColumnId: id, valueKind: "IDENTIFIER", preserveLeadingZeros: true };
     if (ordinal === 1) return { sourceSchemaColumnId: id, valueKind: "DATE", datePolicy: "ISO_8601" };
     if ([3, 4, 5].includes(ordinal)) return { sourceSchemaColumnId: id, valueKind: "STRING" };
@@ -39,8 +41,10 @@ describe("Runs owner review — exact inventory and explicit confirmation", () =
     const runs = manifest.worksheets.find(w => w.logicalKey === "runs")!;
     const proposed = matrix.worksheets.find(w => w.name === "Runs")!;
     expect(runs.headerRowOneBased).toBe(3); expect(RUNS_REVIEW_FIELDS).toHaveLength(21);
-    expect(RUNS_REVIEW_FIELDS.map(f => ({ id: f.id, ordinal: f.ordinal, header: f.header })))
-      .toEqual(proposed.fields.map(f => ({ id: f.id, ordinal: f.ordinal, header: f.header })));
+    expect(RUNS_REVIEW_FIELDS.map(f => ({ ordinal: f.ordinal, header: f.header })))
+      .toEqual(proposed.fields.map(f => ({ ordinal: f.ordinal, header: f.header })));
+    expect(new Set(RUNS_REVIEW_FIELDS.map(f => f.id)).size).toBe(21);
+    expect(RUNS_REVIEW_FIELDS.every(f => !GOVERNED_RUNS.some(g => g.id === f.id))).toBe(true);
     expect(RUNS_REVIEW_FIELDS.map(f => f.sensitivity)).toEqual(runs.columns.map(c => c.sensitivityClass));
     expect(RUNS_REVIEW_FIELDS[5].sensitivity).toBe("PERSONALLY_IDENTIFIABLE");
   });
@@ -66,6 +70,7 @@ describe("Runs owner review — exact inventory and explicit confirmation", () =
   });
   it.each([
     ["activation flag", (r: Record<string, unknown>) => { r.activationAllowed = true; }],
+    ["foreign template", (r: Record<string, unknown>) => { r.template = "another-template"; }],
     ["foreign schema", (r: Record<string, unknown>) => { r.schemaId = "another-schema"; }],
     ["foreign worksheet", (r: Record<string, unknown>) => { r.worksheetId = "another-worksheet"; }],
     ["unknown key/cell payload", (r: Record<string, unknown>) => { r.sample = "private value"; }],
@@ -75,6 +80,7 @@ describe("Runs owner review — exact inventory and explicit confirmation", () =
     ["unknown field key", (r: Record<string, unknown>) => { (r.fields as Record<string, unknown>[])[0].rawValue = "private value"; }],
     ["wrong physical family", (r: Record<string, unknown>) => { (r.fields as Record<string, unknown>[])[11].unit = "km"; }],
     ["wrong representation", (r: Record<string, unknown>) => { (r.fields as Record<string, unknown>[])[0].representation = "DECIMAL_NUMBER"; }],
+    ["actual governed ID substituted for a template reference", (r: Record<string, unknown>) => { (r.fields as Record<string, unknown>[])[0].fieldKey = GOVERNED_RUNS[0].id; }],
   ])("rejects %s without reflecting supplied values", (_, mutate) => {
     const review = JSON.parse(JSON.stringify(confirmedReview())); mutate(review);
     expect(evaluateRunsPilotReview(review)).toEqual({ ok: false, activationAllowed: false, code: "INVALID_REVIEW" });
@@ -84,7 +90,7 @@ describe("Runs owner review — exact inventory and explicit confirmation", () =
     const result = evaluateRunsPilotReview(review);
     expect(JSON.stringify(review)).toBe(before);
     if (!result.ok) throw new Error("review invalid");
-    expect(result.review.fields.map(f => f.columnId)).toEqual(RUNS_REVIEW_FIELDS.map(f => f.id));
+    expect(result.review.fields.map(f => f.fieldKey)).toEqual(RUNS_REVIEW_FIELDS.map(f => f.id));
   });
   it("records every unsupported source policy, including counts represented by Vehicles/Drivers", () => {
     const review = confirmedReview(); review.missingPolicy = "ADDITIONAL_MARKERS";
@@ -96,10 +102,10 @@ describe("Runs owner review — exact inventory and explicit confirmation", () =
     if (!result.ok) throw new Error("review invalid");
     expect(result.blockers).toEqual(expect.arrayContaining([
       { code: "MISSING_MARKERS_NEED_RULE" },
-      { columnId: review.fields[0].columnId, code: "NUMERIC_IDENTIFIER_NEEDS_DECISION" },
-      { columnId: review.fields[3].columnId, code: "NONNEGATIVE_COUNTS_NEED_RULE" },
-      { columnId: review.fields[15].columnId, code: "CLOCK_DURATION_NEEDS_SUPPORT" },
-      { columnId: review.fields[16].columnId, code: "SOURCE_REPRESENTATION_UNIT_MISMATCH" },
+      { fieldKey: review.fields[0].fieldKey, code: "NUMERIC_IDENTIFIER_NEEDS_DECISION" },
+      { fieldKey: review.fields[3].fieldKey, code: "NONNEGATIVE_COUNTS_NEED_RULE" },
+      { fieldKey: review.fields[15].fieldKey, code: "CLOCK_DURATION_NEEDS_SUPPORT" },
+      { fieldKey: review.fields[16].fieldKey, code: "SOURCE_REPRESENTATION_UNIT_MISMATCH" },
     ]));
   });
 });
@@ -114,9 +120,9 @@ describe("Runs source-format compatibility — real parser and transformers, syn
     const bytes = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
     const decoded = await readWorksheetDataRows(new Uint8Array(bytes), { filename: "synthetic-runs.xlsx" }, {
       index: 0, headerRowOneBased: 3, maxRowsToRead: 10, governedColumns: RUNS_REVIEW_FIELDS.map(f => ({
-        id: f.id, ordinal: f.ordinal, sourceHeader: f.header, sensitivityClass: f.sensitivity })) });
+        id: GOVERNED_RUNS[f.ordinal].id, ordinal: f.ordinal, sourceHeader: f.header, sensitivityClass: f.sensitivity })) });
     expect(decoded.rows).toHaveLength(1); expect(decoded.rows[0].sourceRowOneBased).toBe(4);
-    const plan = buildNormalizationPlan(syntheticProfile(), RUNS_REVIEW_FIELDS.map(f => f.id));
+    const plan = buildNormalizationPlan(syntheticProfile(), GOVERNED_RUNS.map(f => f.id));
     if (!plan.ok) throw new Error("synthetic plan invalid");
     const transformed = transformRow({ rawRowId: "synthetic-row", sourceRowNumber: 4 }, decoded.rows[0].cells.map(c => ({
       sourceSchemaColumnId: c.id, cell: { rawValue: c.value, rawValueType: c.value === null ? "NULL" :
@@ -148,7 +154,7 @@ describe("Runs source-format compatibility — real parser and transformers, syn
   });
   it("rejects a profile that omits even one of the 21 governed columns", () => {
     const doc = syntheticProfile(); doc.columnRules.pop();
-    expect(buildNormalizationPlan(doc, RUNS_REVIEW_FIELDS.map(f => f.id))).toMatchObject({ ok: false,
-      findings: [{ code: "MISSING_GOVERNED_RULE", sourceSchemaColumnId: RUNS_REVIEW_FIELDS[20].id }] });
+    expect(buildNormalizationPlan(doc, GOVERNED_RUNS.map(f => f.id))).toMatchObject({ ok: false,
+      findings: [{ code: "MISSING_GOVERNED_RULE", sourceSchemaColumnId: GOVERNED_RUNS[20].id }] });
   });
 });

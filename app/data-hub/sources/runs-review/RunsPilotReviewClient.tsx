@@ -71,14 +71,14 @@ export default function RunsPilotReviewClient() {
               setReview(previous => ({ ...previous, fields: previous.fields.map((item, i) => i === index ? { ...item, confirmed } : item) }));
             }} /> I confirm the meaning and unit for {spec.header}
           </label>
-          {result.blockers.filter(b => b.columnId === spec.id).map(b => <p key={b.code}>{BLOCKER_COPY[b.code]}</p>)}
+          {result.blockers.filter(b => b.fieldKey === spec.id).map(b => <p key={b.code}>{BLOCKER_COPY[b.code]}</p>)}
         </fieldset>;
       })}
     </div>
     <section className={styles.notice} aria-labelledby="next-heading">
       <h2 id="next-heading">Keep your review</h2>
       {result.blockers.length ? <p>Some choices need additional mapping support. They will be included in the review; downloading does not enable preparation.</p> : null}
-      {result.blockers.filter(b => !b.columnId).map(b => <p key={b.code}>{BLOCKER_COPY[b.code]}</p>)}
+      {result.blockers.filter(b => !b.fieldKey).map(b => <p key={b.code}>{BLOCKER_COPY[b.code]}</p>)}
       <a href={download} download="runs-field-review.json">Download draft field review</a>
       <p>The download contains field choices only. It does not read report values, change the active mapping or start preparation.</p>
     </section>
