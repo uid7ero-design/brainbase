@@ -4,7 +4,54 @@ Prepared 7 October 2026, after finance runtime fixes in PR #375. This is a
 walkthrough and implementation plan; it does not enable a customer capability
 or create finance records.
 
-## Current local status, 24 October 2026
+## Released finance scope, 24 October 2026
+
+The bounded finance evidence work was pushed and merged through PR #488 as
+`b610301eb52dfedc3392bee4478b5755692f6f50`. Production deployment
+`dpl_eNCvnS1srcaYeUQpkiwp1i8Axt6M` was READY. The usual
+`brainbase-uid7ero-designs-projects.vercel.app` address was reassigned from the
+previous release to that deployment and its resolved commit was verified.
+Release CI passed 19,039 tests (64 skipped, plus the repository's three existing
+excluded files). Live read-only checks confirmed the finance page's login
+redirect and application Unauthorized responses from all three new evidence
+endpoints. Authenticated customer workflows were not exercised in Production.
+
+The earlier local-only and pending-release notes below are historical and do
+not describe the final release state. The release's standard Turbopack build
+passed; the additional local Webpack check found an existing Scheduling route
+signature error introduced on main, outside this finance feature scope.
+
+## Approved Help & How to addition, 25 October 2026
+
+The user approved one bounded help section after the release. `/commercial/help`
+explains setup order, everyday supplier bills/payments and reporting, a small
+illustrative AUD subscription budget, plain-English terms, advanced controls and
+recovery guidance. The Commercial sidebar shows its link for Purchasing or
+Budgeting organisations. The page requires the existing session/capability/viewer
+gate; destination links respect purchasing, budgeting and administrator access.
+It adds no financial mutations, schema changes, imports or external services.
+
+The starter example uses AUD 574 monthly / 6,888 annually, grouped into SOFTWARE
+(6,408 annually) and HOSTING (480 annually), with explicit currency/tax-basis
+confirmation and no automatic record creation. Payment guidance distinguishes
+recording/reversing settlement from moving money and from Budget Actual.
+
+This help addition is local work on `feat/commercial-finance-help`, not part of
+the previously deployed finance commit. Validation and release state must be
+reported for this addition separately.
+
+Local acceptance passed: 144 tests across the help access/navigation suite and
+the existing business-module design regression suite; focused ESLint; and
+`npm run build` with an unreachable loopback build-only database URL. Standalone
+renders of the real guide/header components and their styles were inspected at
+1200px and 390px without page overflow. An axe scan of the rendered guide with
+advanced details expanded passed 19 applicable WCAG A/AA rules with no violations.
+These render checks do not exercise the authenticated hosted shell. Local
+receipts, HTML and screenshots are under ignored `test-results/finance-help-*`.
+No push, deployment, customer configuration or customer-data writes were made
+for this Help addition.
+
+## Historical local status, 24 October 2026
 
 **The bounded finance evidence/interface implementation is locally validated and
 committed as `bf4d4003`.** The prerequisite Next.js HR-route signature fix is
