@@ -44,8 +44,8 @@ unchanged: BrainBase code imports the packages; they never import it.
 `scheduling_settings` is created only by the explicit, owner-run enablement of an organisation, with a currency chosen
 for it. This change adds no writer: no application code calls `saveSettings` or names the table (a containment test
 fails if that changes). An entitled organisation without a row is refused with a configuration error. The enablement
-files (`scripts/scheduling/manual/internal-test-org-*`) still need the settings insert added and rehearsed before any
-organisation is enabled. That is a separate, reviewed change.
+file (`scripts/scheduling/manual/internal-test-org-2-enable-capability.sql`) now creates the settings row explicitly, in the same
+transaction as the entitlement (both or neither), and the removal file refuses while Scheduling data exists. Still not run anywhere.
 
 ## 5. Audit and privacy
 
@@ -88,5 +88,5 @@ organisation is enabled. That is a separate, reviewed change.
   other audit readers.
 - Nothing calls `recordSchedulingAudit` yet; the first mutating routes (2B.2) must call it after commit. The writer and
   reader are proven now so that 2B.2 cannot ship an unaudited mutation by accident (a containment check for it is a 2B.2 item).
-- The enablement SQL still lacks the explicit `scheduling_settings` insert.
+- The enablement SQL now creates `scheduling_settings` explicitly with the entitlement (corrected after this phase); it has not been run anywhere.
 - The internal-test-organisation, enablement, any navigation entry and the Production activation remain separate approvals.

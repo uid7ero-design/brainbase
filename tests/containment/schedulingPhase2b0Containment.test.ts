@@ -185,20 +185,31 @@ describe('the internal test organisation is defined but never created or enabled
     expect([...sql.matchAll(/INSERT INTO (\w+)/g)].map(m => m[1])).toEqual(['organisations']);
     expect(sql).toContain(`'ZZ Scheduling Internal Test (no customer data)', '${SLUG}'`);
     expect(sql).toContain('ON CONFLICT (slug) DO NOTHING');
+    // the timezone is explicit, never left to the platform fallback, and a pre-existing row is refused rather than edited
+    expect(sql).toContain('INSERT INTO organisations (id, name, slug, timezone, updated_at)');
+    expect(sql).toContain(`'ZZ Scheduling Internal Test (no customer data)', '${SLUG}', 'Australia/Adelaide', now()`);
+    expect(sql).not.toMatch(/\bUPDATE\b/i);
     expect(sql).not.toMatch(/organisation_modules|crm_contacts|users|stripe|scheduling_/i);
   });
 
-  it('the enable file writes one entitlement row for that organisation and verifies it is the only one', () => {
+  it('the enable file writes one entitlement row and one explicit settings row for that organisation, and verifies it is the only one entitled', () => {
     const sql = noSqlComments(read(`${dir}/${files[1]}`));
-    expect([...sql.matchAll(/INSERT INTO (\w+)/g)].map(m => m[1])).toEqual(['organisation_modules']);
+    expect([...sql.matchAll(/INSERT INTO (\w+)/g)].map(m => m[1])).toEqual(['organisation_modules', 'scheduling_settings']);
+    // explicit (a chosen currency), and an existing row is never overwritten
+    expect(sql).toMatch(/INSERT INTO scheduling_settings \(organisation_id, currency\)\s+VALUES \(org_id, 'AUD'\)\s+ON CONFLICT \(organisation_id\) DO NOTHING/);
     expect(sql).toContain(`WHERE slug = '${SLUG}'`);
     expect(sql).toMatch(/entitled <> 1/);
+    // an organisation is never entitled on a schema that lacks the booking guards, or without an explicit timezone
+    expect(sql).toContain("ARRAY['2b.2.1', '2b.2.2', '2b.2.3', '2b.2.4']");
+    expect(sql).toMatch(/guards <> 7/);
+    expect(sql).toContain("timezone = 'Australia/Adelaide'");
+    expect(sql.indexOf("ARRAY['2b.2.1'")).toBeLessThan(sql.indexOf("INSERT INTO organisation_modules"));
     expect(sql).toMatch(/n <> 1/);
   });
 
   it('the remove file can reach only that organisation and refuses while anything belongs to it', () => {
     const sql = noSqlComments(read(`${dir}/${files[2]}`));
-    expect([...sql.matchAll(/DELETE FROM (\w+)/g)].map(m => m[1])).toEqual(['organisation_modules', 'organisations']);
+    expect([...sql.matchAll(/DELETE FROM (\w+)/g)].map(m => m[1])).toEqual(['scheduling_settings', 'organisation_modules', 'organisations']);
     expect(sql).toContain(`WHERE slug = '${SLUG}'`);
     expect(sql).toContain(`WHERE id = org_id AND slug = '${SLUG}'`);
     expect(sql).toMatch(/still holds/);
