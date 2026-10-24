@@ -71,14 +71,14 @@ describe('HR-9 lifecycle overview', () => {
 
   it.each([401, 403, 503])('preserves canonical authorization status %s without loading overview', async status => {
     mocks.context.mockResolvedValue({ ok: false, response: NextResponse.json({ error: 'Denied' }, { status }) });
-    const response = await GET();
+    const response = await GET(new Request('http://localhost/'));
     expect(response.status).toBe(status);
     expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     expect(mocks.workflows).not.toHaveBeenCalled();
   });
 
   it('returns a non-cacheable allowlisted response for the trusted session', async () => {
-    const response = await GET();
+    const response = await GET(new Request('http://localhost/'));
     expect(response.status).toBe(200);
     expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     expect(mocks.workflows).toHaveBeenCalledWith(SESSION, { status: 'ACTIVE' });
@@ -87,13 +87,13 @@ describe('HR-9 lifecycle overview', () => {
 
   it('returns a generic failure instead of a partial overview when any task read fails', async () => {
     mocks.tasks.mockRejectedValue(new Error('database secret'));
-    const response = await GET();
+    const response = await GET(new Request('http://localhost/'));
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: 'Unable to load lifecycle overview.' });
   });
 
   it('fails closed on malformed outstanding due dates', async () => {
     mocks.tasks.mockResolvedValue([{ status: 'IN_PROGRESS', dueAt: 'bad-date' }]);
-    expect((await GET()).status).toBe(503);
+    expect((await GET(new Request('http://localhost/'))).status).toBe(503);
   });
 });

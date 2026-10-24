@@ -62,12 +62,12 @@ describe('scoped lifecycle task queue', () => {
   });
   it.each([401, 403, 503])('preserves context denial %s without task reads and disables caching', async status => {
     mocks.context.mockResolvedValue({ ok: false, response: NextResponse.json({ error: 'Denied' }, { status }) });
-    const response = await GET();
+    const response = await GET(new Request('http://localhost/'));
     expect(response.status).toBe(status); expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     expect(mocks.workflows).not.toHaveBeenCalled();
   });
   it('allows only display metadata and disables caching on success', async () => {
-    const response = await GET();
+    const response = await GET(new Request('http://localhost/'));
     expect(response.status).toBe(200); expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     const result = await response.json();
     expect(Object.keys(result.tasks[0]).sort()).toEqual(['due_at', 'lifecycle_type', 'overdue', 'person_id', 'status', 'task_id', 'title', 'workflow_id']);
@@ -75,12 +75,12 @@ describe('scoped lifecycle task queue', () => {
   });
   it('returns a generic error with no partial queue on read failure', async () => {
     mocks.tasks.mockRejectedValue(new Error('database secret'));
-    const response = await GET();
+    const response = await GET(new Request('http://localhost/'));
     expect(response.status).toBe(503); expect(await response.json()).toEqual({ error: 'Unable to load lifecycle task queue.' });
     expect(response.headers.get('Cache-Control')).toBe('private, no-store');
   });
   it('fails closed on malformed due dates rather than misclassifying overdue work', async () => {
     mocks.tasks.mockResolvedValue([{ ...task, dueAt: 'invalid' }]);
-    expect((await GET()).status).toBe(503);
+    expect((await GET(new Request('http://localhost/'))).status).toBe(503);
   });
 });
