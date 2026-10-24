@@ -50,7 +50,7 @@ describe('legal routes', () => {
     expect(screen.getByTestId('legal-draft-banner')).toBeInTheDocument();
     expect(container.querySelectorAll('mark[data-placeholder="true"]').length).toBe(0);
     expect(container.textContent).not.toMatch(/\[[A-Z/ ]+\]|\{\{/);
-    expect(container.textContent).toMatch(/Last updated: 22 October 2026/);
+    expect(container.textContent).toMatch(/Last updated: 24 October 2026/);
     expect(container.textContent).not.toMatch(FOREIGN);
   });
 
@@ -85,9 +85,9 @@ describe('legal routes', () => {
     expect(getLegalConfig({ EVE_SUPPORT_EMAIL: 'support@eveevents.com.au' }).unresolved).toEqual([]);
   });
 
-  it('the legal version is the dated 2026-10-22 version, the publish switch stays off and Preview is never final', () => {
-    expect(LEGAL_DOCUMENT_VERSION).toBe('2026-10-22');
-    expect(LEGAL_LAST_UPDATED).toBe('22 October 2026');
+  it('the legal version is the dated 2026-10-24 version, the publish switch stays off and Preview is never final', () => {
+    expect(LEGAL_DOCUMENT_VERSION).toBe('2026-10-24');
+    expect(LEGAL_LAST_UPDATED).toBe('24 October 2026');
     const cfg = getLegalConfig({ VERCEL_ENV: 'preview', EVE_SUPPORT_EMAIL: 'support@eveevents.com.au' });
     expect(cfg.published).toBe(false);
     expect(cfg.isFinal).toBe(false);

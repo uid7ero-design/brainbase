@@ -46,9 +46,9 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks() })
 
 describe('the version was bumped together with the text', () => {
-  it('is a dated, non-draft version different from the previous 2026-10-21 text', () => {
+  it('is a dated, non-draft version different from the previous 2026-10-22 text', () => {
     expect(core.EVE_LEGAL_DOCUMENT_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}$/)
-    expect(core.EVE_LEGAL_DOCUMENT_VERSION).not.toBe('2026-10-21')
+    expect(core.EVE_LEGAL_DOCUMENT_VERSION).not.toBe('2026-10-22')
     expect(core.isDraftLegalVersion(core.EVE_LEGAL_DOCUMENT_VERSION)).toBe(false)
     expect(core.currentEveLegalAcceptance()).toEqual({ termsVersion: core.EVE_LEGAL_DOCUMENT_VERSION, refundsVersion: core.EVE_LEGAL_DOCUMENT_VERSION })
   })

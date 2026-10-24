@@ -191,6 +191,9 @@ Where a Preview row has an env var, remove the branch-scoped var (or the git bra
 | br-holy-snow-a72pqc7e (Scheduling 2B.2 backup) | ≈2026-11-22 |
 | snap-icy-firefly-a7m0b8os | 2026-11-18 |
 | snap-rapid-queen-a78cx09w | 2026-11-21 |
+| snap-red-dream-a7t242s1 · pre-eve-registration-questions-20261024 (rollback point before the registration-questions migration; created 2026-10-24 11:32Z) | 2026-11-23 (Neon `expires_at` set, auto-expires) |
+
+Note (2026-10-24): br-polished-dust-a7iw42u3 now has the registration-questions migration applied. It was the Production rehearsal; no data changed.
 
 ### Group D — findings (no change made)
 

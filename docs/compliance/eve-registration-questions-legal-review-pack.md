@@ -9,7 +9,7 @@ nothing here is legal advice.
 _Originally prepared 2026-10-24 for external legal review._
 The wording below is in draft PR #483 (not merged). Merging publishes the Privacy Policy
 text. The "last updated" date is **not** changed yet; it will be set on the actual
-publication day (the policy currently shows 22 October 2026).
+publication day. It was set to 24 October 2026 (version `2026-10-24`) on publication.
 
 **What the feature does.** Event Organisers can add their own questions to an event's
 booking form on Eve (eveevents.com.au) — for example accessibility needs, or "how did you

@@ -22,7 +22,7 @@ import { product } from '@/config/product';
 // Single source of truth is @ticketing/core: the same constant is stamped on
 // paid orders server-side, so the text shown and the version recorded agree.
 export const LEGAL_DOCUMENT_VERSION = EVE_LEGAL_DOCUMENT_VERSION;
-export const LEGAL_LAST_UPDATED = '22 October 2026';
+export const LEGAL_LAST_UPDATED = '24 October 2026';
 
 // Flip to true only when automatic material-event-change notices are live, so
 // the Refunds & cancellations policy never promises a notice Eve does not send.
