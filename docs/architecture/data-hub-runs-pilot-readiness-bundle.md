@@ -2,6 +2,22 @@
 
 Updated 24 October 2026. **Engineering implementation for review; no Production migration, release or pilot configuration activation has been performed by this bundle.** The Production metadata observation in PR #480 is dated 23 October, not a fresh database audit. No real worksheet cells were inspected.
 
+## Release status — 25 October 2026
+
+PR #480 was merged and deployed to Production at `0112b5fb035bdda5878662ef7252cc9e6b40493b` after explicit owner authorization. The additive mapping-confirmation migration was first rehearsed on a schema-only copy and then applied to Production. All three guards are enabled and the extended constraints validated; mapping pointers, immutable versions and saved reviews were unchanged. Post-merge CI passed 19,130 tests (73 skipped); six anonymous live access checks passed. These checks do not prove an authenticated real pilot workflow.
+
+A scoped metadata check on 25 October found no uploaded Runs workbook, saved pilot mapping or workbook confirmation. Real source formats remain unconfirmed. The implementation description below records the delivered behavior; its original no-Production boundary describes that earlier development bundle, not the later separately authorized release.
+
+## First real pilot workbook
+
+1. In Data Hub imports, choose the pilot's source system and a fresh export. Keep driver/customer information within the application; no source values need to be copied into chat.
+2. Compare the workbook to the governed schema, then explicitly choose **Use governed schema** only when its structure matches. Open workbook preparation from import history and open Runs.
+3. Follow **Review units and saved mapping before first preparation**. An administrator reviews all 21 fields, chooses the missing-value and signed-count conventions, and saves the mapping. Tonnes, days and working hours are suggestions until checked against this export. Day fractions must use days; clock-formatted duration text is still blocked.
+4. Separately confirm that this workbook uses those saved units and formats. Later workbooks reuse the saved choices but still need their own confirmation. A changed mapping invalidates an earlier confirmation for new preparation.
+5. Prepare source rows, standardize values and build the profile. Review field meanings and every quality finding before saving the review and requesting counts. A HOLD must continue to block counts; correcting it creates a new review revision.
+
+If a write's result is uncertain, refresh to reconcile it before retrying. If preparation has already started, its original mapping stays pinned; use a fresh upload for a different mapping. Never convert unknown or missing values into zero to make acceptance pass.
+
 ## Owner guidance and explicit decisions
 
 The owner says weight is usually tonnes, time is usually days, and truck working time is hours, and requested confirmation at use. These are suggestions, not confirmed source formats. All 21 field choices start unconfirmed. Editing a choice clears its confirmation. Saving a changed approved mapping requires all 21 confirmations again.
@@ -82,6 +98,16 @@ The `--browser` option first builds Next and then runs a real Chromium login aga
 
 The existing standalone Vite browser proof remains a separate draft-screen check and must not be cited as authenticated Next proof.
 
+### Full import-to-count local acceptance
+
+`node scripts/tests/verify-datahub-pilot-acceptance.mjs` builds the current Next application, provisions the owned disposable Postgres database and runs the existing mapping checks plus a fresh browser journey. The additional synthetic XLSX fixture has all 14 sheets and the exact 295 governed columns, with two Runs records. It starts at the real import screen rather than inserting a READY batch or schema lineage during setup. The genuine Blob client SDK uses server-minted signed tokens, and finalize checks the uploaded bytes, archive and SHA before inspection and explicit schema selection.
+
+Run it from a clean committed checkout with dependencies, Docker, Playwright Chromium and OpenSSL available (the Windows harness uses Git's bundled Bash/OpenSSL). Its receipt binds the commit, optimized build ID, migration blob and artifact hashes, and fails if cleanup or the final source revision cannot be confirmed. The test-owned TLS certificate is generated locally, used only for the upload transport and removed with its temporary objects. It is never installed as a trusted system certificate. The receipt explicitly grants no release authorization.
+
+The external Blob service is emulated by `localDataHubBlobFixture.cjs`, installed only as a local test preload, plus a browser network interceptor. The real application storage adapter is unchanged. The fixture verifies token signature, path, expiry, content hash, maximum size and no overwrite. Objects live only under an owned temporary child of `test-results/runs-pilot-acceptance/`; nonlocal database targets and other filesystem roots are refused. Neon HTTP uses the existing loopback transport. This is a provider-transport simulation, not Vercel Blob or hosted acceptance.
+
+The journey verifies first-use staging denial, complete administrator approval, separate workbook confirmation, staging/normalization/profile, held and corrected reviews, counts/history, exact mapping pins, mobile layout and live role revocation. It also checks local listener shutdown and removes its temporary objects. The outer harness removes its disposable database. No application runtime files, Production records or credentials are changed by this acceptance bundle.
+
 ## Remaining pilot work
 
-The engineering bundle is ready for review after its checks pass. Production still needs separately approved migration/release, confirmation of real source formats in the application, and one fresh approved pilot-shaped hosted acceptance through schema selection, staging, normalization, profile, review/counts and history. The 272-field proposal remains unconfirmed; nine other DATA worksheets still need their own complete mapping reviews. No customer cells, Production credentials, live pilot configuration, Production migrations or hosted execution were used in this bundle.
+The migration and application release are complete. Remaining work is confirmation of real source formats in the application and one fresh approved pilot-shaped hosted acceptance through upload, schema selection, staging, normalization, profile, review/counts and history. Local provider simulation cannot close that hosted acceptance requirement. The 272-field proposal remains unconfirmed; nine other DATA worksheets still need their own complete mapping reviews. No customer cells or live pilot mappings were read or activated by the acceptance bundle.

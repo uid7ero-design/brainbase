@@ -233,4 +233,21 @@ describe.sequential("saved Runs mappings and first-use confirmation with real Po
     const code = await new Promise(resolve => { child.on("exit", resolve); child.on("error", () => resolve(1)); });
     expect(code, output).toBe(0);
   }, 180000);
+  it.runIf(process.env.DATAHUB_PILOT_ACCEPTANCE === "1")("imports a fresh synthetic workbook and completes the pilot journey through the built browser", async () => {
+    const { randomBytes } = await import("node:crypto"), { hash } = await import("bcryptjs"), { spawn } = await import("node:child_process");
+    const priorUpload = await db.upload.findUniqueOrThrow({ where: { id: first } });
+    const priorReviews = await db.dataHubAnalysisReview.findMany({ where: { upload_id: first }, orderBy: { id: "asc" } });
+    // Owned fixture only: restore its original v1 pointer to exercise first
+    // approval, while retaining every immutable version and historical pin.
+    await db.worksheetMappingProfile.update({ where: { id: profile }, data: { active_profile_version_id: `${profile}-v1` } });
+    const password = randomBytes(24).toString("hex");
+    await db.user.update({ where: { id: "mapping-admin" }, data: { password_hash: await hash(password, 4) } });
+    const child = spawn(process.execPath, ["scripts/tests/verify-datahub-pilot-browser.mjs"], { windowsHide: true, env: process.env, stdio: ["pipe", "pipe", "pipe"] });
+    let output = ""; child.stdout.on("data", data => { output += data; }); child.stderr.on("data", data => { output += data; });
+    child.stdin.end(JSON.stringify({ username: "mapping-admin", password }));
+    const code = await new Promise(resolve => { child.on("exit", resolve); child.on("error", () => resolve(1)); });
+    expect(code, output).toBe(0);
+    expect(await db.upload.findUniqueOrThrow({ where: { id: first } })).toEqual(priorUpload);
+    expect(await db.dataHubAnalysisReview.findMany({ where: { upload_id: first }, orderBy: { id: "asc" } })).toEqual(priorReviews);
+  }, 240000);
 });
