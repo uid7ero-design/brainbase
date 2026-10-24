@@ -26,7 +26,9 @@ export const PRIVATE_BETA_NOTE = 'Eve is currently being made available on a lim
 // Principle-based retention wording (no fixed periods are promised yet).
 export const RETENTION_PRINCIPLE = 'We keep personal information only for as long as reasonably required for the purposes described in this policy, our operational needs, dispute handling and any applicable legal obligations. When it is no longer reasonably required, we may delete or de-identify it.';
 
-export type LegalSection = { heading: string; body: string[] };
+// `id` is an optional in-page anchor (e.g. /privacy#registration-questions,
+// linked from the booking form's registration-question notice).
+export type LegalSection = { heading: string; body: string[]; id?: string };
 export type LegalDoc = { slug: 'terms' | 'privacy' | 'refunds'; title: string; intro: string; sections: LegalSection[] };
 
 export const TERMS: LegalDoc = {
@@ -126,7 +128,10 @@ export const PRIVACY: LegalDoc = {
     {
       heading: '2. What we collect',
       body: [
-        'If you book a ticket: your name, email address and optional phone number; each attendee\'s name; and any promotion or access code you enter. Eve\'s booking form does not currently ask registration questions, so we do not currently collect answers to them (see section 5).',
+        // Registration questions (ADR 0013 §4a–§4d): the wording in sections 2, 3,
+        // 4, 5 and 8 is accepted by the OWNER (2026-10-24) WITHOUT external legal
+        // review. Never describe it as legally reviewed or approved.
+        'If you book a ticket: your name, email address and optional phone number; each attendee\'s name; any promotion or access code you enter; and your answers to any registration questions the Event Organiser asks for that event (see section 5).',
         'If you are an Event Organiser or team member: your username, a one-way hash of your password (never the password itself), your name, role, sign-in times and session records.',
         'When tickets are checked in: the time of check-in and the organiser staff member who recorded it.',
         'Technical data: our hosting provider\'s logs record technical request details such as your IP address. We also use hashed identifiers to limit repeated requests.',
@@ -137,6 +142,7 @@ export const PRIVACY: LegalDoc = {
       heading: '3. Why we use it',
       body: [
         'To process bookings and, for paid tickets, payments and refunds; to issue and deliver tickets; to send booking confirmations and event notices (such as cancellation, event-change and, where the Event Organiser has switched them on, reminder emails); to run organiser accounts and keep them secure; to prevent abuse; and to meet legal obligations.',
+        'Answers to registration questions are used to run that event, for example catering, access arrangements or contacting someone in an emergency.',
         'We do not currently send marketing email or use your booking details for marketing, and agreeing to the Terms is not consent to marketing.',
       ],
     },
@@ -144,14 +150,20 @@ export const PRIVACY: LegalDoc = {
       heading: '4. Who we share it with',
       body: [
         'The Event Organiser. Your booking details are provided to the Event Organiser so they can administer the booking and communicate with you about the event. Your name, email address and phone number may also appear in the organiser\'s event contact records on our platform. This does not give anyone your consent to marketing. The Event Organiser handles that information under its own privacy practices.',
+        'Answers to registration questions go to the Event Organiser for that event. On our platform they can be seen only by the organiser\'s team members with a manager or administrator role, and by our own authorised administrators where that is needed for support or legal reasons. They are not added to the organiser\'s contact records, not included in ticket emails, and not used for marketing. The Event Organiser handles the answers it receives under its own privacy practices, including any copies it makes.',
         'Our service providers: Vercel (hosting), Neon (database hosting) and Resend (email delivery). For paid tickets, Stripe processes the payment through the Event Organiser\'s Stripe account as an independent payment processor, under its own privacy policy. The Event Organiser can see the amount, payment status and refund status of paid bookings.',
         'Where required or permitted by law.',
       ],
     },
     {
-      heading: '5. Sensitive information',
+      id: 'registration-questions',
+      heading: '5. Registration questions and sensitive information',
       body: [
-        'Eve does not currently show registration questions on its booking form, so it does not collect answers to them. If that changes, this policy will be updated first. Event Organisers who ask such questions elsewhere (for example about access or dietary needs) should only ask for what they need, because answers can reveal sensitive information such as health or disability.',
+        'Eve provides the ticketing platform. We handle the core booking and platform information needed to run the service, such as your contact details, your tickets and, for paid tickets, the payment records.',
+        'Each Event Organiser decides which registration questions to ask for its event, why it asks them, and whether each one is required or optional. We collect and store your answers on the Event Organiser\'s behalf. You can leave a question marked optional blank.',
+        'Event Organisers should only ask for information that is reasonably needed to run their event, for example accessibility or support needs, dietary requirements, an emergency contact, or other details the event genuinely needs. The Event Organiser remains responsible for its own use of the answers and for any copies it makes.',
+        'Answers about accessibility, support or dietary needs may include health or disability information. Before you submit an answer to a question like this, we ask you to agree to the Event Organiser collecting it, and we record when you agreed. Nothing is ticked for you.',
+        'If you give another person\'s details, such as an emergency contact, please make sure they know you are giving their details to the Event Organiser for this event. Before you submit them, we ask you to confirm this, and we record that you confirmed. That confirmation is yours; it is not that person\'s consent. Event Organisers should only ask for another person\'s details where the event genuinely needs them, for example to contact someone in an emergency.',
       ],
     },
     {
@@ -170,7 +182,11 @@ export const PRIVACY: LegalDoc = {
       heading: '8. How long we keep information',
       body: [
         RETENTION_PRINCIPLE,
-        'We do not currently delete information automatically. If you would like us to review your information, contact {{supportEmail}}. Sign-in sessions expire after 8 hours.',
+        // Principle-based on purpose: the exact per-category timers are internal
+        // (RETENTION_POLICY in lib/events/answerRetention.ts, ADR 0013 §4b/§4c).
+        'We keep registration-question answers only for as long as they are reasonably needed for the event and their purpose. Sensitive information and details about other people are generally removed sooner than ordinary event information. We may keep information longer where reasonably required for an incident, complaint, dispute or legal obligation. Removing answers does not affect your booking, payment or ticket records.',
+        'Deleted information may remain in our controlled backups for a limited period before those copies expire.',
+        'Apart from registration answers, we do not currently delete information automatically. If you would like us to review your information, contact {{supportEmail}}. Sign-in sessions expire after 8 hours.',
       ],
     },
     {

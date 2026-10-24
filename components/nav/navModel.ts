@@ -135,6 +135,13 @@ export const WORK_ITEMS: readonly NavEntry[] = [
     gate: { anyCapability: ['assurance'], minRole: 'viewer' },
   },
   {
+    kind: 'link', id: 'scheduling', label: 'Scheduling', href: '/scheduling', match: ['/scheduling'],
+    icon: 'scheduling', card: true, description: 'Schedules, offerings and resources for bookings',
+    // lib/scheduling/pageAccess.ts: the 'scheduling' capability AND a role that holds scheduling.view (viewer and up; roles outside the
+    // order, e.g. analyst, are refused); no role bypass. The capability is registered for nobody until an organisation is deliberately enabled.
+    gate: { anyCapability: ['scheduling'], minRole: 'viewer' },
+  },
+  {
     kind: 'link', id: 'data-hub', label: 'Data Hub', href: '/data-hub/import', match: ['/data-hub'],
     description: 'Import governed datasets',
     // app/data-hub/import/page.tsx: requireRole('manager').

@@ -59,6 +59,23 @@ async function call<T>(path: string, opts: CallOptions = {}): Promise<GatewayRes
 
 // ── Shapes: the subset of the API's allow-listed responses this UI reads ──
 
+export type QuestionFieldType = 'SHORT_TEXT' | 'LONG_TEXT' | 'YES_NO' | 'SINGLE_SELECT' | 'MULTI_SELECT';
+// ADR 0013 §4b. SENSITIVE: may reveal health/disability; THIRD_PARTY:
+// another person's details; CONSENT: a recorded choice; STANDARD: ordinary.
+export type DataCategory = 'STANDARD' | 'SENSITIVE' | 'THIRD_PARTY' | 'CONSENT';
+export type PublicQuestion = {
+  id: string; label: string; help_text: string | null; field_type: QuestionFieldType;
+  required: boolean; scope: 'ORDER' | 'ATTENDEE'; options: string[] | null; sort_order: number; data_category: DataCategory;
+};
+// An answer as recorded (snapshot), shown to manager+ organisers only —
+// the API omits `answers` entirely for other roles. `answer` is null once
+// the retention policy has removed it (redacted_at set).
+export type RecordedAnswer = {
+  label: string; field_type: string; help_text: string | null;
+  answer: string | boolean | string[] | null; data_category: DataCategory;
+  buyer_acknowledged_at: string | null; redacted_at: string | null;
+};
+
 export type PublicEventDetail = {
   event: { name: string; slug: string; description: string | null; venue: string | null; artwork_url: string | null; starts_at: string; ends_at: string; timezone: string };
   sessions: { id: string; name: string; starts_at: string; ends_at: string; capacity: number; remaining: number }[];
@@ -69,6 +86,12 @@ export type PublicEventDetail = {
   session_inventory: { ticket_type_id: string; event_session_id: string; capacity: number; remaining: number }[];
   has_promotions: boolean;
   organisationName: string;
+  // Registration questions this event asks on Eve (definitions only, never
+  // answers). Empty unless the organiser opted the event in on Eve.
+  questions?: PublicQuestion[];
+  // True when the event has a required question but is not opted in on
+  // Eve: a booking here could not succeed, so the page says so instead.
+  questions_block_booking?: boolean;
   // Server-derived: whether paid checkout is open for this organisation.
   // Anything other than true (missing, older API) means it is not.
   paid_checkout_available?: boolean;
@@ -106,10 +129,12 @@ export type OrganiserOrder = {
   id: string; purchaser_name: string; purchaser_email: string; status: string; payment_status: string;
   total_cents: number; payment_total_cents: number | null; discount_cents: number | null; currency: string; created_at: string; paid_at: string | null;
   lines: { ticket_type_name: string | null; session_name: string | null; quantity: number }[];
+  answers?: RecordedAnswer[];
 };
 export type OrganiserAttendee = {
   id: string; name: string; email: string | null; checked_in_at: string | null; checked_in_by: string | null;
   ticket_type_name: string | null; session_name: string | null; order_status: string; payment_status: string; purchaser_name: string;
+  answers?: RecordedAnswer[];
 };
 export type PaymentState = 'PAID' | 'PENDING' | 'FAILED' | 'EXPIRED' | 'REFUNDED';
 export type OrganiserPayment = {

@@ -519,7 +519,8 @@ WITH res AS (
             WHERE rs.organisation_id = o.organisation_id AND rs.id = $9::text AND rs.kind = ANY($28::text[])
               AND ($26::boolean = false OR (rs.active AND EXISTS (
                      SELECT 1 FROM scheduling_offering_resources l
-                      WHERE l.organisation_id = o.organisation_id AND l.offering_id = o.id AND l.resource_id = rs.id)))))
+                      WHERE l.organisation_id = o.organisation_id AND l.offering_id = o.id AND l.resource_id = rs.id
+                      FOR SHARE)))))
   RETURNING *
 ), hold AS (
   INSERT INTO scheduling_resource_holds (id, organisation_id, resource_id, during, reservation_id)

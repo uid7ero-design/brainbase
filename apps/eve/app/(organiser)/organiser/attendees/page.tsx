@@ -5,6 +5,7 @@ import { requireOrganiser } from '@/lib/organiserAuth';
 import { identityOf } from '@/lib/identity';
 import { loadAttendees, loadEvents, pickEvent } from '@/lib/organiserData';
 import { formatDateTime } from '@/lib/format';
+import { RecordedAnswers } from '@/components/organiser/RecordedAnswers';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,7 +36,7 @@ export default async function OrganiserAttendeesPage({ searchParams }: Props) {
                 <tbody>
                   {attendees.map(a => (
                     <tr key={a.id} className="border-t border-eve-line">
-                      <th scope="row" className="p-3 font-medium">{a.name}<span className="block text-xs font-normal text-eve-muted">Booked by {a.purchaser_name}</span></th>
+                      <th scope="row" className="p-3 font-medium">{a.name}<span className="block text-xs font-normal text-eve-muted">Booked by {a.purchaser_name}</span><RecordedAnswers answers={a.answers} /></th>
                       <td className="p-3">{a.ticket_type_name ?? '—'}</td>
                       <td className="p-3">{a.session_name ?? '—'}</td>
                       <td className="p-3">{a.order_status === 'CANCELLED' ? 'Cancelled' : a.payment_status}</td>

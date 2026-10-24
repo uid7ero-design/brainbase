@@ -73,8 +73,22 @@ export async function handleTicketingPublicEvent(req: Request, params: EventPara
   if (!validEventParams(params)) return notAvailable();
   const result = await getPublicEventDetail(params.organisationSlug, params.eventSlug);
   if (!result.ok) return notAvailable();
-  // One server-derived boolean; never the flag or allow-list values.
-  return ticketingJson({ ...result.detail, paid_checkout_available: isEvePaidCheckoutAvailableFor(params.organisationSlug) });
+  // Registration questions (ADR 0013 §4): Eve shows an event's questions
+  // only when the organiser opted that event in. Otherwise Eve gets none
+  // (the services also refuse Eve answers for it), plus one boolean saying
+  // whether a REQUIRED question would make an Eve booking impossible, so the
+  // page can say so instead of failing at submit.
+  const { questions: rawQuestions, ...detail } = result.detail;
+  const questions = rawQuestions ?? [];
+  const eveQuestions = result.eveQuestionsEnabled === true ? questions : [];
+  const questionsBlockBooking = !result.eveQuestionsEnabled && questions.some(q => q.required);
+  // Server-derived booleans only; never the flag, allow-list or opt-in values.
+  return ticketingJson({
+    ...detail,
+    questions: eveQuestions,
+    questions_block_booking: questionsBlockBooking,
+    paid_checkout_available: isEvePaidCheckoutAvailableFor(params.organisationSlug),
+  });
 }
 
 export async function handleTicketingQuote(req: Request, params: EventParams): Promise<Response> {

@@ -138,10 +138,13 @@ describe('the TypeScript modules are staged, not wired', () => {
   it('there is still no scheduling page, cron or navigation entry, and the only scheduling routes are the two 2B.1 foundation routes', () => {
     // Deliberately updated in Phase 2B.1: app/api/scheduling now exists, but holds exactly the status and audit routes
     // (tests/containment/schedulingPhase2b1Containment.test.ts pins the guard on each). Any other route fails here.
-    for (const p of ['app/api/cron/scheduling-top-up', 'app/dashboard/scheduling', 'app/scheduling', 'app/book']) expect(existsSync(path.join(ROOT, p)), p).toBe(false);
+    for (const p of ['app/api/cron/scheduling-top-up', 'app/dashboard/scheduling', 'app/book']) expect(existsSync(path.join(ROOT, p)), p).toBe(false);
     const routes = walk(path.join(ROOT, 'app/api/scheduling'), /^route.ts$/).map(rel).sort();
-    expect(routes).toEqual(['app/api/scheduling/audit/route.ts', 'app/api/scheduling/status/route.ts']);
-    expect(read('components/nav/navModel.ts')).not.toMatch(/scheduling/i);
+    // Phase 2B.2b (deliberate, reviewed change): the configuration API routes are pinned one by one in schedulingPhase2b2bContainment.test.ts.
+    expect(routes).toEqual(expect.arrayContaining(['app/api/scheduling/audit/route.ts', 'app/api/scheduling/status/route.ts']));
+    expect(routes.every(r => r.startsWith('app/api/scheduling/'))).toBe(true);
+    // Phase 2B.2c (deliberate, reviewed change): one capability-gated navigation entry exists; schedulingPhase2b2cContainment.test.ts pins it.
+    expect((read('components/nav/navModel.ts').match(/scheduling/gi) ?? []).length).toBeGreaterThan(0);
     expect(read('vercel.json')).not.toMatch(/scheduling/i);
   });
 
@@ -157,7 +160,8 @@ describe('the TypeScript modules are staged, not wired', () => {
     const fn = sources.filter(f => /find_or_create_contact/.test(readFileSync(f, 'utf8'))).map(rel);
     expect(fn).toEqual(['lib/scheduling/crmLink.ts']);
     const cap = sources.filter(f => !rel(f).startsWith('lib/scheduling/adapters/')).filter(f => /SCHEDULING_CAPABILITY_KEY/.test(readFileSync(f, 'utf8'))).map(rel);
-    expect(cap).toEqual(['lib/scheduling/access.ts']);
+    // Phase 2B.2c (deliberate, reviewed change): the dashboard's page gate (lib/scheduling/pageAccess.ts) reads the key too, for UX only.
+    expect(cap).toEqual(['lib/scheduling/access.ts', 'lib/scheduling/pageAccess.ts']);
   });
 
   it('the access gate takes no organisation parameter and reads only the session organisation', () => {
@@ -181,20 +185,31 @@ describe('the internal test organisation is defined but never created or enabled
     expect([...sql.matchAll(/INSERT INTO (\w+)/g)].map(m => m[1])).toEqual(['organisations']);
     expect(sql).toContain(`'ZZ Scheduling Internal Test (no customer data)', '${SLUG}'`);
     expect(sql).toContain('ON CONFLICT (slug) DO NOTHING');
+    // the timezone is explicit, never left to the platform fallback, and a pre-existing row is refused rather than edited
+    expect(sql).toContain('INSERT INTO organisations (id, name, slug, timezone, updated_at)');
+    expect(sql).toContain(`'ZZ Scheduling Internal Test (no customer data)', '${SLUG}', 'Australia/Adelaide', now()`);
+    expect(sql).not.toMatch(/\bUPDATE\b/i);
     expect(sql).not.toMatch(/organisation_modules|crm_contacts|users|stripe|scheduling_/i);
   });
 
-  it('the enable file writes one entitlement row for that organisation and verifies it is the only one', () => {
+  it('the enable file writes one entitlement row and one explicit settings row for that organisation, and verifies it is the only one entitled', () => {
     const sql = noSqlComments(read(`${dir}/${files[1]}`));
-    expect([...sql.matchAll(/INSERT INTO (\w+)/g)].map(m => m[1])).toEqual(['organisation_modules']);
+    expect([...sql.matchAll(/INSERT INTO (\w+)/g)].map(m => m[1])).toEqual(['organisation_modules', 'scheduling_settings']);
+    // explicit (a chosen currency), and an existing row is never overwritten
+    expect(sql).toMatch(/INSERT INTO scheduling_settings \(organisation_id, currency\)\s+VALUES \(org_id, 'AUD'\)\s+ON CONFLICT \(organisation_id\) DO NOTHING/);
     expect(sql).toContain(`WHERE slug = '${SLUG}'`);
     expect(sql).toMatch(/entitled <> 1/);
+    // an organisation is never entitled on a schema that lacks the booking guards, or without an explicit timezone
+    expect(sql).toContain("ARRAY['2b.2.1', '2b.2.2', '2b.2.3', '2b.2.4']");
+    expect(sql).toMatch(/guards <> 7/);
+    expect(sql).toContain("timezone = 'Australia/Adelaide'");
+    expect(sql.indexOf("ARRAY['2b.2.1'")).toBeLessThan(sql.indexOf("INSERT INTO organisation_modules"));
     expect(sql).toMatch(/n <> 1/);
   });
 
   it('the remove file can reach only that organisation and refuses while anything belongs to it', () => {
     const sql = noSqlComments(read(`${dir}/${files[2]}`));
-    expect([...sql.matchAll(/DELETE FROM (\w+)/g)].map(m => m[1])).toEqual(['organisation_modules', 'organisations']);
+    expect([...sql.matchAll(/DELETE FROM (\w+)/g)].map(m => m[1])).toEqual(['scheduling_settings', 'organisation_modules', 'organisations']);
     expect(sql).toContain(`WHERE slug = '${SLUG}'`);
     expect(sql).toContain(`WHERE id = org_id AND slug = '${SLUG}'`);
     expect(sql).toMatch(/still holds/);

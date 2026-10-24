@@ -46,6 +46,7 @@ BASE_MIGRATIONS=(
   "$REPO_ROOT/scripts/add-events-payments.sql"
   "$REPO_ROOT/scripts/add-events-payment-connect.sql"
   "$REPO_ROOT/scripts/add-events-registration-questions.sql"
+  "$REPO_ROOT/scripts/add-eve-registration-questions.sql"
   "$REPO_ROOT/scripts/add-events-booking-wallet.sql"
   "$REPO_ROOT/scripts/add-events-ticket-email-delivery.sql"
   "$REPO_ROOT/scripts/create-events-ticket-type-session-inventory.sql"

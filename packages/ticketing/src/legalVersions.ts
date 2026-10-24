@@ -9,7 +9,7 @@
 // it; Production must refuse to (see isDraftLegalVersion). Bump the constants
 // when the published text changes.
 
-export const EVE_LEGAL_DOCUMENT_VERSION = '2026-10-22';
+export const EVE_LEGAL_DOCUMENT_VERSION = '2026-10-24';
 
 export const EVE_TERMS_VERSION = EVE_LEGAL_DOCUMENT_VERSION;
 export const EVE_REFUNDS_VERSION = EVE_LEGAL_DOCUMENT_VERSION;

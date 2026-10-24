@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { CreateReservationResult } from '@scheduling/core';
 import { closePool, count, ensureSchema, getPool, hasDatabase, resetData, seedResource, staff } from './support/pgHarness';
-import { liveHolds, makeWorld, slotBooking, stayBooking, type World } from './support/builders';
+import { linkResources, liveHolds, makeWorld, slotBooking, stayBooking, type World } from './support/builders';
 
 // Exclusive resources: overlap, adjacency, hotel boundaries, cancellation release,
 // reactivation refusal, tenant scoping. All against the real exclusion constraint.
@@ -46,6 +46,7 @@ describe.skipIf(!hasDatabase)('exclusive resources (exclusion constraint)', () =
 
   it('is scoped by resource: the same time on another resource is fine', async () => {
     await seedResource(ORG, 'court-2', 'court');
+    await linkResources(ORG, [[w.hire.offering, 'court-2']]);
     ok(await w.repo.create(w.staff, slotBooking('court-1', '2026-12-07', '16:00', 60, w.hire)));
     ok(await w.repo.create(w.staff, slotBooking('court-2', '2026-12-07', '16:00', 60, w.hire)));
   });

@@ -1,7 +1,7 @@
 import 'server-only';
 import sql from '@/lib/db';
 import { resolvePublicEvent } from '@/lib/events/publicResolve';
-import { listActiveQuestions, type FieldType, type QuestionScope } from '@/lib/events/registrationQuestions';
+import { listActiveQuestions, isDataCategory, type DataCategory, type FieldType, type QuestionScope } from '@/lib/events/registrationQuestions';
 import type { PublicOrganisationBranding } from '@/lib/organisations/branding';
 import { resolveFeePolicy, publicFeeDisclosure, type PublicFeeDisclosure } from '@/lib/events/services/fees';
 
@@ -66,6 +66,9 @@ export type PublicQuestion = {
   scope: QuestionScope;
   options: string[] | null;
   sort_order: number;
+  // STANDARD | SENSITIVE | THIRD_PARTY | CONSENT — drives the notices and
+  // the explicit agreement Eve shows. Part of the definition, not an answer.
+  data_category: DataCategory;
 };
 
 export type PublicEventDetail = {
@@ -110,8 +113,11 @@ export type PublicEventDetail = {
   organisationName: string;
 };
 
+// eveQuestionsEnabled sits beside `detail`, not inside it: only the Eve
+// event read uses it (to decide whether Eve shows the questions), and it is
+// never part of the public body as such.
 export type PublicEventDetailResult =
-  | { ok: true; detail: PublicEventDetail }
+  | { ok: true; detail: PublicEventDetail; eveQuestionsEnabled: boolean }
   | { ok: false };
 
 // Shared by both the public API route and the public page's own
@@ -276,12 +282,13 @@ export async function getPublicEventDetail(
       session_inventory: inventoryRows as unknown as PublicSessionInventory[],
       questions: questionRows.map(q => ({
         id: q.id, label: q.label, help_text: q.help_text, field_type: q.field_type,
-        required: q.required, scope: q.scope, options: q.options, sort_order: q.sort_order,
+        required: q.required, scope: q.scope, options: q.options, sort_order: q.sort_order, data_category: isDataCategory(q.data_category) ? q.data_category : 'STANDARD',
       })),
       has_promotions: promotionRows.length > 0,
       booking_fee: publicFeeDisclosure(feeResolution.policy),
       branding,
       organisationName,
     },
+    eveQuestionsEnabled: event.eve_questions_enabled === true,
   };
 }

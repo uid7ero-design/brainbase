@@ -272,13 +272,13 @@ describe('the legal draft guard and the paid flag are independent controls', () 
 })
 
 describe('public event read: server-derived paid_checkout_available (one boolean, same rules as the checkout gate)', () => {
-  const DETAIL = { event: { name: 'Riverlights' }, ticket_types: [{ id: 't1', price_cents: 8900 }], has_promotions: false, organisationName: 'Brainbase' }
+  const DETAIL = { event: { name: 'Riverlights' }, ticket_types: [{ id: 't1', price_cents: 8900 }], questions: [], has_promotions: false, organisationName: 'Brainbase' }
   const read = (p: { organisationSlug: string; eventSlug: string }) =>
     pub.handleTicketingPublicEvent(new Request('http://bb.test/x', { headers: GATE }), p)
 
   beforeEach(async () => {
     const { getPublicEventDetail } = await import('@/lib/events/publicEventDetail')
-    vi.mocked(getPublicEventDetail).mockResolvedValue({ ok: true, detail: DETAIL } as never)
+    vi.mocked(getPublicEventDetail).mockResolvedValue({ ok: true, detail: DETAIL, eveQuestionsEnabled: false } as never)
     vi.stubEnv('VERCEL_ENV', 'preview')
   })
 
@@ -307,12 +307,13 @@ describe('public event read: server-derived paid_checkout_available (one boolean
     }
   })
 
-  it('returns the event detail unchanged plus exactly one boolean, and nothing about the flag or allow-list', async () => {
+  it('returns the event detail unchanged plus server-derived booleans only, and nothing about the flag or allow-list', async () => {
     process.env.EVE_PAID_CHECKOUT_ENABLED = 'true'
     process.env.EVE_PAID_CHECKOUT_ORGS = 'brainbase,other-org'
     for (const mk of [brainbase, params]) {
       const body = await (await read(mk())).json()
-      expect(Object.keys(body).sort()).toEqual([...Object.keys(DETAIL), 'paid_checkout_available'].sort())
+      expect(Object.keys(body).sort()).toEqual([...Object.keys(DETAIL), 'paid_checkout_available', 'questions_block_booking'].sort())
+      expect(typeof body.questions_block_booking).toBe('boolean')
       expect(typeof body.paid_checkout_available).toBe('boolean')
       const text = JSON.stringify(body)
       expect(text).not.toMatch(/EVE_PAID|other-org|allow|flag|enabled|orgs/i)

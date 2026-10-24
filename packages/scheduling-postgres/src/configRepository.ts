@@ -1,4 +1,5 @@
 import {
+  OCCURRENCE_WRITING_PRESETS,
   SchedulingError,
   isIanaTimezone,
   isLocalDate,
@@ -41,7 +42,7 @@ import {
   type StoredSeries,
   type TenantContext,
 } from '@scheduling/core';
-import { translating } from './errors';
+import { SCHEDULING_SQLSTATE, mapPgError, sqlstateOf, translating } from './errors';
 import type { SqlExecutor } from './executor';
 import { isSelfService, newId as defaultNewId } from './support';
 
@@ -313,7 +314,7 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
 
   async setResourceActive(tenant: TenantContext, resourceId: string, active: boolean): Promise<boolean> {
     this.manage(tenant);
-    const rows = await this.sql.query<Row>('UPDATE scheduling_resources SET active = $3 WHERE organisation_id = $1 AND id = $2 RETURNING id', [tenant.organisationId, resourceId, active]);
+    const rows = await translating(() => this.sql.query<Row>('UPDATE scheduling_resources SET active = $3 WHERE organisation_id = $1 AND id = $2 RETURNING id', [tenant.organisationId, resourceId, active]));
     return rows.length > 0;
   }
 
@@ -592,16 +593,21 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
       if (changes.active === false) guards.push(`(r.active = false OR NOT EXISTS (SELECT 1 FROM scheduling_resource_holds h WHERE ${liveHold}))`);
     }
 
-    const rows = await translating(() =>
-      this.sql.query<Row>(
+    let rows: Row[];
+    try {
+      rows = await this.sql.query<Row>(
         `WITH u AS (
            UPDATE scheduling_resources r SET ${sets.join(', ')}
             WHERE r.organisation_id = $1 AND r.id = $2 AND r.updated_at = $3::timestamptz ${guards.map(g => `AND ${g}`).join(' ')}
            RETURNING r.*)
          SELECT ${RESOURCE_COLUMNS} FROM u r`,
         params,
-      ),
-    );
+      );
+    } catch (err) {
+      // 030_resource_concurrency.sql: a booking or a link committed while this statement ran, which its own guards could not see.
+      if (sqlstateOf(err) === SCHEDULING_SQLSTATE.resourceInUse) return { ok: false, reason: 'resource_in_use', detail: 'a reservation or a link was created for this resource at the same moment' };
+      throw mapPgError(err) ?? err;
+    }
     if (rows[0]) return { ok: true, value: toResource(rows[0]) };
 
     const why = await this.sql.query<Row>(
@@ -635,13 +641,20 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
     const liveForThisOffering = `h.organisation_id = l.organisation_id AND h.resource_id = l.resource_id AND h.released_at IS NULL AND upper(h.during) > now()
       AND (EXISTS (SELECT 1 FROM scheduling_reservations v WHERE v.organisation_id = h.organisation_id AND v.id = h.reservation_id AND v.offering_id = l.offering_id)
         OR EXISTS (SELECT 1 FROM scheduling_occurrences o WHERE o.organisation_id = h.organisation_id AND o.id = h.occurrence_id AND o.offering_id = l.offering_id))`;
-    const deleted = await this.sql.query<Row>(
+    let deleted: Row[];
+    try {
+      deleted = await this.sql.query<Row>(
       `DELETE FROM scheduling_offering_resources l
         WHERE l.organisation_id = $1 AND l.offering_id = $2 AND l.resource_id = $3
           AND NOT EXISTS (SELECT 1 FROM scheduling_resource_holds h WHERE ${liveForThisOffering})
        RETURNING 1 AS gone`,
       [tenant.organisationId, offeringId, resourceId],
-    );
+      );
+    } catch (err) {
+      // 030_resource_concurrency.sql: a reservation holding this resource committed while the delete ran.
+      if (sqlstateOf(err) === SCHEDULING_SQLSTATE.allocationInUse) return { ok: false, reason: 'allocation_in_use', detail: 'a live reservation holds this resource for this offering' };
+      throw mapPgError(err) ?? err;
+    }
     if (deleted.length > 0) return { ok: true, value: { removed: true } };
 
     const why = await this.sql.query<Row>(
@@ -749,13 +762,14 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
              SELECT $1, f.organisation_id, f.id, $4, $5::date, $6::time, $7, $8::timestamptz, $9::timestamptz, $10::int, $11
                FROM scheduling_offerings f JOIN scheduling_schedules s ON s.id = f.schedule_id AND s.organisation_id = f.organisation_id
               WHERE f.id = $3 AND f.organisation_id = $2 AND f.archived_at IS NULL AND s.archived_at IS NULL
+                AND s.preset_key = ANY($13::text[])
              RETURNING *
            ), h AS (
              INSERT INTO scheduling_resource_holds (id, organisation_id, resource_id, during, occurrence_id)
              SELECT $12, o.organisation_id, o.resource_id, tstzrange(o.starts_at, o.ends_at, '[)'), o.id FROM o WHERE o.resource_id IS NOT NULL
              RETURNING id)
            SELECT ${OCCURRENCE_COLUMNS} FROM o`,
-          [this.newId(), tenant.organisationId, input.offeringId, input.resourceId, input.date, input.startTime, input.timezone, input.startsAt, input.endsAt, input.capacity, createdBy(tenant), this.newId()],
+          [this.newId(), tenant.organisationId, input.offeringId, input.resourceId, input.date, input.startTime, input.timezone, input.startsAt, input.endsAt, input.capacity, createdBy(tenant), this.newId(), [...OCCURRENCE_WRITING_PRESETS]],
         ),
       );
     } catch (err) {
@@ -763,12 +777,19 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
         if (err.code === 'resource_conflict') return { ok: false, reason: 'resource_conflict' };
         if (err.code === 'conflict' && err.constraint === 'scheduling_occurrences_slot_uk') return { ok: false, reason: 'duplicate_occurrence' };
         if (err.code === 'not_found') return { ok: false, reason: 'not_found' };
+        // 033: an archive committed between this statement's snapshot and the guard's locks
+        if (err.code === 'offering_unavailable') return { ok: false, reason: 'offering_unavailable' };
       }
       throw err;
     }
     if (rows.length === 0) {
-      const exists = await this.sql.query<Row>('SELECT 1 FROM scheduling_offerings WHERE organisation_id = $1 AND id = $2', [tenant.organisationId, input.offeringId]);
-      return { ok: false, reason: exists.length === 0 ? 'not_found' : 'offering_unavailable' };
+      const exists = await this.sql.query<Row>(
+        `SELECT s.preset_key FROM scheduling_offerings f JOIN scheduling_schedules s ON s.id = f.schedule_id AND s.organisation_id = f.organisation_id
+          WHERE f.organisation_id = $1 AND f.id = $2`,
+        [tenant.organisationId, input.offeringId],
+      );
+      if (exists.length === 0) return { ok: false, reason: 'not_found' };
+      return { ok: false, reason: OCCURRENCE_WRITING_PRESETS.includes(exists[0].preset_key) ? 'offering_unavailable' : 'preset_not_supported' };
     }
     return { ok: true, occurrence: toOccurrence(rows[0]) };
   }

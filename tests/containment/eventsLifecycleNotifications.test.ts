@@ -585,7 +585,10 @@ describe('notification recovery — same cron, bounded, time-budgeted, reminder 
     expect(recovery.NOTIFICATION_RECOVERY_TIME_BUDGET_MS).toBe(60_000)
     expect(CRON_SRC.indexOf('await runTicketEmailRecovery()')).toBeLessThan(CRON_SRC.indexOf('await runNotificationRecovery()'))
     expect(CRON_SRC).toMatch(/NextResponse\.json\(\{ \.\.\.summary, notifications \}\)/)
-    expect(readSource('vercel.json').match(/"path"/g)).toHaveLength(3) // no second cron added
+    // Notifications share the ticket-email-recovery cron (no second cron for them). The exact
+    // cron set is pinned; registration-answer-retention is its own daily job (ADR 0013 §4b).
+    const crons = (JSON.parse(readSource('vercel.json')) as { crons: { path: string }[] }).crons.map(c => c.path).sort()
+    expect(crons).toEqual(['/api/cron/hr-employee-document-reminders', '/api/cron/registration-answer-retention', '/api/cron/sync', '/api/cron/ticket-email-recovery'])
   })
 })
 

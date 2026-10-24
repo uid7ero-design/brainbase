@@ -238,6 +238,7 @@ export default defineConfig({
       'packages/scheduling-postgres/tests/*.integration.test.ts',
       'scripts/tests/schedulingHost2b0.integration.test.ts',
       'scripts/tests/schedulingRuntime2b1.integration.test.ts',
+      'scripts/tests/schedulingConfigApi2b2b.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,

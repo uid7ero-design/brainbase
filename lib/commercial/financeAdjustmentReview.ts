@@ -13,9 +13,11 @@ export async function listFinanceAdjustmentReview(organisationId:string,scope:Ad
     SELECT ${headerProjection} AS header,a.created_at,a.id
     FROM commercial_finance_adjustments a JOIN commercial_financial_periods p ON p.id=a.effective_financial_period_id AND p.organisation_id=a.organisation_id
     WHERE a.organisation_id=$1 AND a.effective_financial_period_id=$2::uuid AND a.currency=$3 AND ($4::text='' OR a.status=$4)
+      AND ($6::text='' OR a.adjustment_type=$6)
+      AND ($7::text='' OR strpos(lower(concat_ws(' ',a.adjustment_number::text,a.id::text,a.description,a.reason_code,a.source_type,a.source_id)),lower($7::text))>0)
   ), page_rows AS (SELECT * FROM filtered ORDER BY created_at DESC,id DESC LIMIT 25 OFFSET $5)
   SELECT (SELECT COUNT(*)::int FROM filtered) AS count,
-    COALESCE((SELECT jsonb_agg(header ORDER BY created_at DESC,id DESC) FROM page_rows),'[]'::jsonb) AS adjustments`,[organisationId,scope.periodId,scope.currency,scope.status,(page-1)*25]) as Array<{count:number;adjustments:AdjustmentRegister['adjustments']}>;
+    COALESCE((SELECT jsonb_agg(header ORDER BY created_at DESC,id DESC) FROM page_rows),'[]'::jsonb) AS adjustments`,[organisationId,scope.periodId,scope.currency,scope.status,(page-1)*25,scope.adjustmentType??'',scope.search??'']) as Array<{count:number;adjustments:AdjustmentRegister['adjustments']}>;
   if(!rows[0])throw new Error('Unable to read adjustment register.');
   return {scope,page,pageSize:25,totalCount:rows[0].count,adjustments:rows[0].adjustments};
 }
@@ -32,6 +34,8 @@ export async function getFinanceAdjustmentEvidence(organisationId:string,scope:A
     COALESCE((SELECT jsonb_agg(jsonb_build_object('id',e.id,'type',e.event_type,'actor',e.actor_user_id,'at',e.event_at,'details',e.details) ORDER BY e.event_at,CASE e.event_type WHEN 'CREATED' THEN 0 WHEN 'POSTED' THEN 1 ELSE 2 END,e.id)
       FROM commercial_finance_adjustment_events e WHERE e.adjustment_id=a.id AND e.organisation_id=a.organisation_id),'[]'::jsonb) AS events
     FROM commercial_finance_adjustments a JOIN commercial_financial_periods p ON p.id=a.effective_financial_period_id AND p.organisation_id=a.organisation_id
-    WHERE a.id=$5::uuid AND a.organisation_id=$1 AND a.effective_financial_period_id=$2::uuid AND a.currency=$3 AND ($4::text='' OR a.status=$4)`,[organisationId,scope.periodId,scope.currency,scope.status,id]) as AdjustmentEvidence[];
+    WHERE a.id=$5::uuid AND a.organisation_id=$1 AND a.effective_financial_period_id=$2::uuid AND a.currency=$3 AND ($4::text='' OR a.status=$4)
+      AND ($6::text='' OR a.adjustment_type=$6)
+      AND ($7::text='' OR strpos(lower(concat_ws(' ',a.adjustment_number::text,a.id::text,a.description,a.reason_code,a.source_type,a.source_id)),lower($7::text))>0)`,[organisationId,scope.periodId,scope.currency,scope.status,id,scope.adjustmentType??'',scope.search??'']) as AdjustmentEvidence[];
   return rows[0]??null;
 }

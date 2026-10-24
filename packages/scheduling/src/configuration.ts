@@ -1,6 +1,6 @@
 import { TERM_KEYS, getPreset } from './presets';
 import type { OfferingPatch, ResourcePatch, SchedulePatch } from './persistence';
-import { PRESET_KEYS, type PresetKey, type ResourceKind } from './types';
+import { PRESET_KEYS, type PresetKey, type Recurrence, type ResourceKind } from './types';
 import { isIanaTimezone, isLocalTime, validateCancellationPolicy, validateRecurrence } from './validation';
 
 // Phase 2B.2a: pure validation for configuration edits. No I/O, no host import: a standalone host and the BrainBase
@@ -79,5 +79,47 @@ export function validateResourcePatch(patch: ResourcePatch): string[] {
   if (patch.minParty !== undefined && patch.minParty !== null && !isPositiveInt(patch.minParty)) problems.push('minParty must be a positive integer or null');
   if (isPositiveInt(patch.capacity) && isPositiveInt(patch.minParty) && patch.minParty > patch.capacity) problems.push('minParty must be between 1 and capacity');
   if (has(patch, 'active') && typeof patch.active !== 'boolean') problems.push('active must be true or false');
+  return problems;
+}
+
+/** The values of an offering whose combination the preset constrains (a new offering, or an existing one with a patch applied). */
+export interface OfferingValues {
+  name: string;
+  durationMinutes: number | null;
+  capacity: number | null;
+  startTime: string | null;
+  recurrence: Recurrence;
+}
+
+/**
+ * Phase 2B.2b: what a preset requires of an offering's resulting values, beyond the per-field checks of validateOfferingPatch.
+ * Pure and host-free, so BrainBase and a standalone host refuse the same shapes before any SQL:
+ *   headcount presets (classes) need a headcount limit; exclusive-resource presets leave capacity to the resource;
+ *   a fixed-duration preset needs a duration; nights and turn-time presets have none; a weekly offering needs its start time.
+ */
+export function validateOfferingForPreset(values: OfferingValues, presetKey: PresetKey): string[] {
+  const preset = getPreset(presetKey);
+  const problems: string[] = [];
+  if (typeof values.name !== 'string' || values.name.trim() === '') problems.push('name is required');
+
+  if (preset.capacity.semantics === 'headcount_per_occurrence') {
+    if (!isPositiveInt(values.capacity)) problems.push(`${preset.name} offerings need a capacity (the headcount limit)`);
+  } else if (values.capacity !== null) {
+    problems.push(`${preset.name} offerings take their capacity from the resource, so capacity must be empty`);
+  }
+
+  switch (preset.durationSource) {
+    case 'offering_fixed':
+      if (!isPositiveInt(values.durationMinutes)) problems.push(`${preset.name} offerings need a duration in minutes`);
+      break;
+    case 'nights':
+    case 'party_size_turn_time':
+      if (values.durationMinutes !== null) problems.push(`${preset.name} offerings have no fixed duration`);
+      break;
+    default:
+      break; // customer_selected: a duration is optional
+  }
+
+  if (values.recurrence.kind === 'weekly' && values.startTime === null) problems.push('a weekly offering needs a startTime');
   return problems;
 }

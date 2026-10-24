@@ -84,10 +84,25 @@ export type OrderRow = {
   order_responses: ResponseAnswer[];
 };
 
+// The orders API omits answers entirely below manager (ADR 0013 §4); the
+// panel treats "omitted" as "none shown".
+export function withAnswerArrays<T>(rows: T[]): T[] {
+  return rows.map(r => {
+    const row = r as Record<string, unknown>;
+    const attendees = Array.isArray(row.attendees)
+      ? row.attendees.map(a => ({ ...(a as Record<string, unknown>), responses: (a as { responses?: unknown[] })?.responses ?? [] }))
+      : [];
+    return { ...row, attendees, order_responses: Array.isArray(row.order_responses) ? row.order_responses : [] } as T;
+  });
+}
+
 function formatAnswerValue(value: unknown): string {
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   if (Array.isArray(value)) return value.join(', ');
-  if (value === null || value === undefined || value === '') return '—';
+  // A stored answer is only ever NULL once the retention policy removed it
+  // (ADR 0013 §4b); the row itself stays as evidence an answer existed.
+  if (value === null) return 'Removed under the retention policy';
+  if (value === undefined || value === '') return '—';
   return String(value);
 }
 
@@ -189,7 +204,7 @@ export default function RegistrationsPanel({
           setListError(body.error ?? `Failed to load registrations (${res.status}).`);
           return;
         }
-        setListOrders(body.orders ?? []);
+        setListOrders(withAnswerArrays(body.orders ?? []));
         setListOrderCount(typeof body.order_count === 'number' ? body.order_count : null);
       } catch {
         if (!cancelled) setListError('Failed to load registrations. Please try again.');

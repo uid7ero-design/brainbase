@@ -31,6 +31,12 @@ async function seedResources(org: string, prefix: string, n: number, kind = 'cou
      SELECT $2 || g, $1, $3, $2 || g, 4 FROM generate_series(1, $4::int) g ON CONFLICT DO NOTHING`,
     [org, prefix, kind, n],
   );
+  // 031: a reservation or occurrence may only use a resource its offering is assigned; these bulk resources serve the hire and class offerings
+  await getPool().query(
+    `INSERT INTO scheduling_offering_resources (organisation_id, offering_id, resource_id)
+     SELECT $1, o, r.id FROM scheduling_resources r CROSS JOIN unnest($3::text[]) o WHERE r.organisation_id = $1 AND r.id LIKE $2 || '%' ON CONFLICT DO NOTHING`,
+    [org, prefix, [w.hire.offering, w.cls.offering]],
+  );
 }
 const liveOverlaps = () =>
   count(

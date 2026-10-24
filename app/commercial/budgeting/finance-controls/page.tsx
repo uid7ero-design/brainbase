@@ -3,16 +3,21 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { FinanceAdjustmentReview } from './FinanceAdjustmentReview';
-import { formatAustralianDate, formatAustralianTimestamp, isFinanceCalendarDate, isFinanceAuditTimestamp } from '@/lib/commercial/financeSetupDisplay';
+import { FinanceControlReview } from './FinanceControlReview';
+import { FinanceEvidenceExplorer } from './FinanceEvidenceExplorer';
+import { FinanceCloseHistory } from './FinanceCloseHistory';
+import { FinanceReconciliationControls } from './FinanceReconciliationControls';
+import { FinanceReconciliationHistory } from './FinanceReconciliationHistory';
+import type { CloseEvidenceScope } from '@/lib/commercial/financeCloseEvidenceModel';
+import type { ReconciliationEvidenceScope } from '@/lib/commercial/financeReconciliationEvidenceModel';
+import { formatAustralianDate, isFinanceCalendarDate, isFinanceAuditTimestamp } from '@/lib/commercial/financeSetupDisplay';
 import { FinanceWorkflow } from '../../_components/FinanceWorkflow';
-import { buttonProps, fieldControlClassName, TableContainer, tableStyles } from '@/components/ui/app';
-import { formatMoneyCentsExact } from '@/lib/commercial/money';
+import { buttonProps, fieldControlClassName } from '@/components/ui/app';
 import {
   financePeriodCloseHref,
   financePeriodReopenHref,
   financeYearCloseHref,
   financeYearReopenHref,
-  financeReconciliationAction,
   financeReconciliationReviewHref,
   financeReconciliationSignOffHref,
 } from '@/lib/commercial/financeControlUi';
@@ -118,6 +123,12 @@ function validReconciliation(value: unknown): boolean {
 
 export default function FinanceControlsPage() {
   const [adjustmentRevision,setAdjustmentRevision]=useState(0);
+  const [evidenceSelection,setEvidenceSelection]=useState<{key:string;id:string;scope:ReconciliationEvidenceScope;visit:number}|null>(null);
+  const evidenceTrigger=useRef<HTMLButtonElement|null>(null);
+  const evidenceFallback=useRef('finance-reconciliation-history');
+  const [closeEvidenceSelection,setCloseEvidenceSelection]=useState<{key:string;id:string;scope:CloseEvidenceScope;visit:number}|null>(null);
+  const closeEvidenceTrigger=useRef<HTMLButtonElement|null>(null);
+  const evidenceVisit=useRef(0);
   const [years, setYears] = useState<FinancialYear[]>([]);
   const [sources, setSources] = useState<string[]>([]);
   const [selectedYearId, setSelectedYearId] = useState('');
@@ -145,6 +156,18 @@ export default function FinanceControlsPage() {
   const review = useRef<HTMLHeadingElement>(null);
   const scopeKey = JSON.stringify([selectedYearId, selectedPeriodId, sourceSystemId, currency.trim().toUpperCase()]);
   const locked = loading || working || needsReload || !loaded || savedScope !== scopeKey;
+  function inspectSavedReconciliation(id:string,scope:ReconciliationEvidenceScope,trigger:HTMLButtonElement){
+    if(locked)return;evidenceTrigger.current=trigger;setCloseEvidenceSelection(null);
+    evidenceFallback.current=trigger.closest('#finance-reconciliation-review')?'finance-reconciliation-review':'finance-reconciliation-history';
+    setEvidenceSelection({key:JSON.stringify([scopeKey,adjustmentRevision]),visit:++evidenceVisit.current,id,scope});
+  }
+  function dismissReconciliationEvidence(){
+    setEvidenceSelection(null);requestAnimationFrame(()=>{const trigger=evidenceTrigger.current;if(trigger?.isConnected&&!trigger.disabled)trigger.focus();else document.getElementById(evidenceFallback.current)?.focus();});
+  }
+  function dismissCloseEvidence(){
+    const fallback=closeEvidenceSelection?.scope.kind==='year'?'finance-year-controls':'finance-period-controls';
+    setCloseEvidenceSelection(null);requestAnimationFrame(()=>{const trigger=closeEvidenceTrigger.current;if(trigger?.isConnected&&!trigger.disabled)trigger.focus();else document.getElementById(fallback)?.focus();});
+  }
   const invalidateReads = useCallback(() => { serial.current++; }, []);
 
   const selectedYear = useMemo(
@@ -403,7 +426,9 @@ export default function FinanceControlsPage() {
       {needsReload ? <p>Actions are paused until the complete saved state can be checked. Previously loaded controls may be out of date. Refresh uses read-only requests.</p> : null}
       {!loading && !needsReload && !error && <FinanceWorkflow current="controls" setupHint={years.length === 0 ? 'Create your financial year and periods in Finance setup before using finance controls.' : selectedYear && selectedYear.periods.length === 0 ? 'This financial year has no periods. Add its periods in Finance setup before preparing a reconciliation.' : undefined} />}
 
-      <section style={{ ...panel, marginBottom: 18 }}>
+      <FinanceControlReview available={!locked} year={selectedYear} period={selectedPeriod} source={sourceSystemId} currency={currency.trim().toUpperCase()} activeClose={activeClose} snapshots={reconciliations} onInspectSnapshot={(row,trigger)=>inspectSavedReconciliation(row.id,{yearId:row.financialYearId,periodId:row.financialPeriodId,source:row.sourceSystemId,currency:row.currency},trigger)} />
+
+      <section id="finance-control-scope" tabIndex={-1} style={{ ...panel, marginBottom: 18, scrollMarginTop: 120 }}>
         <h2 style={heading}>Control scope</h2>
         <div style={formGrid}>
           <Field label="Financial year">
@@ -455,6 +480,7 @@ export default function FinanceControlsPage() {
         working={locked}
         onClose={closeYear}
         onReopen={reopenYear}
+        onInspect={(id,trigger)=>{if(!selectedYear)return;closeEvidenceTrigger.current=trigger;setEvidenceSelection(null);setCloseEvidenceSelection({key:JSON.stringify([scopeKey,adjustmentRevision]),visit:++evidenceVisit.current,id,scope:{kind:'year',yearId:selectedYear.id,periodId:null}});}}
       />
 
       <PeriodControlPanel
@@ -467,9 +493,10 @@ export default function FinanceControlsPage() {
         working={locked}
         onClose={closePeriod}
         onReopen={reopenPeriod}
+        onInspect={(id,trigger)=>{if(!selectedYear||!selectedPeriod)return;closeEvidenceTrigger.current=trigger;setEvidenceSelection(null);setCloseEvidenceSelection({key:JSON.stringify([scopeKey,adjustmentRevision]),visit:++evidenceVisit.current,id,scope:{kind:'period',yearId:selectedYear.id,periodId:selectedPeriod.id}});}}
       />
 
-      <section style={{ ...panel, marginBottom: 18 }}>
+      <section id="finance-reconciliation-prepare" tabIndex={-1} style={{ ...panel, marginBottom: 18, scrollMarginTop: 120 }}>
         <h2 style={heading}>Prepare reconciliation</h2>
         <p style={description}>
           Snapshot BrainBase source actuals and finance adjustments against one explicit External GL source and currency.
@@ -488,13 +515,17 @@ export default function FinanceControlsPage() {
 
       <FinanceAdjustmentReview periodId={effectiveSelectedPeriodId} currency={currency.trim().toUpperCase()} enabled={!locked} revision={adjustmentRevision} />
 
-      {loaded ? <ReconciliationControlTable
-        reconciliations={reconciliations}
-        activeClose={activeClose}
+      {loaded ? <FinanceReconciliationControls key={scopeKey}
+        records={reconciliations}
+        activeCloseId={activeClose?.id??null}
         working={locked}
         onReview={reviewReconciliation}
         onSignOff={signOffReconciliation}
+        onInspect={(row,trigger)=>inspectSavedReconciliation(row.id,{yearId:row.financialYearId,periodId:row.financialPeriodId,source:row.sourceSystemId,currency:row.currency},trigger)}
       /> : <p>Saved reconciliation controls are not available yet.</p>}
+      <FinanceReconciliationHistory enabled={!locked} revision={adjustmentRevision} scope={{yearId:selectedYear?.id??'',periodId:effectiveSelectedPeriodId,source:sourceSystemId,currency:currency.trim().toUpperCase()}} onInspect={(row,trigger)=>inspectSavedReconciliation(row.id,{yearId:row.yearId,periodId:row.periodId,source:row.source,currency:row.currency},trigger)} />
+      {!locked&&evidenceSelection?.key===JSON.stringify([scopeKey,adjustmentRevision])?<FinanceEvidenceExplorer key={JSON.stringify(['reconciliation',evidenceSelection.key,evidenceSelection.id,evidenceSelection.visit])} initial={{kind:'reconciliation',id:evidenceSelection.id,scope:evidenceSelection.scope}} onDismiss={dismissReconciliationEvidence} />:null}
+      {!locked&&closeEvidenceSelection?.key===JSON.stringify([scopeKey,adjustmentRevision])?<FinanceEvidenceExplorer key={JSON.stringify(['close',closeEvidenceSelection.key,closeEvidenceSelection.id,closeEvidenceSelection.visit])} initial={{kind:'close',id:closeEvidenceSelection.id,scope:closeEvidenceSelection.scope}} onDismiss={dismissCloseEvidence} />:null}
     </div>
   );
 }
@@ -508,6 +539,7 @@ function YearControlPanel({
   working,
   onClose,
   onReopen,
+  onInspect,
 }: {
   year: FinancialYear | null;
   closeReason: string;
@@ -517,9 +549,10 @@ function YearControlPanel({
   working: boolean;
   onClose: () => void;
   onReopen: (event: FormEvent) => void;
+  onInspect: (id: string, trigger: HTMLButtonElement) => void;
 }) {
   return (
-    <section style={{ ...panel, marginBottom: 18 }}>
+    <section id="finance-year-controls" tabIndex={-1} style={{ ...panel, marginBottom: 18, scrollMarginTop: 120 }}>
       <h2 style={heading}>Financial year</h2>
       <p style={description}>
         Year close is server-governed: every child period must satisfy the finance close invariants before the year can close.
@@ -559,48 +592,7 @@ function YearControlPanel({
             </form>
           )}
 
-          <div style={{ marginTop: 18 }}>
-            <h3 style={{ fontSize: 13, margin: '0 0 8px' }}>Durable year-close history</h3>
-            {year.closes.length === 0 ? (
-              <div style={emptyBox}>No close history for this financial year.</div>
-            ) : (
-              <TableContainer label="Year-close history">
-                <table className={tableStyles.table}>
-                  <thead>
-                    <tr>
-                      {['Sequence', 'Status', 'Closed', 'Reason', 'Control totals', 'Invalidation'].map(label => (
-                        <th key={label} scope="col">{label}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {year.closes.map(close => (
-                      <tr key={close.id} data-year-close-id={close.id}>
-                        <td>{close.close_sequence}</td>
-                        <td>{close.status}</td>
-                        <td>{formatAustralianTimestamp(close.closed_at)}</td>
-                        <td>{close.close_reason ?? '—'}</td>
-                        <td>
-                          <div>{String(close.control_totals.financialPeriodCount ?? '—')} periods</div>
-                          <div style={sub}>
-                            {String(close.control_totals.currentPeriodCloseCount ?? '—')} current period closes
-                          </div>
-                        </td>
-                        <td>
-                          {close.invalidated_at ? (
-                            <>
-                              {formatAustralianTimestamp(close.invalidated_at)}
-                              <div style={sub}>{close.invalidation_reason}</div>
-                            </>
-                          ) : '—'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </TableContainer>
-            )}
-          </div>
+          <FinanceCloseHistory key={year.id} kind="year" records={year.closes} working={working} onInspect={onInspect}/>
         </>
       )}
     </section>
@@ -617,6 +609,7 @@ function PeriodControlPanel({
   working,
   onClose,
   onReopen,
+  onInspect,
 }: {
   period: FinancialPeriod | null;
   activeClose: CloseRecord | null;
@@ -627,9 +620,10 @@ function PeriodControlPanel({
   working: boolean;
   onClose: () => void;
   onReopen: (event: FormEvent) => void;
+  onInspect: (id: string, trigger: HTMLButtonElement) => void;
 }) {
   return (
-    <section style={{ ...panel, marginBottom: 18 }}>
+    <section id="finance-period-controls" tabIndex={-1} style={{ ...panel, marginBottom: 18, scrollMarginTop: 120 }}>
       <h2 style={heading}>Financial period</h2>
       {!period ? (
         <p style={description}>Choose a financial period to operate close controls.</p>
@@ -662,105 +656,8 @@ function PeriodControlPanel({
             </form>
           )}
 
-          <div style={{ marginTop: 18 }}>
-            <h3 style={{ fontSize: 13, margin: '0 0 8px' }}>Durable close history</h3>
-            {period.closes.length === 0 ? (
-              <div style={emptyBox}>No close history for this period.</div>
-            ) : (
-              <TableContainer label="Period-close history">
-                <table className={tableStyles.table}>
-                  <thead><tr>{['Sequence','Status','Closed','Reconciliation','Reason','Invalidation'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
-                  <tbody>
-                    {period.closes.map(close => (
-                      <tr key={close.id} data-close-id={close.id}>
-                        <td>{close.close_sequence}</td>
-                        <td>{close.status}{activeClose?.id === close.id ? <div style={sub}>Current close</div> : null}</td>
-                        <td>{formatAustralianTimestamp(close.closed_at)}</td>
-                        <td>{close.reconciliation_status}</td>
-                        <td>{close.close_reason ?? '—'}</td>
-                        <td>{close.invalidated_at ? <>{formatAustralianTimestamp(close.invalidated_at)}<div style={sub}>{close.invalidation_reason}</div></> : '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </TableContainer>
-            )}
-          </div>
+          <FinanceCloseHistory key={period.id} kind="period" records={period.closes} currentCloseId={activeClose?.id??null} working={working} onInspect={onInspect}/>
         </>
-      )}
-    </section>
-  );
-}
-
-function ReconciliationControlTable({
-  reconciliations,
-  activeClose,
-  working,
-  onReview,
-  onSignOff,
-}: {
-  reconciliations: ReconciliationState[];
-  activeClose: CloseRecord | null;
-  working: boolean;
-  onReview: (id: string) => void;
-  onSignOff: (id: string) => void;
-}) {
-  return (
-    <section style={{ ...panel, marginBottom: 18 }}>
-      <h2 style={heading}>Latest reconciliation control state</h2>
-      <p style={description}>
-        One latest snapshot per period, External GL source and currency. Clean snapshots remain visible even when unresolved count is zero.
-      </p>
-      {reconciliations.length === 0 ? (
-        <div style={emptyBox}>No reconciliation snapshots match the current scope.</div>
-      ) : (
-        <TableContainer label="Reconciliation control state" minWidth={1250}>
-          <table className={tableStyles.table} style={{ minWidth: 1250 }}>
-            <thead><tr>{[
-              'Source','Currency','Status','Source Actual','Finance Adjustments','Effective Actual',
-              'External GL','Variance','Unresolved','Prepared','Close','Action',
-            ].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
-            <tbody>
-              {reconciliations.map(reconciliation => {
-                const action = financeReconciliationAction(
-                  reconciliation.status,
-                  Boolean(activeClose),
-                );
-                return (
-                  <tr key={reconciliation.id} data-reconciliation-id={reconciliation.id}>
-                    <td>{reconciliation.sourceSystemId}</td>
-                    <td>{reconciliation.currency}</td>
-                    <td><strong>{reconciliation.status}</strong></td>
-                    <td className={tableStyles.num}>{formatMoneyCentsExact(reconciliation.sourceActualCents, reconciliation.currency)}</td>
-                    <td className={tableStyles.num}>{formatMoneyCentsExact(reconciliation.financeAdjustmentCents, reconciliation.currency)}</td>
-                    <td className={tableStyles.num}>{formatMoneyCentsExact(reconciliation.brainbaseEffectiveActualCents, reconciliation.currency)}</td>
-                    <td className={tableStyles.num}>{formatMoneyCentsExact(reconciliation.externalGlTotalCents, reconciliation.currency)}</td>
-                    <td className={tableStyles.num}>{formatMoneyCentsExact(reconciliation.varianceCents, reconciliation.currency)}</td>
-                    <td>{reconciliation.unresolvedItemCount}</td>
-                    <td>{formatAustralianTimestamp(reconciliation.preparedAt)}</td>
-                    <td>{reconciliation.closeId ?? '—'}</td>
-                    <td>
-                      {action === 'REVIEW' ? (
-                        <button type="button" disabled={working} onClick={() => onReview(reconciliation.id)} {...buttonProps('secondary', 'sm')}>Review</button>
-                      ) : action === 'SIGN_OFF' || action === 'SIGN_OFF_BLOCKED' ? (
-                        <button
-                          type="button"
-                          disabled={working || action === 'SIGN_OFF_BLOCKED'}
-                          onClick={() => onSignOff(reconciliation.id)}
-                          {...buttonProps('primary', 'sm')}
-                        >
-                          Sign off
-                        </button>
-                      ) : (
-                        <span style={sub}>Read only</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </TableContainer>
       )}
     </section>
   );
@@ -779,7 +676,6 @@ const heading: React.CSSProperties = { margin: 0, fontSize: 16 };
 const description: React.CSSProperties = { margin: '6px 0 16px', fontSize: 12, color: MUTED, lineHeight: 1.5 };
 const formGrid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10, alignItems: 'end' };
 const metricGrid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 16 };
-const sub: React.CSSProperties = { color: MUTED, marginTop: 3, fontSize: 11 };
 const emptyBox: React.CSSProperties = { color: MUTED, border: `1px dashed ${BORDER}`, borderRadius: 8, padding: 16, textAlign: 'center' };
 const errorBox: React.CSSProperties = { marginBottom: 14, border: '1px solid var(--status-danger-border)', background: 'var(--status-danger-muted)', color: 'var(--status-danger)', borderRadius: 8, padding: 10, fontSize: 12 };
 const noticeBox: React.CSSProperties = { marginBottom: 14, border: '1px solid var(--status-success-border)', background: 'var(--status-success-muted)', color: 'var(--status-success)', borderRadius: 8, padding: 10, fontSize: 12 };
