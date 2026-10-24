@@ -132,7 +132,7 @@ export function compareExactDecimal(a: ExactDecimal, b: ExactDecimal): -1 | 0 | 
 // Unit conversion
 // ---------------------------------------------------------------------------
 
-type UnitFamily = "MASS" | "LENGTH" | "DURATION" | "PERCENTAGE" | "CURRENCY";
+type UnitFamily = "MASS" | "LENGTH" | "DURATION" | "PERCENTAGE" | "CURRENCY" | "MASS_RATE" | "BIN_RATE";
 
 // "1 <unit> = num base-units" (den is always 1 for this vocabulary — every
 // conversion factor here is a plain positive integer). Base unit per family:
@@ -148,6 +148,10 @@ const UNIT_TO_BASE_FACTOR: Record<Unit, bigint> = {
   h: BigInt(3600),
   "%": BigInt(1),
   AUD: BigInt(1),
+  d: BigInt(86400),
+  "kg/h": BigInt(1),
+  "t/h": BigInt(1000),
+  "bins/h": BigInt(1),
 };
 
 const UNIT_FAMILY: Record<Unit, UnitFamily> = {
@@ -160,6 +164,10 @@ const UNIT_FAMILY: Record<Unit, UnitFamily> = {
   h: "DURATION",
   "%": "PERCENTAGE",
   AUD: "CURRENCY",
+  d: "DURATION",
+  "kg/h": "MASS_RATE",
+  "t/h": "MASS_RATE",
+  "bins/h": "BIN_RATE",
 };
 
 function bigIntGcd(a: bigint, b: bigint): bigint {

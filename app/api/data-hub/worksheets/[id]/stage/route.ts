@@ -136,8 +136,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     if (!created.ok) {
       const code = created.code;
       return NextResponse.json(
-        { ok: false, error: getMessageTemplate(code as FailureCode), code },
-        { status: code === "RUN_ALREADY_IN_PROGRESS" ? 409 : code === "BATCH_NOT_READY" || code === "STAGING_INELIGIBLE" ? 409 : 500, headers: CACHE_HEADERS }
+        { ok: false, error: code === "MAPPING_CONFIRMATION_REQUIRED" ? "Confirm the workbook’s units and saved mapping before preparation." : getMessageTemplate(code as FailureCode), code },
+        { status: code === "RUN_ALREADY_IN_PROGRESS" ? 409 : code === "BATCH_NOT_READY" || code === "STAGING_INELIGIBLE" || code === "MAPPING_CONFIRMATION_REQUIRED" ? 409 : 500, headers: CACHE_HEADERS }
       );
     }
     if (created.alreadyStaged) {

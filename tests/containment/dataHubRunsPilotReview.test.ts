@@ -60,9 +60,7 @@ describe("Runs owner review — exact inventory and explicit confirmation", () =
     const result = evaluateRunsPilotReview(confirmedReview());
     expect(result).toMatchObject({ ok: true, activationAllowed: false, confirmedCount: 21, reviewComplete: true });
     expect(parseProfileDocument(result.ok ? result.review : result).ok).toBe(false);
-    if (result.ok) expect(result.blockers.map(b => b.code)).toEqual([
-      "RATE_UNIT_NEEDS_SUPPORT", "RATE_UNIT_NEEDS_SUPPORT", "DAY_UNIT_NEEDS_SUPPORT",
-    ]);
+    if (result.ok) expect(result.blockers).toEqual([]);
   });
   it("requires missing policy and negative policy rather than treating a checkbox as sufficient", () => {
     const review = confirmedReview(); review.missingPolicy = null; review.fields[6].negativePolicy = null;
@@ -103,7 +101,6 @@ describe("Runs owner review — exact inventory and explicit confirmation", () =
     expect(result.blockers).toEqual(expect.arrayContaining([
       { code: "MISSING_MARKERS_NEED_RULE" },
       { fieldKey: review.fields[0].fieldKey, code: "NUMERIC_IDENTIFIER_NEEDS_DECISION" },
-      { fieldKey: review.fields[3].fieldKey, code: "NONNEGATIVE_COUNTS_NEED_RULE" },
       { fieldKey: review.fields[15].fieldKey, code: "CLOCK_DURATION_NEEDS_SUPPORT" },
       { fieldKey: review.fields[16].fieldKey, code: "SOURCE_REPRESENTATION_UNIT_MISMATCH" },
     ]));
@@ -131,9 +128,9 @@ describe("Runs source-format compatibility — real parser and transformers, syn
     expect(transformed.outputs.slice(0, 3).map(c => c.normalizedValue)).toEqual(["0007", "2026-10-24", "0002"]);
     expect(transformed.outputs.slice(6, 9).map(c => c.normalizedValue)).toEqual(["0", "5", null]);
   });
-  it.each(["d", "t/h", "kg/h", "bins/h"])("proves the current profile vocabulary rejects %s", unit => {
+  it.each(["d", "t/h", "kg/h", "bins/h"])("explicitly supports the new profile unit %s", unit => {
     const rule = { sourceSchemaColumnId: "synthetic-column", valueKind: unit === "d" ? "DURATION" : "DECIMAL", sourceUnit: unit, normalizedUnit: unit };
-    expect(parseProfileDocument({ documentVersion: 2, schemaStatus: "ACTIVE", headerRowOneBased: 3, columnRules: [rule] }).ok).toBe(false);
+    expect(parseProfileDocument({ documentVersion: 2, schemaStatus: "ACTIVE", headerRowOneBased: 3, columnRules: [rule] }).ok).toBe(true);
   });
   it("does not silently turn clock text, unknown markers, decimal counts or numeric IDs into valid values", () => {
     for (const [rule, cell] of [[rules[15], S("01:30:00")], [rules[6], S("N/A")], [rules[6], S("")], [rules[6], N(1.5)], [rules[0], N(7)]] as const) {

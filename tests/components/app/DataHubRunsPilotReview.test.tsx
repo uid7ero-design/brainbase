@@ -37,9 +37,9 @@ describe("Runs field review draft", () => {
     expect(vehicles).not.toBeChecked(); expect(vehicles).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Are negative values valid for Vehicles?"), { target: { value: "FORBID" } });
     fireEvent.click(vehicles);
-    expect(screen.getByText(/Rejecting negative counts needs/)).toBeInTheDocument();
+    expect(packet().fields[3]).toMatchObject({ negativePolicy: "FORBID", confirmed: true });
   });
-  it("exports a completed review while still identifying unsupported day/rate mappings and forbidding activation", () => {
+  it("exports a completed review with supported day/rate choices while keeping drafts non-activating", () => {
     const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher); render(<RunsPilotReviewClient />);
     fireEvent.change(screen.getByLabelText("How does your report mark missing values?"), { target: { value: "NULL_ONLY" } });
     for (const spec of RUNS_REVIEW_FIELDS) {
@@ -49,8 +49,8 @@ describe("Runs field review draft", () => {
       fireEvent.click(screen.getByRole("checkbox", { name: `I confirm the meaning and unit for ${spec.header}` }));
     }
     expect(screen.getByRole("status")).toHaveTextContent("21 of 21");
-    expect(screen.getByText(/Day-based quantities need/)).toBeInTheDocument();
-    expect(screen.getAllByText(/Per-hour quantities need/)).toHaveLength(2);
+    expect(screen.queryByText(/Day-based quantities need/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Per-hour quantities need/)).not.toBeInTheDocument();
     const exported = packet(); expect(exported.activationAllowed).toBe(false);
     expect(exported.fields.every((f: { confirmed: boolean }) => f.confirmed)).toBe(true);
     expect(fetcher).not.toHaveBeenCalled();

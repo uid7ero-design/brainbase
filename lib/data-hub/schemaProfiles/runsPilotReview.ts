@@ -1,6 +1,7 @@
 // Draft collection only. This module never activates or persists a profile.
 // Suggestions are explicit review choices, never transformation authority.
-import { parseProfileDocument } from "./profileDocument";
+import { parseProfileDocument, type ProfileDocumentV2, type ColumnRuleV2 } from "./profileDocument";
+import { buildNormalizationPlan } from "../normalization/plan";
 
 export type Representation = "IDENTIFIER_TEXT" | "IDENTIFIER_NUMBER" | "TEXT" | "WHOLE_NUMBER" |
   "AU_DATE_TEXT" | "ISO_DATE_TEXT" | "EXCEL_DATE" | "DECIMAL_NUMBER" | "CLOCK_DURATION" | "EXCEL_DAY_FRACTION";
@@ -119,11 +120,8 @@ export function evaluateRunsPilotReview(raw: unknown):
   for (const field of fields) {
     if (!field.confirmed || !fieldReviewComplete(field)) continue;
     const add = (code: ReviewBlocker["code"]) => blockers.push({ fieldKey: field.fieldKey, code });
-    if (field.unit === "d") add("DAY_UNIT_NEEDS_SUPPORT");
-    if (field.unit?.includes("/")) add("RATE_UNIT_NEEDS_SUPPORT");
     if (field.representation === "CLOCK_DURATION") add("CLOCK_DURATION_NEEDS_SUPPORT");
     if (field.representation === "IDENTIFIER_NUMBER") add("NUMERIC_IDENTIFIER_NEEDS_DECISION");
-    if (field.negativePolicy === "FORBID") add("NONNEGATIVE_COUNTS_NEED_RULE");
     if (field.representation === "EXCEL_DAY_FRACTION" && field.unit !== "d") add("SOURCE_REPRESENTATION_UNIT_MISMATCH");
     if (blockers.some(b => b.fieldKey === field.fieldKey)) continue;
     const ordinal = RUNS_REVIEW_FIELDS.find(f => f.id === field.fieldKey)!.ordinal;
@@ -134,6 +132,7 @@ export function evaluateRunsPilotReview(raw: unknown):
     const rule = { sourceSchemaColumnId: field.fieldKey, valueKind,
       ...(valueKind === "IDENTIFIER" ? { preserveLeadingZeros: true } : {}),
       ...(valueKind === "DATE" ? { datePolicy: field.representation === "AU_DATE_TEXT" ? "AU_DD_MM_YYYY" : "ISO_8601" } : {}),
+      ...(field.negativePolicy === "FORBID" ? { minimum: "0" } : {}),
       ...(field.unit !== "NONE" ? { sourceUnit: field.unit, normalizedUnit: field.unit } : {}) };
     const parsed = parseProfileDocument({ documentVersion: 2, schemaStatus: "ACTIVE", headerRowOneBased: 3, columnRules: [rule] });
     if (!parsed.ok) add("PROFILE_RULE_UNSUPPORTED");
@@ -141,4 +140,28 @@ export function evaluateRunsPilotReview(raw: unknown):
   const confirmedCount = fields.filter(f => f.confirmed && fieldReviewComplete(f)).length;
   return { ok: true, activationAllowed: false, review, confirmedCount,
     reviewComplete: confirmedCount === RUNS_REVIEW_FIELDS.length && review.missingPolicy !== null, blockers };
+}
+
+export type RunsGovernedColumn = { id: string; ordinal: number; sourceHeader: string; sensitivityClass: string };
+/** Called with server-resolved columns only; a review never supplies governed IDs. */
+export function buildRunsProfile(raw: unknown, columns: readonly RunsGovernedColumn[]):
+  { ok: true; review: RunsPilotReview; document: ProfileDocumentV2 } | { ok: false } {
+  const evaluated = evaluateRunsPilotReview(raw);
+  if (!evaluated.ok || !evaluated.reviewComplete || evaluated.blockers.length || columns.length !== 21 ||
+    new Set(columns.map(c => c.id)).size !== 21 || new Set(columns.map(c => c.ordinal)).size !== 21 ||
+    columns.some(c => { const spec = RUNS_REVIEW_FIELDS[c.ordinal]; return !spec || !c.id ||
+      c.sourceHeader !== spec.header || c.sensitivityClass !== spec.sensitivity; })) return { ok: false };
+  const columnRules: ColumnRuleV2[] = evaluated.review.fields.map((field, ordinal) => {
+    const valueKind = field.representation === "IDENTIFIER_TEXT" ? "IDENTIFIER" : field.representation === "TEXT" ? "STRING" :
+      field.representation === "WHOLE_NUMBER" ? "INTEGER" : ["AU_DATE_TEXT", "ISO_DATE_TEXT", "EXCEL_DATE"].includes(field.representation!) ? "DATE" :
+      ordinal >= 15 && ordinal <= 17 ? "DURATION" : "DECIMAL";
+    return { sourceSchemaColumnId: columns.find(c => c.ordinal === ordinal)!.id, valueKind,
+      ...(valueKind === "IDENTIFIER" ? { preserveLeadingZeros: true as const } : {}),
+      ...(valueKind === "DATE" ? { datePolicy: field.representation === "AU_DATE_TEXT" ? "AU_DD_MM_YYYY" as const : "ISO_8601" as const } : {}),
+      ...(field.negativePolicy === "FORBID" ? { minimum: "0" as const } : {}),
+      ...(field.unit !== "NONE" ? { sourceUnit: field.unit!, normalizedUnit: field.unit! } : {}) } as ColumnRuleV2;
+  });
+  const parsed = parseProfileDocument({ documentVersion: 2, schemaStatus: "ACTIVE", headerRowOneBased: 3, columnRules });
+  if (!parsed.ok || parsed.document.documentVersion !== 2 || !buildNormalizationPlan(parsed.document, columns.map(c => c.id)).ok) return { ok: false };
+  return { ok: true, review: evaluated.review, document: parsed.document };
 }
