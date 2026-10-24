@@ -65,6 +65,12 @@ CREATE INDEX idx_crm_contacts_org ON crm_contacts (organisation_id);
 -- LD Tennis' own contacts table: a sentinel that nothing in 2B.0 may touch.
 CREATE TABLE contacts (id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL, name TEXT, email TEXT);
 INSERT INTO contacts VALUES ('ld-1', 'ld-org', 'LD Sentinel', 'ld@example.test');
+-- audit_logs as production defines it: the enablement files read it to refuse removal while Scheduling audit entries exist.
+CREATE TABLE audit_logs (
+  id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+  user_id TEXT REFERENCES users(id), action TEXT NOT NULL, resource_type TEXT NOT NULL, resource_id TEXT,
+  before_state JSONB, after_state JSONB, ip_address TEXT, user_agent TEXT,
+  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP);
 SQL
 check $? "host tables created"
 psql_f "$REPO_ROOT/scripts/create-modules.sql" >/dev/null; check $? "scripts/create-modules.sql"
