@@ -263,6 +263,44 @@ practice. Observed facts:
 Eve deliberately adopts shorter, category-based retention and tighter access controls.
 No other platform's policy text is reused in Eve's public policy.
 
+### 4d. Owner risk acceptance — proceed without external legal review (2026-10-24)
+
+**Decision (owner/product, 2026-10-24):** external legal review is not financially
+practical at this stage. The owner accepts the risk of releasing on a conservative,
+staged basis, using the current OAIC-aligned design and industry benchmarking. This is an
+owner decision. It is **not** a claim that legal advice was obtained. No document, page,
+commit or report may say or imply that the wording was legally reviewed or approved. The
+review pack's questions remain unanswered.
+
+**Legal position in the text.** The Privacy Policy stays qualified. It says Eve aims to
+handle information in line with the APPs and the Privacy Act "to the extent [they] apply
+to us". It does not say Eve is bound by them. The platform/organiser responsibility model
+(§4c) is unchanged.
+
+**Controls retained in full.** All of these stay as they are:
+- Eve questions default OFF;
+- the four categories;
+- Manager/Admin/Super Admin-only answer access and tenant isolation;
+- no answers in CRM, emails, exports or marketing;
+- the separate unticked acknowledgements;
+- category snapshots and legal holds;
+- the internal retention timers;
+- retention enforcement report-only by default;
+- the finite backup/copy lifecycle.
+
+**First Production release scope:**
+- Ship the schema and code foundation. Every existing Production event stays opted
+  OUT, including LD Tennis and School Test, whose existing questions stay off on Eve.
+- Riverlights stays DRAFT and opted OUT.
+- The first question enabled on Eve is STANDARD only: "How did you hear about this
+  event?" (optional, per booking, single select), on a controlled test event.
+
+**Held (technically ready; separate owner approval required before first Production
+use):**
+- SENSITIVE questions (accessibility/health, dietary);
+- THIRD_PARTY questions (emergency contact);
+- CONSENT questions (photo/video).
+
 ## 5. Remaining limits (unchanged)
 
 - All legal text is DRAFT; operator name/ABN/address/state/retention/GST are

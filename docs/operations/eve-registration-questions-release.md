@@ -1,32 +1,34 @@
 # Eve registration questions — Production release runbook
 
-Status: NOT STARTED. PR #483 stays DRAFT until every gate below is signed off.
-Production schema changes go through the Neon SQL editor handoff (no `vercel env
-pull`, no scripted Production connection). Nothing here enables questions on any
-event.
+Status: IN PROGRESS (2026-10-24). Owner risk acceptance replaces external legal review
+(ADR 0013 §4d). Production schema changes go through the Neon SQL editor handoff (no
+`vercel env pull`, no scripted Production connection). The release itself enables
+questions on no existing event.
 
 ## Prerequisites before the Production migration (all required)
 
-- [ ] **Legal wording approved:** Privacy sections 2, 3, 4, 5 and 8, and the in-form notices, per
-      `docs/compliance/eve-registration-questions-legal-review-pack.md` (questions 1–6 answered).
-- [ ] **Copy-cleanup actions approved and executed**, enough to make "deleted information may remain
-      in our controlled backups for a limited period" true. At minimum: group A deleted, group B
-      decided by owners, and dates recorded for C/D in `docs/compliance/eve-production-data-copies.md`.
-      The operating standard must be adopted.
-- [ ] **Final category / consent wording settled:**
-      - the THIRD_PARTY confirmation wording;
-      - the CONSENT retention period (`RETENTION_POLICY.CONSENT` in `lib/events/answerRetention.ts`;
-        3 years is provisional, `afterEnd: null` = not removed automatically).
-- [ ] **Migration re-reviewed against the final legal decisions** (e.g. if advice changes a category
-      or adds a field, amend `scripts/add-eve-registration-questions.sql` before it is applied).
-- [ ] **Privacy "last updated" date prepared** for publication day (`LEGAL_LAST_UPDATED`), not set earlier.
+- [x] **Wording accepted by the owner WITHOUT external legal review** (2026-10-24, ADR 0013 §4d):
+      Privacy sections 2, 3, 4, 5 and 8, and the in-form notices. The questions in
+      `docs/compliance/eve-registration-questions-legal-review-pack.md` remain unanswered. Never
+      describe the wording as legally reviewed.
+- [x] **Data-copy state confirmed** in `docs/compliance/eve-production-data-copies.md`: group A deleted;
+      dates recorded for C/D. Group B owner decisions remain open, a residual risk the owner accepted.
+- [x] **First-release scope limited** (ADR 0013 §4d): every existing event stays opted out; the first
+      question enabled is STANDARD only, on a controlled test event. SENSITIVE, THIRD_PARTY and CONSENT
+      need separate owner approval before first Production use, so their wording and the provisional
+      CONSENT period (`RETENTION_POLICY.CONSENT`) are not relied on by this release.
+- [x] **Migration rehearsed** on the #483 Preview branch (a Production copy from 2026-10-23), with the
+      post-migration checks matching. The rerun was a no-op.
+- [ ] **Privacy "last updated" date** set to the publication (merge) day (`LEGAL_LAST_UPDATED`)
+      immediately before merge, not earlier.
 
 ## Gates (in order)
 
 1. Operator approves the retention/category model (done 2026-10-24, ADR 0013 §4b).
-2. **Legal review** of the Privacy Policy wording (sections 2, 3, 4, 5, 8 in
-   `apps/eve/content/legal.ts`, marked `LEGAL REVIEW REQUIRED`) and the in-form
-   notices (`apps/eve/components/buyer/BuyerBooking.tsx`, `QuestionField.tsx`).
+2. Owner risk acceptance of the Privacy Policy wording (sections 2, 3, 4, 5, 8 in
+   `apps/eve/content/legal.ts`) and the in-form notices
+   (`apps/eve/components/buyer/BuyerBooking.tsx`, `QuestionField.tsx`). Done 2026-10-24,
+   ADR 0013 §4d. No external legal review.
 3. Copies rule adopted and the approved cleanup done
    (`docs/compliance/eve-production-data-copies.md`).
 4. On publication day only: set `LEGAL_LAST_UPDATED` (`apps/eve/config/legal.ts`)
@@ -43,11 +45,22 @@ event.
 11. Both Production deployments Ready; smoke checks (below).
 12. Retention cron: first daily run is report-only (`EVE_ANSWER_RETENTION_ENFORCE`
     unset). Check its log line: expected `due=0 redacted=0`.
-13. Turn on enforcement (`EVE_ANSWER_RETENTION_ENFORCE=true`, exact string) as a
-    separate approved step — must be on before the first Eve answer could become
-    due, and before the Privacy wording is relied on.
-14. Separately, later, with its own approval: add the Riverlights questions and
-    switch "Ask these questions on Eve" on for Riverlights only.
+13. Retention enforcement stays report-only for this release
+    (`EVE_ANSWER_RETENTION_ENFORCE` unset). Turning it on (exact string `true`) is a
+    separate approved step; see 15.
+14. Controlled STANDARD proof (ADR 0013 §4d), on a safe test event, never Riverlights:
+    - one optional, per-booking, single-select STANDARD question, "How did you hear about
+      this event?";
+    - prove it renders on Eve, is optional, and is stored;
+    - prove Manager/Admin can see it and Viewer/Analyst cannot;
+    - prove there is no CRM, email or export copy;
+    - prove the retention report counts it but removes nothing;
+    - then switch the test event's opt-in off.
+15. Separately, later, each with its own owner approval:
+    - SENSITIVE / THIRD_PARTY / CONSENT questions in Production;
+    - Riverlights questions;
+    - turning on retention enforcement. This must be decided before the first answer
+      collected on Eve becomes due.
 
 ## Baseline (read-only) — values on 2026-10-23 for reference
 
@@ -59,6 +72,7 @@ SELECT (SELECT count(*) FROM events) AS events,
        (SELECT md5(string_agg(id || ':' || answer::text, ',' ORDER BY id)) FROM event_registration_responses) AS answers_md5,
        (SELECT md5(string_agg(id || ':' || label || ':' || field_type || ':' || required || ':' || active, ',' ORDER BY id)) FROM event_registration_questions) AS questions_md5;
 -- 2026-10-23: 6 | 41 | 6 | 14 | 2aeccf4f8c51a8afdcba1d77d88d6d3c | 460bea39ba500c494b2a8e3e47a96759
+-- 2026-10-24 11:27Z (release day, Production): 6 | 41 | 6 | 14 | 2aeccf4f8c51a8afdcba1d77d88d6d3c | 460bea39ba500c494b2a8e3e47a96759
 -- Re-run on release day; the post-migration check must equal THAT day's values.
 ```
 

@@ -260,7 +260,7 @@ describe('legal routes', () => {
     expect(all).not.toMatch(/separate agreement/i);
     expect(all).not.toMatch(/By using Eve you understand/i);
     const priv = PRIVACY.sections.flatMap(s => s.body).join(' ');
-    // Registration questions (ADR 0013 §4a/§4b) — wording PENDING LEGAL REVIEW.
+    // Registration questions (ADR 0013 §4a–§4d) — owner-accepted wording, no external legal review.
     expect(priv).not.toMatch(/does not currently ask registration questions/);
     expect(priv).toMatch(/your answers to any registration questions the Event Organiser asks for that event/);
     expect(priv).toMatch(/used to run that event/);

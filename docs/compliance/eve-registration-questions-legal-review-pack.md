@@ -1,6 +1,12 @@
 # Eve registration questions — legal / privacy review pack
 
-**Status:** FOR EXTERNAL LEGAL REVIEW · prepared 2026-10-24 · nothing in this pack is live.
+**Status (2026-10-24, owner decision):** external legal review was **not obtained**. It was
+not financially practical at this stage. The owner accepted the risk and approved a
+conservative, staged release (ADR 0013 §4d). This pack is kept as the record of the design
+and as the brief for any future review. Section E's questions remain **unanswered**:
+nothing here is legal advice.
+
+_Originally prepared 2026-10-24 for external legal review._
 The wording below is in draft PR #483 (not merged). Merging publishes the Privacy Policy
 text. The "last updated" date is **not** changed yet; it will be set on the actual
 publication day (the policy currently shows 22 October 2026).

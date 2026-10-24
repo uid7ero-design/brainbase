@@ -128,8 +128,9 @@ export const PRIVACY: LegalDoc = {
     {
       heading: '2. What we collect',
       body: [
-        // LEGAL REVIEW REQUIRED (registration questions, ADR 0013 §4a/§4b):
-        // the registration-question wording in sections 2, 3, 4, 5 and 8.
+        // Registration questions (ADR 0013 §4a–§4d): the wording in sections 2, 3,
+        // 4, 5 and 8 is accepted by the OWNER (2026-10-24) WITHOUT external legal
+        // review. Never describe it as legally reviewed or approved.
         'If you book a ticket: your name, email address and optional phone number; each attendee\'s name; any promotion or access code you enter; and your answers to any registration questions the Event Organiser asks for that event (see section 5).',
         'If you are an Event Organiser or team member: your username, a one-way hash of your password (never the password itself), your name, role, sign-in times and session records.',
         'When tickets are checked in: the time of check-in and the organiser staff member who recorded it.',
