@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { CreateOccurrenceResult, NewOccurrenceInput } from '@scheduling/core';
-import { PostgresReservationRepository, PostgresSchedulingConfigRepository, fromPgLike } from '@scheduling/postgres';
-import { FixedClock, closePool, count, ensureSchema, getPool, hasDatabase, resetData, runScript, seedOccurrence, seedOffering, seedResource, sqlFile, staff } from './support/pgHarness';
+import { PostgresSchedulingConfigRepository, fromPgLike } from '@scheduling/postgres';
+import { closePool, count, ensureSchema, getPool, hasDatabase, resetData, runScript, seedOccurrence, seedOffering, seedResource, sqlFile, staff } from './support/pgHarness';
 import { TZ, classBooking, makeWorld, type World } from './support/builders';
 
 // Occurrence creation against archive operations and the integrity rules (2B.3, migration 033).
@@ -13,7 +13,6 @@ import { TZ, classBooking, makeWorld, type World } from './support/builders';
 
 const ORG = 'org-oc';
 const OTHER = 'org-oc-2';
-const clock = new FixedClock();
 let w: World;
 
 const reasonOf = (r: CreateOccurrenceResult) => (r.ok ? 'ok' : r.reason);

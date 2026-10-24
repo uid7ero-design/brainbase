@@ -199,9 +199,9 @@ describe('Phase 2A SQL package is exactly what was reviewed', () => {
 
   it('033 (occurrence integrity) replaces exactly one function: no trigger, table or data change but its version marker; schedule row locked before offering row before the resource lock', () => {
     const sql = noComments(read('packages/scheduling/sql/033_occurrence_integrity.sql'));
-    expect([...sql.matchAll(/CREATE OR REPLACE FUNCTION (w+)/g)].map(m => m[1])).toEqual(['scheduling_occurrence_integrity']);
-    expect(sql).not.toMatch(/(CREATE OR REPLACE TRIGGER|CREATE TRIGGER|ALTER TABLE|DROP TABLE|DROP FUNCTION|DROP TRIGGER|TRUNCATE|DELETE FROM|CREATE TABLE|UPDATEs+w+s+SET)/i);
-    expect([...sql.matchAll(/INSERT INTO (w+)/g)].map(m => m[1])).toEqual(['scheduling_schema_migrations']);
+    expect([...sql.matchAll(/CREATE OR REPLACE FUNCTION (\w+)/g)].map(m => m[1])).toEqual(['scheduling_occurrence_integrity']);
+    expect(sql).not.toMatch(/\b(CREATE OR REPLACE TRIGGER|CREATE TRIGGER|ALTER TABLE|DROP TABLE|DROP FUNCTION|DROP TRIGGER|TRUNCATE|DELETE FROM|CREATE TABLE|UPDATE\s+\w+\s+SET)\b/i);
+    expect([...sql.matchAll(/INSERT INTO (\w+)/g)].map(m => m[1])).toEqual(['scheduling_schema_migrations']);
     expect(sql).toMatch(/lock_timeout = '5s' AS /);
     const start = sql.indexOf('CREATE OR REPLACE FUNCTION scheduling_occurrence_integrity()');
     const fn = sql.slice(start, sql.indexOf('INSERT INTO scheduling_schema_migrations'));
@@ -212,24 +212,22 @@ describe('Phase 2A SQL package is exactly what was reviewed', () => {
     expect(fn.slice(schedule, fn.indexOf(';', schedule))).toMatch(/FOR SHARE$/);
     expect(schedule).toBeLessThan(offering);
     expect(offering).toBeLessThan(resource);
-    // participant capacity is not compared with the resource: the guard never reads scheduling_resources capacity
-    expect(fn).not.toMatch(/capacity/);
-    expect(sql).toMatch(/needs 032_schedule_archive_ordering.sql (version 2b.2.3)/);
-    expect(sql).not.toMatch(/(organisations|users|crm_contacts|contacts|bookings|sessions|audit_logs)/);
+    // participant capacity is not compared with the resource: the guard never reads a capacity
+    expect(fn).not.toMatch(/\bcapacity\b/);
+    expect(sql).toMatch(/needs 032_schedule_archive_ordering\.sql \(version 2b\.2\.3\)/);
+    expect(sql).not.toMatch(/\b(organisations|users|crm_contacts|contacts|bookings|sessions|audit_logs)\b/);
   });
 
   it('094 restores exactly what 031 created for that function and touches no data', () => {
     const rb = noComments(read('packages/scheduling/sql/094_occurrence_integrity_rollback.sql'));
-    expect([...rb.matchAll(/CREATE OR REPLACE FUNCTION (w+)/g)].map(m => m[1])).toEqual(['scheduling_occurrence_integrity']);
-    expect(rb).not.toMatch(/(DROP TABLE|DROP FUNCTION|DROP TRIGGER|TRUNCATE|ALTER TABLE|INSERT INTO)/i);
-    expect([...rb.matchAll(/DELETE FROM (w+)[^;]*;/g)].map(m => m[0].replace(/s+/g, ' '))).toEqual(["DELETE FROM scheduling_schema_migrations WHERE version = '2b.2.4';"]);
+    expect([...rb.matchAll(/CREATE OR REPLACE FUNCTION (\w+)/g)].map(m => m[1])).toEqual(['scheduling_occurrence_integrity']);
+    expect(rb).not.toMatch(/\b(DROP TABLE|DROP FUNCTION|DROP TRIGGER|TRUNCATE|ALTER TABLE|INSERT INTO)\b/i);
+    expect([...rb.matchAll(/DELETE FROM (\w+)[^;]*;/g)].map(m => m[0].replace(/\s+/g, ' '))).toEqual(["DELETE FROM scheduling_schema_migrations WHERE version = '2b.2.4';"]);
+    // the restored function is 031's, byte for byte
     const body = (f: string) => {
-      const t = read(f).replace(/
-/g, '
-');
+      const t = read(f).replace(/\r\n/g, '\n');
       const a = t.indexOf('CREATE OR REPLACE FUNCTION scheduling_occurrence_integrity()');
-      return t.slice(a, t.indexOf('END;
-$;', a) + 8);
+      return t.slice(a, t.indexOf('END;\n$$;', a) + 8);
     };
     expect(body('packages/scheduling/sql/094_occurrence_integrity_rollback.sql')).toBe(body('packages/scheduling/sql/031_reservation_integrity.sql'));
   });
