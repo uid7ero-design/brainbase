@@ -33,7 +33,7 @@ PR states read from GitHub on 2026-10-24.
 | 4 | snap-odd-math-a7unns1t · c1-pre-production-migration-2026-09-04 | snapshot | 2026-09-04 | Commercial (C1) | yes | no — C1 migration verified long ago | **DELETED 2026-10-24** | n/a | **A** |
 | 5 | preview/fix/scheduling-reservation-integrity · br-withered-snow-a7xze8gz | Preview | 2026-10-23 | Scheduling | yes | — | **gone** — absent from the 2026-10-24 re-list; removed outside this cleanup | no | **B** |
 | 6 | preview/feat/scheduling-phase2b2c-dashboard · br-morning-tree-a7gshdt2 | Preview | 2026-10-23 | Scheduling | yes | — | **gone** — absent from the 2026-10-24 re-list; removed outside this cleanup | no | **B** |
-| 7 | preview/docs/scheduling-phase2b2-plan · br-still-mountain-a7p5p3qp | Preview | 2026-10-23 | Scheduling | yes | while PR #477 (draft) open | PR close, max 2026-11-06 | no | **B** |
+| 7 | preview/docs/scheduling-phase2b2-plan · br-still-mountain-a7p5p3qp | Preview | 2026-10-23 | Scheduling | yes | no — PR #477 **merged** 2026-10-24 | owner — now | no | **B** |
 | 8 | preview/docs/datahub-pilot-v2-mapping-proposal · br-royal-king-a75w342t | Preview | 2026-10-23 | Data Hub | yes | while PR #480 open | PR close, max 2026-11-06 | no | **B** |
 | 9 | preview/fix/crm-contact-duplicate-prevention · br-nameless-queen-a7h1dx3f | Preview | 2026-10-22 | CRM | yes | while PR #472 (draft) open | PR close, max 2026-11-05 | no | **B** |
 | 10 | preview/feat/scheduling-enablement-sql-settings · br-empty-thunder-a7vgbzga | Preview | 2026-10-23 | Scheduling | yes | while PR #476 (draft) open | PR close, max 2026-11-06 | no | **B** |
@@ -54,20 +54,18 @@ PR states read from GitHub on 2026-10-24.
 | 25 | migration-backup/scheduling-2b0-pre-20261023 · br-muddy-bread-a7wkhazl | migration backup | 2026-10-23 | Scheduling | yes | yes — rollback point | unprotect + delete 30 days after 2B.0 verified (≈2026-11-22) | **yes** | **D** |
 | 26 | vercel-dev · br-delicate-wind-a7ja54b8 (archived) | dev | 2026-09-04 | Platform (Vercel Development env) | yes | **investigate** — check whether the Vercel Development environment's DATABASE_URL still points here before deleting | after investigation | no | **D** |
 
-Created after the 2026-10-24 inventory and not yet grouped (Scheduling — owner to classify):
+| 30 | rehearse/scheduling-032-after-031-20261024 · br-muddy-mode-a724td4r | proof | 2026-10-24 | Scheduling | yes | yes — active 030/031/032 rehearsal, kept pending owner review | max 2026-10-31 (owner decision pending) | no | **B** |
 
-| # | Name / id | Type | Created | Parent | Note |
-|---|---|---|---|---|---|
-| 27 | preview/fix/scheduling-schedule-archive-race · br-sweet-waterfall-a7sgevio | Preview | 2026-10-23 | production | branch-scoped Vercel DATABASE_URL present |
-| 28 | rehearse/scheduling-030-031-20261024 · br-quiet-river-a7m9vn0v | rehearsal | 2026-10-23 | production | has child #29 |
-| 29 | rehearse/scheduling-030-031-rollback-copy-20261024 · br-bitter-recipe-a76cfqh7 | rehearsal | 2026-10-23 | **#28** (not production) | delete before #28 |
+#30: parent `production`, no children, no Vercel DB setting.
+
+#27–#29 were added on 2026-10-24 and were gone by the hold-phase re-list the same day. They are no longer active copies; see the cleanup log.
 
 Not a copy: `production` itself (kept).
 
 ### Groups and recommended batches
 
 - **A — safe to delete now (on approval): #1, #2, #3, #4.** Finished work with a merged or closed PR or a verified migration, and no other user. **Recommended first batch.**
-- **B — needs owner approval: #5–#19.** These belong to other workstreams' open, missing or unclear PRs, proofs or rollback points. Ask each owner. Anything already over 14 days old, or with no PR (#6, #11, #13–#16, #18, #19), should be deleted unless the owner gives a reason.
+- **B — needs owner approval: #5–#19 and #30.** These belong to other workstreams' open, missing or unclear PRs, proofs or rollback points. Ask each owner. Anything already over 14 days old, or with no PR (#6, #11, #13–#16, #18, #19), should be deleted unless the owner gives a reason.
 - **C — retain temporarily, with dates: #20–#23.** Live rollback points and the open PR #483 preview. Delete on the dates shown.
 - **D — protected or investigate: #24–#26.**
   - Protected migration backups must be unprotected on their date, then deleted.
@@ -128,27 +126,60 @@ Post-delete verification:
   - `production` present;
   - 20 non-production branches + 2 snapshots remain;
   - Groups C/D and the PR #483 Preview are untouched.
-- #5 and #6 had also disappeared, removed outside this cleanup. #27–#29 are new.
-- Also found: an orphan `DATABASE_URL_UNPOOLED` scoped Preview (test/c73c74-smoke-202609231055), 31 days old, with no matching Neon branch. Left unchanged.
+- #5 and #6 had also disappeared, removed outside this cleanup. #27–#29 were new at that point.
 
-### Group B — owner actions (2026-10-24; nothing deleted)
+### 2026-10-24 — hold-phase re-list (read-only; nothing deleted by this workstream)
 
-| # | Branch | Owner | PR | Age | Vercel Preview DATABASE_URL | Documented purpose | Recommended action |
-|---|---|---|---|---|---|---|---|
-| 5 | br-withered-snow-a7xze8gz | Scheduling | #484 merged 10-23 | — | none | — | already gone (no action) |
-| 6 | br-morning-tree-a7gshdt2 | Scheduling | #485 | — | none | — | already gone (no action) |
-| 7 | br-still-mountain-a7p5p3qp | Scheduling | #477 open draft | 1 d | yes | PR Preview | retain until PR close, max 2026-11-06 |
-| 8 | br-royal-king-a75w342t | Data Hub | #480 open | 1 d | yes | PR Preview | retain until PR close, max 2026-11-06 |
-| 9 | br-nameless-queen-a7h1dx3f | CRM | #472 open draft | 2 d | yes | PR Preview | retain until PR close, max 2026-11-05 |
-| 10 | br-empty-thunder-a7vgbzga | Scheduling | #476 open draft | 1 d | yes | PR Preview | retain until PR close, max 2026-11-06 |
-| 11 | br-floral-bird-a7dqcjx2 | Scheduling | none found | 2 d | yes | none | **investigate** — owner gives reason + expiry, else delete by 2026-11-05 |
-| 12 | br-floral-star-a70xop1v | LD Tennis | #462 open draft | 3 d | yes | PR Preview | retain until PR close, max 2026-11-04 |
-| 13 | br-lively-credit-a7e3yss6 | Assurance | #398 open | 17 d | yes | PR Preview, >14 d | owner gives reason + expiry, else **delete** |
-| 14 | br-nameless-frog-a7g3g75x | Assurance | proof for #398 | 17 d | none | proof, >7 d | owner gives reason + expiry, else **delete** |
-| 15 | br-solitary-mode-a7jz7sx6 | HR | none found | 18 d | yes | none, >14 d | **delete** unless the owner gives a reason |
-| 16 | br-lingering-darkness-a7bz59r6 | HR | none found (related #335 merged 10-05) | 19 d | yes | none, >14 d | **delete** unless the owner gives a reason |
-| 18 | br-solitary-voice-a7kc1tb1 | Data Hub | related #296 merged 09-29 | 18 d | none | proof, >7 d | **delete** unless the owner gives a reason |
-| 19 | br-sparkling-truth-a7j0qisk | Platform ops | n/a | 23 d | none | rollback, no documented hold | **investigate** — owner records a hold, else delete |
+Neon now has 19 non-production branches and 2 snapshots.
+
+Copies gone since the cleanup, all removed outside this workstream:
+
+| # | Item | What happened |
+|---|---|---|
+| 27 | preview/fix/scheduling-schedule-archive-race · br-sweet-waterfall-a7sgevio | Preview for PR #486. #486 merged 2026-10-24; the integration removed the branch and its Vercel DB settings. |
+| 28 | rehearse/scheduling-030-031-20261024 · br-quiet-river-a7m9vn0v | Deleted 2026-10-24 by the Scheduling workstream (owner brief). |
+| 29 | rehearse/scheduling-030-031-rollback-copy-20261024 · br-bitter-recipe-a76cfqh7 | Child of #28; deleted with it. The #28 → #29 dependency no longer applies. |
+
+Other changes:
+- PR #477 merged 2026-10-24. Its Vercel DB settings were removed; Neon branch #7 remains.
+- New: #30 `br-muddy-mode-a724td4r`.
+
+### Orphan configuration (no cleanup approved)
+
+The `brainbase` project has a Vercel Preview `DATABASE_URL_UNPOOLED` scoped to `test/c73c74-smoke-202609231055`:
+- Entry `orrMR0gyLnt6YCEJ`, managed by the Neon integration, created 2026-09-23.
+- There is **no matching Neon branch**.
+
+Facts:
+- The same scope also holds `COMMERCIAL_BLOB_STORE_ID` and `COMMERCIAL_BLOB_READ_WRITE_TOKEN` (sensitive, set by hand).
+- The stale git branch still exists on origin. Its tip `f7e5872a` is the #250 merge commit, so it holds no unique work; no PR.
+- One old READY Preview deployment exists (`dpl_5ARBUtKTA4tFkHJSLRbX9kCUXaZi`, 2026-09-23), plus one cancelled. None since.
+
+If cleanup is approved later:
+1. remove all three settings in that scope;
+2. then delete the git branch.
+
+### Group B — owner actions (re-read 2026-10-24; nothing deleted)
+
+Owner decision is **NOT GIVEN** for every row. Silence is not approval.
+
+| # | Branch | Owner | PR | Age | Vercel Preview DATABASE_URL | Documented purpose | Recommended action | Owner decision |
+|---|---|---|---|---|---|---|---|---|
+| 5 | br-withered-snow-a7xze8gz | Scheduling | #484 merged 10-23 | — | none | — | already gone (no action) | n/a |
+| 6 | br-morning-tree-a7gshdt2 | Scheduling | #485 | — | none | — | already gone (no action) | n/a |
+| 7 | br-still-mountain-a7p5p3qp | Scheduling | #477 merged 10-24 | 1 d | none (removed on merge) | none | **delete** | NOT GIVEN |
+| 8 | br-royal-king-a75w342t | Data Hub | #480 open | 1 d | yes | PR Preview | retain until PR close, max 2026-11-06 | NOT GIVEN |
+| 9 | br-nameless-queen-a7h1dx3f | CRM | #472 open draft | 2 d | yes | PR Preview | retain until PR close, max 2026-11-05 | NOT GIVEN |
+| 10 | br-empty-thunder-a7vgbzga | Scheduling | #476 open draft | 1 d | yes | PR Preview | retain until PR close, max 2026-11-06 | NOT GIVEN |
+| 11 | br-floral-bird-a7dqcjx2 | Scheduling | none found | 2 d | yes | none | **investigate** — owner gives reason + expiry, else delete by 2026-11-05 | NOT GIVEN |
+| 12 | br-floral-star-a70xop1v | LD Tennis | #462 open draft | 3 d | yes | PR Preview | retain until PR close, max 2026-11-04 | NOT GIVEN |
+| 13 | br-lively-credit-a7e3yss6 | Assurance | #398 open, idle since 10-07 | 17 d | yes | PR Preview, >14 d | owner gives reason + expiry, else **delete** | NOT GIVEN |
+| 14 | br-nameless-frog-a7g3g75x | Assurance | proof for #398 | 17 d | none | proof, >7 d | owner gives reason + expiry, else **delete** | NOT GIVEN |
+| 15 | br-solitary-mode-a7jz7sx6 | HR | none found | 18 d | yes | none, >14 d | **delete** unless the owner gives a reason | NOT GIVEN |
+| 16 | br-lingering-darkness-a7bz59r6 | HR | none found (related #335 merged 10-05) | 19 d | yes | none, >14 d | **delete** unless the owner gives a reason | NOT GIVEN |
+| 18 | br-solitary-voice-a7kc1tb1 | Data Hub | related #296 merged 09-29 | 18 d | none | proof, >7 d | **delete** unless the owner gives a reason | NOT GIVEN |
+| 19 | br-sparkling-truth-a7j0qisk | Platform ops | rollback for the 2026-10-01 credential rotation | 23 d | none | rollback, no documented hold | **investigate** — owner records a hold, else delete | NOT GIVEN |
+| 30 | br-muddy-mode-a724td4r | Scheduling | 030/031/032 rehearsal (#486 merged 10-24) | 0 d | none | active proof | retain through 2026-10-31 max, then delete | NOT GIVEN |
 
 Where a Preview row has an env var, remove the branch-scoped var (or the git branch) in the same step as the Neon delete.
 
