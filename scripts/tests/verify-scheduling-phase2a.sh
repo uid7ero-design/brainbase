@@ -102,9 +102,16 @@ run_suites contract exclusive appointments concurrency contention configEditing 
 step "5a. 032 (schedule archive ordering), applied twice on top of 031, then the suites that need it"
 psql_c < "$SQL_DIR/032_schedule_archive_ordering.sql" >/dev/null; check $? "032 first apply"
 psql_c < "$SQL_DIR/032_schedule_archive_ordering.sql" >/dev/null; check $? "032 second apply (idempotent)"
-run_suites scheduleArchiveRace repositories
 
-step "5b. 032 rollback (093), 031 rollback (092), then 030 rollback (091) on a database that holds data, then re-apply all three"
+step "5a2. 033 (occurrence integrity), applied twice on top of 032, then the suites that need it"
+psql_c < "$SQL_DIR/033_occurrence_integrity.sql" >/dev/null; check $? "033 first apply"
+psql_c < "$SQL_DIR/033_occurrence_integrity.sql" >/dev/null; check $? "033 second apply (idempotent)"
+run_suites scheduleArchiveRace occurrenceIntegrity repositories
+
+step "5b. 033 rollback (094), 032 rollback (093), 031 rollback (092), then 030 rollback (091) on a database that holds data, then re-apply all four"
+psql_c < "$SQL_DIR/094_occurrence_integrity_rollback.sql" >/dev/null; check $? "094 rollback (no data touched)"
+[ "$(docker exec "$NAME" psql -U postgres -Atc "select count(*) from scheduling_schema_migrations where version = '2b.2.4'")" = "0" ]; check $? "094 removed the 2b.2.4 marker"
+psql_c < "$SQL_DIR/094_occurrence_integrity_rollback.sql" >/dev/null; check $? "094 second run (idempotent)"
 psql_c < "$SQL_DIR/093_schedule_archive_ordering_rollback.sql" >/dev/null; check $? "093 rollback (no data touched)"
 [ "$(docker exec "$NAME" psql -U postgres -Atc "select count(*) from scheduling_schema_migrations where version = '2b.2.3'")" = "0" ]; check $? "093 removed the 2b.2.3 marker"
 psql_c < "$SQL_DIR/093_schedule_archive_ordering_rollback.sql" >/dev/null; check $? "093 second run (idempotent)"
@@ -117,6 +124,7 @@ psql_c < "$SQL_DIR/091_resource_concurrency_rollback.sql" >/dev/null; check $? "
 psql_c < "$SQL_DIR/030_resource_concurrency.sql" >/dev/null; check $? "030 re-apply after 091"
 psql_c < "$SQL_DIR/031_reservation_integrity.sql" >/dev/null; check $? "031 re-apply after 092"
 psql_c < "$SQL_DIR/032_schedule_archive_ordering.sql" >/dev/null; check $? "032 re-apply after 093"
+psql_c < "$SQL_DIR/033_occurrence_integrity.sql" >/dev/null; check $? "033 re-apply after 094"
 
 step "6. rollback of the shared migration, then clean re-apply"
 # The suites leave rows behind. First show the data guard REFUSES, then clear the test data and roll back.

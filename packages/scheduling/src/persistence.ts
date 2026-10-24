@@ -115,9 +115,17 @@ export interface NewOccurrenceInput {
   capacity: number;
 }
 
+/**
+ * The presets whose offerings may have dated occurrences written in this release. Enforced in the shared persistence layer
+ * (createOccurrence), not only in a UI. event_capacity (a headcount preset too) is deliberately NOT listed: it stays
+ * closed until its own design, kept apart from the Eve ticketing product (docs/architecture/scheduling-occurrence-integrity.md).
+ * A preset's schedule cannot change once it has offerings, so an offering's eligibility cannot change under a writer.
+ */
+export const OCCURRENCE_WRITING_PRESETS: readonly string[] = ['classes_coaching'];
+
 export type CreateOccurrenceResult =
   | { ok: true; occurrence: StoredOccurrence }
-  | { ok: false; reason: 'resource_conflict' | 'duplicate_occurrence' | 'not_found' | 'offering_unavailable' };
+  | { ok: false; reason: 'resource_conflict' | 'duplicate_occurrence' | 'not_found' | 'offering_unavailable' | 'preset_not_supported' };
 
 export interface StoredOccurrence extends Occurrence {
   resourceId: string | null;
