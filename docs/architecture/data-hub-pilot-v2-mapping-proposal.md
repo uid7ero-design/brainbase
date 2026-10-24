@@ -83,4 +83,3 @@ If a newly activated mapping is wrong, stop new preparation and restore only the
 ## Completion boundary
 
 PR #458's application release is separate from this configuration approval. Hosted checks with a separately owned synthetic v2 fixture establish application/transport behavior only. They do not approve the pilot matrix or certify its real formats, units, larger workloads or all fourteen worksheets. The pilot remains blocked for normalization until confirmed v2 mappings are installed and the fresh pilot acceptance passes.
-
