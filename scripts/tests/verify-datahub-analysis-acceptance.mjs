@@ -53,7 +53,9 @@ try {
   const migrationBlob = git('hash-object', 'scripts/create-datahub-analysis-reviews.sql');
   if (migrationBlob !== D4D5Q_BLOB) throw new Error('MIGRATION_CONTENT_CHANGED');
   stage = 'optimized-build';
-  await run(process.execPath, [resolve(root, 'node_modules/next/dist/bin/next'), 'build', '--webpack']);
+  // Match package.json/Vercel's default Next.js build mode. The historical
+  // Webpack override generates a different route validator on Next.js 16.
+  await run(process.execPath, [resolve(root, 'node_modules/next/dist/bin/next'), 'build']);
   const buildId = readFileSync(resolve(root, '.next/BUILD_ID'), 'utf8').trim();
   stage = 'owned-postgres-browser';
   const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';

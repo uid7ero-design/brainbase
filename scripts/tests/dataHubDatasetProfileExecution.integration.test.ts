@@ -122,8 +122,22 @@ afterAll(async () => {
       worlds.push({ ...ids, rawRunId: upload.raw_staging_run_id, normRunId: upload.normalization_run_id,
         datasetProfileRunId: profiled.profileRunId, held, wide });
     }
+    // Queue fixtures stop after genuine raw staging. The built browser must
+    // perform normalization and profiling itself, without setup-time storage.
+    const queueWorlds = [];
+    for (let index = 0; index < 2; index++) {
+      const suffix = nextSuffix("browserqueue");
+      const ids = await seedWorld(suffix, ORG_A, [
+        { id: `${suffix}-r1`, sourceRowNumber: 4, col1: "ID-1", col2: "0", col3: "2024-01-01", col4: "first" },
+        { id: `${suffix}-r2`, sourceRowNumber: 5, col1: "ID-2", col2: null, col3: "2024-01-02", col4: "second" },
+      ], { rawOnly: true, workbook: true });
+      if ((await stageWorkbookFixture(ids)).status !== 200) throw new Error("queue fixture staging failed");
+      const upload = await prisma.upload.findUniqueOrThrow({ where: { id: ids.uploadId } });
+      if (!upload.raw_staging_run_id || upload.normalization_run_id || upload.dataset_profile_run_id) throw new Error("queue fixture must start raw-only");
+      queueWorlds.push({ ...ids, rawRunId: upload.raw_staging_run_id });
+    }
     mkdirSync("test-results/datahub-runtime", { recursive: true });
-    writeFileSync("test-results/datahub-runtime/fixture.json", JSON.stringify({ worlds, password }));
+    writeFileSync("test-results/datahub-runtime/fixture.json", JSON.stringify({ worlds, queueWorlds, password }));
   }
   // The analysis service uses the real application Prisma client as well.
   const { prisma: analysisPrisma } = await import("@/lib/prisma");
@@ -560,6 +574,65 @@ describe("Workbook lifecycle gates and recovery", () => {
 // ═══════════════════════════════════════════════════════════════════════
 // A. HAPPY PATH
 // ═══════════════════════════════════════════════════════════════════════
+
+describe("Guided preparation profile HTTP lifecycle with real Postgres", () => {
+  async function fixture(org = ORG_A) {
+    const suffix = nextSuffix("guided-profile");
+    return seedWorld(suffix, org, [
+      { id: `${suffix}-r1`, sourceRowNumber: 4, col1: "0001", col2: "0", col3: "2024-01-01", col4: "first" },
+      { id: `${suffix}-r2`, sourceRowNumber: 6, col1: "0002", col2: null, col3: "2024-01-02", col4: "second" },
+    ]);
+  }
+  it("reads status without work, profiles once and reuses its authoritative pointer", async () => {
+    const ids = await fixture(); await signFixtureSession(ids);
+    const route = await import("@/app/api/data-hub/worksheets/[id]/profile/route");
+    const context = { params: Promise.resolve({ id: ids.uploadId }) };
+    const get = () => route.GET(new Request("http://localhost/profile"), context);
+    const post = () => route.POST(new Request("http://localhost/profile", { method: "POST" }), context);
+    expect(await (await get()).json()).toEqual({ ok: true, status: "NOT_STARTED" });
+    expect(await prisma.dataHubDatasetProfileRun.count({ where: { upload_id: ids.uploadId } })).toBe(0);
+    const first = await post(); expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({ ok: true, status: "SUCCEEDED", rowCount: 2, columnCount: 4 });
+    const before = await prisma.upload.findUniqueOrThrow({ where: { id: ids.uploadId } });
+    expect(before.profiled_by).toBe(ids.userId);
+    const stage = await import("@/app/api/data-hub/worksheets/[id]/stage/route");
+    const normalize = await import("@/app/api/data-hub/worksheets/[id]/normalize/route");
+    const { NextRequest } = await import("next/server");
+    const statuses = await Promise.all([stage.GET(new NextRequest("http://localhost/stage"), context),
+      normalize.GET(new NextRequest("http://localhost/normalize"), context), get()]);
+    for (const response of statuses) {
+      expect(response.status).toBe(200); expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(await response.json()).toMatchObject({ ok: true, status: "SUCCEEDED", rowCount: 2 });
+    }
+    expect((await post()).status).toBe(200); expect(await (await get()).json()).toEqual({ ok: true, status: "SUCCEEDED", rowCount: 2, columnCount: 4 });
+    expect(await prisma.upload.findUniqueOrThrow({ where: { id: ids.uploadId } })).toEqual(before);
+    expect(await prisma.dataHubDatasetProfileRun.count({ where: { upload_id: ids.uploadId } })).toBe(1);
+    expect(await prisma.dataHubAnalysisReview.count({ where: { upload_id: ids.uploadId } })).toBe(0);
+  });
+  it("hides foreign and missing worksheets from both status and execution", async () => {
+    const ids = await fixture(), other = await fixture(ORG_B);
+    await signFixtureSession({ userId: other.userId, organisationId: ORG_B });
+    const route = await import("@/app/api/data-hub/worksheets/[id]/profile/route");
+    for (const id of [ids.uploadId, "missing-worksheet"]) {
+      const context = { params: Promise.resolve({ id }) };
+      expect((await route.GET(new Request("http://localhost/profile"), context)).status).toBe(404);
+      expect((await route.POST(new Request("http://localhost/profile", { method: "POST" }), context)).status).toBe(404);
+    }
+    expect(await prisma.dataHubDatasetProfileRun.count({ where: { upload_id: ids.uploadId } })).toBe(0);
+  });
+  it("rejects injected evidence, live role demotion and inactive accounts", async () => {
+    const ids = await fixture(); await signFixtureSession(ids);
+    const route = await import("@/app/api/data-hub/worksheets/[id]/profile/route");
+    const context = { params: Promise.resolve({ id: ids.uploadId }) };
+    expect((await route.POST(new Request("http://localhost/profile", { method: "POST", body: JSON.stringify({ organisationId: ORG_B, normalizationRunId: ids.normRunId }) }), context)).status).toBe(400);
+    await prisma.user.update({ where: { id: ids.userId }, data: { role: "VIEWER" } });
+    expect((await route.POST(new Request("http://localhost/profile", { method: "POST" }), context)).status).toBe(403);
+    await prisma.user.update({ where: { id: ids.userId }, data: { role: "MANAGER", status: "INACTIVE" } });
+    expect((await route.GET(new Request("http://localhost/profile"), context)).status).toBe(401);
+    expect(await prisma.dataHubDatasetProfileRun.count({ where: { upload_id: ids.uploadId } })).toBe(0);
+    routeSessionToken = undefined;
+  });
+});
 
 describe("A. happy path", () => {
   it("creates exactly one RUNNING attempt, runs D4D1A, persists columns/stats exactly, completes, sets the Upload pointer", async () => {
@@ -1305,6 +1378,105 @@ describe("D4D5Q durable analysis review foundation", () => {
       .toEqual({ ok: false, code: "UPLOAD_NOT_FOUND" });
     await insertReview(f, { revision: 2, decisions: [] });
     expect(await loadAnalysisReview(f.scope)).toMatchObject({ ok: false });
+  });
+  it("workbook review status uses current signed scope and latest matching decisions without writing history", async () => {
+    const f = await countWorld();
+    const { GET } = await import("@/app/api/data-hub/worksheets/[id]/analysis-status/route");
+    const context = { params: Promise.resolve({ id: f.ids.uploadId }) }, request = () => new Request("http://localhost/status");
+    await signFixtureSession({ userId: f.ids.userId, organisationId: ORG_A });
+    const absent = await GET(request(), context);
+    expect(absent.status).toBe(200); expect(await absent.json()).toEqual({ ok: true, status: { statusVersion: "v1", uploadId: f.ids.uploadId, state: "REVIEW_REQUIRED" } });
+    await insertReview(f);
+    const before = await prisma.dataHubAnalysisReview.findMany({ where: { upload_id: f.ids.uploadId } });
+    const observed = await GET(request(), context);
+    expect(observed.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(await observed.json()).toEqual({ ok: true, status: { statusVersion: "v1", uploadId: f.ids.uploadId,
+      state: "REVIEWED_WITH_NOTICES", datasetProfileRunId: f.context.datasetProfileRunId, reviewRevision: 1 } });
+    expect(await prisma.dataHubAnalysisReview.findMany({ where: { upload_id: f.ids.uploadId } })).toEqual(before);
+    await insertReview(f, { revision: 2, decisions: [] });
+    const invalid = await GET(request(), context);
+    expect(invalid.status).toBe(503); expect(await invalid.json()).toEqual({ ok: false, code: "REVIEW_STATUS_UNAVAILABLE" });
+    const unprofiled = await seedWorld(nextSuffix("reviewstatusunprofiled"), ORG_A, []);
+    const pending = await GET(request(), { params: Promise.resolve({ id: unprofiled.uploadId }) });
+    expect(await pending.json()).toEqual({ ok: true, status: { statusVersion: "v1", uploadId: unprofiled.uploadId, state: "PREPARATION_REQUIRED" } });
+    await signFixtureSession({ userId: "user-b-reviewstatus", organisationId: ORG_B });
+    // Session identity must exist in the current database, as in the other route proofs.
+    await prisma.$executeRawUnsafe("INSERT INTO users (id, organisation_id, username, email, name, password_hash, role, updated_at) VALUES ('user-b-reviewstatus',$1,'user-b-reviewstatus','reviewstatus@x.com','Other','x','MANAGER',now())", ORG_B);
+    const foreign = await GET(request(), context);
+    expect(foreign.status).toBe(404); expect(await foreign.json()).toEqual({ ok: false, code: "UPLOAD_NOT_FOUND" });
+    routeSessionToken = undefined;
+    expect((await GET(request(), context)).status).toBe(401);
+  });
+  it("review history pages and compares signed current-profile decisions without rewriting history", async () => {
+    const f = await countWorld();
+    const history = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/route");
+    const compare = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/compare/route");
+    const detail = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/detail/route");
+    for (let revision = 1; revision <= 12; revision++) await insertReview(f, { revision, choices: [
+      { sourceSchemaColumnId: f.ids.col1, role: revision === 1 ? "IDENTIFIER" : "RECORD_KEY" }, { sourceSchemaColumnId: f.ids.col2, role: "MEASURE" },
+    ] });
+    await signFixtureSession({ userId: f.ids.userId, organisationId: ORG_A });
+    const params = { params: Promise.resolve({ id: f.ids.uploadId }) };
+    const search = new URLSearchParams({ historyVersion: "v1", datasetProfileRunId: f.context.datasetProfileRunId, expectedReviewRevision: "12" });
+    const before = await prisma.dataHubAnalysisReview.findMany({ where: { upload_id: f.ids.uploadId }, orderBy: { revision: "desc" } });
+    const first = await history.GET(new Request(`http://localhost/history?${search}`), params);
+    expect(first.status).toBe(200); expect(first.headers.get("Cache-Control")).toBe("private, no-store");
+    const page = await first.json(); expect(page.history.entries.map((entry: { revision: number }) => entry.revision)).toEqual([12,11,10,9,8,7,6,5,4,3]);
+    expect(page.history.nextBeforeRevision).toBe(3);
+    expect(JSON.stringify(page)).not.toMatch(/reviewed_by|reviewed_at|semantic_choices|quality_decisions|rowCount|nonNullCount/);
+    const older = await history.GET(new Request(`http://localhost/history?${search}&beforeRevision=3`), params);
+    expect((await older.json()).history.entries.map((entry: { revision: number }) => entry.revision)).toEqual([2, 1]);
+    const changed = await compare.GET(new Request(`http://localhost/history/compare?${search}&baselineRevision=1`), params);
+    expect(changed.status).toBe(200); expect(changed.headers.get("Cache-Control")).toBe("private, no-store");
+    expect((await changed.json()).comparison).toMatchObject({ baselineRevision: 1, currentReviewRevision: 12,
+      semanticChanges: [{ sourceSchemaColumnId: f.ids.col1, fromRole: "IDENTIFIER", toRole: "RECORD_KEY" }], qualityChanges: [] });
+    for (const revision of [1, 12]) {
+      const response = await detail.GET(new Request(`http://localhost/history/detail?${search}&revision=${revision}`), params);
+      expect(response.status).toBe(200); expect(response.headers.get("cache-control")).toBe("private, no-store");
+      const body = await response.json();
+      expect(body.detail).toMatchObject({ detailVersion: "v1", context: f.context, revision, currentReviewRevision: 12,
+        semanticChoices: [{ sourceSchemaColumnId: f.ids.col1, role: revision === 1 ? "IDENTIFIER" : "RECORD_KEY" }, { sourceSchemaColumnId: f.ids.col2, role: "MEASURE" }] });
+      expect(Object.keys(body.detail).sort()).toEqual(["detailVersion", "context", "revision", "currentReviewRevision", "semanticChoices", "qualityDecisions"].sort());
+      expect(JSON.stringify(body)).not.toMatch(/reviewed_by|reviewed_at|rowCount|nonNullCount|rawValue/);
+    }
+    expect(await prisma.dataHubAnalysisReview.findMany({ where: { upload_id: f.ids.uploadId }, orderBy: { revision: "desc" } })).toEqual(before);
+    await insertReview(f, { revision: 13 });
+    const stale = await history.GET(new Request(`http://localhost/history?${search}`), params);
+    expect(stale.status).toBe(409); expect(await stale.json()).toEqual({ ok: false, code: "REVIEW_REVISION_MISMATCH" });
+    expect((await detail.GET(new Request(`http://localhost/history/detail?${search}&revision=1`), params)).status).toBe(409);
+    const wrongProfile = new URLSearchParams(search); wrongProfile.set("datasetProfileRunId", "obsolete-profile");
+    expect((await history.GET(new Request(`http://localhost/history?${wrongProfile}`), params)).status).toBe(409);
+    expect((await detail.GET(new Request(`http://localhost/history/detail?${wrongProfile}&revision=1`), params)).status).toBe(409);
+  });
+  it.each(["latest", "historical"])("history never falls back from invalid %s saved decisions", async which => {
+    const f = await countWorld(); await insertReview(f, { decisions: which === "historical" ? [] : undefined });
+    await insertReview(f, { revision: 2, decisions: which === "latest" ? [] : undefined });
+    await signFixtureSession({ userId: f.ids.userId, organisationId: ORG_A });
+    const history = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/route");
+    const compare = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/compare/route");
+    const detail = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/detail/route");
+    const search = new URLSearchParams({ historyVersion: "v1", datasetProfileRunId: f.context.datasetProfileRunId, expectedReviewRevision: "2" });
+    const params = { params: Promise.resolve({ id: f.ids.uploadId }) };
+    for (const response of [await history.GET(new Request(`http://localhost/history?${search}`), params),
+      await compare.GET(new Request(`http://localhost/compare?${search}&baselineRevision=1`), params),
+      await detail.GET(new Request(`http://localhost/detail?${search}&revision=1`), params)]) {
+      expect(response.status).toBe(503); expect(await response.json()).toEqual({ ok: false, code: "REVIEW_RECORD_INVALID" });
+    }
+  });
+  it.each(["history", "detail"])("%s rechecks live manager and organization scope before revealing any revisions", async kind => {
+    const f = await countWorld(); await insertReview(f);
+    const { GET } = kind === "history" ? await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/route") : await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/detail/route");
+    const search = new URLSearchParams({ historyVersion: "v1", datasetProfileRunId: f.context.datasetProfileRunId, expectedReviewRevision: "1" });
+    if (kind === "detail") search.set("revision", "1");
+    const request = () => new Request(`http://localhost/history?${search}`), params = { params: Promise.resolve({ id: f.ids.uploadId }) };
+    await signFixtureSession({ userId: f.ids.userId, organisationId: ORG_A }); expect((await GET(request(), params)).status).toBe(200);
+    try {
+      await prisma.user.update({ where: { id: f.ids.userId }, data: { role: "VIEWER" } }); expect((await GET(request(), params)).status).toBe(403);
+      await prisma.user.update({ where: { id: f.ids.userId }, data: { role: "MANAGER", organisation_id: ORG_B } }); expect((await GET(request(), params)).status).toBe(401);
+      await signFixtureSession({ userId: f.ids.userId, organisationId: ORG_B });
+      const foreign = await GET(request(), params); expect(foreign.status).toBe(404); expect(await foreign.json()).toEqual({ ok: false, code: "UPLOAD_NOT_FOUND" });
+      routeSessionToken = undefined; expect((await GET(new Request("http://localhost/history?invalid=1"), params)).status).toBe(401);
+    } finally { await prisma.user.update({ where: { id: f.ids.userId }, data: { role: "MANAGER", organisation_id: ORG_A } }); }
   });
   it("D4D5T saves recomputed reviews and rejects invalid actors, stale pins and incomplete decisions", async () => {
     const f = await countWorld();

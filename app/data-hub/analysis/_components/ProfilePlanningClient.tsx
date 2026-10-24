@@ -1,16 +1,16 @@
 // Inherits the client boundary of AnalysisReviewClient; never imports server I/O.
 import { useEffect, useRef, useState } from "react";
-import type { LoadAnalysisReviewResult } from "@/lib/data-hub/analysisExecution/loadAnalysisReview";
+import type { SessionReview } from "@/lib/data-hub/client/reviewSession";
 import { parsePlanningSelectionJson, type PlanningSelectionResponse } from "@/lib/data-hub/analysis/planningExchange";
 import { MAX_PLANNING_PAGE_MEASURES, parsePlanningCatalogPageJson, type PlanningCatalogPage } from "@/lib/data-hub/analysis/planningCatalogPage";
 import { analysisFailureReference } from "@/lib/data-hub/analysis/failureReference";
 import { fetchPlanningText } from "@/lib/data-hub/client/planningTransport";
 
-type Review = Extract<LoadAnalysisReviewResult, { ok: true }>;
+type Review = SessionReview;
 type Props = { uploadId: string; review: Review; fieldLabels: { sourceSchemaColumnId: string; label: string }[];
-  disabled: boolean; onBusyChange: (busy: boolean) => void };
+  disabled: boolean; onBusyChange: (busy: boolean) => void; onScopeLoss?: (code: string) => void };
 
-export default function ProfilePlanningClient({ uploadId, review, fieldLabels, disabled, onBusyChange }: Props) {
+export default function ProfilePlanningClient({ uploadId, review, fieldLabels, disabled, onBusyChange, onScopeLoss }: Props) {
   const [catalog, setCatalog] = useState<PlanningCatalogPage | null>(null);
   const [ids, setIds] = useState<string[]>([]);
   const [rows, setRows] = useState(true);
@@ -33,7 +33,9 @@ export default function ProfilePlanningClient({ uploadId, review, fieldLabels, d
   const locked = disabled || busy;
   const held = review.quality.snapshot.state === "HOLD_FOR_REMEDIATION";
   function clearFailure(code: unknown) {
-    setCatalog(null); setPlans(null); setIds([]); setRows(true); setError(analysisFailureReference(code));
+    const reference = analysisFailureReference(code);
+    setCatalog(null); setPlans(null); setIds([]); setRows(true); setError(reference);
+    if (["UNAUTHORIZED", "FORBIDDEN", "UPLOAD_NOT_FOUND"].includes(reference)) onScopeLoss?.(reference);
   }
   async function request(kind: "catalog" | "selection" | "page", offset = 0) {
     if (kind === "page" && !catalog) return;

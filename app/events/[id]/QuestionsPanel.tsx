@@ -27,27 +27,55 @@ const SCOPES = ['ORDER', 'ATTENDEE'] as const;
 type Scope = typeof SCOPES[number];
 const SCOPE_LABELS: Record<Scope, string> = { ORDER: 'Once per booking', ATTENDEE: 'Once per attendee' };
 
+// ADR 0013 §4b — what kind of information a question collects. Drives the
+// buyer notice, explicit agreement on Eve (SENSITIVE, THIRD_PARTY), staff
+// labels and how long answers are kept.
+const DATA_CATEGORIES = ['STANDARD', 'SENSITIVE', 'THIRD_PARTY', 'CONSENT'] as const;
+type DataCategory = typeof DATA_CATEGORIES[number];
+const CATEGORY_LABELS: Record<DataCategory, string> = {
+  STANDARD: 'Standard — kept 12 months after the event',
+  SENSITIVE: 'Sensitive (health, disability, accessibility) — kept 30 days after the event',
+  THIRD_PARTY: 'Another person’s details (e.g. emergency contact) — kept 7 days after the event',
+  CONSENT: 'Consent record (e.g. photo consent) — kept 3 years after the event',
+};
+const CATEGORY_BADGE: Partial<Record<DataCategory, string>> = { SENSITIVE: 'Sensitive', THIRD_PARTY: 'Third party', CONSENT: 'Consent' };
+
 type QuestionRow = {
   id: string; label: string; help_text: string | null; field_type: FieldType; required: boolean;
   scope: Scope; options: string[] | null; sort_order: number; active: boolean;
+  data_category: DataCategory; template_key: string | null;
+  // manager+ only (absent for viewers). > 0 locks type and scope.
+  response_count?: number;
 };
 
-// §4 — sensible starter examples, offered as a shortcut that still
-// goes through the normal create form (never auto-created for every
-// event — see that route's own header comment). Never LD-Tennis or any
-// other organisation-specific wording; these are generic enough to be
-// reusable across any BrainBase organisation running events.
-const COMMON_QUESTIONS: { label: string; field_type: FieldType; scope: Scope }[] = [
-  { label: 'Dietary requirements', field_type: 'LONG_TEXT', scope: 'ATTENDEE' },
-  { label: 'Accessibility or support requirements', field_type: 'LONG_TEXT', scope: 'ATTENDEE' },
-  { label: 'Special requests or anything else we should know?', field_type: 'LONG_TEXT', scope: 'ORDER' },
+// §4 — built-in starter questions, offered as a shortcut that still goes
+// through the normal create form (never auto-created). Mirrors
+// QUESTION_TEMPLATES in lib/events/registrationQuestions.ts, which is
+// authoritative: a template in a protected category (SENSITIVE,
+// THIRD_PARTY, CONSENT) keeps that category — the server refuses a change.
+type Template = { key: string; label: string; field_type: FieldType; scope: Scope; data_category: DataCategory; options?: string[] };
+const COMMON_QUESTIONS: Template[] = [
+  { key: 'DIETARY', label: 'Dietary requirements', field_type: 'LONG_TEXT', scope: 'ATTENDEE', data_category: 'SENSITIVE' },
+  { key: 'ACCESSIBILITY', label: 'Accessibility or support requirements', field_type: 'LONG_TEXT', scope: 'ATTENDEE', data_category: 'SENSITIVE' },
+  { key: 'SPECIAL_REQUESTS', label: 'Special requests or anything else we should know?', field_type: 'LONG_TEXT', scope: 'ORDER', data_category: 'STANDARD' },
+  { key: 'EMERGENCY_CONTACT_NAME', label: 'Emergency contact name', field_type: 'SHORT_TEXT', scope: 'ORDER', data_category: 'THIRD_PARTY' },
+  { key: 'EMERGENCY_CONTACT_PHONE', label: 'Emergency contact phone number', field_type: 'SHORT_TEXT', scope: 'ORDER', data_category: 'THIRD_PARTY' },
+  { key: 'PHOTO_CONSENT', label: 'Consent to event photography/videography', field_type: 'YES_NO', scope: 'ATTENDEE', data_category: 'CONSENT' },
+  { key: 'HOW_DID_YOU_HEAR', label: 'How did you hear about this event?', field_type: 'SINGLE_SELECT', scope: 'ORDER', data_category: 'STANDARD', options: ['Social media', 'Friend or family', 'Search engine', 'Poster or flyer', 'Radio', 'Other'] },
 ];
+const PROTECTED: readonly DataCategory[] = ['SENSITIVE', 'THIRD_PARTY', 'CONSENT'];
+const lockedCategory = (templateKey: string | null | undefined): DataCategory | null => {
+  const t = COMMON_QUESTIONS.find(c => c.key === templateKey);
+  return t && PROTECTED.includes(t.data_category) ? t.data_category : null;
+};
 
 export default function QuestionsPanel({ eventId, canManage }: { eventId: string; canManage: boolean }) {
   const [questions, setQuestions] = useState<QuestionRow[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [createTemplate, setCreateTemplate] = useState<{ label: string; field_type: FieldType; scope: Scope } | null>(null);
+  const [createTemplate, setCreateTemplate] = useState<Template | null>(null);
+  const [eveEnabled, setEveEnabled] = useState<boolean | null>(null);
+  const [eveBusy, setEveBusy] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -72,7 +100,7 @@ export default function QuestionsPanel({ eventId, canManage }: { eventId: string
           return;
         }
         const body = await res.json();
-        if (!cancelled) setQuestions(body.questions ?? []);
+        if (!cancelled) { setQuestions(body.questions ?? []); setEveEnabled(body.eve_questions_enabled === true); }
       } catch {
         if (!cancelled) setLoadError('Failed to load questions.');
       }
@@ -125,6 +153,27 @@ export default function QuestionsPanel({ eventId, canManage }: { eventId: string
     }
   }
 
+  // ADR 0013 §4 — the event's Eve opt-in. Off: Eve shows none of these
+  // questions and refuses answers sent through it. On: Eve shows the
+  // active ones and asks for an acknowledgement before a sensitive answer.
+  async function setEve(next: boolean) {
+    setActionError(null);
+    setEveBusy(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}/questions`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ eve_questions_enabled: next }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setActionError(body.error ?? `Failed to update (${res.status}).`);
+        return;
+      }
+      setEveEnabled(next);
+    } finally {
+      setEveBusy(false);
+    }
+  }
+
   const orderQuestions = (questions ?? []).filter(q => q.scope === 'ORDER');
   const attendeeQuestions = (questions ?? []).filter(q => q.scope === 'ATTENDEE');
 
@@ -165,13 +214,33 @@ export default function QuestionsPanel({ eventId, canManage }: { eventId: string
         )}
       />
 
+      {eveEnabled !== null && (
+        <div style={{ ...rowCardStyle, marginBottom: 12, fontSize: 12, color: TEXT_SECONDARY, lineHeight: 1.5 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY }}>
+            <input
+              type="checkbox" checked={eveEnabled} disabled={!canManage || eveBusy}
+              onChange={e => setEve(e.target.checked)} aria-describedby="eve-questions-help"
+            />
+            Ask these questions on Eve
+          </label>
+          <div id="eve-questions-help" style={{ marginTop: 4 }}>
+            {eveEnabled
+              ? 'Eve shows the active questions below on this event’s booking page. Buyers must agree before submitting a sensitive answer or another person’s details.'
+              : 'Off: Eve does not show these questions and does not accept answers to them. If any active question is required, Eve tells buyers online registration is not available for this event.'}
+          </div>
+        </div>
+      )}
+
       {loadError && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12, marginBottom: 10 }}>{loadError}</div>}
       {actionError && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12, marginBottom: 10 }}>{actionError}</div>}
 
       {showCreate && (
         <div style={{ marginBottom: 10 }}>
           <QuestionForm
-            initial={createTemplate ?? undefined}
+            initial={createTemplate ? {
+              label: createTemplate.label, field_type: createTemplate.field_type, scope: createTemplate.scope,
+              data_category: createTemplate.data_category, template_key: createTemplate.key, options: createTemplate.options ?? null,
+            } : undefined}
             onCancel={() => { setShowCreate(false); setCreateTemplate(null); }}
             onSubmit={async (values) => {
               const res = await fetch(`/api/events/${eventId}/questions`, {
@@ -218,7 +287,9 @@ export default function QuestionsPanel({ eventId, canManage }: { eventId: string
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 700, fontSize: 13, color: TEXT_PRIMARY }}>{q.label}</span>
                         {q.required && <StatusBadge label="Required" tone="warning" />}
+                        {CATEGORY_BADGE[q.data_category] && <StatusBadge label={CATEGORY_BADGE[q.data_category]!} tone="warning" />}
                         {!q.active && <StatusBadge label="Inactive" tone="neutral" />}
+                        {(q.response_count ?? 0) > 0 && <StatusBadge label={`${q.response_count} answer${q.response_count === 1 ? '' : 's'}`} tone="neutral" />}
                       </div>
                       <div style={{ marginTop: 5, fontSize: 12, color: TEXT_SECONDARY }}>
                         {FIELD_TYPE_LABELS[q.field_type]}
@@ -261,7 +332,9 @@ export default function QuestionsPanel({ eventId, canManage }: { eventId: string
 
 type QuestionFormValues = {
   label: string; help_text: string | null; field_type: FieldType; required: boolean;
-  scope: Scope; options: string[] | null; sort_order: number;
+  scope: Scope; options: string[] | null; sort_order: number; data_category: DataCategory;
+  // Sent on create only; a question's template link never changes.
+  template_key?: string | null;
 };
 
 function QuestionForm({ initial, onSubmit, onCancel }: {
@@ -276,7 +349,13 @@ function QuestionForm({ initial, onSubmit, onCancel }: {
   const [scope, setScope] = useState<Scope>(initial?.scope ?? 'ATTENDEE');
   const [options, setOptions] = useState<string[]>(initial?.options && initial.options.length > 0 ? initial.options : ['']);
   const [sortOrder, setSortOrder] = useState(initial?.sort_order ?? 0);
+  const [dataCategory, setDataCategory] = useState<DataCategory>(initial?.data_category ?? 'STANDARD');
+  // A built-in question in a protected category keeps it (server-enforced).
+  const categoryLock = lockedCategory(initial?.template_key);
   const [error, setError] = useState<string | null>(null);
+  // Answered questions keep their type and scope (the server refuses a
+  // change — see the [questionId] route); shown as fixed text instead.
+  const answered = (initial?.response_count ?? 0) > 0;
   const [saving, setSaving] = useState(false);
 
   const isSelect = fieldType === 'SINGLE_SELECT' || fieldType === 'MULTI_SELECT';
@@ -296,7 +375,8 @@ function QuestionForm({ initial, onSubmit, onCancel }: {
       const cleanedOptions = options.map(o => o.trim()).filter(Boolean);
       const res = await onSubmit({
         label, help_text: helpText.trim() || null, field_type: fieldType, required, scope,
-        options: isSelect ? cleanedOptions : null, sort_order: Number(sortOrder),
+        options: isSelect ? cleanedOptions : null, sort_order: Number(sortOrder), data_category: categoryLock ?? dataCategory,
+        ...(!isEditingExisting && initial?.template_key ? { template_key: initial.template_key } : {}),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -312,6 +392,12 @@ function QuestionForm({ initial, onSubmit, onCancel }: {
       <label style={fieldStyle}>Question<input required className="bb-evt-input" value={label} onChange={e => setLabel(e.target.value)} style={inputStyle} /></label>
       <label style={fieldStyle}>Help text (optional)<input className="bb-evt-input" value={helpText ?? ''} onChange={e => setHelpText(e.target.value)} style={inputStyle} /></label>
 
+      {answered ? (
+        <div style={{ fontSize: 12, color: TEXT_SECONDARY, lineHeight: 1.5 }}>
+          {FIELD_TYPE_LABELS[fieldType]} · {SCOPE_LABELS[scope]}. This question already has answers, so its answer type and
+          who it is asked of are fixed. To ask something different, deactivate it and add a new question.
+        </div>
+      ) : (
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <label style={fieldStyle}>Answer type
           <FilterDropdown
@@ -334,15 +420,16 @@ function QuestionForm({ initial, onSubmit, onCancel }: {
           />
         </label>
       </div>
+      )}
 
       {isSelect && (
         <div>
           <div style={fieldStyle}>Options</div>
           {isEditingExisting && (
             <div style={{ fontSize: 11.5, color: TEXT_MUTED, marginTop: 4, marginBottom: 2, lineHeight: 1.5 }}>
-              Changing or removing an option here only affects future registrations — anyone who already answered this
-              question keeps their original recorded answer exactly as submitted, even if it referenced an option you
-              later change or remove.
+              {answered
+                ? 'This question already has answers: you can add options, but existing options cannot be removed or renamed. Everyone who answered keeps their recorded answer exactly as submitted.'
+                : 'Changing or removing an option here only affects future registrations.'}
             </div>
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
@@ -368,6 +455,26 @@ function QuestionForm({ initial, onSubmit, onCancel }: {
         <label style={{ ...fieldStyle, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <input type="checkbox" checked={required} onChange={e => setRequired(e.target.checked)} /> Required
         </label>
+      </div>
+      {categoryLock ? (
+        <div style={{ fontSize: 12, color: TEXT_SECONDARY, lineHeight: 1.5 }}>
+          Information type: {CATEGORY_LABELS[categoryLock]}. This is a built-in question, so its information type is fixed.
+        </div>
+      ) : (
+        <label style={fieldStyle}>Information type
+          <FilterDropdown
+            ariaLabel="Information type"
+            value={dataCategory}
+            onChange={v => setDataCategory(v as DataCategory)}
+            options={DATA_CATEGORIES.map((c): DropdownOption => ({ value: c, label: CATEGORY_LABELS[c] }))}
+            style={{ width: '100%' }}
+            triggerStyle={{ width: '100%' }}
+          />
+        </label>
+      )}
+      <div style={{ fontSize: 11.5, color: TEXT_MUTED, lineHeight: 1.5 }}>
+        On Eve, buyers must agree before submitting a sensitive answer or another person&apos;s details. Answers are removed
+        automatically after the period shown.
       </div>
 
       {error && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: 12 }}>{error}</div>}

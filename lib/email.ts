@@ -30,6 +30,23 @@ interface EmailOptions {
   // implies) — callers must never rotate a key merely to force another
   // send.
   idempotencyKey?: string;
+  // Phase 5B — optional plain-text alternative, forwarded verbatim as
+  // Resend's own `text` field alongside `html` (a multipart/alternative
+  // message). Optional and additive: every existing caller omits it and
+  // sends exactly the HTML-only body it always has; only the Events
+  // lifecycle notifications (lib/events/lifecycleEmail.ts) pass one.
+  text?: string;
+  // Eve Phase 3.2 — per-product sender identity. BrainBase stays the only
+  // delivery layer (one Resend account, one code path); a caller sending on
+  // behalf of another product passes that product's already-validated
+  // sender (see lib/events/buyerProduct.ts). Both are optional and additive:
+  // every existing caller omits them and sends exactly as before (FROM below,
+  // no Reply-To).
+  from?: string;
+  // Optional Reply-To, forwarded as Resend's `reply_to`. Additive like `from`:
+  // omitted => no Reply-To is sent, exactly as before. Only a caller sending on
+  // behalf of another product passes one (Eve: its validated support address).
+  replyTo?: string;
 }
 
 const FROM = process.env.EMAIL_FROM ?? 'Brainbase <noreply@brainbase.app>';
@@ -130,7 +147,7 @@ export class EmailSendError extends Error {
   }
 }
 
-export async function sendEmail({ to, subject, html, attachments, idempotencyKey }: EmailOptions): Promise<SendEmailResult> {
+export async function sendEmail({ to, subject, html, text, attachments, idempotencyKey, from, replyTo }: EmailOptions): Promise<SendEmailResult> {
   const apiKey = process.env.RESEND_API_KEY;
 
   if (!apiKey) {
@@ -155,10 +172,12 @@ export async function sendEmail({ to, subject, html, attachments, idempotencyKey
       ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
     },
     body: JSON.stringify({
-      from: FROM,
+      from: from ?? FROM,
+      ...(replyTo ? { reply_to: replyTo } : {}),
       to,
       subject,
       html,
+      ...(text ? { text } : {}),
       ...(attachments?.length
         ? { attachments: attachments.map(a => ({ filename: a.filename, content: a.contentBase64 })) }
         : {}),
@@ -343,7 +362,27 @@ export interface EmailOrgPresentation {
   footerText?: string | null;
 }
 
-export function emailLayout(body: string, org?: EmailOrgPresentation | null) {
+// Eve Phase 3.2 — optional PRODUCT presentation for the shell: the wordmark
+// and the copyright line. Absent (every existing caller) the shell is the
+// byte-identical BrainBase one. Eve passes its own name and makes no claim
+// about a legal entity, address or purpose.
+export interface EmailProductPresentation {
+  wordmark: string;
+  footerName: string;
+  // Optional legal/support links under the copyright line (Eve only).
+  footerLinks?: { label: string; url: string }[];
+}
+
+export function emailLayout(body: string, org?: EmailOrgPresentation | null, product?: EmailProductPresentation | null) {
+  const wordmarkHtml = product
+    ? escHtml(product.wordmark)
+    : `BRAINB<span style="color:#A78BFA">Λ</span>SE`;
+  const footerLinksHtml = product?.footerLinks?.length
+    ? `<div style="margin-top:8px">${product.footerLinks.map(l => `<a href="${escHtml(l.url)}" style="color:#888;text-decoration:underline">${escHtml(l.label)}</a>`).join(' · ')}</div>`
+    : '';
+  const legalLine = product
+    ? `© ${new Date().getFullYear()} ${escHtml(product.footerName)}${footerLinksHtml}`
+    : `© ${new Date().getFullYear()} Brainbase · Adelaide SA Australia`;
   // Identity row directly below the BrainBase wordmark — never
   // replacing it (§7's own "do not replace BrainBase attribution
   // entirely"). Logo, if present, is a small inline glyph only; no
@@ -366,14 +405,14 @@ export function emailLayout(body: string, org?: EmailOrgPresentation | null) {
       <table width="520" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e4e4e7">
         <tr><td style="padding:24px 32px;background:#08090C;border-bottom:1px solid #1c1c2e">
           <span style="font-size:18px;font-weight:700;letter-spacing:.1em;color:#f4f4f5">
-            BRAINB<span style="color:#A78BFA">Λ</span>SE
+            ${wordmarkHtml}
           </span>${orgIdentity}
         </td></tr>
         <tr><td style="padding:36px 32px">
           ${body}
         </td></tr>
         <tr><td style="padding:16px 32px;background:#fafafa;border-top:1px solid #e4e4e7;font-size:12px;color:#aaa">
-          ${orgFooter}© ${new Date().getFullYear()} Brainbase · Adelaide SA Australia
+          ${orgFooter}${legalLine}
         </td></tr>
       </table>
     </td></tr>

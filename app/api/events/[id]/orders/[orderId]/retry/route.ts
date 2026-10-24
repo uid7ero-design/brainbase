@@ -1,24 +1,15 @@
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
-import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
-import {
-  createCheckoutSession, RESERVATION_WINDOW_SECONDS, StripeNotConfiguredError,
-  retrieveExistingCheckoutAttempt, classifyRetrySafety, expireCheckoutSession,
-} from '@/lib/events/stripe';
+import { retryPendingOrderCheckout, type RetryCheckoutResult } from '@/lib/events/services/retryCheckout';
+import { checkoutReturnUrlsFor } from '@/lib/events/productSurface';
 
 type Ctx = { params: Promise<{ id: string; orderId: string }> };
 
-type OrderRow = {
-  id: string; payment_status: string; purchaser_email: string; total_cents: number; currency: string; stripe_account_id: string | null;
-  stripe_checkout_session_id: string | null; expires_at: string | null;
-};
-type ItemRow = { ticket_type_id: string; event_session_id: string | null; quantity: number };
-type TicketTypeRow = { id: string; name: string; active: boolean; price_cents: number; currency: string };
-
 // User-facing text for every non-SAFE classifyRetrySafety() outcome —
 // deliberately no Stripe object ids, status enums, or raw error text
-// (see the double-charge-guard comment below).
+// (see the double-charge-guard comment in
+// lib/events/services/retryCheckout.ts).
 const RETRY_BLOCKED_MESSAGES: Record<string, string> = {
   UNSAFE_ALREADY_PAID: 'Stripe reports this payment has already succeeded. Retry was blocked to prevent a duplicate charge.',
   UNSAFE_STILL_ACTIVE: 'The existing payment attempt is still active. Retry is not available yet.',
@@ -26,333 +17,75 @@ const RETRY_BLOCKED_MESSAGES: Record<string, string> = {
   UNSAFE_AMBIGUOUS: 'Payment status could not be verified with Stripe. Retry was blocked for safety.',
 };
 
+function toResponse(result: RetryCheckoutResult): NextResponse {
+  if (result.ok) return NextResponse.json({ checkout_url: result.checkoutUrl });
+  switch (result.code) {
+    case 'EVENT_NOT_FOUND':
+    case 'ORDER_NOT_FOUND':
+      return NextResponse.json({ error: 'Not found.' }, { status: 404 });
+    case 'EVENT_CANCELLED':
+      return NextResponse.json({ error: 'This event has been cancelled.' }, { status: 409 });
+    case 'NOT_PENDING':
+      return NextResponse.json({ error: 'Only a pending payment can be retried.' }, { status: 409 });
+    case 'NO_STRIPE_ACCOUNT':
+      return NextResponse.json({ error: 'This order has no associated Stripe account to retry against.' }, { status: 409 });
+    case 'RETURN_URLS_UNAVAILABLE':
+      return NextResponse.json({ error: 'Payment retry is not currently available for this order.' }, { status: 503 });
+    case 'NO_LINE_ITEM':
+      return NextResponse.json({ error: 'Order has no ticket line item.' }, { status: 409 });
+    case 'TICKET_TYPE_UNAVAILABLE':
+      return NextResponse.json({ error: 'The ticket type for this order is no longer available.' }, { status: 409 });
+    case 'RETRY_BLOCKED':
+      return NextResponse.json({ error: RETRY_BLOCKED_MESSAGES[result.decision] }, { status: 409 });
+    case 'REACQUISITION_FAILED':
+      return NextResponse.json({ error: 'Could not retry payment. Please try again.' }, { status: 500 });
+    case 'CAPACITY_UNAVAILABLE':
+      return NextResponse.json({ error: 'This ticket type is no longer available in the requested quantity.' }, { status: 409 });
+    // Phase 4 — the order's promotion code has since reached its
+    // redemption limit; the order keeps its snapshot, nothing is charged.
+    case 'PROMOTION_UNAVAILABLE':
+      return NextResponse.json({ error: "This order's promotional code has reached its redemption limit, so the payment cannot be retried." }, { status: 409 });
+    case 'ORDER_TOTAL_MISMATCH':
+      return NextResponse.json({ error: 'This order\'s stored amounts could not be reconciled. Retry was blocked for safety.' }, { status: 409 });
+    case 'STRIPE_NOT_CONFIGURED':
+      return NextResponse.json({ error: 'Stripe is not currently configured.' }, { status: 503 });
+    case 'WRITE_BACK_RACE_LOST':
+    case 'STRIPE_FAILED':
+      return NextResponse.json({ error: 'Could not create a new checkout session. Please try again.' }, { status: 500 });
+  }
+}
+
 // POST — retry payment for a PENDING order (§A.2). manager+.
 //
-// Reuses the SAME order/order_item/attendee rows throughout — never
-// inserts a new order or new attendees, so "do not create duplicate
-// attendees/ticket entitlements" holds by construction: this route
-// contains no INSERT into event_orders, event_order_items, or
-// event_attendees anywhere. Ticket tokens remain untouched (still
-// exclusively issued by lib/events/stripe.ts's
-// issueTicketTokensForPaidOrder, gated on payment_status = 'PAID') —
-// a retried-then-paid order becomes usable through the EXACT same
-// webhook path a first-attempt payment already uses.
-//
-// Capacity is re-validated and the hold extended via a SINGLE atomic
-// UPDATE, reusing the R1 lock-order technique (FOR UPDATE on
-// ticket_type, then session if bound, then a fresh-snapshot capacity
-// check) the checkout/register routes established — see this route's
-// own SQL comment below for why one code path safely covers both "the
-// old hold technically hadn't expired yet" and "the old hold had
-// already lapsed and this reacquires it": the aggregate always
-// excludes THIS order's own existing quantity (it is not new demand,
-// it is the same demand being re-confirmed), so a fresh capacity
-// check against everyone ELSE's current holdings is always correct
-// regardless of which case applies.
-//
-// Connected-account attribution is PRESERVED (§14/§A.2): the retry
-// uses the order's own already-stored stripe_account_id, never
-// re-derived from the organisation's current Connect settings — the
-// identical principle the refund route already applies.
-//
-// ── Double-charge guard (events-stripe-retry-double-charge) ─────────
-// BrainBase's own payment_status can lag behind Stripe's true state for
-// as long as the success webhook is delayed, failed, or hasn't arrived
-// yet — a locally-PENDING order may already be PAID on Stripe's side.
-// Before ANY mutation, this route now retrieves the order's prior
-// Checkout Session (if any) directly from Stripe — in the order's own
-// historical connected-account context, expanding its PaymentIntent in
-// the same call — and classifies it via lib/events/stripe.ts's
-// classifyRetrySafety(). A brand-new Checkout Session is created ONLY
-// when that classification is SAFE_TO_RETRY (no prior attempt exists)
-// or SAFE_PREVIOUS_ATTEMPT_DEAD (the prior attempt conclusively cannot
-// still become paid) — every other outcome fails closed with a 409 and
-// creates nothing, no default-to-allow branch exists. See
-// lib/events/stripe.ts's own comment for the full decision matrix.
-//
-// This check is deliberately READ-ONLY and runs before the capacity-
-// reacquisition step below, which is the step that actually NULLs the
-// order's stored stripe_checkout_session_id — the prior value must be
-// captured and inspected before that happens, or it is unrecoverable.
-// The captured value (`verifiedSessionId`) is then reused as a guard
-// on that same reacquisition UPDATE (`stripe_checkout_session_id IS
-// NOT DISTINCT FROM ...`), closing a related concurrency gap: two
-// simultaneous Retry requests that both read the same prior session id
-// and both independently reach a SAFE conclusion can no longer both
-// succeed — only the first to commit can still match that exact prior
-// value; the second finds it already changed and fails the existing
-// "capacity no longer available" 409 path.
-//
-// ── NULL-session concurrency closure (PR #231 follow-up) ────────────
-// The stripe_checkout_session_id guard above is NULL-blind by
-// construction: an order can genuinely have NO prior session id yet —
-// e.g. the brief in-flight window on the public checkout route between
-// its capacity-reserving INSERT committing (order becomes visible,
-// column NULL) and its own follow-up UPDATE writing the new session id
-// back, or that same window recurring inside a retry itself, or either
-// window never completing at all (a crashed/timed-out request), which
-// leaves the order genuinely PENDING with a permanently-NULL session
-// id. Two concurrent Retry requests hitting that exact state both read
-// stripe_checkout_session_id = NULL, both skip the Stripe pre-flight
-// check entirely (there is nothing to verify yet), and — before this
-// fix — both satisfied `IS NOT DISTINCT FROM NULL` on the reacquisition
-// UPDATE below, since that UPDATE unconditionally re-sets the column to
-// NULL, so the second request's guard value (also NULL) still matched
-// even after the first had already committed. NULL cannot serve as its
-// own version token.
-//
-// Fixed with a second, independent compare-and-set guard on the SAME
-// UPDATE, reusing `expires_at` — a column that already exists purely
-// for reservation-window bookkeeping — as a generation/version stamp:
-// `verifiedExpiresAt` captures the order's expires_at at the exact same
-// moment as `verifiedSessionId` above, and the guarded UPDATE requires
-// `eo.expires_at IS NOT DISTINCT FROM ${verifiedExpiresAt}` in addition
-// to the session guard. Critically, every successful reacquisition
-// (including a first-ever one on a NULL-session order) sets expires_at
-// to a brand-new `NOW() + RESERVATION_WINDOW_SECONDS` — so it changes
-// on every winning retry regardless of whether the session guard was
-// discriminating or not, and the loser's captured (stale) value can no
-// longer match once the winner has committed. No schema change, no new
-// column, no distributed lock, no Stripe idempotency key: just an
-// existing timestamp column doing double duty as the row's own version
-// counter, exactly the same `IS NOT DISTINCT FROM` idiom already in use
-// one line above it. A later, genuinely sequential retry (not racing
-// anyone) always re-reads the CURRENT expires_at fresh at the top of
-// its own request, so this never blocks a legitimate future retry —
-// only two requests racing on the exact same stale snapshot.
+// HTTP adapter only. The double-charge guard, the atomic capacity
+// reacquisition, both compare-and-set concurrency guards and the
+// guarded Stripe write-back live in lib/events/services/retryCheckout.ts
+// (extracted unchanged — Eve Phase 1), together with the full design
+// notes that previously headed this file. This route authorises,
+// builds the branded return URLs from the tenant-scoped slugs the
+// service supplies (never from client input — there is deliberately no
+// slug input read anywhere in this route), and maps the result to the
+// exact same status codes and response bodies as before.
 export async function POST(_req: Request, { params }: Ctx) {
   const auth = await authorizeEventsRequest('manager');
   if (!auth.ok) return auth.response;
   const { session } = auth;
   const { id: eventId, orderId } = await params;
 
-  // Step 7 remediation: organisation/event slugs for the branded
-  // return URLs below are resolved HERE, server-side, from the same
-  // tenant-scoped query that already verifies event ownership —
-  // never from the request body. There is deliberately no slug input
-  // read anywhere in this route at all, so there is nothing for a
-  // hostile/mismatched client value to override: the only slugs that
-  // can ever reach createCheckoutSession()'s success/cancel URLs are
-  // the ones this organisation's own database rows actually have.
-  const eventRows = await sql`
-    SELECT e.id, e.status, e.slug AS event_slug, o.slug AS org_slug
-    FROM events e JOIN organisations o ON o.id = e.organisation_id
-    WHERE e.id = ${eventId} AND e.organisation_id = ${session.organisationId}
-    LIMIT 1
-  `;
-  const event = eventRows[0] as { id: string; status: string; event_slug: string; org_slug: string } | undefined;
-  if (!event) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
-  if (event.status === 'CANCELLED') {
-    return NextResponse.json({ error: 'This event has been cancelled.' }, { status: 409 });
-  }
+  const result = await retryPendingOrderCheckout({
+    organisationId: session.organisationId,
+    eventId,
+    orderId,
+    // The order's committed product decides the return origin (an Eve order
+    // returns to Eve, never to this BrainBase host); only a BRAINBASE order
+    // uses this request's own origin, exactly as before.
+    buildReturnUrls: async (orgSlug, eventSlug, productSurface) => {
+      const h = await headers();
+      const host = h.get('x-forwarded-host') ?? h.get('host') ?? 'localhost:3000';
+      const proto = h.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
+      return checkoutReturnUrlsFor(productSurface, orgSlug, eventSlug, `${proto}://${host}`);
+    },
+  });
 
-  const orderRows = await sql`
-    SELECT id, payment_status, purchaser_email, total_cents, currency, stripe_account_id, stripe_checkout_session_id, expires_at
-    FROM event_orders WHERE id = ${orderId} AND event_id = ${eventId} AND organisation_id = ${session.organisationId} LIMIT 1
-  `;
-  const order = orderRows[0] as OrderRow | undefined;
-  if (!order) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
-  if (order.payment_status !== 'PENDING') {
-    return NextResponse.json({ error: 'Only a pending payment can be retried.' }, { status: 409 });
-  }
-  if (!order.stripe_account_id) {
-    return NextResponse.json({ error: 'This order has no associated Stripe account to retry against.' }, { status: 409 });
-  }
-
-  const itemRows = await sql`
-    SELECT ticket_type_id, event_session_id, quantity FROM event_order_items
-    WHERE order_id = ${orderId} AND organisation_id = ${session.organisationId} LIMIT 1
-  `;
-  const item = itemRows[0] as ItemRow | undefined;
-  if (!item) return NextResponse.json({ error: 'Order has no ticket line item.' }, { status: 409 });
-
-  const ttRows = await sql`
-    SELECT id, name, active, price_cents, currency FROM event_ticket_types
-    WHERE id = ${item.ticket_type_id} AND organisation_id = ${session.organisationId} LIMIT 1
-  `;
-  const ticketType = ttRows[0] as TicketTypeRow | undefined;
-  if (!ticketType || !ticketType.active) {
-    return NextResponse.json({ error: 'The ticket type for this order is no longer available.' }, { status: 409 });
-  }
-
-  // ── Double-charge guard (read BEFORE any mutation) ──────────────────
-  // Read here, before the capacity-reacquisition step below ever runs —
-  // that step nulls stripe_checkout_session_id as part of preparing for
-  // a replacement session, so the CURRENT value must be captured now or
-  // it is gone. `verifiedSessionId` is also reused below as a
-  // concurrency guard on the reacquisition UPDATE itself (§ concurrency
-  // analysis in this PR): it ties that UPDATE to the exact prior value
-  // this request actually inspected, so a second concurrent Retry
-  // request — which read the same prior value and may have reached the
-  // same SAFE conclusion — cannot also succeed once the first has
-  // already transitioned it.
-  const verifiedSessionId = order.stripe_checkout_session_id ?? null;
-  // Captured unconditionally (not just when verifiedSessionId exists) —
-  // this is the generation/version stamp for the NULL-session
-  // concurrency guard below, and a NULL-session order needs it just as
-  // much as a session-bearing one does. See the header comment's
-  // "NULL-session concurrency closure" section.
-  const verifiedExpiresAt = order.expires_at ?? null;
-  if (verifiedSessionId) {
-    let attempt;
-    try {
-      attempt = await retrieveExistingCheckoutAttempt(verifiedSessionId, order.stripe_account_id);
-    } catch (err) {
-      console.error('[events order retry] Stripe retrieval failed, blocking retry for safety', err);
-      return NextResponse.json({ error: RETRY_BLOCKED_MESSAGES.UNSAFE_AMBIGUOUS }, { status: 409 });
-    }
-    const decision = classifyRetrySafety(attempt);
-    if (decision !== 'SAFE_TO_RETRY' && decision !== 'SAFE_PREVIOUS_ATTEMPT_DEAD') {
-      return NextResponse.json({ error: RETRY_BLOCKED_MESSAGES[decision] }, { status: 409 });
-    }
-  }
-
-  // ── Atomic capacity reacquisition ────────────────────────────────────
-  // Excludes THIS order (`eo.id <> ${orderId}`) from the "sold" count on
-  // both ticket-type and session aggregates — see this file's own header
-  // comment for why that single exclusion makes one code path correct
-  // whether the old hold had lapsed or not. Extends expires_at to a
-  // fresh RESERVATION_WINDOW_SECONDS from now and clears the stale
-  // stripe_checkout_session_id (a new one is about to be created below)
-  // — both only if capacity genuinely allows it.
-  let transactionResults: unknown[];
-  try {
-    transactionResults = item.event_session_id
-      ? await sql.transaction([
-          sql`SELECT capacity FROM event_ticket_types WHERE id = ${item.ticket_type_id} AND organisation_id = ${session.organisationId} FOR UPDATE`,
-          sql`SELECT capacity FROM event_sessions WHERE id = ${item.event_session_id} AND organisation_id = ${session.organisationId} FOR UPDATE`,
-          sql`
-            WITH sold_tt AS (
-              SELECT COALESCE(SUM(oi.quantity), 0) AS qty FROM event_order_items oi JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-              WHERE oi.ticket_type_id = ${item.ticket_type_id} AND oi.organisation_id = ${session.organisationId} AND eo.id <> ${orderId}
-                AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
-            ),
-            sold_sess AS (
-              SELECT COALESCE(SUM(oi.quantity), 0) AS qty FROM event_order_items oi JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-              WHERE oi.event_session_id = ${item.event_session_id} AND oi.organisation_id = ${session.organisationId} AND eo.id <> ${orderId}
-                AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
-            )
-            UPDATE event_orders eo
-            SET expires_at = NOW() + make_interval(secs => ${RESERVATION_WINDOW_SECONDS}), stripe_checkout_session_id = NULL
-            FROM sold_tt, sold_sess
-            WHERE eo.id = ${orderId} AND eo.organisation_id = ${session.organisationId} AND eo.payment_status = 'PENDING'
-              AND eo.stripe_checkout_session_id IS NOT DISTINCT FROM ${verifiedSessionId}
-              AND eo.expires_at IS NOT DISTINCT FROM ${verifiedExpiresAt}
-              AND sold_tt.qty + ${item.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${item.ticket_type_id} AND organisation_id = ${session.organisationId})
-              AND sold_sess.qty + ${item.quantity} <= (SELECT capacity FROM event_sessions WHERE id = ${item.event_session_id} AND organisation_id = ${session.organisationId})
-            RETURNING eo.id, eo.expires_at
-          `,
-        ])
-      : await sql.transaction([
-          sql`SELECT capacity FROM event_ticket_types WHERE id = ${item.ticket_type_id} AND organisation_id = ${session.organisationId} FOR UPDATE`,
-          sql`
-            WITH sold_tt AS (
-              SELECT COALESCE(SUM(oi.quantity), 0) AS qty FROM event_order_items oi JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-              WHERE oi.ticket_type_id = ${item.ticket_type_id} AND oi.organisation_id = ${session.organisationId} AND eo.id <> ${orderId}
-                AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
-            )
-            UPDATE event_orders eo
-            SET expires_at = NOW() + make_interval(secs => ${RESERVATION_WINDOW_SECONDS}), stripe_checkout_session_id = NULL
-            FROM sold_tt
-            WHERE eo.id = ${orderId} AND eo.organisation_id = ${session.organisationId} AND eo.payment_status = 'PENDING'
-              AND eo.stripe_checkout_session_id IS NOT DISTINCT FROM ${verifiedSessionId}
-              AND eo.expires_at IS NOT DISTINCT FROM ${verifiedExpiresAt}
-              AND sold_tt.qty + ${item.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${item.ticket_type_id} AND organisation_id = ${session.organisationId})
-            RETURNING eo.id, eo.expires_at
-          `,
-        ]);
-  } catch (err) {
-    console.error('[events order retry] capacity reacquisition failed', err);
-    return NextResponse.json({ error: 'Could not retry payment. Please try again.' }, { status: 500 });
-  }
-
-  const reacquired = transactionResults[transactionResults.length - 1] as { id: string; expires_at: string }[];
-  if (!reacquired.length) {
-    // Zero rows now has three possible causes, all correctly reported
-    // with the same message: genuine capacity exhaustion (the
-    // pre-existing meaning), OR this request lost the concurrency race
-    // against another Retry request for the SAME order — via either
-    // the stripe_checkout_session_id guard (a prior session existed) or
-    // the expires_at guard (no prior session id existed for either
-    // racer — see the header comment's "NULL-session concurrency
-    // closure" section) — in either race-loss case the winning request
-    // is already creating (or has already created) the one replacement
-    // session this order gets, so reporting the same "try again" 409
-    // here is correct: a manager who retries again will simply see
-    // whatever the winner's attempt produced.
-    return NextResponse.json({ error: 'This ticket type is no longer available in the requested quantity.' }, { status: 409 });
-  }
-  // Checkout-vs-Retry race closure (PR #231 follow-up) — the fresh
-  // expires_at THIS request's own reacquisition just set, straight from
-  // its own RETURNING clause (no extra round trip). Guards the write-
-  // back below the exact same way the public checkout route's own
-  // write-back is guarded (see that route's header comment): if yet
-  // another concurrent request reacquires this SAME order again before
-  // this request's own Stripe call returns, the write-back will
-  // correctly detect that and fail closed rather than overwrite a
-  // newer, already-active session.
-  const reacquiredExpiresAt = reacquired[0].expires_at;
-
-  const h = await headers();
-  const host = h.get('x-forwarded-host') ?? h.get('host') ?? 'localhost:3000';
-  const proto = h.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
-  const origin = `${proto}://${host}`;
-
-  // Always the branded public return flow (§7) — event.org_slug/
-  // event.event_slug came from the tenant-scoped query above, never
-  // from client input, so there is no generic manager-route fallback
-  // to fall back to: an authoritative slug pair is available on every
-  // request that reaches this point (an event with no slug cannot
-  // exist — slug is NOT NULL in this schema).
-  const successUrl = `${origin}/e/${event.org_slug}/${event.event_slug}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
-  const cancelUrl = `${origin}/e/${event.org_slug}/${event.event_slug}?checkout=cancelled`;
-
-  try {
-    const { sessionId, url } = await createCheckoutSession({
-      organisationId: session.organisationId,
-      eventId,
-      orderId,
-      ticketTypeName: ticketType.name,
-      unitAmountCents: ticketType.price_cents,
-      currency: order.currency,
-      quantity: item.quantity,
-      purchaserEmail: order.purchaser_email,
-      successUrl,
-      cancelUrl,
-      connectedAccountId: order.stripe_account_id,
-    });
-    // No longer unconditional (PR #231 follow-up) — same guard shape as
-    // the public checkout route's own write-back: requires BOTH the
-    // column still being NULL (this request's own reacquisition just
-    // set it, so it should still be exactly that) and expires_at still
-    // matching what this request's reacquisition returned. Either
-    // failing means another concurrent request has already claimed this
-    // order's active session; the session just created here must be
-    // treated as an orphan — never written to the DB, never returned to
-    // this manager, best-effort expired in Stripe immediately.
-    const writeBack = await sql`
-      UPDATE event_orders SET stripe_checkout_session_id = ${sessionId}
-      WHERE id = ${orderId} AND organisation_id = ${session.organisationId}
-        AND stripe_checkout_session_id IS NULL AND expires_at IS NOT DISTINCT FROM ${reacquiredExpiresAt}
-      RETURNING id
-    `;
-    if (!writeBack.length) {
-      console.error('[events order retry] lost the write-back race to a concurrent request — expiring orphaned Checkout Session', { orderId, sessionId });
-      await expireCheckoutSession(sessionId, order.stripe_account_id);
-      return NextResponse.json({ error: 'Could not create a new checkout session. Please try again.' }, { status: 500 });
-    }
-    return NextResponse.json({ checkout_url: url });
-  } catch (err) {
-    // Capacity has already been re-extended above (a real, live hold —
-    // not left dangling) — a manager can simply retry again. Unlike a
-    // brand-new checkout attempt, there is no "just-created, otherwise
-    // orphaned" reservation to roll back here: this order already
-    // existed for a legitimate reason before this request began.
-    if (err instanceof StripeNotConfiguredError) {
-      console.error('[events order retry] Stripe is not configured', err);
-      return NextResponse.json({ error: 'Stripe is not currently configured.' }, { status: 503 });
-    }
-    console.error('[events order retry] Stripe Checkout Session creation failed', err);
-    return NextResponse.json({ error: 'Could not create a new checkout session. Please try again.' }, { status: 500 });
-  }
+  return toResponse(result);
 }

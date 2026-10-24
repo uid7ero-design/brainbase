@@ -20,7 +20,7 @@ describe('HR-7G1 lifecycle templates read-only admin UI', () => {
   it('loads template summaries only from the canonical lifecycle templates endpoint', () => {
     expect(src).toContain("'/api/hr/lifecycle/templates'");
     expect(src).toContain("search.set('template_key', templateKey.trim())");
-    expect(src).toContain('void fetch(listUrl)');
+    expect(src).toContain("void fetch(listUrl, { cache: 'no-store' })");
     expect(src).not.toContain('/api/hr/lifecycle/templates/search');
   });
 

@@ -6,13 +6,13 @@ import path from 'node:path';
 const modes = ['lifecycle', 'tasks', 'documents', 'people'] as const;
 const bundles = new Map<string, string>();
 test.beforeAll(async () => {
-  for (const mode of [...modes, 'people-drawer', 'teams', 'administrators']) {
+  for (const mode of [...modes, 'people-drawer', 'teams', 'administrators', 'restricted-cases']) {
     const file = mode.startsWith('people') ? 'app/people/page.tsx' : mode === 'tasks' ? 'app/people/lifecycle/tasks/page.tsx' : `app/people/${mode}/page.tsx`;
     const result = await build({ configFile: false, logLevel: 'error', resolve: { alias: { '@': process.cwd() } },
       define: { 'process.env.NODE_ENV': JSON.stringify('production'), 'process.env': '{}' }, oxc: { jsx: { runtime: 'automatic' } },
       plugins: [{ name: 'hr-register-browser-harness', enforce: 'pre', resolveId(id) {
         if (id.replaceAll('\\', '/').endsWith('/hr-browser-entry')) return '\0hr-browser-entry';
-        if (!['people-drawer', 'teams'].includes(mode) && /\/_components\/SlidePanel(?:\.tsx)?$/.test(id.replaceAll('\\', '/'))) return '\0panel';
+        if (!['people-drawer', 'teams', 'restricted-cases'].includes(mode) && /\/_components\/SlidePanel(?:\.tsx)?$/.test(id.replaceAll('\\', '/'))) return '\0panel';
         if (/\/_components\/PersonForm(?:\.tsx)?$/.test(id.replaceAll('\\', '/'))) return '\0form';
         if (id === 'hr-browser-entry' || id === 'next/link') return `\0${id}`;
         if (mode !== 'people-drawer' && /\/_components\/PersonDrawer(?:\.tsx)?$/.test(id.replaceAll('\\', '/'))) return '\0drawer';
@@ -202,4 +202,36 @@ for (const mode of ['teams', 'administrators']) test(`${mode} administration: de
   fail = false; await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.getByText(name, { exact: true })).toBeVisible();
   expect(errors).toEqual([]); expect(methods.every(method => method === 'GET')).toBe(true);
+});
+
+test('restricted list recovers denied reads and keeps uncertain creation locked after dismissal', async ({ page }) => {
+  let failRead = true;
+  let writes = 0;
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.route('http://brainbase.local/**', async route => {
+    const request = route.request(); const url = new URL(request.url());
+    if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<div id="root"></div>' });
+    if (request.method() === 'POST') { writes++; return route.abort('failed'); }
+    if (failRead && url.pathname === '/api/hr/restricted-cases') return route.fulfill({ status: 403, json: { error: 'sensitive denial' } });
+    return route.fulfill({ json: url.pathname === '/api/hr/restricted-cases' ? { cases: [] }
+      : url.pathname === '/api/hr/administrators' ? { users: [] } : {} });
+  });
+  await page.goto('http://brainbase.local/'); await page.addScriptTag({ content: bundles.get('restricted-cases')! });
+  await expect(page.getByText('Could not load restricted HR cases. Refresh to try again.')).toBeVisible();
+  await expect(page.getByRole('button', { name: '+ Open Case' })).toHaveCount(0);
+  await expect(page.locator('body')).not.toContainText('sensitive denial');
+  failRead = false;
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await page.getByRole('button', { name: '+ Open Case', exact: true }).click();
+  await page.getByRole('textbox', { name: /^Title/ }).fill('Synthetic restricted draft');
+  await page.getByRole('button', { name: 'Open Case', exact: true }).click();
+  await expect(page.getByText('The change could not be confirmed. Do not open this case again until its creation and access have been checked.')).toBeVisible();
+  await expect(page.getByRole('textbox', { name: /^Title/ })).toHaveValue('Synthetic restricted draft');
+  await page.getByRole('button', { name: 'Close Open Restricted Case' }).click();
+  await expect(page.getByRole('button', { name: '+ Open Case', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByText('No restricted cases are currently available to you.')).toBeVisible();
+  await expect(page.getByRole('button', { name: '+ Open Case', exact: true })).toBeDisabled();
+  expect(writes).toBe(1); expect(errors).toEqual([]);
 });

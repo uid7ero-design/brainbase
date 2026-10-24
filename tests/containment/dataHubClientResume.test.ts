@@ -708,9 +708,14 @@ describe("T30 — explicit inventory of authorized backend routes", () => {
     expect(found).toEqual(
       [
         "worksheets/[id]/analysis-review/plan/route.ts", // D4D5X review planning
+        "worksheets/[id]/analysis-review/history/route.ts", // Manager-only current-profile review history
+        "worksheets/[id]/analysis-review/history/compare/route.ts", // Read-only comparison with the current saved review
+        "worksheets/[id]/analysis-review/history/detail/route.ts", // Manager-only selected explicit decisions
         "worksheets/[id]/analysis-review/route.ts", // D4D5U authenticated review API
         "worksheets/[id]/analysis-count/route.ts", // D4D5W authenticated count API
         "worksheets/[id]/analysis-planning/route.ts", // Separately authorized read-only catalog/selection integration
+        "worksheets/[id]/analysis-status/route.ts", // Read-only workbook saved-review observations
+        "worksheets/[id]/profile/route.ts", // Guided preparation: manager-only existing profiler service and read-only status
         "import-batches/route.ts",
         "import-batches/[id]/route.ts",
         "import-batches/[id]/finalize/route.ts",

@@ -17,6 +17,10 @@ export type PublicEvent = {
   starts_at: Date | string;
   ends_at: Date | string;
   timezone: string;
+  // Eve per-event opt-in for registration questions (ADR 0013 §4). Read by
+  // the services for the EVE surface and by the Eve event read; never
+  // included in any public response body. Anything but true means off.
+  eve_questions_enabled?: boolean;
 };
 
 export type PublicResolveResult =
@@ -62,7 +66,7 @@ export async function resolvePublicEvent(
   if (!capability.allowed) return { ok: false };
 
   const eventRows = await sql`
-    SELECT id, organisation_id, name, slug, description, venue, artwork_url, starts_at, ends_at, timezone
+    SELECT id, organisation_id, name, slug, description, venue, artwork_url, starts_at, ends_at, timezone, eve_questions_enabled
     FROM events
     WHERE organisation_id = ${organisationId} AND slug = ${eventSlug} AND status = 'PUBLISHED'
     LIMIT 1

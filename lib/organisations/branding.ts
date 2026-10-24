@@ -380,3 +380,27 @@ export function normaliseTicketEmailBranding(rawSettings: unknown, organisationN
   const { branding } = normaliseOrganisationBranding(rawSettings, organisationName);
   return toTicketEmailBranding(branding);
 }
+
+// ── Lifecycle-email projection (Phase 5B — trusted, server-only) ─────
+//
+// The ticket-email allow-list PLUS the organisation's configured
+// "Support/contact email" and phone (OrganisationBranding.email/.phone —
+// the exact fields app/settings/branding labels as the support contact).
+// A cancellation, refund, event-cancelled or reminder email has a
+// genuine reason the ticket email never had: the purchaser is being
+// told something changed and needs to know WHO to ask about it. Still
+// server-only (consumed by lib/events/lifecycleEmail.ts only, never
+// returned to a client or public page), and still excludes address/abn/
+// emailSenderName for the same reasons the ticket projection does.
+// Every field is independently nullable — an organisation that has
+// configured nothing renders a contact-free email, never a fallback to
+// any platform address.
+export interface LifecycleEmailBranding extends TicketEmailBranding {
+  supportEmail: string | null;
+  supportPhone: string | null;
+}
+
+export function normaliseLifecycleEmailBranding(rawSettings: unknown, organisationName: string): LifecycleEmailBranding {
+  const { branding } = normaliseOrganisationBranding(rawSettings, organisationName);
+  return { ...toTicketEmailBranding(branding), supportEmail: branding.email, supportPhone: branding.phone };
+}

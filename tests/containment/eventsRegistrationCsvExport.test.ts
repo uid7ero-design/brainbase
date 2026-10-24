@@ -420,16 +420,35 @@ describe('CSV export — privacy exclusions', () => {
     expect(src).not.toContain('includeAnswers')
   })
 
-  it('the CSV header names exactly the 14 approved columns, in the specified order', async () => {
+  it('the CSV header names exactly the 18 approved columns, in the specified order (the 14 original columns plus Phase 5A\'s four explicit financial columns after Currency)', async () => {
     textMatchMock([{ match: 'FROM events', rows: EVENT_ROW }])
     const res = await exportRoute.GET(getReq(), CTX)
     const csv = await res.text()
     const header = csv.replace(/^﻿/, '').split('\r\n')[0]
     expect(header).toBe([
       'Order reference', 'Purchaser name', 'Purchaser email', 'Purchaser phone',
-      'Payment status', 'Order total', 'Currency', 'Ticket type', 'Attendee name',
+      'Payment status', 'Order total', 'Currency',
+      'Discount', 'Platform fee', 'Fee mode', 'Customer paid',
+      'Ticket type', 'Attendee name',
       'Session', 'Checked in', 'Check-in timestamp', 'Cancelled', 'Created',
     ].join(','))
+  })
+
+  it('Phase 5A: a pre-Phase-5A / zero-fee row exports Discount 0.00, Platform fee 0.00, blank Fee mode and Customer paid = Order total; a pass-through fee row spells each out', async () => {
+    textMatchMock([
+      { match: 'FROM events', rows: EVENT_ROW },
+      {
+        match: 'FROM event_attendees',
+        rows: [
+          { ...FULL_ATTENDEE_ROW, total_cents: 5000 },
+          { ...FULL_ATTENDEE_ROW, attendee_name: 'Fee Payer', total_cents: 19800, discount_cents: 2200, platform_fee_cents: 345, fee_mode: 'PASS_THROUGH', payment_total_cents: 20145 },
+        ],
+      },
+    ])
+    const res = await exportRoute.GET(getReq(), CTX)
+    const lines = (await res.text()).replace(/^﻿/, '').trim().split('\r\n')
+    expect(lines[1]).toContain(',PAID,50.00,AUD,0.00,0.00,,50.00,General Admission,')
+    expect(lines[2]).toContain(',PAID,198.00,AUD,22.00,3.45,PASS_THROUGH,201.45,General Admission,')
   })
 })
 

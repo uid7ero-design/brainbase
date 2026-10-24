@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+/* Eve design tokens — a deliberately small, product-specific set.
+   Light canvas by default (premium, print-like), ink typography, one
+   accent used sparingly for emphasis, actions and the "Eve" inside
+   "Events". Nothing here is shared with any other product shell. */
+@theme {
+  --color-eve-ink: #0f1222;
+  --color-eve-ink-soft: #2a2e3f;
+  --color-eve-muted: #5b6070;
+  --color-eve-canvas: #faf9f6;
+  --color-eve-surface: #ffffff;
+  --color-eve-surface-alt: #f2f0ea;
+  --color-eve-line: #e4e1d9;
+  --color-eve-accent: #d9263d;
+  --color-eve-accent-strong: #b81f33;
+  --color-eve-accent-soft: #fbe9ec;
+  --color-eve-success: #1f7a4d;
+  --color-eve-warning: #9a6b00;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --radius-eve: 14px;
+  --shadow-eve: 0 1px 2px rgba(15, 18, 34, 0.05), 0 12px 32px -16px rgba(15, 18, 34, 0.25);
+}
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  background: var(--color-eve-canvas);
+  color: var(--color-eve-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-eve-accent-soft);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-eve-accent);
+  outline-offset: 2px;
+}
+
+/* Display headings: tight tracking, slightly condensed leading. */
+.eve-display {
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+  font-weight: 650;
+}

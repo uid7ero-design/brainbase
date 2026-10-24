@@ -146,6 +146,10 @@ describe('Registration panel — step headings softened for the institutional th
     expect(stepLabelFn).toContain("fontWeight: softer ? 600 : 700")
     expect(stepLabelFn).toContain("letterSpacing: softer ? '.03em' : '.06em'")
 
+    // Phase 2 (multi-ticket-type carts): the separate "Quantity" step was
+    // folded into "Choose tickets" (one quantity stepper per ticket type),
+    // so there were 5 steps. Events Phase 4 adds the conditional "Codes"
+    // step (promotional / access codes), so there are now 6 call sites.
     const callSites = clientSource.match(/<StepLabel[^/]*\/>/g) ?? []
     expect(callSites.length).toBe(6)
     for (const call of callSites) {
@@ -164,7 +168,9 @@ describe('Registration panel — step headings softened for the institutional th
   it('every existing form field/fieldset/step remains present — no fields were removed or restructured', () => {
     expect(clientSource).toContain('StepLabel index={stepTicket}')
     expect(clientSource).toContain('StepLabel index={stepSession as number}')
-    expect(clientSource).toContain('StepLabel index={stepQuantity}')
+    // Phase 2: quantity is chosen per ticket type inside the ticket step.
+    expect(clientSource).not.toContain('StepLabel index={stepQuantity}')
+    expect(clientSource).toContain('function TicketQuantityRow(')
     expect(clientSource).toContain('StepLabel index={stepPurchaser}')
     expect(clientSource).toContain('StepLabel index={stepOrderQuestions as number}')
     expect(clientSource).toContain('StepLabel index={stepAttendee}')

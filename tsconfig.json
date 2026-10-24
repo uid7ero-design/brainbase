@@ -19,7 +19,12 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@ticketing/core": ["./packages/ticketing/src/index.ts"],
+      "@ticketing/core/*": ["./packages/ticketing/src/*"],
+      "@scheduling/core": ["./packages/scheduling/src/index.ts"],
+      "@scheduling/core/*": ["./packages/scheduling/src/*"],
+      "@scheduling/postgres": ["./packages/scheduling-postgres/src/index.ts"]
     }
   },
   "include": [
@@ -30,5 +35,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "backend_migration", "Clients", "Dr Soong", "scripts"]
+  "exclude": ["node_modules", "backend_migration", "Clients", "Dr Soong", "scripts", "apps"]
 }

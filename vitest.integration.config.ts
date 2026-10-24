@@ -234,6 +234,10 @@ export default defineConfig({
       'scripts/tests/essioIntegrationB1.integration.test.ts',
       'scripts/tests/essioIntegrationB2.integration.test.ts',
       'scripts/tests/essioIntegrationB3.integration.test.ts',
+      'packages/scheduling-postgres/tests/*.integration.test.ts',
+      'scripts/tests/schedulingHost2b0.integration.test.ts',
+      'scripts/tests/schedulingRuntime2b1.integration.test.ts',
+      'scripts/tests/schedulingConfigApi2b2b.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,
@@ -242,6 +246,9 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, '.'),
       'server-only': path.resolve(__dirname, 'tests/stubs/server-only.ts'),
+      '@scheduling/core/': path.resolve(__dirname, 'packages/scheduling/src') + '/',
+      '@scheduling/core': path.resolve(__dirname, 'packages/scheduling/src/index.ts'),
+      '@scheduling/postgres': path.resolve(__dirname, 'packages/scheduling-postgres/src/index.ts'),
     },
   },
 });

@@ -385,6 +385,11 @@ describe('BrainBase marketing site — Events & Ticketing as a first-class capab
 
 describe('Retry route — authoritative server-resolved slugs, never client-trusted', () => {
   const code = stripComments(read('app/api/events/[id]/orders/[orderId]/retry/route.ts'))
+  // Eve Phase 1: the retry flow itself (tenant-scoped slug query,
+  // capacity reacquisition, Stripe call) moved verbatim into the shared
+  // service; the route authorises and builds return URLs from the
+  // slugs the service hands it.
+  const service = stripComments(read('lib/events/services/retryCheckout.ts'))
 
   it('reads no request body at all — there is nothing for a hostile/mismatched slug value to override', () => {
     expect(code).not.toMatch(/req\.json\(\)/)
@@ -392,22 +397,36 @@ describe('Retry route — authoritative server-resolved slugs, never client-trus
   })
 
   it('the event/organisation slugs come from the same tenant-scoped query that already verifies ownership', () => {
-    const queryStart = code.indexOf('SELECT e.id, e.status, e.slug')
+    const queryStart = service.indexOf('SELECT e.id, e.status, e.slug')
     expect(queryStart).toBeGreaterThan(-1)
-    const queryRegion = code.slice(queryStart, code.indexOf('LIMIT 1', queryStart))
-    expect(queryRegion).toMatch(/WHERE e\.id = \$\{eventId\} AND e\.organisation_id = \$\{session\.organisationId\}/)
+    const queryRegion = service.slice(queryStart, service.indexOf('LIMIT 1', queryStart))
+    expect(queryRegion).toMatch(/WHERE e\.id = \$\{eventId\} AND e\.organisation_id = \$\{organisationId\}/)
+    // organisationId reaching the service is the verified session's own.
+    expect(code).toMatch(/organisationId: session\.organisationId/)
+    expect(service).not.toMatch(/req\.json\(\)|body\./)
   })
 
   it('success/cancel URLs always use the branded public flow with the resolved slugs — no generic manager-route fallback', () => {
-    expect(code).toMatch(/successUrl = `\$\{origin\}\/e\/\$\{event\.org_slug\}\/\$\{event\.event_slug\}\/checkout\/success\?session_id=\{CHECKOUT_SESSION_ID\}`/)
-    expect(code).toMatch(/cancelUrl = `\$\{origin\}\/e\/\$\{event\.org_slug\}\/\$\{event\.event_slug\}\?checkout=cancelled`/)
+    // The service hands the route exactly the tenant-scoped DB slugs...
+    // Phase 3.1: it also hands over the order's committed product surface,
+    // resolved before anything is mutated.
+    expect(service).toMatch(/await input\.buildReturnUrls\(event\.org_slug, event\.event_slug, productSurface\)/)
+    // ...and the route builds only the branded public flow from them.
+    expect(code).toMatch(/buildReturnUrls: async \(orgSlug, eventSlug, productSurface\) =>/)
+    expect(code).toMatch(/checkoutReturnUrlsFor\(productSurface, orgSlug, eventSlug, `\$\{proto\}:\/\/\$\{host\}`\)/)
+    // BrainBase orders keep the exact same branded public flow.
+    const urls = stripComments(read('lib/events/productSurface.ts'))
+    expect(urls).toMatch(/successUrl: `\$\{brainbaseOrigin\}\/e\/\$\{orgSlug\}\/\$\{eventSlug\}\/checkout\/success\?session_id=\{CHECKOUT_SESSION_ID\}`/)
+    expect(urls).toMatch(/cancelUrl: `\$\{brainbaseOrigin\}\/e\/\$\{orgSlug\}\/\$\{eventSlug\}\?checkout=cancelled`/)
     expect(code).not.toMatch(/events\/\$\{eventId\}\?checkout=retry-success/)
+    expect(service).not.toMatch(/events\/\$\{eventId\}\?checkout=retry-success/)
   })
 
   it('every existing retry guarantee remains textually present and unchanged: manager+ auth, historical stripe_account_id, no INSERTs, capacity self-exclusion', () => {
     expect(code).toMatch(/authorizeEventsRequest\('manager'\)/)
-    expect(code).toMatch(/connectedAccountId: order\.stripe_account_id/)
+    expect(service).toMatch(/connectedAccountId: order\.stripe_account_id/)
     expect(code).not.toMatch(/INSERT INTO event_orders|INSERT INTO event_order_items|INSERT INTO event_attendees/)
-    expect(code).toMatch(/eo\.id <> \$\{orderId\}/)
+    expect(service).not.toMatch(/INSERT INTO event_orders|INSERT INTO event_order_items|INSERT INTO event_attendees/)
+    expect(service).toMatch(/eo\.id <> \$\{orderId\}/)
   })
 })

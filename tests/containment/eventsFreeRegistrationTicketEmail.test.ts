@@ -147,6 +147,14 @@ const ROUTE_SOURCE = stripComments(fs.readFileSync(
   path.join(process.cwd(), 'app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'),
   'utf-8',
 ))
+// Eve Phase 1: the free-registration transaction and its automatic
+// ticket-email attempt moved verbatim from the register route into the
+// shared service the route now calls; SERVICE_SOURCE is where the
+// scheduling/orchestration contracts below now live.
+const SERVICE_SOURCE = stripComments(fs.readFileSync(
+  path.join(process.cwd(), 'lib/events/services/freeRegistration.ts'),
+  'utf-8',
+))
 const STRIPE_SOURCE = fs.readFileSync(path.join(process.cwd(), 'lib/events/stripe.ts'), 'utf-8')
 // Comment-stripped variant — Phase 3E.3 added real (approved) code AND
 // explanatory comments to stripe.ts that legitimately name
@@ -162,20 +170,26 @@ const RESEND_ROUTE_SOURCE = fs.readFileSync(
 )
 
 describe('SCHEDULING — ticket_email_status is written only in the order-creation INSERT', () => {
-  it('both INSERT INTO event_orders branches include ticket_email_status and bind it to the literal \'pending\'', () => {
-    const occurrences = ROUTE_SOURCE.match(/INSERT INTO event_orders \([^)]*ticket_email_status\)/g) ?? []
-    expect(occurrences.length).toBe(2)
-    const selectOccurrences = ROUTE_SOURCE.match(/'CONFIRMED', 0, \$\{bookingToken\}, 'pending'/g) ?? []
-    expect(selectOccurrences.length).toBe(2)
+  // Phase 2: session-bound and non-session orders now share ONE
+  // capacity-gated statement, so there is exactly one order INSERT.
+  it('the INSERT INTO event_orders includes ticket_email_status and binds it to the literal \'pending\'', () => {
+    // Phase 4 appends the access-code snapshot columns after
+    // ticket_email_status in this same single INSERT.
+    const occurrences = SERVICE_SOURCE.match(/INSERT INTO event_orders \([^)]*ticket_email_status[^)]*\)/g) ?? []
+    expect(occurrences.length).toBe(1)
+    const selectOccurrences = SERVICE_SOURCE.match(/'CONFIRMED', 0, \$\{bookingToken\}, 'pending'/g) ?? []
+    expect(selectOccurrences.length).toBe(1)
   })
 
   it('MANDATORY historical safety — no broad UPDATE event_orders SET ticket_email_status exists anywhere in this route', () => {
     expect(ROUTE_SOURCE).not.toMatch(/UPDATE\s+event_orders\s+SET[^;]*ticket_email_status/i)
+    expect(SERVICE_SOURCE).not.toMatch(/UPDATE\s+event_orders\s+SET[^;]*ticket_email_status/i)
   })
 
-  it('the literal \'pending\' appears ONLY inside the two INSERT column-value lists — not as a standalone assignment', () => {
-    const pendingOccurrences = (ROUTE_SOURCE.match(/'pending'/g) ?? []).length
-    expect(pendingOccurrences).toBe(2)
+  it('the literal \'pending\' appears ONLY inside the INSERT column-value list — not as a standalone assignment', () => {
+    const pendingOccurrences = (SERVICE_SOURCE.match(/'pending'/g) ?? []).length
+    expect(pendingOccurrences).toBe(1)
+    expect(ROUTE_SOURCE).not.toMatch(/'pending'/)
   })
 
   it('a valid single-attendee free registration succeeds with 201', async () => {
@@ -212,19 +226,28 @@ describe('ORCHESTRATION INVOCATION — attemptAutomaticTicketEmail', () => {
   })
 
   it('the call site is textually AFTER the transaction/CRM handling and BEFORE the response is built — never before commit', () => {
-    const transactionIdx = ROUTE_SOURCE.indexOf('transactionResults[transactionResults.length - 1]')
-    const crmIdx = ROUTE_SOURCE.indexOf('recordEventBookingActivity(')
-    const attemptIdx = ROUTE_SOURCE.indexOf('attemptAutomaticTicketEmail(orderId)')
-    const responseIdx = ROUTE_SOURCE.indexOf('confirmation_reference: orderId')
+    // In the service: transaction -> caller's post-commit hook (the
+    // route's CRM handling) -> ticket-email attempt -> success result.
+    const transactionIdx = SERVICE_SOURCE.indexOf('transactionResults[transactionResults.length - 1]')
+    const crmHookIdx = SERVICE_SOURCE.indexOf('await input.onCommitted(orderId)')
+    const attemptIdx = SERVICE_SOURCE.indexOf('attemptAutomaticTicketEmail(orderId)')
+    const resultIdx = SERVICE_SOURCE.indexOf('return { ok: true, orderId, ')
     expect(transactionIdx).toBeGreaterThan(-1)
-    expect(crmIdx).toBeGreaterThan(transactionIdx)
-    expect(attemptIdx).toBeGreaterThan(crmIdx)
-    expect(responseIdx).toBeGreaterThan(attemptIdx)
+    expect(crmHookIdx).toBeGreaterThan(transactionIdx)
+    expect(attemptIdx).toBeGreaterThan(crmHookIdx)
+    expect(resultIdx).toBeGreaterThan(attemptIdx)
+    // In the route: CRM handling is exactly that hook, and the response
+    // is only built from the service's (post-attempt) result.
+    expect(ROUTE_SOURCE.indexOf('recordEventBookingActivity(')).toBeGreaterThan(ROUTE_SOURCE.indexOf('onCommitted: async (orderId) => {'))
+    // (Phase 3.1: the wire mapping lives in the shared response module.)
+    expect(ROUTE_SOURCE).toMatch(/freeRegistrationResultResponse\(result\)/)
+    expect(stripComments(fs.readFileSync(path.join(process.cwd(), 'lib/events/freeRegistrationResponse.ts'), 'utf-8'))).toMatch(/confirmation_reference: result\.orderId/)
+    expect(ROUTE_SOURCE).not.toMatch(/attemptAutomaticTicketEmail/)
   })
 
   it('the call is awaited and wrapped in its own try/catch in the route (defense in depth)', () => {
-    const attemptIdx = ROUTE_SOURCE.indexOf('attemptAutomaticTicketEmail(orderId)')
-    const surrounding = ROUTE_SOURCE.slice(Math.max(0, attemptIdx - 60), attemptIdx + 'attemptAutomaticTicketEmail(orderId)'.length + 5)
+    const attemptIdx = SERVICE_SOURCE.indexOf('attemptAutomaticTicketEmail(orderId)')
+    const surrounding = SERVICE_SOURCE.slice(Math.max(0, attemptIdx - 60), attemptIdx + 'attemptAutomaticTicketEmail(orderId)'.length + 5)
     expect(surrounding).toContain('try {')
     expect(surrounding).toContain('await attemptAutomaticTicketEmail(orderId)')
   })
@@ -336,8 +359,8 @@ describe('CLAIM FAILURE / TRANSACTION FAILURE — no provider call before or wit
   })
 
   it('the provider is never called before commit — attemptAutomaticTicketEmail call site is textually AFTER the empty-RETURNING 409 early return', () => {
-    const earlyReturnIdx = ROUTE_SOURCE.indexOf("status: 409")
-    const attemptIdx = ROUTE_SOURCE.indexOf('attemptAutomaticTicketEmail(orderId)')
+    const earlyReturnIdx = SERVICE_SOURCE.indexOf("return { ok: false, code: 'CAPACITY_UNAVAILABLE' }")
+    const attemptIdx = SERVICE_SOURCE.indexOf('attemptAutomaticTicketEmail(orderId)')
     expect(earlyReturnIdx).toBeGreaterThan(-1)
     expect(attemptIdx).toBeGreaterThan(earlyReturnIdx)
   })
@@ -366,7 +389,8 @@ describe('PAID CONTAINMENT — lib/events/stripe.ts never sends automatically; p
   })
 
   it('free registration retains full ownership of its own immediate post-commit delivery attempt — the register route still calls attemptAutomaticTicketEmail directly, unaffected by paid orders now being schedule-only', () => {
-    expect(ROUTE_SOURCE).toMatch(/attemptAutomaticTicketEmail\(orderId\)/)
+    expect(SERVICE_SOURCE).toMatch(/attemptAutomaticTicketEmail\(orderId\)/)
+    expect(ROUTE_SOURCE).toMatch(/registerFreeOrder\(/)
   })
 })
 

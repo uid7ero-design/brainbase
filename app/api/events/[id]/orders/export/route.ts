@@ -14,6 +14,16 @@ const CSV_HEADER = [
   'Payment status',
   'Order total',
   'Currency',
+  // Phase 5A — explicit financial columns (brief §10). "Order total" above
+  // keeps its existing meaning (the NET TICKET amount, after discounts);
+  // these spell out the discount, the platform fee, its mode and what the
+  // customer actually paid, so ticket revenue is never conflated with
+  // platform revenue. Every pre-Phase-5A / zero-fee order exports
+  // discount/fee 0.00, mode blank, customer paid = order total.
+  'Discount',
+  'Platform fee',
+  'Fee mode',
+  'Customer paid',
   'Ticket type',
   'Attendee name',
   'Session',
@@ -84,6 +94,10 @@ export async function GET(req: Request, { params }: Ctx) {
       eo.payment_status,
       eo.total_cents,
       eo.currency,
+      eo.discount_cents,
+      eo.platform_fee_cents,
+      eo.fee_mode,
+      COALESCE(eo.payment_total_cents, eo.total_cents) AS payment_total_cents,
       tt.name AS ticket_type_name,
       ea.attendee_name,
       es.name AS session_name,
@@ -108,6 +122,10 @@ export async function GET(req: Request, { params }: Ctx) {
     payment_status: string;
     total_cents: number;
     currency: string;
+    discount_cents: number | null;
+    platform_fee_cents: number | null;
+    fee_mode: string | null;
+    payment_total_cents: number | null;
     ticket_type_name: string | null;
     attendee_name: string;
     session_name: string | null;
@@ -124,6 +142,10 @@ export async function GET(req: Request, { params }: Ctx) {
     r.payment_status,
     (r.total_cents / 100).toFixed(2),
     r.currency,
+    ((r.discount_cents ?? 0) / 100).toFixed(2),
+    ((r.platform_fee_cents ?? 0) / 100).toFixed(2),
+    r.fee_mode ?? '',
+    ((r.payment_total_cents ?? r.total_cents) / 100).toFixed(2),
     r.ticket_type_name ?? '',
     r.attendee_name,
     r.session_name ?? '',

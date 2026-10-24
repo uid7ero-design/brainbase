@@ -2,8 +2,10 @@ import 'server-only';
 import sql from '@/lib/db';
 import { sendTicketEmail, maskEmailForAudit } from './ticketEmail';
 import { normaliseTicketEmailBranding } from '@/lib/organisations/branding';
+import { resolveBuyerProduct } from '@/lib/events/buyerProduct';
 import { logAutomaticTicketEmailSent, logAutomaticTicketEmailFailed } from './auditLog';
 import { recordTicketEmailDeliveryAccepted } from './ticketEmailDeliveryTracking';
+import { receiptFromOrderRow, type PaymentReceipt, type ReceiptOrderRow } from './receipt';
 
 // Phase 3E.1 — durable, lease-based foundation for AUTOMATIC initial
 // ticket-email delivery: the claim/success/failure/stale-lease
@@ -222,6 +224,12 @@ export type ClaimedOrderForDelivery = {
   // logic, no duplicated raw-settings parsing.
   organisationName: string;
   organisationSettings: unknown;
+  // Eve Phase 3.2 — event_orders.product_surface as committed (the only
+  // authority for buyer-facing identity; never a request value).
+  productSurface: string;
+  // Phase 5A — neutral payment summary for a PAID order, null otherwise
+  // (see lib/events/receipt.ts).
+  receipt: PaymentReceipt | null;
 };
 
 // Trusted server-side read AFTER winning the claim (§10 of this phase's
@@ -240,32 +248,46 @@ export type ClaimedOrderForDelivery = {
 // route — this is server-only data for the delivery helper's own
 // internal use.
 export async function readClaimedOrderForDelivery(orderId: string, claimId: string): Promise<ClaimedOrderForDelivery | null> {
+  // Phase 5A — the same statement also reads the order's own financial
+  // snapshot (payment status, ticket total, discount, fee, payment total,
+  // paid/refunded figures) and its lines, so a PAID order's email carries
+  // the neutral payment summary (lib/events/receipt.ts). Same round trip,
+  // wider column list only; every extra column is functionally dependent
+  // on eo.id (the GROUP BY key).
   const rows = await sql`
     SELECT
-      eo.id, eo.organisation_id, eo.purchaser_name, eo.purchaser_email, eo.booking_token,
-      e.name AS event_name,
+      eo.id, eo.organisation_id, eo.purchaser_name, eo.purchaser_email, eo.booking_token, eo.product_surface,
+      eo.payment_status, eo.currency, eo.total_cents, eo.discount_cents, eo.promotion_code_snapshot,
+      eo.platform_fee_cents, eo.fee_mode, eo.fee_label, eo.payment_total_cents, eo.paid_at, eo.refunded_cents, eo.refunded_at,
+      e.name AS event_name, e.timezone AS event_timezone,
       o.name AS organisation_name, o.settings AS organisation_settings,
       COALESCE(
         json_agg(json_build_object('name', ea.attendee_name, 'ticket_token', ea.ticket_token))
           FILTER (WHERE ea.id IS NOT NULL AND ea.ticket_token IS NOT NULL),
         '[]'
-      ) AS attendees
+      ) AS attendees,
+      (
+        SELECT COALESCE(json_agg(json_build_object('description', tt.name, 'quantity', li.quantity, 'unit_price_cents', li.unit_price_cents, 'discount_cents', li.discount_cents) ORDER BY li.created_at, li.id), '[]')
+        FROM event_order_items li
+        LEFT JOIN event_ticket_types tt ON tt.id = li.ticket_type_id AND tt.organisation_id = li.organisation_id
+        WHERE li.order_id = eo.id AND li.organisation_id = eo.organisation_id
+      ) AS receipt_lines
     FROM event_orders eo
     JOIN events e ON e.id = eo.event_id AND e.organisation_id = eo.organisation_id
     JOIN organisations o ON o.id = eo.organisation_id
     JOIN event_order_items oi ON oi.order_id = eo.id AND oi.organisation_id = eo.organisation_id
     LEFT JOIN event_attendees ea ON ea.order_item_id = oi.id AND ea.organisation_id = oi.organisation_id
     WHERE eo.id = ${orderId} AND eo.ticket_email_status = 'sending' AND eo.ticket_email_claim_id = ${claimId}
-    GROUP BY eo.id, e.name, o.name, o.settings
+    GROUP BY eo.id, e.name, e.timezone, o.name, o.settings
     LIMIT 1
   `;
   if (!rows.length) return null;
 
   const row = rows[0] as {
-    id: string; organisation_id: string; purchaser_name: string; purchaser_email: string; booking_token: string | null;
+    id: string; organisation_id: string; purchaser_name: string; purchaser_email: string; booking_token: string | null; product_surface: string | null;
     event_name: string; organisation_name: string; organisation_settings: unknown;
     attendees: { name: string; ticket_token: string }[];
-  };
+  } & ReceiptOrderRow;
   return {
     id: row.id,
     organisationId: row.organisation_id,
@@ -276,6 +298,8 @@ export async function readClaimedOrderForDelivery(orderId: string, claimId: stri
     attendees: row.attendees.map(a => ({ name: a.name, ticketToken: a.ticket_token })),
     organisationName: row.organisation_name,
     organisationSettings: row.organisation_settings,
+    productSurface: row.product_surface ?? 'BRAINBASE',
+    receipt: receiptFromOrderRow(row),
   };
 }
 
@@ -486,6 +510,22 @@ export async function attemptAutomaticTicketEmail(orderId: string): Promise<Auto
     const branding = normaliseTicketEmailBranding(order.organisationSettings, order.organisationName);
     const recipientMasked = maskEmailForAudit(order.purchaserEmail);
 
+    // Eve Phase 3.2 — buyer identity comes from the COMMITTED order, so an
+    // automatic attempt, a recovery sweep and a manual resend of the same
+    // order all resolve the same product. An Eve order whose links or sender
+    // are not configured fails closed here: nothing is sent (no BrainBase
+    // fallback) and the attempt follows the ordinary retryable schedule.
+    const buyer = resolveBuyerProduct(order.productSurface);
+    if (!buyer.ok) {
+      await markTicketEmailFailed(orderId, claim.claimId, 'not_configured', buyer.message);
+      const terminal = isTerminalFailure('not_configured', claim.attemptCount);
+      await logAutomaticTicketEmailFailed({
+        organisationId: order.organisationId, orderId, attemptCount: claim.attemptCount,
+        terminal, reason: 'not_configured',
+      }).catch(err => console.error('[events] automatic ticket-email audit write failed (product identity unavailable)', err, { orderId }));
+      return { outcome: 'failed', reason: 'not_configured', terminal };
+    }
+
     const sendResult = await sendTicketEmail(
       order.purchaserEmail,
       {
@@ -494,6 +534,8 @@ export async function attemptAutomaticTicketEmail(orderId: string): Promise<Auto
         attendees: order.attendees,
         bookingToken: order.bookingToken,
         branding,
+        receipt: order.receipt,
+        product: buyer.context,
       },
       { idempotencyKey },
     );

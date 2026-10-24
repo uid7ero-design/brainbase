@@ -181,8 +181,12 @@ describe('Ticket identity — server-generated, unique, never client-supplied', 
   })
 })
 
+// Eve Phase 1: the register route's transaction and token minting moved
+// verbatim into lib/events/services/freeRegistration.ts, which the route
+// now calls; these containment checks follow the code there.
 describe('Ticket identity — architecture containment (register route)', () => {
-  const routeSrc = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))
+  const routeSrc = stripComments(read('lib/events/services/freeRegistration.ts'))
+  const httpRouteSrc = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))
 
   // Phase 4: the generator itself moved to lib/events/ticketToken.ts (a
   // small extraction so the Stripe webhook's paid-order token issuance
@@ -204,16 +208,22 @@ describe('Ticket identity — architecture containment (register route)', () => 
     // it be the ONLY one.
     expect(routeSrc).toMatch(/import \{[^}]*\bgenerateTicketToken\b[^}]*\} from '@\/lib\/events\/ticketToken'/)
     expect(routeSrc).not.toMatch(/randomBytes/)
+    expect(httpRouteSrc).not.toMatch(/randomBytes|generateTicketToken/)
   })
 
-  it('the R1 concurrency-safe capacity gate is textually unchanged — lock statements and capacity WHERE clauses are still present', () => {
-    expect(routeSrc).toMatch(/FOR UPDATE/)
-    expect(routeSrc).toMatch(/sold_tt\.qty \+ \$\{validated\.quantity\} <=/)
+  // Phase 2 (multi-ticket-type carts): the R1 shape is preserved —
+  // separate FOR UPDATE lock statements (now built by the shared cart
+  // helper, one per ticket type, then the session) followed by one
+  // capacity-gated statement that checks every line and the session.
+  it('the R1 concurrency-safe capacity gate is preserved — lock statements and capacity WHERE clauses are still present', () => {
+    expect(routeSrc).toMatch(/buildCartLockStatements\(organisationId, lineTypeIds, validated\.event_session_id\)/)
+    expect(stripComments(read('lib/events/services/cart.ts'))).toMatch(/FOR UPDATE/)
+    expect(routeSrc).toMatch(/NOT EXISTS \(SELECT 1 FROM cart_tt WHERE cart_tt\.sold \+ cart_tt\.quantity > cart_tt\.capacity\)/)
     expect(routeSrc).toMatch(/sold_sess\.qty \+ \$\{validated\.quantity\} <=/)
   })
 
   it('ticket_token is passed through the same UNNEST parallel-array mechanism as attendee names/emails, not a separate untrusted insert path', () => {
-    expect(routeSrc).toMatch(/UNNEST\(\$\{attendeeNames\}::text\[\], \$\{attendeeEmails\}::text\[\], \$\{ticketTokens\}::text\[\]\)/)
+    expect(routeSrc).toMatch(/UNNEST\(\$\{attendeeTypeIds\}::text\[\], \$\{attendeeNames\}::text\[\], \$\{attendeeEmails\}::text\[\], \$\{ticketTokens\}::text\[\]\)/)
   })
 })
 

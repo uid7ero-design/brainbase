@@ -50,6 +50,7 @@ export default function PeoplePage() {
   // regardless of this value — hiding the button is a UX courtesy, not
   // the security boundary.
   const [canManage, setCanManage] = useState(false);
+  const [personSavePending, setPersonSavePending] = useState(false);
 
   useHrDrawerFocusReturn(openPersonId, !loading);
 
@@ -166,13 +167,13 @@ export default function PeoplePage() {
 
       {!loading && !error && pagination && <HrRegisterPagination page={pagination.page} total={pagination.total} onChange={setPage} />}
 
-      <SlidePanel open={showAdd} onClose={() => setShowAdd(false)} title="Add Person">
-        <PersonForm canManage={canManage} onSaved={() => { setShowAdd(false); load(); }} />
+      <SlidePanel open={showAdd} onClose={() => { if (!personSavePending) { setShowAdd(false); load(); } }} title="Add Person">
+        <PersonForm canManage={canManage} onPendingChange={setPersonSavePending} onUncertain={() => setCanManage(false)} onSaved={() => { setShowAdd(false); load(); }} />
       </SlidePanel>
 
-      <SlidePanel open={editingPerson !== null} onClose={() => setEditingPerson(null)} title="Edit Person">
+      <SlidePanel open={editingPerson !== null} onClose={() => { if (!personSavePending) { setEditingPerson(null); load(); } }} title="Edit Person">
         {editingPerson && (
-          <PersonForm initial={editingPerson} canManage={canManage} onSaved={() => { setEditingPerson(null); load(); }} />
+          <PersonForm initial={editingPerson} canManage={canManage} onPendingChange={setPersonSavePending} onUncertain={() => setCanManage(false)} onSaved={() => { setEditingPerson(null); load(); }} />
         )}
       </SlidePanel>
 

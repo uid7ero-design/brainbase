@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { listWorksheetsForBatch } from "@/lib/data-hub/client/httpClient";
+import { worksheetReviewHref } from "@/lib/data-hub/client/reviewNavigation";
 
 type Worksheet = { id: string; worksheetName: string; worksheetIndex: number };
 
@@ -32,6 +33,7 @@ export default function AnalysisWorksheetLinks({ batchId, filename }: { batchId:
   }
 
   return <div style={{ padding: "8px 12px" }} aria-label={`Analysis worksheets for ${filename}`}>
+    <p><Link href={`/data-hub/import/${encodeURIComponent(batchId)}/preparation`}>Workbook preparation overview</Link></p>
     <button disabled={busy} onClick={() => void load()} aria-label={`Review worksheets in ${filename}`}>
       {busy ? "Loading worksheets…" : worksheets ? "Refresh analysis worksheets" : "Review worksheets"}
     </button>
@@ -40,7 +42,10 @@ export default function AnalysisWorksheetLinks({ batchId, filename }: { batchId:
       {worksheets.length === 0 ? <p>No persisted worksheets are available for analysis yet.</p> : <>
         <p>Open a worksheet to check its current profile and saved review.</p>
         <ul>{worksheets.map(worksheet => <li key={worksheet.id}>
-          <Link href={`/data-hub/analysis/${encodeURIComponent(worksheet.id)}`}>
+          <Link href={`/data-hub/prepare/${encodeURIComponent(worksheet.id)}`}>
+            {worksheet.worksheetName || "Worksheet"} (worksheet {worksheet.worksheetIndex + 1}) — prepare for review
+          </Link>{" · "}
+          <Link href={worksheetReviewHref(worksheet.id, batchId)}>
             {worksheet.worksheetName || "Worksheet"} (worksheet {worksheet.worksheetIndex + 1}) — review and count
           </Link>
         </li>)}</ul>

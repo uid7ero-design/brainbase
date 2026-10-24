@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
-import { confirmCheckIn, type AttendeeIdentifier } from '@/lib/events/checkIn';
-import { logCheckedIn } from '@/lib/events/auditLog';
+import type { AttendeeIdentifier } from '@/lib/events/checkIn';
+import { confirmCheckInWithAudit } from '@/lib/events/checkInOps';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const identifier = parseIdentifier(body);
   if (!identifier) return NextResponse.json({ error: 'Ticket not valid.', reason: 'not_found' }, { status: 404 });
 
-  const result = await confirmCheckIn(session.organisationId, id, identifier, session.userId);
+  const result = await confirmCheckInWithAudit(session.organisationId, id, identifier, session.userId);
   if (!result.ok) {
     const status = result.reason === 'not_found' ? 404 : 409;
     const message = result.reason === 'cancelled' ? 'Ticket cancelled.'
@@ -69,11 +69,5 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   // Phase 6 §11 — audit history, best-effort, only on a genuinely NEW
   // check-in (result.first) — a duplicate scan of an already-checked-in
   // ticket must not log a second "checked in" entry for the same event.
-  if (result.first) {
-    const orderRows = await sql`SELECT order_id FROM event_attendees WHERE id = ${result.attendee.id} AND organisation_id = ${session.organisationId} LIMIT 1`;
-    const orderId = (orderRows[0] as { order_id: string } | undefined)?.order_id;
-    if (orderId) await logCheckedIn({ organisationId: session.organisationId, userId: session.userId, orderId, attendeeId: result.attendee.id });
-  }
-
   return NextResponse.json({ first: result.first, attendee: result.attendee }, { status: result.first ? 200 : 409 });
 }

@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import sql from '@/lib/db';
 import { generateTicketToken, generateBookingToken } from './ticketToken';
 import { recordEventBookingActivityForOrder } from '@/lib/crm/eventSync';
+import type { ProductSurface } from '@/lib/events/productSurface';
 
 // ── Architecture ─────────────────────────────────────────────────────
 //
@@ -57,14 +58,30 @@ export class StripeNotConfiguredError extends Error {
 // the two stay aligned as designed.
 export const RESERVATION_WINDOW_SECONDS = 31 * 60;
 
+// One Stripe line item per event_order_items row (Phase 2 — multi-
+// ticket-type orders). Every value is server-derived by the caller from
+// the order's own items, never from the client request.
+export type CheckoutLineItem = {
+  name: string;
+  unitAmountCents: number;
+  quantity: number;
+  // Phase 4 (promotions) — set only for a DISCOUNTED line, which is sent
+  // as one net line item (quantity 1) with the original quantity and the
+  // discount spelled out here so the receipt stays clear. See
+  // lib/events/services/promotions.ts's buildCheckoutLineItems. Omitted
+  // (and never sent) for every undiscounted line, so an order without a
+  // promotion produces exactly the Checkout Session it always has.
+  description?: string;
+};
+
 export type CreateCheckoutSessionInput = {
   organisationId: string;
   eventId: string;
   orderId: string;
-  ticketTypeName: string;
-  unitAmountCents: number;
+  // Non-empty; one entry per order item, in display order. All share
+  // `currency` below (enforced by the cart rules before reservation).
+  lineItems: CheckoutLineItem[];
   currency: string;
-  quantity: number;
   purchaserEmail: string;
   successUrl: string;
   cancelUrl: string;
@@ -74,6 +91,23 @@ export type CreateCheckoutSessionInput = {
   // already confirmed one exists, so a caller passing an empty value
   // here would be a genuine bug, not a legitimate "no Connect" case.
   connectedAccountId: string;
+  // Phase 5A — the platform's application fee for THIS direct charge, in
+  // integer cents, taken from the order's own committed fee snapshot
+  // (event_orders.platform_fee_cents) by both the first checkout and
+  // Retry — never from a live policy read. Omitted or 0 means NO
+  // application fee and the Checkout Session is created with exactly the
+  // pre-Phase-5A parameter shape (no payment_intent_data key at all), so
+  // every zero-fee BrainBase order is byte-identical to before. When
+  // positive it is sent as payment_intent_data.application_fee_amount —
+  // Stripe Connect's documented direct-charge fee: the connected account
+  // is charged the full amount and the fee is transferred to the
+  // platform's balance — and must never exceed the session's own total.
+  applicationFeeCents?: number;
+  // Phase 3.1 — the order's committed product identity
+  // (event_orders.product_surface), sent as informational metadata for
+  // Stripe-side reconciliation ONLY. The webhook never reads it; the
+  // database row is the authority.
+  productSurface?: ProductSurface;
 };
 
 // Server-calculated price/quantity/currency only — every value passed
@@ -94,29 +128,49 @@ export type CreateCheckoutSessionInput = {
 // Session, its PaymentIntent, and the eventual charge all belong to
 // the CLIENT's own Stripe account, not Brainbase's platform account.
 export async function createCheckoutSession(input: CreateCheckoutSessionInput): Promise<{ sessionId: string; url: string }> {
+  if (!input.lineItems.length) throw new Error('A Checkout Session requires at least one line item.');
+  // Phase 5A — fail closed BEFORE any Stripe call: an application fee
+  // must be a non-negative safe integer no greater than what the session
+  // actually charges. A positive fee adds payment_intent_data; zero/absent
+  // adds nothing (see CreateCheckoutSessionInput.applicationFeeCents).
+  const applicationFeeCents = input.applicationFeeCents ?? 0;
+  if (!Number.isSafeInteger(applicationFeeCents) || applicationFeeCents < 0) {
+    throw new Error(`applicationFeeCents must be a non-negative safe integer (got ${applicationFeeCents}).`);
+  }
+  const sessionTotalCents = input.lineItems.reduce((sum, item) => sum + item.unitAmountCents * item.quantity, 0);
+  if (applicationFeeCents > sessionTotalCents) {
+    throw new Error(`applicationFeeCents ${applicationFeeCents} exceeds the Checkout Session total ${sessionTotalCents}.`);
+  }
   const stripe = getStripeClient();
   const session = await stripe.checkout.sessions.create(
     {
       mode: 'payment',
       customer_email: input.purchaserEmail,
-      line_items: [
-        {
-          price_data: {
-            currency: input.currency.toLowerCase(),
-            product_data: { name: input.ticketTypeName },
-            unit_amount: input.unitAmountCents,
-          },
-          quantity: input.quantity,
+      line_items: input.lineItems.map(item => ({
+        price_data: {
+          currency: input.currency.toLowerCase(),
+          product_data: item.description ? { name: item.name, description: item.description } : { name: item.name },
+          unit_amount: item.unitAmountCents,
         },
-      ],
+        quantity: item.quantity,
+      })),
       metadata: {
         event_order_id: input.orderId,
         organisation_id: input.organisationId,
         event_id: input.eventId,
+        ...(input.productSurface ? { product_surface: input.productSurface } : {}),
       },
       expires_at: Math.floor(Date.now() / 1000) + RESERVATION_WINDOW_SECONDS,
       success_url: input.successUrl,
       cancel_url: input.cancelUrl,
+      ...(applicationFeeCents > 0 ? { payment_intent_data: { application_fee_amount: applicationFeeCents } } : {}),
+      // Eve launch: card only. Without an explicit list, Checkout offers whatever the connected
+      // account has switched on (seen in the sandbox proof: card, Klarna and Link), including
+      // delayed or buy-now-pay-later methods Eve does not support. Stripe still shows its card
+      // wallets with 'card' (Apple Pay, Google Pay, and Link's saved cards, seen in the re-proof):
+      // all are card payments that settle immediately. BrainBase orders (no surface, or
+      // 'BRAINBASE') keep the exact parameters they had.
+      ...(input.productSurface === 'EVE' ? { payment_method_types: ['card'] } : {}),
     },
     { stripeAccount: input.connectedAccountId },
   );
@@ -196,7 +250,11 @@ async function issueBookingTokenForPaidOrder(orderId: string): Promise<void> {
   `;
 }
 
-export type WebhookProcessResult = { handled: boolean; type: string };
+// paidOrderId: set only for a checkout.session.completed / async_payment_succeeded
+// event whose session is actually paid. The webhook route uses it to attempt the
+// ticket email promptly (after the response); it is an attempt only — the delivery
+// machinery is idempotent, and the hourly recovery cron remains the fallback.
+export type WebhookProcessResult = { handled: boolean; type: string; paidOrderId?: string };
 
 // Central webhook dispatcher — called once per verified Stripe event
 // by the webhook route. Every branch below is idempotent on its own
@@ -256,8 +314,8 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<We
     case 'checkout.session.completed':
     case 'checkout.session.async_payment_succeeded': {
       const session = event.data.object as Stripe.Checkout.Session;
-      await handleCheckoutSessionCompleted(session, eventAccount);
-      return { handled: true, type: event.type };
+      const paidOrderId = await handleCheckoutSessionCompleted(session, eventAccount);
+      return paidOrderId ? { handled: true, type: event.type, paidOrderId } : { handled: true, type: event.type };
     }
     case 'checkout.session.expired': {
       const session = event.data.object as Stripe.Checkout.Session;
@@ -353,17 +411,16 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<We
 // is no crash window between the two facts: they are the same write.
 //
 // Deliberately NOT calling attemptAutomaticTicketEmail (or
-// sendTicketEmail/sendEmail) here — see this file's own module header
-// and the 3E.3 architecture decision: a Stripe webhook handler must stay
-// fast and predictable, and the already-live recovery cron (see
-// vercel.json for its current cadence; lib/events/ticketEmailRecovery.ts,
-// unmodified by this phase) is responsible for actually attempting
-// delivery. ticket_email_status=
-// 'pending' here is scheduling only, never a send.
-async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session, eventAccount: string | null): Promise<void> {
-  if (session.payment_status !== 'paid') return;
+// sendTicketEmail/sendEmail) from this handler — see the 3E.3 architecture
+// decision: the handler must stay fast and predictable. ticket_email_status =
+// 'pending' here is scheduling only, never a send. This handler returns the
+// order id instead, and the webhook ROUTE makes one prompt delivery attempt after
+// its response (via after()); the hourly recovery cron remains the fallback
+// (lib/events/ticketEmailRecovery.ts, unchanged).
+async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session, eventAccount: string | null): Promise<string | null> {
+  if (session.payment_status !== 'paid') return null;
   const orderId = session.metadata?.event_order_id;
-  if (!orderId) return;
+  if (!orderId) return null;
   const paymentIntentId = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id ?? null;
 
   await sql`
@@ -394,6 +451,7 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session, 
   // for an order already PAID still re-reads the (unchanged) current
   // state and performs a no-op-shaped upsert, which is correct.
   await recordEventBookingActivityForOrder(orderId);
+  return orderId;
 }
 
 // Releases a reservation's held capacity the moment Stripe reports the
@@ -604,7 +662,84 @@ export async function expireCheckoutSession(sessionId: string, connectedAccountI
   }
 }
 
-export type CreateRefundResult = { ok: true } | { ok: false; error: string };
+// ── Manager cancellation of a PENDING paid order ─────────────────────
+//
+// Cancelling a PENDING reservation releases the seat in the database, but a
+// still-open Checkout Session is still payable: money could be taken for an
+// order that is already CANCELLED, with no ticket and nothing to reconcile it.
+// So a cancel must make the exact session unpayable FIRST. This is the strict
+// counterpart of the best-effort expireCheckoutSession above: it reports what
+// actually happened so the caller can refuse to cancel when it cannot be sure.
+//
+// `connectedAccountId` and `sessionId` MUST be the ORDER's own stored values
+// (never the organisation's current Connect setting). Before expiring anything
+// the session is retrieved and the order id in its own metadata must equal
+// `orderId`: a session that does not carry this order's identity is never
+// expired by this function.
+//
+//   expired          we expired an open session — safe to cancel
+//   already_expired  Stripe already reports it expired — safe to cancel
+//   not_found        Stripe has no such session on that account — nothing payable
+//   complete         the session was completed (paid, or an asynchronous payment
+//                    is still settling) — NOT safe to cancel; the webhook decides
+//   failed           identity mismatch, an open session we could not expire, or
+//                    any Stripe/configuration error — NOT safe to cancel
+export type SessionExpiryOutcome =
+  | { outcome: 'expired' }
+  | { outcome: 'already_expired' }
+  | { outcome: 'not_found' }
+  | { outcome: 'complete'; paymentStatus: string }
+  | { outcome: 'failed'; error: string };
+
+function isStripeNoSuchResource(err: unknown): boolean {
+  const e = err as { code?: unknown; statusCode?: unknown; type?: unknown } | null;
+  return e?.code === 'resource_missing' || (e?.statusCode === 404 && e?.type === 'StripeInvalidRequestError');
+}
+
+export async function expireCheckoutSessionForCancellation(input: {
+  sessionId: string;
+  connectedAccountId: string;
+  orderId: string;
+}): Promise<SessionExpiryOutcome> {
+  const { sessionId, connectedAccountId, orderId } = input;
+  try {
+    const stripe = getStripeClient();
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {}, { stripeAccount: connectedAccountId });
+    if (session.metadata?.event_order_id !== orderId) {
+      return { outcome: 'failed', error: 'The Checkout Session does not belong to this order.' };
+    }
+    if (session.status === 'expired') return { outcome: 'already_expired' };
+    if (session.status === 'complete') return { outcome: 'complete', paymentStatus: session.payment_status };
+    if (session.status !== 'open') return { outcome: 'failed', error: 'The Checkout Session is in an unrecognised state.' };
+    await stripe.checkout.sessions.expire(sessionId, {}, { stripeAccount: connectedAccountId });
+    return { outcome: 'expired' };
+  } catch (err) {
+    if (isStripeNoSuchResource(err)) return { outcome: 'not_found' };
+    return { outcome: 'failed', error: err instanceof Error ? err.message : 'Could not expire the Checkout Session.' };
+  }
+}
+
+export type CreateRefundResult =
+  // refundedCents: the amount Stripe reports it refunded (the Refund
+  // object's `amount`), null only if the SDK returned no figure.
+  | { ok: true; refundedCents: number | null }
+  | { ok: false; error: string };
+
+export type CreateRefundOptions = {
+  // Phase 5A — reverse the platform's application fee as part of this
+  // (full) refund. Stripe's documented semantics for a direct charge: the
+  // refund is created on the connected account by the platform, and by
+  // default the application fee is NOT refunded (the connected account
+  // alone bears the refund); with refund_application_fee: true, a full
+  // charge refund also returns the FULL application fee to the connected
+  // account, so the organiser is made whole and the platform earns
+  // nothing on a sale that did not stand. Phase 5A's full-refund policy
+  // (see docs/architecture/decisions/0004-...) is to ALWAYS reverse the
+  // fee; the option exists so the caller passes it only when a fee was
+  // actually charged — a zero-fee order's refund call is byte-identical
+  // to before this phase (no third argument, no extra parameter).
+  refundApplicationFee?: boolean;
+};
 
 // Full refund only (§22). Called by the manager-only refund route
 // AFTER that route has already confirmed the order belongs to the
@@ -621,11 +756,14 @@ export type CreateRefundResult = { ok: true } | { ok: false; error: string };
 // through as the same `{ stripeAccount: ... }` request option
 // createCheckoutSession uses, so the refund is issued against the
 // exact account that actually processed the original charge.
-export async function createRefund(paymentIntentId: string, connectedAccountId: string): Promise<CreateRefundResult> {
+export async function createRefund(paymentIntentId: string, connectedAccountId: string, options?: CreateRefundOptions): Promise<CreateRefundResult> {
   try {
     const stripe = getStripeClient();
-    await stripe.refunds.create({ payment_intent: paymentIntentId }, { stripeAccount: connectedAccountId });
-    return { ok: true };
+    const refund = await stripe.refunds.create(
+      { payment_intent: paymentIntentId, ...(options?.refundApplicationFee ? { refund_application_fee: true } : {}) },
+      { stripeAccount: connectedAccountId },
+    );
+    return { ok: true, refundedCents: typeof refund?.amount === 'number' ? refund.amount : null };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'Refund failed.' };
   }

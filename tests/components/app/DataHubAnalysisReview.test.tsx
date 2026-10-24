@@ -2,11 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import AnalysisReviewClient from "@/app/data-hub/analysis/[uploadId]/AnalysisReviewClient";
 
-const initial = { ok: true, datasetProfileRunId: "profile-1", clarification: { columns: [
-  { sourceSchemaColumnId: "amount", resolutionState: "CLARIFICATION_REQUIRED", candidateRoles: ["MEASURE", "CURRENCY"], reasons: ["MULTIPLE_CANDIDATES"] },
-] }, quality: null, fieldLabels: [{ sourceSchemaColumnId: "amount", label: "Amount" }] };
-const preview = { ...initial, quality: { items: [{ code: "PARTIAL_NULL_VALUES", scope: "COLUMN", sourceSchemaColumnId: "amount", action: "ACKNOWLEDGE_NOTICE" }] } };
-const saved = (held = false) => ({ ok: true, revision: 2, quality: { snapshot: { state: held ? "HOLD_FOR_REMEDIATION" : "READY" } }, schema: { context: { datasetProfileRunId: "profile-1" }, snapshot: { fields: [{ sourceSchemaColumnId: "amount", fieldClass: "MEASURE" }] } } });
+import { reviewPlanFixture, reviewPreviewFixture, savedReviewFixture } from "../../helpers/dataHubReviewFixture";
+
+const initial = reviewPlanFixture();
+const preview = reviewPreviewFixture();
+const saved = savedReviewFixture;
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 const counted = (uploadId: string, present = false) => ({ ok: true, reviewRevision: 3, result: {
   resultVersion: "v1", count: 7, plan: { planVersion: "v1", readinessVersion: "v1", schemaVersion: "v1", profilerVersion: "v1",
@@ -21,8 +21,8 @@ describe("Data Hub review screen", () => {
   it("requires explicit choices, saves only decisions and displays the server count provenance", async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(reply(initial))
       .mockResolvedValueOnce(reply({ ok: false, code: "REVIEW_NOT_FOUND" }, 404))
-      .mockResolvedValueOnce(reply(preview)).mockResolvedValueOnce(reply({ ok: true }, 201))
-      .mockResolvedValueOnce(reply(saved())).mockResolvedValueOnce(reply(counted("upload/a")));
+      .mockResolvedValueOnce(reply(preview)).mockResolvedValueOnce(reply({ ok: true, revision: 2 }, 201))
+      .mockResolvedValueOnce(reply(saved(false, "upload/a"))).mockResolvedValueOnce(reply(counted("upload/a")));
     vi.stubGlobal("fetch", fetcher);
     render(<AnalysisReviewClient uploadId="upload/a" />);
     expect(fetcher).not.toHaveBeenCalled();
@@ -33,13 +33,13 @@ describe("Data Hub review screen", () => {
     fireEvent.click(screen.getByText("Review quality"));
     await screen.findByText("Data quality");
     expect(screen.getByText("Save review")).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("partial null values — Amount"), { target: { value: "ACKNOWLEDGE" } });
+    fireEvent.change(screen.getByLabelText("column partially null — Amount"), { target: { value: "ACKNOWLEDGE" } });
     fireEvent.click(screen.getByText("Save review"));
     await screen.findByText("Saved review 2");
     expect(screen.getByRole("region", { name: "Analysis planning" })).toBeInTheDocument();
     const body = JSON.parse(fetcher.mock.calls[3][1].body);
     expect(body).toEqual({ reviewVersion: "v1", datasetProfileRunId: "profile-1", semanticChoices: [{ sourceSchemaColumnId: "amount", role: "MEASURE" }],
-      qualityDecisions: [{ code: "PARTIAL_NULL_VALUES", scope: "COLUMN", sourceSchemaColumnId: "amount", decision: "ACKNOWLEDGE" }] });
+      qualityDecisions: [{ code: "COLUMN_PARTIALLY_NULL", scope: "COLUMN", sourceSchemaColumnId: "amount", decision: "ACKNOWLEDGE" }] });
     expect(fetcher.mock.calls[0][0]).toContain("upload%2Fa/analysis-review/plan");
     fireEvent.click(screen.getByText("Count rows"));
     await screen.findByText("Rows: 7. Based on review 3, profile profile-2.");
@@ -59,28 +59,27 @@ describe("Data Hub review screen", () => {
     expect(screen.getByText("Count present values")).toBeDisabled();
   });
   it("restores validated saved meanings and quality decisions for the matching profile", async () => {
-    const loaded = { ...saved(), schema: { context: { datasetProfileRunId: "profile-1" }, snapshot: { fields: [
-      { sourceSchemaColumnId: "amount", semanticRole: "MEASURE", fieldClass: "MEASURE", resolutionSource: "CLARIFIED_CHOICE" },
-    ] } }, quality: { snapshot: { state: "READY", items: [{ code: "PARTIAL_NULL_VALUES", scope: "COLUMN", sourceSchemaColumnId: "amount", decision: "ACKNOWLEDGE" }] } } };
+    const loaded = saved();
+    loaded.quality.snapshot.state = "READY_WITH_ACKNOWLEDGED_NOTICES";
+    loaded.quality.snapshot.items = [{ code: "COLUMN_PARTIALLY_NULL", scope: "COLUMN", sourceSchemaColumnId: "amount", decision: "ACKNOWLEDGE" }];
     const fetcher = vi.fn().mockResolvedValueOnce(reply(initial)).mockResolvedValueOnce(reply(loaded)).mockResolvedValueOnce(reply(preview));
     vi.stubGlobal("fetch", fetcher); render(<AnalysisReviewClient uploadId="upload" />);
     fireEvent.click(screen.getByText("Load current review")); await screen.findByText("Saved review 2");
     expect(screen.getByLabelText("Amount (field 1)")).toHaveValue("MEASURE");
     fireEvent.click(screen.getByText("Review quality")); await screen.findByText("Data quality");
-    expect(screen.getByLabelText("partial null values — Amount")).toHaveValue("ACKNOWLEDGE");
+    expect(screen.getByLabelText("column partially null — Amount")).toHaveValue("ACKNOWLEDGE");
     expect(screen.getByText("Save review")).toBeEnabled();
     expect(fetcher).toHaveBeenCalledTimes(3);
     expect(fetcher.mock.calls.filter(call => call[0].endsWith("/analysis-review") && call[1].method === "POST")).toHaveLength(0);
   });
   it("does not restore meanings across profile changes", async () => {
-    const loaded = { ...saved(), schema: { context: { datasetProfileRunId: "profile-2" }, snapshot: { fields: [
-      { sourceSchemaColumnId: "amount", semanticRole: "MEASURE", fieldClass: "MEASURE", resolutionSource: "CLARIFIED_CHOICE" },
-    ] } } };
+    const loaded = saved();
+    loaded.schema.context.datasetProfileRunId = loaded.quality.context.datasetProfileRunId = "profile-2";
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(reply(initial)).mockResolvedValueOnce(reply(loaded)));
     render(<AnalysisReviewClient uploadId="upload" />);
-    fireEvent.click(screen.getByText("Load current review")); await screen.findByText("Saved review 2");
-    expect(screen.getByLabelText("Amount (field 1)")).toHaveValue("");
-    expect(screen.getByText("Review quality")).toBeDisabled();
+    fireEvent.click(screen.getByText("Load current review")); await screen.findByRole("alert");
+    expect(screen.getByRole("alert")).toHaveTextContent("REVIEW_PROFILE_CHANGED");
+    expect(screen.queryByText("Field meanings")).not.toBeInTheDocument();
   });
   it("counts only a saved measure with an explicit closed request", async () => {
     const result = counted("upload", true); result.reviewRevision = 2; result.result.count = 0; result.result.context.datasetProfileRunId = "profile-1";
@@ -111,13 +110,13 @@ describe("Data Hub review screen", () => {
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
   it("does not offer measures from a saved review on a different profile", async () => {
-    const different = saved(); different.schema.context.datasetProfileRunId = "profile-2";
+    const different = saved(); different.schema.context.datasetProfileRunId = different.quality.context.datasetProfileRunId = "profile-2";
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(reply(initial)).mockResolvedValueOnce(reply(different)));
     render(<AnalysisReviewClient uploadId="upload" />);
     fireEvent.click(screen.getByText("Load current review"));
-    await screen.findByText("Saved review 2");
+    await screen.findByRole("alert");
     expect(screen.queryByLabelText("Measure to count")).not.toBeInTheDocument();
-    expect(screen.getByText(/Reload the current review to load field choices/)).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("REVIEW_PROFILE_CHANGED");
   });
   it.each(["negative", "foreign", "operation", "version", "revision", "extra"])("rejects a %s count response and accepts only an explicit valid retry", async kind => {
     const bad = counted("upload");
@@ -150,7 +149,7 @@ describe("Data Hub review screen", () => {
     fireEvent.click(screen.getByText("Load current review")); await screen.findByText("Field meanings");
     fireEvent.change(screen.getByLabelText("Amount (field 1)"), { target: { value: "MEASURE" } });
     fireEvent.click(screen.getByText("Review quality")); await screen.findByText("Data quality");
-    fireEvent.change(screen.getByLabelText("partial null values — Amount"), { target: { value: "ACKNOWLEDGE" } });
+    fireEvent.change(screen.getByLabelText("column partially null — Amount"), { target: { value: "ACKNOWLEDGE" } });
     fireEvent.click(screen.getByText("Save review")); await screen.findByRole("alert");
     expect(screen.getByRole("alert")).toHaveTextContent("REQUEST_FAILED");
     expect(screen.getByRole("alert")).not.toHaveTextContent("private-");

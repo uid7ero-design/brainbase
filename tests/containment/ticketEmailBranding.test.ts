@@ -323,17 +323,26 @@ describe('lib/email.ts — delivery identity unchanged', () => {
     expect(code).toContain("const FROM = process.env.EMAIL_FROM ?? 'Brainbase <noreply@brainbase.app>';")
   })
 
-  it('the Resend API call body is unchanged: still `from: FROM`, no per-organisation from address, no reply_to field', () => {
+  it('the Resend API call body: still `from: FROM` by default, no per-organisation from address, reply_to only when a caller passes replyTo', () => {
     const sendEmailStart = code.indexOf('export async function sendEmail')
     const sendEmailEnd = code.indexOf('\nexport const BASE_URL', sendEmailStart)
     const sendEmailBody = code.slice(sendEmailStart, sendEmailEnd)
-    expect(sendEmailBody).toContain('from: FROM,')
-    expect(sendEmailBody).not.toMatch(/reply_to|replyTo|Reply-To/i)
+    // Eve Phase 3.2: the sender may vary by PRODUCT only, through an explicit
+    // `from` argument the caller took from lib/events/buyerProduct.ts; the
+    // default is still FROM and nothing is derived from an organisation.
+    expect(sendEmailBody).toContain('from: from ?? FROM,')
+    // Eve sender + Reply-To: Reply-To is an explicit optional argument and is
+    // added to the body only when present, so a call that omits it is
+    // byte-identical to before (no default Reply-To, nothing from an env var).
+    expect(sendEmailBody).toContain('...(replyTo ? { reply_to: replyTo } : {}),')
     expect(sendEmailBody).not.toMatch(/branding|organisation/i)
   })
 
-  it('no Reply-To scaffolding exists anywhere in lib/email.ts', () => {
-    expect(code).not.toMatch(/reply_to|replyTo|Reply-To/i)
+  it('Reply-To has no default or env source in lib/email.ts: it is only ever the caller-supplied replyTo', () => {
+    const mentions = code.match(/reply_to|replyTo|Reply-To/gi) ?? []
+    expect(mentions.length).toBeGreaterThan(0)
+    expect(code).not.toMatch(/process\.env\.[A-Z_]*(REPLY|SUPPORT)/i)
+    expect(code).not.toMatch(/replyTo\s*\?\?|replyTo\s*=\s*[^=]/)
   })
 })
 

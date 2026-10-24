@@ -153,14 +153,28 @@ describe('event.updated / event.published / event.unpublished audit', () => {
     expect(inserts[0].after).toEqual({ status: 'DRAFT' })
   })
 
-  it('PUBLISHED -> CANCELLED (a status change that is NOT a publish/unpublish edge) still writes event.updated, correctly carrying the status change', async () => {
+  it('PUBLISHED -> CANCELLED writes event.cancelled (Phase 5B — the event-cancellation lifecycle action, distinct from an ordinary edit exactly as publish/unpublish are), correctly carrying the status change', async () => {
     const publishedRow = { ...EVENT_ROW, status: 'PUBLISHED' }
     queue([publishedRow], [{ ...publishedRow, status: 'CANCELLED' }])
     const res = await eventIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { status: 'CANCELLED' }), EVENT_CTX)
     expect(res.status).toBe(200)
     const inserts = auditInserts()
-    expect(inserts[0].action).toBe('event.updated')
+    expect(inserts[0].action).toBe('event.cancelled')
+    expect(inserts[0].resourceType).toBe('event')
+    expect(inserts[0].resourceId).toBe('event-1')
+    expect(inserts[0].before).toEqual({ status: 'PUBLISHED' })
     expect(inserts[0].after).toEqual({ status: 'CANCELLED' })
+  })
+
+  it('a PATCH that leaves an already-CANCELLED event CANCELLED is an ordinary edit — never a second event.cancelled, never a notification-scheduling statement (Phase 5B)', async () => {
+    const cancelledRow = { ...EVENT_ROW, status: 'CANCELLED' }
+    queue([cancelledRow], [{ ...cancelledRow, name: 'Renamed' }])
+    const res = await eventIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { name: 'Renamed' }), EVENT_CTX)
+    expect(res.status).toBe(200)
+    const inserts = auditInserts()
+    expect(inserts.map(i => i.action)).toEqual(['event.updated'])
+    const texts = (sqlMock.mock.calls as unknown as unknown[][]).map(c => (c[0] as TemplateStringsArray).join(' '))
+    expect(texts.some(t => /INSERT INTO event_notifications/.test(t))).toBe(false)
   })
 
   it('a PATCH that changes nothing in the safe field list writes no audit row at all (no content-free no-op entries)', async () => {

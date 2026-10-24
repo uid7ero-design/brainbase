@@ -1,7 +1,9 @@
 import 'server-only';
-import { sendEmail, EmailSendError, emailLayout, escHtml, BASE_URL } from '@/lib/email';
+import { sendEmail, EmailSendError, emailLayout, escHtml } from '@/lib/email';
 import { buildTicketUrl } from '@/lib/events/qr';
 import type { TicketEmailBranding } from '@/lib/organisations/branding';
+import { brainbaseBuyerContext, type BuyerProductContext } from '@/lib/events/buyerProduct';
+import { renderPaymentReceiptHtml, type PaymentReceipt } from '@/lib/events/receipt';
 
 export { isOrderEligibleForTicketEmail, type TicketEmailEligibilityOrder } from './ticketEmailEligibility';
 
@@ -48,6 +50,17 @@ export type TicketEmailData = {
   // below) — no organisation is ever REQUIRED to configure branding for
   // this email to render safely.
   branding?: TicketEmailBranding | null;
+  // Phase 5A — the neutral payment summary for a PAID order (see
+  // lib/events/receipt.ts): factual figures only — tickets, discount,
+  // pass-through booking fee, total paid, payment date — and never a tax
+  // claim. Optional/nullable: a free order, a historical row, or a caller
+  // that supplies none renders the exact email it always has.
+  receipt?: PaymentReceipt | null;
+  // Eve Phase 3.2 — the buyer-facing product identity of the order, resolved
+  // by the caller from event_orders.product_surface (resolveBuyerProduct).
+  // Absent => BrainBase, exactly as before. Callers that hold an order row
+  // MUST pass it: an Eve order built without it would carry BrainBase links.
+  product?: BuyerProductContext | null;
 };
 
 // Booking-wallet link shape (/b/<bookingToken>/tickets) — deliberately
@@ -94,7 +107,8 @@ export function buildTicketEmail(data: TicketEmailData): { subject: string; html
   // degrades safely to exactly today's individual-links-only email
   // rather than emitting a broken/empty CTA link.
   const showWalletCta = multiple && !!data.bookingToken;
-  const walletUrl = showWalletCta ? buildBookingWalletUrl(BASE_URL, data.bookingToken as string) : null;
+  const product = data.product ?? brainbaseBuyerContext();
+  const walletUrl = showWalletCta ? buildBookingWalletUrl(product.linkBase, data.bookingToken as string) : null;
 
   // Phase 3D — presentation only. accentColor substitutes only the CTA
   // background + a thin divider line; nothing else in this template
@@ -120,7 +134,7 @@ export function buildTicketEmail(data: TicketEmailData): { subject: string; html
     // origin, since an email outlives the request that triggered it
     // and must use the same stable, configured base URL every other
     // Brainbase email link already uses.
-    const url = buildTicketUrl(BASE_URL, a.ticketToken);
+    const url = buildTicketUrl(product.linkBase, a.ticketToken);
     return `
       <tr>
         <td style="padding:14px 0;border-bottom:1px solid #f0f0f0">
@@ -149,15 +163,17 @@ export function buildTicketEmail(data: TicketEmailData): { subject: string; html
       <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 8px">
         ${ticketRows}
       </table>
+      ${data.receipt ? renderPaymentReceiptHtml(data.receipt, escHtml) : ''}
       <p style="margin:28px 0 0;font-size:12px;color:#888;line-height:1.5">
         Keep this email — you can use it to find your ticket link${multiple ? 's' : ''} again at any time.
       </p>
+      ${product.surface === 'EVE' ? `<p style="margin:8px 0 0;font-size:12px;color:#888;line-height:1.5">Anyone with ${multiple ? 'these links' : 'this link'} can access ${multiple ? 'these tickets' : 'this ticket'}. Keep ${multiple ? 'them' : 'it'} private.</p>` : ''}
     `, {
       name: branding?.name ?? null,
       logoUrl: branding?.logoUrl ?? null,
       website: branding?.website ?? null,
       footerText: branding?.emailFooter ?? null,
-    }),
+    }, product.presentation),
   };
 }
 
@@ -228,7 +244,12 @@ export async function sendTicketEmail(
 ): Promise<TicketEmailSendResult> {
   const { subject, html } = buildTicketEmail(data);
   try {
-    const sent = await sendEmail({ to, subject, html, idempotencyKey: options?.idempotencyKey });
+    const product = data.product ?? null;
+    const sent = await sendEmail({
+      to, subject, html, idempotencyKey: options?.idempotencyKey,
+      ...(product?.from ? { from: product.from } : {}),
+      ...(product?.replyTo ? { replyTo: product.replyTo } : {}),
+    });
     if (sent.status === 'not_configured') {
       return { result: 'not_configured' };
     }

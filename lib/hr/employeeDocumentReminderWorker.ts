@@ -69,14 +69,20 @@ export async function processDueEmployeeDocumentReminders(params: {
     }
 
     if (transportResult.outcome === 'sent') {
-      const transition = await markEmployeeDocumentReminderDeliverySent({
-        actor: params.actor,
-        deliveryId: delivery.id,
-      });
+      try {
+        const transition = await markEmployeeDocumentReminderDeliverySent({
+          actor: params.actor,
+          deliveryId: delivery.id,
+        });
 
-      if (transition.outcome === 'recorded') {
-        sent += 1;
-      } else {
+        if (transition.outcome === 'recorded') {
+          sent += 1;
+        } else {
+          transitionSkipped += 1;
+        }
+      } catch {
+        // Sending may already have succeeded. Never resend or guess terminal
+        // state after a ledger failure; keep processing the remaining claims.
         transitionSkipped += 1;
       }
       continue;
@@ -87,15 +93,20 @@ export async function processDueEmployeeDocumentReminders(params: {
       throw new Error('Transport definite failure must include a non-blank failureCode.');
     }
 
-    const transition = await markEmployeeDocumentReminderDeliveryFailed({
-      actor: params.actor,
-      deliveryId: delivery.id,
-      failureCode,
-    });
+    try {
+      const transition = await markEmployeeDocumentReminderDeliveryFailed({
+        actor: params.actor,
+        deliveryId: delivery.id,
+        failureCode,
+      });
 
-    if (transition.outcome === 'recorded') {
-      failed += 1;
-    } else {
+      if (transition.outcome === 'recorded') {
+        failed += 1;
+      } else {
+        transitionSkipped += 1;
+      }
+    } catch {
+      // Preserve the claim for reconciliation rather than replaying delivery.
       transitionSkipped += 1;
     }
   }

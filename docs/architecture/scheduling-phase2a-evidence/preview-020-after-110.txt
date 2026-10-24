@@ -1,0 +1,8 @@
+[1] [{"version":"2a.1-brainbase","applied_at":"2026-10-22T02:05:48.166Z"},{"version":"2a.2","applied_at":"2026-10-22T02:00:01.712Z"}]
+[2] [{"table_name":"scheduling_availability_exceptions","row_count":"0"},{"table_name":"scheduling_availability_rules","row_count":"0"},{"table_name":"scheduling_occurrences","row_count":"0"},{"table_name":"scheduling_offering_resources","row_count":"0"},{"table_name":"scheduling_offerings","row_cou
+[3] [{"tables_after":"225","functions_after":"69","triggers_after":"80"}]
+[4] [{"conname":"scheduling_holds_no_overlap","definition":"EXCLUDE USING gist (organisation_id WITH =, resource_id WITH =, during WITH &&) WHERE ((released_at IS NULL))"}]
+[5] [{"extname":"btree_gist","extversion":"1.7","schema":"scheduling_ext"}]
+[6] [{"on_table":"scheduling_occurrences","tgname":"scheduling_occurrences_guard","tgenabled":"O"},{"on_table":"scheduling_occurrences","tgname":"scheduling_occurrences_release_holds","tgenabled":"O"},{"on_table":"scheduling_occurrences","tgname":"scheduling_occurrences_require_hold","tgenabled":"O"
+[7] [{"from_table":"scheduling_settings","to_table":"organisations"},{"from_table":"scheduling_schedules","to_table":"organisations"},{"from_table":"scheduling_resources","to_table":"organisations"}]
+[8] [{"legacy_dependencies":"0"}]

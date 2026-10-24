@@ -142,6 +142,12 @@ describe('Public registration — no authentication surface', () => {
       'utf8',
     ))
     expect(src).not.toMatch(/requireSession|requireRole|getSession|getAuthSession|cookies\(\)/)
+    // Eve Phase 1: equally true of the shared service the route calls.
+    const serviceSrc = stripLineComments(fs.readFileSync(
+      path.join(process.cwd(), 'lib/events/services/freeRegistration.ts'),
+      'utf8',
+    ))
+    expect(serviceSrc).not.toMatch(/requireSession|requireRole|getSession|getAuthSession|cookies\(\)/)
   })
 })
 
@@ -234,7 +240,9 @@ describe('Public registration — ticket type / session ownership and business r
     const args = callArgs(2)
     expect(args).toContain('org-a')
     expect(args).toContain('event-1')
-    expect(args).toContain('tt-1')
+    // Phase 2 — every cart line's ticket type is looked up in ONE
+    // tenant-scoped query, as an id array (id = ANY(...)).
+    expect(args).toContainEqual(['tt-1'])
   })
 
   it('unknown/cross-event/cross-org ticket type -> 400, transaction never reached', async () => {
@@ -340,32 +348,44 @@ describe('Public registration — successful free registration', () => {
 })
 
 describe('Public registration — transaction structure (R1: split lock / post-lock capacity statements)', () => {
+  // Phase 2 (multi-ticket-type carts): the transaction is now
+  //   [one FOR UPDATE lock per cart ticket type, ascending id]
+  //   + [session FOR UPDATE lock, if session-bound]
+  //   + [ONE capacity-gated insert statement].
+  // The former standalone "diagnostic count" statements (never read by
+  // the route — only the final statement's rows ever were) are gone;
+  // the R1 property they sat alongside is unchanged: every lock is its
+  // own statement, and the gate is a separate, later statement with its
+  // own fresh post-lock snapshot.
+  //
+  // Call indexes (non-session): 0=org, 1=event, 2=ticket types,
+  // 3=active questions, 4..=locks, last=capacity-gated insert.
   it('the whole capacity-gated write goes through exactly one sql.transaction([...]) call, never independent non-transactional round trips', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
     await registerRoute.POST(req(VALID_BODY), CTX)
     expect(transactionMock).toHaveBeenCalledTimes(1)
   })
 
-  it('non-session registration submits exactly 3 statements to the transaction: lock, diagnostic count, capacity-gated insert', async () => {
+  it('non-session single-type registration submits exactly 2 statements to the transaction: lock, capacity-gated insert', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
     await registerRoute.POST(req(VALID_BODY), CTX)
     const queries = (transactionMock.mock.calls[0] as unknown as unknown[])[0] as unknown[]
-    expect(queries).toHaveLength(3)
+    expect(queries).toHaveLength(2)
   })
 
-  it('session-bound registration submits exactly 5 statements: ticket-type lock, session lock, 2 diagnostic counts, capacity-gated insert', async () => {
+  it('session-bound single-type registration submits exactly 4 statements: ticket-type lock, (type, session) inventory lock, session lock, capacity-gated insert', async () => {
+    // Phase 3 (ticket type × session inventory): one extra FOR UPDATE per
+    // cart ticket type on its pair override row, between the type locks
+    // and the session lock — see lib/events/services/cart.ts.
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW, SESSION_ROW)
     await registerRoute.POST(req({ ...VALID_BODY, event_session_id: 'sess-1' }), CTX)
     const queries = (transactionMock.mock.calls[0] as unknown as unknown[])[0] as unknown[]
-    expect(queries).toHaveLength(5)
+    expect(queries).toHaveLength(4)
   })
 
   it('mutation proof — the ticket-type lock statement acquires FOR UPDATE and is NOT itself an aggregate/count statement (lock and count are genuinely separate statements, not merged)', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
     await registerRoute.POST(req(VALID_BODY), CTX)
-    // 0=org, 1=event, 2=ticket-type, 3=active-questions lookup (Phase 4B,
-    // §5 — runs once, before the transaction, to validate any submitted
-    // responses), 4=lock ticket type, 5=diagnostic count, 6=insert.
     const lockText = callText(4)
     expect(lockText).toMatch(/FOR UPDATE/i)
     expect(lockText).toMatch(/event_ticket_types/i)
@@ -373,51 +393,147 @@ describe('Public registration — transaction structure (R1: split lock / post-l
     expect(lockText).not.toMatch(/INSERT INTO/i)
   })
 
-  it('mutation proof — the diagnostic sold-quantity count is a standalone statement, submitted AFTER the lock statement, containing no FOR UPDATE and no INSERT', async () => {
+  it('mutation proof — the capacity-gated statement is a separate statement submitted AFTER every lock, and itself contains no FOR UPDATE', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
     await registerRoute.POST(req(VALID_BODY), CTX)
-    const countText = callText(5)
-    expect(countText).toMatch(/SUM\(/i)
-    expect(countText).not.toMatch(/FOR UPDATE/i)
-    expect(countText).not.toMatch(/INSERT INTO/i)
-  })
-
-  it('mutation proof A — the capacity-gated insert statement gates on ticket-type capacity via a fresh (post-lock) sold-quantity comparison', async () => {
-    queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
-    await registerRoute.POST(req(VALID_BODY), CTX)
-    const insertText = callText(6)
+    // SQL line comments stripped: the statement's own "-- No FOR UPDATE
+    // needed here" explanation is prose, not a lock clause.
+    const insertText = callText(5).replace(/--[^\n]*/g, '')
+    expect(insertText).toMatch(/SUM\(/i)
     expect(insertText).toMatch(/INSERT INTO event_orders/i)
-    expect(insertText).toMatch(/sold_tt\.qty \+ .* <= \(SELECT capacity FROM event_ticket_types/i)
+    expect(insertText).not.toMatch(/FOR UPDATE/i)
   })
 
-  it('mutation proof B — when a session is selected, the ticket-type lock is acquired BEFORE the session lock (deterministic lock order), and the insert ALSO gates on session capacity', async () => {
+  it('mutation proof A — the capacity gate requires EVERY cart line to fit its own ticket type via a fresh (post-lock) sold-quantity comparison', async () => {
+    queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
+    await registerRoute.POST(req(VALID_BODY), CTX)
+    const insertText = callText(5)
+    expect(insertText).toMatch(/NOT EXISTS \(SELECT 1 FROM cart_tt WHERE cart_tt\.sold \+ cart_tt\.quantity > cart_tt\.capacity\)/i)
+    // A ticket type that vanished (or never matched this organisation)
+    // drops out of the join — the line count check refuses the cart.
+    expect(insertText).toMatch(/\(SELECT count\(\*\) FROM cart_tt\) =/i)
+  })
+
+  it('mutation proof B — when a session is selected, every ticket-type lock is acquired BEFORE the session lock (deterministic lock order), and the gate ALSO checks the combined cart quantity against session capacity', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW, SESSION_ROW)
     await registerRoute.POST(req({ ...VALID_BODY, event_session_id: 'sess-1' }), CTX)
-    // 0=org, 1=event, 2=ticket-type, 3=session, 4=active-questions lookup, 5=lock tt, 6=lock session, 7=diag tt, 8=diag sess, 9=insert.
+    // 0=org, 1=event, 2=ticket types, 3=session, 4=active-questions,
+    // 5=lock tt, 6=lock (tt, session) inventory row, 7=lock session, 8=insert.
     expect(callText(5)).toMatch(/FOR UPDATE/i)
     expect(callText(5)).toMatch(/event_ticket_types/i)
     expect(callText(6)).toMatch(/FOR UPDATE/i)
-    expect(callText(6)).toMatch(/event_sessions/i)
-    const insertText = callText(9)
+    expect(callText(6)).toMatch(/event_ticket_type_session_inventory/i)
+    expect(callText(7)).toMatch(/FOR UPDATE/i)
+    expect(callText(7)).toMatch(/event_sessions/i)
+    const insertText = callText(8)
     expect(insertText).toMatch(/sold_sess\.qty \+ .* <= \(SELECT capacity FROM event_sessions/i)
+    // The session comparison uses the order's TOTAL quantity.
+    expect(callArgs(8)).toContain(2)
   })
 
-  it('mutation proof C — order, item, and attendee creation all happen inside the SAME capacity-gated insert statement (never split across separate writes)', async () => {
+  it('mutation proof C — order, items, and attendee creation all happen inside the SAME capacity-gated insert statement (never split across separate writes)', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
     await registerRoute.POST(req(VALID_BODY), CTX)
-    const text = callText(6)
+    const text = callText(5)
     expect(text).toMatch(/INSERT INTO event_orders/i)
     expect(text).toMatch(/INSERT INTO event_order_items/i)
     expect(text).toMatch(/INSERT INTO event_attendees/i)
   })
 
-  it('the capacity-gated insert never runs unconditionally — the order insert itself SELECTs FROM the sold-quantity CTE that carries the WHERE gate', async () => {
+  it('the capacity-gated insert never runs unconditionally — the order insert SELECTs FROM the gate CTE, and items/attendees SELECT FROM the order insert', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
     await registerRoute.POST(req(VALID_BODY), CTX)
-    const text = callText(6)
+    const text = callText(5)
     const orderInsertIndex = text.search(/INSERT INTO event_orders/i)
-    const afterOrderInsert = text.slice(orderInsertIndex)
-    expect(afterOrderInsert.slice(0, 400)).toMatch(/FROM sold_tt/i)
+    expect(text.slice(orderInsertIndex, orderInsertIndex + 400)).toMatch(/FROM gate/i)
+    const itemInsertIndex = text.search(/INSERT INTO event_order_items/i)
+    expect(text.slice(itemInsertIndex, itemInsertIndex + 400)).toMatch(/FROM ins_order, cart/i)
+    const attendeeInsertIndex = text.search(/INSERT INTO event_attendees/i)
+    expect(text.slice(attendeeInsertIndex, attendeeInsertIndex + 500)).toMatch(/FROM ins_items/i)
+  })
+})
+
+// Phase 2 — multi-ticket-type carts through the free registration route.
+describe('Public registration — multi-ticket-type cart', () => {
+  const TT_ROWS = [
+    { id: 'tt-b', active: true, price_cents: 0, currency: 'AUD', name: 'Child' },
+    { id: 'tt-a', active: true, price_cents: 0, currency: 'AUD', name: 'Adult' },
+  ]
+  const CART_BODY = {
+    items: [{ ticket_type_id: 'tt-b', quantity: 1 }, { ticket_type_id: 'tt-a', quantity: 2 }],
+    purchaser_name: 'Jane Purchaser',
+    purchaser_email: 'jane@example.com',
+    attendees: [
+      { ticket_type_id: 'tt-a', name: 'Adult One' },
+      { ticket_type_id: 'tt-b', name: 'Child One' },
+      { ticket_type_id: 'tt-a', name: 'Adult Two' },
+    ],
+  }
+
+  it('locks every cart ticket type in ascending id order (deterministic, independent of cart order), each in its own statement, then gates in one statement', async () => {
+    queue(ORG_ROW, PUBLISHED_EVENT_ROW, TT_ROWS)
+    resolveTransaction([{ id: 'att-1', order_id: 'order-1', attendee_name: 'Adult One', ticket_token: 'a'.repeat(64) }])
+    await registerRoute.POST(req(CART_BODY), CTX)
+    const queries = (transactionMock.mock.calls[0] as unknown as unknown[])[0] as unknown[]
+    expect(queries).toHaveLength(3)
+    expect(callText(4)).toMatch(/FROM event_ticket_types .* FOR UPDATE/i)
+    expect(callArgs(4)).toContain('tt-a')
+    expect(callText(5)).toMatch(/FROM event_ticket_types .* FOR UPDATE/i)
+    expect(callArgs(5)).toContain('tt-b')
+    expect(callText(6)).toMatch(/INSERT INTO event_order_items/i)
+  })
+
+  it('one order item per cart line, and each attendee is joined to the order item for its own ticket type', async () => {
+    queue(ORG_ROW, PUBLISHED_EVENT_ROW, TT_ROWS)
+    resolveTransaction([{ id: 'att-1', order_id: 'order-1', attendee_name: 'Adult One', ticket_token: 'a'.repeat(64) }])
+    await registerRoute.POST(req(CART_BODY), CTX)
+    const text = callText(6)
+    expect(text).toMatch(/INSERT INTO event_order_items[\s\S]*FROM ins_order, cart/i)
+    expect(text).toMatch(/ON a\.ticket_type_id = ii\.ticket_type_id/i)
+    const args = callArgs(6)
+    // Line arrays in purchase order, attendee type tags in attendee order.
+    expect(args).toContainEqual(['tt-b', 'tt-a'])
+    expect(args).toContainEqual([1, 2])
+    expect(args).toContainEqual(['tt-a', 'tt-b', 'tt-a'])
+    expect(args).toContainEqual(['Adult One', 'Child One', 'Adult Two'])
+  })
+
+  it('returns 201 with every ticket from the single order', async () => {
+    queue(ORG_ROW, PUBLISHED_EVENT_ROW, TT_ROWS)
+    resolveTransaction([
+      { id: 'att-1', order_id: 'order-1', attendee_name: 'Adult One', ticket_token: 'a'.repeat(64) },
+      { id: 'att-2', order_id: 'order-1', attendee_name: 'Child One', ticket_token: 'b'.repeat(64) },
+      { id: 'att-3', order_id: 'order-1', attendee_name: 'Adult Two', ticket_token: 'c'.repeat(64) },
+    ])
+    const res = await registerRoute.POST(req(CART_BODY), CTX)
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.confirmation_reference).toBe('order-1')
+    expect(body.quantity).toBe(3)
+    expect(body.tickets).toHaveLength(3)
+  })
+
+  it('a cart where one ticket type is sold out reserves nothing — the single gated statement returns no rows and the route answers 409', async () => {
+    queue(ORG_ROW, PUBLISHED_EVENT_ROW, TT_ROWS)
+    resolveTransaction([])
+    const res = await registerRoute.POST(req(CART_BODY), CTX)
+    expect(res.status).toBe(409)
+    expect(transactionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('a ticket type from another event/organisation (not returned by the scoped lookup) rejects the whole cart before any transaction', async () => {
+    queue(ORG_ROW, PUBLISHED_EVENT_ROW, [TT_ROWS[0]])
+    const res = await registerRoute.POST(req(CART_BODY), CTX)
+    expect(res.status).toBe(400)
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it('a cart mixing free and paid ticket types is rejected (orders are all-free or all-paid) before any transaction', async () => {
+    queue(ORG_ROW, PUBLISHED_EVENT_ROW, [TT_ROWS[0], { ...TT_ROWS[1], price_cents: 2500 }])
+    const res = await registerRoute.POST(req(CART_BODY), CTX)
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/separate orders/i)
+    expect(transactionMock).not.toHaveBeenCalled()
   })
 })
 
@@ -437,55 +553,46 @@ describe('Public registration — transaction structure (R1: split lock / post-l
 describe('Public registration — stale-reservation capacity parity with paid Checkout', () => {
   const STALE_PREDICATE = "(eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())"
 
-  it('C/D. the diagnostic ticket-type count statement (non-session branch) excludes a stale PENDING reservation, mirroring the paid route', async () => {
+  // Phase 2: the gate statement is the last element of the transaction
+  // (0=org, 1=event, 2=ticket types, 3=active-questions, 4=lock, 5=gate;
+  // session-bound, Phase 3: 5=lock tt, 6=lock (tt, session) inventory,
+  // 7=lock session, 8=gate).
+  it('the capacity-gated insert statement (non-session branch) — the actual gate that produces the false-409 — excludes a stale PENDING reservation in its per-ticket-type sold aggregate', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
     await registerRoute.POST(req(VALID_BODY), CTX)
-    // 0=org, 1=event, 2=ticket-type, 3=active-questions, 4=lock, 5=diagnostic count.
-    expect(callText(5)).toContain(STALE_PREDICATE)
+    const insertText = callText(5)
+    const cartTtCte = insertText.match(/cart_tt AS \([\s\S]*?\),\s*sold_sess/i)?.[0] ?? ''
+    expect(cartTtCte).toContain(STALE_PREDICATE)
   })
 
-  it('the capacity-gated insert statement (non-session branch) — the actual gate that produces the false-409 — excludes a stale PENDING reservation in its sold_tt CTE', async () => {
-    queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
-    await registerRoute.POST(req(VALID_BODY), CTX)
-    const insertText = callText(6)
-    expect(insertText).toMatch(/sold_tt AS \(\s*SELECT[^)]*\)/i)
-    expect(insertText).toContain(STALE_PREDICATE)
-  })
-
-  it('session-bound branch: both diagnostic count statements exclude a stale PENDING reservation', async () => {
+  it('session-bound branch: the capacity-gated insert excludes a stale PENDING reservation in BOTH its per-ticket-type and session aggregates', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW, SESSION_ROW)
     await registerRoute.POST(req({ ...VALID_BODY, event_session_id: 'sess-1' }), CTX)
-    // 0=org, 1=event, 2=ticket-type, 3=session, 4=active-questions, 5=lock tt, 6=lock session, 7=diag tt, 8=diag sess, 9=insert.
-    expect(callText(7)).toContain(STALE_PREDICATE)
-    expect(callText(8)).toContain(STALE_PREDICATE)
-  })
-
-  it('session-bound branch: the capacity-gated insert excludes a stale PENDING reservation in BOTH its sold_tt and sold_sess CTEs', async () => {
-    queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW, SESSION_ROW)
-    await registerRoute.POST(req({ ...VALID_BODY, event_session_id: 'sess-1' }), CTX)
-    const insertText = callText(9)
-    const soldTtCte = insertText.match(/sold_tt AS \([\s\S]*?\),\s*sold_sess/i)?.[0] ?? ''
-    const soldSessCte = insertText.match(/sold_sess AS \([\s\S]*?\),\s*ins_order/i)?.[0] ?? ''
-    expect(soldTtCte).toContain(STALE_PREDICATE)
+    const insertText = callText(8)
+    const cartTtCte = insertText.match(/cart_tt AS \([\s\S]*?\),\s*sold_sess/i)?.[0] ?? ''
+    const soldSessCte = insertText.match(/sold_sess AS \([\s\S]*?\),\s*gate/i)?.[0] ?? ''
+    expect(cartTtCte).toContain(STALE_PREDICATE)
     expect(soldSessCte).toContain(STALE_PREDICATE)
   })
 
   it('a currently-valid (non-expired) pending paid reservation and a CONFIRMED free order both still count — only the time comparison is new, no other clause was touched', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
     await registerRoute.POST(req(VALID_BODY), CTX)
-    const insertText = callText(6)
+    const insertText = callText(5)
     // Both existing clauses remain, unmodified, alongside the new one.
     expect(insertText).toContain("eo.status <> 'CANCELLED'")
     expect(insertText).toMatch(/JOIN event_orders eo ON eo\.id = oi\.order_id/i)
   })
 
   it('mirrors the paid Checkout route\'s own stale-reservation predicate BYTE FOR BYTE — one established rule, not a second, independently-invented interpretation', () => {
+    // Eve Phase 1: both capacity transactions moved verbatim into the
+    // shared services the register/checkout routes call.
     const registerSrc = fs.readFileSync(
-      path.join(process.cwd(), 'app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'),
+      path.join(process.cwd(), 'lib/events/services/freeRegistration.ts'),
       'utf8',
     )
     const checkoutSrc = fs.readFileSync(
-      path.join(process.cwd(), 'app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'),
+      path.join(process.cwd(), 'lib/events/services/paidCheckout.ts'),
       'utf8',
     )
     expect(checkoutSrc).toContain(STALE_PREDICATE)
@@ -494,7 +601,9 @@ describe('Public registration — stale-reservation capacity parity with paid Ch
     // route re-derives its own variant wording of the same rule.
     const registerCount = registerSrc.split(STALE_PREDICATE).length - 1
     const checkoutCount = checkoutSrc.split(STALE_PREDICATE).length - 1
-    expect(registerCount).toBeGreaterThanOrEqual(6)
+    // Phase 2: one per-ticket-type aggregate + one session aggregate per
+    // flow (no more duplicated session/non-session branches).
+    expect(registerCount).toBeGreaterThanOrEqual(2)
     expect(checkoutCount).toBeGreaterThanOrEqual(2)
   })
 })
@@ -533,17 +642,21 @@ describe('Public registration — transaction failure handling (R1 section 17)',
 
 describe('Public registration — architecture containment', () => {
   it('the route file never imports lib/tennisSchedule or any tennis env var', () => {
-    const src = fs.readFileSync(
+    for (const src of [fs.readFileSync(
       path.join(process.cwd(), 'app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'),
       'utf8',
-    )
-    expect(src).not.toMatch(/LD_TENNIS_ORG_ID|lib\/tennisSchedule/)
-    expect(src).not.toMatch(/::uuid/i)
+    ), fs.readFileSync(
+      path.join(process.cwd(), 'lib/events/services/freeRegistration.ts'),
+      'utf8',
+    )]) {
+      expect(src).not.toMatch(/LD_TENNIS_ORG_ID|lib\/tennisSchedule/)
+      expect(src).not.toMatch(/::uuid/i)
+    }
   })
 
   it('capacity-bearing rows are locked via sql.transaction, never via a standalone non-transactional FOR UPDATE call', () => {
     const src = fs.readFileSync(
-      path.join(process.cwd(), 'app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'),
+      path.join(process.cwd(), 'lib/events/services/freeRegistration.ts'),
       'utf8',
     )
     expect(src).toMatch(/sql\.transaction\(/)

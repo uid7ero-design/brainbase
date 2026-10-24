@@ -6,6 +6,11 @@ import { randomBytes } from 'node:crypto';
 import { Pool } from 'pg';
 import { chromium, expect } from '@playwright/test';
 import { FIXTURE_PREPARATION, SETUP_STORAGE } from './helpers/dataHubAcceptanceReceipt.mjs';
+import { verifyWorkbookOverview } from './helpers/dataHubWorkbookOverviewProof.mjs';
+import { verifyWorkbookQueue } from './helpers/dataHubWorkbookQueueProof.mjs';
+import { verifyWorkbookReviews } from './helpers/dataHubWorkbookReviewProof.mjs';
+import { verifyReviewSession } from './helpers/dataHubReviewSessionProof.mjs';
+import { verifyReviewHistory } from './helpers/dataHubReviewHistoryProof.mjs';
 
 // Invoked only by verify-datahub-profile-execution.sh after provisioning its
 // disposable Docker database and seeding real profile evidence. The build,
@@ -18,7 +23,7 @@ if (process.env.DATAHUB_BROWSER_PROOF !== '1' || !connectionString ||
 readFileSync('.next/BUILD_ID', 'utf8');
 const directory = resolve('test-results/datahub-runtime');
 const fixturePath = resolve(directory, 'fixture.json');
-const { worlds, password } = JSON.parse(readFileSync(fixturePath, 'utf8'));
+const { worlds, queueWorlds, password } = JSON.parse(readFileSync(fixturePath, 'utf8'));
 unlinkSync(fixturePath); // Do not retain even disposable login credentials.
 const pool = new Pool({ connectionString: connectionString.replace('localhost', '127.0.0.1') });
 const secret = randomBytes(32).toString('hex');
@@ -136,10 +141,13 @@ try {
       timer = setTimeout(() => reject(new Error('Genuine planning probe response did not arrive')), 20_000);
     })]); } finally { clearTimeout(timer); }
   }
+  await verifyWorkbookOverview({ page, context, pool, origin, ready, evidence, directory });
+  await verifyWorkbookReviews({ page, context, pool, origin, ready, held, queueWorlds, evidence, directory, phase: 'before' });
+  await verifyWorkbookQueue({ page, context, pool, origin, ready, queueWorlds, evidence, directory });
   await page.goto(origin + '/data-hub/import');
   await page.getByRole('button', { name: 'Review worksheets in analysis-ready.xlsx', exact: true }).click();
   await page.getByRole('link', { name: 'Data (worksheet 1) — review and count', exact: true }).click();
-  await expect(page).toHaveURL(origin + `/data-hub/analysis/${ready.uploadId}`);
+  await expect(page).toHaveURL(origin + `/data-hub/analysis/${ready.uploadId}?workbook=${ready.batchId}`);
   await page.getByRole('button', { name: 'Load current review', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Field meanings', exact: true })).toBeVisible();
   evidence.checks.push('Import history to persisted worksheet navigation through real metadata API, without file reinspection');
@@ -450,6 +458,9 @@ try {
     if (result.status !== 422 || result.body.code !== 'QUALITY_HOLD') throw new Error('Planning hold bypassed');
   }
   evidence.checks.push('Explicit HOLD persisted and blocks both UI counts and direct API');
+  await verifyWorkbookReviews({ page, context, pool, origin, ready, held, queueWorlds, evidence, directory, phase: 'after' });
+  await verifyReviewSession({ page, pool, origin, ready, held, evidence, directory, chooseMeanings, chooseQuality });
+  await verifyReviewHistory({ page, pool, origin, ready, held, evidence, directory, chooseMeanings, chooseQuality, api });
 
   const stale = await api(endpoint(ready.uploadId) + '/analysis-review', { reviewVersion: 'v1', datasetProfileRunId: 'stale-profile', semanticChoices: [], qualityDecisions: [] });
   if (stale.status !== 409) throw new Error('Stale profile pin accepted');

@@ -82,12 +82,15 @@ Generated output stays in ignored `test-results/datahub-runtime`:
 | `planning-mobile.png` | Governed planning screen |
 | `planning-timeout-mobile.png` | Explicit timeout recovery |
 | `planning-paging-mobile.png` | Cross-page selection and bounded measure choices |
+| `workbook-reviews-mobile.png` | Current saved-review observations and profile/revision references |
+| `review-session-mobile.png` | Recovered individual review session and confirmed workbook navigation |
+| `review-history-mobile.png` | Historical decision changes compared with a current held review |
 
 Each invocation replaces the latest v2 receipt with `running`, then `passed` or
 `failed`. A failed run cannot leave an old passing receipt looking current.
 Failure records contain fixed stage/code metadata, not captured exception text
 or credentials. A just-generated login fixture is removed on failure; an
-earlier pending fixture is preserved. Successful receipts bind the six evidence
+earlier pending fixture is preserved. Successful receipts bind the nine evidence
 artifacts by hash and deliberately project away diagnostics and actor data.
 The v2 receipt requires the current workbook preparation description, setup
 storage seam, verified fixture lineage and exactly three fixture worlds. Earlier

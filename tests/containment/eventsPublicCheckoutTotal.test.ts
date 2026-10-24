@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'fs'
 import path from 'path'
-import { computeSelectionTotalCents } from '@/app/e/[organisationSlug]/[eventSlug]/PublicEventClient'
+import { computeSelectionTotalCents, computeCartSelectionTotalCents } from '@/app/e/[organisationSlug]/[eventSlug]/PublicEventClient'
 
 function read(relPath: string): string {
   return fs.readFileSync(path.join(process.cwd(), relPath), 'utf8').replace(/\r\n/g, '\n')
@@ -63,23 +63,38 @@ describe('computeSelectionTotalCents — integer cents, no floating point', () =
   })
 
   it('matches the exact formula the checkout route computes server-side — never a second, independently-drifting implementation', () => {
-    const checkoutSrc = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
-    expect(checkoutSrc).toMatch(/ticketType\.price_cents \* validated\.quantity/)
+    // Eve Phase 1: the server-side total now lives in the shared paid
+    // checkout service the route calls.
+    // Phase 2 (cart): the server total is the sum over every line of
+    // unit_price_cents × quantity (lib/events/services/cart.ts), used by
+    // the paid checkout service for both the order total and Stripe.
+    const checkoutSrc = stripComments(read('lib/events/services/paidCheckout.ts'))
+    expect(checkoutSrc).toMatch(/const totalCents = computeCartTotalCents\(cart\.lines\)/)
+    const cartSrc = stripComments(read('lib/events/services/cart.ts'))
+    expect(cartSrc).toMatch(/lines\.reduce\(\(sum, l\) => sum \+ l\.unit_price_cents \* l\.quantity, 0\)/)
     // Same shape: unitPriceCents * quantity, integer multiplication only.
     expect(computeSelectionTotalCents(1234, 5)).toBe(1234 * 5)
+    expect(computeCartSelectionTotalCents([{ price_cents: 2500, quantity: 2 }, { price_cents: 1500, quantity: 2 }, { price_cents: 9900, quantity: 1 }])).toBe(17900)
   })
 })
 
 describe('Public booking UI — total display wired to the fixed formula', () => {
   const src = stripComments(read('app/e/[organisationSlug]/[eventSlug]/PublicEventClient.tsx'))
 
-  it('the CTA button price uses totalCents, not the bare per-unit price_cents (the exact prior bug)', () => {
-    expect(src).toMatch(/Pay \$\{formatPrice\(totalCents\)\}/)
+  it('the CTA button price uses the payable total (ticket total + any pass-through booking fee), not the bare per-unit price_cents (the exact prior bug)', () => {
+    // Phase 5A: payableCents = totalCents + feeCents, where feeCents is 0
+    // for every event without a pass-through booking fee — so the button
+    // still reads exactly `Pay ${formatPrice(totalCents)}` for them.
+    expect(src).toMatch(/Pay \$\{formatPrice\(payableCents\)\}/)
+    expect(src).toMatch(/const payableCents = .*totalCents \+ feeCents/)
     expect(src).not.toMatch(/Pay \$\{formatPrice\(selectedTicketType\?\.\s*price_cents/)
   })
 
   it('totalCents is derived from computeSelectionTotalCents(unit price, quantity) — updates whenever quantity changes, since quantity is already a render-time dependency, not a stale snapshot', () => {
-    expect(src).toMatch(/const totalCents = computeSelectionTotalCents\(selectedTicketType\?\.price_cents \?\? 0, quantity\)/)
+    // Phase 2 (cart): the total is the sum of computeSelectionTotalCents
+    // over every cart line, recomputed at render time from `quantities`.
+    expect(src).toMatch(/const totalCents = computeCartSelectionTotalCents\(cartLines\)/)
+    expect(src).toMatch(/return lines\.reduce\(\(sum, l\) => sum \+ computeSelectionTotalCents\(l\.price_cents, l\.quantity\), 0\)/)
   })
 
   it('a visible Total summary row exists in the booking form, not just the button label', () => {
