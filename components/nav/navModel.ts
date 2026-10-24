@@ -24,6 +24,7 @@ export type NavContext = {
   enabledCapabilities: readonly string[];
   dashboardVariant: DashboardVariant;
 };
+export type ManagedNavContext = NavContext & { managedAccess?: boolean };
 
 /** Mirrors lib/session.ts ROLE_ORDER (that module is server-only, so it
  *  cannot be imported into client chrome). Any role outside this list â€”
@@ -167,6 +168,7 @@ export const REQUESTS_LINK: NavLink = {
 };
 
 export const MANAGE_ITEMS: readonly NavEntry[] = [
+  { kind:'link',id:'organisation-users',label:'Organisation users',href:'/settings/users',match:['/settings/users'],gate:{minRole:'admin'} },
   {
     kind: 'link', id: 'integrations', label: 'Integrations', href: '/dashboard/integrations',
     match: ['/dashboard/integrations'], description: 'Connected data sources',
@@ -235,12 +237,15 @@ export function isGateOpen(gate: NavGate | undefined, ctx: NavContext): boolean 
   return true;
 }
 
-function visibleEntries(entries: readonly NavEntry[], ctx: NavContext): NavEntry[] {
+function visibleEntries(entries: readonly NavEntry[], ctx: ManagedNavContext): NavEntry[] {
   const out: NavEntry[] = [];
   for (const entry of entries) {
     if (!isGateOpen(entry.gate, ctx)) continue;
+    if (ctx.managedAccess && entry.kind==='link' && entry.href!=='/settings/users'
+      && !entry.gate?.anyCapability?.some(key=>ctx.enabledCapabilities.includes(key))
+      && !(entry.id==='data-hub'&&ctx.enabledCapabilities.includes('data_hub'))) continue;
     if (entry.kind === 'group') {
-      const children = entry.children.filter(child => isGateOpen(child.gate, ctx));
+      const children = ctx.managedAccess ? [] : entry.children.filter(child => isGateOpen(child.gate, ctx));
       if (children.length > 0) out.push({ ...entry, children });
     } else {
       out.push(entry);
@@ -262,12 +267,12 @@ export type ResolvedNav = {
   account: { profile: NavLink };
 };
 
-export function resolveNav(ctx: NavContext): ResolvedNav {
+export function resolveNav(ctx: ManagedNavContext): ResolvedNav {
   return {
-    home: HOME_LINK,
-    hlna: HLNA_LINK,
+    home: ctx.managedAccess ? {...HOME_LINK,href:'/workspace',match:['/workspace']} : HOME_LINK,
+    hlna: ctx.managedAccess ? {...HLNA_LINK,label:'My workspace',href:'/workspace',match:['/workspace']} : HLNA_LINK,
     work: visibleEntries(WORK_ITEMS, ctx),
-    requests: isGateOpen(REQUESTS_LINK.gate, ctx) ? REQUESTS_LINK : null,
+    requests: !ctx.managedAccess && isGateOpen(REQUESTS_LINK.gate, ctx) ? REQUESTS_LINK : null,
     manage: visibleEntries(MANAGE_ITEMS, ctx),
     brainbase: visibleEntries(BRAINBASE_ITEMS, ctx),
     account: { profile: ACCOUNT_PROFILE_LINK },

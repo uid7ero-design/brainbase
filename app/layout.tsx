@@ -17,6 +17,7 @@ import ClarityLoader from '@/components/analytics/ClarityLoader';
 import { requireSession } from '@/lib/org';
 import sql from '@/lib/db';
 import { resolveDashboardVariant } from '@/lib/dashboard/clientDashboard';
+import { getUserPermissions } from '@/lib/organisationUsers/access';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -126,6 +127,7 @@ export default async function RootLayout({
     avatarUrl?: string;
     enabledCapabilities?: string[];
     dashboardVariant?: 'ld-tennis' | 'brainbase-hq' | null;
+    managedAccess?: boolean;
     organisationName?: string | null;
   } | null = null;
 
@@ -215,11 +217,18 @@ export default async function RootLayout({
       /* UX projection only — fail closed to no organisation name. */
     }
 
+    let managedAccess = false;
+    try {
+      const permissions=session.role==='super_admin'?null:await getUserPermissions(session.organisationId,session.userId);
+      managedAccess=permissions!==null;
+      if(permissions!==null)enabledCapabilities=enabledCapabilities.filter(key=>['view','use'].includes(permissions[key as keyof typeof permissions]??'none'));
+    } catch { enabledCapabilities=[];managedAccess=session.role!=='super_admin'; }
     serverSession = {
       role: session.role,
       name: session.name,
       avatarUrl,
       enabledCapabilities,
+      managedAccess,
       dashboardVariant,
       organisationName,
     };

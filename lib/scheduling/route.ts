@@ -41,7 +41,7 @@ function withNoStore(response: Response): Response {
 }
 
 export function schedulingRoute(permission: SchedulingPermission, handler: SchedulingRouteHandler) {
-  return async function schedulingRouteHandler(request: Request, routeContext?: SchedulingNextRouteContext): Promise<Response> {
+  const schedulingRouteHandler = async (request: Request, routeContext?: SchedulingNextRouteContext): Promise<Response> => {
     const auth = await authorizeSchedulingRequest(permission);
     if (!auth.ok) return withNoStore(auth.response);
 
@@ -63,6 +63,12 @@ export function schedulingRoute(permission: SchedulingPermission, handler: Sched
       console.error('[scheduling] handler failed', (err as { code?: string })?.code ?? (err as Error)?.name);
       return schedulingJson({ error: 'Internal error.' }, { status: 500 });
     }
+  };
+  // Direct service callers may omit dynamic params; Next's HTTP export checker
+  // inspects the last signature, where the framework always supplies context.
+  return schedulingRouteHandler as {
+    (request: Request, context?: SchedulingNextRouteContext): Promise<Response>;
+    (request: Request, context: Required<SchedulingNextRouteContext>): Promise<Response>;
   };
 }
 

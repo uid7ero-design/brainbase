@@ -42,6 +42,7 @@ function activeContext(overrides: Record<string, unknown> = {}) {
     document_title: 'Safety policy',
     person_linked_user_id: 'employee-user',
     is_hr_administrator: false,
+    has_people_access: true,
     ...overrides,
   };
 }
@@ -53,6 +54,12 @@ beforeEach(() => {
 });
 
 describe('HR-7E5E employee document reminder email transport', () => {
+  it('does not send document details after People module access is removed',async()=>{
+    sqlMock.mockResolvedValueOnce([activeContext({has_people_access:false})]);
+    const transport=createEmployeeDocumentReminderEmailTransport({organisationId:'org-a'});
+    expect(await transport(DELIVERY)).toEqual({outcome:'definite_failure',failureCode:'recipient_module_access_unavailable'});
+    expect(sendEmailMock).not.toHaveBeenCalled();
+  });
   it('resolves reminder context inside the active organisation and exact version', async () => {
     const transport = createEmployeeDocumentReminderEmailTransport({
       organisationId: 'org-a',

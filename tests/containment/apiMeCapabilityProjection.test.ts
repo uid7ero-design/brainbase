@@ -29,6 +29,8 @@ import path from 'path'
 // and tests/containment/orgHomeOrganisationId.test.ts for that).
 
 const requireSessionMock = vi.fn()
+const userPermissionsMock = vi.fn(async()=>null as Record<string,string>|null)
+vi.mock('@/lib/organisationUsers/access',()=>({getUserPermissions:()=>userPermissionsMock()}))
 vi.mock('@/lib/org', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/org')>()
   return { ...actual, requireSession: (...args: unknown[]) => requireSessionMock(...args) }

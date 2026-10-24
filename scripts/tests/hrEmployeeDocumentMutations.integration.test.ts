@@ -82,6 +82,7 @@ const snapshot = async () => ({
 beforeAll(async () => {
   await q(readFileSync('scripts/create-hr-employee-documents.sql', 'utf8'));
   await q(readFileSync('scripts/create-hr-employee-document-assurance.sql', 'utf8'));
+  await q(readFileSync('scripts/create-organisation-user-administration.sql','utf8'));
   documents = await import('@/lib/hr/employeeDocumentMutations'); assurance = await import('@/lib/hr/employeeDocumentAssuranceMutations');
   routes = await import('@/app/api/hr/people/[id]/documents/route');
   versions = await import('@/app/api/hr/people/[id]/documents/[documentId]/versions/route');
