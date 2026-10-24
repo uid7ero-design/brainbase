@@ -4,7 +4,7 @@ import type { PublicEvent } from '@/lib/events/publicResolve';
 import type { ValidatedRegistration } from '@/lib/events/publicValidation';
 import { createCheckoutSession, RESERVATION_WINDOW_SECONDS, StripeNotConfiguredError, expireCheckoutSession } from '@/lib/events/stripe';
 import { checkPaidTicketingEligibility } from '@/lib/events/stripeConnect';
-import { listActiveQuestions, validateSubmittedResponses, writeRegistrationResponses } from '@/lib/events/registrationQuestions';
+import { listActiveQuestions, validateSubmittedResponses, writeRegistrationResponses, applySurfaceAnswerPolicy } from '@/lib/events/registrationQuestions';
 import { loadCartTicketTypes, buildCartLockStatements, computeCartTotalCents } from '@/lib/events/services/cart';
 import { resolveAccessCode, type AccessGrant } from '@/lib/events/services/accessCodes';
 import {
@@ -220,6 +220,18 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
   if (typeof validatedResponses === 'string') {
     return { ok: false, code: 'RESPONSES_INVALID', message: validatedResponses };
   }
+  // Product-surface answer rules (ADR 0013 §4a) — same as the free path,
+  // before any reservation or Stripe call.
+  const answerPolicy = applySurfaceAnswerPolicy({
+    productSurface,
+    eveQuestionsEnabled: event.eve_questions_enabled,
+    agreeSensitive: validated.agree_sensitive,
+    confirmThirdParty: validated.confirm_third_party,
+    submitted: { orderResponses: validated.order_responses, attendeeResponses: validated.attendees.map(a => a.responses) },
+    validated: validatedResponses,
+  });
+  if (!answerPolicy.ok) return { ok: false, code: 'RESPONSES_INVALID', message: answerPolicy.error };
+  const acknowledgedAt = answerPolicy.acknowledgedAt;
 
   const attendeeNames = validated.attendees.map(a => a.name);
   const attendeeEmails = validated.attendees.map(a => a.email ?? '');
@@ -485,7 +497,7 @@ export async function startPaidCheckout(input: PaidCheckoutInput): Promise<PaidC
   // rather than sending an anonymous purchaser into a paid checkout
   // whose attendee-requirement answers are already lost.
   try {
-    await writeRegistrationResponses(organisationId, event.id, orderId, attendeeIds, validatedResponses);
+    await writeRegistrationResponses(organisationId, event.id, orderId, attendeeIds, validatedResponses, acknowledgedAt);
   } catch (err) {
     console.error('[public checkout] response write failed, releasing reservation', err, { orderId });
     // Guarded the same way as the Stripe-creation write-back below

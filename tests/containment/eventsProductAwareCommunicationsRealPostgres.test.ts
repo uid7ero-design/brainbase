@@ -89,6 +89,7 @@ const MIGRATIONS = [
   'scripts/add-events-payments.sql',
   'scripts/add-events-payment-connect.sql',
   'scripts/add-events-registration-questions.sql',
+  'scripts/add-eve-registration-questions.sql',
   'scripts/add-events-booking-wallet.sql',
   'scripts/add-events-ticket-email-delivery.sql',
   'scripts/create-events-ticket-email-deliveries.sql',

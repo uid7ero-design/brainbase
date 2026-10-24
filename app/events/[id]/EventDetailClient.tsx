@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { Calendar, Clock, MapPin, ArrowLeft, ScanLine } from 'lucide-react';
 import { Metric, MetricStrip } from '@/components/ui/app';
-import RegistrationsPanel, { type OrderRow } from './RegistrationsPanel';
+import RegistrationsPanel, { type OrderRow, withAnswerArrays } from './RegistrationsPanel';
 import { groupOrderRows } from '@/lib/events/orderGrouping';
 import QuestionsPanel from './QuestionsPanel';
 import { PromotionsPanel, AccessCodesPanel } from './PromotionsPanel';
@@ -144,7 +144,7 @@ export default function EventDetailClient({ eventId, canManage, organisationSlug
         }
         const body = await res.json();
         if (!cancelled) {
-          setOrders(body.orders ?? []);
+          setOrders(withAnswerArrays(body.orders ?? []));
           setCrmEnabled(body.crm_enabled === true);
         }
       } catch {

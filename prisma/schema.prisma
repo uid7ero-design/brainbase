@@ -2710,6 +2710,14 @@ model Event {
   // scripts/create-events-notifications.sql). Default false for every
   // existing and new event; only an organiser's PATCH turns it on.
   reminder_enabled Boolean          @default(false)
+  // Eve — per-event opt-in to show registration questions on Eve (see
+  // scripts/add-eve-registration-questions.sql). Default false.
+  eve_questions_enabled Boolean     @default(false)
+  // When the event was cancelled (answer-retention timers).
+  cancelled_at    DateTime?         @db.Timestamptz(6)
+  // Legal hold on registration-answer retention: NULL or COMPLAINT |
+  // INCIDENT | DISPUTE | LEGAL_OBLIGATION.
+  answers_legal_hold String?
   created_by      String?
   created_at      DateTime          @default(now()) @db.Timestamptz(6)
   updated_at      DateTime          @updatedAt @db.Timestamptz(6)
@@ -3027,6 +3035,8 @@ model EventOrder {
   purchaser_name  String
   purchaser_email String
   purchaser_phone String?
+  // Legal hold on this order's registration-answer retention (see Event).
+  answers_legal_hold String?
   status          String           @default("PENDING")
   // Always 0 for every order the Phase 2 public flow creates — Phase 2
   // is free-only. Exists now so a later paid-orders phase needs no
@@ -3316,6 +3326,12 @@ model EventRegistrationQuestion {
   options         Json?
   sort_order      Int      @default(0)
   active          Boolean  @default(true)
+  // STANDARD | SENSITIVE | THIRD_PARTY | CONSENT (CHECK in
+  // scripts/add-eve-registration-questions.sql): drives the buyer notice,
+  // explicit agreement, staff labels and the answer-retention timer.
+  data_category   String   @default("STANDARD")
+  // Built-in template this question came from; fixes its category.
+  template_key    String?
   created_at      DateTime @default(now()) @db.Timestamptz(6)
   updated_at      DateTime @updatedAt @db.Timestamptz(6)
 
@@ -3337,7 +3353,16 @@ model EventRegistrationResponse {
   attendee_id             String?
   question_label_snapshot String
   field_type_snapshot     String
-  answer                  Json
+  question_help_text_snapshot String?
+  // Category in force when answered; retention uses this, not the live question.
+  data_category_snapshot  String   @default("STANDARD")
+  // When the Eve PURCHASER gave the acknowledgement this row's category needs
+  // (SENSITIVE: agreed to collection; THIRD_PARTY: confirmed the person knows).
+  // The purchaser's own statement, never a third party's consent.
+  buyer_acknowledged_at   DateTime? @db.Timestamptz(6)
+  // Retention: answer removed (NULL) and this stamped; CHECK keeps them in step.
+  redacted_at             DateTime? @db.Timestamptz(6)
+  answer                  Json?
   created_at              DateTime @default(now()) @db.Timestamptz(6)
 
   question                EventRegistrationQuestion @relation(fields: [question_id, organisation_id], references: [id, organisation_id], onDelete: Restrict)

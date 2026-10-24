@@ -24,7 +24,59 @@ export type QuestionRow = {
   options: string[] | null;
   sort_order: number;
   active: boolean;
+  // ADR 0013 §4b — what kind of information the answers are; drives the
+  // buyer notice, explicit agreement, staff labels and retention.
+  data_category: DataCategory;
+  // Built-in template the question came from (fixes a protected category).
+  template_key: TemplateKey | null;
 };
+
+// ── Data categories and built-in templates (ADR 0013 §4b) ─────────────
+//
+// STANDARD     ordinary personal information (e.g. how did you hear).
+// SENSITIVE    may reveal health, disability or similar (e.g. accessibility,
+//              dietary needs, which can reveal health or religious belief).
+// THIRD_PARTY  another person's details (e.g. an emergency contact).
+// CONSENT      evidence of a choice the buyer made (e.g. photo consent).
+//
+// On Eve, answering a SENSITIVE or THIRD_PARTY question needs a separate
+// acknowledgement from the PURCHASER (AGREEMENT_CATEGORIES; see
+// checkEveAnswerPolicy) — for THIRD_PARTY that is the purchaser's
+// confirmation, never the other person's consent. Retention timers per
+// category live in lib/events/answerRetention.ts (RETENTION_POLICY).
+export const DATA_CATEGORIES = ['STANDARD', 'SENSITIVE', 'THIRD_PARTY', 'CONSENT'] as const;
+export type DataCategory = typeof DATA_CATEGORIES[number];
+export const AGREEMENT_CATEGORIES: readonly DataCategory[] = ['SENSITIVE', 'THIRD_PARTY'];
+// A templated question in one of these categories keeps it: the organiser
+// cannot lower the protection a built-in question was designed with.
+const PROTECTED_CATEGORIES: readonly DataCategory[] = ['SENSITIVE', 'THIRD_PARTY', 'CONSENT'];
+
+export function isDataCategory(v: unknown): v is DataCategory {
+  return typeof v === 'string' && (DATA_CATEGORIES as readonly string[]).includes(v);
+}
+
+export const QUESTION_TEMPLATES = {
+  DIETARY: { label: 'Dietary requirements', field_type: 'LONG_TEXT', scope: 'ATTENDEE', data_category: 'SENSITIVE', options: null },
+  ACCESSIBILITY: { label: 'Accessibility or support requirements', field_type: 'LONG_TEXT', scope: 'ATTENDEE', data_category: 'SENSITIVE', options: null },
+  SPECIAL_REQUESTS: { label: 'Special requests or anything else we should know?', field_type: 'LONG_TEXT', scope: 'ORDER', data_category: 'STANDARD', options: null },
+  EMERGENCY_CONTACT_NAME: { label: 'Emergency contact name', field_type: 'SHORT_TEXT', scope: 'ORDER', data_category: 'THIRD_PARTY', options: null },
+  EMERGENCY_CONTACT_PHONE: { label: 'Emergency contact phone number', field_type: 'SHORT_TEXT', scope: 'ORDER', data_category: 'THIRD_PARTY', options: null },
+  PHOTO_CONSENT: { label: 'Consent to event photography/videography', field_type: 'YES_NO', scope: 'ATTENDEE', data_category: 'CONSENT', options: null },
+  HOW_DID_YOU_HEAR: { label: 'How did you hear about this event?', field_type: 'SINGLE_SELECT', scope: 'ORDER', data_category: 'STANDARD', options: ['Social media', 'Friend or family', 'Search engine', 'Poster or flyer', 'Radio', 'Other'] },
+} as const satisfies Record<string, { label: string; field_type: FieldType; scope: QuestionScope; data_category: DataCategory; options: readonly string[] | null }>;
+export type TemplateKey = keyof typeof QUESTION_TEMPLATES;
+
+export function isTemplateKey(v: unknown): v is TemplateKey {
+  return typeof v === 'string' && Object.prototype.hasOwnProperty.call(QUESTION_TEMPLATES, v);
+}
+
+// The category a templated question must keep, or null when the organiser
+// may choose (no template, or a STANDARD template that may be raised).
+export function lockedCategoryFor(templateKey: string | null | undefined): DataCategory | null {
+  if (!isTemplateKey(templateKey)) return null;
+  const c = QUESTION_TEMPLATES[templateKey].data_category;
+  return PROTECTED_CATEGORIES.includes(c) ? c : null;
+}
 
 // ── Manager CRUD (§4) ─────────────────────────────────────────────────
 // Every function below is tenant-scoped by (organisationId, eventId)
@@ -35,7 +87,7 @@ export type QuestionRow = {
 
 export async function listAllQuestions(organisationId: string, eventId: string): Promise<QuestionRow[]> {
   const rows = await sql`
-    SELECT id, label, help_text, field_type, required, scope, options, sort_order, active
+    SELECT id, label, help_text, field_type, required, scope, options, sort_order, active, data_category, template_key
     FROM event_registration_questions
     WHERE organisation_id = ${organisationId} AND event_id = ${eventId}
     ORDER BY scope, sort_order, created_at
@@ -52,7 +104,7 @@ export async function listAllQuestions(organisationId: string, eventId: string):
 // this list).
 export async function listActiveQuestions(organisationId: string, eventId: string): Promise<QuestionRow[]> {
   const rows = await sql`
-    SELECT id, label, help_text, field_type, required, scope, options, sort_order, active
+    SELECT id, label, help_text, field_type, required, scope, options, sort_order, active, data_category, template_key
     FROM event_registration_questions
     WHERE organisation_id = ${organisationId} AND event_id = ${eventId} AND active = true
     ORDER BY scope, sort_order, created_at
@@ -68,6 +120,8 @@ export type QuestionInput = {
   scope: QuestionScope;
   options: string[] | null;
   sort_order: number;
+  data_category: DataCategory;
+  template_key: TemplateKey | null;
 };
 
 // Returns a human-readable error string on failure, or null if the
@@ -76,7 +130,7 @@ export type QuestionInput = {
 // lib/events/publicValidation.ts already established.
 export function validateQuestionInput(body: {
   label?: unknown; help_text?: unknown; field_type?: unknown; required?: unknown;
-  scope?: unknown; options?: unknown; sort_order?: unknown;
+  scope?: unknown; options?: unknown; sort_order?: unknown; data_category?: unknown; template_key?: unknown;
 }): string | QuestionInput {
   if (typeof body.label !== 'string' || !body.label.trim() || body.label.length > MAX_LABEL_LENGTH) {
     return `Label is required and must be ${MAX_LABEL_LENGTH} characters or fewer.`;
@@ -94,6 +148,21 @@ export function validateQuestionInput(body: {
     return `scope must be one of: ${QUESTION_SCOPES.join(', ')}.`;
   }
   const required = body.required === true;
+  let templateKey: TemplateKey | null = null;
+  if (body.template_key !== undefined && body.template_key !== null) {
+    if (!isTemplateKey(body.template_key)) return 'Unknown question template.';
+    templateKey = body.template_key;
+  }
+  if (body.data_category !== undefined && !isDataCategory(body.data_category)) {
+    return `data_category must be one of: ${DATA_CATEGORIES.join(', ')}.`;
+  }
+  const locked = lockedCategoryFor(templateKey);
+  let dataCategory: DataCategory = isDataCategory(body.data_category) ? body.data_category
+    : templateKey ? QUESTION_TEMPLATES[templateKey].data_category : 'STANDARD';
+  if (locked && dataCategory !== locked) {
+    return `This built-in question is always ${locked.replace('_', ' ').toLowerCase()} information; its category cannot be changed. Add your own question instead.`;
+  }
+  if (locked) dataCategory = locked;
   const sortOrder = Number.isInteger(body.sort_order) ? (body.sort_order as number) : 0;
 
   let options: string[] | null = null;
@@ -127,6 +196,8 @@ export function validateQuestionInput(body: {
     scope: body.scope as QuestionScope,
     options,
     sort_order: sortOrder,
+    data_category: dataCategory,
+    template_key: templateKey,
   };
 }
 
@@ -261,6 +332,72 @@ export function validateSubmittedResponses(
   return { orderAnswers, attendeeAnswers };
 }
 
+// ── Eve answer policy (ADR 0013 §4) ──────────────────────────────────
+//
+// Applied by the shared free/paid services for productSurface 'EVE' only,
+// AFTER validateSubmittedResponses and BEFORE anything is reserved:
+//   - an event that has not opted in (events.eve_questions_enabled = false)
+//     accepts no answers at all through Eve, even to optional questions a
+//     tampered client might submit — its questions were never shown on Eve
+//     or covered by Eve's notices;
+//   - the PURCHASER'S own acknowledgements, never defaulted, one per kind:
+//       SENSITIVE answer   -> agreeSensitive: the purchaser agrees to the
+//                             organiser collecting it;
+//       THIRD_PARTY answer -> confirmThirdParty: the purchaser confirms the
+//                             other person knows their details are being
+//                             given to the organiser (or that they may give
+//                             them).
+//     Neither is, or is recorded as, the OTHER person's consent: the platform
+//     never treats a purchaser's confirmation as third-party consent.
+//   An unanswered optional question needs nothing.
+// Returns an error message, or null when the submission may proceed. The
+// BrainBase surface is unaffected (its form has no such control).
+export function checkEveAnswerPolicy(
+  submitted: { orderResponses: SubmittedAnswer[]; attendeeResponses: SubmittedAnswer[][] },
+  validated: ValidatedResponses,
+  opts: { eveQuestionsEnabled: boolean; agreeSensitive: boolean; confirmThirdParty: boolean },
+): string | null {
+  const anySubmitted = submitted.orderResponses.length > 0 || submitted.attendeeResponses.some(a => a.length > 0);
+  if (!opts.eveQuestionsEnabled) {
+    return anySubmitted ? 'This event is not collecting registration answers here.' : null;
+  }
+  const answered = [...validated.orderAnswers, ...validated.attendeeAnswers.flat()];
+  if (answered.some(a => a.question.data_category === 'SENSITIVE') && !opts.agreeSensitive) {
+    return 'Please confirm you agree to the organiser collecting the health, disability or accessibility information you have given.';
+  }
+  if (answered.some(a => a.question.data_category === 'THIRD_PARTY') && !opts.confirmThirdParty) {
+    return 'Please confirm the person whose details you have given knows you are giving them to the organiser.';
+  }
+  return null;
+}
+
+// The single place the services ask "what does this product surface require
+// of these answers?" — so the shared free/paid services stay product-neutral
+// (they pass the surface through; they never branch on it themselves).
+// Returns the refusal message, or the time to store as buyer_acknowledged_at
+// on SENSITIVE / THIRD_PARTY rows: when the PURCHASER gave the acknowledgement
+// required for that row's category (see checkEveAnswerPolicy). null when
+// there is none to record. It is never a third party's consent.
+export function applySurfaceAnswerPolicy(params: {
+  productSurface: string;
+  eveQuestionsEnabled: boolean | undefined;
+  agreeSensitive: boolean | undefined;
+  confirmThirdParty: boolean | undefined;
+  submitted: { orderResponses: SubmittedAnswer[]; attendeeResponses: SubmittedAnswer[][] };
+  validated: ValidatedResponses;
+}): { ok: false; error: string } | { ok: true; acknowledgedAt: string | null } {
+  if (params.productSurface !== 'EVE') return { ok: true, acknowledgedAt: null };
+  const agreeSensitive = params.agreeSensitive === true;
+  const confirmThirdParty = params.confirmThirdParty === true;
+  const error = checkEveAnswerPolicy(params.submitted, params.validated, {
+    eveQuestionsEnabled: params.eveQuestionsEnabled === true, agreeSensitive, confirmThirdParty,
+  });
+  if (error) return { ok: false, error };
+  // The policy above guarantees each answered SENSITIVE / THIRD_PARTY row's
+  // own acknowledgement was given, so one timestamp is accurate for both.
+  return { ok: true, acknowledgedAt: agreeSensitive || confirmThirdParty ? new Date().toISOString() : null };
+}
+
 // ── Flattening helpers — shared by both response-write paths ────────
 //
 // Pure array-building only, no DB access — reused by both the atomic
@@ -271,18 +408,28 @@ export function validateSubmittedResponses(
 // write). Kept as plain data builders rather than each duplicating its
 // own flattening logic.
 
+// helpTexts uses '' for "no help text" (NULLIF'd back to NULL on insert);
+// categories is the question's data_category at answer time (snapshotted
+// into data_category_snapshot) — the same text-array UNNEST discipline as
+// every other column here.
 export type FlattenedOrderResponses = {
   questionIds: string[];
   labels: string[];
   fieldTypes: string[];
+  helpTexts: string[];
+  categories: string[];
   answersJson: string[];
 };
+
+const categoryOf = (q: QuestionRow): DataCategory => (isDataCategory(q.data_category) ? q.data_category : 'STANDARD');
 
 export function flattenOrderAnswers(orderAnswers: ValidatedAnswer[]): FlattenedOrderResponses {
   return {
     questionIds: orderAnswers.map(a => a.question.id),
     labels: orderAnswers.map(a => a.question.label),
     fieldTypes: orderAnswers.map(a => a.question.field_type),
+    helpTexts: orderAnswers.map(a => a.question.help_text ?? ''),
+    categories: orderAnswers.map(a => categoryOf(a.question)),
     answersJson: orderAnswers.map(a => JSON.stringify(a.answer)),
   };
 }
@@ -297,6 +444,8 @@ export type FlattenedAttendeeResponses = {
   questionIds: string[];
   labels: string[];
   fieldTypes: string[];
+  helpTexts: string[];
+  categories: string[];
   answersJson: string[];
 };
 
@@ -304,7 +453,7 @@ export function flattenAttendeeAnswers(
   attendeeAnswers: ValidatedAnswer[][],
   correlationKeys: string[],
 ): FlattenedAttendeeResponses {
-  const out: FlattenedAttendeeResponses = { correlationKeys: [], questionIds: [], labels: [], fieldTypes: [], answersJson: [] };
+  const out: FlattenedAttendeeResponses = { correlationKeys: [], questionIds: [], labels: [], fieldTypes: [], helpTexts: [], categories: [], answersJson: [] };
   attendeeAnswers.forEach((answersForAttendee, idx) => {
     const key = correlationKeys[idx];
     for (const ans of answersForAttendee) {
@@ -312,6 +461,8 @@ export function flattenAttendeeAnswers(
       out.questionIds.push(ans.question.id);
       out.labels.push(ans.question.label);
       out.fieldTypes.push(ans.question.field_type);
+      out.helpTexts.push(ans.question.help_text ?? '');
+      out.categories.push(categoryOf(ans.question));
       out.answersJson.push(JSON.stringify(ans.answer));
     }
   });
@@ -347,6 +498,10 @@ export async function writeRegistrationResponses(
   orderId: string,
   attendeeIds: string[],
   responses: ValidatedResponses,
+  // When the Eve purchaser gave the acknowledgement each SENSITIVE /
+  // THIRD_PARTY row needs (stored as buyer_acknowledged_at on those rows
+  // only), or null. Never a third party's consent.
+  acknowledgedAt: string | null = null,
 ): Promise<void> {
   const order = flattenOrderAnswers(responses.orderAnswers);
   const attendee = flattenAttendeeAnswers(responses.attendeeAnswers, attendeeIds);
@@ -357,15 +512,20 @@ export async function writeRegistrationResponses(
   const attendeeIdColumn = [...order.questionIds.map(() => ''), ...attendee.correlationKeys];
   const labels = [...order.labels, ...attendee.labels];
   const fieldTypes = [...order.fieldTypes, ...attendee.fieldTypes];
+  const helpTexts = [...order.helpTexts, ...attendee.helpTexts];
+  const categories = [...order.categories, ...attendee.categories];
   const answersJson = [...order.answersJson, ...attendee.answersJson];
 
   if (!questionIds.length) return;
 
   await sql`
     INSERT INTO event_registration_responses
-      (organisation_id, event_id, question_id, order_id, attendee_id, question_label_snapshot, field_type_snapshot, answer)
-    SELECT ${organisationId}, ${eventId}, a.question_id, ${orderId}, NULLIF(a.attendee_id, ''), a.label, a.field_type, a.answer_json::jsonb
-    FROM UNNEST(${questionIds}::text[], ${attendeeIdColumn}::text[], ${labels}::text[], ${fieldTypes}::text[], ${answersJson}::text[])
-      AS a(question_id, attendee_id, label, field_type, answer_json)
+      (organisation_id, event_id, question_id, order_id, attendee_id, question_label_snapshot, field_type_snapshot,
+       question_help_text_snapshot, data_category_snapshot, buyer_acknowledged_at, answer)
+    SELECT ${organisationId}, ${eventId}, a.question_id, ${orderId}, NULLIF(a.attendee_id, ''), a.label, a.field_type,
+      NULLIF(a.help_text, ''), a.category,
+      CASE WHEN a.category IN ('SENSITIVE', 'THIRD_PARTY') THEN ${acknowledgedAt}::timestamptz END, a.answer_json::jsonb
+    FROM UNNEST(${questionIds}::text[], ${attendeeIdColumn}::text[], ${labels}::text[], ${fieldTypes}::text[], ${helpTexts}::text[], ${categories}::text[], ${answersJson}::text[])
+      AS a(question_id, attendee_id, label, field_type, help_text, category, answer_json)
   `;
 }

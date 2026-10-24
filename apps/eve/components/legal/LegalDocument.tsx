@@ -61,7 +61,7 @@ export function LegalDocument({ doc }: { doc: LegalDoc }) {
       <p className="mt-2 text-sm text-eve-muted">Last updated: {LEGAL_LAST_UPDATED}</p>
       <p className="mt-6 text-eve-ink">{doc.intro}</p>
       {doc.sections.map(s => (
-        <section key={s.heading} className="mt-8">
+        <section key={s.heading} id={s.id} className="mt-8 scroll-mt-20">
           <h2 className="text-lg font-semibold">{s.heading}</h2>
           {s.body.map((p, i) => (
             <p key={i} className="mt-3 leading-relaxed text-eve-ink-soft"><Filled text={p} cfg={cfg} /></p>

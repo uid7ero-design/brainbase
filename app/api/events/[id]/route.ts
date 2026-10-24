@@ -92,6 +92,14 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
         status = ${merged.status as string},
         starts_at = ${merged.starts_at as string}, ends_at = ${merged.ends_at as string},
         timezone = ${merged.timezone as string}, reminder_enabled = ${reminderEnabled},
+        -- Registration-answer retention (ADR 0013 §4b): when the event was
+        -- cancelled. Set on the transition into CANCELLED, cleared if it
+        -- leaves CANCELLED, otherwise kept.
+        cancelled_at = CASE
+          WHEN ${merged.status as string} = 'CANCELLED' AND prev.status <> 'CANCELLED' THEN clock_timestamp()
+          WHEN ${merged.status as string} <> 'CANCELLED' THEN NULL
+          ELSE e.cancelled_at
+        END,
         updated_at = GREATEST(clock_timestamp(), prev.updated_at + interval '1 microsecond')
       FROM prev
       WHERE e.id = prev.id AND e.organisation_id = ${session.organisationId}

@@ -108,7 +108,7 @@ purchaser data, tokens, secrets or internal configuration.
 ## 4. Sensitive registration questions — DEFERRED (explicit launch limitation)
 
 The proposed `event_registration_questions.may_collect_sensitive_information` and
-`event_registration_responses.sensitive_consent_at` schema/control is **not built**
+`event_registration_responses.buyer_acknowledged_at` schema/control is **not built**
 and no migration exists for it. Reason: **Eve does not render registration
 questions** — its booking form never shows or submits them, so no sensitive
 answer can be collected through Eve today, and an event with a REQUIRED question
@@ -122,6 +122,184 @@ cannot be booked on Eve at all.
 - **Trigger to build it:** before Eve renders any registration question, add the
   sensitive flag + consent control (and the matching Privacy wording) behind a new
   schema gate.
+
+### 4a. Built (2026-10-23, branch `feat/eve-registration-questions`) — not yet live
+
+Schema gate `scripts/add-eve-registration-questions.sql` (additive; must be applied
+before the code deploys):
+
+- `events.eve_questions_enabled` (default false): per-event Eve opt-in, manager+,
+  audited (`event.eve_questions_toggled`). Off, Eve receives no question
+  definitions and the shared services refuse any answer submitted through the EVE
+  surface; an event with a required question shows "Online registration isn't
+  available for this event." on Eve instead of failing at submit.
+- Category model (superseded the first draft's `sensitive` boolean before any
+  migration ran) — see §4b.
+- Answer visibility: manager+ only, in both the Eve organiser API and the BrainBase
+  registrations read (previously viewer+ in BrainBase; no viewer/analyst users
+  existed in any affected organisation on 2026-10-23). Answer COUNTS are manager+
+  too. Unchanged: never in CRM, emails, the CSV export, audit-log content, search,
+  or any buyer/public endpoint.
+- Once a question has answers its type and scope are locked and select options can
+  only be added.
+- Privacy Policy sections 2, 3, 4, 5 and 8 rewritten — **requires legal review
+  before merge** (merging publishes it).
+
+### 4b. Privacy decisions (2026-10-24) — categories, retention, legal hold
+
+Decided by the operator on 2026-10-24; implemented on the same branch, not live.
+
+**Categories** (`event_registration_questions.data_category`, snapshotted per
+answer as `data_category_snapshot`):
+
+| Category | Meaning | Explicit agreement on Eve | Removed |
+|---|---|---|---|
+| STANDARD | ordinary personal information | no | 12 months after event end |
+| SENSITIVE | may reveal health/disability (accessibility, dietary) | yes | 30 days after event end; cancelled: 7 days after cancellation |
+| THIRD_PARTY | another person's details (emergency contact) | yes | 7 days after event end; cancelled: 7 days after cancellation |
+| CONSENT | a recorded choice (photo consent) | no | 3 years after event end |
+
+Existing questions and answers default to STANDARD (no guessing). Built-in
+templates carry a category; a template in a protected category (SENSITIVE,
+THIRD_PARTY, CONSENT) cannot be lowered and its template link cannot be changed.
+
+**Retention** (`lib/events/answerRetention.ts`, daily cron
+`/api/cron/registration-answer-retention`): removal sets `answer := NULL` and
+`redacted_at`; the row keeps only structure (question, label/type/category/help
+snapshots, timestamps, agreement time). Orders, payments, refunds, tickets,
+check-in, legal acceptance and audit history are never touched. Report-only unless
+`EVE_ANSWER_RETENTION_ENFORCE` is exactly `true`. Audit: one
+`event_responses.redacted` row per event with ids and counts only.
+
+**Legal hold** (`events.answers_legal_hold`, `event_orders.answers_legal_hold`; reason
+code COMPLAINT | INCIDENT | DISPUTE | LEGAL_OBLIGATION), admin+, audited. Pauses
+removal for that event/order only.
+
+**Copies:** Preview/test branches and manual snapshots hold Production data; see
+`docs/compliance/eve-production-data-copies.md` for the inventory, rule and
+cleanup plan, which must be in force before Eve collects Production answers.
+
+**Purchaser acknowledgements (2026-10-24 clarification).** The purchaser gives two
+separate, unticked acknowledgements:
+- `agree_sensitive`: agreement to the organiser collecting SENSITIVE answers;
+- `confirm_third_party`: confirmation that the person whose details they gave knows
+  those details are being given to the organiser, or that they may give them.
+
+Both are the purchaser's own statements. The platform never records or treats either
+one as the third party's consent. The column is accordingly
+`buyer_acknowledged_at`, not "consent". The draft name `sensitive_consent_at` never
+reached any database.
+
+**CONSENT retention is provisional.** 3 years is the default for implementation and
+testing, pending legal advice. All timers live in one table (`RETENTION_POLICY`), and
+`afterEnd: null` means "not removed automatically". Enforcement stays off until the
+period is settled.
+
+**Legal review pack:** `docs/compliance/eve-registration-questions-legal-review-pack.md`.
+
+### 4c. Privacy model refinement (2026-10-24) — internal
+
+Decided by the operator on 2026-10-24; implemented in the draft Privacy text on the same
+branch, not live.
+
+**Platform / organiser responsibility.** The Privacy Policy (§5) now says, in plain
+Australian English and without GDPR controller/processor terms:
+- Eve/HLNA provides the platform and handles the core booking and platform information.
+- The Event Organiser decides which questions to ask, why, and whether each is required.
+- Eve collects and stores the answers on the organiser's behalf.
+- Organisers should ask only for what is reasonably needed to run the event.
+- The organiser remains responsible for its own use of the answers and any copies.
+
+**Controls unchanged.** All of these are unchanged:
+- the four categories;
+- the separate unticked SENSITIVE and THIRD_PARTY acknowledgements, where the purchaser's
+  confirmation is never the third party's consent;
+- Manager/Admin/Super Admin-only access and tenant isolation;
+- question/answer snapshots and legal holds;
+- no answer text in audits;
+- no CRM, ticket-email or marketing copying;
+- Eve questions default OFF;
+- retention enforcement report-only.
+
+**Public retention wording simplified.** Privacy §8 describes answer retention by
+purpose only:
+- answers are kept only as long as reasonably needed for the event and their purpose;
+- sensitive and other-person details are generally removed sooner;
+- answers may be kept longer for an incident, complaint, dispute or legal obligation;
+- backups expire after a limited period.
+
+No exact period is published. The internal timers are unchanged:
+- `RETENTION_POLICY`: STANDARD 12 months; SENSITIVE 30 days; THIRD_PARTY 7 days;
+  CONSENT 3 years (provisional);
+- on cancellation, SENSITIVE and THIRD_PARTY answers are removed 7 days after
+  cancellation;
+- legal holds pause removal.
+
+The timers are recorded here (§4b), in `docs/compliance/eve-data-retention.md` and in
+the review pack §C, and are pinned by a test.
+
+**Exports — future feature, not in the initial release.** Answers stay out of the
+registrations CSV export (`app/api/events/[id]/orders/export/route.ts`). Adding them
+later needs all of the following before it ships:
+- a permission model (who may export which categories);
+- sensitive-data handling (whether SENSITIVE/THIRD_PARTY answers are exportable at all,
+  and on what terms);
+- auditing of each export;
+- a privacy review, including the Privacy wording, because an exported copy is the
+  organiser's copy and is outside Eve's retention.
+
+**Future product idea (not built).** Consider asking for detailed attendee information
+through post-checkout registration questions, to reduce checkout friction. Not
+implemented and not scheduled. If it is pursued, it needs its own design and privacy
+review.
+
+**Benchmark note.** Eve's design was benchmarked against established ticketing-platform
+practice. Observed facts:
+- event hosts commonly ask custom registration questions;
+- those questions can include accessibility, dietary and next-of-kin information;
+- ticketing platforms commonly distinguish platform data from host/event-specific data;
+- mature platforms use finite retention periods for checkout-question answers.
+
+Eve deliberately adopts shorter, category-based retention and tighter access controls.
+No other platform's policy text is reused in Eve's public policy.
+
+### 4d. Owner risk acceptance — proceed without external legal review (2026-10-24)
+
+**Decision (owner/product, 2026-10-24):** external legal review is not financially
+practical at this stage. The owner accepts the risk of releasing on a conservative,
+staged basis, using the current OAIC-aligned design and industry benchmarking. This is an
+owner decision. It is **not** a claim that legal advice was obtained. No document, page,
+commit or report may say or imply that the wording was legally reviewed or approved. The
+review pack's questions remain unanswered.
+
+**Legal position in the text.** The Privacy Policy stays qualified. It says Eve aims to
+handle information in line with the APPs and the Privacy Act "to the extent [they] apply
+to us". It does not say Eve is bound by them. The platform/organiser responsibility model
+(§4c) is unchanged.
+
+**Controls retained in full.** All of these stay as they are:
+- Eve questions default OFF;
+- the four categories;
+- Manager/Admin/Super Admin-only answer access and tenant isolation;
+- no answers in CRM, emails, exports or marketing;
+- the separate unticked acknowledgements;
+- category snapshots and legal holds;
+- the internal retention timers;
+- retention enforcement report-only by default;
+- the finite backup/copy lifecycle.
+
+**First Production release scope:**
+- Ship the schema and code foundation. Every existing Production event stays opted
+  OUT, including LD Tennis and School Test, whose existing questions stay off on Eve.
+- Riverlights stays DRAFT and opted OUT.
+- The first question enabled on Eve is STANDARD only: "How did you hear about this
+  event?" (optional, per booking, single select), on a controlled test event.
+
+**Held (technically ready; separate owner approval required before first Production
+use):**
+- SENSITIVE questions (accessibility/health, dietary);
+- THIRD_PARTY questions (emergency contact);
+- CONSENT questions (photo/video).
 
 ## 5. Remaining limits (unchanged)
 

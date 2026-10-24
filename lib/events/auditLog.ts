@@ -461,6 +461,46 @@ export async function logEventUpdated(params: { organisationId: string; userId: 
   });
 }
 
+// Registration-answer retention (ADR 0013 §4b) — one row per event per run.
+// Response ids and counts per category ONLY: never an answer, label or
+// help text. userId is null: the scheduled retention job acts, not a person.
+export async function logResponsesRedacted(params: {
+  organisationId: string; eventId: string; responseIds: string[]; byCategory: Record<string, number>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: null, action: 'event_responses.redacted',
+    resourceType: 'event', resourceId: params.eventId, beforeState: null,
+    afterState: { reason: 'RETENTION', count: params.responseIds.length, by_category: params.byCategory, response_ids: params.responseIds },
+  });
+}
+
+// Legal hold on answer retention for an event or one order — the reason
+// code only (COMPLAINT | INCIDENT | DISPUTE | LEGAL_OBLIGATION | null).
+export async function logAnswersLegalHoldChanged(params: {
+  organisationId: string; userId: string; eventId: string; orderId: string | null; before: string | null; after: string | null;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId,
+    action: params.after ? 'event.answers_legal_hold_set' : 'event.answers_legal_hold_cleared',
+    resourceType: params.orderId ? 'event_order' : 'event', resourceId: params.orderId ?? params.eventId,
+    beforeState: { answers_legal_hold: params.before, event_id: params.eventId },
+    afterState: { answers_legal_hold: params.after, event_id: params.eventId },
+  });
+}
+
+// Eve registration questions (ADR 0013 §4) — the per-event opt-in that
+// starts (or stops) Eve showing this event's questions and accepting
+// answers. Only the boolean itself is recorded.
+export async function logEventEveQuestionsToggled(params: {
+  organisationId: string; userId: string; eventId: string; before: boolean; after: boolean;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event.eve_questions_toggled',
+    resourceType: 'event', resourceId: params.eventId,
+    beforeState: { eve_questions_enabled: params.before }, afterState: { eve_questions_enabled: params.after },
+  });
+}
+
 export async function logEventPublished(params: { organisationId: string; userId: string; eventId: string; before: EventRow; after: EventRow }): Promise<void> {
   const diff = diffFields(params.before, params.after, EVENT_AUDIT_FIELDS);
   await insertAuditLog({

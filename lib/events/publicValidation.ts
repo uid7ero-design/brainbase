@@ -57,6 +57,12 @@ export type PublicRegistrationInput = {
   // present (those keys don't exist in this shape).
   promotion_code?: unknown;
   access_code?: unknown;
+  // Eve (ADR 0013 §4b) — the PURCHASER'S own acknowledgements (only the
+  // literal boolean true counts): agree_sensitive for SENSITIVE answers;
+  // confirm_third_party that the person whose details they gave knows they
+  // are being given to the organiser. Never a third party's consent.
+  agree_sensitive?: unknown;
+  confirm_third_party?: unknown;
 };
 
 export type ValidatedAttendee = {
@@ -85,6 +91,9 @@ export type ValidatedRegistration = {
   // not supplied. Validity is decided by the services, never here.
   promotion_code: string | null;
   access_code: string | null;
+  // Anything but true means the acknowledgement was not given.
+  agree_sensitive?: boolean;
+  confirm_third_party?: boolean;
 };
 
 // Phase 4 — a code is an optional short string; anything else is a 400.
@@ -266,6 +275,8 @@ export function validatePublicRegistrationInput(
     order_responses: orderResponses,
     promotion_code: promotionCode,
     access_code: accessCode,
+    agree_sensitive: body.agree_sensitive === true,
+    confirm_third_party: body.confirm_third_party === true,
   };
 }
 

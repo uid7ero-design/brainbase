@@ -1,5 +1,5 @@
 import 'server-only';
-import type { Role } from '@/lib/session';
+import { roleGte, type Role } from '@/lib/session';
 import {
   getOrganisationEvent,
   listEventRegistrationRows,
@@ -26,8 +26,9 @@ import { isIdentifier, readBodyText, ticketingJson } from './http';
 //   2. calls the shared server-side read/operation functions in
 //      lib/events (the same ones the BrainBase Events routes call), scoped
 //      to the organisation that step resolved from the database;
-//   3. returns an allow-listed projection — never CRM ids, Stripe ids,
-//      registration answers or ticket tokens.
+//   3. returns an allow-listed projection — never CRM ids, Stripe ids or
+//      ticket tokens. Registration answers are included ONLY for manager+
+//      (see answersFor below); a viewer gets none, not even a count.
 // Minimum roles mirror the BrainBase Events routes: reads and check-in
 // resolve/search are viewer; check-in confirm and undo are manager.
 // Deliberately absent: event/ticket-type editing, refunds, cancellation,
@@ -143,6 +144,20 @@ const ORDER_FIELDS = [
 ] as const;
 const ATTENDEE_FIELDS = ['id', 'name', 'email', 'checked_in_at', 'checked_in_by'] as const;
 
+// Registration answers (ADR 0013 §4) are personal and may be sensitive
+// (health/accessibility, a third party's details): manager+ only, decided
+// from the role the authorizer just reloaded from the database. Returns
+// undefined for anyone else so the key is absent from the response
+// entirely. Each answer is the snapshot as answered (label, type, help
+// text, sensitivity), never the live question — and never the response or
+// question ids (Eve has no answer editing).
+const ANSWER_FIELDS = ['label', 'field_type', 'help_text', 'answer', 'data_category', 'buyer_acknowledged_at', 'redacted_at'] as const;
+
+function answersFor(ctx: TicketingContext, responses: unknown): Json[] | undefined {
+  if (!roleGte(ctx.role, 'manager')) return undefined;
+  return Array.isArray(responses) ? responses.map(r => pick(r, ANSWER_FIELDS)) : [];
+}
+
 // The registrations reader returns one row per order line (multi-type
 // carts); regroup into one order with its lines.
 export function handleOrganiserOrders(req: Request, id: string): Promise<Response> {
@@ -156,6 +171,8 @@ export function handleOrganiserOrders(req: Request, id: string): Promise<Respons
       let order = orders.get(key);
       if (!order) {
         order = { ...pick(row, ORDER_FIELDS), lines: [] };
+        const answers = answersFor(ctx, row.order_responses);
+        if (answers) order.answers = answers;
         orders.set(key, order);
       }
       order.lines.push({
@@ -176,8 +193,10 @@ export function handleOrganiserAttendees(req: Request, id: string): Promise<Resp
     const attendees: Json[] = [];
     for (const row of rows) {
       for (const a of row.attendees ?? []) {
+        const answers = answersFor(ctx, (a as Json | null)?.responses);
         attendees.push({
           ...pick(a, ATTENDEE_FIELDS),
+          ...(answers ? { answers } : {}),
           ticket_type_name: row.ticket_type_name ?? null,
           session_name: row.session_name ?? null,
           order_id: row.id,
