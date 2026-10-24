@@ -145,6 +145,37 @@ describe.skipIf(!hasDatabase)('migration safety', () => {
     expect(await ownDefinitions()).toBe(withAll);
   });
 
+  it('032 replaces only the reservation guard, is idempotent byte for byte, and 093 restores 031 exactly, data untouched', async () => {
+    const at031 = await ownDefinitions();
+    const inv = await ownInventory();
+    await runScript(sqlFile('032_schedule_archive_ordering.sql'));
+    const at032 = await ownDefinitions();
+    await runScript(sqlFile('032_schedule_archive_ordering.sql'));
+    expect(await ownDefinitions()).toBe(at032); // idempotent
+    expect(at032).not.toBe(at031); // and it did change something: the one function
+    expect(await ownInventory()).toEqual(inv); // no object added or dropped
+    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2b.2.3'")).toBe(1);
+    const fn = (await q("SELECT pg_get_functiondef(p.oid) AS d FROM pg_proc p WHERE p.proname = 'scheduling_reservation_integrity'")).rows[0].d as string;
+    expect(fn).toMatch(/FROM scheduling_schedules s WHERE s\.id = sid AND s\.organisation_id = NEW\.organisation_id FOR SHARE/);
+
+    await seedClass('org-093', { schedule: 's93', offering: 'o93', occurrence: 'c93' }, 5);
+    const rows = await count('SELECT count(*) FROM scheduling_occurrences');
+    await runScript(sqlFile('093_schedule_archive_ordering_rollback.sql'));
+    await runScript(sqlFile('093_schedule_archive_ordering_rollback.sql')); // twice is harmless
+    expect(await ownDefinitions()).toBe(at031); // 031 restored byte for byte
+    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2b.2.3'")).toBe(0);
+    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2b.2.2'")).toBe(1); // 031 stays
+    expect(await count('SELECT count(*) FROM scheduling_occurrences')).toBe(rows); // no data touched
+  });
+
+  it('032 refuses to apply without 031', async () => {
+    await runScript(sqlFile('092_reservation_integrity_rollback.sql'));
+    await expect(runScript(sqlFile('032_schedule_archive_ordering.sql'))).rejects.toMatchObject({ code: 'SCVER' });
+    await runScript(sqlFile('031_reservation_integrity.sql'));
+    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version IN ('2b.2.1','2b.2.2')")).toBe(2);
+    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2b.2.3'")).toBe(0);
+  });
+
   it('031 refuses to apply without 030, and without the 2a.2 schema', async () => {
     await runScript(sqlFile('092_reservation_integrity_rollback.sql'));
     await runScript(sqlFile('091_resource_concurrency_rollback.sql'));

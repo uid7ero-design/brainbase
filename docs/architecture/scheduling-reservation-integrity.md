@@ -62,7 +62,8 @@ READ COMMITTED; guards new writes only and never re-validates existing rows; the
 
 - The schedule-archived check reads the schedule row without a lock (the offering row is locked): a schedule archived at the same
   instant as a reservation is created for one of its offerings can still be booked. An archived schedule only matters for new bookings,
-  and archiving an offering is the lever that is protected.
+  and archiving an offering is the lever that is protected. **Investigated and fixed separately** by 032
+  (`docs/architecture/scheduling-schedule-archive-ordering.md`): not an integrity violation, an ordering guarantee only.
 - Offering capacity edits do not touch existing occurrences (by design in 2B.2a), so they cannot reduce an occurrence below its bookings.
 - A reservation's customer is not tied to a customer table in the shared schema (the host owns that); out of scope here.
 - Availability rules (opening hours) are not enforced by the database; that is a repository/route concern for the reservation API.
