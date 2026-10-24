@@ -30,7 +30,7 @@ schedules, reservations or holds, and no route can write a reservation yet, so n
 makes the two archive levers behave the same, so it is proposed as a separate, optional step rather than folded into 031.
 
 Occurrence creation reads the schedule's archived flag in its own statement and has the same property. It is not changed here:
-an occurrence is created by staff configuration, not by customers, and has no equivalent guard function to extend.
+an occurrence is created by staff configuration, not by customers. **Superseded:** it is closed separately by 033 (`docs/architecture/scheduling-occurrence-integrity.md`).
 
 ## 2. The fix
 

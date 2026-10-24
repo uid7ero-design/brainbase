@@ -775,6 +775,8 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
         if (err.code === 'resource_conflict') return { ok: false, reason: 'resource_conflict' };
         if (err.code === 'conflict' && err.constraint === 'scheduling_occurrences_slot_uk') return { ok: false, reason: 'duplicate_occurrence' };
         if (err.code === 'not_found') return { ok: false, reason: 'not_found' };
+        // 033: an archive committed between this statement's snapshot and the guard's locks
+        if (err.code === 'offering_unavailable') return { ok: false, reason: 'offering_unavailable' };
       }
       throw err;
     }

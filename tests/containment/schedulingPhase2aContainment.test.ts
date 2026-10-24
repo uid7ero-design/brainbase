@@ -67,8 +67,8 @@ describe('Phase 2A wires nothing into the application', () => {
 
 describe('Phase 2A SQL package is exactly what was reviewed', () => {
   it('ships exactly the shared files and the BrainBase host files, nothing else', () => {
-    // Phase 2B.2 (deliberate, reviewed change) adds 030 (resource concurrency), 031 (reservation integrity), 032 (schedule archive ordering) and their rollbacks 091, 092 and 093; all are pinned below.
-    expect(readdirSync(path.join(ROOT, 'packages/scheduling/sql')).sort()).toEqual(['001_preflight.sql', '010_shared_schema.sql', '020_verify.sql', '030_resource_concurrency.sql', '031_reservation_integrity.sql', '032_schedule_archive_ordering.sql', '090_rollback.sql', '091_resource_concurrency_rollback.sql', '092_reservation_integrity_rollback.sql', '093_schedule_archive_ordering_rollback.sql']);
+    // Phase 2B.2 (deliberate, reviewed change) adds 030 (resource concurrency), 031 (reservation integrity), 032 (schedule archive ordering), 033 (occurrence integrity) and their rollbacks 091, 092, 093 and 094; all are pinned below.
+    expect(readdirSync(path.join(ROOT, 'packages/scheduling/sql')).sort()).toEqual(['001_preflight.sql', '010_shared_schema.sql', '020_verify.sql', '030_resource_concurrency.sql', '031_reservation_integrity.sql', '032_schedule_archive_ordering.sql', '033_occurrence_integrity.sql', '090_rollback.sql', '091_resource_concurrency_rollback.sql', '092_reservation_integrity_rollback.sql', '093_schedule_archive_ordering_rollback.sql', '094_occurrence_integrity_rollback.sql']);
     // Phase 2B.0 (deliberate, reviewed change) adds 120/130 with their rollbacks and the manual/ folder; each is pinned
     // file by file in schedulingPhase2b0Containment.test.ts.
     expect(readdirSync(path.join(ROOT, 'scripts/scheduling')).sort()).toEqual([
@@ -195,6 +195,43 @@ describe('Phase 2A SQL package is exactly what was reviewed', () => {
       return t.slice(a, t.indexOf('END;\n$$;', a) + 8);
     };
     expect(body('packages/scheduling/sql/093_schedule_archive_ordering_rollback.sql')).toBe(body('packages/scheduling/sql/031_reservation_integrity.sql'));
+  });
+
+  it('033 (occurrence integrity) replaces exactly one function: no trigger, table or data change but its version marker; schedule row locked before offering row before the resource lock', () => {
+    const sql = noComments(read('packages/scheduling/sql/033_occurrence_integrity.sql'));
+    expect([...sql.matchAll(/CREATE OR REPLACE FUNCTION (w+)/g)].map(m => m[1])).toEqual(['scheduling_occurrence_integrity']);
+    expect(sql).not.toMatch(/(CREATE OR REPLACE TRIGGER|CREATE TRIGGER|ALTER TABLE|DROP TABLE|DROP FUNCTION|DROP TRIGGER|TRUNCATE|DELETE FROM|CREATE TABLE|UPDATEs+w+s+SET)/i);
+    expect([...sql.matchAll(/INSERT INTO (w+)/g)].map(m => m[1])).toEqual(['scheduling_schema_migrations']);
+    expect(sql).toMatch(/lock_timeout = '5s' AS /);
+    const start = sql.indexOf('CREATE OR REPLACE FUNCTION scheduling_occurrence_integrity()');
+    const fn = sql.slice(start, sql.indexOf('INSERT INTO scheduling_schema_migrations'));
+    const schedule = fn.indexOf('FROM scheduling_schedules s WHERE s.id = sid');
+    const offering = fn.indexOf('FOR SHARE OF o');
+    const resource = fn.indexOf('pg_advisory_xact_lock');
+    expect(schedule).toBeGreaterThan(-1);
+    expect(fn.slice(schedule, fn.indexOf(';', schedule))).toMatch(/FOR SHARE$/);
+    expect(schedule).toBeLessThan(offering);
+    expect(offering).toBeLessThan(resource);
+    // participant capacity is not compared with the resource: the guard never reads scheduling_resources capacity
+    expect(fn).not.toMatch(/capacity/);
+    expect(sql).toMatch(/needs 032_schedule_archive_ordering.sql (version 2b.2.3)/);
+    expect(sql).not.toMatch(/(organisations|users|crm_contacts|contacts|bookings|sessions|audit_logs)/);
+  });
+
+  it('094 restores exactly what 031 created for that function and touches no data', () => {
+    const rb = noComments(read('packages/scheduling/sql/094_occurrence_integrity_rollback.sql'));
+    expect([...rb.matchAll(/CREATE OR REPLACE FUNCTION (w+)/g)].map(m => m[1])).toEqual(['scheduling_occurrence_integrity']);
+    expect(rb).not.toMatch(/(DROP TABLE|DROP FUNCTION|DROP TRIGGER|TRUNCATE|ALTER TABLE|INSERT INTO)/i);
+    expect([...rb.matchAll(/DELETE FROM (w+)[^;]*;/g)].map(m => m[0].replace(/s+/g, ' '))).toEqual(["DELETE FROM scheduling_schema_migrations WHERE version = '2b.2.4';"]);
+    const body = (f: string) => {
+      const t = read(f).replace(/
+/g, '
+');
+      const a = t.indexOf('CREATE OR REPLACE FUNCTION scheduling_occurrence_integrity()');
+      return t.slice(a, t.indexOf('END;
+$;', a) + 8);
+    };
+    expect(body('packages/scheduling/sql/094_occurrence_integrity_rollback.sql')).toBe(body('packages/scheduling/sql/031_reservation_integrity.sql'));
   });
 
   it('092 removes exactly what 031 added and touches no data', () => {
