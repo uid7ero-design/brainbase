@@ -3,13 +3,19 @@ import {
   isIanaTimezone,
   isLocalDate,
   isLocalTime,
+  getPreset,
   normaliseEmail,
   validateAvailabilityRule,
+  validateExpectedUpdatedAt,
+  validateOfferingPatch,
   validateRecurrence,
+  validateResourcePatch,
+  validateSchedulePatch,
   validateSettings,
   validateScheduleConfig,
   type AvailabilityException,
   type AvailabilityRule,
+  type ConfigWriteResult,
   type CreateOccurrenceResult,
   type NewAvailabilityExceptionInput,
   type NewAvailabilityRuleInput,
@@ -18,21 +24,24 @@ import {
   type NewResourceInput,
   type NewScheduleInput,
   type NewSeriesInput,
+  type OfferingPatch,
   type Recurrence,
-  type Resource,
   type ResourceHold,
   type ResourceKind,
+  type ResourcePatch,
+  type SchedulePatch,
   type SchedulingConfigRepository,
   type SchedulingSettings,
   type SeriesPause,
   type SettingsInput,
   type StoredOccurrence,
   type StoredOffering,
+  type StoredResource,
   type StoredSchedule,
   type StoredSeries,
   type TenantContext,
 } from '@scheduling/core';
-import { translating } from './errors';
+import { SCHEDULING_SQLSTATE, mapPgError, sqlstateOf, translating } from './errors';
 import type { SqlExecutor } from './executor';
 import { isSelfService, newId as defaultNewId } from './support';
 
@@ -45,13 +54,18 @@ import { isSelfService, newId as defaultNewId } from './support';
 const ISO = (col: string) => `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
 const HHMM = (col: string) => `to_char(${col}, 'HH24:MI')`;
 
+// The version token: updated_at with MICROSECOND precision (ISO() above drops the fraction). Exact round trip: the value read
+// here is compared with `updated_at = $n::timestamptz` on the next write.
+const VERSION = (col: string) => `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+
 const SCHEDULE_COLUMNS = `s.id, s.organisation_id, s.name, s.preset_key, s.preset_version, s.public_slug,
-  s.terminology, s.cancellation_policy, s.timezone, ${ISO('s.archived_at')} AS archived_at`;
+  s.terminology, s.cancellation_policy, s.timezone, ${ISO('s.archived_at')} AS archived_at, ${VERSION('s.updated_at')} AS updated_at`;
+const RESOURCE_COLUMNS = `r.id, r.organisation_id, r.kind, r.name, r.capacity, r.min_party, r.active, ${VERSION('r.updated_at')} AS updated_at`;
 const OFFERING_COLUMNS = `f.id, f.organisation_id, f.schedule_id, f.name, f.type_key, f.colour_key,
   f.duration_minutes, f.capacity, f.price_cents, f.currency, ${HHMM('f.start_time')} AS start_time,
   f.recurrence_kind, f.recurrence_day_of_week, f.recurrence_start_date::text AS recurrence_start_date,
   f.recurrence_end_mode, f.recurrence_end_count, f.recurrence_end_date::text AS recurrence_end_date,
-  ${ISO('f.archived_at')} AS archived_at,
+  ${ISO('f.archived_at')} AS archived_at, ${VERSION('f.updated_at')} AS updated_at,
   COALESCE((SELECT array_agg(DISTINCT r.kind ORDER BY r.kind) FROM scheduling_offering_resources l
              JOIN scheduling_resources r ON r.id = l.resource_id AND r.organisation_id = l.organisation_id
             WHERE l.offering_id = f.id AND l.organisation_id = f.organisation_id), ARRAY[]::text[]) AS resource_kinds`;
@@ -74,6 +88,7 @@ function toSchedule(r: Row): StoredSchedule {
     timezone: r.timezone,
     publicSlug: r.public_slug,
     archivedAt: r.archived_at,
+    updatedAt: r.updated_at,
   };
 }
 
@@ -106,11 +121,12 @@ function toOffering(r: Row): StoredOffering {
     resourceKinds: (r.resource_kinds ?? []) as ResourceKind[],
     archivedAt: r.archived_at,
     startTime: r.start_time,
+    updatedAt: r.updated_at,
   };
 }
 
-function toResource(r: Row): Resource {
-  return { id: r.id, organisationId: r.organisation_id, kind: r.kind, name: r.name, capacity: r.capacity, minParty: r.min_party, active: r.active };
+function toResource(r: Row): StoredResource {
+  return { id: r.id, organisationId: r.organisation_id, kind: r.kind, name: r.name, capacity: r.capacity, minParty: r.min_party, active: r.active, updatedAt: r.updated_at };
 }
 
 function toOccurrence(r: Row): StoredOccurrence {
@@ -267,7 +283,7 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
 
   // ── resources ──────────────────────────────────────────────────────────────
 
-  async createResource(tenant: TenantContext, input: NewResourceInput): Promise<Resource> {
+  async createResource(tenant: TenantContext, input: NewResourceInput): Promise<StoredResource> {
     this.manage(tenant);
     const problems: string[] = [];
     if (input.name.trim() === '') problems.push('name is required');
@@ -276,18 +292,20 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
     if (problems.length > 0) throw invalid(problems);
     const rows = await translating(() =>
       this.sql.query<Row>(
-        `INSERT INTO scheduling_resources (id, organisation_id, kind, name, capacity, min_party, active, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, organisation_id, kind, name, capacity, min_party, active`,
+        `WITH r AS (
+           INSERT INTO scheduling_resources (id, organisation_id, kind, name, capacity, min_party, active, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *)
+         SELECT ${RESOURCE_COLUMNS} FROM r`,
         [this.newId(), tenant.organisationId, input.kind, input.name.trim(), input.capacity, input.minParty, input.active, createdBy(tenant)],
       ),
     );
     return toResource(rows[0]);
   }
 
-  async listResources(tenant: TenantContext): Promise<Resource[]> {
+  async listResources(tenant: TenantContext): Promise<StoredResource[]> {
     if (!tenant.can('scheduling.view')) throw denied('scheduling.view');
     const rows = await this.sql.query<Row>(
-      'SELECT id, organisation_id, kind, name, capacity, min_party, active FROM scheduling_resources WHERE organisation_id = $1 ORDER BY name, id',
+      `SELECT ${RESOURCE_COLUMNS} FROM scheduling_resources r WHERE r.organisation_id = $1 ORDER BY r.name, r.id`,
       [tenant.organisationId],
     );
     return rows.map(toResource);
@@ -295,7 +313,7 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
 
   async setResourceActive(tenant: TenantContext, resourceId: string, active: boolean): Promise<boolean> {
     this.manage(tenant);
-    const rows = await this.sql.query<Row>('UPDATE scheduling_resources SET active = $3 WHERE organisation_id = $1 AND id = $2 RETURNING id', [tenant.organisationId, resourceId, active]);
+    const rows = await translating(() => this.sql.query<Row>('UPDATE scheduling_resources SET active = $3 WHERE organisation_id = $1 AND id = $2 RETURNING id', [tenant.organisationId, resourceId, active]));
     return rows.length > 0;
   }
 
@@ -315,12 +333,19 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
     const weekly = rec.kind === 'weekly';
     const rows = await translating(() =>
       this.sql.query<Row>(
-        `WITH f AS (
+        // The schedule's own row is written first (its version changes) and the offering is inserted from that row. This is what
+        // makes "a preset is locked once an offering exists" and "an archived schedule takes no new offering" race-free over
+        // single-statement writes: a concurrent updateSchedule / archiveSchedule and this statement contend for the SAME row,
+        // so one of them observes the other (the loser's version check or archived check fails) instead of both passing.
+        `WITH sch AS (
+           UPDATE scheduling_schedules SET updated_at = now() WHERE id = $3 AND organisation_id = $2 AND archived_at IS NULL
+           RETURNING id, organisation_id
+         ), f AS (
            INSERT INTO scheduling_offerings (id, organisation_id, schedule_id, name, type_key, colour_key, duration_minutes, capacity,
               price_cents, currency, start_time, recurrence_kind, recurrence_day_of_week, recurrence_start_date,
               recurrence_end_mode, recurrence_end_count, recurrence_end_date, created_by)
            SELECT $1, s.organisation_id, s.id, $4, $5, $6, $7, $8, $9, $10, $11::time, $12, $13, $14::date, $15, $16, $17::date, $18
-             FROM scheduling_schedules s WHERE s.id = $3 AND s.organisation_id = $2 AND s.archived_at IS NULL
+             FROM sch s
            RETURNING *)
          SELECT ${OFFERING_COLUMNS} FROM f`,
         [
@@ -362,13 +387,295 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
 
   async linkOfferingResource(tenant: TenantContext, offeringId: string, resourceId: string): Promise<void> {
     this.manage(tenant);
-    await translating(() =>
-      this.sql.query(
-        `INSERT INTO scheduling_offering_resources (organisation_id, offering_id, resource_id) VALUES ($1, $2, $3)
-         ON CONFLICT (organisation_id, offering_id, resource_id) DO NOTHING`,
+    // The resource's own row is written first (its version changes), as in createOffering: a concurrent updateResource that
+    // changes the resource's kind and this link contend for the same row, so a resource cannot change kind under a new link.
+    const rows = await translating(() =>
+      this.sql.query<Row>(
+        `WITH r AS (
+           UPDATE scheduling_resources SET updated_at = now() WHERE id = $3 AND organisation_id = $1 RETURNING id, organisation_id
+         ), l AS (
+           INSERT INTO scheduling_offering_resources (organisation_id, offering_id, resource_id)
+           SELECT r.organisation_id, $2, r.id FROM r
+           ON CONFLICT (organisation_id, offering_id, resource_id) DO NOTHING
+           RETURNING 1)
+         SELECT (SELECT count(*) FROM r)::int AS resource_found`,
         [tenant.organisationId, offeringId, resourceId],
       ),
     );
+    if (rows[0]?.resource_found === 0) throw new SchedulingError('not_found', 'resource not found');
+  }
+
+  // ── configuration edits (Phase 2B.2a) ───────────────────────────────────────
+  //
+  // Each edit is ONE write statement that carries its own guards (tenant, version, archived, and the booking rules below), so
+  // the check and the write cannot be separated by another writer, and nothing needs an interactive transaction. When the
+  // statement changes no row, a second, read-only statement only CLASSIFIES why (missing, archived, stale, rule): it never
+  // writes. A row of another tenant matches nothing, so it classifies as not_found and is never touched or described.
+  //
+  // Version token: updated_at at microsecond precision. The row's trigger changes it on every update, and createOffering /
+  // linkOfferingResource write the parent row first, so a change to what hangs off a row also changes the row's version.
+  // Contract: each call is its own statement (the repository's standing rule). Inside one outer transaction now() is frozen,
+  // so two edits there would share a version; hosts must not wrap these calls in one.
+
+  async archiveOffering(tenant: TenantContext, offeringId: string): Promise<boolean> {
+    this.manage(tenant);
+    const rows = await this.sql.query<Row>(
+      'UPDATE scheduling_offerings SET archived_at = now() WHERE organisation_id = $1 AND id = $2 AND archived_at IS NULL RETURNING id',
+      [tenant.organisationId, offeringId],
+    );
+    return rows.length > 0;
+  }
+
+  async updateSchedule(tenant: TenantContext, scheduleId: string, expectedUpdatedAt: string, changes: SchedulePatch): Promise<ConfigWriteResult<StoredSchedule>> {
+    this.manage(tenant);
+    const problems = [...validateExpectedUpdatedAt(expectedUpdatedAt), ...validateSchedulePatch(changes)];
+    if (problems.length > 0) throw invalid(problems);
+
+    const params: unknown[] = [tenant.organisationId, scheduleId, expectedUpdatedAt];
+    const arg = (value: unknown) => {
+      params.push(value);
+      return `$${params.length}`;
+    };
+    const sets: string[] = [];
+    let presetGuard = '';
+    if (changes.name !== undefined) sets.push(`name = ${arg(changes.name.trim())}`);
+    if (changes.terminology !== undefined) sets.push(`terminology = ${arg(JSON.stringify(changes.terminology))}::jsonb`);
+    if (changes.cancellationPolicy !== undefined) sets.push(`cancellation_policy = ${arg(JSON.stringify(changes.cancellationPolicy))}::jsonb`);
+    if (changes.timezone !== undefined) sets.push(`timezone = ${arg(changes.timezone)}`);
+    if (changes.presetKey !== undefined) {
+      const key = arg(changes.presetKey);
+      sets.push(`preset_key = ${key}::text`, `preset_version = ${arg(getPreset(changes.presetKey).version)}::int`);
+      // The preset may change only while the schedule has no offerings at all (archived ones count: reservations may refer to them).
+      presetGuard = `AND (s.preset_key = ${key}::text OR NOT EXISTS (SELECT 1 FROM scheduling_offerings o WHERE o.organisation_id = s.organisation_id AND o.schedule_id = s.id))`;
+    }
+
+    const rows = await translating(() =>
+      this.sql.query<Row>(
+        `WITH u AS (
+           UPDATE scheduling_schedules s SET ${sets.join(', ')}
+            WHERE s.organisation_id = $1 AND s.id = $2 AND s.updated_at = $3::timestamptz AND s.archived_at IS NULL ${presetGuard}
+           RETURNING s.*)
+         SELECT ${SCHEDULE_COLUMNS} FROM u s`,
+        params,
+      ),
+    );
+    if (rows[0]) return { ok: true, value: toSchedule(rows[0]) };
+
+    const why = await this.sql.query<Row>(
+      `SELECT s.updated_at = $3::timestamptz AS token_matches, s.archived_at IS NOT NULL AS archived, s.preset_key,
+              EXISTS (SELECT 1 FROM scheduling_offerings o WHERE o.organisation_id = s.organisation_id AND o.schedule_id = s.id) AS has_offerings
+         FROM scheduling_schedules s WHERE s.organisation_id = $1 AND s.id = $2`,
+      [tenant.organisationId, scheduleId, expectedUpdatedAt],
+    );
+    const w = why[0];
+    if (!w) return { ok: false, reason: 'not_found' };
+    if (w.archived) return { ok: false, reason: 'archived' };
+    if (!w.token_matches) return { ok: false, reason: 'stale_write' };
+    if (changes.presetKey !== undefined && changes.presetKey !== w.preset_key && w.has_offerings) {
+      return { ok: false, reason: 'preset_locked', detail: 'the schedule already has offerings' };
+    }
+    return { ok: false, reason: 'stale_write' }; // changed between the write and this read
+  }
+
+  async updateOffering(tenant: TenantContext, offeringId: string, expectedUpdatedAt: string, changes: OfferingPatch): Promise<ConfigWriteResult<StoredOffering>> {
+    this.manage(tenant);
+    const tokenProblems = validateExpectedUpdatedAt(expectedUpdatedAt);
+    if (tokenProblems.length > 0) throw invalid(tokenProblems);
+
+    // The preset of an offering's schedule cannot change once the offering exists (updateSchedule refuses), so reading it
+    // before the write is safe. A missing or other-tenant offering ends here as not_found.
+    const owner = await this.sql.query<Row>(
+      `SELECT s.preset_key FROM scheduling_offerings f JOIN scheduling_schedules s ON s.id = f.schedule_id AND s.organisation_id = f.organisation_id
+        WHERE f.organisation_id = $1 AND f.id = $2`,
+      [tenant.organisationId, offeringId],
+    );
+    if (owner.length === 0) return { ok: false, reason: 'not_found' };
+    const problems = validateOfferingPatch(changes, owner[0].preset_key);
+    if (problems.length > 0) throw invalid(problems);
+
+    const params: unknown[] = [tenant.organisationId, offeringId, expectedUpdatedAt];
+    const arg = (value: unknown) => {
+      params.push(value);
+      return `$${params.length}`;
+    };
+    const sets: string[] = [];
+    if (changes.name !== undefined) sets.push(`name = ${arg(changes.name.trim())}`);
+    if (changes.typeKey !== undefined) sets.push(`type_key = ${arg(changes.typeKey)}`);
+    if (changes.colourKey !== undefined) sets.push(`colour_key = ${arg(changes.colourKey)}`);
+    if (changes.durationMinutes !== undefined) sets.push(`duration_minutes = ${arg(changes.durationMinutes)}`);
+    if (changes.capacity !== undefined) sets.push(`capacity = ${arg(changes.capacity)}`);
+    if (changes.priceCents !== undefined) sets.push(`price_cents = ${arg(changes.priceCents)}`);
+    if (changes.startTime !== undefined) sets.push(`start_time = ${arg(changes.startTime)}::time`);
+    if (changes.recurrence !== undefined) {
+      const rec = changes.recurrence;
+      const weekly = rec.kind === 'weekly';
+      sets.push(
+        `recurrence_kind = ${arg(rec.kind)}`,
+        `recurrence_day_of_week = ${arg(weekly ? rec.dayOfWeek : null)}`,
+        `recurrence_start_date = ${arg(weekly ? rec.startDate : null)}::date`,
+        `recurrence_end_mode = ${arg(weekly ? rec.end.mode : null)}`,
+        `recurrence_end_count = ${arg(weekly && rec.end.mode === 'after_occurrences' ? rec.end.count : null)}`,
+        `recurrence_end_date = ${arg(weekly && rec.end.mode === 'on_date' ? rec.end.date : null)}::date`,
+      );
+    }
+
+    const rows = await translating(() =>
+      this.sql.query<Row>(
+        `WITH u AS (
+           UPDATE scheduling_offerings f SET ${sets.join(', ')}
+             FROM scheduling_schedules s
+            WHERE f.organisation_id = $1 AND f.id = $2 AND f.updated_at = $3::timestamptz AND f.archived_at IS NULL
+              AND s.id = f.schedule_id AND s.organisation_id = f.organisation_id AND s.archived_at IS NULL
+           RETURNING f.*)
+         SELECT ${OFFERING_COLUMNS} FROM u f`,
+        params,
+      ),
+    );
+    if (rows[0]) return { ok: true, value: toOffering(rows[0]) };
+
+    const why = await this.sql.query<Row>(
+      `SELECT f.updated_at = $3::timestamptz AS token_matches, (f.archived_at IS NOT NULL OR s.archived_at IS NOT NULL) AS archived
+         FROM scheduling_offerings f JOIN scheduling_schedules s ON s.id = f.schedule_id AND s.organisation_id = f.organisation_id
+        WHERE f.organisation_id = $1 AND f.id = $2`,
+      [tenant.organisationId, offeringId, expectedUpdatedAt],
+    );
+    const w = why[0];
+    if (!w) return { ok: false, reason: 'not_found' };
+    if (w.archived) return { ok: false, reason: 'archived' };
+    return { ok: false, reason: 'stale_write' };
+  }
+
+  async updateResource(tenant: TenantContext, resourceId: string, expectedUpdatedAt: string, changes: ResourcePatch): Promise<ConfigWriteResult<StoredResource>> {
+    this.manage(tenant);
+    const problems = [...validateExpectedUpdatedAt(expectedUpdatedAt), ...validateResourcePatch(changes)];
+    if (problems.length > 0) throw invalid(problems);
+
+    const params: unknown[] = [tenant.organisationId, resourceId, expectedUpdatedAt];
+    const arg = (value: unknown) => {
+      params.push(value);
+      return `$${params.length}`;
+    };
+    const sets: string[] = [];
+    const guards: string[] = [];
+    // Live = not released and not yet ended: a booking that still matters. Past or released holds are history and never block.
+    const liveHold = `h.organisation_id = r.organisation_id AND h.resource_id = r.id AND h.released_at IS NULL AND upper(h.during) > now()`;
+
+    if (changes.name !== undefined) sets.push(`name = ${arg(changes.name.trim())}`);
+    if (changes.kind !== undefined) {
+      const kind = arg(changes.kind);
+      sets.push(`kind = ${kind}::text`);
+      // A kind change is a change of what the resource IS: refused once any offering uses it or any booking has ever held it.
+      guards.push(
+        `(r.kind = ${kind}::text OR (NOT EXISTS (SELECT 1 FROM scheduling_offering_resources l WHERE l.organisation_id = r.organisation_id AND l.resource_id = r.id)
+           AND NOT EXISTS (SELECT 1 FROM scheduling_resource_holds h WHERE h.organisation_id = r.organisation_id AND h.resource_id = r.id)))`,
+      );
+    }
+    let capRef = 'r.capacity';
+    let minRef = 'r.min_party';
+    if (changes.capacity !== undefined) {
+      capRef = `${arg(changes.capacity)}::int`;
+      sets.push(`capacity = ${capRef}`);
+    }
+    if (changes.minParty !== undefined) {
+      minRef = `${arg(changes.minParty)}::int`;
+      sets.push(`min_party = ${minRef}`);
+    }
+    if (changes.capacity !== undefined || changes.minParty !== undefined) {
+      // A live reservation's party must still fit the resource after the change.
+      guards.push(
+        `NOT EXISTS (SELECT 1 FROM scheduling_resource_holds h JOIN scheduling_reservations v ON v.organisation_id = h.organisation_id AND v.id = h.reservation_id
+          WHERE ${liveHold} AND (v.party_size > ${capRef} OR v.party_size < COALESCE(${minRef}, 0)))`,
+      );
+    }
+    if (changes.active !== undefined) {
+      sets.push(`active = ${arg(changes.active)}::boolean`);
+      if (changes.active === false) guards.push(`(r.active = false OR NOT EXISTS (SELECT 1 FROM scheduling_resource_holds h WHERE ${liveHold}))`);
+    }
+
+    let rows: Row[];
+    try {
+      rows = await this.sql.query<Row>(
+        `WITH u AS (
+           UPDATE scheduling_resources r SET ${sets.join(', ')}
+            WHERE r.organisation_id = $1 AND r.id = $2 AND r.updated_at = $3::timestamptz ${guards.map(g => `AND ${g}`).join(' ')}
+           RETURNING r.*)
+         SELECT ${RESOURCE_COLUMNS} FROM u r`,
+        params,
+      );
+    } catch (err) {
+      // 030_resource_concurrency.sql: a booking or a link committed while this statement ran, which its own guards could not see.
+      if (sqlstateOf(err) === SCHEDULING_SQLSTATE.resourceInUse) return { ok: false, reason: 'resource_in_use', detail: 'a reservation or a link was created for this resource at the same moment' };
+      throw mapPgError(err) ?? err;
+    }
+    if (rows[0]) return { ok: true, value: toResource(rows[0]) };
+
+    const why = await this.sql.query<Row>(
+      `SELECT r.updated_at = $3::timestamptz AS token_matches, r.kind, r.active,
+              EXISTS (SELECT 1 FROM scheduling_offering_resources l WHERE l.organisation_id = r.organisation_id AND l.resource_id = r.id) AS linked,
+              EXISTS (SELECT 1 FROM scheduling_resource_holds h WHERE h.organisation_id = r.organisation_id AND h.resource_id = r.id) AS ever_held,
+              EXISTS (SELECT 1 FROM scheduling_resource_holds h WHERE ${liveHold}) AS live_hold,
+              EXISTS (SELECT 1 FROM scheduling_resource_holds h JOIN scheduling_reservations v ON v.organisation_id = h.organisation_id AND v.id = h.reservation_id
+                       WHERE ${liveHold} AND (v.party_size > COALESCE($4::int, r.capacity) OR v.party_size < COALESCE(CASE WHEN $6::boolean THEN $5::int ELSE r.min_party END, 0))) AS party_conflict
+         FROM scheduling_resources r WHERE r.organisation_id = $1 AND r.id = $2`,
+      [tenant.organisationId, resourceId, expectedUpdatedAt, changes.capacity ?? null, changes.minParty ?? null, changes.minParty !== undefined],
+    );
+    const w = why[0];
+    if (!w) return { ok: false, reason: 'not_found' };
+    if (!w.token_matches) return { ok: false, reason: 'stale_write' };
+    if (changes.kind !== undefined && changes.kind !== w.kind && (w.linked || w.ever_held)) {
+      return { ok: false, reason: 'resource_in_use', detail: 'the kind of a resource that is linked to an offering or has been booked cannot change' };
+    }
+    if (changes.active === false && w.active && w.live_hold) {
+      return { ok: false, reason: 'resource_in_use', detail: 'the resource has live reservations and cannot be deactivated' };
+    }
+    if ((changes.capacity !== undefined || changes.minParty !== undefined) && w.party_conflict) {
+      return { ok: false, reason: 'resource_in_use', detail: 'a live reservation would no longer fit the new capacity' };
+    }
+    return { ok: false, reason: 'stale_write' };
+  }
+
+  async unlinkOfferingResource(tenant: TenantContext, offeringId: string, resourceId: string): Promise<ConfigWriteResult<{ removed: boolean }>> {
+    this.manage(tenant);
+    // The link row is the ONLY thing deleted. Reservations, occurrences and holds are never touched, so booking history stays intact.
+    const liveForThisOffering = `h.organisation_id = l.organisation_id AND h.resource_id = l.resource_id AND h.released_at IS NULL AND upper(h.during) > now()
+      AND (EXISTS (SELECT 1 FROM scheduling_reservations v WHERE v.organisation_id = h.organisation_id AND v.id = h.reservation_id AND v.offering_id = l.offering_id)
+        OR EXISTS (SELECT 1 FROM scheduling_occurrences o WHERE o.organisation_id = h.organisation_id AND o.id = h.occurrence_id AND o.offering_id = l.offering_id))`;
+    let deleted: Row[];
+    try {
+      deleted = await this.sql.query<Row>(
+      `DELETE FROM scheduling_offering_resources l
+        WHERE l.organisation_id = $1 AND l.offering_id = $2 AND l.resource_id = $3
+          AND NOT EXISTS (SELECT 1 FROM scheduling_resource_holds h WHERE ${liveForThisOffering})
+       RETURNING 1 AS gone`,
+      [tenant.organisationId, offeringId, resourceId],
+      );
+    } catch (err) {
+      // 030_resource_concurrency.sql: a reservation holding this resource committed while the delete ran.
+      if (sqlstateOf(err) === SCHEDULING_SQLSTATE.allocationInUse) return { ok: false, reason: 'allocation_in_use', detail: 'a live reservation holds this resource for this offering' };
+      throw mapPgError(err) ?? err;
+    }
+    if (deleted.length > 0) return { ok: true, value: { removed: true } };
+
+    const why = await this.sql.query<Row>(
+      `SELECT EXISTS (SELECT 1 FROM scheduling_offerings f WHERE f.organisation_id = $1 AND f.id = $2) AS offering_found,
+              EXISTS (SELECT 1 FROM scheduling_offering_resources l WHERE l.organisation_id = $1 AND l.offering_id = $2 AND l.resource_id = $3) AS linked`,
+      [tenant.organisationId, offeringId, resourceId],
+    );
+    const w = why[0];
+    if (!w?.offering_found) return { ok: false, reason: 'not_found' };
+    if (!w.linked) return { ok: true, value: { removed: false } };
+    return { ok: false, reason: 'allocation_in_use', detail: 'a live reservation holds this resource for this offering' };
+  }
+
+  async listOfferingResources(tenant: TenantContext, offeringId: string): Promise<StoredResource[]> {
+    if (!tenant.can('scheduling.view')) throw denied('scheduling.view');
+    const rows = await this.sql.query<Row>(
+      `SELECT ${RESOURCE_COLUMNS} FROM scheduling_offering_resources l
+         JOIN scheduling_resources r ON r.id = l.resource_id AND r.organisation_id = l.organisation_id
+        WHERE l.organisation_id = $1 AND l.offering_id = $2 ORDER BY r.name, r.id`,
+      [tenant.organisationId, offeringId],
+    );
+    return rows.map(toResource);
   }
 
   // ── availability ───────────────────────────────────────────────────────────

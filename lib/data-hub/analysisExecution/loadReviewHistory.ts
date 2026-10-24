@@ -3,12 +3,12 @@ import { prisma } from "../../prisma";
 import { loadProfileReviewEvidenceInTransaction } from "./loadProfileReviewEvidence";
 import { parseAnalysisReviewDecisionInput } from "../analysis/reviewDecisionInput";
 import { buildAnalysisReviewSnapshots } from "../analysis/buildAnalysisReviewSnapshots";
-import { compareReviewDecisions, decodeReviewComparison, decodeReviewHistory, summarizeReview, MAX_HISTORY_FIELDS,
-  MAX_HISTORY_QUALITY, REVIEW_HISTORY_PAGE_SIZE, type ReviewHistoryQuery, type ReviewHistoryPage, type ReviewComparison } from "../analysis/reviewHistory";
+import { compareReviewDecisions, decodeReviewComparison, decodeReviewHistory, decodeReviewDetail, summarizeReview, MAX_HISTORY_FIELDS,
+  MAX_HISTORY_QUALITY, REVIEW_HISTORY_PAGE_SIZE, type ReviewHistoryQuery, type ReviewHistoryPage, type ReviewComparison, type ReviewDetail } from "../analysis/reviewHistory";
 
 type FailureCode = "UPLOAD_NOT_FOUND" | "REVIEW_NOT_FOUND" | "PROFILE_NOT_COMPLETE" | "REVIEW_PROFILE_CHANGED" | "REVIEW_REVISION_MISMATCH"
   | "REVIEW_RECORD_INVALID" | "REVIEW_HISTORY_INVALID" | "REVIEW_HISTORY_UNAVAILABLE" | "REVIEW_FIELD_LIMIT";
-export type ReviewHistoryResult = { ok: true; history: ReviewHistoryPage } | { ok: true; comparison: ReviewComparison } | { ok: false; code: FailureCode };
+export type ReviewHistoryResult = { ok: true; history: ReviewHistoryPage } | { ok: true; comparison: ReviewComparison } | { ok: true; detail: ReviewDetail } | { ok: false; code: FailureCode };
 const select = { organisation_id: true, upload_id: true, profile_run_id: true, revision: true,
   review_version: true, semantic_choices: true, quality_decisions: true } as const;
 type Stored = Prisma.DataHubAnalysisReviewGetPayload<{ select: typeof select }>;
@@ -20,6 +20,7 @@ export async function loadReviewHistory(scope: { organisationId: string; uploadI
   if (!boundedId(scope.organisationId) || !boundedId(scope.uploadId) || !boundedId(query.datasetProfileRunId) ||
       !Number.isSafeInteger(query.expectedReviewRevision) || query.expectedReviewRevision < 1 ||
       (query.kind === "page" ? query.beforeRevision !== null && (!Number.isSafeInteger(query.beforeRevision) || query.beforeRevision < 1 || query.beforeRevision > query.expectedReviewRevision) :
+        query.kind === "detail" ? !Number.isSafeInteger(query.revision) || query.revision < 1 || query.revision > query.expectedReviewRevision :
         query.kind !== "compare" || !Number.isSafeInteger(query.baselineRevision) || query.baselineRevision < 1 || query.baselineRevision >= query.expectedReviewRevision)) return { ok: false, code: "REVIEW_HISTORY_INVALID" };
   try {
     return await prisma.$transaction(async tx => {
@@ -45,6 +46,14 @@ export async function loadReviewHistory(scope: { organisationId: string; uploadI
       if (!latest) return { ok: false as const, code: "REVIEW_NOT_FOUND" as const };
       const current = decisions(latest); // Invalid latest decisions never fall back.
       if (latest.revision !== query.expectedReviewRevision) return { ok: false as const, code: "REVIEW_REVISION_MISMATCH" as const };
+      if (query.kind === "detail") {
+        const selected = query.revision === latest.revision ? latest : await tx.dataHubAnalysisReview.findFirst({ where: { ...where, revision: query.revision }, select });
+        if (!selected || selected.revision !== query.revision) return { ok: false as const, code: "REVIEW_RECORD_INVALID" as const };
+        const input = query.revision === latest.revision ? current : decisions(selected);
+        const detail = { detailVersion: "v1" as const, context, currentReviewRevision: latest.revision, revision: selected.revision,
+          semanticChoices: input.semanticChoices, qualityDecisions: input.qualityDecisions };
+        return { ok: true as const, detail: decodeReviewDetail({ ok: true, detail }, context, query, snapshot.columns.map(column => column.sourceSchemaColumnId)) };
+      }
       if (query.kind === "compare") {
         const baseline = await tx.dataHubAnalysisReview.findFirst({ where: { ...where, revision: query.baselineRevision }, select });
         if (!baseline || baseline.revision !== query.baselineRevision) return { ok: false as const, code: "REVIEW_RECORD_INVALID" as const };

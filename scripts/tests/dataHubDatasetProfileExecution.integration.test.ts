@@ -1411,6 +1411,7 @@ describe("D4D5Q durable analysis review foundation", () => {
     const f = await countWorld();
     const history = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/route");
     const compare = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/compare/route");
+    const detail = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/detail/route");
     for (let revision = 1; revision <= 12; revision++) await insertReview(f, { revision, choices: [
       { sourceSchemaColumnId: f.ids.col1, role: revision === 1 ? "IDENTIFIER" : "RECORD_KEY" }, { sourceSchemaColumnId: f.ids.col2, role: "MEASURE" },
     ] });
@@ -1429,12 +1430,23 @@ describe("D4D5Q durable analysis review foundation", () => {
     expect(changed.status).toBe(200); expect(changed.headers.get("Cache-Control")).toBe("private, no-store");
     expect((await changed.json()).comparison).toMatchObject({ baselineRevision: 1, currentReviewRevision: 12,
       semanticChanges: [{ sourceSchemaColumnId: f.ids.col1, fromRole: "IDENTIFIER", toRole: "RECORD_KEY" }], qualityChanges: [] });
+    for (const revision of [1, 12]) {
+      const response = await detail.GET(new Request(`http://localhost/history/detail?${search}&revision=${revision}`), params);
+      expect(response.status).toBe(200); expect(response.headers.get("cache-control")).toBe("private, no-store");
+      const body = await response.json();
+      expect(body.detail).toMatchObject({ detailVersion: "v1", context: f.context, revision, currentReviewRevision: 12,
+        semanticChoices: [{ sourceSchemaColumnId: f.ids.col1, role: revision === 1 ? "IDENTIFIER" : "RECORD_KEY" }, { sourceSchemaColumnId: f.ids.col2, role: "MEASURE" }] });
+      expect(Object.keys(body.detail).sort()).toEqual(["detailVersion", "context", "revision", "currentReviewRevision", "semanticChoices", "qualityDecisions"].sort());
+      expect(JSON.stringify(body)).not.toMatch(/reviewed_by|reviewed_at|rowCount|nonNullCount|rawValue/);
+    }
     expect(await prisma.dataHubAnalysisReview.findMany({ where: { upload_id: f.ids.uploadId }, orderBy: { revision: "desc" } })).toEqual(before);
     await insertReview(f, { revision: 13 });
     const stale = await history.GET(new Request(`http://localhost/history?${search}`), params);
     expect(stale.status).toBe(409); expect(await stale.json()).toEqual({ ok: false, code: "REVIEW_REVISION_MISMATCH" });
+    expect((await detail.GET(new Request(`http://localhost/history/detail?${search}&revision=1`), params)).status).toBe(409);
     const wrongProfile = new URLSearchParams(search); wrongProfile.set("datasetProfileRunId", "obsolete-profile");
     expect((await history.GET(new Request(`http://localhost/history?${wrongProfile}`), params)).status).toBe(409);
+    expect((await detail.GET(new Request(`http://localhost/history/detail?${wrongProfile}&revision=1`), params)).status).toBe(409);
   });
   it.each(["latest", "historical"])("history never falls back from invalid %s saved decisions", async which => {
     const f = await countWorld(); await insertReview(f, { decisions: which === "historical" ? [] : undefined });
@@ -1442,17 +1454,20 @@ describe("D4D5Q durable analysis review foundation", () => {
     await signFixtureSession({ userId: f.ids.userId, organisationId: ORG_A });
     const history = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/route");
     const compare = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/compare/route");
+    const detail = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/detail/route");
     const search = new URLSearchParams({ historyVersion: "v1", datasetProfileRunId: f.context.datasetProfileRunId, expectedReviewRevision: "2" });
     const params = { params: Promise.resolve({ id: f.ids.uploadId }) };
     for (const response of [await history.GET(new Request(`http://localhost/history?${search}`), params),
-      await compare.GET(new Request(`http://localhost/compare?${search}&baselineRevision=1`), params)]) {
+      await compare.GET(new Request(`http://localhost/compare?${search}&baselineRevision=1`), params),
+      await detail.GET(new Request(`http://localhost/detail?${search}&revision=1`), params)]) {
       expect(response.status).toBe(503); expect(await response.json()).toEqual({ ok: false, code: "REVIEW_RECORD_INVALID" });
     }
   });
-  it("history rechecks live manager and organization scope before revealing any revisions", async () => {
+  it.each(["history", "detail"])("%s rechecks live manager and organization scope before revealing any revisions", async kind => {
     const f = await countWorld(); await insertReview(f);
-    const { GET } = await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/route");
+    const { GET } = kind === "history" ? await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/route") : await import("@/app/api/data-hub/worksheets/[id]/analysis-review/history/detail/route");
     const search = new URLSearchParams({ historyVersion: "v1", datasetProfileRunId: f.context.datasetProfileRunId, expectedReviewRevision: "1" });
+    if (kind === "detail") search.set("revision", "1");
     const request = () => new Request(`http://localhost/history?${search}`), params = { params: Promise.resolve({ id: f.ids.uploadId }) };
     await signFixtureSession({ userId: f.ids.userId, organisationId: ORG_A }); expect((await GET(request(), params)).status).toBe(200);
     try {

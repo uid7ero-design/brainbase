@@ -6,6 +6,10 @@ saved review, including one on quality hold. It never restores old decisions,
 changes readiness, calculates counts or executes a plan. The current profile
 and latest saved review still govern every count/planning operation.
 
+The follow-on [recorded decision detail view](data-hub-review-detail.md) adds
+explicit inspection of each saved revision and local decision filters for
+details and comparisons, with the same current-profile governance.
+
 ## Read contracts
 
 Two manager-only GET routes use the existing append-only review table:

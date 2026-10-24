@@ -115,6 +115,9 @@ export async function makeWorld(org: string, staffTenant: TenantContext, clock =
   await seedOffering(org, cls.offering, cls.schedule, { capacity: 10 });
   await seedResource(org, 'court-1', 'court');
   await seedResource(org, 'room-1', 'room');
+  // 031: a reservation (any actor) or occurrence may only use a resource its offering is assigned. The world assigns the two
+  // resources it seeds where its offerings can use them; tests that seed more resources assign them explicitly (linkResources).
+  await linkResources(org, [[hire.offering, 'court-1'], [stay.offering, 'room-1'], [cls.offering, 'court-1']]);
   return {
     org,
     staff: staffTenant,
@@ -133,3 +136,13 @@ export async function liveHolds(org: string, resourceId: string): Promise<number
 }
 
 export const presetOf = (k: PresetKey) => PRESETS[k];
+
+/** Assigns resources to offerings with plain SQL (a test seam, like the other seeders). Idempotent. */
+export async function linkResources(org: string, pairs: Array<[offeringId: string, resourceId: string]>) {
+  for (const [offering, resource] of pairs) {
+    await getPool().query(
+      'INSERT INTO scheduling_offering_resources (organisation_id, offering_id, resource_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+      [org, offering, resource],
+    );
+  }
+}

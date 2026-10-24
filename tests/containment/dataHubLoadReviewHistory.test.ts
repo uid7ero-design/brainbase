@@ -14,6 +14,24 @@ const profile = () => ({ ok: true, profile: { context: { ...context }, snapshot:
 ] } } });
 beforeEach(() => { vi.resetAllMocks(); db.profile.mockResolvedValue(profile()); db.first.mockResolvedValue(record()); db.many.mockResolvedValue([record(), record(2), record(1)]);
   db.transaction.mockImplementation(async fn => fn({ dataHubAnalysisReview: { findFirst: db.first, findMany: db.many } })); });
+it("reads one selected revision with scoped projection and reuses the validated latest record", async () => {
+  const selected = { kind: "detail" as const, datasetProfileRunId: "profile", expectedReviewRevision: 3, revision: 1 };
+  db.first.mockReset().mockResolvedValueOnce(record()).mockResolvedValueOnce(record(1));
+  expect(await loadReviewHistory(scope, selected)).toMatchObject({ ok: true, detail: { revision: 1, currentReviewRevision: 3, semanticChoices: record(1).semantic_choices, qualityDecisions: record(1).quality_decisions } });
+  expect(db.first.mock.calls[1][0].where).toEqual({ organisation_id: "org", upload_id: "upload", profile_run_id: "profile", revision: 1 });
+  expect(db.many).not.toHaveBeenCalled();
+  db.first.mockClear(); db.first.mockResolvedValue(record());
+  expect(await loadReviewHistory(scope, { ...selected, revision: 3 })).toMatchObject({ ok: true, detail: { revision: 3 } });
+  expect(db.first).toHaveBeenCalledTimes(1);
+});
+it.each(["missing", "malformed", "foreign", "changed-current", "future"])("denies %s detail without history fallback", async failure => {
+  db.first.mockReset().mockResolvedValueOnce(failure === "changed-current" ? record(4) : record())
+    .mockResolvedValueOnce(failure === "missing" ? null : failure === "foreign" ? { ...record(1), upload_id: "foreign" } : { ...record(1), quality_decisions: [] });
+  const result = await loadReviewHistory(scope, { kind: "detail", datasetProfileRunId: "profile", expectedReviewRevision: 3, revision: failure === "future" ? 4 : 1 });
+  expect(result).toEqual({ ok: false, code: failure === "future" ? "REVIEW_HISTORY_INVALID" : failure === "changed-current" ? "REVIEW_REVISION_MISMATCH" : "REVIEW_RECORD_INVALID" });
+  expect(db.many).not.toHaveBeenCalled();
+  if (failure === "future") expect(db.transaction).not.toHaveBeenCalled();
+});
 it("reads a bounded current-profile page in a single snapshot and selects no actor or raw data", async () => {
   expect(await loadReviewHistory(scope, query)).toMatchObject({ ok: true, history: { currentReviewRevision: 3, nextBeforeRevision: null, entries: [
     { revision: 3, semanticChoiceCount: 1, qualityDecisionCount: 1, acknowledgedNoticeCount: 1 }, { revision: 2 }, { revision: 1 },

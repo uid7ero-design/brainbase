@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PRESETS, SchedulingError, defaultScheduleConfig, type CreateReservationResult } from '@scheduling/core';
 import { PostgresReservationRepository } from '@scheduling/postgres';
 import { FixedClock, closePool, count, customerActor, ensureSchema, getPool, hasDatabase, publicActor, resetData, seedClass, seedResource, seedSchedule, seedOffering, sql, staff } from './support/pgHarness';
-import { TZ, classBooking, makeWorld, person, slotBooking, stayBooking, type World } from './support/builders';
+import { TZ, classBooking, linkResources, makeWorld, person, slotBooking, stayBooking, type World } from './support/builders';
 
 const ORG = 'org-p';
 let w: World;
@@ -319,6 +319,7 @@ describe.skipIf(!hasDatabase)('reservation repository: actors, validation and li
     await seedSchedule(ORG, 'appt', 'appointments');
     await seedOffering(ORG, 'appt-o', 'appt', { capacity: null });
     await seedResource(ORG, 'dr-1', 'practitioner');
+    await linkResources(ORG, [['appt-o', 'dr-1']]);
     const input = slotBooking('dr-1', '2026-12-07', '10:00', 30, { schedule: 'appt', offering: 'appt-o' }, { presetKey: 'appointments', presetVersion: PRESETS.appointments.version, price: { amountCents: 9000, currency: 'AUD' } });
     ok(await w.repo.create(w.staff, input));
     expect(await w.repo.create(w.staff, input)).toEqual({ ok: false, reason: 'resource_conflict' });

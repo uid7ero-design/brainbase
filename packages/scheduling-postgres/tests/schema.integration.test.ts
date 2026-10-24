@@ -46,6 +46,14 @@ const FUNCTIONS = [
   'scheduling_occurrence_release_holds', 'scheduling_require_hold', 'scheduling_reservation_guard', 'scheduling_reservation_lifecycle',
   'scheduling_reservation_release_holds', 'scheduling_touch_updated_at',
 ];
+/** Added by 030_resource_concurrency.sql (version 2b.2.1). */
+const FUNCTIONS_030 = [
+  'scheduling_hold_resource_state', 'scheduling_link_guard', 'scheduling_link_release_guard', 'scheduling_preset_allows_resource_kind', 'scheduling_resource_guard',
+];
+/** Added by 031_reservation_integrity.sql (version 2b.2.2). */
+const FUNCTIONS_031 = [
+  'scheduling_occurrence_integrity', 'scheduling_reservation_integrity', 'scheduling_resource_capacity_guard',
+];
 
 async function ownInventory(): Promise<{ tables: number; functions: number; triggers: number; constraints: number; indexes: number }> {
   const r = await q(`
@@ -72,11 +80,11 @@ describe.skipIf(!hasDatabase)('migration safety', () => {
     await closePool();
   });
 
-  it('creates exactly the documented objects: 13 tables, 11 functions, 16 triggers', async () => {
+  it('creates exactly the documented objects: 13 tables, 19 functions (11 + 5 from 030 + 3 from 031), 23 triggers (16 + 4 + 3)', async () => {
     const inv = await ownInventory();
     expect(inv.tables).toBe(13);
-    expect(inv.functions).toBe(11);
-    expect(inv.triggers).toBe(16);
+    expect(inv.functions).toBe(19);
+    expect(inv.triggers).toBe(23);
   });
 
   it('is idempotent: applying it again changes nothing', async () => {
@@ -96,11 +104,92 @@ describe.skipIf(!hasDatabase)('migration safety', () => {
     expect(await ownDefinitions()).toBe(before);
   });
 
-  it('the object list is pinned: exactly these 11 functions and 13 tables, so an unexpected function, trigger or index change fails here', async () => {
+  it('030 is idempotent byte for byte, and 091 removes exactly what 030 added (back to the 010 inventory) and nothing else, data untouched', async () => {
+    const withBoth = await ownDefinitions();
+    const inv = await ownInventory();
+    await runScript(sqlFile('030_resource_concurrency.sql'));
+    await runScript(sqlFile('030_resource_concurrency.sql'));
+    expect(await ownDefinitions()).toBe(withBoth);
+    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2b.2.1'")).toBe(1);
+
+    await seedClass('org-091', { schedule: 's91', offering: 'o91', occurrence: 'c91' }, 5);
+    const rows = await count('SELECT count(*) FROM scheduling_occurrences');
+    await runScript(sqlFile('091_resource_concurrency_rollback.sql'));
+    await runScript(sqlFile('091_resource_concurrency_rollback.sql')); // twice is harmless
+    expect(await ownInventory()).toEqual({ ...inv, functions: inv.functions - 5, triggers: inv.triggers - 4 });
+    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2b.2.1'")).toBe(0);
+    expect(await count('SELECT count(*) FROM scheduling_occurrences')).toBe(rows); // no data touched
+
+    await runScript(sqlFile('030_resource_concurrency.sql'));
+    expect(await ownDefinitions()).toBe(withBoth); // re-applying after a rollback reproduces it exactly
+  });
+
+  it('031 is idempotent byte for byte, and 092 removes exactly what 031 added and nothing else, data untouched', async () => {
+    const withAll = await ownDefinitions();
+    const inv = await ownInventory();
+    await runScript(sqlFile('031_reservation_integrity.sql'));
+    await runScript(sqlFile('031_reservation_integrity.sql'));
+    expect(await ownDefinitions()).toBe(withAll);
+    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2b.2.2'")).toBe(1);
+
+    await seedClass('org-092', { schedule: 's92', offering: 'o92', occurrence: 'c92' }, 5);
+    const rows = await count('SELECT count(*) FROM scheduling_occurrences');
+    await runScript(sqlFile('092_reservation_integrity_rollback.sql'));
+    await runScript(sqlFile('092_reservation_integrity_rollback.sql')); // twice is harmless
+    expect(await ownInventory()).toEqual({ ...inv, functions: inv.functions - 3, triggers: inv.triggers - 3 });
+    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2b.2.2'")).toBe(0);
+    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2b.2.1'")).toBe(1); // 030 stays
+    expect(await count('SELECT count(*) FROM scheduling_occurrences')).toBe(rows); // no data touched
+
+    await runScript(sqlFile('031_reservation_integrity.sql'));
+    expect(await ownDefinitions()).toBe(withAll);
+  });
+
+  it('032 replaces only the reservation guard, is idempotent byte for byte, and 093 restores 031 exactly, data untouched', async () => {
+    const at031 = await ownDefinitions();
+    const inv = await ownInventory();
+    await runScript(sqlFile('032_schedule_archive_ordering.sql'));
+    const at032 = await ownDefinitions();
+    await runScript(sqlFile('032_schedule_archive_ordering.sql'));
+    expect(await ownDefinitions()).toBe(at032); // idempotent
+    expect(at032).not.toBe(at031); // and it did change something: the one function
+    expect(await ownInventory()).toEqual(inv); // no object added or dropped
+    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2b.2.3'")).toBe(1);
+    const fn = (await q("SELECT pg_get_functiondef(p.oid) AS d FROM pg_proc p WHERE p.proname = 'scheduling_reservation_integrity'")).rows[0].d as string;
+    expect(fn).toMatch(/FROM scheduling_schedules s WHERE s\.id = sid AND s\.organisation_id = NEW\.organisation_id FOR SHARE/);
+
+    await seedClass('org-093', { schedule: 's93', offering: 'o93', occurrence: 'c93' }, 5);
+    const rows = await count('SELECT count(*) FROM scheduling_occurrences');
+    await runScript(sqlFile('093_schedule_archive_ordering_rollback.sql'));
+    await runScript(sqlFile('093_schedule_archive_ordering_rollback.sql')); // twice is harmless
+    expect(await ownDefinitions()).toBe(at031); // 031 restored byte for byte
+    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2b.2.3'")).toBe(0);
+    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2b.2.2'")).toBe(1); // 031 stays
+    expect(await count('SELECT count(*) FROM scheduling_occurrences')).toBe(rows); // no data touched
+  });
+
+  it('032 refuses to apply without 031', async () => {
+    await runScript(sqlFile('092_reservation_integrity_rollback.sql'));
+    await expect(runScript(sqlFile('032_schedule_archive_ordering.sql'))).rejects.toMatchObject({ code: 'SCVER' });
+    await runScript(sqlFile('031_reservation_integrity.sql'));
+    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version IN ('2b.2.1','2b.2.2')")).toBe(2);
+    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2b.2.3'")).toBe(0);
+  });
+
+  it('031 refuses to apply without 030, and without the 2a.2 schema', async () => {
+    await runScript(sqlFile('092_reservation_integrity_rollback.sql'));
+    await runScript(sqlFile('091_resource_concurrency_rollback.sql'));
+    await expect(runScript(sqlFile('031_reservation_integrity.sql'))).rejects.toMatchObject({ code: 'SCVER' });
+    await runScript(sqlFile('030_resource_concurrency.sql'));
+    await runScript(sqlFile('031_reservation_integrity.sql'));
+    expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version IN ('2b.2.1','2b.2.2')")).toBe(2);
+  });
+
+  it('the object list is pinned: exactly these 19 functions and 13 tables, so an unexpected function, trigger or index change fails here', async () => {
     const fns = (await q("SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname LIKE 'scheduling\_%' ESCAPE '\' ORDER BY 1")).rows.map(r => r.proname);
-    expect(fns).toEqual([...FUNCTIONS].sort());
+    expect(fns).toEqual([...FUNCTIONS, ...FUNCTIONS_030, ...FUNCTIONS_031].sort());
     const trg = (await q("SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid WHERE NOT t.tgisinternal AND c.relname LIKE 'scheduling\_%' ESCAPE '\' ORDER BY 1")).rows.map(r => r.tgname);
-    expect(trg).toHaveLength(16);
+    expect(trg).toHaveLength(23);
     expect(trg.every(n => /^scheduling_/.test(n))).toBe(true);
     const inv = await ownInventory();
     expect(inv.indexes).toBe(pinnedIndexCount);
@@ -374,9 +463,20 @@ describe.skipIf(!hasDatabase)('reservation lifecycle and snapshot constraints', 
     const slotInsert = (id: string, extra = '') =>
       q(`INSERT INTO scheduling_reservations (id, organisation_id, schedule_id, preset_key, preset_version, offering_id, span_kind, resource_id, customer_name, timezone,
           local_start_date, local_start_time, local_end_date, local_end_time, starts_at, ends_at, party_size, currency)
-         VALUES ($1, 'org-l', 's', 'resource_hire', 1, 'o', 'slot', 'court-1', 'X', 'Australia/Adelaide', '2026-12-07', '16:00', '2026-12-07', '17:00', '2026-12-07T05:30:00Z', '2026-12-07T06:30:00Z', 1, 'AUD') ${extra}`, [id]);
+         VALUES ($1, 'org-l', 's-hire', 'resource_hire', 1, 'o-hire', 'slot', 'court-1', 'X', 'Australia/Adelaide', '2026-12-07', '16:00', '2026-12-07', '17:00', '2026-12-07T05:30:00Z', '2026-12-07T06:30:00Z', 1, 'AUD') ${extra}`, [id]);
 
-    beforeEach(() => seedResource('org-l', 'court-1', 'court'));
+    // 031 ties a reservation to the preset of its schedule and the resource to its offering, so each preset gets its own schedule here
+    const OF: Record<string, [string, string]> = { resource_hire: ['s-hire', 'o-hire'], appointments: ['s-appt', 'o-appt'], accommodation: ['s-stay', 'o-stay'], classes_coaching: ['s', 'o'] };
+    beforeEach(async () => {
+      await seedResource('org-l', 'court-1', 'court');
+      for (const [preset, [s, o]] of Object.entries(OF)) {
+        if (preset === 'classes_coaching') continue;
+        await seedSchedule('org-l', s, preset as never);
+        await seedOffering('org-l', o, s, { capacity: null });
+      }
+      await seedResource('org-l', 'room-9', 'room');
+      for (const [o, r] of [['o-hire', 'court-1'], ['o-stay', 'room-9'], ['o', 'court-1']]) await getPool().query('INSERT INTO scheduling_offering_resources (organisation_id, offering_id, resource_id) VALUES ($1, $2, $3)', ['org-l', o, r]);
+    });
 
     it('an exclusive reservation inserted WITHOUT a hold is refused at the end of the statement (SCHLD)', async () => {
       await expect(slotInsert('no-hold')).rejects.toMatchObject({ code: 'SCHLD' });
@@ -387,17 +487,17 @@ describe.skipIf(!hasDatabase)('reservation lifecycle and snapshot constraints', 
       const insert = (preset: string, span: string, target: string) =>
         q(`INSERT INTO scheduling_reservations (id, organisation_id, schedule_id, preset_key, preset_version, offering_id, span_kind, ${target.split('=')[0]}, customer_name, timezone,
             local_start_date, local_start_time, local_end_date, local_end_time, starts_at, ends_at, party_size, currency)
-           VALUES ('x', 'org-l', 's', $1, 2, 'o', $2, ${target.split('=')[1]}, 'X', 'Australia/Adelaide', '2026-12-07', '16:00', '2026-12-07', '17:00', '2026-12-07T05:30:00Z', '2026-12-07T06:30:00Z', 1, 'AUD')`, [preset, span]);
+           VALUES ('x', 'org-l', $3, $1, 2, $4, $2, ${target.split('=')[1]}, 'X', 'Australia/Adelaide', '2026-12-07', '16:00', '2026-12-07', '17:00', '2026-12-07T05:30:00Z', '2026-12-07T06:30:00Z', 1, 'AUD')`, [preset, span, ...OF[preset]]);
       // an appointment as a headcount occurrence booking
       await expect(insert('appointments', 'occurrence', "occurrence_id='oc'")).rejects.toMatchObject({ code: '23514' });
       // an appointment slot with no resource (neither target set) is refused by the one-target rule
       await expect(
         q(`INSERT INTO scheduling_reservations (id, organisation_id, schedule_id, preset_key, preset_version, offering_id, span_kind, customer_name, timezone,
             local_start_date, local_start_time, local_end_date, local_end_time, starts_at, ends_at, party_size, currency)
-           VALUES ('y', 'org-l', 's', 'appointments', 2, 'o', 'slot', 'X', 'Australia/Adelaide', '2026-12-07', '16:00', '2026-12-07', '17:00', '2026-12-07T05:30:00Z', '2026-12-07T06:30:00Z', 1, 'AUD')`),
+           VALUES ('y', 'org-l', 's-appt', 'appointments', 2, 'o-appt', 'slot', 'X', 'Australia/Adelaide', '2026-12-07', '16:00', '2026-12-07', '17:00', '2026-12-07T05:30:00Z', '2026-12-07T06:30:00Z', 1, 'AUD')`),
       ).rejects.toMatchObject({ code: '23514' });
       // a stay preset cannot be a slot, a headcount preset cannot be a slot
-      await expect(insert('accommodation', 'slot', "resource_id='court-1'")).rejects.toMatchObject({ code: '23514' });
+      await expect(insert('accommodation', 'slot', "resource_id='room-9'")).rejects.toMatchObject({ code: '23514' });
       await expect(insert('classes_coaching', 'slot', "resource_id='court-1'")).rejects.toMatchObject({ code: '23514' });
       expect(await count('SELECT count(*) FROM scheduling_reservations')).toBe(0);
     });

@@ -326,7 +326,7 @@ describe('registration and checkout notices', () => {
   const TYPE = { id: 't1', name: 'General', description: null, price_cents: 2500, capacity: 100, remaining: 40, sale_starts_at: null, sale_ends_at: null, sale_status: 'ON_SALE', requires_access_code: false };
   const detail = (price: number) => ({
     event: { name: 'Gala', slug: 'gala', description: null, venue: null, artwork_url: null, starts_at: '2030-01-01T10:00:00Z', ends_at: '2030-01-01T12:00:00Z', timezone: 'Australia/Adelaide' },
-    sessions: [], ticket_types: [{ ...TYPE, price_cents: price }], session_inventory: [], has_promotions: false, organisationName: 'Acme',
+    sessions: [], ticket_types: [{ ...TYPE, price_cents: price }], session_inventory: [], has_promotions: false, organisationName: 'Acme', paid_checkout_available: true,
   });
   function mockFetch() {
     const fn = vi.fn(async (url: string, init?: RequestInit) => {

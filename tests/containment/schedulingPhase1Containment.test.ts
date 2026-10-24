@@ -42,7 +42,12 @@ describe('Phase 1 does not enable the module anywhere', () => {
       .filter(f => !rel(f).startsWith('lib/scheduling/'))
       // Phase 2B.1 (deliberate, reviewed change): exactly the two foundation routes import the guard (@/lib/scheduling/route)
       // and the audit reader. schedulingPhase2b1Containment.test.ts pins that they do nothing else.
-      .filter(f => !['app/api/scheduling/status/route.ts', 'app/api/scheduling/audit/route.ts'].includes(rel(f)))
+      // Phase 2B.2b (deliberate, reviewed change): every route under app/api/scheduling imports the guard and its configuration modules.
+      // schedulingPhase2b1Containment.test.ts and schedulingPhase2b2bContainment.test.ts pin the exact route set and that they do nothing else.
+      .filter(f => !rel(f).startsWith('app/api/scheduling/'))
+      // Phase 2B.2c (deliberate, reviewed change): the dashboard (app/scheduling) imports the shared core for preset wording and validators.
+      // schedulingPhase2b2cContainment.test.ts pins what it may import.
+      .filter(f => !rel(f).startsWith('app/scheduling/'))
       .filter(f => /@scheduling\/core|@\/lib\/scheduling|from ['"]\.\.?\/.*scheduling\//.test(readFileSync(f, 'utf8')))
       .map(rel);
     expect(offenders).toEqual([]);
@@ -51,14 +56,17 @@ describe('Phase 1 does not enable the module anywhere', () => {
   it('no scheduling route or page exists', () => {
     // Phase 2B.1 (deliberate, reviewed change): app/api/scheduling holds exactly the status and audit foundation routes.
     const apiRoutes = existsSync(path.join(ROOT, 'app/api/scheduling')) ? readdirSync(path.join(ROOT, 'app/api/scheduling')).sort() : [];
-    expect(apiRoutes).toEqual(['audit', 'status']);
+    // Phase 2B.2b (deliberate, reviewed change): the configuration API adds offerings, resources and schedules (pinned route by route
+    // in schedulingPhase2b2bContainment.test.ts).
+    expect(apiRoutes).toEqual(['audit', 'offerings', 'resources', 'schedules', 'status']);
     expect(existsSync(path.join(ROOT, 'app/dashboard/scheduling'))).toBe(false);
-    expect(existsSync(path.join(ROOT, 'app/scheduling'))).toBe(false);
+    expect(existsSync(path.join(ROOT, 'app/book'))).toBe(false); // Phase 2B.2c: app/scheduling (the configuration dashboard) now exists
   });
 
-  it('the navigation model has no scheduling entry and still gates the Tennis group on the ld-tennis variant', () => {
+  it('the navigation model has exactly one capability-gated scheduling entry (2B.2c) and still gates the Tennis group on the ld-tennis variant', () => {
     const nav = read('components/nav/navModel.ts');
-    expect(nav).not.toMatch(/scheduling/i);
+    expect((nav.match(/id: 'scheduling'/g) ?? []).length).toBe(1);
+    expect(nav).toMatch(/id: 'scheduling'[\s\S]*?gate: \{ anyCapability: \['scheduling'\], minRole: 'viewer' \}/);
     expect(nav).toMatch(/gate:\s*\{\s*variant:\s*'ld-tennis'\s*\}/);
     expect(nav).toContain("label: 'Squad'");
     expect(nav).toContain("href: '/dashboard/sessions'");
@@ -70,7 +78,8 @@ describe('Phase 1 does not enable the module anywhere', () => {
       .filter(f => !rel(f).startsWith('lib/scheduling/'))
       .filter(f => /['"]scheduling['"]/.test(readFileSync(f, 'utf8')) && /capabilit|requireCapability|module_key/i.test(readFileSync(f, 'utf8')))
       .map(rel);
-    expect(hits).toEqual([]);
+    // Phase 2B.2c (deliberate, reviewed change): the navigation entry and its icon name the key; both are presentation only.
+    expect(hits).toEqual(['components/brand/CapabilityIcon.tsx', 'components/nav/navModel.ts']);
   });
 
   it('no SQL script or migration creates or alters a scheduling_* table', () => {
@@ -90,6 +99,9 @@ describe('Phase 1 does not enable the module anywhere', () => {
         // Phase 2B.1 (deliberate, reviewed change): the disposable-Postgres proof of the runtime names scheduling_settings to
         // set up fixtures. It reaches only SCHEDULING_TEST_DATABASE_URL and creates no scheduling_* table.
         if (rel(full) === 'scripts/tests/schedulingRuntime2b1.integration.test.ts') continue;
+        // Phase 2B.2b (deliberate, reviewed change): the disposable-Postgres proof of the configuration API names scheduling_* tables to
+        // set up and compare fixtures. It reaches only SCHEDULING_TEST_DATABASE_URL and creates no scheduling_* table.
+        if (rel(full) === 'scripts/tests/schedulingConfigApi2b2b.integration.test.ts') continue;
         if (statSync(full).isDirectory()) scan(full);
         else if (/\.(sql|prisma|ts|mjs|js)$/.test(name) && /scheduling_[a-z_]+/.test(readFileSync(full, 'utf8'))) offenders.push(rel(full));
       }
