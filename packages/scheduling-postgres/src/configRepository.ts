@@ -1,4 +1,5 @@
 import {
+  OCCURRENCE_WRITING_PRESETS,
   SchedulingError,
   isIanaTimezone,
   isLocalDate,
@@ -761,13 +762,14 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
              SELECT $1, f.organisation_id, f.id, $4, $5::date, $6::time, $7, $8::timestamptz, $9::timestamptz, $10::int, $11
                FROM scheduling_offerings f JOIN scheduling_schedules s ON s.id = f.schedule_id AND s.organisation_id = f.organisation_id
               WHERE f.id = $3 AND f.organisation_id = $2 AND f.archived_at IS NULL AND s.archived_at IS NULL
+                AND s.preset_key = ANY($13::text[])
              RETURNING *
            ), h AS (
              INSERT INTO scheduling_resource_holds (id, organisation_id, resource_id, during, occurrence_id)
              SELECT $12, o.organisation_id, o.resource_id, tstzrange(o.starts_at, o.ends_at, '[)'), o.id FROM o WHERE o.resource_id IS NOT NULL
              RETURNING id)
            SELECT ${OCCURRENCE_COLUMNS} FROM o`,
-          [this.newId(), tenant.organisationId, input.offeringId, input.resourceId, input.date, input.startTime, input.timezone, input.startsAt, input.endsAt, input.capacity, createdBy(tenant), this.newId()],
+          [this.newId(), tenant.organisationId, input.offeringId, input.resourceId, input.date, input.startTime, input.timezone, input.startsAt, input.endsAt, input.capacity, createdBy(tenant), this.newId(), [...OCCURRENCE_WRITING_PRESETS]],
         ),
       );
     } catch (err) {
@@ -781,8 +783,13 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
       throw err;
     }
     if (rows.length === 0) {
-      const exists = await this.sql.query<Row>('SELECT 1 FROM scheduling_offerings WHERE organisation_id = $1 AND id = $2', [tenant.organisationId, input.offeringId]);
-      return { ok: false, reason: exists.length === 0 ? 'not_found' : 'offering_unavailable' };
+      const exists = await this.sql.query<Row>(
+        `SELECT s.preset_key FROM scheduling_offerings f JOIN scheduling_schedules s ON s.id = f.schedule_id AND s.organisation_id = f.organisation_id
+          WHERE f.organisation_id = $1 AND f.id = $2`,
+        [tenant.organisationId, input.offeringId],
+      );
+      if (exists.length === 0) return { ok: false, reason: 'not_found' };
+      return { ok: false, reason: OCCURRENCE_WRITING_PRESETS.includes(exists[0].preset_key) ? 'offering_unavailable' : 'preset_not_supported' };
     }
     return { ok: true, occurrence: toOccurrence(rows[0]) };
   }

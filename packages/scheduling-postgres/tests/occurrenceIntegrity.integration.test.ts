@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { CreateOccurrenceResult, NewOccurrenceInput } from '@scheduling/core';
+import { OCCURRENCE_WRITING_PRESETS, type CreateOccurrenceResult, type NewOccurrenceInput } from '@scheduling/core';
 import { PostgresSchedulingConfigRepository, fromPgLike } from '@scheduling/postgres';
-import { closePool, count, ensureSchema, getPool, hasDatabase, resetData, runScript, seedOccurrence, seedOffering, seedResource, sqlFile, staff } from './support/pgHarness';
+import { closePool, count, ensureSchema, getPool, hasDatabase, resetData, runScript, seedOccurrence, seedOffering, seedResource, seedSchedule, sqlFile, staff } from './support/pgHarness';
 import { TZ, classBooking, makeWorld, type World } from './support/builders';
 
 // Occurrence creation against archive operations and the integrity rules (2B.3, migration 033).
@@ -242,6 +242,46 @@ describe.skipIf(!hasDatabase)('occurrence integrity (2B.3)', () => {
       expect(reasonOf(await w.config.createOccurrence(w.staff, base))).toBe('ok');
       expect(reasonOf(await w.config.createOccurrence(w.staff, base))).toBe('duplicate_occurrence');
       expect(reasonOf(await w.config.createOccurrence(w.staff, { ...base, startTime: '16:10' }))).toBe('resource_conflict');
+    });
+  });
+
+  // First release: dated occurrences are written for classes_coaching only. The restriction lives in the shared persistence
+  // layer (createOccurrence), so it holds for any caller, not just the BrainBase dashboard.
+  describe('first-release preset restriction', () => {
+    it('classes_coaching is the only occurrence-writing preset', () => {
+      expect([...OCCURRENCE_WRITING_PRESETS]).toEqual(['classes_coaching']);
+    });
+
+    it.each([
+      ['resource_hire', 'hire'],
+      ['accommodation', 'stay'],
+      ['appointments', 'appt'],
+    ] as const)('createOccurrence on a %s offering is refused and writes nothing', async (_preset, key) => {
+      const before = await count('SELECT count(*) FROM scheduling_occurrences');
+      const holds = await count('SELECT count(*) FROM scheduling_resource_holds');
+      expect(reasonOf(await w.config.createOccurrence(w.staff, occurrenceInput(w[key].offering, 21)))).toBe('preset_not_supported');
+      expect(reasonOf(await w.config.createOccurrence(w.staff, occurrenceInput(w[key].offering, 21, { resourceId: 'court-1' })))).toBe('preset_not_supported');
+      expect(await count('SELECT count(*) FROM scheduling_occurrences')).toBe(before);
+      expect(await count('SELECT count(*) FROM scheduling_resource_holds')).toBe(holds);
+    });
+
+    it('event_capacity is closed too (its own design, kept apart from Eve ticketing)', async () => {
+      await seedSchedule(ORG, 'ev-sched', 'event_capacity');
+      await seedOffering(ORG, 'ev-off', 'ev-sched', { capacity: 50 });
+      expect(reasonOf(await w.config.createOccurrence(w.staff, occurrenceInput('ev-off', 23)))).toBe('preset_not_supported');
+      expect(await count("SELECT count(*) FROM scheduling_occurrences WHERE offering_id = 'ev-off'")).toBe(0);
+    });
+
+    it('a classes_coaching offering still works, and an unknown or other-organisation offering is not_found, not preset_not_supported', async () => {
+      expect(reasonOf(await w.config.createOccurrence(w.staff, occurrenceInput(w.cls.offering, 24)))).toBe('ok');
+      expect(reasonOf(await w.config.createOccurrence(w.staff, occurrenceInput('nope', 24)))).toBe('not_found');
+      const other = await makeWorld(OTHER, staff(OTHER));
+      expect(reasonOf(await w.config.createOccurrence(w.staff, occurrenceInput(other.hire.offering, 24)))).toBe('not_found');
+    });
+
+    it('an archived non-classes offering reports the preset, and an archived class offering still reports offering_unavailable', async () => {
+      expect(await w.config.archiveOffering(w.staff, w.cls.offering)).toBe(true);
+      expect(reasonOf(await w.config.createOccurrence(w.staff, occurrenceInput(w.cls.offering, 25)))).toBe('offering_unavailable');
     });
   });
 });

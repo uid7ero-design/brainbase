@@ -71,8 +71,32 @@ of 12 on a court with capacity 4 is valid. 033 deliberately does **not** compare
 capacity), and a test books exactly 12 participants onto such a class, refuses the 13th (`SCCAP`) and asserts one hold. If a venue wants a
 physical headcount limit (fire safety) it is a **new** rule, to be designed as an optional resource field, not inferred from `capacity`.
 
-Not changed, flagged: the database allows occurrences on offerings of any preset, although only headcount presets can be reserved against
-them. Restricting occurrence creation to those presets is a product decision for the first occurrence-writing route.
+### First-release restriction: occurrences for `classes_coaching` only
+
+The database still accepts an occurrence on an offering of any preset (033 does not read the preset; a schema change would need its own
+rehearsal). The restriction is enforced in the **shared persistence layer**, not the dashboard: `createOccurrence` (in
+`@scheduling/postgres`) inserts only where the offering's schedule preset is in `OCCURRENCE_WRITING_PRESETS` (`@scheduling/core`),
+currently `['classes_coaching']`, and returns `preset_not_supported` otherwise, writing no occurrence and no resource hold. The test is part
+of the same INSERT, and a schedule's preset is locked once it has offerings, so eligibility cannot change under a writer. Any other
+route, job or script that goes through the repository gets the same answer. A caller that writes SQL directly can still insert (the
+guard in 033 is about archive state, assignment and isolation), so there is no raw-SQL route in the application, and a containment test
+pins that nothing but the repository writes `scheduling_occurrences`.
+
+### Future expansion: `event_capacity` (not enabled)
+
+`event_capacity` has the same capacity semantics as classes (participants per occurrence, one exclusive resource hold), so enabling it is
+a one-line change to `OCCURRENCE_WRITING_PRESETS` plus the checks below. It stays closed until all of these exist, separate from the Eve
+ticketing product (Eve sells tickets, issues QR codes and takes payments through Stripe; Scheduling event_capacity is a headcount against
+a dated occurrence and takes no payment):
+
+1. A written decision on whether an internal event booking and an Eve ticket order may ever refer to the same event, and if so a
+   mapping owned by neither product's tables. The default is no link: Scheduling must not read or write `event_*` tables, and Eve must
+   not read `scheduling_*` tables (the existing containment tests keep this).
+2. A waitlist or overbooking policy, and a physical headcount limit if the venue needs one (see above).
+3. Its own tests (capacity, cancellation, archive races) and, if the database should also refuse other presets, a migration with its own
+   rehearsal.
+
+Restaurant, hotel and every other occurrence-writing flow stay closed the same way (they are not in the list).
 
 ## 5. Safety properties and tests
 

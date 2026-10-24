@@ -282,3 +282,28 @@ describe('LD Tennis is not touched', () => {
     for (const f of tennisFiles) expect(read(f), f).not.toMatch(/scheduling_|@scheduling\//);
   });
 });
+
+describe('first-release occurrence restriction lives in the shared layer', () => {
+  const code = (rel: string) => read(rel).replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+
+  it('OCCURRENCE_WRITING_PRESETS is exactly classes_coaching (event_capacity, restaurant, hotel and the rest stay closed)', () => {
+    expect(code('packages/scheduling/src/persistence.ts')).toMatch(/OCCURRENCE_WRITING_PRESETS: readonly string\[\] = \['classes_coaching'\];/);
+  });
+
+  it('createOccurrence filters on the schedule preset inside its INSERT and reports preset_not_supported', () => {
+    const src = code('packages/scheduling-postgres/src/configRepository.ts');
+    expect(src).toContain('AND s.preset_key = ANY($13::text[])');
+    expect(src).toContain('[...OCCURRENCE_WRITING_PRESETS]');
+    expect(src).toContain("'preset_not_supported'");
+  });
+
+  it('only the configuration repository inserts into scheduling_occurrences (no route, job or script writes them around the restriction)', () => {
+    const dirs = ['app', 'lib', 'packages/scheduling/src', 'packages/scheduling-postgres/src'];
+    const writers = dirs
+      .filter(d => existsSync(path.join(ROOT, d)))
+      .flatMap(d => walk(path.join(ROOT, d), /\.(ts|tsx|mts)$/))
+      .filter(f => /INSERT\s+INTO\s+scheduling_occurrences/i.test(readFileSync(f, 'utf8')))
+      .map(rel);
+    expect(writers).toEqual(['packages/scheduling-postgres/src/configRepository.ts']);
+  });
+});
