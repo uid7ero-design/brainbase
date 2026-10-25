@@ -1,5 +1,5 @@
 import 'server-only';
-import { checkoutCancelUrl, checkoutSuccessUrl, publicTicketUrl, currentEveLegalAcceptance, isDraftLegalVersion } from '@ticketing/core';
+import { checkoutCancelUrl, checkoutSuccessUrl, publicTicketUrl, currentEveLegalAcceptance, currentEveLegalNoticeVersion, isDraftLegalVersion } from '@ticketing/core';
 import { getPublicEventDetail } from '@/lib/events/publicEventDetail';
 import { getPublicTicketDetail } from '@/lib/events/publicTicket';
 import { getPublicBookingDetail } from '@/lib/events/publicBooking';
@@ -65,6 +65,17 @@ function isEvePaidCheckoutAvailableFor(organisationSlug: string): boolean {
     return false;
   }
   return true;
+}
+
+// The legal-document version an Eve free order records for its registration
+// notice (no checkbox — evidence of the version in force, not acceptance).
+// A server constant, never request input. A draft version on Production is
+// recorded as NULL rather than refusing the registration: free registration
+// never depends on legal publication state.
+function eveFreeLegalNoticeVersion(): string | null {
+  const version = currentEveLegalNoticeVersion();
+  if (process.env.VERCEL_ENV === 'production' && isDraftLegalVersion(version)) return null;
+  return version;
 }
 
 export async function handleTicketingPublicEvent(req: Request, params: EventParams): Promise<Response> {
@@ -145,6 +156,7 @@ export async function handleTicketingRegister(req: Request, params: EventParams)
     event,
     validated,
     productSurface: 'EVE',
+    legalNoticeVersion: eveFreeLegalNoticeVersion(),
     // Same best-effort post-commit CRM hooks as the public register route.
     onCommitted: async (orderId) => {
       await syncEventOrderContact({

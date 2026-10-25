@@ -40,6 +40,12 @@ export type FreeRegistrationInput = {
   // 'EVE'). Required, never browser-supplied; persisted in the same INSERT
   // as the order.
   productSurface: ProductSurface;
+  // Eve launch compliance — the legal-document version in force for the
+  // free-registration notice (no checkbox: this is NOT acceptance). Supplied
+  // ONLY by the gated Eve entry point, from a trusted server constant (never a
+  // browser value); omitted by BrainBase's public route => NULL. Persisted in
+  // the same INSERT as the order and never updated.
+  legalNoticeVersion?: string | null;
   // Post-commit, pre-ticket-email hook. Must never throw.
   onCommitted?: (orderId: string) => Promise<void>;
 };
@@ -72,6 +78,7 @@ export async function registerFreeOrder(input: FreeRegistrationInput): Promise<F
   // Fail closed: the value goes into a CHECK-constrained column.
   if (!isProductSurface(input.productSurface)) throw new Error('registerFreeOrder requires a valid productSurface.');
   const productSurface = input.productSurface;
+  const legalNoticeVersion = input.legalNoticeVersion ?? null;
 
   // Phase 4 — presale access. Resolved server-side by (organisation,
   // event, normalised code); every failure (unknown / inactive / outside
@@ -373,8 +380,8 @@ export async function registerFreeOrder(input: FreeRegistrationInput): Promise<F
           -- Phase 4: the access-code snapshot (id + code text as used) is
           -- written with the order; a free order never carries a
           -- promotion (discount_cents stays at its default 0).
-          INSERT INTO event_orders (organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents, booking_token, ticket_email_status, access_code_id, access_code_snapshot, product_surface)
-          SELECT ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone}, 'CONFIRMED', 0, ${bookingToken}, 'pending', ${accessCodeId}, ${accessCodeSnapshot}, ${productSurface}
+          INSERT INTO event_orders (organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents, booking_token, ticket_email_status, access_code_id, access_code_snapshot, product_surface, legal_notice_version)
+          SELECT ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone}, 'CONFIRMED', 0, ${bookingToken}, 'pending', ${accessCodeId}, ${accessCodeSnapshot}, ${productSurface}, ${legalNoticeVersion}::text
           FROM gate
           RETURNING id
         ),

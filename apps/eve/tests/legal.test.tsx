@@ -437,6 +437,20 @@ describe('registration and checkout notices', () => {
     expect(JSON.parse((reg[1] as RequestInit).body as string)).not.toHaveProperty('accept_terms');
   });
 
+  it('FREE: the register request carries no legal or version field (the server records the notice version from its own constant)', async () => {
+    const user = userEvent.setup(); const fn = mockFetch();
+    render(<BuyerBooking organisationSlug="acme" eventSlug="gala" detail={detail(0) as never} cancelled={false} />);
+    await fill(user);
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Complete registration' }));
+    const reg = fn.mock.calls.find(c => String(c[0]).endsWith('/register'))!;
+    const sent = JSON.parse((reg[1] as RequestInit).body as string) as Record<string, unknown>;
+    for (const key of ['accept_terms', 'legal_notice_version', 'terms_version', 'refunds_version', 'terms_accepted_at', 'privacy_version']) {
+      expect(sent).not.toHaveProperty(key);
+    }
+    expect(JSON.stringify(sent)).not.toMatch(/version|terms|privacy|refund/i);
+  });
+
   it('COLLECTION NOTICE: booking details go to the organiser, may appear in the organiser\'s contact records, and this is not marketing consent', async () => {
     const user = userEvent.setup(); mockFetch();
     render(<BuyerBooking organisationSlug="acme" eventSlug="gala" detail={detail(0) as never} cancelled={false} />);
