@@ -119,3 +119,45 @@ export function localWindowToInstants(
   if (Date.parse(e.instant) <= Date.parse(s.instant)) return { ok: false, problem: 'the window must end after it starts' };
   return { ok: true, instants: { startsAt: s.instant, endsAt: e.instant }, startKind: s.kind, endKind: e.kind };
 }
+
+// ─── Presenting an instant as local time (the repeated hour) ────────────────
+
+/** 'UTC+10:30', 'UTC-03:00', 'UTC+00:00': an offset in minutes, east of UTC positive. */
+export function formatUtcOffset(offsetMinutes: number): string {
+  const abs = Math.abs(offsetMinutes);
+  return `UTC${offsetMinutes < 0 ? '-' : '+'}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
+}
+
+export interface LocalInstantLabel {
+  date: LocalDate;
+  time: LocalTime;
+  offsetMinutes: number;
+  /** 'UTC+10:30' */
+  offset: string;
+  /** This wall-clock time happens twice on that date in the zone (the clocks went back), so the time alone does not say which instant. */
+  repeated: boolean;
+  /**
+   * What to show customers and staff: the time alone, or, for a repeated local time ONLY, the time with its UTC offset ('02:30 UTC+10:30'
+   * and '02:30 UTC+09:30' in Adelaide on 4 April 2027). Every instant of a day gets a distinct text, because a repeated time is the only
+   * ambiguous one and it always carries its offset.
+   */
+  text: string;
+}
+
+/**
+ * An absolute instant as the zone's wall clock reads it. The offset is the one in force AT that instant (never assumed from the zone's
+ * name), and `repeated` is decided by resolving the local time back to instants: two candidates means the clocks went back over it.
+ * A time that does not exist (spring forward) can never be the label of an instant. Pure; no I/O.
+ */
+export function labelLocalInstant(instant: string, timezone: IanaTimezone): LocalInstantLabel {
+  const ms = Date.parse(instant);
+  if (!Number.isFinite(ms)) throw new Error(`Invalid instant: ${instant}`);
+  if (!isIanaTimezone(timezone)) throw new Error(`Invalid timezone: ${timezone}`);
+  const offsetMinutes = offsetMinutesAt(ms, timezone);
+  const local = new Date(Math.floor(ms / 60000) * 60000 + offsetMinutes * 60000).toISOString();
+  const date = local.slice(0, 10);
+  const time = local.slice(11, 16);
+  const repeated = resolveLocalTime(date, time, timezone).kind === 'ambiguous';
+  const offset = formatUtcOffset(offsetMinutes);
+  return { date, time, offsetMinutes, offset, repeated, text: repeated ? `${time} ${offset}` : time };
+}
