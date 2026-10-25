@@ -4,6 +4,7 @@ import {
   END_OF_DAY,
   addLocalDays,
   localDayOfWeek,
+  subtractLocalWindows,
   validateAvailabilityExceptionSet,
   validateAvailabilityRuleSet,
   type AvailabilityExceptionInput,
@@ -172,13 +173,20 @@ export interface OwnerAvailabilityInput {
 
 function windowsForDate(owner: OwnerAvailabilityInput, date: LocalDate): LocalWindow[] {
   const covering = owner.exceptions.filter(e => e.fromDate <= date && date <= e.toDate);
-  // Anything that is not an override closes the date: closed, and fail closed for an unknown kind.
-  if (covering.some(e => e.kind !== 'override')) return [];
-  if (covering.length > 0) return covering.flatMap(e => [...(e.windows ?? [])]);
+  const closures = covering.filter(e => e.kind !== 'override');
+  const overrides = covering.filter(e => e.kind === 'override');
+  // A whole-day closure closes the date, and so does an unknown kind (fail closed). A closure with windows is partial-day: it only cuts
+  // those local times out of whatever the day would otherwise offer (the weekly rules, or an override's windows).
+  if (closures.some(e => e.kind !== 'closed' || (e.windows ?? []).length === 0)) return [];
   const dow = localDayOfWeek(date);
-  return owner.rules
-    .filter(r => r.dayOfWeek === dow && (r.validFrom === null || r.validFrom <= date) && (r.validTo === null || date <= r.validTo))
-    .map(r => ({ startTime: r.startTime, endTime: r.endTime as WindowEnd }));
+  const base: LocalWindow[] =
+    overrides.length > 0
+      ? overrides.flatMap(e => [...(e.windows ?? [])])
+      : owner.rules
+          .filter(r => r.dayOfWeek === dow && (r.validFrom === null || r.validFrom <= date) && (r.validTo === null || date <= r.validTo))
+          .map(r => ({ startTime: r.startTime, endTime: r.endTime as WindowEnd }));
+  const cuts = closures.flatMap(e => [...(e.windows ?? [])]);
+  return cuts.length > 0 ? subtractLocalWindows(base, cuts) : base;
 }
 
 /**

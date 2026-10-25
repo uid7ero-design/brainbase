@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
-import { Badge, Button, PageHeader, Panel, StateMessage } from '@/components/ui/app';
+import { Badge, Button, PageHeader, Panel, StateMessage, buttonProps } from '@/components/ui/app';
 import { schedulingApi, seg } from '@/lib/scheduling/dashboard/api';
 import type { OfferingView, ScheduleView, StatusView } from '@/lib/scheduling/dashboard/types';
 import { RESOURCE_KIND_LABELS, describeCancellation, formatDuration, formatMoney, presetName, recurrenceSummary, wordingFor } from '@/lib/scheduling/dashboard/wording';
@@ -137,8 +137,13 @@ export default function ScheduleDetail({ scheduleId, canManage }: { scheduleId: 
                   columns={columns}
                   archivedOf={o => o.archivedAt !== null}
                   actions={o =>
-                    o.archivedAt !== null ? null : (
+                    o.archivedAt !== null ? (
                       <span className={styles.actionButtons}>
+                        <Link href={`/scheduling/offerings/${seg(o.id)}/availability`} {...buttonProps('secondary', 'sm')} aria-label={`Hours for ${o.name}`}>Hours</Link>
+                      </span>
+                    ) : (
+                      <span className={styles.actionButtons}>
+                        <Link href={`/scheduling/offerings/${seg(o.id)}/availability`} {...buttonProps('secondary', 'sm')} aria-label={`Hours for ${o.name}`}>Hours</Link>
                         <Button size="sm" onClick={() => setMode({ kind: 'assign', offering: o })} aria-label={`${canEdit ? 'Assign' : 'View'} ${words.resourcePlural.toLowerCase()} for ${o.name}`}>
                           {words.resourcePlural}
                         </Button>

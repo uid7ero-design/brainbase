@@ -46,7 +46,7 @@ export const USERS = {
   'manager-view': ['a', 'MANAGER', 'view'],
 };
 
-const SCHEDULING_SQL = ['010_shared_schema.sql', '030_resource_concurrency.sql', '031_reservation_integrity.sql', '032_schedule_archive_ordering.sql', '033_occurrence_integrity.sql', '034_availability_integrity.sql'];
+const SCHEDULING_SQL = ['010_shared_schema.sql', '030_resource_concurrency.sql', '031_reservation_integrity.sql', '032_schedule_archive_ordering.sql', '033_occurrence_integrity.sql', '034_availability_integrity.sql', '035_availability_partial_closures.sql'];
 
 export async function startSchedulingBrowserEnv({ root = process.cwd(), log = console.log } = {}) {
   if (!existsSync(path.join(root, 'packages/scheduling/sql/010_shared_schema.sql'))) throw new Error('Run from the repository worktree.');

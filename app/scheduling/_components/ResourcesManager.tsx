@@ -1,6 +1,7 @@
 'use client';
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
-import { Badge, Button, PageHeader, StateMessage, fieldControlClassName } from '@/components/ui/app';
+import { Badge, Button, PageHeader, StateMessage, buttonProps, fieldControlClassName } from '@/components/ui/app';
 import { schedulingApi, seg } from '@/lib/scheduling/dashboard/api';
 import type { ResourceView } from '@/lib/scheduling/dashboard/types';
 import { RESOURCE_KIND_LABELS } from '@/lib/scheduling/dashboard/wording';
@@ -92,20 +93,21 @@ export default function ResourcesManager({ canManage }: { canManage: boolean }) 
                   rows={visible}
                   columns={columns}
                   archivedOf={r => !r.active}
-                  actions={
-                    canManage
-                      ? r => (
-                          <span className={styles.actionButtons}>
-                            <Button size="sm" onClick={() => setMode({ kind: 'edit', resource: r })} aria-label={`Edit ${r.name}`}>Edit</Button>
-                            {r.active ? (
-                              <Button size="sm" variant="ghost" onClick={() => setMode({ kind: 'deactivate', resource: r })} aria-label={`Deactivate ${r.name}`}>Deactivate</Button>
-                            ) : (
-                              <Button size="sm" variant="ghost" onClick={() => setMode({ kind: 'reactivate', resource: r })} aria-label={`Reactivate ${r.name}`}>Reactivate</Button>
-                            )}
-                          </span>
-                        )
-                      : undefined
-                  }
+                  actions={r => (
+                    <span className={styles.actionButtons}>
+                      <Link href={`/scheduling/resources/${seg(r.id)}/availability`} {...buttonProps('secondary', 'sm')} aria-label={`Hours for ${r.name}`}>Hours</Link>
+                      {canManage && (
+                        <>
+                          <Button size="sm" onClick={() => setMode({ kind: 'edit', resource: r })} aria-label={`Edit ${r.name}`}>Edit</Button>
+                          {r.active ? (
+                            <Button size="sm" variant="ghost" onClick={() => setMode({ kind: 'deactivate', resource: r })} aria-label={`Deactivate ${r.name}`}>Deactivate</Button>
+                          ) : (
+                            <Button size="sm" variant="ghost" onClick={() => setMode({ kind: 'reactivate', resource: r })} aria-label={`Reactivate ${r.name}`}>Reactivate</Button>
+                          )}
+                        </>
+                      )}
+                    </span>
+                  )}
                 />
               )}
             </>

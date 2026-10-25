@@ -32,6 +32,9 @@ const PAGES = [
   'app/scheduling/schedules/page.tsx',
   'app/scheduling/schedules/[scheduleId]/page.tsx',
   'app/scheduling/resources/page.tsx',
+  // Phase 2B.3c (deliberate, reviewed change): the availability screens, one per offering and one per resource. Same rules as every page above.
+  'app/scheduling/offerings/[offeringId]/availability/page.tsx',
+  'app/scheduling/resources/[resourceId]/availability/page.tsx',
 ];
 
 // What a client component (or the pure libraries it uses) may import. Everything else is a server module until proven otherwise.
@@ -41,7 +44,7 @@ const CLIENT_ALLOWED = [
   /^next\/navigation$/,
   /^@\/components\/ui\/app$/,
   /^@\/lib\/layout\/headerOffset$/,
-  /^@\/lib\/scheduling\/dashboard\/(api|forms|types|wording)$/,
+  /^@\/lib\/scheduling\/dashboard\/(api|forms|types|wording|availability)$/,
   /^@\/lib\/scheduling\/configurable$/,
   /^@scheduling\/core$/,
   /^\.\.?\/[\w./-]*$/, // siblings inside the dashboard / the pure libraries
@@ -126,7 +129,8 @@ describe('the dashboard talks only to the Scheduling API, and never books', () =
       for (const m of read(f).matchAll(/schedulingApi(?:<[^>]*(?:<[^>]*>[^>]*)*>)?\(\s*'(?:GET|POST|PATCH|DELETE)',\s*[`']\/([a-z]+)/g)) paths.add(m[1]);
       for (const m of read(f).matchAll(/useSchedulingData<[^(]*\(\s*[`']\/([a-z]+)/g)) paths.add(m[1]);
     }
-    expect([...paths].sort()).toEqual(['offerings', 'resources', 'schedules', 'status']);
+    // Phase 2B.3c (deliberate, reviewed change): 'availability' is the rule and closure routes (/availability-rules/<id>, /availability-exceptions/<id>).
+    expect([...paths].sort()).toEqual(['availability', 'offerings', 'resources', 'schedules', 'status']);
   });
 
   it('exposes no booking, reservation, occurrence, customer, payment or public-slug control', () => {
@@ -153,7 +157,7 @@ describe('wording and scope', () => {
   });
 
   it('management controls exist only behind canManage: every manager screen takes it, and the page gate derives it from scheduling.manage', () => {
-    for (const f of ['SchedulesManager', 'ResourcesManager', 'ScheduleDetail', 'Overview']) {
+    for (const f of ['SchedulesManager', 'ResourcesManager', 'ScheduleDetail', 'Overview', 'AvailabilityScreen']) {
       const src = noTsComments(read(`app/scheduling/_components/${f}.tsx`));
       expect(src, f).toMatch(/canManage/);
     }

@@ -19,7 +19,7 @@ const stored = (id: string, over: Partial<NewStoredRuleInput> = {}): StoredAvail
 });
 const closure = (over: Partial<NewStoredExceptionInput> = {}): NewStoredExceptionInput => ({ fromDate: '2026-12-24', toDate: '2026-12-26', kind: 'closed', reason: null, ...over });
 const storedClosure = (id: string, over: Partial<NewStoredExceptionInput> = {}): StoredAvailabilityException => ({
-  id, resourceId: 'court-1', offeringId: null, ...closure(over), createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00.000000Z',
+  id, resourceId: 'court-1', offeringId: null, startTime: null, endTime: null, ...closure(over), createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00.000000Z',
 });
 
 describe('checkRuleWrite', () => {

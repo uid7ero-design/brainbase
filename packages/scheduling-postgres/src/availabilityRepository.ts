@@ -1,10 +1,13 @@
 import {
   AvailabilityNotReadyError,
+  MAX_RULE_BATCH,
+  PartialClosuresNotReadyError,
   SchedulingError,
   isLocalDate,
   validateAvailabilityException,
   validateAvailabilityRuleForSet,
   validateExpectedUpdatedAt,
+  type AvailabilityCapabilities,
   type AvailabilityOwner,
   type AvailabilityWriteFailure,
   type AvailabilityWriteResult,
@@ -42,7 +45,10 @@ const HHMM = (col: string) => `CASE WHEN ${col} = '24:00:00'::time THEN '24:00' 
 
 const RULE_COLUMNS = `r.id, r.resource_id, r.offering_id, r.kind, r.label, r.day_of_week, ${HHMM('r.start_time')} AS start_time, ${HHMM('r.end_time')} AS end_time,
   r.valid_from::text AS valid_from, r.valid_to::text AS valid_to, ${STAMP('r.created_at')} AS created_at, ${VERSION('r.updated_at')} AS updated_at`;
+// start_time / end_time exist only after migration 035, so they are read through to_jsonb: the SAME read works before and after it (a
+// missing column is simply null, i.e. a full-day closure). '24:00' survives as the text '24:00:00'.
 const EXCEPTION_COLUMNS = `e.id, e.resource_id, e.offering_id, e.from_date::text AS from_date, e.to_date::text AS to_date, e.kind, e.reason,
+  left(to_jsonb(e) ->> 'start_time', 5) AS start_time, left(to_jsonb(e) ->> 'end_time', 5) AS end_time,
   ${STAMP('e.created_at')} AS created_at, ${VERSION('e.updated_at')} AS updated_at`;
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -53,11 +59,18 @@ const toRule = (r: Row): StoredAvailabilityRule => ({
 });
 const toException = (r: Row): StoredAvailabilityException => ({
   id: r.id, resourceId: r.resource_id, offeringId: r.offering_id, fromDate: r.from_date, toDate: r.to_date, kind: r.kind, reason: r.reason,
-  createdAt: r.created_at, updatedAt: r.updated_at,
+  startTime: r.start_time ?? null, endTime: r.end_time ?? null, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
 const denied = (what: string) => new SchedulingError('permission_denied', `${what} is required`);
 const invalid = (problems: string[]) => new SchedulingError('invalid_input', problems.join('; '));
+
+// 42703 on the exceptions table naming start_time or end_time means migration 035 is missing (a partial-day closure was asked for);
+// any other undefined column means 034 is missing. Both are "not ready": nothing was written.
+function notReady(err: unknown): Error {
+  const message = String((err as { message?: unknown })?.message ?? '');
+  return /(start_time|end_time)/.test(message) && /scheduling_availability_exceptions/.test(message) ? new PartialClosuresNotReadyError() : new AvailabilityNotReadyError();
+}
 
 const SQLSTATE_FAILURE: Record<string, AvailabilityWriteFailure> = { SCOVL: 'overlap', SCARC: 'owner_archived', SCRES: 'owner_inactive' };
 
@@ -90,7 +103,7 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
     try {
       return await this.sql.query<Row>(text, params);
     } catch (err) {
-      if (sqlstateOf(err) === '42703') throw new AvailabilityNotReadyError();
+      if (sqlstateOf(err) === '42703') throw notReady(err);
       throw err;
     }
   }
@@ -102,14 +115,28 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
       return rows.length > 0 ? { ok: true, id: rows[0].id as string } : { ok: 'none' };
     } catch (err) {
       const code = sqlstateOf(err);
-      if (code === '42703') throw new AvailabilityNotReadyError();
+      if (code === '42703') throw notReady(err);
       const failure = code ? SQLSTATE_FAILURE[code] : undefined;
       if (failure) return { ok: false, reason: failure };
       throw mapPgError(err) ?? err;
     }
   }
 
-  private ownerColumn = (owner: AvailabilityOwner) => (owner.kind === 'resource' ? 'resource_id' : 'offering_id');
+  /** Like write(), for a statement that RETURNs several rows (createRules): the ids of all of them, or the guard's refusal. */
+  private async writeRows(text: string, params: unknown[]): Promise<{ ok: true; ids: string[] } | { ok: false; reason: AvailabilityWriteFailure }> {
+    try {
+      const rows = await this.sql.query<Row>(text, params);
+      return { ok: true, ids: rows.map(r => r.id as string) };
+    } catch (err) {
+      const code = sqlstateOf(err);
+      if (code === '42703') throw notReady(err);
+      const failure = code ? SQLSTATE_FAILURE[code] : undefined;
+      if (failure) return { ok: false, reason: failure };
+      throw mapPgError(err) ?? err;
+    }
+  }
+
+  private ownerColumn =(owner: AvailabilityOwner) => (owner.kind === 'resource' ? 'resource_id' : 'offering_id');
   private ownerTable = (owner: AvailabilityOwner) => (owner.kind === 'resource' ? 'scheduling_resources' : 'scheduling_offerings');
 
   /** A write that changed no row: read-only, says whether the row is missing (or another tenant's) or has simply moved on. */
@@ -158,6 +185,54 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
     if (res.ok === false) return res;
     const stored = await this.getRule(tenant, res.id);
     return stored ? { ok: true, value: stored } : { ok: false, reason: 'not_found' };
+  }
+
+  async createRules(tenant: TenantContext, owner: AvailabilityOwner, inputs: readonly NewStoredRuleInput[]): Promise<AvailabilityWriteResult<StoredAvailabilityRule[]>> {
+    this.manage(tenant);
+    const problems: string[] = [];
+    if (inputs.length === 0) problems.push('at least one rule is required');
+    if (inputs.length > MAX_RULE_BATCH) problems.push(`at most ${MAX_RULE_BATCH} rules can be created together`);
+    inputs.forEach((input, i) => {
+      const own = validateAvailabilityRuleForSet({
+        id: 'candidate', organisationId: tenant.organisationId,
+        resourceId: owner.kind === 'resource' ? owner.id : null, offeringId: owner.kind === 'offering' ? owner.id : null,
+        dayOfWeek: input.dayOfWeek, startTime: input.startTime, endTime: input.endTime as string, validFrom: input.validFrom, validTo: input.validTo,
+      });
+      if (input.kind !== 'hours' && input.kind !== 'service_period') own.push("kind must be 'hours' or 'service_period'");
+      problems.push(...own.map(p => `rule ${i + 1}: ${p}`));
+    });
+    if (problems.length > 0) throw invalid(problems);
+
+    // ONE statement, so all of the rules or none: a refusal of any tuple (overlap with an existing rule, with another tuple of this very
+    // statement, an archived offering, an inactive resource) rolls the whole statement back. The owner's guard (034) takes the owner lock on
+    // the first tuple and holds it to the end of the statement, and a volatile BEFORE ROW trigger sees the rows the same statement
+    // inserted before it, so tuples are checked against each other as well as against the stored rules.
+    const params: unknown[] = [tenant.organisationId, owner.id];
+    const arg = (v: unknown) => {
+      params.push(v);
+      return `$${params.length}`;
+    };
+    const tuples = inputs.map(input => {
+      const p = [this.newId(), input.kind, input.label, input.dayOfWeek, input.startTime, input.endTime, input.validFrom, input.validTo].map(arg);
+      return `(${p[0]}::text, ${p[1]}::text, ${p[2]}::text, ${p[3]}::smallint, ${p[4]}::time, ${p[5]}::time, ${p[6]}::date, ${p[7]}::date)`;
+    });
+    const written = await this.writeRows(
+      `INSERT INTO scheduling_availability_rules (id, organisation_id, resource_id, offering_id, kind, label, day_of_week, start_time, end_time, valid_from, valid_to)
+       SELECT v.id, o.organisation_id, ${owner.kind === 'resource' ? 'o.id, NULL' : 'NULL, o.id'}, v.kind, v.label, v.dow, v.s, v.e, v.vf, v.vt
+         FROM ${this.ownerTable(owner)} o
+        CROSS JOIN (VALUES ${tuples.join(', ')}) AS v(id, kind, label, dow, s, e, vf, vt)
+        WHERE o.organisation_id = $1 AND o.id = $2
+       RETURNING id, updated_at`, // updated_at here makes the statement fail BEFORE writing when 034 is absent
+      params,
+    );
+    if (written.ok === false) return written;
+    if (written.ids.length === 0) return { ok: false, reason: 'not_found' };
+    const readParams: unknown[] = [tenant.organisationId, ...written.ids];
+    const rows = await this.read(
+      `SELECT ${RULE_COLUMNS} FROM scheduling_availability_rules r WHERE r.organisation_id = $1 AND r.id IN (${written.ids.map((_, i) => `$${i + 2}`).join(', ')}) ORDER BY r.day_of_week, r.start_time, r.id`,
+      readParams,
+    );
+    return { ok: true, value: rows.map(toRule) };
   }
 
   async updateRule(tenant: TenantContext, ruleId: string, expectedUpdatedAt: string, changes: StoredRulePatch): Promise<AvailabilityWriteResult<StoredAvailabilityRule>> {
@@ -221,17 +296,22 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
       id: 'candidate', organisationId: tenant.organisationId,
       resourceId: owner.kind === 'resource' ? owner.id : null, offeringId: owner.kind === 'offering' ? owner.id : null,
       fromDate: input.fromDate, toDate: input.toDate, kind: input.kind, reason: input.reason,
+      windows: input.startTime != null && input.endTime != null ? [{ startTime: input.startTime, endTime: input.endTime }] : [],
     });
     // An override needs hours and the table has no column for them (see the Phase 2B.3b doc): only closures are stored for now.
     if (input.kind === 'override') problems.splice(0, problems.length, 'override exceptions are not stored yet: only closures can be created');
+    if ((input.startTime == null) !== (input.endTime == null)) problems.push('startTime and endTime must be given together (a partial-day closure), or both left out (a full-day closure)');
     if (problems.length > 0) throw invalid(problems);
     const id = this.newId();
+    // A full-day closure names neither window column, so it is stored identically before and after migration 035. A partial-day closure
+    // names them, and before 035 that fails at analysis time (undefined_column -> PartialClosuresNotReadyError) with nothing written.
+    const partial = input.startTime != null && input.endTime != null;
     const res = await this.write(
-      `INSERT INTO scheduling_availability_exceptions (id, organisation_id, resource_id, offering_id, from_date, to_date, kind, reason)
-       SELECT $1, o.organisation_id, ${owner.kind === 'resource' ? 'o.id, NULL' : 'NULL, o.id'}, $4::date, $5::date, $6, $7
+      `INSERT INTO scheduling_availability_exceptions (id, organisation_id, resource_id, offering_id, from_date, to_date, kind, reason${partial ? ', start_time, end_time' : ''})
+       SELECT $1, o.organisation_id, ${owner.kind === 'resource' ? 'o.id, NULL' : 'NULL, o.id'}, $4::date, $5::date, $6, $7${partial ? ', $8::time, $9::time' : ''}
          FROM ${this.ownerTable(owner)} o WHERE o.organisation_id = $2 AND o.id = $3
        RETURNING id, updated_at`, // updated_at here makes the statement fail BEFORE writing when 034 is absent
-      [id, tenant.organisationId, owner.id, input.fromDate, input.toDate, input.kind, input.reason],
+      [id, tenant.organisationId, owner.id, input.fromDate, input.toDate, input.kind, input.reason, ...(partial ? [input.startTime, input.endTime] : [])],
     );
     if (res.ok === 'none') return { ok: false, reason: 'not_found' };
     if (res.ok === false) return res;
@@ -261,6 +341,11 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
       sets.push(`kind = ${arg(changes.kind)}`);
     }
     if (changes.reason !== undefined) sets.push(`reason = ${arg(changes.reason)}`);
+    // The window is replaced as a pair: both given (partial-day) or both null (full-day). Naming the columns needs migration 035.
+    if (changes.startTime !== undefined || changes.endTime !== undefined) {
+      if ((changes.startTime == null) !== (changes.endTime == null)) problems.push('startTime and endTime must be changed together');
+      sets.push(`start_time = ${arg(changes.startTime ?? null)}::time`, `end_time = ${arg(changes.endTime ?? null)}::time`);
+    }
     if (sets.length === 0) problems.push('nothing to change');
     if (problems.length > 0) throw invalid(problems);
 
@@ -272,6 +357,17 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
     if (res.ok === false) return res;
     const stored = await this.getException(tenant, res.id);
     return stored ? { ok: true, value: stored } : { ok: false, reason: 'not_found' };
+  }
+
+  /** Read-only: which optional parts of the schema exist. Lets the API (and so the screen) say "partial-day closures are not installed" up front. */
+  async capabilities(tenant: TenantContext): Promise<AvailabilityCapabilities> {
+    this.view(tenant);
+    const rows = await this.read(
+      `SELECT count(*)::int AS n FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'scheduling_availability_exceptions' AND column_name IN ('start_time', 'end_time')`,
+      [],
+    );
+    return { partialClosures: Number(rows[0]?.n ?? 0) === 2 };
   }
 
   async deleteException(tenant: TenantContext, exceptionId: string, expectedUpdatedAt: string): Promise<AvailabilityWriteResult<{ id: string }>> {
