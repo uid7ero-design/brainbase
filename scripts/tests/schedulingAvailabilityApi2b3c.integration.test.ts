@@ -137,6 +137,7 @@ suite('Scheduling 2B.3c availability API on real Postgres', () => {
     pool.on('error', () => undefined);
     await pool.query(sqlFile('034_availability_integrity.sql'));
     await pool.query(sqlFile('096_availability_partial_closures_rollback.sql')); // 034 only, whatever ran before
+    await pool.query(sqlFile('036_availability_zones.sql')); // owner-pinned zones: every create pins in the same statement
   }, 60_000);
   afterAll(async () => {
     await q('DELETE FROM scheduling_availability_exceptions');
@@ -290,7 +291,7 @@ suite('Scheduling 2B.3c availability API on real Postgres', () => {
       await addClosure('resource', { fromDate: '2027-04-02', toDate: '2027-04-05', reason: 'Easter' });
       const r = await listFor('resource');
       expect(r.status).toBe(200);
-      expect(r.json.capabilities).toEqual({ partialClosures: false });
+      expect(r.json.capabilities).toEqual({ partialClosures: false, zones: true });
       expect(r.json.exceptions).toHaveLength(1);
       expect(r.json.exceptions[0]).toMatchObject({ startTime: null, endTime: null });
     });
@@ -342,7 +343,7 @@ suite('Scheduling 2B.3c availability API on real Postgres', () => {
       expect(r.status, JSON.stringify(r.json)).toBe(201);
       expect(r.json.exception).toMatchObject({ fromDate: '2027-04-02', toDate: '2027-04-02', startTime: '12:00', endTime: '13:30', kind: 'closed' });
       const list = await listFor(o);
-      expect(list.json.capabilities).toEqual({ partialClosures: true });
+      expect(list.json.capabilities).toEqual({ partialClosures: true, zones: true });
       expect(list.json.exceptions[0]).toMatchObject({ startTime: '12:00', endTime: '13:30' });
       const audit = (await availabilityAudit('org-a')).filter(a => a.action === 'scheduling.availability_exception.created');
       expect(audit.at(-1)?.after_state.summary).toMatchObject({ start_time: '12:00', end_time: '13:30', has_reason: true });
@@ -589,6 +590,181 @@ suite('Scheduling 2B.3c availability API on real Postgres', () => {
       }
       const fresh = (await listFor('resource')).json.rules as Half[];
       expect((await removeWindow(tokens(fresh))).status).toBe(200);
+    });
+  });
+
+  // ─── Owner-pinned zones through the API (migration 036 applied by beforeAll) ─────────────────────────────
+
+  describe('owner-pinned availability zones', () => {
+    const pinsAudit = async () => (await availabilityAudit('org-a')).filter(a => a.action === 'scheduling.availability_zone.pinned');
+    const pinRows = () => q<{ owner_id: string; timezone: string; source: string; pinned_by: string | null }>('SELECT owner_id, timezone, source, pinned_by FROM scheduling_availability_zones ORDER BY owner_id');
+    async function scheduleWithZone(timezone: string | null) {
+      const r = await call({ route: schedulesRoute, method: 'POST', body: { name: 'Perth hire', presetKey: 'resource_hire', ...(timezone ? { timezone } : {}) } });
+      expect(r.status, JSON.stringify(r.json)).toBe(201);
+      return (r.json.schedule as { id: string }).id;
+    }
+
+    it('a read pins nothing and says what the first write WOULD pin', async () => {
+      const r = await listFor('resource');
+      expect(r.json.zone).toEqual({ timezone: 'Australia/Adelaide', pinned: false, source: null, pinnedAt: null });
+      expect(r.json.capabilities).toMatchObject({ zones: true });
+      expect(await pinRows()).toEqual([]);
+    });
+
+    it('the first rule of a RESOURCE pins the organisation\'s zone, audited once, and the response and later reads report it', async () => {
+      const r = await addRule('resource', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00' });
+      expect(r.status, JSON.stringify(r.json)).toBe(201);
+      expect(r.json.zone).toMatchObject({ timezone: 'Australia/Adelaide', pinned: true, source: 'first_rule' });
+      expect(await pinRows()).toEqual([{ owner_id: OWNERS.resource.id, timezone: 'Australia/Adelaide', source: 'first_rule', pinned_by: 'user-org-a' }]);
+      const audit = await pinsAudit();
+      expect(audit).toHaveLength(1);
+      expect(audit[0]).toMatchObject({ resource_id: OWNERS.resource.id, after_state: { summary: { owner_kind: 'resource', owner_id: OWNERS.resource.id, timezone: 'Australia/Adelaide', source: 'first_rule' } } });
+      // a second write finds the pin: no second pin, no second pin audit
+      expect((await addRule('resource', { dayOfWeek: 2, startTime: '09:00', endTime: '12:00' })).status).toBe(201);
+      expect(await pinsAudit()).toHaveLength(1);
+      expect((await listFor('resource')).json.zone).toMatchObject({ timezone: 'Australia/Adelaide', pinned: true, source: 'first_rule' });
+    });
+
+    it('an OFFERING pins its schedule\'s timezone when the schedule has one, else the organisation\'s; a first CLOSURE pins too', async () => {
+      const perth = await newOffering(await scheduleWithZone('Australia/Perth'));
+      const plain = OWNERS.offering.id; // the default schedule has no override
+      expect((await addRule('offering', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00' }, perth.id)).status).toBe(201);
+      expect((await addClosure('offering', { fromDate: '2027-04-02', toDate: '2027-04-02' }, plain)).status).toBe(201);
+      expect(await pinRows()).toEqual(expect.arrayContaining([
+        expect.objectContaining({ owner_id: perth.id, timezone: 'Australia/Perth', source: 'first_rule' }),
+        expect.objectContaining({ owner_id: plain, timezone: 'Australia/Adelaide', source: 'first_closure' }),
+      ]));
+      expect((await listFor('offering', perth.id)).json.zone).toMatchObject({ timezone: 'Australia/Perth', pinned: true });
+    });
+
+    it('once pinned, changing the organisation\'s timezone or the schedule\'s does not reinterpret the hours: the zone, the rules and every version token are unchanged', async () => {
+      const perthSchedule = await scheduleWithZone('Australia/Perth');
+      const offering = await newOffering(perthSchedule);
+      await addRule('offering', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00' }, offering.id);
+      await addRule('resource', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00' });
+      const before = await Promise.all([listFor('offering', offering.id), listFor('resource')]);
+      await q("UPDATE organisations SET timezone = 'Europe/London' WHERE id = 'org-a'");
+      await q('UPDATE scheduling_schedules SET timezone = $1 WHERE id = $2', ['Asia/Tokyo', perthSchedule]);
+      const after = await Promise.all([listFor('offering', offering.id), listFor('resource')]);
+      expect(after.map(a => a.json.zone)).toEqual(before.map(b => b.json.zone));
+      expect(after.map(a => a.json.zone.timezone)).toEqual(['Australia/Perth', 'Australia/Adelaide']);
+      expect(after.map(a => a.json.rules)).toEqual(before.map(b => b.json.rules));
+      // another write after the changes still does not move the pin
+      expect((await addRule('resource', { dayOfWeek: 3, startTime: '09:00', endTime: '10:00' })).json.zone.timezone).toBe('Australia/Adelaide');
+    });
+
+    it('a shared resource has one zone: offerings of schedules with different zones keep their own pins and the resource keeps its', async () => {
+      const perth = await newOffering(await scheduleWithZone('Australia/Perth'));
+      await addRule('resource', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00' });
+      await addRule('offering', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00' }, perth.id);
+      await addRule('offering', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00' });
+      const zones = Object.fromEntries((await pinRows()).map(p => [p.owner_id, p.timezone]));
+      expect(zones).toEqual({ [OWNERS.resource.id]: 'Australia/Adelaide', [perth.id]: 'Australia/Perth', [OWNERS.offering.id]: 'Australia/Adelaide' });
+    });
+
+    it('a refused first write pins nothing and audits nothing (archived offering)', async () => {
+      expect((await call({ route: offeringArchive, method: 'POST', params: { offeringId: OWNERS.offering.id } })).status).toBe(200);
+      const r = await addRule('offering', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00' });
+      expect([r.status, r.json.code]).toEqual([409, 'ARCHIVED']);
+      expect(await pinRows()).toEqual([]);
+      expect(await pinsAudit()).toEqual([]);
+    });
+
+    it('another organisation, a viewer and a signed-out caller cannot pin: refusals change nothing', async () => {
+      const before = await snapshot('org-a', [...AVAILABILITY_TABLES, 'scheduling_availability_zones']);
+      as('manager', 'org-b');
+      expect((await addRule('resource', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00' })).status).toBe(404);
+      as('viewer', 'org-a');
+      expect((await addRule('resource', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00' })).status).toBe(403);
+      expect((await listFor('resource')).json.zone.pinned).toBe(false); // a viewer may read the (unpinned) zone
+      state.session = null;
+      expect((await addRule('resource', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00' })).status).toBe(401);
+      as('manager', 'org-a');
+      expect(await snapshot('org-a', [...AVAILABILITY_TABLES, 'scheduling_availability_zones'])).toEqual(before);
+      expect(await pinRows()).toEqual([]);
+    });
+
+    it('a write naming a DIFFERENT timezone than the pinned one is 409 ZONE_MISMATCH: no rule, no closure, no pin, no audit entry; naming the same one is fine', async () => {
+      expect((await addRule('resource', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00', timezone: 'Australia/Adelaide' })).status).toBe(201); // pins Adelaide
+      const tables = [...AVAILABILITY_TABLES, 'scheduling_availability_zones'];
+      const before = await snapshot('org-a', tables);
+      const attempts = [
+        addRule('resource', { dayOfWeek: 2, startTime: '09:00', endTime: '12:00', timezone: 'Australia/Perth' }),
+        addRule('resource', { daysOfWeek: [3, 4], startTime: '09:00', endTime: '12:00', timezone: 'Australia/Perth' }),
+        addRule('resource', { dayOfWeek: 5, startTime: '22:00', endTime: '02:00', overnight: true, timezone: 'Australia/Perth' }),
+        addClosure('resource', { fromDate: '2027-04-02', toDate: '2027-04-02', timezone: 'Australia/Perth' }),
+      ];
+      for (const r of await Promise.all(attempts)) {
+        expect([r.status, r.json.code, r.json.requestedTimezone, r.json.currentTimezone]).toEqual([409, 'ZONE_MISMATCH', 'Australia/Perth', 'Australia/Adelaide']);
+      }
+      expect(await snapshot('org-a', tables)).toEqual(before); // nothing written, and (audit_logs is part of the snapshot) no audit entry
+      expect((await pinsAudit()).length).toBe(1);
+      // the same zone is accepted, and a write that names none is accepted under the pin
+      expect((await addRule('resource', { dayOfWeek: 2, startTime: '09:00', endTime: '12:00', timezone: 'Australia/Adelaide' })).status).toBe(201);
+      expect((await addRule('resource', { dayOfWeek: 3, startTime: '09:00', endTime: '12:00' })).status).toBe(201);
+      expect((await pinRows())).toHaveLength(1);
+    });
+
+    it('an owner that is not pinned yet: naming a zone other than the one the first save would pin is also 409 and pins nothing', async () => {
+      const r = await addRule('resource', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00', timezone: 'Australia/Perth' });
+      expect([r.status, r.json.code, r.json.currentTimezone]).toEqual([409, 'ZONE_MISMATCH', 'Australia/Adelaide']);
+      expect(await pinRows()).toEqual([]);
+      expect(await pinsAudit()).toEqual([]);
+      expect(await countRules(OWNERS.resource.id)).toBe(0);
+      const perth = await newOffering(await scheduleWithZone('Australia/Perth'));
+      expect((await addRule('offering', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00', timezone: 'Australia/Perth' }, perth.id)).status).toBe(201); // the schedule's zone: matches
+      expect((await addRule('offering', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00', timezone: 'Australia/Adelaide' }, perth.id)).json.code).toBe('ZONE_MISMATCH'); // now pinned Perth
+    });
+
+    it('a malformed timezone is a 400 that writes nothing; another organisation naming a zone still gets 404, a viewer 403', async () => {
+      await addRule('resource', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00' });
+      const tables = [...AVAILABILITY_TABLES, 'scheduling_availability_zones'];
+      const before = await snapshot('org-a', tables);
+      for (const timezone of ['Not/AZone', '', 'UTC+10', 7, null]) {
+        const r = await addRule('resource', { dayOfWeek: 2, startTime: '09:00', endTime: '12:00', timezone });
+        expect([String(timezone), r.status, r.json.code]).toEqual([String(timezone), 400, 'INVALID_INPUT']);
+      }
+      as('manager', 'org-b');
+      expect((await addRule('resource', { dayOfWeek: 2, startTime: '09:00', endTime: '12:00', timezone: 'Australia/Perth' })).status).toBe(404);
+      as('viewer', 'org-a');
+      expect((await addRule('resource', { dayOfWeek: 2, startTime: '09:00', endTime: '12:00', timezone: 'Australia/Perth' })).status).toBe(403);
+      as('manager', 'org-a');
+      expect(await snapshot('org-a', tables)).toEqual(before);
+    });
+
+    it('8 simultaneous first saves on one resource: all succeed, exactly one pin and one pin audit entry', async () => {
+      const results = await Promise.all(Array.from({ length: 7 }, (_, i) => addRule('resource', { dayOfWeek: i, startTime: '09:00', endTime: '12:00' })));
+      const closureResult = addClosure('resource', { fromDate: '2027-04-02', toDate: '2027-04-02' });
+      expect([...results, await closureResult].every(r => r.status === 201)).toBe(true);
+      expect(await pinRows()).toHaveLength(1);
+      expect(await pinsAudit()).toHaveLength(1);
+    });
+
+    it('FAILS CLOSED when migration 036 is missing: creating anything is 503 AVAILABILITY_ZONES_NOT_READY and writes nothing; reading still works and says so', async () => {
+      await addRule('resource', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00' }); // an owner that is pinned and has a rule
+      const kept = await q<{ id: string; updated_at: string }>('SELECT id, to_char(updated_at AT TIME ZONE \'UTC\', \'YYYY-MM-DD"T"HH24:MI:SS.US"Z"\') AS updated_at FROM scheduling_availability_rules');
+      await pool.query(sqlFile('097_availability_zones_rollback.sql'));
+      try {
+        const before = await snapshot('org-a', AVAILABILITY_TABLES);
+        const auditBefore = (await availabilityAudit('org-a')).length;
+        for (const [name, res] of [
+          ['rule', await addRule('resource', { dayOfWeek: 2, startTime: '09:00', endTime: '12:00' })],
+          ['overnight', await addRule('resource', { dayOfWeek: 5, startTime: '22:00', endTime: '02:00', overnight: true })],
+          ['days', await addRule('offering', WEEKDAYS)],
+          ['closure', await addClosure('resource', { fromDate: '2027-04-02', toDate: '2027-04-02' })],
+        ] as const) expect([name, res.status, res.json.code]).toEqual([name, 503, 'AVAILABILITY_ZONES_NOT_READY']);
+        expect(await snapshot('org-a', AVAILABILITY_TABLES)).toEqual(before);
+        expect((await availabilityAudit('org-a')).length).toBe(auditBefore);
+        const read = await listFor('resource');
+        expect(read.status).toBe(200);
+        expect(read.json.capabilities).toMatchObject({ zones: false });
+        expect(read.json.zone.pinned).toBe(false);
+        // removing still works (deleting availability is always allowed)
+        expect((await call({ route: ruleRoute, method: 'DELETE', params: { ruleId: kept[0].id }, body: { expectedUpdatedAt: kept[0].updated_at } })).status).toBe(200);
+      } finally {
+        await pool.query(sqlFile('036_availability_zones.sql'));
+      }
+      expect((await addRule('resource', { dayOfWeek: 2, startTime: '09:00', endTime: '12:00' })).status).toBe(201);
     });
   });
 });

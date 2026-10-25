@@ -205,7 +205,7 @@ suite('availability batches and partial-day closures on real PostgreSQL', () => 
 
   describe('before migration 035 (034 only)', () => {
     it('reports no partial-day capability, and full-day closures behave exactly as before', async () => {
-      expect(await repo.capabilities(tenantA)).toEqual({ partialClosures: false });
+      expect(await repo.capabilities(tenantA)).toEqual({ partialClosures: false, zones: true });
       const c = await repo.createException(tenantA, res, closure({ fromDate: '2027-04-02', toDate: '2027-04-05', reason: 'Easter' }));
       expect(c.ok).toBe(true);
       if (!c.ok) return;
@@ -249,8 +249,8 @@ suite('availability batches and partial-day closures on real PostgreSQL', () => 
       expect(await count("SELECT count(*) FROM information_schema.columns WHERE table_name = 'scheduling_availability_exceptions' AND column_name IN ('start_time','end_time')")).toBe(2);
       expect(await count("SELECT count(*) FROM pg_constraint WHERE conname = 'scheduling_availability_exceptions_window_ck'")).toBe(1);
       expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2b.3.2'")).toBe(1);
-      expect(await count("SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgenabled = 'O' AND tgname LIKE 'scheduling_availability_%'")).toBe(4);
-      expect(await repo.capabilities(tenantA)).toEqual({ partialClosures: true });
+      expect(await count("SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgenabled = 'O' AND tgname LIKE 'scheduling_availability_%' AND tgname NOT LIKE '%zone%'")).toBe(4);
+      expect(await repo.capabilities(tenantA)).toEqual({ partialClosures: true, zones: true });
     });
 
     it('is idempotent: applying it again changes nothing', async () => {
@@ -282,6 +282,7 @@ suite('availability batches and partial-day closures on real PostgreSQL', () => 
     });
 
     it('a pre-existing full-day closure keeps its meaning: it still covers every time of its dates', async () => {
+      await getPool().query("INSERT INTO scheduling_availability_zones (organisation_id, resource_id, timezone, source) VALUES ($1, 'court-2', 'Australia/Adelaide', 'first_closure')", [A]); // 036: availability needs its owner's pin
       await getPool().query(
         "INSERT INTO scheduling_availability_exceptions (id, organisation_id, resource_id, from_date, to_date, kind) VALUES ('legacy-1', $1, 'court-2', '2027-06-01', '2027-06-02', 'closed')",
         [A],
@@ -313,6 +314,7 @@ suite('availability batches and partial-day closures on real PostgreSQL', () => 
     it('the database refuses raw SQL too: a backwards or one-sided window (CHECK), an overlap (SCOVL), an owner change (SCOWN)', async () => {
       const raw = (cols: string, vals: string) =>
         getPool().query(`INSERT INTO scheduling_availability_exceptions (id, organisation_id, resource_id, from_date, to_date, kind, ${cols}) VALUES (gen_random_uuid()::text, $1, 'court-1', '2027-07-01', '2027-07-01', 'closed', ${vals})`, [A]);
+      await getPool().query("INSERT INTO scheduling_availability_zones (organisation_id, resource_id, timezone, source) VALUES ($1, 'court-1', 'Australia/Adelaide', 'first_closure') ON CONFLICT DO NOTHING", [A]); // 036: the owner's pin
       expect(await sqlstateOf(raw('start_time, end_time', "'13:00', '12:00'"))).toBe('23514');
       expect(await sqlstateOf(raw('start_time, end_time', "'12:00', '12:00'"))).toBe('23514');
       expect(await sqlstateOf(raw('start_time', "'12:00'"))).toBe('23514');
@@ -379,14 +381,14 @@ suite('availability batches and partial-day closures on real PostgreSQL', () => 
       expect(await count("SELECT count(*) FROM information_schema.columns WHERE table_name = 'scheduling_availability_exceptions' AND column_name IN ('start_time','end_time')")).toBe(0);
       expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2b.3.2'")).toBe(0);
       expect(await count("SELECT count(*) FROM scheduling_schema_migrations WHERE version = '2b.3.1'")).toBe(1); // 034 stays in force
-      expect(await repo.capabilities(tenantA)).toEqual({ partialClosures: false });
+      expect(await repo.capabilities(tenantA)).toEqual({ partialClosures: false, zones: true });
       const kept = await repo.listExceptions(tenantA, res);
       expect(kept.map(e => [e.fromDate, e.toDate, e.reason, e.startTime])).toEqual([['2027-10-01', '2027-10-03', 'kept', null]]);
       expect(await repo.createException(tenantA, res, closure({ fromDate: '2027-10-02', toDate: '2027-10-02' }))).toEqual({ ok: false, reason: 'overlap' }); // 034's guard works again
       await runScript(sqlFile('035_availability_partial_closures.sql'));
       await runScript(sqlFile('035_availability_partial_closures.sql'));
       expect(await bodyHash('scheduling_availability_exception_integrity')).toBe(guardBody035);
-      expect(await repo.capabilities(tenantA)).toEqual({ partialClosures: true });
+      expect(await repo.capabilities(tenantA)).toEqual({ partialClosures: true, zones: true });
     });
 
     it('035 refuses to run without 034', async () => {
@@ -408,7 +410,7 @@ suite('availability batches and partial-day closures on real PostgreSQL', () => 
       await runScript(rollback);
       try {
         await expect(repo.createRules(tenantA, res, [rule({ dayOfWeek: 1 }), rule({ dayOfWeek: 2 })])).rejects.toBeInstanceOf(AvailabilityNotReadyError);
-        await expect(repo.capabilities(tenantA)).resolves.toEqual({ partialClosures: false });
+        await expect(repo.capabilities(tenantA)).resolves.toEqual({ partialClosures: false, zones: true });
         expect(await rulesIn('court-1')).toBe(0);
       } finally {
         await runScript(sqlFile('034_availability_integrity.sql'));

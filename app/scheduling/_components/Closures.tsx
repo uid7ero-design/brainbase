@@ -23,6 +23,7 @@ export function Closures({
   partialClosures,
   canAdd,
   canRemove,
+  zone,
   onChanged,
   announce,
 }: {
@@ -33,6 +34,8 @@ export function Closures({
   partialClosures: boolean;
   canAdd: boolean;
   canRemove: boolean;
+  /** The timezone the screen shows, sent with a create as what the person believes the closure is in. */
+  zone?: string;
   onChanged: () => void;
   announce: (message: string) => void;
 }) {
@@ -112,7 +115,7 @@ export function Closures({
         </>
       )}
 
-      {mode?.kind === 'add' && <ClosureDialog mode="add" ownerPath={ownerPath} partialClosures={partialClosures} onClose={close} onSaved={saved} />}
+      {mode?.kind === 'add' && <ClosureDialog mode="add" ownerPath={ownerPath} partialClosures={partialClosures} zone={zone} onClose={close} onSaved={saved} />}
       {mode?.kind === 'edit' && <ClosureDialog mode="edit" ownerPath={ownerPath} closure={mode.closure} partialClosures={partialClosures} onClose={close} onSaved={saved} onReload={closeAndReload} />}
       {mode?.kind === 'remove' && (
         <ConfirmDialog

@@ -51,7 +51,23 @@ export async function clearHours(owner: Owner): Promise<void> {
   const column = owner.kind === 'resource' ? 'resource_id' : 'offering_id';
   await query(`DELETE FROM scheduling_availability_rules WHERE ${column} = $1`, [owner.id]);
   await query(`DELETE FROM scheduling_availability_exceptions WHERE ${column} = $1`, [owner.id]);
+  // The owner's zone pin (migration 036) is immutable and is removed only with its owner, so a test that wants an UNPINNED owner again
+  // removes it here, with its immutability trigger switched off for this one statement list (test setup on the disposable database only).
+  const client = await db().connect();
+  try {
+    await client.query(
+      `ALTER TABLE scheduling_availability_zones DISABLE TRIGGER scheduling_availability_zones_immutable;
+       DELETE FROM scheduling_availability_zones WHERE owner_id = '${owner.id.replace(/[^A-Za-z0-9_.-]/g, '')}';
+       ALTER TABLE scheduling_availability_zones ENABLE TRIGGER scheduling_availability_zones_immutable;`,
+    );
+  } finally {
+    client.release();
+  }
 }
+
+/** The pinned zone of an owner (migration 036), or null. */
+export const zoneOf = async (owner: Owner) =>
+  (await query<{ timezone: string; source: string }>('SELECT timezone, source FROM scheduling_availability_zones WHERE owner_id = $1', [owner.id]))[0] ?? null;
 
 export const rulesOf = (owner: Owner) =>
   query<{ id: string; day_of_week: number; start_time: string; end_time: string; label: string | null }>(

@@ -1,6 +1,6 @@
 import { validateAvailabilityException, validateAvailabilityExceptionSet, validateAvailabilityRuleForSet, validateAvailabilityRuleSet, type WindowEnd } from './availabilityRules';
 import type { TenantContext } from './contracts';
-import type { LocalDate } from './types';
+import type { IanaTimezone, LocalDate } from './types';
 
 // Phase 2B.3b: the persistence port for availability rules and exceptions. Pure types: no SQL, no clock. The existing
 // SchedulingConfigRepository keeps its add/list methods for compatibility (they are unguarded by version); this port is what the
@@ -71,20 +71,39 @@ export type AvailabilityWriteFailure =
   | 'overlap' // the rule or exception overlaps another of the same owner
   | 'owner_archived' // the offering (or its schedule) is archived
   | 'owner_inactive' // the resource is inactive
+  | 'zone_mismatch' // a create named a zone other than the owner's pinned zone (`detail` is the zone in force); NOTHING was written
   | 'not_overnight_window'; // deleteOvernightWindow: both rules exist and are current, but they are not the two halves of one overnight window
 
-export type AvailabilityWriteResult<T> = { ok: true; value: T } | { ok: false; reason: AvailabilityWriteFailure; detail?: string };
+export type AvailabilityWriteResult<T> = { ok: true; value: T; pinned?: StoredAvailabilityZone | null } | { ok: false; reason: AvailabilityWriteFailure; detail?: string };
+
+/**
+ * The zone an owner's weekly hours and closures are read in, decided ONCE when its first availability is written (migration 036) and never
+ * inferred again. A create that established the pin returns it as `pinned`; a create for an owner already pinned returns none.
+ */
+export interface StoredAvailabilityZone {
+  timezone: IanaTimezone;
+  /** What pinned it: the owner's first rule, its first closure, or the backfill of availability that predates pinning. */
+  source: 'first_rule' | 'first_closure' | 'backfill';
+  pinnedBy: string | null;
+  pinnedAt: string;
+}
 
 export interface SchedulingAvailabilityRepository {
   listRules(tenant: TenantContext, owner: AvailabilityOwner): Promise<StoredAvailabilityRule[]>;
   getRule(tenant: TenantContext, ruleId: string): Promise<StoredAvailabilityRule | null>;
-  createRule(tenant: TenantContext, owner: AvailabilityOwner, input: NewStoredRuleInput): Promise<AvailabilityWriteResult<StoredAvailabilityRule>>;
+  /**
+   * `zone` is the zone to pin if this owner has no pinned zone yet (the caller resolves it: the schedule's zone for an offering, else the tenant's; omitted = the tenant's).
+   * The pin and the rule are written in ONE statement. `zone`, when given, is also an EXPECTATION: if the owner already has a different pinned zone (including one a concurrent
+   * writer pinned first) nothing is written and the result is `zone_mismatch` with the zone in force as `detail`; a write never changes a pin and never lands under a zone the
+   * writer did not ask for. Omitted: the tenant's zone is the default for a first pin and there is no expectation to break.
+   */
+  createRule(tenant: TenantContext, owner: AvailabilityOwner, input: NewStoredRuleInput, zone?: IanaTimezone): Promise<AvailabilityWriteResult<StoredAvailabilityRule>>;
   /**
    * Several rules of ONE owner in ONE statement: all are stored or none is (an overnight window is two rules; "the same hours on five
    * weekdays" is five). The owner's overlap guard sees the rows an earlier tuple of the same statement inserted, so a batch that overlaps
    * itself is refused whole. At most MAX_RULE_BATCH rules.
    */
-  createRules(tenant: TenantContext, owner: AvailabilityOwner, inputs: readonly NewStoredRuleInput[]): Promise<AvailabilityWriteResult<StoredAvailabilityRule[]>>;
+  createRules(tenant: TenantContext, owner: AvailabilityOwner, inputs: readonly NewStoredRuleInput[], zone?: IanaTimezone): Promise<AvailabilityWriteResult<StoredAvailabilityRule[]>>;
   updateRule(tenant: TenantContext, ruleId: string, expectedUpdatedAt: string, changes: StoredRulePatch): Promise<AvailabilityWriteResult<StoredAvailabilityRule>>;
   deleteRule(tenant: TenantContext, ruleId: string, expectedUpdatedAt: string): Promise<AvailabilityWriteResult<{ id: string }>>;
   /**
@@ -98,11 +117,14 @@ export interface SchedulingAvailabilityRepository {
 
   listExceptions(tenant: TenantContext, owner: AvailabilityOwner): Promise<StoredAvailabilityException[]>;
   getException(tenant: TenantContext, exceptionId: string): Promise<StoredAvailabilityException | null>;
-  createException(tenant: TenantContext, owner: AvailabilityOwner, input: NewStoredExceptionInput): Promise<AvailabilityWriteResult<StoredAvailabilityException>>;
+  createException(tenant: TenantContext, owner: AvailabilityOwner, input: NewStoredExceptionInput, zone?: IanaTimezone): Promise<AvailabilityWriteResult<StoredAvailabilityException>>;
   updateException(tenant: TenantContext, exceptionId: string, expectedUpdatedAt: string, changes: StoredExceptionPatch): Promise<AvailabilityWriteResult<StoredAvailabilityException>>;
   deleteException(tenant: TenantContext, exceptionId: string, expectedUpdatedAt: string): Promise<AvailabilityWriteResult<{ id: string }>>;
 
-  /** Which optional parts of the availability schema are installed (read-only). Partial-day closures need migration 035. */
+  /** The owner's pinned zone, or null when it has none yet (or migration 036 is not applied). Read-only. */
+  getZone(tenant: TenantContext, owner: AvailabilityOwner): Promise<StoredAvailabilityZone | null>;
+
+  /** Which optional parts of the availability schema are installed (read-only). Partial-day closures need migration 035, pinned zones 036. */
   capabilities(tenant: TenantContext): Promise<AvailabilityCapabilities>;
 }
 
@@ -114,6 +136,8 @@ export interface OvernightHalfRef {
 
 export interface AvailabilityCapabilities {
   partialClosures: boolean;
+  /** Migration 036: owner-pinned zones. Without it creating availability is refused (AvailabilityZonesNotReadyError). */
+  zones: boolean;
 }
 
 /** The most rules one request may create: seven weekdays, each possibly an overnight pair. */
@@ -125,6 +149,15 @@ export class AvailabilityNotReadyError extends Error {
   constructor() {
     super('The availability schema is not installed');
     this.name = 'AvailabilityNotReadyError';
+  }
+}
+
+/** Creating availability needs migration 036 (owner-pinned zones), which is not applied. Nothing was written. Reading and removing availability still work. */
+export class AvailabilityZonesNotReadyError extends Error {
+  readonly code = 'AVAILABILITY_ZONES_NOT_READY' as const;
+  constructor() {
+    super('The availability zone schema (owner-pinned zones) is not installed');
+    this.name = 'AvailabilityZonesNotReadyError';
   }
 }
 

@@ -41,6 +41,8 @@ export const SCHEDULING_SQLSTATE = {
   availabilityOverlap: 'SCOVL',
   /** 034: the owner of an availability rule or closure cannot change. */
   availabilityOwner: 'SCOWN',
+  /** 036: a pinned availability zone cannot be changed or removed, and availability needs its owner's pin. */
+  availabilityZone: 'SCZON',
   /** Raised by the migration only (an older install must be rolled back first); never at runtime. */
   staleInstall: 'SCVER',
 } as const;
@@ -112,6 +114,7 @@ export function mapPgError(err: unknown): SchedulingError | null {
     case SCHEDULING_SQLSTATE.availabilityOverlap:
       return make('conflict');
     case SCHEDULING_SQLSTATE.availabilityOwner:
+    case SCHEDULING_SQLSTATE.availabilityZone:
     case SCHEDULING_SQLSTATE.lifecycle:
     case SCHEDULING_SQLSTATE.immutable:
     case SCHEDULING_SQLSTATE.holdReactivation:

@@ -25,6 +25,7 @@ export function WeeklyHours({
   rules,
   canAdd,
   canRemove,
+  zone,
   onChanged,
   announce,
 }: {
@@ -35,6 +36,8 @@ export function WeeklyHours({
   canAdd: boolean;
   /** Removing stays possible for a manager even when the owner no longer takes new hours. */
   canRemove: boolean;
+  /** The timezone the screen shows: sent with every create as what the person believes the hours are in (a different pinned zone is a conflict, never a silent save). */
+  zone?: string;
   onChanged: () => void;
   announce: (message: string) => void;
 }) {
@@ -60,7 +63,7 @@ export function WeeklyHours({
     const result = await schedulingApi<{ rules: AvailabilityRuleView[] }>(
       'POST',
       `${ownerPath}/availability-rules`,
-      days.length === 1 ? { dayOfWeek: days[0], startTime: '00:00', endTime: '24:00' } : { daysOfWeek: [...days], startTime: '00:00', endTime: '24:00' },
+      { ...(days.length === 1 ? { dayOfWeek: days[0], startTime: '00:00', endTime: '24:00' } : { daysOfWeek: [...days], startTime: '00:00', endTime: '24:00' }), ...(zone ? { timezone: zone } : {}) },
     );
     setBusyDay(null);
     if (!result.ok) return setProblem(result.problem);
@@ -89,7 +92,7 @@ export function WeeklyHours({
             ? `Until you add hours, this ${ownerNoun} has no availability. “Available all day, every day” saves an explicit midnight-to-midnight window for each day.`
             : `No hours have been saved, so this ${ownerNoun} has no availability.`}
         </EmptyBlock>
-        {mode?.kind === 'add' && <HoursDialog mode="add" ownerPath={ownerPath} days={mode.days.length ? mode.days : undefined} ownerNoun={ownerNoun} onClose={close} onSaved={saved} />}
+        {mode?.kind === 'add' && <HoursDialog mode="add" ownerPath={ownerPath} days={mode.days.length ? mode.days : undefined} ownerNoun={ownerNoun} zone={zone} onClose={close} onSaved={saved} />}
       </Panel>
     );
   }
@@ -194,7 +197,7 @@ export function WeeklyHours({
         })}
       </ul>
 
-      {mode?.kind === 'add' && <HoursDialog mode="add" ownerPath={ownerPath} days={mode.days.length ? mode.days : undefined} ownerNoun={ownerNoun} onClose={close} onSaved={saved} />}
+      {mode?.kind === 'add' && <HoursDialog mode="add" ownerPath={ownerPath} days={mode.days.length ? mode.days : undefined} ownerNoun={ownerNoun} zone={zone} onClose={close} onSaved={saved} />}
       {mode?.kind === 'edit' && <HoursDialog mode="edit" ownerPath={ownerPath} rule={mode.rule} ownerNoun={ownerNoun} onClose={close} onSaved={saved} onReload={closeAndReload} />}
       {mode?.kind === 'remove' && (
         <ConfirmDialog

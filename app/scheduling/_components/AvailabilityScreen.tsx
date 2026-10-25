@@ -42,8 +42,9 @@ export default function AvailabilityScreen({ kind, id, canManage }: { kind: 'off
         scheduleTimezone: scheduleView?.timezone ?? null,
         organisationTimezone: status.data?.timezone ?? null,
         organisationSource: status.data?.timezone_source ?? null,
+        pinnedTimezone: availability.data?.zone?.pinned ? availability.data.zone.timezone : null,
       }),
-    [kind, scheduleView, status.data],
+    [kind, scheduleView, status.data, availability.data],
   );
   const today = useMemo(() => (tz ? localToday(tz.zone) : ''), [tz]);
   const view = availability.data;
@@ -91,6 +92,9 @@ export default function AvailabilityScreen({ kind, id, canManage }: { kind: 'off
 
   const partialClosures = view.capabilities?.partialClosures === true;
   const hasHours = view.rules.length > 0;
+  // Saving hours pins the owner's zone in the same write (migration 036). Without it nothing can be saved, so the controls are withheld, not offered and refused.
+  const zonesReady = view.capabilities?.zones !== false;
+  const canCreate = canAdd && zonesReady;
 
   return (
     <div className={`${styles.page} ${styles.availability}`}>
@@ -101,6 +105,11 @@ export default function AvailabilityScreen({ kind, id, canManage }: { kind: 'off
         description={`Weekly hours and closures for this ${noun}. Times are local to the timezone below.`}
       />
       {!canManage && <p className={styles.notice} role="note">You have view-only access to Scheduling. Ask a manager to change hours.</p>}
+      {!zonesReady && canManage && (
+        <p className={styles.notice} role="note" data-testid="zones-not-ready">
+          Saving hours isn’t set up on this installation yet, so hours and closures can’t be added. Ask a BrainBase admin to finish the setup. Existing hours can still be viewed and removed.
+        </p>
+      )}
       {blocked && (
         <p className={styles.notice} role="note">
           {kind === 'offering'
@@ -124,7 +133,11 @@ export default function AvailabilityScreen({ kind, id, canManage }: { kind: 'off
               <strong data-testid="timezone">{describeTimezone(tz.zone)}</strong>
               <span>{tz.source}. Hours are saved as local times in this zone.</span>
               {deviceZone && deviceZone !== tz.zone && <span>Your device is set to {deviceZone}. Hours are shown as saved, not converted to your time.</span>}
-              <span>If the timezone changes later, saved hours are not converted automatically.</span>
+              {tz.pinned ? (
+                <span>Changing your organisation’s or schedule’s timezone later does not move these hours. Changing this zone is not offered here.</span>
+              ) : (
+                <span>This zone is fixed when you save the first hours. After that, changing your organisation’s or schedule’s timezone does not move them.</span>
+              )}
             </p>
           ) : status.state === 'error' ? (
             <p className={styles.dim} role="status">The timezone could not be loaded, so daylight-saving notes are unavailable. Hours are unaffected.</p>
@@ -144,14 +157,15 @@ export default function AvailabilityScreen({ kind, id, canManage }: { kind: 'off
           </aside>
         )}
 
-        <WeeklyHours ownerPath={ownerPath} ownerNoun={noun} rules={view.rules} canAdd={canAdd} canRemove={canManage} onChanged={availability.reload} announce={setMessage} />
+        <WeeklyHours ownerPath={ownerPath} ownerNoun={noun} rules={view.rules} canAdd={canCreate} canRemove={canManage} zone={tz?.zone} onChanged={availability.reload} announce={setMessage} />
         <Closures
           ownerPath={ownerPath}
           closures={view.exceptions}
           today={today || localToday('UTC')}
           partialClosures={partialClosures}
-          canAdd={canAdd}
+          canAdd={canCreate}
           canRemove={canManage}
+          zone={tz?.zone}
           onChanged={availability.reload}
           announce={setMessage}
         />

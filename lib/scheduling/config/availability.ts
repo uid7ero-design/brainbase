@@ -1,10 +1,12 @@
 import {
   AvailabilityNotReadyError,
+  AvailabilityZonesNotReadyError,
   END_OF_DAY,
   PartialClosuresNotReadyError,
   checkExceptionWrite,
   checkRuleBatch,
   checkRuleWrite,
+  isIanaTimezone,
   isLocalDate,
   isLocalTime,
   splitOvernightRule,
@@ -12,6 +14,8 @@ import {
   type AvailabilityOwner,
   type AvailabilityWriteFailure,
   type AvailabilityWriteResult,
+  type IanaTimezone,
+  type StoredAvailabilityZone,
   type NewStoredExceptionInput,
   type NewStoredRuleInput,
   type OvernightHalfRef,
@@ -47,8 +51,12 @@ import { audit, badRequest, changedFields, conflict, guarded, idParam, notFound,
 // Not accepted yet: kind 'override' (the table has no column for override hours).
 
 const RULE_FIELDS = ['dayOfWeek', 'startTime', 'endTime', 'validFrom', 'validTo', 'kind', 'label'] as const;
-const CREATE_RULE_FIELDS = [...RULE_FIELDS, 'daysOfWeek', 'overnight'] as const;
+// `timezone` on a CREATE is the zone the person believes the hours are in (the screen sends the zone it shows). It is an expectation, never a request to
+// change a zone: if it differs from the owner's pinned zone (or, for an owner not pinned yet, from the zone the first save would pin) the write is a
+// 409 ZONE_MISMATCH and nothing is written.
+const CREATE_RULE_FIELDS = [...RULE_FIELDS, 'daysOfWeek', 'overnight', 'timezone'] as const;
 const EXCEPTION_FIELDS = ['fromDate', 'toDate', 'kind', 'reason', 'startTime', 'endTime'] as const;
+const EXCEPTION_CREATE_FIELDS = [...EXCEPTION_FIELDS, 'timezone'] as const;
 const MAX_LABEL = 80;
 const MAX_REASON = 200;
 const has = (o: Record<string, unknown>, k: string) => Object.prototype.hasOwnProperty.call(o, k) && o[k] !== undefined;
@@ -63,6 +71,9 @@ async function guardedAvailability<T>(run: () => Promise<T>): Promise<{ ok: true
     if (err instanceof AvailabilityNotReadyError) {
       return { ok: false, response: schedulingJson({ error: 'Availability is not available yet for this installation.', code: 'AVAILABILITY_NOT_READY' }, { status: 503 }) };
     }
+    if (err instanceof AvailabilityZonesNotReadyError) {
+      return { ok: false, response: schedulingJson({ error: 'Saving hours is not available yet for this installation (owner-pinned timezones are not set up). Nothing was saved.', code: 'AVAILABILITY_ZONES_NOT_READY' }, { status: 503 }) };
+    }
     if (err instanceof PartialClosuresNotReadyError) {
       return { ok: false, response: schedulingJson({ error: 'Partial-day closures are not available yet for this installation. Full-day closures and weekly hours are.', code: 'PARTIAL_CLOSURES_NOT_READY' }, { status: 503 }) };
     }
@@ -70,8 +81,14 @@ async function guardedAvailability<T>(run: () => Promise<T>): Promise<{ ok: true
   }
 }
 
-function failure(reason: AvailabilityWriteFailure): Response {
+function failure(reason: AvailabilityWriteFailure, detail?: string, requested?: string): Response {
   switch (reason) {
+    case 'zone_mismatch':
+      return conflict(
+        'ZONE_MISMATCH',
+        `These hours are read in ${detail ?? 'another timezone'}${requested ? `, not ${requested}` : ''}. Reload to see the timezone in force. Nothing was saved.`,
+        { requestedTimezone: requested ?? null, currentTimezone: detail ?? null },
+      );
     case 'not_found':
       return notFound();
     case 'stale_write':
@@ -94,6 +111,52 @@ async function ownerExists(context: SchedulingRouteContext, owner: AvailabilityO
 
 const ownerOf = (r: { resourceId: string | null; offeringId: string | null }): AvailabilityOwner =>
   r.resourceId !== null ? { kind: 'resource', id: r.resourceId } : { kind: 'offering', id: r.offeringId as string };
+
+/**
+ * The zone to PIN if this owner has none yet, resolved from the chain the readers used before pinning: an offering's schedule timezone,
+ * else the tenant's (the organisation's, or the platform fallback). A resource has no schedule. It is only a default for the first write:
+ * an owner that is already pinned keeps its pin whatever this returns, and nothing here reads the browser's timezone.
+ */
+async function defaultZone(context: SchedulingRouteContext, owner: AvailabilityOwner): Promise<IanaTimezone> {
+  if (owner.kind === 'offering') {
+    const offering = await context.persistence.config.getOffering(context.tenant, owner.id);
+    const schedule = offering ? await context.persistence.config.getSchedule(context.tenant, offering.scheduleId) : null;
+    if (schedule?.timezone && isIanaTimezone(schedule.timezone)) return schedule.timezone;
+  }
+  return context.tenant.timezone;
+}
+
+/** What the screens are told about an owner's zone: the pin if there is one, else what the first write WOULD pin (nothing is pinned by a read). */
+async function zoneView(context: SchedulingRouteContext, owner: AvailabilityOwner) {
+  const pinned = await context.availability.getZone(context.tenant, owner);
+  if (pinned) return { timezone: pinned.timezone, pinned: true, source: pinned.source, pinnedAt: pinned.pinnedAt };
+  return { timezone: await defaultZone(context, owner), pinned: false, source: null, pinnedAt: null };
+}
+
+async function auditPin(context: SchedulingRouteContext, owner: AvailabilityOwner, pin: StoredAvailabilityZone | null | undefined): Promise<void> {
+  if (!pin) return;
+  await audit(context, 'scheduling.availability_zone.pinned', 'availability_zone', owner.id, { owner_kind: owner.kind, owner_id: owner.id, timezone: pin.timezone, source: pin.source });
+}
+
+/** The timezone a create carries (what the person was shown), validated. Absent = no expectation. */
+function requestedZone(body: Record<string, unknown>, problems: string[]): string | undefined {
+  if (!has(body, 'timezone')) return undefined;
+  if (!isIanaTimezone(body.timezone)) {
+    problems.push('timezone must be a valid IANA timezone');
+    return undefined;
+  }
+  return body.timezone;
+}
+
+/**
+ * The zone a create will be written under: the owner's pinned zone, else (not pinned yet) the zone this first save would pin. When the caller named a
+ * zone and it differs, the answer is a conflict (the caller's view is stale, or two writers disagree), never a silent write under the other zone.
+ * The repository enforces the same rule again, atomically, for the writer that loses a race (its statement writes nothing).
+ */
+async function writeZone(context: SchedulingRouteContext, owner: AvailabilityOwner, requested: string | undefined): Promise<{ zone: string } | { mismatch: string }> {
+  const current = (await zoneView(context, owner)).timezone;
+  return requested !== undefined && requested !== current ? { mismatch: current } : { zone: current };
+}
 
 function optionalText(body: Record<string, unknown>, key: string, max: number, problems: string[]): string | null | undefined {
   if (!has(body, key)) return undefined;
@@ -131,6 +194,7 @@ export const listAvailabilityFor = (kind: OwnerKind) =>
       rules: await context.availability.listRules(context.tenant, owner),
       exceptions: await context.availability.listExceptions(context.tenant, owner),
       capabilities: await context.availability.capabilities(context.tenant),
+      zone: await zoneView(context, owner),
     }));
     if (!read.ok) return read.response;
     return schedulingJson({ owner, ...read.value });
@@ -158,6 +222,7 @@ export const createRuleFor = (kind: OwnerKind) =>
     if (ruleKind !== 'hours' && ruleKind !== 'service_period') problems.push("kind must be 'hours' or 'service_period'");
     const overnight = has(body, 'overnight') ? body.overnight : false;
     if (typeof overnight !== 'boolean') problems.push('overnight must be true or false');
+    const requested = requestedZone(body, problems);
     if (problems.length > 0) return badRequest(problems);
 
     const window = { startTime: body.startTime as string, endTime: body.endTime as string, validFrom: validFrom ?? null, validTo: validTo ?? null };
@@ -180,17 +245,24 @@ export const createRuleFor = (kind: OwnerKind) =>
     if (!(await ownerExists(context, owner))) return notFound();
 
     const result = await guardedAvailability(async () => {
+      // The zone expectation is checked FIRST: hours the writer believes are in another zone are not 'overlapping' or 'fine', they are about a different clock.
+      const plan = await writeZone(context, owner, requested);
+      if ('mismatch' in plan) return { ok: false, reason: 'zone_mismatch', detail: plan.mismatch } as AvailabilityWriteResult<StoredAvailabilityRule[]>;
       const existing = await context.availability.listRules(context.tenant, owner);
       if (checkRuleBatch(owner, existing, inputs).overlaps) return { ok: false, reason: 'overlap' } as AvailabilityWriteResult<StoredAvailabilityRule[]>;
-      return context.availability.createRules(context.tenant, owner, inputs);
+      // The zone is pinned in the same statement as the first rule (the repository's CTE), and that statement refuses (writing nothing) if another
+      // writer pinned a different zone first.
+      return context.availability.createRules(context.tenant, owner, inputs, plan.zone);
     });
     if (!result.ok) return result.response;
-    if (!result.value.ok) return failure(result.value.reason);
+    if (!result.value.ok) return failure(result.value.reason, result.value.detail, requested);
     const rules = result.value.value;
+    await auditPin(context, owner, result.value.pinned);
     for (const rule of rules) {
       await audit(context, 'scheduling.availability_rule.created', 'availability_rule', rule.id, { ...ruleSummary(owner, rule), ...(rules.length > 1 ? { batch_size: rules.length } : {}) });
     }
-    return schedulingJson({ rule: rules[0], rules }, { status: 201 });
+    const zone = await guardedAvailability(() => zoneView(context, owner));
+    return schedulingJson({ rule: rules[0], rules, ...(zone.ok ? { zone: zone.value } : {}) }, { status: 201 });
   };
 
 /** `dayOfWeek` (one weekday) or `daysOfWeek` (a list of distinct weekdays, 0 = Sunday), as a list. Problems are appended. */
@@ -334,9 +406,10 @@ export const createExceptionFor = (kind: OwnerKind) =>
     const parsed = await readBody(context.request);
     if (!parsed.ok) return parsed.response;
     const body = parsed.body;
-    const problems = unknownFields(body, EXCEPTION_FIELDS);
+    const problems = unknownFields(body, EXCEPTION_CREATE_FIELDS);
     for (const required of ['fromDate', 'toDate']) if (!has(body, required)) problems.push(`${required} is required`);
     const reason = optionalText(body, 'reason', MAX_REASON, problems);
+    const requested = requestedZone(body, problems);
     const exceptionKind = has(body, 'kind') ? body.kind : 'closed';
     if (exceptionKind === 'override') problems.push('override exceptions are not available yet: only closures can be created');
     else if (exceptionKind !== 'closed') problems.push("kind must be 'closed'");
@@ -351,15 +424,19 @@ export const createExceptionFor = (kind: OwnerKind) =>
     if (!(await ownerExists(context, owner))) return notFound();
 
     const result = await guardedAvailability(async () => {
+      const plan = await writeZone(context, owner, requested);
+      if ('mismatch' in plan) return { ok: false, reason: 'zone_mismatch', detail: plan.mismatch } as AvailabilityWriteResult<StoredAvailabilityException>;
       const existing = await context.availability.listExceptions(context.tenant, owner);
       if (checkExceptionWrite(owner, existing, input).overlaps) return { ok: false, reason: 'overlap' } as AvailabilityWriteResult<StoredAvailabilityException>;
-      return context.availability.createException(context.tenant, owner, input);
+      return context.availability.createException(context.tenant, owner, input, plan.zone);
     });
     if (!result.ok) return result.response;
-    if (!result.value.ok) return failure(result.value.reason);
+    if (!result.value.ok) return failure(result.value.reason, result.value.detail, requested);
     const exception = result.value.value;
+    await auditPin(context, owner, result.value.pinned);
     await audit(context, 'scheduling.availability_exception.created', 'availability_exception', exception.id, exceptionSummary(owner, exception));
-    return schedulingJson({ exception }, { status: 201 });
+    const zone = await guardedAvailability(() => zoneView(context, owner));
+    return schedulingJson({ exception, ...(zone.ok ? { zone: zone.value } : {}) }, { status: 201 });
   };
 
 export async function updateException(context: SchedulingRouteContext): Promise<Response> {
