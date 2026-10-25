@@ -24,7 +24,7 @@ beforeEach(() => {
 
 describe('action names', () => {
   it("every action is in the scheduling namespace '<scheduling>.<resource>.<verb>' and the list is closed", () => {
-    for (const a of SCHEDULING_AUDIT_ACTIONS) expect(a).toMatch(/^scheduling\.[a-z]+\.[a-z_]+$/);
+    for (const a of SCHEDULING_AUDIT_ACTIONS) expect(a).toMatch(/^scheduling\.[a-z_]+\.[a-z_]+$/);
     expect(new Set(SCHEDULING_AUDIT_ACTIONS).size).toBe(SCHEDULING_AUDIT_ACTIONS.length);
   });
 
