@@ -30,7 +30,7 @@ export async function createResource(request: APIRequestContext, name: string, k
   return (await res.json()).resource as { id: string; name: string; updatedAt: string };
 }
 
-const SCHEDULING_TABLES = ['scheduling_schedules', 'scheduling_offerings', 'scheduling_resources', 'scheduling_offering_resources', 'scheduling_reservations', 'scheduling_occurrences', 'scheduling_resource_holds'];
+const SCHEDULING_TABLES = ['scheduling_schedules', 'scheduling_offerings', 'scheduling_resources', 'scheduling_offering_resources', 'scheduling_reservations', 'scheduling_occurrences', 'scheduling_resource_holds', 'scheduling_availability_rules', 'scheduling_availability_exceptions'];
 /** A fingerprint of every Scheduling row an organisation owns, to prove a refused request changed nothing. Audit rows are included by default. */
 export async function snapshot(organisationId: string, withAudit = true): Promise<string> {
   const tables = withAudit ? [...SCHEDULING_TABLES, 'audit_logs'] : SCHEDULING_TABLES;

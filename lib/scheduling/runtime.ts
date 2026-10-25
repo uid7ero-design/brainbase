@@ -1,7 +1,7 @@
 import 'server-only';
 import sql from '@/lib/db';
-import { isIanaTimezone, type Clock, type SchedulingPersistence, type SchedulingSettings, type TenantContext } from '@scheduling/core';
-import { createPostgresScheduling, fromNeonHttpLike, type SqlExecutor } from '@scheduling/postgres';
+import { isIanaTimezone, type Clock, type SchedulingAvailabilityRepository, type SchedulingPersistence, type SchedulingSettings, type TenantContext } from '@scheduling/core';
+import { createPostgresScheduling, fromNeonHttpLike, PostgresAvailabilityRepository, type SqlExecutor } from '@scheduling/postgres';
 import { BRAINBASE_FALLBACK_TIMEZONE, staffTenantContext } from './adapters/brainbase';
 
 // Phase 2B.1 — the BrainBase runtime for Scheduling: the one place that joins the app's Neon driver, the shared
@@ -37,6 +37,8 @@ export interface ResolvedTimezone {
 export interface SchedulingRuntime {
   tenant: TenantContext;
   persistence: SchedulingPersistence;
+  /** Phase 2B.3b: availability rules and exceptions. Needs migration 034; until it is applied its calls throw AvailabilityNotReadyError. */
+  availability: SchedulingAvailabilityRepository;
   settings: SchedulingSettings;
   timezone: ResolvedTimezone;
 }
@@ -76,8 +78,10 @@ export async function loadSchedulingRuntime(session: { organisationId: string; u
     role: session.role,
     timezone: timezone.value,
   });
-  const persistence = createPostgresScheduling({ sql: createSchedulingExecutor(), clock: systemClock });
+  const executor = createSchedulingExecutor();
+  const persistence = createPostgresScheduling({ sql: executor, clock: systemClock });
+  const availability = new PostgresAvailabilityRepository({ sql: executor });
   const settings = await persistence.config.getSettings(tenant);
   if (!settings) throw new SchedulingConfigurationError('missing_settings');
-  return { tenant, persistence, settings, timezone };
+  return { tenant, persistence, availability, settings, timezone };
 }

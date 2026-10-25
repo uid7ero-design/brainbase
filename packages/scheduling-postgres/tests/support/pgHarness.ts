@@ -78,6 +78,7 @@ export async function ensureSchema() {
   await runScript(sqlFile('010_shared_schema.sql'));
   await runScript(sqlFile('030_resource_concurrency.sql'));
   await runScript(sqlFile('031_reservation_integrity.sql'));
+  await runScript(sqlFile('034_availability_integrity.sql'));
 }
 
 export async function resetData() {

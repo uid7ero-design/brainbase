@@ -37,6 +37,10 @@ export const SCHEDULING_SQLSTATE = {
   presetMismatch: 'SCPRE',
   /** 031: the offering (or its schedule) is archived. */
   archived: 'SCARC',
+  /** 034: an availability rule or closure overlaps another of the same owner. */
+  availabilityOverlap: 'SCOVL',
+  /** 034: the owner of an availability rule or closure cannot change. */
+  availabilityOwner: 'SCOWN',
   /** Raised by the migration only (an older install must be rolled back first); never at runtime. */
   staleInstall: 'SCVER',
 } as const;
@@ -105,6 +109,9 @@ export function mapPgError(err: unknown): SchedulingError | null {
       return make('offering_unavailable');
     case SCHEDULING_SQLSTATE.windowMismatch:
       return make('invalid_input');
+    case SCHEDULING_SQLSTATE.availabilityOverlap:
+      return make('conflict');
+    case SCHEDULING_SQLSTATE.availabilityOwner:
     case SCHEDULING_SQLSTATE.lifecycle:
     case SCHEDULING_SQLSTATE.immutable:
     case SCHEDULING_SQLSTATE.holdReactivation:

@@ -49,7 +49,7 @@ describe('Phase 2A wires nothing into the application', () => {
     // Phase 2B.1 (deliberate, reviewed change): app/api/scheduling holds exactly the status and audit foundation routes.
     for (const p of ['app/dashboard/scheduling', 'app/book']) expect(existsSync(path.join(ROOT, p)), p).toBe(false);
     // Phase 2B.2b (deliberate, reviewed change): the configuration API adds offerings, resources and schedules.
-    expect(readdirSync(path.join(ROOT, 'app/api/scheduling')).sort()).toEqual(['audit', 'offerings', 'resources', 'schedules', 'status']);
+    expect(readdirSync(path.join(ROOT, 'app/api/scheduling')).sort()).toEqual(['audit', 'availability-exceptions', 'availability-rules', 'offerings', 'resources', 'schedules', 'status']);
     // Phase 2B.2c (deliberate, reviewed change): one capability-gated navigation entry exists; schedulingPhase2b2cContainment.test.ts pins it.
     expect((read('components/nav/navModel.ts').match(/scheduling/gi) ?? []).length).toBeGreaterThan(0);
   });
@@ -67,8 +67,8 @@ describe('Phase 2A wires nothing into the application', () => {
 
 describe('Phase 2A SQL package is exactly what was reviewed', () => {
   it('ships exactly the shared files and the BrainBase host files, nothing else', () => {
-    // Phase 2B.2 (deliberate, reviewed change) adds 030 (resource concurrency), 031 (reservation integrity), 032 (schedule archive ordering), 033 (occurrence integrity) and their rollbacks 091, 092, 093 and 094; all are pinned below.
-    expect(readdirSync(path.join(ROOT, 'packages/scheduling/sql')).sort()).toEqual(['001_preflight.sql', '010_shared_schema.sql', '020_verify.sql', '030_resource_concurrency.sql', '031_reservation_integrity.sql', '032_schedule_archive_ordering.sql', '033_occurrence_integrity.sql', '090_rollback.sql', '091_resource_concurrency_rollback.sql', '092_reservation_integrity_rollback.sql', '093_schedule_archive_ordering_rollback.sql', '094_occurrence_integrity_rollback.sql']);
+    // Phase 2B.2 (deliberate, reviewed change) adds 030 (resource concurrency), 031 (reservation integrity), 032 (schedule archive ordering), 033 (occurrence integrity) and their rollbacks 091, 092, 093 and 094; Phase 2B.3b adds 034 (availability integrity, STAGED and not applied) and its rollback 095; all are pinned below.
+    expect(readdirSync(path.join(ROOT, 'packages/scheduling/sql')).sort()).toEqual(['001_preflight.sql', '010_shared_schema.sql', '020_verify.sql', '030_resource_concurrency.sql', '031_reservation_integrity.sql', '032_schedule_archive_ordering.sql', '033_occurrence_integrity.sql', '034_availability_integrity.sql', '090_rollback.sql', '091_resource_concurrency_rollback.sql', '092_reservation_integrity_rollback.sql', '093_schedule_archive_ordering_rollback.sql', '094_occurrence_integrity_rollback.sql', '095_availability_integrity_rollback.sql']);
     // Phase 2B.0 (deliberate, reviewed change) adds 120/130 with their rollbacks and the manual/ folder; each is pinned
     // file by file in schedulingPhase2b0Containment.test.ts.
     expect(readdirSync(path.join(ROOT, 'scripts/scheduling')).sort()).toEqual([
