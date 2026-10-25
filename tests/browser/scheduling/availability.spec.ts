@@ -141,8 +141,8 @@ test('the manager flow through the real stack: overlap, stale write, 24:00, clos
     const current = (await (await edit.json()).rule) as { id: string; updatedAt: string };
     const gone = await manager.request.delete(api(`/availability-rules/${current.id}`), { data: { expectedUpdatedAt: current.updatedAt }, headers: json });
     expect(gone.status()).toBe(200);
-    // successes: 2 rules created + 1 edited + 1 closure created + 1 rule deleted = 5; every refusal above wrote no audit entry
-    expect(Number(await auditCount()) - start).toBe(5);
+    // successes: 2 rules created + 1 edited + 1 closure created + 1 rule deleted = 5, plus 1 for the zone the owner's first rule pinned (migration 036); every refusal above wrote no audit entry
+    expect(Number(await auditCount()) - start).toBe(6);
   } finally {
     await manager.close();
   }

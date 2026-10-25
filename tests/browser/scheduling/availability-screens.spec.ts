@@ -1,8 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
 import { type Account, enabled, origin } from './accounts';
-import { api, contextFor, json, snapshot } from './support';
+import { api, contextFor, json, query, snapshot } from './support';
 import {
-  ORG_A, availabilityAuditCount, clearHours, closuresOf, dateInputs, ensureOffering, ensureResource, hoursUrl, openHours, rulesOf, runMigrationScript, seedClosure, seedRules, timeInputs,
+  ORG_A, availabilityAuditCount, clearHours, closuresOf, dateInputs, ensureOffering, ensureResource, hoursUrl, openHours, rulesOf, runMigrationScript, seedClosure, seedRules, timeInputs, zoneOf,
   type Owner,
 } from './availabilitySupport';
 
@@ -179,7 +179,7 @@ test.describe('weekly hours', () => {
     await expect(page.getByTestId('unavailable-state')).toHaveCount(0);
     await expect(page.getByTestId('saved-message')).toContainText('Hours added: Monday to Friday, 9:00 am to 5:00 pm.');
     expect((await rulesOf(court)).map(r => [r.day_of_week, r.start_time, r.end_time])).toEqual([[1, '09:00', '17:00'], [2, '09:00', '17:00'], [3, '09:00', '17:00'], [4, '09:00', '17:00'], [5, '09:00', '17:00']]);
-    expect(await availabilityAuditCount() - audits, 'one audit entry per rule created').toBe(5);
+    expect(await availabilityAuditCount() - audits, 'one audit entry per rule created, plus one for the zone this first save pinned').toBe(6);
     await context.close();
   });
 
@@ -409,7 +409,7 @@ test.describe('overnight hours', () => {
     await expect(friday).toContainText('10:00 pm to 2:00 am the next day');
     await expect(friday).toContainText('Overnight');
     await expect(page.getByRole('listitem').filter({ has: page.getByRole('heading', { name: 'Saturday', exact: true }) })).toContainText('Until 2:00 am, continuing Friday’s overnight hours');
-    expect(await availabilityAuditCount() - audits).toBe(2);
+    expect(await availabilityAuditCount() - audits, 'one entry for each of the two rules, plus one for the zone this first save pinned').toBe(3);
     await context.close();
   });
 
@@ -956,7 +956,7 @@ test.describe('timezone and daylight saving', () => {
       await openHours(page, court);
       await expect(page.getByTestId('timezone')).toHaveText(`Australia/Adelaide (UTC${offset})`);
       await expect(page.getByText('Your organisation’s timezone.')).toBeVisible();
-      await expect(page.getByText('If the timezone changes later, saved hours are not converted automatically.')).toBeVisible();
+      await expect(page.getByText('This zone is fixed when you save the first hours.')).toBeVisible(); // nothing is saved yet: not pinned
       await context.close();
     }
   });
@@ -1024,6 +1024,56 @@ test.describe('timezone and daylight saving', () => {
     await expect(page.getByTestId('timezone')).toHaveText('Australia/Adelaide (UTC+10:30)');
     await expect(page.getByText('Your organisation’s timezone.')).toBeVisible();
     await context.close();
+  });
+
+  test('saving the first hours PINS the zone: the screen says it is fixed, and changing the organisation\'s timezone later does not move it', async ({ browser }) => {
+    const context = await contextFor(browser, 'manager');
+    const page = await context.newPage();
+    await page.clock.setFixedTime(new Date('2027-01-20T00:00:00Z'));
+    await openHours(page, court);
+    expect(await zoneOf(court)).toBeNull();
+    const dialog = await addHours(page, { days: ['Tuesday'], start: '09:00', end: '12:00' });
+    const saved = page.waitForResponse(isRulePost);
+    await dialog.getByRole('button', { name: 'Add hours', exact: true }).click();
+    expect((await saved).status()).toBe(201);
+    await expect(page.getByTestId('timezone')).toHaveText('Australia/Adelaide (UTC+10:30)');
+    await expect(page.getByText('Fixed when the first hours were saved.')).toBeVisible();
+    await expect(page.getByText('Changing this zone is not offered here.')).toBeVisible();
+    expect(await zoneOf(court)).toEqual({ timezone: 'Australia/Adelaide', source: 'first_rule' });
+    const original = (await query<{ timezone: string | null }>('SELECT timezone FROM organisations WHERE id = $1', [ORG_A]))[0].timezone;
+    await query("UPDATE organisations SET timezone = 'Europe/London' WHERE id = $1", [ORG_A]);
+    try {
+      await page.reload();
+      await expect(page.getByRole('heading', { name: `Hours: ${court.name}`, exact: true })).toBeVisible({ timeout: 90_000 });
+      await expect(page.getByTestId('timezone')).toHaveText('Australia/Adelaide (UTC+10:30)'); // the organisation moved to London; the saved hours did not
+      await expect(page.getByText('Fixed when the first hours were saved.')).toBeVisible();
+      expect(await zoneOf(court)).toEqual({ timezone: 'Australia/Adelaide', source: 'first_rule' });
+    } finally {
+      await query('UPDATE organisations SET timezone = $2 WHERE id = $1', [ORG_A, original]);
+    }
+    await context.close();
+  });
+
+  test('without migration 036 the screen says saving is not set up, offers no way to add, and the server refuses (503); reading and removing still work', async ({ browser }) => {
+    const manager = await contextFor(browser, 'manager');
+    const seeded = await seedRules(manager.request, court, { dayOfWeek: 3, startTime: '09:00', endTime: '12:00' }); // pinned and has hours
+    await runMigrationScript('097_availability_zones_rollback.sql');
+    try {
+      const page = await manager.newPage();
+      await openHours(page, court);
+      await expect(page.getByTestId('zones-not-ready')).toContainText('Saving hours isn’t set up on this installation yet');
+      await expect(page.getByRole('button', { name: /^(Add hours|Add more hours|Add closure|Add a closure|Available all day)/ })).toHaveCount(0);
+      await expect(page.getByText('9:00 am to 12:00 pm').first()).toBeVisible(); // reading works
+      const refused = await manager.request.post(`${api(`/${court.kind === 'resource' ? 'resources' : 'offerings'}/${court.id}`)}/availability-rules`, { data: { dayOfWeek: 4, startTime: '09:00', endTime: '10:00' }, headers: json });
+      expect([refused.status(), (await refused.json()).code]).toEqual([503, 'AVAILABILITY_ZONES_NOT_READY']);
+      expect(await rulesOf(court)).toHaveLength(1);
+      await expect(page.getByRole('button', { name: /^Remove Wednesday/ })).toBeVisible(); // removal is still offered
+      const removed = await manager.request.delete(api(`/availability-rules/${seeded[0].id}`), { data: { expectedUpdatedAt: seeded[0].updatedAt }, headers: json });
+      expect(removed.status()).toBe(200);
+    } finally {
+      await runMigrationScript('036_availability_zones.sql');
+      await manager.close();
+    }
   });
 });
 
