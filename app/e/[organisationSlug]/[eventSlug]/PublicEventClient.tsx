@@ -207,7 +207,13 @@ function formatPlacesRemaining(remaining: number): string {
 // capacity pools into one figure at all. Each ticket type's and each
 // session's own remaining count is still shown independently, right on
 // its own choice card, exactly where it's meaningful.
-function availabilityState(ticketTypes: PublicTicketType[]): { label: string; tone: 'ok' | 'soldout' | 'neutral' } {
+//
+// `hasEnded` is the server's verdict (PublicEventDetail.event.has_ended),
+// never a client-side date comparison. An ended event reads a neutral
+// "Event ended" — not "Tickets available", and not "Sold out", which
+// would claim a capacity state the event may never have reached.
+function availabilityState(ticketTypes: PublicTicketType[], hasEnded: boolean): { label: string; tone: 'ok' | 'soldout' | 'neutral' } {
+  if (hasEnded) return { label: 'Event ended', tone: 'neutral' };
   if (ticketTypes.length === 0) return { label: 'Registration not currently open', tone: 'neutral' };
   // Phase 4 — only types inside their sale window count towards "available".
   // An older payload shape (no sale_status) is treated as on sale.
@@ -338,7 +344,7 @@ export default function PublicEventClient({
   const [confirmation, setConfirmation] = useState<{ reference: string; quantity: number; summary: string; tickets: { attendee_name: string; ticket_token: string }[]; bookingToken?: string } | null>(null);
 
   const selectedSession = sessions.find(s => s.id === sessionId);
-  const availability = availabilityState(ticketTypes);
+  const availability = availabilityState(ticketTypes, event.has_ended === true);
 
   // Phase 3 — the remaining places for a ticket type depend on the
   // selected session: an override pair for (type, selected session)
@@ -816,7 +822,7 @@ export default function PublicEventClient({
                 </p>
               )}
 
-              <div style={{
+              <div data-testid="availability-badge" style={{
                 display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 600,
                 padding: '7px 13px', borderRadius: 999,
                 border: `1px solid ${availability.tone === 'soldout' ? 'rgba(248,113,113,.3)' : availability.tone === 'neutral' ? BORDER : 'rgba(74,222,128,.28)'}`,
