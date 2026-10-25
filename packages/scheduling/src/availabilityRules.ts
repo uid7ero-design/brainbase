@@ -24,9 +24,11 @@ export interface LocalWindow {
 
 /**
  * An exception to the weekly rules for one owner, over inclusive local dates.
- *   closed   - no availability on those dates (wins over any override covering the same date).
+ *   closed   - no availability on those dates (wins over any override covering the same date). A closure WITHOUT windows closes the
+ *              whole day; a closure WITH windows is a PARTIAL-DAY closure: only those local times are removed on those dates
+ *              (Phase 2B.3c; migration 035 stores the one window of a stored row as start_time/end_time).
  *   override - the owner's weekly rules are REPLACED on those dates by `windows`.
- * The stored AvailabilityException has no hours, so `windows` is the core's addition: an override without windows is refused by
+ * The stored override has no hours, so `windows` is the core's addition: an override without windows is refused by
  * validateAvailabilityException and, if one reaches the computation anyway, is treated as closed (fail closed).
  */
 export type AvailabilityExceptionInput = AvailabilityException & { windows?: readonly LocalWindow[] | null };
@@ -105,6 +107,14 @@ export function validateAvailabilityRuleSet(rules: readonly AvailabilityRule[]):
   return problems;
 }
 
+const windowsOverlap = (a: LocalWindow, b: LocalWindow) => minutesOfDay(a.startTime) < windowEndMinutes(b.endTime) && minutesOfDay(b.startTime) < windowEndMinutes(a.endTime);
+
+/** Do two closures' time ranges overlap? A closure with no windows covers the whole day, so it overlaps every other closure on a shared date. */
+function closureWindowsOverlap(a: readonly LocalWindow[] | null | undefined, b: readonly LocalWindow[] | null | undefined): boolean {
+  if (!a || a.length === 0 || !b || b.length === 0) return true;
+  return a.some(x => b.some(y => windowsOverlap(x, y)));
+}
+
 export function validateAvailabilityException(e: AvailabilityExceptionInput): string[] {
   const problems: string[] = [];
   if (!isLocalDate(e.fromDate)) problems.push('fromDate must be a valid date');
@@ -113,21 +123,17 @@ export function validateAvailabilityException(e: AvailabilityExceptionInput): st
   if (!hasOneOwner(e)) problems.push('an exception must belong to exactly one owner: a resource or an offering');
   if (e.kind !== 'closed' && e.kind !== 'override') problems.push("kind must be 'closed' or 'override'");
   const windows = e.windows ?? [];
-  if (e.kind === 'closed' && windows.length > 0) problems.push('a closed exception must not define windows');
-  if (e.kind === 'override') {
-    if (windows.length === 0) problems.push('an override must define at least one window (an override with no hours would silently mean closed)');
-    const ok: LocalWindow[] = [];
-    windows.forEach((w, i) => {
-      const own = validateLocalWindow(w);
-      for (const p of own) problems.push(`window ${i + 1}: ${p}`);
-      if (own.length === 0) ok.push(w);
-    });
-    for (let i = 0; i < ok.length; i++) {
-      for (let j = i + 1; j < ok.length; j++) {
-        if (minutesOfDay(ok[i].startTime) < windowEndMinutes(ok[j].endTime) && minutesOfDay(ok[j].startTime) < windowEndMinutes(ok[i].endTime)) {
-          problems.push(`windows ${i + 1} and ${j + 1} overlap`);
-        }
-      }
+  if (e.kind === 'override' && windows.length === 0) problems.push('an override must define at least one window (an override with no hours would silently mean closed)');
+  // A closure's windows are a partial-day closure; an override's are its opening hours. Either way each must be a real window and they may not overlap.
+  const ok: LocalWindow[] = [];
+  windows.forEach((w, i) => {
+    const own = validateLocalWindow(w);
+    for (const p of own) problems.push(`window ${i + 1}: ${p}`);
+    if (own.length === 0) ok.push(w);
+  });
+  for (let i = 0; i < ok.length; i++) {
+    for (let j = i + 1; j < ok.length; j++) {
+      if (windowsOverlap(ok[i], ok[j])) problems.push(`windows ${i + 1} and ${j + 1} overlap`);
     }
   }
   return problems;
@@ -149,12 +155,42 @@ export function validateAvailabilityExceptionSet(exceptions: readonly Availabili
     for (let j = i + 1; j < valid.length; j++) {
       const a = valid[i].e;
       const b = valid[j].e;
-      if (ownerKey(a) === ownerKey(b) && a.kind === b.kind && spansOverlap(a.fromDate, a.toDate, b.fromDate, b.toDate)) {
+      if (ownerKey(a) !== ownerKey(b) || a.kind !== b.kind || !spansOverlap(a.fromDate, a.toDate, b.fromDate, b.toDate)) continue;
+      // Two overrides may never share a date. Two closures may, provided they remove different times of it (a lunch break and an
+      // afternoon off); a whole-day closure shares every time of its dates.
+      if (a.kind !== 'closed' || closureWindowsOverlap(a.windows, b.windows)) {
         problems.push(`exceptions ${a.id} and ${b.id} are both '${a.kind}' and cover a common date`);
       }
     }
   }
   return problems;
+}
+
+/** Minutes after local midnight (0-1440) back to a window boundary: 1440 is the end-of-day sentinel '24:00'. */
+export function minutesToWindowTime(minutes: number): WindowEnd {
+  if (minutes >= 24 * 60) return END_OF_DAY;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}` as LocalTime;
+}
+
+/** The local windows left after cutting `cuts` out of `base` (wall-clock minutes; half-open). Never returns an empty window. */
+export function subtractLocalWindows(base: readonly LocalWindow[], cuts: readonly LocalWindow[]): LocalWindow[] {
+  const cutRanges = cuts.map(c => ({ s: minutesOfDay(c.startTime), e: windowEndMinutes(c.endTime) })).sort((x, y) => x.s - y.s || x.e - y.e);
+  const out: LocalWindow[] = [];
+  for (const w of base) {
+    let s = minutesOfDay(w.startTime);
+    const e = windowEndMinutes(w.endTime);
+    for (const c of cutRanges) {
+      if (c.e <= s) continue;
+      if (c.s >= e) break;
+      if (c.s > s) out.push({ startTime: minutesToWindowTime(s) as LocalTime, endTime: minutesToWindowTime(c.s) });
+      s = Math.max(s, c.e);
+      if (s >= e) break;
+    }
+    if (s < e) out.push({ startTime: minutesToWindowTime(s) as LocalTime, endTime: minutesToWindowTime(e) });
+  }
+  return out;
 }
 
 export type OvernightRuleShape = Pick<AvailabilityRule, 'dayOfWeek' | 'startTime' | 'validFrom' | 'validTo'> & { endTime: LocalTime };

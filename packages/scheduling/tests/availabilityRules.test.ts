@@ -111,10 +111,13 @@ describe('validateAvailabilityException and the set', () => {
     expect(validateAvailabilityException(exception('o', { kind: 'override', windows: [{ startTime: '10:00', endTime: '14:00' }] }))).toEqual([]);
     expect(validateAvailabilityException(exception('o', { kind: 'override', windows: [{ startTime: '10:00', endTime: END_OF_DAY }] }))).toEqual([]);
   });
-  it('refuses an override with no windows (it would silently mean closed) and a closure that carries windows', () => {
+  it('refuses an override with no windows (it would silently mean closed)', () => {
     expect(validateAvailabilityException(exception('o', { kind: 'override' }))).not.toEqual([]);
     expect(validateAvailabilityException(exception('o', { kind: 'override', windows: [] }))).not.toEqual([]);
-    expect(validateAvailabilityException(exception('c', { windows: [{ startTime: '10:00', endTime: '11:00' }] }))).not.toEqual([]);
+  });
+  it('a closure that carries windows is a PARTIAL-DAY closure (Phase 2B.3c, a deliberate change: it was refused in 2B.3a); a bad window in it is still refused', () => {
+    expect(validateAvailabilityException(exception('c', { windows: [{ startTime: '10:00', endTime: '11:00' }] }))).toEqual([]);
+    expect(validateAvailabilityException(exception('c', { windows: [{ startTime: '11:00', endTime: '10:00' }] }))).not.toEqual([]);
   });
   it('refuses bad dates, reversed ranges, bad kinds, bad or overlapping windows and a missing or double owner', () => {
     expect(validateAvailabilityException(exception('c', { fromDate: '2026-02-30' }))).not.toEqual([]);

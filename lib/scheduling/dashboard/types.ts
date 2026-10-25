@@ -43,6 +43,45 @@ export interface ResourceView {
   updatedAt: string;
 }
 
+/** A weekly availability rule as the API returns it (0 = Sunday; `endTime` may be '24:00' for the end of the day). */
+export interface AvailabilityRuleView {
+  id: string;
+  resourceId: string | null;
+  offeringId: string | null;
+  kind: 'hours' | 'service_period';
+  label: string | null;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  validFrom: string | null;
+  validTo: string | null;
+  createdAt: string;
+  /** The version token: send it back unchanged with an edit or a removal. */
+  updatedAt: string;
+}
+
+/** A closure: whole days, or (startTime and endTime both set) part of each day. */
+export interface AvailabilityClosureView {
+  id: string;
+  resourceId: string | null;
+  offeringId: string | null;
+  fromDate: string;
+  toDate: string;
+  kind: 'closed' | 'override';
+  reason: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AvailabilityView {
+  owner: { kind: 'offering' | 'resource'; id: string };
+  rules: AvailabilityRuleView[];
+  exceptions: AvailabilityClosureView[];
+  capabilities: { partialClosures: boolean };
+}
+
 export interface StatusView {
   configured: boolean;
   timezone: string;
