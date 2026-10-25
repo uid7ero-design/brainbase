@@ -1,6 +1,6 @@
 # Scheduling migration 034 (availability integrity): Production handoff
 
-Status: **prepared, NOT executed.** Nothing in this document has been run against Production. It is owner-run, in the manual Neon SQL editor, and
+Status: **SUPERSEDED by scheduling-migrations-034-035-production-handoff.md** (kept for its 06:55Z rehearsal record). Prepared, NOT executed. Nothing in this document has been run against Production. It is owner-run, in the manual Neon SQL editor, and
 needs a separate explicit approval. Merging code never applies it: the application does not run migrations, and until 034 is applied every
 availability route answers `503 AVAILABILITY_NOT_READY` and writes nothing.
 
