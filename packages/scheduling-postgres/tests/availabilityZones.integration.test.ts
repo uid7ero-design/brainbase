@@ -100,11 +100,28 @@ suite('owner-pinned availability zones on real PostgreSQL (migration 036)', () =
       expect(await repo.getZone(tenantA, res)).toMatchObject({ timezone: 'Australia/Perth', source: 'first_rule' });
     });
 
-    it('an owner that is already pinned keeps its zone whatever zone a later write names (a write never changes a pin)', async () => {
-      await repo.createRule(tenantA, res, rule(), 'Australia/Perth');
-      const later = await repo.createRule(tenantA, res, rule({ dayOfWeek: 2 }), 'Europe/London');
-      expect(later.ok && later.pinned).toBeNull();
-      expect((await zoneOf('court-1'))?.timezone).toBe('Australia/Perth');
+    it('a writer requesting another zone than the existing pin gets an explicit conflict: no rule, no closure, no new pin, the pin is unchanged', async () => {
+      await repo.createRule(tenantA, res, rule(), 'Australia/Adelaide');
+      const hashRules = () => getPool().query("SELECT md5(coalesce(string_agg(t::text, '|' ORDER BY t::text), '')) h FROM scheduling_availability_rules t").then(r => r.rows[0].h as string);
+      const before = await hashRules();
+      const later = await repo.createRule(tenantA, res, rule({ dayOfWeek: 2 }), 'Australia/Perth');
+      expect(later).toEqual({ ok: false, reason: 'zone_mismatch', detail: 'Australia/Adelaide' });
+      expect(await repo.createRules(tenantA, res, [rule({ dayOfWeek: 3 }), rule({ dayOfWeek: 4 })], 'Australia/Perth')).toEqual({ ok: false, reason: 'zone_mismatch', detail: 'Australia/Adelaide' });
+      expect(await repo.createException(tenantA, res, closure(), 'Australia/Perth')).toEqual({ ok: false, reason: 'zone_mismatch', detail: 'Australia/Adelaide' });
+      expect(await hashRules()).toBe(before);
+      expect(await count('SELECT count(*) FROM scheduling_availability_exceptions')).toBe(0);
+      expect(await pins('court-1')).toBe(1);
+      expect((await zoneOf('court-1'))?.timezone).toBe('Australia/Adelaide');
+      // the same zone is accepted, and so is a write that names no zone at all (no expectation to break)
+      const same = await repo.createRule(tenantA, res, rule({ dayOfWeek: 2 }), 'Australia/Adelaide');
+      expect(same.ok && same.pinned).toBeNull();
+      expect((await repo.createRule(tenantA, res, rule({ dayOfWeek: 3 }))).ok).toBe(true);
+    });
+
+    it('the conflict is for the existing pin only: another organisation still gets not_found, and a missing owner is not a zone conflict', async () => {
+      await repo.createRule(tenantA, res, rule(), 'Australia/Adelaide');
+      expect(await repo.createRule(tenantB, res, rule({ dayOfWeek: 2 }), 'Australia/Perth')).toEqual({ ok: false, reason: 'not_found' });
+      expect(await repo.createRule(tenantA, { kind: 'resource', id: 'no-such' }, rule(), 'Australia/Perth')).toEqual({ ok: false, reason: 'not_found' });
     });
 
     it('a batch (an overnight window: two rules) pins once; a first closure pins with source first_closure', async () => {
@@ -152,39 +169,65 @@ suite('owner-pinned availability zones on real PostgreSQL (migration 036)', () =
   });
 
   describe('concurrent first writes cannot establish inconsistent zones', () => {
-    it('12 simultaneous first writes naming 12 different zones: exactly one pin; every rule is committed and read in that one zone; one writer reports the pin', async () => {
+    it('12 simultaneous first writes naming 12 different zones: exactly ONE succeeds and pins; the other 11 get zone_mismatch naming the winner zone and write nothing', async () => {
       const zones = ['Australia/Perth', 'Australia/Sydney', 'Australia/Darwin', 'Europe/London', 'America/New_York', 'Pacific/Auckland', 'Asia/Tokyo', 'Asia/Kolkata', 'Europe/Berlin', 'America/Chicago', 'Africa/Cairo', 'Australia/Lord_Howe'];
       const results = await Promise.all(zones.map((z, i) => repo.createRule(tenantA, res, rule({ dayOfWeek: i % 7, startTime: `${String(8 + Math.floor(i / 7)).padStart(2, '0')}:00`, endTime: `${String(9 + Math.floor(i / 7)).padStart(2, '0')}:00` }), z)));
-      expect(results.every(r => r.ok)).toBe(true);
       expect(await pins('court-1')).toBe(1);
-      const winners = results.filter(r => r.ok && r.pinned);
-      expect(winners).toHaveLength(1);
       const stored = (await zoneOf('court-1'))!.timezone;
-      expect(winners[0].ok && winners[0].pinned?.timezone).toBe(stored);
       expect(zones).toContain(stored);
-      expect(await rulesIn('court-1')).toBe(12);
+      const ok = results.filter(r => r.ok);
+      expect(ok).toHaveLength(1);
+      expect(ok[0].ok && ok[0].pinned?.timezone).toBe(stored);
+      const refused = results.filter(r => !r.ok);
+      expect(refused).toHaveLength(11);
+      expect(refused.every(r => !r.ok && r.reason === 'zone_mismatch' && r.detail === stored)).toBe(true);
+      expect(await rulesIn('court-1')).toBe(1); // nothing was saved under a zone the writer did not ask for
       expect((await repo.getZone(tenantA, res))?.timezone).toBe(stored);
     });
 
-    it('a first rule racing a first closure (two tables) for one owner: one pin', async () => {
+    it('12 simultaneous first writes all naming the SAME zone: all succeed (different days), one pin, one reports it', async () => {
+      const results = await Promise.all(Array.from({ length: 12 }, (_, i) => repo.createRule(tenantA, res, rule({ dayOfWeek: i % 7, startTime: `${String(8 + Math.floor(i / 7)).padStart(2, '0')}:00`, endTime: `${String(9 + Math.floor(i / 7)).padStart(2, '0')}:00` }), 'Australia/Perth')));
+      expect(results.every(r => r.ok)).toBe(true);
+      expect(results.filter(r => r.ok && r.pinned)).toHaveLength(1);
+      expect(await pins('court-1')).toBe(1);
+      expect(await rulesIn('court-1')).toBe(12);
+    });
+
+    it('a first rule racing a first closure for one owner, naming different zones: one pin, one succeeds, the other is a zone conflict', async () => {
       for (let round = 0; round < 8; round++) {
         await resetData();
         await seedSchedule(A, 'sch-a', 'resource_hire');
         await seedResource(A, 'court-1');
         const [r, c] = await Promise.all([repo.createRule(tenantA, res, rule(), 'Australia/Perth'), repo.createException(tenantA, res, closure(), 'Europe/London')]);
+        expect(await pins('court-1')).toBe(1);
+        expect([r.ok, c.ok].filter(Boolean)).toHaveLength(1);
+        const loser = r.ok ? c : r;
+        expect(!loser.ok && loser.reason).toBe('zone_mismatch');
+        expect((await rulesIn('court-1')) + (await count('SELECT count(*) FROM scheduling_availability_exceptions'))).toBe(1);
+      }
+    });
+
+    it('a first rule racing a first closure naming the SAME zone: both succeed, one pin', async () => {
+      for (let round = 0; round < 40; round++) {
+        await resetData();
+        await seedSchedule(A, 'sch-a', 'resource_hire');
+        await seedResource(A, 'court-1');
+        const [r, c] = await Promise.all([repo.createRule(tenantA, res, rule(), 'Australia/Perth'), repo.createException(tenantA, res, closure(), 'Australia/Perth')]);
         expect(r.ok && c.ok).toBe(true);
         expect(await pins('court-1')).toBe(1);
         expect([r, c].filter(x => x.ok && x.pinned)).toHaveLength(1);
       }
     });
 
-    it('racing first writes where some are refused: a pin exists exactly when some rule committed, and never two', async () => {
+    it('racing identical windows with two zones: one commits; same-zone losers are overlap, other-zone losers are zone_mismatch; one pin, one rule', async () => {
       const results = await Promise.all(Array.from({ length: 10 }, (_, i) => repo.createRule(tenantA, res, rule({ startTime: '09:00', endTime: '17:00' }), i % 2 === 0 ? 'Australia/Perth' : 'Europe/London')));
-      expect(results.filter(r => r.ok)).toHaveLength(1); // identical windows overlap: one wins
-      expect(results.filter(r => !r.ok && r.reason === 'overlap')).toHaveLength(9);
+      expect(results.filter(r => r.ok)).toHaveLength(1);
+      const stored = (await zoneOf('court-1'))!.timezone;
+      expect(results.filter(r => !r.ok).every(r => !r.ok && (r.reason === 'overlap' || r.reason === 'zone_mismatch'))).toBe(true);
+      expect(results.filter(r => !r.ok && r.reason === 'zone_mismatch').every(r => !r.ok && r.detail === stored)).toBe(true);
+      expect(results.filter(r => !r.ok && r.reason === 'zone_mismatch')).toHaveLength(5);
       expect(await pins('court-1')).toBe(1);
       expect(await rulesIn('court-1')).toBe(1);
-      expect((await zoneOf('court-1'))?.timezone).toBe(results.find(r => r.ok && r.pinned)!.ok ? (results.find(r => r.ok && r.pinned) as { ok: true; pinned: { timezone: string } }).pinned.timezone : '');
     });
 
     it('owners are independent: 20 owners written at once get 20 pins', async () => {
@@ -211,20 +254,26 @@ suite('owner-pinned availability zones on real PostgreSQL (migration 036)', () =
       }
     });
 
-    it('a pin written by a transaction that COMMITS wins: the waiting writer\'s rule is stored, and its own zone is ignored', async () => {
-      const c = await getPool().connect();
-      try {
-        await c.query('BEGIN');
-        await c.query("INSERT INTO scheduling_availability_zones (organisation_id, resource_id, timezone, source) VALUES ($1, 'court-1', 'Europe/London', 'first_rule')", [A]);
-        const waiting = repo.createRule(tenantA, res, rule(), 'Australia/Perth');
-        await new Promise(r => setTimeout(r, 300));
-        await c.query('COMMIT');
-        const r = await waiting;
-        expect(r.ok && r.pinned).toBeNull();
-        expect((await zoneOf('court-1'))?.timezone).toBe('Europe/London');
-        expect(await rulesIn('court-1')).toBe(1);
-      } finally {
-        c.release();
+    it('a pin written by a transaction that COMMITS wins: a waiting writer that asked for ANOTHER zone gets zone_mismatch and stores nothing; one that asked for the same zone is stored', async () => {
+      for (const [requested, expectOk] of [['Australia/Perth', false], ['Europe/London', true]] as const) {
+        await resetData();
+        await seedSchedule(A, 'sch-a', 'resource_hire');
+        await seedResource(A, 'court-1');
+        const c = await getPool().connect();
+        try {
+          await c.query('BEGIN');
+          await c.query("INSERT INTO scheduling_availability_zones (organisation_id, resource_id, timezone, source) VALUES ($1, 'court-1', 'Europe/London', 'first_rule')", [A]);
+          const waiting = repo.createRule(tenantA, res, rule(), requested);
+          await new Promise(r => setTimeout(r, 300));
+          await c.query('COMMIT');
+          const r = await waiting;
+          if (expectOk) expect(r.ok && r.pinned).toBeNull();
+          else expect(r).toEqual({ ok: false, reason: 'zone_mismatch', detail: 'Europe/London' });
+          expect((await zoneOf('court-1'))?.timezone).toBe('Europe/London');
+          expect(await rulesIn('court-1')).toBe(expectOk ? 1 : 0);
+        } finally {
+          c.release();
+        }
       }
     });
   });
@@ -245,13 +294,17 @@ suite('owner-pinned availability zones on real PostgreSQL (migration 036)', () =
       await repo.createRule(tenantA, res, rule(), 'Australia/Perth');
       for (const sql of [
         "UPDATE scheduling_availability_zones SET timezone = 'Europe/London'",
-        "UPDATE scheduling_availability_zones SET timezone = timezone",
+
         "UPDATE scheduling_availability_zones SET resource_id = 'court-2'",
         "UPDATE scheduling_availability_zones SET organisation_id = 'org-az-b'",
         "UPDATE scheduling_availability_zones SET pinned_by = 'someone'",
         'DELETE FROM scheduling_availability_zones',
       ]) expect([sql, await sqlstate(getPool().query(sql))]).toEqual([sql, 'SCZON']);
       expect((await zoneOf('court-1'))?.timezone).toBe('Australia/Perth');
+      // an UPDATE that changes nothing is the one thing allowed: it is how a write reads the pin it conflicts with (ON CONFLICT DO UPDATE SET timezone = timezone)
+      const before = (await getPool().query("SELECT pinned_at::text p, timezone t, source s, pinned_by b FROM scheduling_availability_zones")).rows;
+      expect(await sqlstate(getPool().query('UPDATE scheduling_availability_zones SET timezone = timezone'))).toBeNull();
+      expect((await getPool().query("SELECT pinned_at::text p, timezone t, source s, pinned_by b FROM scheduling_availability_zones")).rows).toEqual(before);
     });
 
     it('a pin goes with its owner: deleting a resource that has only a pin removes the pin', async () => {
@@ -269,7 +322,7 @@ suite('owner-pinned availability zones on real PostgreSQL (migration 036)', () =
       expect(await rulesIn('court-1')).toBe(0);
       expect((await zoneOf('court-1'))?.timezone).toBe('Australia/Perth');
       const again = await repo.createRule(tenantA, res, rule(), 'Europe/London');
-      expect(again.ok && again.pinned).toBeNull();
+      expect(again).toEqual({ ok: false, reason: 'zone_mismatch', detail: 'Australia/Perth' });
       expect((await repo.getZone(tenantA, res))?.timezone).toBe('Australia/Perth');
     });
 
@@ -326,9 +379,9 @@ suite('owner-pinned availability zones on real PostgreSQL (migration 036)', () =
       expect((await repo.getZone(tenantA, res))?.timezone).toBe('Australia/Sydney');
       expect((await repo.getZone(tenantA, off))?.timezone).toBe('Australia/Sydney');
       expect((await repo.getZone(tenantA, offPerth))?.timezone).toBe('Australia/Perth');
-      // writing the shared resource again from the Perth side changes nothing
+      // writing the shared resource again "from the Perth side" is a conflict: the resource is Sydney's, and nothing is saved
       const again = await repo.createRule(tenantA, res, rule({ dayOfWeek: 2 }), 'Australia/Perth');
-      expect(again.ok && again.pinned).toBeNull();
+      expect(again).toEqual({ ok: false, reason: 'zone_mismatch', detail: 'Australia/Sydney' });
       expect((await repo.getZone(tenantA, res))?.timezone).toBe('Australia/Sydney');
     });
   });

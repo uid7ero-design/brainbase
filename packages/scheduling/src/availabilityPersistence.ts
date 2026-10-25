@@ -71,6 +71,7 @@ export type AvailabilityWriteFailure =
   | 'overlap' // the rule or exception overlaps another of the same owner
   | 'owner_archived' // the offering (or its schedule) is archived
   | 'owner_inactive' // the resource is inactive
+  | 'zone_mismatch' // a create named a zone other than the owner's pinned zone (`detail` is the zone in force); NOTHING was written
   | 'not_overnight_window'; // deleteOvernightWindow: both rules exist and are current, but they are not the two halves of one overnight window
 
 export type AvailabilityWriteResult<T> = { ok: true; value: T; pinned?: StoredAvailabilityZone | null } | { ok: false; reason: AvailabilityWriteFailure; detail?: string };
@@ -92,7 +93,9 @@ export interface SchedulingAvailabilityRepository {
   getRule(tenant: TenantContext, ruleId: string): Promise<StoredAvailabilityRule | null>;
   /**
    * `zone` is the zone to pin if this owner has no pinned zone yet (the caller resolves it: the schedule's zone for an offering, else the tenant's; omitted = the tenant's).
-   * The pin and the rule are written in ONE statement. If the owner is already pinned, `zone` is ignored: a pinned zone is never changed by a write.
+   * The pin and the rule are written in ONE statement. `zone`, when given, is also an EXPECTATION: if the owner already has a different pinned zone (including one a concurrent
+   * writer pinned first) nothing is written and the result is `zone_mismatch` with the zone in force as `detail`; a write never changes a pin and never lands under a zone the
+   * writer did not ask for. Omitted: the tenant's zone is the default for a first pin and there is no expectation to break.
    */
   createRule(tenant: TenantContext, owner: AvailabilityOwner, input: NewStoredRuleInput, zone?: IanaTimezone): Promise<AvailabilityWriteResult<StoredAvailabilityRule>>;
   /**

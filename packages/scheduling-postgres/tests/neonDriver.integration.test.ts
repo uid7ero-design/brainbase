@@ -127,16 +127,23 @@ suite(`availability on the REAL Neon HTTP driver (${PHASE})`, () => {
   }
 
   describe('first-write atomicity over HTTP', () => {
-    it('the first rule pins the owner\'s zone in the same request; the second finds the pin; tokens are microsecond strings', async () => {
+    it('the first rule pins the owner zone in the same request; a second write naming that zone finds the pin; naming ANOTHER zone is an explicit conflict; tokens are microsecond strings', async () => {
       const o = await resource();
-      const first = await repo.createRule(tenantA, o, rule(), 'Australia/Perth');
+      const first = await repo.createRule(tenantA, o, rule(), 'Australia/Adelaide');
       expect(first.ok).toBe(true);
       if (!first.ok) return;
-      expect(first.pinned).toMatchObject({ timezone: 'Australia/Perth', source: 'first_rule', pinnedBy: 'driver-user-zz-drv-a' });
+      expect(first.pinned).toMatchObject({ timezone: 'Australia/Adelaide', source: 'first_rule', pinnedBy: 'driver-user-zz-drv-a' });
       expect(first.value.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/);
-      const second = await repo.createRule(tenantA, o, rule({ dayOfWeek: 2 }), 'Europe/London');
+      const second = await repo.createRule(tenantA, o, rule({ dayOfWeek: 2 }), 'Australia/Adelaide');
       expect(second.ok && second.pinned).toBeNull();
-      expect((await repo.getZone(tenantA, o))?.timezone).toBe('Australia/Perth');
+      // a writer that asked for Australia/Perth cannot save hours under the existing Australia/Adelaide pin: explicit conflict, nothing written
+      const rulesBefore = await rulesOf(o);
+      expect(await repo.createRule(tenantA, o, rule({ dayOfWeek: 3 }), 'Australia/Perth')).toEqual({ ok: false, reason: 'zone_mismatch', detail: 'Australia/Adelaide' });
+      expect(await repo.createRules(tenantA, o, [rule({ dayOfWeek: 4 }), rule({ dayOfWeek: 5 })], 'Australia/Perth')).toEqual({ ok: false, reason: 'zone_mismatch', detail: 'Australia/Adelaide' });
+      expect(await repo.createException(tenantA, o, closure(), 'Australia/Perth')).toEqual({ ok: false, reason: 'zone_mismatch', detail: 'Australia/Adelaide' });
+      expect(await rulesOf(o)).toBe(rulesBefore);
+      expect(await count('SELECT count(*) AS n FROM scheduling_availability_exceptions WHERE resource_id = $1', [o.id])).toBe(0);
+      expect((await repo.getZone(tenantA, o))?.timezone).toBe('Australia/Adelaide');
       expect(await pinsOf(o)).toBe(1);
     });
 
@@ -180,35 +187,50 @@ suite(`availability on the REAL Neon HTTP driver (${PHASE})`, () => {
   });
 
   describe('concurrent first writes over separate HTTP requests (a real race on the server)', () => {
-    it('12 simultaneous first writes naming 12 different zones: one pin, every rule committed, one writer reports the pin, all agree', async () => {
+    it('12 simultaneous first writes naming 12 different zones: exactly ONE succeeds and pins; the other 11 get zone_mismatch naming the winner and write nothing', async () => {
       const o = await resource();
       const zones = ['Australia/Perth', 'Australia/Sydney', 'Australia/Darwin', 'Europe/London', 'America/New_York', 'Pacific/Auckland', 'Asia/Tokyo', 'Asia/Kolkata', 'Europe/Berlin', 'America/Chicago', 'Africa/Cairo', 'Australia/Lord_Howe'];
       const results = await Promise.all(zones.map((z, i) => repo.createRule(tenantA, o, rule({ dayOfWeek: i % 7, startTime: `${String(8 + Math.floor(i / 7)).padStart(2, '0')}:00`, endTime: `${String(9 + Math.floor(i / 7)).padStart(2, '0')}:00` }), z)));
-      expect(results.every(r => r.ok)).toBe(true);
-      const winners = results.filter(r => r.ok && r.pinned);
-      expect(winners).toHaveLength(1);
       expect(await pinsOf(o)).toBe(1);
-      expect(await rulesOf(o)).toBe(12);
       const stored = (await repo.getZone(tenantA, o))!.timezone;
-      expect(winners[0].ok && winners[0].pinned?.timezone).toBe(stored);
       expect(zones).toContain(stored);
+      const ok = results.filter(r => r.ok);
+      expect(ok).toHaveLength(1);
+      expect(ok[0].ok && ok[0].pinned?.timezone).toBe(stored);
+      const refused = results.filter(r => !r.ok);
+      expect(refused).toHaveLength(11);
+      expect(refused.every(r => !r.ok && r.reason === 'zone_mismatch' && r.detail === stored)).toBe(true);
+      expect(await rulesOf(o)).toBe(1);
     }, 120_000);
 
-    it('racing identical windows: one commits and pins, the rest are refused as overlap, exactly one pin', async () => {
+    it('12 simultaneous first writes all naming the SAME zone: all succeed, one pin, one reports it', async () => {
+      const o = await resource();
+      const results = await Promise.all(Array.from({ length: 12 }, (_, i) => repo.createRule(tenantA, o, rule({ dayOfWeek: i % 7, startTime: `${String(8 + Math.floor(i / 7)).padStart(2, '0')}:00`, endTime: `${String(9 + Math.floor(i / 7)).padStart(2, '0')}:00` }), 'Australia/Perth')));
+      expect(results.every(r => r.ok)).toBe(true);
+      expect(results.filter(r => r.ok && r.pinned)).toHaveLength(1);
+      expect(await pinsOf(o)).toBe(1);
+      expect(await rulesOf(o)).toBe(12);
+    }, 120_000);
+
+    it('racing identical windows with two zones: one commits; same-zone losers are overlap, other-zone losers are zone_mismatch; one pin, one rule', async () => {
       const o = await resource();
       const results = await Promise.all(Array.from({ length: 10 }, (_, i) => repo.createRule(tenantA, o, rule(), i % 2 === 0 ? 'Australia/Perth' : 'Europe/London')));
       expect(results.filter(r => r.ok)).toHaveLength(1);
-      expect(results.filter(r => !r.ok && r.reason === 'overlap')).toHaveLength(9);
+      const stored = (await repo.getZone(tenantA, o))!.timezone;
+      expect(results.filter(r => !r.ok && r.reason === 'zone_mismatch')).toHaveLength(5);
+      expect(results.filter(r => !r.ok && r.reason === 'zone_mismatch').every(r => !r.ok && r.detail === stored)).toBe(true);
+      expect(results.filter(r => !r.ok && r.reason === 'overlap')).toHaveLength(4);
       expect(await pinsOf(o)).toBe(1);
       expect(await rulesOf(o)).toBe(1);
     }, 120_000);
 
-    it('a first rule racing a first closure of the same owner: one pin', async () => {
+    it('a first rule racing a first closure of the same owner naming different zones: one pin, one succeeds, the other is a zone conflict', async () => {
       const o = await offering();
       const [r, c] = await Promise.all([repo.createRule(tenantA, o, rule(), 'Australia/Perth'), repo.createException(tenantA, o, closure(), 'Europe/London')]);
-      expect(r.ok && c.ok).toBe(true);
       expect(await pinsOf(o)).toBe(1);
-      expect([r, c].filter(x => x.ok && x.pinned)).toHaveLength(1);
+      expect([r.ok, c.ok].filter(Boolean)).toHaveLength(1);
+      const loser = r.ok ? c : r;
+      expect(!loser.ok && loser.reason).toBe('zone_mismatch');
     }, 120_000);
   });
 
@@ -286,8 +308,8 @@ suite(`availability on the REAL Neon HTTP driver (${PHASE})`, () => {
       await run("INSERT INTO scheduling_offering_resources (organisation_id, offering_id, resource_id) VALUES ($1, $2, $3), ($1, $4, $3)", [A, plain.id, court.id, perth.id]).catch(() => undefined); // the link guards (030/031) may refuse a kind/preset mismatch: incidental here
       const before = await Promise.all([court, plain, perth].map(x => repo.getZone(tenantA, x)));
       expect(before.map(z => z?.timezone)).toEqual(['Australia/Sydney', 'Australia/Sydney', 'Australia/Perth']);
-      const again = await repo.createRule(tenantA, court, rule({ dayOfWeek: 2 }), 'Australia/Perth'); // written "from the Perth side"
-      expect(again.ok && again.pinned).toBeNull();
+      const again = await repo.createRule(tenantA, court, rule({ dayOfWeek: 2 }), 'Australia/Perth'); // written "from the Perth side": the resource is Sydney's, so it is a conflict
+      expect(again).toEqual({ ok: false, reason: 'zone_mismatch', detail: 'Australia/Sydney' });
       // changing the organisation's and the schedule's timezone later (here as the owner would) does not reinterpret the pins
       await run("UPDATE organisations SET timezone = 'Europe/London' WHERE id = $1", [A]).catch(() => undefined); // the driver role may not write organisations: that is fine, and itself the point
       await run("UPDATE scheduling_schedules SET timezone = 'Asia/Tokyo' WHERE id = 'zz-sch-a'");

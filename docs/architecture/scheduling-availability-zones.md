@@ -12,7 +12,7 @@ The pure shared-core change (each owner read in its own zone) is a separate PR.
 
 - **Decided once.** The first rule, overnight window or closure saved for an owner pins its zone. The zone is the default for that first save only: an offering's schedule timezone if it has one, else the
   tenant's (the organisation's, or the platform fallback); a resource has no schedule, so the tenant's. The browser's timezone is never used.
-- **Never changed by a write.** A later write naming another zone is ignored for the pin (the rule is still stored, read in the pinned zone).
+- **Never changed by a write, and never saved under a zone the writer did not ask for.** A create carries the zone the writer expects (the screen sends the zone it shows; the API fills in the pinned zone otherwise). If the owner's pinned zone is different (including one a concurrent writer pinned first), the answer is an explicit conflict (`409 ZONE_MISMATCH`, naming the zone in force) and **nothing is written and nothing is audited**. Before this rule a loser of a first-write race would silently save its hours under the winner's zone, so Perth hours could land under an Adelaide pin.
 - **Not coupled to anything else.** Establishing a pin writes nothing to `organisations`, `scheduling_schedules`, `scheduling_resources` or `scheduling_offerings`: no timezone field and no version token moves
   (tested by content hash on PostgreSQL and on the real Neon driver). Changing the organisation's timezone or a schedule's timezone later does not move a pinned owner's hours.
 - **Shared resources.** A resource has one pin, whichever offering or schedule asks; an offering of another schedule keeps its own pin. The pure computation (separate PR) reads each owner in its own zone and intersects instants.
@@ -30,17 +30,20 @@ Errors arrive as `NeonDbError` with the SQLSTATE in `.code`; concurrent calls ar
 WITH pin AS (
   INSERT INTO scheduling_availability_zones (organisation_id, <owner column>, timezone, source, pinned_by)
   SELECT z.organisation_id, z.id, $zone::text, 'first_rule', $by::text FROM <owner table> z WHERE z.organisation_id = $org AND z.id = $owner
-  ON CONFLICT DO NOTHING RETURNING timezone),
-forced AS (SELECT count(*) AS n FROM pin)
-INSERT INTO scheduling_availability_rules (...) SELECT ... FROM <owner table> o CROSS JOIN forced WHERE ...
+  ON CONFLICT ON CONSTRAINT scheduling_availability_zones_pk DO UPDATE SET timezone = scheduling_availability_zones.timezone   -- a no-op "touch"
+  RETURNING timezone, (pinned_at = now()) AS created),
+forced AS (SELECT count(*) FILTER (WHERE created) AS n, count(*) FILTER (WHERE $enforce AND timezone IS DISTINCT FROM $zone) AS bad FROM pin)
+INSERT INTO scheduling_availability_rules (...) SELECT ... FROM <owner table> o CROSS JOIN forced WHERE ... AND forced.bad = 0
 RETURNING id, updated_at, (SELECT n FROM forced)::int AS pinned
 ```
 
 - **Atomic.** One statement commits or rolls back as a whole: a refused first write (overlap, archived offering, inactive resource) leaves **no pin** (tested on PostgreSQL 16/17 and the Neon driver).
 - **Ordered.** The `forced` aggregate makes the pin insert run before the first rule tuple is produced, so the BEFORE INSERT trigger of 036 (which refuses availability whose owner has no pin) sees it.
-- **Race-free.** `ON CONFLICT DO NOTHING` on the owner's primary key: of N racing first writes one pin wins and the rest are no-ops, so two zones can never be established; a racing writer waits on an
-  uncommitted pin and, if that transaction rolls back, pins its own zone; if it commits, uses the winner's (both tested). **Rules carry no zone**, so the losers' rules are read in the winner's zone: nothing is lost
-  and nothing disagrees. The statement reports whether *it* created the pin, so exactly one writer audits it.
+- **Race-free, and honest about the loser.** The pin is an upsert on the owner's primary key: of N racing first writes one pin wins and two zones can never be established. The losers do **not** save under the
+  winner's zone: `DO UPDATE SET timezone = timezone` (a no-op the immutability trigger allows) returns the row already there, **after waiting for a concurrent uncommitted pin and reading its committed value**
+  (a plain SELECT in the same statement would use the snapshot taken before that writer committed, and so miss it, which is why `DO NOTHING` plus a read was not enough). A writer whose requested zone differs
+  writes nothing and is told the zone in force (`zone_mismatch`); one that asked for the same zone succeeds. A writer waiting on a pin that then rolls back pins its own zone. Tested: 12 simultaneous first writes naming
+  12 zones leave exactly one pin and exactly one saved rule (the other 11 are conflicts), on PostgreSQL and on the real driver. The statement reports whether *it* created the pin, so exactly one writer audits it.
 - **Fail closed.** Without 036 the statement does not analyse (`undefined_table`, `42P01`, naming `scheduling_availability_zones`): nothing is written, the repository raises
   `AvailabilityZonesNotReadyError` and the route answers `503 AVAILABILITY_ZONES_NOT_READY`. Reads (`getZone` is `null`, `capabilities.zones: false`) and removals keep working. Proved on the real driver
   before 036 was applied.
@@ -53,7 +56,7 @@ Audit: the pin is audited as `scheduling.availability_zone.pinned` (owner, zone,
 | Rule | How | SQLSTATE |
 | --- | --- | --- |
 | availability needs its owner's pin | BEFORE INSERT trigger on rules and closures (fires after 034's guard) | `SCZON` |
-| a pin cannot be updated (zone, owner, organisation, anything) | BEFORE UPDATE trigger | `SCZON` |
+| a pin cannot be changed (zone, owner, organisation, source, who, when); an UPDATE that changes nothing is allowed | BEFORE UPDATE trigger | `SCZON` |
 | a pin cannot be removed while its owner exists | BEFORE DELETE trigger (the owner's delete cascades it) | `SCZON` |
 | valid IANA zone | CHECK `scheduling_is_timezone` | `23514` |
 | exactly one owner; a recorded source | CHECKs | `23514` |
@@ -86,7 +89,7 @@ to "preserve instants" (that is a different, lossy conversion: not representable
 
 ## 5. Evidence
 
-- PostgreSQL 16.14 and 17.11: `availabilityZones.integration.test.ts` (34 tests: atomic first writes, refused writes leave no pin, 12 simultaneous first writes naming 12 zones, a rollback-then-pin race and a commit-then-pin race, the database refusals, nothing else
-  touched, idempotent migration, backfill from a schedule override / organisation / fallback, refusal without a resolvable organisation, rollback with data and its refusal, reapplication, fail closed and recovery) plus 9 API tests and the earlier suites updated for 036.
-- The real Neon HTTP driver against a disposable branch (`neonDriver.integration.test.ts`, gated by `SCHEDULING_NEON_DRIVER_URL`): 5 tests before 036 and 18 after.
+- PostgreSQL 16.14 and 17.11: `availabilityZones.integration.test.ts` (38 tests: atomic first writes, the zone conflict, refused writes leave no pin, 12 simultaneous first writes naming 12 zones (one wins, 11 conflict) and naming the same zone (all succeed), a rollback-then-pin race and a commit-then-pin race for both a different and the same zone, the database refusals, nothing else
+  touched, idempotent migration, backfill from a schedule override / organisation / fallback, refusal without a resolvable organisation, rollback with data and its refusal, reapplication, fail closed and recovery) plus 12 API tests and the earlier suites updated for 036.
+- The real Neon HTTP driver against a disposable branch (`neonDriver.integration.test.ts`, gated by `SCHEDULING_NEON_DRIVER_URL`): 5 tests before 036 and 19 after.
 - The migration rehearsal on a fresh Neon branch from Production: `scheduling-migrations-034-035-036-production-handoff.md`.

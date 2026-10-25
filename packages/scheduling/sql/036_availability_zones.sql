@@ -15,7 +15,7 @@
 --     read in, how it was pinned (first_rule | first_closure | backfill), who, and when. Composite foreign keys to the owner carry the organisation,
 --     so a pin can never name another organisation's resource or offering. Nothing is written to organisations, scheduling_schedules,
 --     scheduling_resources or scheduling_offerings: no timezone field and no version token moves.
---   * immutability: a pin cannot be updated (zone, owner or organisation), and cannot be deleted while its owner exists (it goes only with
+--   * immutability: a pin cannot be changed (zone, owner, organisation, source, who, when; an UPDATE that changes nothing is allowed), and cannot be deleted while its owner exists (it goes only with
 --     its owner). Changing a zone is NOT possible here: it needs a reviewed conversion (see the design document, "Changing a pinned zone").
 --   * availability needs a pin: a BEFORE INSERT trigger on scheduling_availability_rules and scheduling_availability_exceptions refuses a row
 --     whose owner has no pin (SQLSTATE SCZON). The application writes the pin and the first rule in ONE statement (a CTE), so they commit
@@ -74,6 +74,12 @@ CREATE OR REPLACE FUNCTION scheduling_availability_zone_guard() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
   IF TG_OP = 'UPDATE' THEN
+    -- An update that changes NOTHING is allowed: it is how a first write reads the pin it conflicts with (ON CONFLICT DO UPDATE SET timezone = timezone).
+    IF NEW.organisation_id IS NOT DISTINCT FROM OLD.organisation_id AND NEW.resource_id IS NOT DISTINCT FROM OLD.resource_id
+       AND NEW.offering_id IS NOT DISTINCT FROM OLD.offering_id AND NEW.timezone IS NOT DISTINCT FROM OLD.timezone
+       AND NEW.source IS NOT DISTINCT FROM OLD.source AND NEW.pinned_by IS NOT DISTINCT FROM OLD.pinned_by AND NEW.pinned_at IS NOT DISTINCT FROM OLD.pinned_at THEN
+      RETURN NEW;
+    END IF;
     RAISE EXCEPTION 'a pinned availability zone cannot be changed: a reviewed conversion is required' USING ERRCODE = 'SCZON';
   END IF;
   -- DELETE: only together with the owner (the foreign key's cascade runs after the owner row is gone).

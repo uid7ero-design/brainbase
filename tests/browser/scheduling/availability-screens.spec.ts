@@ -172,7 +172,7 @@ test.describe('weekly hours', () => {
     expect((await response.json()).rules).toHaveLength(5);
     await expect(dialog).toHaveCount(0);
     expect(posts, 'five days are one request').toHaveLength(1);
-    expect(JSON.parse(posts[0])).toEqual({ daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '17:00' });
+    expect(JSON.parse(posts[0])).toEqual({ daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '17:00', timezone: 'Australia/Adelaide' });
 
     for (const day of ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']) await expect(page.getByRole('button', { name: `Edit ${day} 9:00 am to 5:00 pm`, exact: true })).toBeVisible();
     for (const day of ['Saturday', 'Sunday']) await expect(page.getByRole('listitem').filter({ has: page.getByRole('heading', { name: day, exact: true }) })).toContainText('Closed: no hours');
@@ -402,7 +402,7 @@ test.describe('overnight hours', () => {
     const response = await saved;
     expect(response.status()).toBe(201);
     expect(posts, 'the window is created by ONE write, never two UI writes').toHaveLength(1);
-    expect(JSON.parse(posts[0])).toEqual({ dayOfWeek: 5, startTime: '22:00', endTime: '02:00', overnight: true });
+    expect(JSON.parse(posts[0])).toEqual({ dayOfWeek: 5, startTime: '22:00', endTime: '02:00', overnight: true, timezone: 'Australia/Adelaide' });
 
     expect((await rulesOf(night)).map(r => [r.day_of_week, r.start_time, r.end_time])).toEqual([[5, '22:00', '24:00'], [6, '00:00', '02:00']]);
     const friday = page.getByRole('listitem').filter({ has: page.getByRole('heading', { name: 'Friday', exact: true }) });
@@ -1051,6 +1051,26 @@ test.describe('timezone and daylight saving', () => {
     } finally {
       await query('UPDATE organisations SET timezone = $2 WHERE id = $1', [ORG_A, original]);
     }
+    await context.close();
+  });
+
+  test('a save while ANOTHER zone has just been pinned is refused (ZONE_MISMATCH): the dialog says why, nothing is saved, and Perth hours cannot land under Adelaide', async ({ browser }) => {
+    const context = await contextFor(browser, 'manager');
+    const page = await context.newPage();
+    await page.clock.setFixedTime(new Date('2027-01-20T00:00:00Z'));
+    await openHours(page, court);
+    await expect(page.getByTestId('timezone')).toHaveText('Australia/Adelaide (UTC+10:30)'); // what this person is looking at: not pinned yet
+    // Meanwhile someone else's first save pinned a different zone (a concurrent first write that won the race).
+    await query("INSERT INTO scheduling_availability_zones (organisation_id, resource_id, timezone, source) VALUES ($1, $2, 'Australia/Perth', 'first_rule')", [ORG_A, court.id]);
+    const dialog = await addHours(page, { days: ['Tuesday'], start: '09:00', end: '12:00' });
+    const refused = page.waitForResponse(isRulePost);
+    await dialog.getByRole('button', { name: 'Add hours', exact: true }).click();
+    const response = await refused;
+    expect([response.status(), (await response.json()).code]).toEqual([409, 'ZONE_MISMATCH']);
+    await expect(dialog.getByText('These hours are read in a different timezone from the one you were looking at')).toBeVisible();
+    await expect(dialog.getByText(/Nothing was saved/)).toBeVisible();
+    expect(await rulesOf(court)).toEqual([]);
+    expect(await zoneOf(court)).toEqual({ timezone: 'Australia/Perth', source: 'first_rule' });
     await context.close();
   });
 

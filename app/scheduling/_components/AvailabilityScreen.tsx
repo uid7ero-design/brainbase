@@ -157,7 +157,7 @@ export default function AvailabilityScreen({ kind, id, canManage }: { kind: 'off
           </aside>
         )}
 
-        <WeeklyHours ownerPath={ownerPath} ownerNoun={noun} rules={view.rules} canAdd={canCreate} canRemove={canManage} onChanged={availability.reload} announce={setMessage} />
+        <WeeklyHours ownerPath={ownerPath} ownerNoun={noun} rules={view.rules} canAdd={canCreate} canRemove={canManage} zone={tz?.zone} onChanged={availability.reload} announce={setMessage} />
         <Closures
           ownerPath={ownerPath}
           closures={view.exceptions}
@@ -165,6 +165,7 @@ export default function AvailabilityScreen({ kind, id, canManage }: { kind: 'off
           partialClosures={partialClosures}
           canAdd={canCreate}
           canRemove={canManage}
+          zone={tz?.zone}
           onChanged={availability.reload}
           announce={setMessage}
         />

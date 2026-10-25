@@ -28,8 +28,8 @@ import styles from './scheduling.module.css';
 // Editing changes one stored window: it keeps its weekday, and cannot be turned into an overnight window (remove and add again).
 
 export type HoursDialogProps =
-  | { mode: 'add'; ownerPath: string; days?: readonly number[]; ownerNoun: string; onClose: () => void; onSaved: (message: string) => void }
-  | { mode: 'edit'; ownerPath: string; rule: AvailabilityRuleView; ownerNoun: string; onClose: () => void; onSaved: (message: string) => void; onReload: () => void };
+  | { mode: 'add'; ownerPath: string; days?: readonly number[]; ownerNoun: string; zone?: string; onClose: () => void; onSaved: (message: string) => void }
+  | { mode: 'edit'; zone?: undefined; ownerPath: string; rule: AvailabilityRuleView; ownerNoun: string; onClose: () => void; onSaved: (message: string) => void; onReload: () => void };
 
 function describeDays(days: readonly number[]): string {
   const sorted = WEEK_ORDER.filter(d => days.includes(d));
@@ -77,7 +77,7 @@ export function HoursDialog(props: HoursDialogProps) {
     if (!built.ok) return setLocal(built.problems);
     setLocal([]);
     setBusy(true);
-    const result = await schedulingApi<{ rules: AvailabilityRuleView[] }>('POST', `${props.ownerPath}/availability-rules`, built.value.body);
+    const result = await schedulingApi<{ rules: AvailabilityRuleView[] }>('POST', `${props.ownerPath}/availability-rules`, { ...built.value.body, ...(props.zone ? { timezone: props.zone } : {}) });
     setBusy(false);
     if (!result.ok) return setProblem(result.problem);
     props.onSaved(`Hours added: ${built.value.overnight ? `${daysText} ${formatClock(values.start)} to ${formatClock(end)} the next day` : `${daysText}, ${formatWindow(values.start, end)}`}.`);

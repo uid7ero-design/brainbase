@@ -24,8 +24,8 @@ import styles from './scheduling.module.css';
 // chosen, and says why, so nobody is surprised by a refusal.
 
 export type ClosureDialogProps =
-  | { mode: 'add'; ownerPath: string; partialClosures: boolean; onClose: () => void; onSaved: (message: string) => void }
-  | { mode: 'edit'; ownerPath: string; closure: AvailabilityClosureView; partialClosures: boolean; onClose: () => void; onSaved: (message: string) => void; onReload: () => void };
+  | { mode: 'add'; ownerPath: string; partialClosures: boolean; zone?: string; onClose: () => void; onSaved: (message: string) => void }
+  | { mode: 'edit'; zone?: undefined; ownerPath: string; closure: AvailabilityClosureView; partialClosures: boolean; onClose: () => void; onSaved: (message: string) => void; onReload: () => void };
 
 export function ClosureDialog(props: ClosureDialogProps) {
   const original = props.mode === 'edit' ? props.closure : null;
@@ -56,7 +56,7 @@ export function ClosureDialog(props: ClosureDialogProps) {
     setBusy(true);
     const result = original
       ? await schedulingApi<{ exception: AvailabilityClosureView }>('PATCH', `/availability-exceptions/${seg(original.id)}`, { expectedUpdatedAt: original.updatedAt, ...built.value })
-      : await schedulingApi<{ exception: AvailabilityClosureView }>('POST', `${props.ownerPath}/availability-exceptions`, built.value);
+      : await schedulingApi<{ exception: AvailabilityClosureView }>('POST', `${props.ownerPath}/availability-exceptions`, { ...built.value, ...(props.zone ? { timezone: props.zone } : {}) });
     setBusy(false);
     if (!result.ok) return setProblem(result.problem);
     props.onSaved(`${original ? 'Closure changed' : 'Closure added'}: ${summary.replace(/^Closed /, '').replace(/\.$/, '')}.`);

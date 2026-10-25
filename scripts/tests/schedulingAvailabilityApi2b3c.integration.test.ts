@@ -684,6 +684,54 @@ suite('Scheduling 2B.3c availability API on real Postgres', () => {
       expect(await pinRows()).toEqual([]);
     });
 
+    it('a write naming a DIFFERENT timezone than the pinned one is 409 ZONE_MISMATCH: no rule, no closure, no pin, no audit entry; naming the same one is fine', async () => {
+      expect((await addRule('resource', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00', timezone: 'Australia/Adelaide' })).status).toBe(201); // pins Adelaide
+      const tables = [...AVAILABILITY_TABLES, 'scheduling_availability_zones'];
+      const before = await snapshot('org-a', tables);
+      const attempts = [
+        addRule('resource', { dayOfWeek: 2, startTime: '09:00', endTime: '12:00', timezone: 'Australia/Perth' }),
+        addRule('resource', { daysOfWeek: [3, 4], startTime: '09:00', endTime: '12:00', timezone: 'Australia/Perth' }),
+        addRule('resource', { dayOfWeek: 5, startTime: '22:00', endTime: '02:00', overnight: true, timezone: 'Australia/Perth' }),
+        addClosure('resource', { fromDate: '2027-04-02', toDate: '2027-04-02', timezone: 'Australia/Perth' }),
+      ];
+      for (const r of await Promise.all(attempts)) {
+        expect([r.status, r.json.code, r.json.requestedTimezone, r.json.currentTimezone]).toEqual([409, 'ZONE_MISMATCH', 'Australia/Perth', 'Australia/Adelaide']);
+      }
+      expect(await snapshot('org-a', tables)).toEqual(before); // nothing written, and (audit_logs is part of the snapshot) no audit entry
+      expect((await pinsAudit()).length).toBe(1);
+      // the same zone is accepted, and a write that names none is accepted under the pin
+      expect((await addRule('resource', { dayOfWeek: 2, startTime: '09:00', endTime: '12:00', timezone: 'Australia/Adelaide' })).status).toBe(201);
+      expect((await addRule('resource', { dayOfWeek: 3, startTime: '09:00', endTime: '12:00' })).status).toBe(201);
+      expect((await pinRows())).toHaveLength(1);
+    });
+
+    it('an owner that is not pinned yet: naming a zone other than the one the first save would pin is also 409 and pins nothing', async () => {
+      const r = await addRule('resource', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00', timezone: 'Australia/Perth' });
+      expect([r.status, r.json.code, r.json.currentTimezone]).toEqual([409, 'ZONE_MISMATCH', 'Australia/Adelaide']);
+      expect(await pinRows()).toEqual([]);
+      expect(await pinsAudit()).toEqual([]);
+      expect(await countRules(OWNERS.resource.id)).toBe(0);
+      const perth = await newOffering(await scheduleWithZone('Australia/Perth'));
+      expect((await addRule('offering', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00', timezone: 'Australia/Perth' }, perth.id)).status).toBe(201); // the schedule's zone: matches
+      expect((await addRule('offering', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00', timezone: 'Australia/Adelaide' }, perth.id)).json.code).toBe('ZONE_MISMATCH'); // now pinned Perth
+    });
+
+    it('a malformed timezone is a 400 that writes nothing; another organisation naming a zone still gets 404, a viewer 403', async () => {
+      await addRule('resource', { dayOfWeek: 1, startTime: '09:00', endTime: '12:00' });
+      const tables = [...AVAILABILITY_TABLES, 'scheduling_availability_zones'];
+      const before = await snapshot('org-a', tables);
+      for (const timezone of ['Not/AZone', '', 'UTC+10', 7, null]) {
+        const r = await addRule('resource', { dayOfWeek: 2, startTime: '09:00', endTime: '12:00', timezone });
+        expect([String(timezone), r.status, r.json.code]).toEqual([String(timezone), 400, 'INVALID_INPUT']);
+      }
+      as('manager', 'org-b');
+      expect((await addRule('resource', { dayOfWeek: 2, startTime: '09:00', endTime: '12:00', timezone: 'Australia/Perth' })).status).toBe(404);
+      as('viewer', 'org-a');
+      expect((await addRule('resource', { dayOfWeek: 2, startTime: '09:00', endTime: '12:00', timezone: 'Australia/Perth' })).status).toBe(403);
+      as('manager', 'org-a');
+      expect(await snapshot('org-a', tables)).toEqual(before);
+    });
+
     it('8 simultaneous first saves on one resource: all succeed, exactly one pin and one pin audit entry', async () => {
       const results = await Promise.all(Array.from({ length: 7 }, (_, i) => addRule('resource', { dayOfWeek: i, startTime: '09:00', endTime: '12:00' })));
       const closureResult = addClosure('resource', { fromDate: '2027-04-02', toDate: '2027-04-02' });

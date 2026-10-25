@@ -24,7 +24,7 @@ Hash the committed bytes (LF). A Windows checkout may be CRLF, so use `git show 
 095_availability_integrity_rollback.sql              9d9a42665120da544dc1d0279e1f27e0f9b076304ba630517cbbddf1957573d2   (on main)
 035_availability_partial_closures.sql                91f60dcd1b0a72a747a0d1b672c6a42f7388567d150609f6ac12e0196af2f93c   (on main)
 096_availability_partial_closures_rollback.sql       22595731ece3ba8e1c78462d6e65c081fdc388f10012dd2c518051c4adcaa210   (on main)
-036_availability_zones.sql                           68b24e2dd51640a62050823801d4e89bc6eb73b2db6160fc907a75cce531f628   (the persistence PR; re-verify on main after the merge)
+036_availability_zones.sql                           04ab535f4b696bf751336d27bde95a22ff4db669f050f9b477b238532eca699c   (the persistence PR; re-verify on main after the merge)
 097_availability_zones_rollback.sql                  ba0bbf55541fa521ca05d7a3204212be1951f14b621b8ab982a8a19a6b56563b   (the persistence PR; re-verify on main after the merge)
 ```
 
@@ -34,7 +34,7 @@ Hash the committed bytes (LF). A Windows checkout may be CRLF, so use `git show 
 034  scheduling_availability_lock_owner            ec6ff1692bcb450fcfd842d62df33370
 034  scheduling_availability_rule_integrity        889cc2be7a0b41d42ff5ec8d50ea81ba
 034  scheduling_availability_exception_integrity   964334cde288e280d2d15ffc1e275ee3     (035 replaces it with 84d643d6cc5f9580795d07100ce563ad)
-036  scheduling_availability_zone_guard            513304b5b2ba5088f45da0ae69120a18
+036  scheduling_availability_zone_guard            e2b72215b21ee4f87b4b96f4403b6680
 036  scheduling_availability_zone_required         18960d67bbba5cfd43f0a67035fb115e
 ```
 
@@ -73,6 +73,17 @@ organisation `Australia/Adelaide`.
 - **Pilot data:** schedules, offerings, resources, scheduling settings and the Scheduling `organisation_modules` row have the same count and content hash as the baseline
   after the whole sequence; the pilot organisation's timezone is unchanged; 0 pilot pins, rules and closures; 0 reservations, holds and occurrences.
 
+**Revision of 2026-10-26 (zone-mismatch correction).** The first rehearsal of 036 above used a version whose guard refused every update of a pin, and whose first write silently saved a
+racing writer's hours under the winner's zone. Writers now state the zone they expect and a different pinned zone is an explicit conflict that writes nothing (`409 ZONE_MISMATCH`). That needs the guard to allow an
+update that changes nothing (so a write can read the pin it conflicts with), which changed 036's guard function and so its hash. The revised files are the ones hashed in section 1 (036 sha256 `04ab535f...`, guard body `e2b72215...`).
+
+- On the first rehearsal branch the revised 036 was applied over the earlier one (idempotent) and the real-driver suite re-run: 19 tests pass; 8 of them fail against the previous guard (SCZON), which is the evidence the migration change is needed.
+- **Fresh rehearsal of the revised files:** branch `rehearse/scheduling-034-035-036-rev2-20261026` (`br-sparkling-grass-a780ht7q`), created from Production at LSN `0/2F648DE8`. Baseline `ba7b7014 / d5b9221c / 597be2fb`. 034, 035, 036 applied in order, one
+  transaction each: all five function bodies equal the committed files by hash (section 1); fingerprints after 036: schema `5a19f258`, functions `4c8e0ba3`, triggers `83133d61` (the functions differ from the first rehearsal's `6d2b8e6f` only by the revised guard);
+  versions through `2b.3.3`. `097`, `096`, `095` then ran (empty data) and returned all three fingerprints to the baseline exactly. Pilot configuration after the sequence: schedules `4 218e5d78...`, offerings `4 16f25b3e...`,
+  resources `5 4401bc8e...`, settings `1 c7e82b3d...`, 0/0/0/0/0 rules, closures, reservations, holds, occurrences: identical to the baseline.
+- Rollback **with data**, reapplication and idempotency were rehearsed on the first branch with the earlier guard; the revised guard changes nothing about them (097 drops the function; the backfill is untouched) and the PostgreSQL 16/17 suites run the same
+  cases against the revised files (backfill, rollback with data and its refusal, reapplication, idempotency).
 Limits: overlap and concurrency are proven on real PostgreSQL 16.14 and 17.11 (`bash scripts/tests/verify-scheduling-phase2b3c.sh 16|17`) and over the real Neon HTTP driver
 (separate HTTP requests are separate server connections); the Neon SQL tool used for the statement runs may serialise calls. The pilot-data comparison is against a copy of
 Production, not Production itself (no Production SQL was run). The rehearsal branch holds synthetic organisations `zz-drv-a` and `zz-drv-b` and a role `driver_proof`; it is kept
@@ -196,7 +207,7 @@ SELECT to_regclass('scheduling_availability_zones');                            
 SELECT tgname, tgenabled::text FROM pg_trigger WHERE NOT tgisinternal AND tgname IN
   ('scheduling_availability_zones_immutable','scheduling_availability_rules_zone','scheduling_availability_exceptions_zone') ORDER BY 1;   -- 3 rows, all O
 SELECT proname, md5(replace(prosrc, chr(13), '')) FROM pg_proc WHERE proname LIKE 'scheduling\_availability\_zone%' ORDER BY 1;
---   scheduling_availability_zone_guard 513304b5b2ba5088f45da0ae69120a18, scheduling_availability_zone_required 18960d67bbba5cfd43f0a67035fb115e
+--   scheduling_availability_zone_guard e2b72215b21ee4f87b4b96f4403b6680, scheduling_availability_zone_required 18960d67bbba5cfd43f0a67035fb115e
 SELECT count(*) FROM scheduling_availability_zones;                                                               -- 0 (nothing to backfill)
 ```
 
