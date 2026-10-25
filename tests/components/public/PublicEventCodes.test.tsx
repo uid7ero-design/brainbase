@@ -106,6 +106,52 @@ describe('ended event', () => {
   });
 });
 
+// The availability badge beside the event details. Ended-ness is the
+// server's has_ended verdict only — the page never compares dates itself,
+// so each case below sets has_ended explicitly and the fixture dates are
+// deliberately irrelevant to the outcome.
+describe('availability badge', () => {
+  const ADULT = DETAIL.ticket_types[0];
+  function badgeFor(event: Partial<PublicEventDetail['event']>, ticketTypes = DETAIL.ticket_types) {
+    installQuoteServer();
+    renderBrainbase(<PublicEventClient organisationSlug="org-a" eventSlug="gala" detail={{ ...DETAIL, event: { ...DETAIL.event, ...event }, ticket_types: ticketTypes }} checkoutCancelled={false} />);
+    return screen.getByTestId('availability-badge');
+  }
+
+  it('upcoming event with places left: "Tickets available"', () => {
+    expect(badgeFor({ starts_at: '2099-12-01T10:00:00.000Z', ends_at: '2099-12-01T12:00:00.000Z', has_ended: false })).toHaveTextContent('Tickets available');
+  });
+
+  it('event in progress (started, not ended per the server): still "Tickets available"', () => {
+    expect(badgeFor({ starts_at: '2000-01-01T00:00:00.000Z', ends_at: '2099-12-01T12:00:00.000Z', has_ended: false })).toHaveTextContent('Tickets available');
+  });
+
+  it('sold-out event that has not ended: "Sold out" (unchanged)', () => {
+    expect(badgeFor({ has_ended: false }, [{ ...ADULT, remaining: 0 }])).toHaveTextContent('Sold out');
+  });
+
+  it('NULL ends_at (never ended): existing behaviour', () => {
+    expect(badgeFor({ ends_at: null as unknown as string, has_ended: false })).toHaveTextContent('Tickets available');
+  });
+
+  it('ended event: a neutral "Event ended" — never "Tickets available"', () => {
+    const badge = badgeFor({ has_ended: true });
+    expect(badge).toHaveTextContent('Event ended');
+    expect(screen.queryByText('Tickets available')).toBeNull();
+    expect(screen.queryByText('Sold out')).toBeNull();
+    expect(screen.getByTestId('event-ended')).toHaveTextContent('This event has ended.');
+  });
+
+  it('ended event with no places left still reads "Event ended", not "Sold out"', () => {
+    expect(badgeFor({ has_ended: true }, [{ ...ADULT, remaining: 0 }])).toHaveTextContent('Event ended');
+    expect(screen.queryByText('Sold out')).toBeNull();
+  });
+
+  it('the server verdict decides, not the dates: a past ends_at with has_ended false keeps the normal badge', () => {
+    expect(badgeFor({ ends_at: '2000-01-01T00:00:00.000Z', has_ended: false })).toHaveTextContent('Tickets available');
+  });
+});
+
 describe('promotional code → server-quoted totals', () => {
   it('applies EARLY20: shows subtotal / discount / total from the quote and the CTA pays the quoted total', async () => {
     installQuoteServer();
