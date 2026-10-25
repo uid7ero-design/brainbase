@@ -41,6 +41,12 @@ import { isIanaTimezone, isLocalDate } from './validation';
 //     only if its whole [start, start + duration) lies inside the resource's free intervals. Holds and resource hours therefore
 //     remove slots but never shift the others. Participant capacity (Offering.capacity) and resource capacity play no part: this is
 //     time availability only, and the two capacities stay separate concepts.
+// 10. Owner-pinned zones (Phase 2B.3d groundwork). The OFFERING's rules and exceptions are read in `timezone`; each RESOURCE's rules and
+//     exceptions are read in the resource's own pinned zone (`ResourceAvailabilityInput.timezone`, which defaults to `timezone` so a caller
+//     that supplies no per-resource zone behaves exactly as before). Each owner's windows are expanded to instants in ITS zone and the
+//     instants are intersected, so a resource shared by offerings of different zones keeps the same instants whoever asks, and a
+//     resource in Perth can serve an offering in Adelaide. Dates in the request are the OFFERING's local dates; a resource in another
+//     zone is expanded over a two-day wider range and clipped by the intersection, so no window at the edge of the range is lost.
 //  9. Timezone changes are never applied silently. Rules carry no zone, so when the caller supplies the zone the rules were
 //     authored in and it differs from the zone being computed, the computation refuses unless the caller confirms the
 //     reinterpretation; compareAvailabilityAcrossTimezones produces the report to confirm against.
@@ -256,10 +262,17 @@ export function generateSlots(anchors: readonly InstantWindow[], within: readonl
 export interface ResourceAvailabilityInput extends OwnerAvailabilityInput {
   resource: Pick<Resource, 'id' | 'active'>;
   holds: readonly ResourceHold[];
+  /**
+   * The zone this RESOURCE's rules and exceptions are read in (its pinned zone). Absent or null: the offering's `timezone`, the behaviour
+   * before owner-pinned zones. Never taken from the browser, the organisation or the schedule at this level: the caller passes what is pinned.
+   */
+  timezone?: IanaTimezone | null;
+  /** The zone this resource's rules were authored in, if recorded; a difference from the zone being read refuses unless reinterpretation is confirmed. */
+  authoredTimezone?: IanaTimezone | null;
 }
 
 export interface AvailabilityInput {
-  /** The zone the rules are read in (the schedule's zone, else the organisation's). Required: there is no default. */
+  /** The zone the OFFERING's rules and exceptions are read in, and the zone of the result (its pinned zone). Required: there is no default. */
   timezone: IanaTimezone;
   /** Inclusive local dates, at most MAX_AVAILABILITY_QUERY_DAYS apart. */
   fromDate: LocalDate;
@@ -276,11 +289,23 @@ export interface AvailabilityInput {
   authoredTimezone?: IanaTimezone | null;
   /** Set only after the user has confirmed the report from compareAvailabilityAcrossTimezones. */
   allowTimezoneReinterpretation?: boolean;
+  /**
+   * Fail closed on a resource that has rules or exceptions but no pinned `timezone` (invalid_input), instead of reading them in the
+   * offering's zone. Hosts that pin zones (migration 036) set this, so an unpinned resource can never be read in a guessed zone.
+   */
+  requirePinnedZones?: boolean;
 }
 
 export interface ResourceFreeIntervals {
   resourceId: string | null;
+  /** The zone this entry's own hours were read in (the resource's zone; the offering's for the no-resource entry). */
+  timezone: IanaTimezone;
   intervals: InstantWindow[];
+}
+
+/** A daylight-saving adjustment, with the owner whose wall-clock window it concerns (each owner is read in its own zone). */
+export interface OwnedAdjustment extends AvailabilityAdjustment {
+  owner: { kind: 'offering' | 'resource'; id: string };
 }
 
 export type AvailabilityComputation =
@@ -290,7 +315,7 @@ export type AvailabilityComputation =
       /** Free intervals per resource (offering hours intersected with the resource's, minus holds), advisory only. */
       free: ResourceFreeIntervals[];
       slots: FreeSlot[];
-      adjustments: AvailabilityAdjustment[];
+      adjustments: OwnedAdjustment[];
       /** Why availability is empty, where it is: 'offering_archived', 'no_offering_availability', 'resource_inactive:<id>', 'resource_no_availability:<id>'. */
       reasons: string[];
     }
@@ -307,6 +332,11 @@ function validateInput(input: AvailabilityInput): string[] {
   if (!isPositiveInt(input.slot?.stepMinutes) || input.slot.stepMinutes > 24 * 60) problems.push('slot.stepMinutes must be a whole number of minutes from 1 to 1440');
   if (input.notBefore !== undefined && input.notBefore !== null && Number.isNaN(Date.parse(input.notBefore))) problems.push('notBefore must be an ISO instant');
   if (input.authoredTimezone !== undefined && input.authoredTimezone !== null && !isIanaTimezone(input.authoredTimezone)) problems.push('authoredTimezone must be a valid IANA zone');
+  for (const r of input.resources) {
+    if (r.timezone !== undefined && r.timezone !== null && !isIanaTimezone(r.timezone)) problems.push(`resource ${r.resource.id}: timezone must be a valid IANA zone`);
+    if (r.authoredTimezone !== undefined && r.authoredTimezone !== null && !isIanaTimezone(r.authoredTimezone)) problems.push(`resource ${r.resource.id}: authoredTimezone must be a valid IANA zone`);
+    if (input.requirePinnedZones && !r.timezone && (r.rules.length > 0 || r.exceptions.length > 0)) problems.push(`resource ${r.resource.id} has availability but no pinned timezone`);
+  }
 
   const ownedBy = (items: ReadonlyArray<{ id: string; resourceId: string | null; offeringId: string | null }>, kind: 'offering' | 'resource', id: string, label: string) => {
     for (const i of items) {
@@ -331,7 +361,7 @@ function validateInput(input: AvailabilityInput): string[] {
   return problems;
 }
 
-const emptyOk = (timezone: IanaTimezone, reasons: string[], free: ResourceFreeIntervals[] = [], adjustments: AvailabilityAdjustment[] = []): AvailabilityComputation => ({
+const emptyOk = (timezone: IanaTimezone, reasons: string[], free: ResourceFreeIntervals[] = [], adjustments: OwnedAdjustment[] = []): AvailabilityComputation => ({
   ok: true,
   timezone,
   free,
@@ -354,11 +384,18 @@ export function computeAvailability(input: AvailabilityInput): AvailabilityCompu
       problems: [`the rules were authored in ${input.authoredTimezone} but are being read in ${input.timezone}; review the change (compareAvailabilityAcrossTimezones) and confirm it explicitly`],
     };
   }
+  for (const r of input.resources) {
+    const zone = r.timezone ?? input.timezone;
+    if (r.authoredTimezone && r.authoredTimezone !== zone && !input.allowTimezoneReinterpretation) {
+      return { ok: false, reason: 'timezone_changed', problems: [`resource ${r.resource.id}: the rules were authored in ${r.authoredTimezone} but are being read in ${zone}; review the change and confirm it explicitly`] };
+    }
+  }
   const { timezone, fromDate, toDate } = input;
   if (input.offering.archivedAt !== null) return emptyOk(timezone, ['offering_archived']);
 
   const offering = expandOwnerAvailability({ rules: input.offeringRules, exceptions: input.offeringExceptions }, fromDate, toDate, timezone);
-  const adjustments = [...offering.adjustments];
+  const ownedBy = (kind: 'offering' | 'resource', id: string) => (a: AvailabilityAdjustment): OwnedAdjustment => ({ ...a, owner: { kind, id } });
+  const adjustments: OwnedAdjustment[] = offering.adjustments.map(ownedBy('offering', input.offering.id));
   if (offering.intervals.length === 0) return emptyOk(timezone, ['no_offering_availability'], [], adjustments);
 
   const notBefore = input.notBefore ? Date.parse(input.notBefore) : Number.NEGATIVE_INFINITY;
@@ -367,21 +404,27 @@ export function computeAvailability(input: AvailabilityInput): AvailabilityCompu
   const slots: FreeSlot[] = [];
 
   if (input.resources.length === 0) {
-    free.push({ resourceId: null, intervals: offering.intervals });
+    free.push({ resourceId: null, timezone, intervals: offering.intervals });
     slots.push(...generateSlots(offering.intervals, offering.intervals, input.slot, null));
   } else {
     for (const r of [...input.resources].sort((a, b) => (a.resource.id < b.resource.id ? -1 : a.resource.id > b.resource.id ? 1 : 0))) {
       if (!r.resource.active) {
         reasons.push(`resource_inactive:${r.resource.id}`);
-        free.push({ resourceId: r.resource.id, intervals: [] });
+        free.push({ resourceId: r.resource.id, timezone: r.timezone ?? timezone, intervals: [] });
         continue;
       }
-      const own = expandOwnerAvailability(r, fromDate, toDate, timezone);
-      adjustments.push(...own.adjustments);
+      const resourceZone = r.timezone ?? timezone;
+      // The same zone: exactly the offering's range. Another zone: the same INSTANTS are needed, so read two days either side (the offsets of
+      // any two zones differ by less than a day) and let the intersection clip; adjustments are kept for dates inside the requested range.
+      const own =
+        resourceZone === timezone
+          ? expandOwnerAvailability(r, fromDate, toDate, timezone)
+          : expandOwnerAvailability(r, addLocalDays(fromDate, -2), addLocalDays(toDate, 2), resourceZone);
+      adjustments.push(...own.adjustments.filter(a => a.date >= fromDate && a.date <= toDate).map(ownedBy('resource', r.resource.id)));
       if (own.intervals.length === 0) reasons.push(`resource_no_availability:${r.resource.id}`);
       const both = intersectIntervals(offering.intervals, own.intervals);
       const open = subtractHolds(both, r.holds, r.resource.id);
-      free.push({ resourceId: r.resource.id, intervals: open });
+      free.push({ resourceId: r.resource.id, timezone: resourceZone, intervals: open });
       slots.push(...generateSlots(offering.intervals, open, input.slot, r.resource.id));
     }
   }
