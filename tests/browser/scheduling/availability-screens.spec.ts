@@ -475,14 +475,121 @@ test.describe('overnight hours', () => {
     await context.close();
   });
 
-  test('removing an overnight window removes both halves after a confirmation', async ({ browser }) => {
+  test('removing an overnight window is ONE request that removes both halves, after a confirmation, and is audited as two deletions', async ({ browser }) => {
+    const context = await contextFor(browser, 'manager');
+    await seedRules(context.request, night, { dayOfWeek: 5, startTime: '22:00', endTime: '02:00', overnight: true });
+    await seedRules(context.request, night, { dayOfWeek: 2, startTime: '09:00', endTime: '12:00' }); // an unrelated rule must survive
+    const page = await context.newPage();
+    await openHours(page, night);
+    const requests: string[] = [];
+    page.on('request', r => { if (r.method() !== 'GET') requests.push(`${r.method()} ${new URL(r.url()).pathname.replace(/[0-9a-f-]{20,}/g, ':id')}`); });
+    const audits = await availabilityAuditCount();
+    await page.getByRole('button', { name: /^Remove overnight hours starting Friday/ }).click();
+    const confirm = page.getByRole('dialog', { name: 'Remove overnight hours' });
+    await expect(confirm).toContainText('both the evening and the morning part');
+    const removed = page.waitForResponse(r => r.request().method() === 'POST' && r.url().includes('/availability-rules/remove-overnight'));
+    await confirm.getByRole('button', { name: 'Remove overnight hours', exact: true }).click();
+    const response = await removed;
+    expect(response.status()).toBe(200);
+    expect(((await response.json()) as { ids: string[] }).ids).toHaveLength(2);
+    await expect(confirm).toHaveCount(0);
+    expect(requests.filter(r => r.startsWith('POST') || r.startsWith('DELETE'))).toEqual(['POST /api/scheduling/availability-rules/remove-overnight']); // one request, never two deletes
+    expect((await rulesOf(night)).map(r => [r.day_of_week, r.start_time, r.end_time])).toEqual([[2, '09:00', '12:00']]);
+    expect(await availabilityAuditCount()).toBe(audits + 2);
+    await expect(page.getByText('Overnight hours removed')).toBeVisible();
+    await context.close();
+  });
+
+  test('a stale removal of an overnight window (one half edited in another tab) removes NEITHER half and says so', async ({ browser }) => {
+    const context = await contextFor(browser, 'manager');
+    const halves = await seedRules(context.request, night, { dayOfWeek: 5, startTime: '22:00', endTime: '02:00', overnight: true });
+    const tabA = await context.newPage();
+    const tabB = await context.newPage();
+    await Promise.all([openHours(tabA, night), openHours(tabB, night)]);
+    // Another tab changes the label of the MORNING half (a change the first tab has not seen).
+    const morning = halves.find(h => h.dayOfWeek === 6)!;
+    const edit = await context.request.patch(api(`/availability-rules/${morning.id}`), { data: { expectedUpdatedAt: morning.updatedAt, label: 'Changed elsewhere' }, headers: json });
+    expect(edit.status()).toBe(200);
+    const before = await rulesOf(night);
+
+    await tabA.getByRole('button', { name: /^Remove overnight hours starting Friday/ }).click();
+    const confirm = tabA.getByRole('dialog', { name: 'Remove overnight hours' });
+    const refused = tabA.waitForResponse(r => r.request().method() === 'POST' && r.url().includes('/availability-rules/remove-overnight'));
+    await confirm.getByRole('button', { name: 'Remove overnight hours', exact: true }).click();
+    const response = await refused;
+    expect([response.status(), (await response.json()).code]).toEqual([409, 'STALE_WRITE']);
+    await expect(confirm.getByText(/Someone else changed this/)).toBeVisible();
+    expect(await rulesOf(night), 'neither half may be removed').toEqual(before);
+    expect(await rulesOf(night)).toHaveLength(2);
+
+    // Reload latest, then remove again with the fresh tokens: both go.
+    const reloaded = tabA.waitForResponse(r => r.request().method() === 'GET' && /[/]availability([?]|$)/.test(r.url()));
+    await confirm.getByRole('button', { name: 'Reload latest', exact: true }).click();
+    await reloaded; // the page now holds the committed version tokens
+    await expect(confirm).toHaveCount(0);
+    await tabA.getByRole('button', { name: /^Remove overnight hours starting Friday/ }).click();
+    const again = tabA.getByRole('dialog', { name: 'Remove overnight hours' });
+    const ok = tabA.waitForResponse(r => r.request().method() === 'POST' && r.url().includes('/availability-rules/remove-overnight'));
+    await again.getByRole('button', { name: 'Remove overnight hours', exact: true }).click();
+    expect((await ok).status()).toBe(200);
+    expect(await rulesOf(night)).toEqual([]);
+    await context.close();
+  });
+
+  test('a half that was removed elsewhere: the window removal is refused whole (404), the remaining half is left, and the screen says it no longer exists', async ({ browser }) => {
+    const context = await contextFor(browser, 'manager');
+    const halves = await seedRules(context.request, night, { dayOfWeek: 5, startTime: '22:00', endTime: '02:00', overnight: true });
+    const page = await context.newPage();
+    await openHours(page, night);
+    const evening = halves.find(h => h.dayOfWeek === 5)!;
+    expect((await context.request.delete(api(`/availability-rules/${evening.id}`), { data: { expectedUpdatedAt: evening.updatedAt }, headers: json })).status()).toBe(200);
+    await page.getByRole('button', { name: /^Remove overnight hours starting Friday/ }).click();
+    const confirm = page.getByRole('dialog', { name: 'Remove overnight hours' });
+    const refused = page.waitForResponse(r => r.request().method() === 'POST' && r.url().includes('/availability-rules/remove-overnight'));
+    await confirm.getByRole('button', { name: 'Remove overnight hours', exact: true }).click();
+    expect((await refused).status()).toBe(404);
+    await expect(confirm.getByText(/no longer exists/)).toBeVisible();
+    expect(await rulesOf(night)).toHaveLength(1); // the morning half: nothing else was touched
+    await context.close();
+  });
+
+  test('view-only and denied accounts: no Remove button for an overnight window, and the endpoint refuses them and another organisation, changing nothing', async ({ browser }) => {
+    const manager = await contextFor(browser, 'manager');
+    const halves = await seedRules(manager.request, night, { dayOfWeek: 5, startTime: '22:00', endTime: '02:00', overnight: true });
+    const body = { rules: halves.map(h => ({ id: h.id, expectedUpdatedAt: h.updatedAt })) };
+    const before = await snapshot(ORG_A);
+    for (const [account, status] of [['manager-view', 403], ['viewer', 403], ['viewer-use', 403], ['viewer-legacy', 403], ['viewer-none', 403], ['analyst', 403], ['analyst-legacy', 403], ['unentitled-manager', 403], ['unentitled-legacy', 403], ['foreign-manager', 404]] as const) {
+      const context = await contextFor(browser, account);
+      try {
+        const res = await context.request.post(api('/availability-rules/remove-overnight'), { data: body, headers: json });
+        expect([account, res.status()]).toEqual([account, status]);
+        if (account === 'viewer' || account === 'manager-view') {
+          const page = await context.newPage();
+          await openHours(page, night);
+          await expect(page.getByRole('listitem').filter({ has: page.getByRole('heading', { name: 'Friday', exact: true }) })).toContainText('Overnight');
+          await expect(page.getByRole('button', { name: /Remove/ })).toHaveCount(0);
+        }
+      } finally {
+        await context.close();
+      }
+    }
+    expect(await snapshot(ORG_A), 'refused requests change nothing').toBe(before);
+    expect(await rulesOf(night)).toHaveLength(2);
+    await manager.close();
+  });
+
+  test('a failed network request while removing an overnight window leaves both halves, with an error and a way to retry', async ({ browser }) => {
     const context = await contextFor(browser, 'manager');
     await seedRules(context.request, night, { dayOfWeek: 5, startTime: '22:00', endTime: '02:00', overnight: true });
     const page = await context.newPage();
     await openHours(page, night);
+    await page.route('**/api/scheduling/availability-rules/remove-overnight', route => route.abort('failed'));
     await page.getByRole('button', { name: /^Remove overnight hours starting Friday/ }).click();
     const confirm = page.getByRole('dialog', { name: 'Remove overnight hours' });
-    await expect(confirm).toContainText('both the evening and the morning part');
+    await confirm.getByRole('button', { name: 'Remove overnight hours', exact: true }).click();
+    await expect(confirm.getByRole('alert').filter({ hasText: 'Network error' })).toBeVisible();
+    expect(await rulesOf(night)).toHaveLength(2);
+    await page.unroute('**/api/scheduling/availability-rules/remove-overnight');
     await confirm.getByRole('button', { name: 'Remove overnight hours', exact: true }).click();
     await expect(confirm).toHaveCount(0);
     expect(await rulesOf(night)).toEqual([]);

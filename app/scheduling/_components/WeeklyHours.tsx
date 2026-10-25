@@ -233,13 +233,14 @@ export function WeeklyHours({
 }
 
 /**
- * Removes both halves of an overnight window. Creating one is atomic (one request); removing is two requests, and a failure between
- * them leaves only a SMALLER window (never more availability). The caller is told exactly that, with a way to reload.
+ * Removes both halves of an overnight window in ONE request (one statement on the server): both rules go or neither does, each half
+ * carrying its own version token. A stale half, a half that is gone, or two entries that are no longer one window remove nothing.
  */
-async function removeOvernight(pair: OvernightPair): Promise<ApiResult<{ deleted: true }>> {
-  const first = await schedulingApi<{ deleted: true }>('DELETE', `/availability-rules/${seg(pair.first.id)}`, { expectedUpdatedAt: pair.first.updatedAt });
-  if (!first.ok) return first;
-  const second = await schedulingApi<{ deleted: true }>('DELETE', `/availability-rules/${seg(pair.second.id)}`, { expectedUpdatedAt: pair.second.updatedAt });
-  if (second.ok) return second;
-  return { ok: false, problem: { ...second.problem, stale: true, message: `The evening part was removed but the morning part could not be. ${second.problem.message} Reload to see what is left.` } };
+function removeOvernight(pair: OvernightPair): Promise<ApiResult<{ deleted: true; ids: string[] }>> {
+  return schedulingApi<{ deleted: true; ids: string[] }>('POST', '/availability-rules/remove-overnight', {
+    rules: [
+      { id: pair.first.id, expectedUpdatedAt: pair.first.updatedAt },
+      { id: pair.second.id, expectedUpdatedAt: pair.second.updatedAt },
+    ],
+  });
 }

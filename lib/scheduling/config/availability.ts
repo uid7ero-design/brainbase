@@ -14,6 +14,7 @@ import {
   type AvailabilityWriteResult,
   type NewStoredExceptionInput,
   type NewStoredRuleInput,
+  type OvernightHalfRef,
   type StoredAvailabilityException,
   type StoredAvailabilityRule,
 } from '@scheduling/core';
@@ -81,6 +82,8 @@ function failure(reason: AvailabilityWriteFailure): Response {
       return conflict('ARCHIVED', 'This offering is archived and takes no availability.');
     case 'owner_inactive':
       return conflict('RESOURCE_INACTIVE', 'This resource is inactive and takes no new availability. Reactivate it first.');
+    case 'not_overnight_window':
+      return conflict('NOT_OVERNIGHT_WINDOW', 'These two entries are no longer the two halves of one overnight window, so nothing was removed. Reload to see the current hours.');
   }
 }
 
@@ -271,6 +274,50 @@ export async function deleteRule(context: SchedulingRouteContext): Promise<Respo
   if (!result.value.ok) return failure(result.value.reason);
   await audit(context, 'scheduling.availability_rule.deleted', 'availability_rule', id, ruleSummary(ownerOf(current.value), current.value));
   return schedulingJson({ deleted: true, id });
+}
+
+const REMOVE_OVERNIGHT_FIELDS = ['rules'] as const;
+const HALF_FIELDS = ['id', 'expectedUpdatedAt'] as const;
+
+/**
+ * POST availability-rules/remove-overnight  { rules: [{ id, expectedUpdatedAt }, { id, expectedUpdatedAt }] }
+ * Removes BOTH halves of an overnight window in one statement (Phase 2B.3d prerequisite): both rules are deleted or neither is. Either
+ * half missing (or another organisation's) is 404; either half changed since it was loaded is 409 STALE_WRITE; two rules that are not the
+ * halves of one window of one owner are 409 NOT_OVERNIGHT_WINDOW. Nothing is deleted in any of those cases. One audit entry per deleted
+ * rule is written after the commit, from the rows the statement actually deleted. Removing is allowed on an archived offering or an
+ * inactive resource, as for a single rule.
+ */
+export async function removeOvernightWindow(context: SchedulingRouteContext): Promise<Response> {
+  const parsed = await readBody(context.request);
+  if (!parsed.ok) return parsed.response;
+  const problems = unknownFields(parsed.body, REMOVE_OVERNIGHT_FIELDS);
+  const list = parsed.body.rules;
+  if (!Array.isArray(list) || list.length !== 2) problems.push('rules must be a list of exactly two rules: the evening half and the morning half of one overnight window');
+  const halves: OvernightHalfRef[] = [];
+  if (Array.isArray(list) && list.length === 2) {
+    list.forEach((raw, i) => {
+      const half = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
+      if (!half) {
+        problems.push(`rules[${i}] must be an object with id and expectedUpdatedAt`);
+        return;
+      }
+      problems.push(...unknownFields(half, HALF_FIELDS).map(p => `rules[${i}].${p}`));
+      if (typeof half.id !== 'string' || half.id.length === 0 || half.id.length > 100) problems.push(`rules[${i}].id is required`);
+      problems.push(...validateExpectedUpdatedAt(half.expectedUpdatedAt).map(p => `rules[${i}]: ${p}`));
+      if (typeof half.id === 'string' && typeof half.expectedUpdatedAt === 'string') halves.push({ id: half.id, expectedUpdatedAt: half.expectedUpdatedAt });
+    });
+    if (halves.length === 2 && halves[0].id === halves[1].id) problems.push('the two rules must be different rules');
+  }
+  if (problems.length > 0) return badRequest([...new Set(problems)]);
+
+  const result = await guardedAvailability(() => context.availability.deleteOvernightWindow(context.tenant, [halves[0], halves[1]]));
+  if (!result.ok) return result.response;
+  if (!result.value.ok) return failure(result.value.reason);
+  const deleted = result.value.value;
+  for (const rule of deleted) {
+    await audit(context, 'scheduling.availability_rule.deleted', 'availability_rule', rule.id, { ...ruleSummary(ownerOf(rule), rule), batch_size: deleted.length, window: 'overnight' });
+  }
+  return schedulingJson({ deleted: true, ids: deleted.map(r => r.id) });
 }
 
 function ruleSummary(owner: AvailabilityOwner, r: StoredAvailabilityRule) {

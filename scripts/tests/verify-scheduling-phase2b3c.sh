@@ -3,7 +3,8 @@
 # (repository, migration-034 guards, availability API) and adds the 2B.3c parts:
 #   packages/scheduling-postgres/tests/availabilityBatchAndClosures.integration.test.ts   atomic multi-rule creates (overnight windows), staged
 #                                                                                          migration 035 (partial-day closures), its rollback
-#   scripts/tests/schedulingAvailabilityApi2b3c.integration.test.ts                       the HTTP API for the same: batches, overnight, partial-day closures
+#   packages/scheduling-postgres/tests/availabilityOvernightDelete.integration.test.ts    removing an overnight window in ONE statement (all or none)
+#   scripts/tests/schedulingAvailabilityApi2b3c.integration.test.ts                       the HTTP API for the same: batches, overnight (create and remove), partial-day closures
 #                                                                                          before and after 035, audit completeness
 #
 # Starts a FRESH postgres container (never touches Production, Neon or any running database), builds a BrainBase-shaped host (the real
@@ -73,6 +74,9 @@ npx vitest run --config vitest.integration.config.ts --reporter=verbose packages
 
 echo "== 3. 2B.3c repository suite: atomic batches, migration 035, its fail-closed behaviour and rollback"
 npx vitest run --config vitest.integration.config.ts --reporter=verbose packages/scheduling-postgres/tests/availabilityBatchAndClosures.integration.test.ts || RC=1
+
+echo "== 3b. atomic removal of an overnight window: all-or-none, version tokens, isolation, concurrency, fail closed"
+npx vitest run --config vitest.integration.config.ts --reporter=verbose packages/scheduling-postgres/tests/availabilityOvernightDelete.integration.test.ts || RC=1
 
 echo "== 4. after 034: the 2B.3b availability API"
 npx vitest run --config vitest.integration.config.ts --reporter=verbose scripts/tests/schedulingAvailabilityApi2b3b.integration.test.ts -t "after migration 034" || RC=1

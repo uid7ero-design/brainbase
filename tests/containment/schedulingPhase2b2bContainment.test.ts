@@ -50,6 +50,7 @@ const EXPECTED_ROUTES: Record<string, Array<[string, Perm, string]>> = {
   'app/api/scheduling/resources/[resourceId]/availability-rules/route.ts': [['POST', 'scheduling.manage', 'createRuleFor']],
   'app/api/scheduling/resources/[resourceId]/availability-exceptions/route.ts': [['POST', 'scheduling.manage', 'createExceptionFor']],
   'app/api/scheduling/availability-rules/[ruleId]/route.ts': [['PATCH', 'scheduling.manage', 'updateRule'], ['DELETE', 'scheduling.manage', 'deleteRule']],
+  'app/api/scheduling/availability-rules/remove-overnight/route.ts': [['POST', 'scheduling.manage', 'removeOvernightWindow']],
   'app/api/scheduling/availability-exceptions/[exceptionId]/route.ts': [['PATCH', 'scheduling.manage', 'updateException'], ['DELETE', 'scheduling.manage', 'deleteException']],
 };
 
