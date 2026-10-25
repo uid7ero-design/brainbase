@@ -39,6 +39,18 @@ export function isWithinSaleWindow(fields: SaleWindowFields, now: Date = new Dat
   return true;
 }
 
+// Whether an event has ended: `now` has reached its ends_at instant
+// (half-open, exactly like a sale window's end). ends_at is an absolute
+// instant (timestamptz), so the event's display timezone and any DST
+// change never move this boundary. No (or unparsable) ends_at means no
+// end: never ended. Display state only — the server re-checks this with
+// the database's NOW() on every quote, registration and checkout (see
+// lib/events/services/cart.ts and the reservation gates).
+export function hasEventEnded(endsAt: string | Date | null | undefined, now: Date = new Date()): boolean {
+  const ends = toMillis(endsAt ?? null);
+  return ends !== null && now.getTime() >= ends;
+}
+
 export function saleWindowPhase(fields: SaleWindowFields, now: Date = new Date()): 'COMING_SOON' | 'ON_SALE' | 'SALES_ENDED' {
   const t = now.getTime();
   const starts = toMillis(fields.sale_starts_at);

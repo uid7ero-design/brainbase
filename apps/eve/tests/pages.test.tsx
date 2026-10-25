@@ -120,6 +120,31 @@ describe('public event page', () => {
     expect(r.container.querySelector('img')).toBeNull();
   });
 
+  it('an ended event (the API says has_ended) shows a neutral ended state and no booking or payment controls', async () => {
+    gw.getPublicEvent.mockResolvedValue({ status: 'ok', data: { ...DETAIL, event: { ...DETAIL.event, has_ended: true } } });
+    const { container } = await renderPage(PublicEventPage({ params: Promise.resolve({ organisationSlug: 'acme', eventSlug: 'gala' }), searchParams: Promise.resolve({}) }));
+    expect(screen.getByTestId('event-ended')).toHaveTextContent('This event has ended.');
+    // The event itself is still described (name, date, sessions)...
+    expect(screen.getByRole('heading', { level: 1, name: 'Spring Gala' })).toBeInTheDocument();
+    // ...but nothing can be booked or paid for.
+    expect(container.querySelector('form')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Complete registration|Continue to payment/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /More General/ })).toBeNull();
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it('has_ended false or absent (an older API) keeps the booking form', async () => {
+    gw.getPublicEvent.mockResolvedValueOnce({ status: 'ok', data: { ...DETAIL, event: { ...DETAIL.event, has_ended: false } } });
+    let r = await renderPage(PublicEventPage({ params: Promise.resolve({ organisationSlug: 'acme', eventSlug: 'gala' }), searchParams: Promise.resolve({}) }));
+    expect(screen.queryByTestId('event-ended')).toBeNull();
+    expect(r.container.querySelector('form')).not.toBeNull();
+    r.unmount();
+    gw.getPublicEvent.mockResolvedValueOnce({ status: 'ok', data: DETAIL });
+    r = await renderPage(PublicEventPage({ params: Promise.resolve({ organisationSlug: 'acme', eventSlug: 'gala' }), searchParams: Promise.resolve({}) }));
+    expect(screen.queryByTestId('event-ended')).toBeNull();
+    expect(r.container.querySelector('form')).not.toBeNull();
+  });
+
   it('has no axe violations', async () => {
     gw.getPublicEvent.mockResolvedValue({ status: 'ok', data: DETAIL });
     const { container } = await renderPage(PublicEventPage({ params: Promise.resolve({ organisationSlug: 'acme', eventSlug: 'gala' }), searchParams: Promise.resolve({ checkout: 'cancelled' }) }));

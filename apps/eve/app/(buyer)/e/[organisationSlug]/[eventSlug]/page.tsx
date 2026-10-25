@@ -66,7 +66,15 @@ export default async function PublicEventPage({ params, searchParams }: Props) {
           ) : null}
         </div>
         <div>
-          <BuyerBooking organisationSlug={organisationSlug} eventSlug={eventSlug} detail={detail} cancelled={checkout === 'cancelled'} />
+          {event.has_ended === true ? (
+            // An ended event offers no booking or payment controls at all.
+            <section data-testid="event-ended" className="rounded-[var(--radius-eve)] border border-eve-line bg-eve-surface p-6">
+              <h2 className="text-xl font-semibold">This event has ended.</h2>
+              <p className="mt-2 text-sm text-eve-muted">Bookings are no longer available.</p>
+            </section>
+          ) : (
+            <BuyerBooking organisationSlug={organisationSlug} eventSlug={eventSlug} detail={detail} cancelled={checkout === 'cancelled'} />
+          )}
         </div>
       </div>
     </Container>

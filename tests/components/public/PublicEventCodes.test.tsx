@@ -12,7 +12,7 @@ import { renderBrainbase } from '../../a11y/render';
 // own arithmetic over the code.
 
 const DETAIL: PublicEventDetail = {
-  event: { name: 'Spring Gala', slug: 'gala', description: null, venue: null, artwork_url: null, starts_at: '2026-12-01T10:00:00.000Z', ends_at: '2026-12-01T12:00:00.000Z', timezone: 'Australia/Adelaide' },
+  event: { name: 'Spring Gala', slug: 'gala', description: null, venue: null, artwork_url: null, starts_at: '2026-12-01T10:00:00.000Z', ends_at: '2026-12-01T12:00:00.000Z', timezone: 'Australia/Adelaide', has_ended: false },
   sessions: [],
   ticket_types: [
     { id: 'tt-adult', name: 'Adult', description: null, price_cents: 4000, capacity: 10, remaining: 10, sale_starts_at: null, sale_ends_at: null, sale_status: 'ON_SALE', requires_access_code: false },
@@ -90,6 +90,19 @@ describe('sale-window and access status on the public page', () => {
     expect(screen.getByLabelText('Access code')).toBeInTheDocument();
     expect(screen.getByLabelText('Promotional code')).toBeInTheDocument();
     expect(screen.getByText('Codes')).toBeInTheDocument();
+  });
+});
+
+describe('ended event', () => {
+  it('the server says has_ended: a neutral "This event has ended." and no booking, code or payment controls', () => {
+    installQuoteServer();
+    renderBrainbase(<PublicEventClient organisationSlug="org-a" eventSlug="gala" detail={{ ...DETAIL, event: { ...DETAIL.event, has_ended: true } }} checkoutCancelled={false} />);
+    expect(screen.getByTestId('event-ended')).toHaveTextContent('This event has ended.');
+    expect(document.querySelector('form')).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Pay |Register|Complete/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Increase Adult quantity' })).toBeNull();
+    expect(screen.queryByLabelText('Promotional code')).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
