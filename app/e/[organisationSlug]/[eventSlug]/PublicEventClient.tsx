@@ -831,7 +831,13 @@ export default function PublicEventClient({
           {/* Right: booking card */}
           <div className="bb-event-booking-col">
             <div style={{ border: `1px solid ${BORDER}`, borderRadius: 16, background: 'var(--bbpe-card-bg)', boxShadow: 'var(--bbpe-card-shadow)', padding: 22 }}>
-              {ticketTypes.length === 0 ? (
+              {event.has_ended ? (
+                // The server's verdict (see PublicEventDetail.event.has_ended);
+                // an ended event shows no booking or payment controls.
+                <p data-testid="event-ended" style={{ fontSize: 14, color: TEXT_SECONDARY, margin: 0, textAlign: 'center', padding: '24px 4px' }}>
+                  This event has ended.
+                </p>
+              ) : ticketTypes.length === 0 ? (
                 <p style={{ fontSize: 14, color: TEXT_SECONDARY, margin: 0, textAlign: 'center', padding: '24px 4px' }}>
                   No tickets are currently available for this event.
                 </p>

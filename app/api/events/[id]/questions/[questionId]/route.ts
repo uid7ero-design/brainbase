@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { validateQuestionInput, FIELD_TYPES, QUESTION_SCOPES } from '@/lib/events/registrationQuestions';
+import { logRegistrationQuestionUpdated, type RegistrationQuestionAuditRow } from '@/lib/events/auditLog';
 
 type Ctx = { params: Promise<{ id: string; questionId: string }> };
 
@@ -116,5 +117,11 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     WHERE id = ${questionId} AND event_id = ${eventId} AND organisation_id = ${session.organisationId}
     RETURNING id, label, help_text, field_type, required, scope, options, sort_order, active, data_category, template_key
   `;
-  return NextResponse.json({ question: rows[0] });
+  const updated = rows[0] as (RegistrationQuestionAuditRow & { id: string }) | undefined;
+  if (updated) {
+    await logRegistrationQuestionUpdated({
+      organisationId: session.organisationId, userId: session.userId, eventId, questionId, before: existing, after: updated,
+    });
+  }
+  return NextResponse.json({ question: updated });
 }

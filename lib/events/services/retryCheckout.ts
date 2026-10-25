@@ -178,6 +178,7 @@ export type RetryCheckoutResult =
       code:
         | 'EVENT_NOT_FOUND'
         | 'EVENT_CANCELLED'
+        | 'EVENT_ENDED'
         | 'ORDER_NOT_FOUND'
         | 'NOT_PENDING'
         | 'NO_STRIPE_ACCOUNT'
@@ -208,15 +209,21 @@ export async function retryPendingOrderCheckout(input: RetryCheckoutInput): Prom
   // can ever reach createCheckoutSession()'s success/cancel URLs are
   // the ones this organisation's own database rows actually have.
   const eventRows = await sql`
-    SELECT e.id, e.status, e.slug AS event_slug, o.slug AS org_slug
+    SELECT e.id, e.status, e.slug AS event_slug, o.slug AS org_slug,
+      (e.ends_at IS NOT NULL AND e.ends_at <= NOW()) AS ended
     FROM events e JOIN organisations o ON o.id = e.organisation_id
     WHERE e.id = ${eventId} AND e.organisation_id = ${organisationId}
     LIMIT 1
   `;
-  const event = eventRows[0] as { id: string; status: string; event_slug: string; org_slug: string } | undefined;
+  const event = eventRows[0] as { id: string; status: string; event_slug: string; org_slug: string; ended?: boolean } | undefined;
   if (!event) return { ok: false, code: 'EVENT_NOT_FOUND' };
   if (event.status === 'CANCELLED') {
     return { ok: false, code: 'EVENT_CANCELLED' };
+  }
+  // An ended event takes no new payment attempt (database clock; NULL
+  // ends_at = no end). Refused before any lock, reacquisition or Stripe call.
+  if (event.ended === true) {
+    return { ok: false, code: 'EVENT_ENDED' };
   }
 
   const orderRows = await sql`

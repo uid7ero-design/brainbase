@@ -77,7 +77,10 @@ export type RecordedAnswer = {
 };
 
 export type PublicEventDetail = {
-  event: { name: string; slug: string; description: string | null; venue: string | null; artwork_url: string | null; starts_at: string; ends_at: string; timezone: string };
+  // has_ended: the API's own verdict that the event's end has passed (never
+  // the visitor's clock). Missing (older API) reads as not ended; the API
+  // still refuses a booking for an ended event either way.
+  event: { name: string; slug: string; description: string | null; venue: string | null; artwork_url: string | null; starts_at: string; ends_at: string; timezone: string; has_ended?: boolean };
   sessions: { id: string; name: string; starts_at: string; ends_at: string; capacity: number; remaining: number }[];
   ticket_types: {
     id: string; name: string; description: string | null; price_cents: number; capacity: number; remaining: number;

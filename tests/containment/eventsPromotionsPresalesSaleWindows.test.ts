@@ -577,8 +577,9 @@ describe('loadCartTicketTypes — sale windows and presale access enforced serve
     expect(callText(0)).toMatch(/\(sale_starts_at IS NULL OR sale_starts_at <= NOW\(\)\) AS sale_started/)
     expect(callText(0)).toMatch(/\(sale_ends_at IS NOT NULL AND sale_ends_at <= NOW\(\)\) AS sale_ended/)
     // Phase 5A adds the fee-policy scalar subquery between the access flag
-    // and FROM — same single tenant-scoped statement.
-    expect(callText(0)).toMatch(/requires_access_code,\s*\n\s*\(SELECT to_jsonb\(p\) FROM ticketing_fee_policies p .*\) AS fee_policy\s*\n\s*FROM event_ticket_types\s*\n\s*WHERE organisation_id = .* AND event_id = .* AND id = ANY/)
+    // and FROM, and the ended-event guard adds the event's own ended flag
+    // (correlated to this row) after it — same single tenant-scoped statement.
+    expect(callText(0)).toMatch(/requires_access_code,\s*\n\s*\(SELECT to_jsonb\(p\) FROM ticketing_fee_policies p .*\) AS fee_policy,[\s\S]*?\(SELECT e\.ends_at IS NOT NULL AND e\.ends_at <= NOW\(\) FROM events e WHERE e\.id = event_ticket_types\.event_id AND e\.organisation_id = event_ticket_types\.organisation_id\) AS event_ended\s*\n\s*FROM event_ticket_types\s*\n\s*WHERE organisation_id = .* AND event_id = .* AND id = ANY/)
   })
 
   it('SALE_NOT_STARTED / SALE_ENDED when ANY line is outside its window; ACCESS_CODE_REQUIRED when a restricted line is not unlocked', async () => {

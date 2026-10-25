@@ -58,6 +58,7 @@ export type FreeRegistrationResult =
         // has nothing to discount on a free cart".
         | 'SALE_NOT_STARTED'
         | 'SALE_ENDED'
+        | 'EVENT_ENDED'
         | 'ACCESS_CODE_REQUIRED'
         | 'ACCESS_CODE_INVALID'
         | 'PROMOTION_NOT_APPLICABLE'
@@ -307,7 +308,16 @@ export async function registerFreeOrder(input: FreeRegistrationInput): Promise<F
           -- purchasable, so pre-Phase-4 events behave exactly as before.
           SELECT c.ticket_type_id, c.quantity, COALESCE(inv.capacity, tt.capacity) AS capacity,
             (
-              tt.active
+              -- The event must not have ended (NULL ends_at = no end),
+              -- re-asserted at the database's NOW() inside this locked
+              -- statement; see loadCartTicketTypes' EVENT_ENDED. Correlated
+              -- to the ticket type's own (tenant-scoped) event.
+              NOT EXISTS (
+                SELECT 1 FROM events ev
+                WHERE ev.id = tt.event_id AND ev.organisation_id = tt.organisation_id
+                  AND ev.ends_at IS NOT NULL AND ev.ends_at <= NOW()
+              )
+              AND tt.active
               AND (tt.sale_starts_at IS NULL OR tt.sale_starts_at <= NOW())
               AND (tt.sale_ends_at IS NULL OR tt.sale_ends_at > NOW())
               AND (
