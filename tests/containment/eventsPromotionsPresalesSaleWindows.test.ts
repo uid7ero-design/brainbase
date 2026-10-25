@@ -771,7 +771,7 @@ describe('free registration — access codes apply, promotion codes do not; the 
     const res = await registerFreeOrder({ organisationId: 'org-a', productSurface: 'BRAINBASE', event: EVENT, validated: validatedFor([{ ticket_type_id: 'tt-free', quantity: 1 }], { access_code: 'MEMBERS2026' }) })
     expect(res.ok).toBe(true)
     const gateIdx = findCall(/INSERT INTO event_orders/)
-    expect(callText(gateIdx)).toMatch(/INSERT INTO event_orders \(organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents, booking_token, ticket_email_status, access_code_id, access_code_snapshot, product_surface\)/)
+    expect(callText(gateIdx)).toMatch(/INSERT INTO event_orders \(organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents, booking_token, ticket_email_status, access_code_id, access_code_snapshot, product_surface, legal_notice_version\)/)
     expect(callText(gateIdx)).toContain('NOT EXISTS (SELECT 1 FROM cart_tt WHERE NOT cart_tt.purchasable)')
     expect(callArgs(gateIdx)).toContain('access-1')
     expect(callArgs(gateIdx)).toContain('MEMBERS2026')
