@@ -137,6 +137,7 @@ suite('Scheduling 2B.3c availability API on real Postgres', () => {
     pool.on('error', () => undefined);
     await pool.query(sqlFile('034_availability_integrity.sql'));
     await pool.query(sqlFile('096_availability_partial_closures_rollback.sql')); // 034 only, whatever ran before
+    await pool.query(sqlFile('036_availability_zones.sql')); // owner-pinned zones: every create pins in the same statement
   }, 60_000);
   afterAll(async () => {
     await q('DELETE FROM scheduling_availability_exceptions');
@@ -290,7 +291,7 @@ suite('Scheduling 2B.3c availability API on real Postgres', () => {
       await addClosure('resource', { fromDate: '2027-04-02', toDate: '2027-04-05', reason: 'Easter' });
       const r = await listFor('resource');
       expect(r.status).toBe(200);
-      expect(r.json.capabilities).toEqual({ partialClosures: false });
+      expect(r.json.capabilities).toEqual({ partialClosures: false, zones: true });
       expect(r.json.exceptions).toHaveLength(1);
       expect(r.json.exceptions[0]).toMatchObject({ startTime: null, endTime: null });
     });
@@ -342,7 +343,7 @@ suite('Scheduling 2B.3c availability API on real Postgres', () => {
       expect(r.status, JSON.stringify(r.json)).toBe(201);
       expect(r.json.exception).toMatchObject({ fromDate: '2027-04-02', toDate: '2027-04-02', startTime: '12:00', endTime: '13:30', kind: 'closed' });
       const list = await listFor(o);
-      expect(list.json.capabilities).toEqual({ partialClosures: true });
+      expect(list.json.capabilities).toEqual({ partialClosures: true, zones: true });
       expect(list.json.exceptions[0]).toMatchObject({ startTime: '12:00', endTime: '13:30' });
       const audit = (await availabilityAudit('org-a')).filter(a => a.action === 'scheduling.availability_exception.created');
       expect(audit.at(-1)?.after_state.summary).toMatchObject({ start_time: '12:00', end_time: '13:30', has_reason: true });

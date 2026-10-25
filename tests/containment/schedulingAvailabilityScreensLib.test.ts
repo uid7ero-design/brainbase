@@ -213,10 +213,16 @@ describe('timezone', () => {
     expect(localToday('UTC', instant)).toBe('2027-04-03');
   });
   it('picks the schedule\'s zone for an offering, the organisation\'s otherwise, and says where it came from', () => {
-    expect(effectiveTimezone({ kind: 'offering', scheduleTimezone: 'Australia/Perth', organisationTimezone: 'Australia/Adelaide', organisationSource: 'organisation' })).toEqual({ zone: 'Australia/Perth', source: 'This schedule’s timezone' });
+    expect(effectiveTimezone({ kind: 'offering', scheduleTimezone: 'Australia/Perth', organisationTimezone: 'Australia/Adelaide', organisationSource: 'organisation' })).toEqual({ zone: 'Australia/Perth', source: 'This schedule’s timezone', pinned: false });
     expect(effectiveTimezone({ kind: 'resource', scheduleTimezone: 'Australia/Perth', organisationTimezone: 'Australia/Adelaide', organisationSource: 'organisation' })?.zone).toBe('Australia/Adelaide');
     expect(effectiveTimezone({ kind: 'offering', scheduleTimezone: null, organisationTimezone: 'Australia/Adelaide', organisationSource: 'fallback' })?.source).toMatch(/system default/);
     expect(effectiveTimezone({ kind: 'offering', scheduleTimezone: null, organisationTimezone: null, organisationSource: null })).toBeNull();
+  });
+  it('a PINNED zone wins over everything: neither the schedule\'s nor the organisation\'s timezone (nor a later change of them) is consulted', () => {
+    const pinned = { pinnedTimezone: 'Australia/Sydney' };
+    expect(effectiveTimezone({ kind: 'offering', scheduleTimezone: 'Australia/Perth', organisationTimezone: 'Europe/London', organisationSource: 'organisation', ...pinned })).toEqual({ zone: 'Australia/Sydney', source: 'Fixed when the first hours were saved', pinned: true });
+    expect(effectiveTimezone({ kind: 'resource', scheduleTimezone: null, organisationTimezone: null, organisationSource: null, ...pinned })?.zone).toBe('Australia/Sydney');
+    expect(effectiveTimezone({ kind: 'offering', scheduleTimezone: 'Australia/Perth', organisationTimezone: 'Australia/Adelaide', organisationSource: 'organisation', pinnedTimezone: null })?.pinned).toBe(false);
   });
 });
 

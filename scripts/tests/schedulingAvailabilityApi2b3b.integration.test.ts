@@ -186,6 +186,7 @@ suite('Scheduling 2B.3b availability API on real Postgres', () => {
 
     beforeAll(async () => {
       await pool.query(sqlFile('034_availability_integrity.sql'));
+      await pool.query(sqlFile('036_availability_zones.sql'));
     }, 60_000);
     beforeEach(async () => {
       const s = await newSchedule();
@@ -502,17 +503,21 @@ suite('Scheduling 2B.3b availability API on real Postgres', () => {
 
         const rows = await availabilityAudit('org-a');
         expect(rows.map(r => [r.action, r.resource_type, r.resource_id])).toEqual([
+          ['scheduling.availability_zone.pinned', 'scheduling.availability_zone', ids.resource], // the resource's first write pins its zone, audited
           ['scheduling.availability_rule.created', 'scheduling.availability_rule', rule.id],
           ['scheduling.availability_rule.updated', 'scheduling.availability_rule', rule.id],
+          ['scheduling.availability_zone.pinned', 'scheduling.availability_zone', ids.offering], // so does the offering's first closure
           ['scheduling.availability_exception.created', 'scheduling.availability_exception', closure.id],
           ['scheduling.availability_exception.updated', 'scheduling.availability_exception', closure.id],
           ['scheduling.availability_rule.deleted', 'scheduling.availability_rule', rule.id],
           ['scheduling.availability_exception.deleted', 'scheduling.availability_exception', closure.id],
         ]);
         for (const r of rows) expect(r.user_id).toBe('user-org-a');
-        expect(rows[0].after_state.summary).toMatchObject({ owner_kind: 'resource', owner_id: ids.resource, day_of_week: 1, start_time: '09:00', end_time: '12:00' });
-        expect(rows[1].after_state.summary).toMatchObject({ fields: ['endTime'], end_time: '13:00' });
-        expect(rows[2].after_state.summary).toMatchObject({ owner_kind: 'offering', from_date: '2026-12-25', has_reason: true });
+        expect(rows[0].after_state.summary).toMatchObject({ owner_kind: 'resource', owner_id: ids.resource, source: 'first_rule' });
+        expect(rows[1].after_state.summary).toMatchObject({ owner_kind: 'resource', owner_id: ids.resource, day_of_week: 1, start_time: '09:00', end_time: '12:00' });
+        expect(rows[2].after_state.summary).toMatchObject({ fields: ['endTime'], end_time: '13:00' });
+        expect(rows[3].after_state.summary).toMatchObject({ owner_kind: 'offering', owner_id: ids.offering, source: 'first_closure' });
+        expect(rows[4].after_state.summary).toMatchObject({ owner_kind: 'offering', from_date: '2026-12-25', has_reason: true });
         const everything = JSON.stringify(rows);
         expect(everything).not.toMatch(/Peak hours|boss@example\.com|Email me/);
         expect(await availabilityAudit('org-b')).toEqual([]);

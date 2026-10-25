@@ -3,6 +3,7 @@
 # (repository, migration-034 guards, availability API) and adds the 2B.3c parts:
 #   packages/scheduling-postgres/tests/availabilityBatchAndClosures.integration.test.ts   atomic multi-rule creates (overnight windows), staged
 #                                                                                          migration 035 (partial-day closures), its rollback
+#   packages/scheduling-postgres/tests/availabilityZones.integration.test.ts              migration 036: owner-pinned zones (atomic first write, races, enforcement, backfill, rollback, fail closed)
 #   packages/scheduling-postgres/tests/availabilityOvernightDelete.integration.test.ts    removing an overnight window in ONE statement (all or none)
 #   scripts/tests/schedulingAvailabilityApi2b3c.integration.test.ts                       the HTTP API for the same: batches, overnight (create and remove), partial-day closures
 #                                                                                          before and after 035, audit completeness
@@ -77,6 +78,9 @@ npx vitest run --config vitest.integration.config.ts --reporter=verbose packages
 
 echo "== 3b. atomic removal of an overnight window: all-or-none, version tokens, isolation, concurrency, fail closed"
 npx vitest run --config vitest.integration.config.ts --reporter=verbose packages/scheduling-postgres/tests/availabilityOvernightDelete.integration.test.ts || RC=1
+
+echo "== 3c. owner-pinned availability zones (036): atomic first write, concurrent pinning, enforcement, backfill, rollback, fail closed"
+npx vitest run --config vitest.integration.config.ts --reporter=verbose packages/scheduling-postgres/tests/availabilityZones.integration.test.ts || RC=1
 
 echo "== 4. after 034: the 2B.3b availability API"
 npx vitest run --config vitest.integration.config.ts --reporter=verbose scripts/tests/schedulingAvailabilityApi2b3b.integration.test.ts -t "after migration 034" || RC=1

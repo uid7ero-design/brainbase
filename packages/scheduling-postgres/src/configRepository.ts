@@ -1,4 +1,5 @@
 import {
+  AvailabilityZonesNotReadyError,
   OCCURRENCE_WRITING_PRESETS,
   SchedulingError,
   isIanaTimezone,
@@ -54,6 +55,30 @@ import { isSelfService, newId as defaultNewId } from './support';
 
 const ISO = (col: string) => `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
 const HHMM = (col: string) => `to_char(${col}, 'HH24:MI')`;
+
+// The CTE that starts every availability create (migration 036): pin the owner's zone if it has none, and force that insert to run before the
+// row is produced ('forced'). Same shape as PostgresAvailabilityRepository.pinCte; the zone is the tenant's timezone here (this legacy path has
+// no schedule context). $2 = organisation, $3 / $4 = resource / offering id.
+const PIN_CTE = (source: 'first_rule' | 'first_closure', ownerKind: 'resource' | 'offering', zone: string, by: string) => {
+  const table = ownerKind === 'resource' ? 'scheduling_resources' : 'scheduling_offerings';
+  const column = ownerKind === 'resource' ? 'resource_id' : 'offering_id';
+  return `WITH pin AS (
+           INSERT INTO scheduling_availability_zones (organisation_id, ${column}, timezone, source, pinned_by)
+           SELECT o.organisation_id, o.id, ${zone}::text, '${source}', ${by}::text FROM ${table} o
+            WHERE o.organisation_id = $2 AND o.id = COALESCE($3::text, $4::text)
+           ON CONFLICT DO NOTHING RETURNING timezone),
+         forced AS (SELECT count(*) AS n FROM pin)`;
+};
+
+/** Without migration 036 the create statement does not analyse (undefined_table) and nothing is written: reported as AvailabilityZonesNotReadyError. */
+async function pinned<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    if (sqlstateOf(err) === '42P01' && /scheduling_availability_zones/.test(String((err as { message?: unknown })?.message ?? ''))) throw new AvailabilityZonesNotReadyError();
+    throw err;
+  }
+}
 
 // The version token: updated_at with MICROSECOND precision (ISO() above drops the fraction). Exact round trip: the value read
 // here is compared with `updated_at = $n::timestamptz` on the next write.
@@ -697,11 +722,15 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
     const problems = validateAvailabilityRule(rule);
     if (problems.length > 0) throw invalid(problems);
     const id = this.newId();
+    // One statement: the owner's zone is pinned (tenant timezone, if it has none) together with the rule; see PostgresAvailabilityRepository.pinCte.
     await translating(() =>
-      this.sql.query(
-        `INSERT INTO scheduling_availability_rules (id, organisation_id, resource_id, offering_id, kind, label, day_of_week, start_time, end_time, valid_from, valid_to)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::time, $9::time, $10::date, $11::date)`,
-        [id, tenant.organisationId, rule.resourceId, rule.offeringId, input.kind, input.label, input.dayOfWeek, input.startTime, input.endTime, input.validFrom, input.validTo],
+      pinned(() =>
+        this.sql.query(
+          `${PIN_CTE('first_rule', ownerKind, '$12', '$13')}
+           INSERT INTO scheduling_availability_rules (id, organisation_id, resource_id, offering_id, kind, label, day_of_week, start_time, end_time, valid_from, valid_to)
+           SELECT $1, $2, $3, $4, $5, $6, $7, $8::time, $9::time, $10::date, $11::date FROM forced`,
+          [id, tenant.organisationId, rule.resourceId, rule.offeringId, input.kind, input.label, input.dayOfWeek, input.startTime, input.endTime, input.validFrom, input.validTo, tenant.timezone, tenant.actor.kind === 'staff' ? tenant.actor.userId : null],
+        ),
       ),
     );
     return { ...rule, id };
@@ -717,10 +746,13 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
     const resourceId = ownerKind === 'resource' ? ownerId : null;
     const offeringId = ownerKind === 'offering' ? ownerId : null;
     await translating(() =>
-      this.sql.query(
-        `INSERT INTO scheduling_availability_exceptions (id, organisation_id, resource_id, offering_id, from_date, to_date, kind, reason)
-         VALUES ($1, $2, $3, $4, $5::date, $6::date, $7, $8)`,
-        [id, tenant.organisationId, resourceId, offeringId, input.fromDate, input.toDate, input.kind, input.reason],
+      pinned(() =>
+        this.sql.query(
+          `${PIN_CTE('first_closure', ownerKind, '$9', '$10')}
+           INSERT INTO scheduling_availability_exceptions (id, organisation_id, resource_id, offering_id, from_date, to_date, kind, reason)
+           SELECT $1, $2, $3, $4, $5::date, $6::date, $7, $8 FROM forced`,
+          [id, tenant.organisationId, resourceId, offeringId, input.fromDate, input.toDate, input.kind, input.reason, tenant.timezone, tenant.actor.kind === 'staff' ? tenant.actor.userId : null],
+        ),
       ),
     );
     return { id, organisationId: tenant.organisationId, resourceId, offeringId, fromDate: input.fromDate, toDate: input.toDate, kind: input.kind, reason: input.reason };

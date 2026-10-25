@@ -1,5 +1,7 @@
 import {
   AvailabilityNotReadyError,
+  AvailabilityZonesNotReadyError,
+  isIanaTimezone,
   MAX_RULE_BATCH,
   PartialClosuresNotReadyError,
   SchedulingError,
@@ -16,6 +18,8 @@ import {
   type OvernightHalfRef,
   type SchedulingAvailabilityRepository,
   type StoredAvailabilityException,
+  type StoredAvailabilityZone,
+  type IanaTimezone,
   type StoredAvailabilityRule,
   type StoredExceptionPatch,
   type StoredRulePatch,
@@ -70,13 +74,15 @@ const invalid = (problems: string[]) => new SchedulingError('invalid_input', pro
 // any other undefined column means 034 is missing. Both are "not ready": nothing was written.
 function notReady(err: unknown): Error {
   const message = String((err as { message?: unknown })?.message ?? '');
+  // 42P01 on the zones table: migration 036 is missing, so a create (which pins in the same statement) fails at analysis time with nothing written.
+  if (sqlstateOf(err) === '42P01' && /scheduling_availability_zones/.test(message)) return new AvailabilityZonesNotReadyError();
   return /(start_time|end_time)/.test(message) && /scheduling_availability_exceptions/.test(message) ? new PartialClosuresNotReadyError() : new AvailabilityNotReadyError();
 }
 
 const SQLSTATE_FAILURE: Record<string, AvailabilityWriteFailure> = { SCOVL: 'overlap', SCARC: 'owner_archived', SCRES: 'owner_inactive' };
 
 type TableName = 'scheduling_availability_rules' | 'scheduling_availability_exceptions';
-type Written = { ok: true; id: string } | { ok: false; reason: AvailabilityWriteFailure } | { ok: 'none' };
+type Written = { ok: true; id: string; pinned: number } | { ok: false; reason: AvailabilityWriteFailure } | { ok: 'none' };
 
 export interface AvailabilityRepositoryOptions {
   sql: SqlExecutor;
@@ -104,7 +110,7 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
     try {
       return await this.sql.query<Row>(text, params);
     } catch (err) {
-      if (sqlstateOf(err) === '42703') throw notReady(err);
+      if (sqlstateOf(err) === '42703' || sqlstateOf(err) === '42P01') throw notReady(err);
       throw err;
     }
   }
@@ -113,10 +119,10 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
   private async write(text: string, params: unknown[]): Promise<Written> {
     try {
       const rows = await this.sql.query<Row>(text, params);
-      return rows.length > 0 ? { ok: true, id: rows[0].id as string } : { ok: 'none' };
+      return rows.length > 0 ? { ok: true, id: rows[0].id as string, pinned: Number(rows[0].pinned ?? 0) } : { ok: 'none' };
     } catch (err) {
       const code = sqlstateOf(err);
-      if (code === '42703') throw notReady(err);
+      if (code === '42703' || code === '42P01') throw notReady(err);
       const failure = code ? SQLSTATE_FAILURE[code] : undefined;
       if (failure) return { ok: false, reason: failure };
       throw mapPgError(err) ?? err;
@@ -129,7 +135,7 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
       return { ok: true, rows: await this.sql.query<Row>(text, params) };
     } catch (err) {
       const code = sqlstateOf(err);
-      if (code === '42703') throw notReady(err);
+      if (code === '42703' || code === '42P01') throw notReady(err);
       const failure = code ? SQLSTATE_FAILURE[code] : undefined;
       if (failure) return { ok: false, reason: failure };
       throw mapPgError(err) ?? err;
@@ -137,13 +143,13 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
   }
 
   /** Like write(), for a statement that RETURNs several rows (createRules): the ids of all of them, or the guard's refusal. */
-  private async writeRows(text: string, params: unknown[]): Promise<{ ok: true; ids: string[] } | { ok: false; reason: AvailabilityWriteFailure }> {
+  private async writeRows(text: string, params: unknown[]): Promise<{ ok: true; ids: string[]; pinned: number } | { ok: false; reason: AvailabilityWriteFailure }> {
     try {
       const rows = await this.sql.query<Row>(text, params);
-      return { ok: true, ids: rows.map(r => r.id as string) };
+      return { ok: true, ids: rows.map(r => r.id as string), pinned: Number(rows[0]?.pinned ?? 0) };
     } catch (err) {
       const code = sqlstateOf(err);
-      if (code === '42703') throw notReady(err);
+      if (code === '42703' || code === '42P01') throw notReady(err);
       const failure = code ? SQLSTATE_FAILURE[code] : undefined;
       if (failure) return { ok: false, reason: failure };
       throw mapPgError(err) ?? err;
@@ -152,6 +158,47 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
 
   private ownerColumn =(owner: AvailabilityOwner) => (owner.kind === 'resource' ? 'resource_id' : 'offering_id');
   private ownerTable = (owner: AvailabilityOwner) => (owner.kind === 'resource' ? 'scheduling_resources' : 'scheduling_offerings');
+
+  private checkZone(zone: IanaTimezone): void {
+    if (!isIanaTimezone(zone)) throw invalid(['zone must be a valid IANA timezone']);
+  }
+  private actorId(tenant: TenantContext): string | null {
+    return tenant.actor.kind === 'staff' ? tenant.actor.userId : null;
+  }
+
+  /**
+   * The CTE every create starts with: pins the owner's zone if it has none (ON CONFLICT DO NOTHING: an existing pin is never changed, and two
+   * racing first writes cannot disagree, the loser's pin insert is a no-op) and forces that insert to run BEFORE the rule or closure is
+   * produced (the 'forced' CTE), so the BEFORE INSERT trigger of migration 036, which refuses availability whose owner has no pin, sees it. The
+   * owner row is the source of the insert: a missing or other-tenant owner pins and inserts nothing. Without migration 036 the statement does
+   * not analyse (undefined_table) and nothing at all is written.
+   */
+  private pinCte(owner: AvailabilityOwner, source: 'first_rule' | 'first_closure', refs: { org: string; owner: string; zone: string; by: string }): string {
+    const column = owner.kind === 'resource' ? 'resource_id' : 'offering_id';
+    return `WITH pin AS (
+         INSERT INTO scheduling_availability_zones (organisation_id, ${column}, timezone, source, pinned_by)
+         SELECT z.organisation_id, z.id, ${refs.zone}::text, '${source}', ${refs.by}::text
+           FROM ${this.ownerTable(owner)} z WHERE z.organisation_id = ${refs.org} AND z.id = ${refs.owner}
+         ON CONFLICT DO NOTHING RETURNING timezone),
+       forced AS (SELECT count(*) AS n FROM pin)`;
+  }
+
+  /** The owner's pinned zone, or null when it has none (or migration 036 is not applied). Read-only. */
+  async getZone(tenant: TenantContext, owner: AvailabilityOwner): Promise<StoredAvailabilityZone | null> {
+    this.view(tenant);
+    try {
+      const rows = await this.read(
+        `SELECT timezone, source, pinned_by, ${STAMP('pinned_at')} AS pinned_at FROM scheduling_availability_zones
+          WHERE organisation_id = $1 AND owner_kind = $2 AND owner_id = $3`,
+        [tenant.organisationId, owner.kind, owner.id],
+      );
+      const r = rows[0];
+      return r ? { timezone: r.timezone, source: r.source, pinnedBy: r.pinned_by, pinnedAt: r.pinned_at } : null;
+    } catch (err) {
+      if (err instanceof AvailabilityZonesNotReadyError) return null;
+      throw err;
+    }
+  }
 
   /** A write that changed no row: read-only, says whether the row is missing (or another tenant's) or has simply moved on. */
   private async classify(tenant: TenantContext, table: TableName, id: string): Promise<{ ok: false; reason: 'not_found' | 'stale_write' }> {
@@ -176,8 +223,9 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
     return rows[0] ? toRule(rows[0]) : null;
   }
 
-  async createRule(tenant: TenantContext, owner: AvailabilityOwner, input: NewStoredRuleInput): Promise<AvailabilityWriteResult<StoredAvailabilityRule>> {
+  async createRule(tenant: TenantContext, owner: AvailabilityOwner, input: NewStoredRuleInput, zone: IanaTimezone = tenant.timezone): Promise<AvailabilityWriteResult<StoredAvailabilityRule>> {
     this.manage(tenant);
+    this.checkZone(zone);
     const problems = validateAvailabilityRuleForSet({
       id: 'candidate', organisationId: tenant.organisationId,
       resourceId: owner.kind === 'resource' ? owner.id : null, offeringId: owner.kind === 'offering' ? owner.id : null,
@@ -188,21 +236,26 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
     const id = this.newId();
     // The owner row is the SELECT source: a missing or other-tenant owner inserts nothing (not_found), and the INSERT carries the
     // owner's own organisation, never a caller-supplied one.
+    // The owner's zone is pinned in the SAME statement as the rule (see pinCte): both commit or neither does. Without migration 036 the statement
+    // fails at analysis time (undefined_table) with nothing written -> AvailabilityZonesNotReadyError.
     const res = await this.write(
-      `INSERT INTO scheduling_availability_rules (id, organisation_id, resource_id, offering_id, kind, label, day_of_week, start_time, end_time, valid_from, valid_to)
+      `${this.pinCte(owner, 'first_rule', { org: '$2', owner: '$3', zone: '$11', by: '$12' })}
+       INSERT INTO scheduling_availability_rules (id, organisation_id, resource_id, offering_id, kind, label, day_of_week, start_time, end_time, valid_from, valid_to)
        SELECT $1, o.organisation_id, ${owner.kind === 'resource' ? 'o.id, NULL' : 'NULL, o.id'}, $4, $5, $6, $7::time, $8::time, $9::date, $10::date
-         FROM ${this.ownerTable(owner)} o WHERE o.organisation_id = $2 AND o.id = $3
-       RETURNING id, updated_at`, // updated_at here makes the statement fail BEFORE writing when 034 is absent
-      [id, tenant.organisationId, owner.id, input.kind, input.label, input.dayOfWeek, input.startTime, input.endTime, input.validFrom, input.validTo],
+         FROM ${this.ownerTable(owner)} o CROSS JOIN forced WHERE o.organisation_id = $2 AND o.id = $3
+       RETURNING id, updated_at, (SELECT n FROM forced)::int AS pinned`, // updated_at here makes the statement fail BEFORE writing when 034 is absent
+      [id, tenant.organisationId, owner.id, input.kind, input.label, input.dayOfWeek, input.startTime, input.endTime, input.validFrom, input.validTo, zone, this.actorId(tenant)],
     );
     if (res.ok === 'none') return { ok: false, reason: 'not_found' };
     if (res.ok === false) return res;
     const stored = await this.getRule(tenant, res.id);
-    return stored ? { ok: true, value: stored } : { ok: false, reason: 'not_found' };
+    if (!stored) return { ok: false, reason: 'not_found' };
+    return { ok: true, value: stored, pinned: res.pinned > 0 ? await this.getZone(tenant, owner) : null };
   }
 
-  async createRules(tenant: TenantContext, owner: AvailabilityOwner, inputs: readonly NewStoredRuleInput[]): Promise<AvailabilityWriteResult<StoredAvailabilityRule[]>> {
+  async createRules(tenant: TenantContext, owner: AvailabilityOwner, inputs: readonly NewStoredRuleInput[], zone: IanaTimezone = tenant.timezone): Promise<AvailabilityWriteResult<StoredAvailabilityRule[]>> {
     this.manage(tenant);
+    this.checkZone(zone);
     const problems: string[] = [];
     if (inputs.length === 0) problems.push('at least one rule is required');
     if (inputs.length > MAX_RULE_BATCH) problems.push(`at most ${MAX_RULE_BATCH} rules can be created together`);
@@ -226,17 +279,21 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
       params.push(v);
       return `$${params.length}`;
     };
+    const zoneRef = arg(zone);
+    const byRef = arg(this.actorId(tenant));
     const tuples = inputs.map(input => {
       const p = [this.newId(), input.kind, input.label, input.dayOfWeek, input.startTime, input.endTime, input.validFrom, input.validTo].map(arg);
       return `(${p[0]}::text, ${p[1]}::text, ${p[2]}::text, ${p[3]}::smallint, ${p[4]}::time, ${p[5]}::time, ${p[6]}::date, ${p[7]}::date)`;
     });
+    // The pin (if the owner has none) is the first thing the statement does, so the batch and its zone commit together or not at all.
     const written = await this.writeRows(
-      `INSERT INTO scheduling_availability_rules (id, organisation_id, resource_id, offering_id, kind, label, day_of_week, start_time, end_time, valid_from, valid_to)
+      `${this.pinCte(owner, 'first_rule', { org: '$1', owner: '$2', zone: zoneRef, by: byRef })}
+       INSERT INTO scheduling_availability_rules (id, organisation_id, resource_id, offering_id, kind, label, day_of_week, start_time, end_time, valid_from, valid_to)
        SELECT v.id, o.organisation_id, ${owner.kind === 'resource' ? 'o.id, NULL' : 'NULL, o.id'}, v.kind, v.label, v.dow, v.s, v.e, v.vf, v.vt
-         FROM ${this.ownerTable(owner)} o
+         FROM ${this.ownerTable(owner)} o CROSS JOIN forced
         CROSS JOIN (VALUES ${tuples.join(', ')}) AS v(id, kind, label, dow, s, e, vf, vt)
         WHERE o.organisation_id = $1 AND o.id = $2
-       RETURNING id, updated_at`, // updated_at here makes the statement fail BEFORE writing when 034 is absent
+       RETURNING id, updated_at, (SELECT n FROM forced)::int AS pinned`, // updated_at here makes the statement fail BEFORE writing when 034 is absent
       params,
     );
     if (written.ok === false) return written;
@@ -246,7 +303,7 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
       `SELECT ${RULE_COLUMNS} FROM scheduling_availability_rules r WHERE r.organisation_id = $1 AND r.id IN (${written.ids.map((_, i) => `$${i + 2}`).join(', ')}) ORDER BY r.day_of_week, r.start_time, r.id`,
       readParams,
     );
-    return { ok: true, value: rows.map(toRule) };
+    return { ok: true, value: rows.map(toRule), pinned: written.pinned > 0 ? await this.getZone(tenant, owner) : null };
   }
 
   async updateRule(tenant: TenantContext, ruleId: string, expectedUpdatedAt: string, changes: StoredRulePatch): Promise<AvailabilityWriteResult<StoredAvailabilityRule>> {
@@ -362,8 +419,9 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
     return rows[0] ? toException(rows[0]) : null;
   }
 
-  async createException(tenant: TenantContext, owner: AvailabilityOwner, input: NewStoredExceptionInput): Promise<AvailabilityWriteResult<StoredAvailabilityException>> {
+  async createException(tenant: TenantContext, owner: AvailabilityOwner, input: NewStoredExceptionInput, zone: IanaTimezone = tenant.timezone): Promise<AvailabilityWriteResult<StoredAvailabilityException>> {
     this.manage(tenant);
+    this.checkZone(zone);
     const problems = validateAvailabilityException({
       id: 'candidate', organisationId: tenant.organisationId,
       resourceId: owner.kind === 'resource' ? owner.id : null, offeringId: owner.kind === 'offering' ? owner.id : null,
@@ -378,17 +436,22 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
     // A full-day closure names neither window column, so it is stored identically before and after migration 035. A partial-day closure
     // names them, and before 035 that fails at analysis time (undefined_column -> PartialClosuresNotReadyError) with nothing written.
     const partial = input.startTime != null && input.endTime != null;
+    const extra = partial ? [input.startTime, input.endTime] : [];
+    const zoneRef = `$${8 + extra.length}`;
+    const byRef = `$${9 + extra.length}`;
     const res = await this.write(
-      `INSERT INTO scheduling_availability_exceptions (id, organisation_id, resource_id, offering_id, from_date, to_date, kind, reason${partial ? ', start_time, end_time' : ''})
+      `${this.pinCte(owner, 'first_closure', { org: '$2', owner: '$3', zone: zoneRef, by: byRef })}
+       INSERT INTO scheduling_availability_exceptions (id, organisation_id, resource_id, offering_id, from_date, to_date, kind, reason${partial ? ', start_time, end_time' : ''})
        SELECT $1, o.organisation_id, ${owner.kind === 'resource' ? 'o.id, NULL' : 'NULL, o.id'}, $4::date, $5::date, $6, $7${partial ? ', $8::time, $9::time' : ''}
-         FROM ${this.ownerTable(owner)} o WHERE o.organisation_id = $2 AND o.id = $3
-       RETURNING id, updated_at`, // updated_at here makes the statement fail BEFORE writing when 034 is absent
-      [id, tenant.organisationId, owner.id, input.fromDate, input.toDate, input.kind, input.reason, ...(partial ? [input.startTime, input.endTime] : [])],
+         FROM ${this.ownerTable(owner)} o CROSS JOIN forced WHERE o.organisation_id = $2 AND o.id = $3
+       RETURNING id, updated_at, (SELECT n FROM forced)::int AS pinned`, // updated_at here makes the statement fail BEFORE writing when 034 is absent
+      [id, tenant.organisationId, owner.id, input.fromDate, input.toDate, input.kind, input.reason, ...extra, zone, this.actorId(tenant)],
     );
     if (res.ok === 'none') return { ok: false, reason: 'not_found' };
     if (res.ok === false) return res;
     const stored = await this.getException(tenant, res.id);
-    return stored ? { ok: true, value: stored } : { ok: false, reason: 'not_found' };
+    if (!stored) return { ok: false, reason: 'not_found' };
+    return { ok: true, value: stored, pinned: res.pinned > 0 ? await this.getZone(tenant, owner) : null };
   }
 
   async updateException(tenant: TenantContext, exceptionId: string, expectedUpdatedAt: string, changes: StoredExceptionPatch): Promise<AvailabilityWriteResult<StoredAvailabilityException>> {
@@ -439,7 +502,8 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
         WHERE table_schema = current_schema() AND table_name = 'scheduling_availability_exceptions' AND column_name IN ('start_time', 'end_time')`,
       [],
     );
-    return { partialClosures: Number(rows[0]?.n ?? 0) === 2 };
+    const zones = await this.read(`SELECT to_regclass('scheduling_availability_zones') IS NOT NULL AS present`, []);
+    return { partialClosures: Number(rows[0]?.n ?? 0) === 2, zones: zones[0]?.present === true };
   }
 
   async deleteException(tenant: TenantContext, exceptionId: string, expectedUpdatedAt: string): Promise<AvailabilityWriteResult<{ id: string }>> {

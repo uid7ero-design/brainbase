@@ -46,6 +46,7 @@ export const SCHEDULING_AUDIT_ACTIONS = [
   'scheduling.availability_exception.created',
   'scheduling.availability_exception.updated',
   'scheduling.availability_exception.deleted',
+  'scheduling.availability_zone.pinned',
   'scheduling.occurrence.created',
   'scheduling.occurrence.cancelled',
   'scheduling.reservation.created',

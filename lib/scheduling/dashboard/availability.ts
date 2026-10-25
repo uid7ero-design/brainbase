@@ -288,12 +288,26 @@ export interface TimezoneInfo {
   zone: string;
   /** Where it comes from, in words. */
   source: string;
+  /** True once the zone has been fixed for this owner (when its first hours or closure were saved): later changes elsewhere do not move it. */
+  pinned: boolean;
 }
 
-export function effectiveTimezone(args: { kind: 'offering' | 'resource'; scheduleTimezone: string | null; organisationTimezone: string | null; organisationSource: 'organisation' | 'fallback' | null }): TimezoneInfo | null {
-  if (args.kind === 'offering' && args.scheduleTimezone) return { zone: args.scheduleTimezone, source: 'This schedule’s timezone' };
+/**
+ * The zone this owner's hours are read in. When the owner is PINNED (its first hours or closure have been saved) the pinned zone is the answer
+ * and nothing else is consulted. Before that the zone is only what the first save WOULD pin: the schedule's timezone for an offering, else the
+ * organisation's (or the system default). The browser's timezone is never used.
+ */
+export function effectiveTimezone(args: {
+  kind: 'offering' | 'resource';
+  scheduleTimezone: string | null;
+  organisationTimezone: string | null;
+  organisationSource: 'organisation' | 'fallback' | null;
+  pinnedTimezone?: string | null;
+}): TimezoneInfo | null {
+  if (args.pinnedTimezone) return { zone: args.pinnedTimezone, source: 'Fixed when the first hours were saved', pinned: true };
+  if (args.kind === 'offering' && args.scheduleTimezone) return { zone: args.scheduleTimezone, source: 'This schedule’s timezone', pinned: false };
   if (args.organisationTimezone) {
-    return { zone: args.organisationTimezone, source: args.organisationSource === 'fallback' ? 'The system default: your organisation has no timezone set' : 'Your organisation’s timezone' };
+    return { zone: args.organisationTimezone, source: args.organisationSource === 'fallback' ? 'The system default: your organisation has no timezone set' : 'Your organisation’s timezone', pinned: false };
   }
   return null;
 }

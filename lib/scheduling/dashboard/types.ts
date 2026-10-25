@@ -79,7 +79,9 @@ export interface AvailabilityView {
   owner: { kind: 'offering' | 'resource'; id: string };
   rules: AvailabilityRuleView[];
   exceptions: AvailabilityClosureView[];
-  capabilities: { partialClosures: boolean };
+  capabilities: { partialClosures: boolean; zones?: boolean };
+  /** The zone the owner's hours are read in: the pin once its first hours or closure are saved, else what the first save would pin. */
+  zone?: { timezone: string; pinned: boolean; source: 'first_rule' | 'first_closure' | 'backfill' | null; pinnedAt: string | null };
 }
 
 export interface StatusView {

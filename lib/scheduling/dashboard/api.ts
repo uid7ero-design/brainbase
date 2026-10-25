@@ -31,6 +31,7 @@ const MESSAGES: Record<string, string> = {
   OVERLAP: 'This overlaps hours or a closure that is already saved. Change or remove the overlapping entry first. Nothing was saved.',
   NOT_OVERNIGHT_WINDOW: 'These hours changed and are no longer one overnight window. Nothing was removed. Reload to see the current hours.',
   AVAILABILITY_NOT_READY: 'Availability has not been set up on this installation yet. Ask a BrainBase admin to finish the setup. Nothing was saved.',
+  AVAILABILITY_ZONES_NOT_READY: 'Saving hours has not been set up on this installation yet. Ask a BrainBase admin to finish the setup. Nothing was saved.',
   PARTIAL_CLOSURES_NOT_READY: 'Closing part of a day has not been set up on this installation yet. Closing whole days works. Nothing was saved.',
   TRY_AGAIN: 'The system is busy. Nothing was changed; please try again.',
   SCHEDULING_NOT_CONFIGURED: 'Scheduling has not been set up for your organisation yet. Ask a BrainBase admin to finish the setup.',
