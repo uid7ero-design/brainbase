@@ -23,6 +23,15 @@ export function currentEveLegalAcceptance(): LegalAcceptance {
   return { termsVersion: EVE_TERMS_VERSION, refundsVersion: EVE_REFUNDS_VERSION };
 }
 
+// The version an Eve FREE registration records for its linked notice ("By
+// registering you agree to the Terms and acknowledge the Privacy Policy.").
+// There is no checkbox, so this is evidence of the version in force for that
+// notice flow — not acceptance, and not proof it was read. Terms and Privacy
+// share the one document version; Refunds is not part of the free notice.
+export function currentEveLegalNoticeVersion(): string {
+  return EVE_LEGAL_DOCUMENT_VERSION;
+}
+
 export function isDraftLegalVersion(version: string): boolean {
   return /draft/i.test(version);
 }

@@ -115,6 +115,7 @@ const MIGRATIONS = [
   'scripts/create-events-ticketing-fees-foundation.sql',
   'scripts/add-events-order-product-surface.sql',
   'scripts/add-events-order-legal-acceptance.sql',
+  'scripts/add-events-order-legal-notice.sql',
 ]
 
 // Only id is read by the services' SQL; the rest satisfies PublicEvent.

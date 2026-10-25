@@ -55,6 +55,8 @@ or all set). No backfill, no index. Behaviour:
   matches the published text.
 - Historical, free and **all BrainBase orders stay NULL**; BrainBase checkout is
   unchanged and no acceptance is imposed on it.
+- Free Eve orders record the notice version in a separate column instead (§12);
+  these three columns stay paid-only.
 
 ### 2.2 `scripts/add-events-notification-event-updated.sql` — `event_notifications`
 Adds `EVENT_UPDATED` to `event_notifications_type_check` (the four existing types
@@ -508,3 +510,58 @@ one organisation only.
 - Same scope as the flag: Eve paid checkout only. Free Eve registration and BrainBase's own
   public checkout are unaffected.
 - **Both must stay unset in Production** except during an approved, time-boxed proof.
+## 12. Free-registration legal notice version (2026-10-25)
+
+A free Eve registration has no checkbox. It shows a linked notice: "By registering you agree
+to the Terms and acknowledge the Privacy Policy." Until now, free orders recorded nothing about
+which legal text was in force. Decision (owner, after a read-only design review): record the
+version in a dedicated column, without calling it acceptance and without reusing the paid
+columns.
+
+- **Column:** `event_orders.legal_notice_version TEXT NULL`
+  (`scripts/add-events-order-legal-notice.sql`).
+- **Meaning:** the Eve legal-document version in force for the free-registration notice flow
+  when the order was created. Terms and Privacy share the one version
+  (`EVE_LEGAL_DOCUMENT_VERSION`), so there is one column, not one per document.
+  - It is **not** explicit acceptance.
+  - It is **not** proof that the buyer read the notice. The API can be called directly, so it
+    does not even claim the notice was displayed.
+  - Refunds is not part of the free notice and is not recorded.
+- **Time:** the order's own `created_at` (same INSERT, database clock). There is no separate
+  timestamp column.
+- **Written by** the gated Eve register handler (`handleTicketingRegister`) only:
+  - it passes `currentEveLegalNoticeVersion()` from `@ticketing/core` to `registerFreeOrder`;
+  - the service writes the value in the order INSERT and nothing ever updates it;
+  - request-body fields (`legal_notice_version`, `terms_version`, `accept_terms`, …) are never
+    read. The free validator whitelists its fields, so they are dropped.
+- **Draft guard:** on `VERCEL_ENV=production` a draft version is stored as NULL and the
+  registration still succeeds. Free registration never depends on legal publication state.
+  Preview records the draft id, which is the text Preview shows.
+- **Never stamped:**
+  - BrainBase free orders, since BrainBase shows no Eve notice. The public register route never
+    passes the value.
+  - Paid orders, which keep the §2.1 acceptance snapshot unchanged.
+  - Historical orders: there is no backfill, and nothing is filled in for orders that predate
+    the column.
+- **CHECK `event_orders_legal_notice_check`:**
+  `legal_notice_version IS NULL OR (terms_accepted_at IS NULL AND product_surface = 'EVE' AND
+  total_cents = 0)`. An order is either an explicit paid acceptance or a free notice, never
+  both, and a notice version can never sit on a BrainBase or non-zero order.
+  - Added `NOT VALID`, then `VALIDATE`, in one transaction with `lock_timeout = 5s`.
+  - Every existing row is NULL and passes.
+- **Order:** apply the migration to Production BEFORE deploying the code. The free-order
+  INSERT names the column, so on a database without it every free registration (Eve and
+  BrainBase) would fail. See `docs/operations/eve-free-order-legal-notice-release.md`.
+- **Proof:**
+  - `tests/containment/eveFreeLegalNoticeRealPostgres.test.ts` runs on real Postgres 17. It
+    seeds historical orders, applies the migration twice, checks the CHECK, rolls back and
+    re-applies, and runs the real Eve and BrainBase register paths and paid checkout.
+  - `tests/containment/eveFreeLegalNotice.test.ts` covers the handler, the draft guard and the
+    source contracts.
+  - `apps/eve/tests/legal.test.tsx` shows the free request body carries no legal field.
+- **Not changed:** buyer-facing wording, the Privacy Policy and Terms text, paid checkout,
+  Stripe.
+- **Open (owner decision, not blocking):** Privacy §2 describes the paid acceptance record and
+  does not mention the free notice version. Whether a future legal-copy update should mention
+  it is an owner decision. No wording was changed here. As before, no external legal review
+  occurred (§4d).

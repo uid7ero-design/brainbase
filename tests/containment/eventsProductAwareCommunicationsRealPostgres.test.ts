@@ -100,6 +100,7 @@ const MIGRATIONS = [
   'scripts/add-events-order-product-surface.sql',
   // Eve launch compliance - the paid order INSERT now writes the acceptance snapshot columns.
   'scripts/add-events-order-legal-acceptance.sql',
+  'scripts/add-events-order-legal-notice.sql',
   // Eve launch compliance - notification delivery now reads event_notifications.payload.
   'scripts/add-events-notification-event-updated.sql',
 ]
