@@ -62,7 +62,7 @@ const starts = (slots: Array<{ startsAt: string }>) => slots.map(s => s.startsAt
 describe('weekly hours in one zone, summer and winter (Australia/Adelaide)', () => {
   it('Thursday 09:00-12:00 in summer (+10:30) is 22:30Z to 01:30Z', () => {
     const r = ok({ offeringRules: [offeringRule('a', 4, '09:00', '12:00')] });
-    expect(r.free).toEqual([{ resourceId: null, intervals: [{ startsAt: '2026-01-14T22:30:00Z', endsAt: '2026-01-15T01:30:00Z' }] }]);
+    expect(r.free).toEqual([{ resourceId: null, timezone: 'Australia/Adelaide', intervals: [{ startsAt: '2026-01-14T22:30:00Z', endsAt: '2026-01-15T01:30:00Z' }] }]);
     expect(starts(r.slots)).toEqual(['2026-01-14T22:30:00Z', '2026-01-14T23:30:00Z', '2026-01-15T00:30:00Z']);
     expect(r.adjustments).toEqual([]);
   });

@@ -57,7 +57,7 @@ describe('fall-back: the repeated hour (Sunday 2027-04-04, Adelaide)', () => {
   it('an END inside the repeated hour is the FIRST pass: "open until 02:30" ends at 02:30 ACDT, and it is reported', () => {
     const r = compute({ offeringRules: [sunday('00:00', '02:30')], slot: { durationMinutes: 30, stepMinutes: 30 } });
     expect(r.free[0].intervals).toEqual([{ startsAt: '2027-04-03T13:30:00Z', endsAt: '2027-04-03T16:00:00Z' }]);
-    expect(r.adjustments).toEqual([{ date: '2027-04-04', startTime: '00:00', endTime: '02:30', kind: 'end_ambiguous' }]);
+    expect(r.adjustments).toEqual([{ date: '2027-04-04', startTime: '00:00', endTime: '02:30', kind: 'end_ambiguous', owner: { kind: 'offering', id: OFF } }]);
     expect(r.slots).toHaveLength(5);
   });
 
