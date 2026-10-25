@@ -22,6 +22,7 @@ import {
   valuesFromRule,
   weekItems,
 } from '@/lib/scheduling/dashboard/availability';
+import { isOvernightWindowPair } from '@scheduling/core';
 import type { AvailabilityClosureView, AvailabilityRuleView } from '@/lib/scheduling/dashboard/types';
 
 // Phase 2B.3c: the pure decisions behind the availability screens (lib/scheduling/dashboard/availability.ts): how a form becomes a request
@@ -262,5 +263,32 @@ describe('daylight-saving notices (Australia/Adelaide, 2027)', () => {
     expect(daylightSavingNotices([rule({ dayOfWeek: 0, startTime: '00:00', endTime: '02:30' })], [], ADL, '2027-04-05', { days: 100 })).toEqual([]);
     expect(daylightSavingNotices([rule()], [], 'Not/AZone', '2027-03-20')).toEqual([]);
     expect(daylightSavingNotices([rule()], [], ADL, 'yesterday')).toEqual([]);
+  });
+});
+
+describe('the screens and the server agree on what one overnight window is', () => {
+  // findOvernightPairs (browser) decides which two rules the Remove button sends to remove-overnight; the server (isOvernightWindowPair in
+  // core, the same predicate as the SQL of deleteOvernightWindow) must accept exactly those. A shape the screen would NOT group is never
+  // sent as a window, and one it WOULD group must not be refused by the server as "not a window".
+  const evening = { dayOfWeek: 5, startTime: '22:00', endTime: '24:00' };
+  const morning = { dayOfWeek: 6, startTime: '00:00', endTime: '02:00' };
+  const shapes: Array<[string, Partial<AvailabilityRuleView>, Partial<AvailabilityRuleView>]> = [
+    ['a window', {}, {}],
+    ['the week wraps', { dayOfWeek: 6 }, { dayOfWeek: 0 }],
+    ['two days later', {}, { dayOfWeek: 0 }],
+    ['same day', {}, { dayOfWeek: 5 }],
+    ['the morning runs all day', {}, { endTime: '24:00' }],
+    ['the evening is a whole day', { startTime: '00:00' }, {}],
+    ['the evening stops early', { endTime: '23:00' }, {}],
+    ['the morning starts late', {}, { startTime: '01:00' }],
+    ['different kind', {}, { kind: 'service_period' }],
+    ['validity unshifted', { validFrom: '2027-04-02', validTo: '2027-04-30' }, { validFrom: '2027-04-02', validTo: '2027-04-30' }],
+    ['validity shifted', { validFrom: '2027-04-02', validTo: '2027-04-30' }, { validFrom: '2027-04-03', validTo: '2027-05-01' }],
+    ['only the evening bounded', { validTo: '2027-04-30' }, {}],
+  ];
+  it.each(shapes)('%s', (_name, e, m) => {
+    const first = rule({ ...evening, ...e });
+    const second = rule({ ...morning, ...m });
+    expect(findOvernightPairs([first, second]).length === 1).toBe(isOvernightWindowPair(first, second));
   });
 });

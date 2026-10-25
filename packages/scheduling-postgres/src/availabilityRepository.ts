@@ -13,6 +13,7 @@ import {
   type AvailabilityWriteResult,
   type NewStoredExceptionInput,
   type NewStoredRuleInput,
+  type OvernightHalfRef,
   type SchedulingAvailabilityRepository,
   type StoredAvailabilityException,
   type StoredAvailabilityRule,
@@ -113,6 +114,19 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
     try {
       const rows = await this.sql.query<Row>(text, params);
       return rows.length > 0 ? { ok: true, id: rows[0].id as string } : { ok: 'none' };
+    } catch (err) {
+      const code = sqlstateOf(err);
+      if (code === '42703') throw notReady(err);
+      const failure = code ? SQLSTATE_FAILURE[code] : undefined;
+      if (failure) return { ok: false, reason: failure };
+      throw mapPgError(err) ?? err;
+    }
+  }
+
+  /** Like write(), for a statement that RETURNs several full rows (deleteOvernightWindow): the rows, or the guard's refusal. */
+  private async writeRowsFull(text: string, params: unknown[]): Promise<{ ok: true; rows: Row[] } | { ok: false; reason: AvailabilityWriteFailure }> {
+    try {
+      return { ok: true, rows: await this.sql.query<Row>(text, params) };
     } catch (err) {
       const code = sqlstateOf(err);
       if (code === '42703') throw notReady(err);
@@ -271,6 +285,64 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
     const res = await this.write('DELETE FROM scheduling_availability_rules WHERE organisation_id = $1 AND id = $2 AND updated_at = $3::timestamptz RETURNING id', [tenant.organisationId, ruleId, expectedUpdatedAt]);
     if (res.ok === 'none') return this.classify(tenant, 'scheduling_availability_rules', ruleId);
     return res.ok === true ? { ok: true, value: { id: res.id } } : res;
+  }
+
+  async deleteOvernightWindow(tenant: TenantContext, halves: readonly [OvernightHalfRef, OvernightHalfRef]): Promise<AvailabilityWriteResult<StoredAvailabilityRule[]>> {
+    this.manage(tenant);
+    const problems: string[] = [];
+    if (!Array.isArray(halves) || halves.length !== 2) problems.push('an overnight window is exactly two rules');
+    else {
+      if (halves[0].id === halves[1].id) problems.push('the two rules must be different rules');
+      halves.forEach((h, i) => problems.push(...validateExpectedUpdatedAt(h.expectedUpdatedAt).map(p => `rule ${i + 1}: ${p}`)));
+    }
+    if (problems.length > 0) throw invalid(problems);
+    const [a, b] = halves;
+    const params = [tenant.organisationId, a.id, a.expectedUpdatedAt, b.id, b.expectedUpdatedAt];
+
+    // ONE statement, all or none:
+    //   want  the two rules and the version token the caller holds for each;
+    //   cur   the rules that exist in THIS organisation AND still carry that token, locked FOR UPDATE in id order. The fixed order means
+    //         two windows removed (or a removal and an edit) in opposite orders queue instead of deadlocking; under READ COMMITTED a row
+    //         that was edited or deleted while we waited for its lock is re-checked against its new version and drops out of cur;
+    //   chk   true only when BOTH are in cur and they are the two halves of one overnight window of one owner (the evening ends at 24:00,
+    //         the morning starts at 00:00 on the next weekday, same owner and kind, validity shifted by one day: isOvernightWindowPair);
+    //   the DELETE removes cur only if chk, and RETURNs the rows as they were, so the audit trail describes what was actually deleted.
+    // Deletes take no owner lock (034 guards inserts and updates only), so this cannot wait on, or be waited on by, an owner's writers
+    // except through the row locks above. Naming updated_at makes the statement fail BEFORE writing when 034 is absent.
+    const written = await this.writeRowsFull(
+      `WITH want(id, tok) AS (VALUES ($2::text, $3::timestamptz), ($4::text, $5::timestamptz)),
+            cur AS (
+              SELECT r.id, r.resource_id, r.offering_id, r.kind, r.day_of_week, r.start_time, r.end_time, r.valid_from, r.valid_to
+                FROM scheduling_availability_rules r JOIN want w ON w.id = r.id
+               WHERE r.organisation_id = $1 AND r.updated_at = w.tok
+               ORDER BY r.id FOR UPDATE OF r),
+            chk AS (
+              SELECT (SELECT count(*) FROM cur) = 2 AND EXISTS (
+                SELECT 1 FROM cur e JOIN cur m ON m.id <> e.id
+                 WHERE e.end_time = '24:00'::time AND e.start_time <> '00:00'::time
+                   AND m.start_time = '00:00'::time AND m.end_time <> '24:00'::time
+                   AND m.day_of_week = (e.day_of_week + 1) % 7
+                   AND m.kind = e.kind
+                   AND m.resource_id IS NOT DISTINCT FROM e.resource_id AND m.offering_id IS NOT DISTINCT FROM e.offering_id
+                   AND m.valid_from IS NOT DISTINCT FROM (e.valid_from + 1) AND m.valid_to IS NOT DISTINCT FROM (e.valid_to + 1)) AS ok)
+       DELETE FROM scheduling_availability_rules r USING cur
+        WHERE r.id = cur.id AND r.organisation_id = $1 AND (SELECT ok FROM chk)
+       RETURNING ${RULE_COLUMNS}`,
+      params,
+    );
+    if (written.ok === false) return written;
+    if (written.rows.length === 2) return { ok: true, value: written.rows.map(toRule).sort((x, y) => x.dayOfWeek - y.dayOfWeek || x.startTime.localeCompare(y.startTime)) };
+
+    // Nothing was deleted. A second READ-ONLY statement says why.
+    const why = await this.read(
+      `SELECT w.id, r.id IS NOT NULL AS found, COALESCE(r.updated_at = w.tok, false) AS fresh
+         FROM (VALUES ($2::text, $3::timestamptz), ($4::text, $5::timestamptz)) AS w(id, tok)
+         LEFT JOIN scheduling_availability_rules r ON r.id = w.id AND r.organisation_id = $1`,
+      params,
+    );
+    if (why.length !== 2 || why.some(row => !row.found)) return { ok: false, reason: 'not_found' };
+    if (why.some(row => !row.fresh)) return { ok: false, reason: 'stale_write' };
+    return { ok: false, reason: 'not_overnight_window' };
   }
 
   // ── exceptions ───────────────────────────────────────────────────────────

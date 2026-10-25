@@ -200,6 +200,38 @@ export type OvernightRuleShape = Pick<AvailabilityRule, 'dayOfWeek' | 'startTime
  * 22:00-24:00 and Saturday 00:00-02:00. The second part's validity dates move forward one day with it. A rule whose end is after
  * its start is returned unchanged; an end of '00:00' means "until midnight" and yields the single rule start-24:00.
  */
+/** The fields isOvernightWindowPair reads: a stored rule, or a rule as the screens hold it. */
+export interface OvernightPairRule {
+  resourceId: string | null;
+  offeringId: string | null;
+  kind: string;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  validFrom: LocalDate | null;
+  validTo: LocalDate | null;
+}
+
+/**
+ * Are `evening` and `morning` the two halves of ONE overnight window (what splitOvernightRule produces)? Same owner and kind; the evening
+ * ends at 24:00 and does not run all day; the morning starts at 00:00 on the next weekday and does not run all day; the morning's
+ * validity is the evening's shifted by one day. The SQL of PostgresAvailabilityRepository.deleteOvernightWindow states the same rule, and
+ * the PostgreSQL suite checks the two agree case by case.
+ */
+export function isOvernightWindowPair(evening: OvernightPairRule, morning: OvernightPairRule): boolean {
+  const shift = (d: LocalDate | null) => (d === null ? null : addLocalDays(d, 1));
+  return (
+    evening.resourceId === morning.resourceId &&
+    evening.offeringId === morning.offeringId &&
+    evening.kind === morning.kind &&
+    evening.endTime === END_OF_DAY && evening.startTime !== '00:00' &&
+    morning.startTime === '00:00' && morning.endTime !== END_OF_DAY &&
+    morning.dayOfWeek === (evening.dayOfWeek + 1) % AVAILABILITY_WEEKDAYS &&
+    morning.validFrom === shift(evening.validFrom) &&
+    morning.validTo === shift(evening.validTo)
+  );
+}
+
 export function splitOvernightRule(rule: OvernightRuleShape): Array<Pick<AvailabilityRule, 'dayOfWeek' | 'startTime' | 'validFrom' | 'validTo'> & { endTime: WindowEnd }> {
   if (!isLocalTime(rule.startTime) || !isLocalTime(rule.endTime)) throw new Error('startTime and endTime must be HH:MM');
   if (!Number.isInteger(rule.dayOfWeek) || rule.dayOfWeek < 0 || rule.dayOfWeek > 6) throw new Error('dayOfWeek must be 0-6');

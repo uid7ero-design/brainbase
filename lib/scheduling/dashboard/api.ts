@@ -29,6 +29,7 @@ const MESSAGES: Record<string, string> = {
   KIND_NOT_ACCEPTED: 'This type of resource cannot be used with this type of schedule.',
   NOT_FOUND: 'This no longer exists, or you do not have access to it.',
   OVERLAP: 'This overlaps hours or a closure that is already saved. Change or remove the overlapping entry first. Nothing was saved.',
+  NOT_OVERNIGHT_WINDOW: 'These hours changed and are no longer one overnight window. Nothing was removed. Reload to see the current hours.',
   AVAILABILITY_NOT_READY: 'Availability has not been set up on this installation yet. Ask a BrainBase admin to finish the setup. Nothing was saved.',
   PARTIAL_CLOSURES_NOT_READY: 'Closing part of a day has not been set up on this installation yet. Closing whole days works. Nothing was saved.',
   TRY_AGAIN: 'The system is busy. Nothing was changed; please try again.',
@@ -49,7 +50,7 @@ export function problemFrom(status: number, body: unknown): ApiProblem {
     else if (status === 400) message = problems.length > 0 ? 'Please fix the following.' : server || 'The request is not valid.';
     else message = server || 'Something went wrong. Nothing was saved.';
   }
-  return { status, code, message, problems, stale: code === 'STALE_WRITE', denied: status === 401 || status === 403, notConfigured: code === 'SCHEDULING_NOT_CONFIGURED' };
+  return { status, code, message, problems, stale: code === 'STALE_WRITE' || code === 'NOT_OVERNIGHT_WINDOW', denied: status === 401 || status === 403, notConfigured: code === 'SCHEDULING_NOT_CONFIGURED' };
 }
 
 export const networkProblem = (): ApiProblem => ({

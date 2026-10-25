@@ -70,7 +70,8 @@ export type AvailabilityWriteFailure =
   | 'stale_write' // the row changed since expectedUpdatedAt; NOTHING was written
   | 'overlap' // the rule or exception overlaps another of the same owner
   | 'owner_archived' // the offering (or its schedule) is archived
-  | 'owner_inactive'; // the resource is inactive
+  | 'owner_inactive' // the resource is inactive
+  | 'not_overnight_window'; // deleteOvernightWindow: both rules exist and are current, but they are not the two halves of one overnight window
 
 export type AvailabilityWriteResult<T> = { ok: true; value: T } | { ok: false; reason: AvailabilityWriteFailure; detail?: string };
 
@@ -86,6 +87,14 @@ export interface SchedulingAvailabilityRepository {
   createRules(tenant: TenantContext, owner: AvailabilityOwner, inputs: readonly NewStoredRuleInput[]): Promise<AvailabilityWriteResult<StoredAvailabilityRule[]>>;
   updateRule(tenant: TenantContext, ruleId: string, expectedUpdatedAt: string, changes: StoredRulePatch): Promise<AvailabilityWriteResult<StoredAvailabilityRule>>;
   deleteRule(tenant: TenantContext, ruleId: string, expectedUpdatedAt: string): Promise<AvailabilityWriteResult<{ id: string }>>;
+  /**
+   * Removes BOTH halves of an overnight window in ONE statement: both are deleted or neither is. Each half names its own version token;
+   * if either rule is missing (or another organisation's) nothing is deleted (not_found), if either has moved on nothing is deleted
+   * (stale_write), and if the two are not the halves of one window of one owner (isOvernightWindowPair) nothing is deleted
+   * (not_overnight_window). The deleted rows are returned as they were at the moment of deletion. Deleting is allowed on an archived
+   * offering and an inactive resource, as for deleteRule.
+   */
+  deleteOvernightWindow(tenant: TenantContext, halves: readonly [OvernightHalfRef, OvernightHalfRef]): Promise<AvailabilityWriteResult<StoredAvailabilityRule[]>>;
 
   listExceptions(tenant: TenantContext, owner: AvailabilityOwner): Promise<StoredAvailabilityException[]>;
   getException(tenant: TenantContext, exceptionId: string): Promise<StoredAvailabilityException | null>;
@@ -95,6 +104,12 @@ export interface SchedulingAvailabilityRepository {
 
   /** Which optional parts of the availability schema are installed (read-only). Partial-day closures need migration 035. */
   capabilities(tenant: TenantContext): Promise<AvailabilityCapabilities>;
+}
+
+/** One half of an overnight window, with the version token the caller last saw. */
+export interface OvernightHalfRef {
+  id: string;
+  expectedUpdatedAt: string;
 }
 
 export interface AvailabilityCapabilities {

@@ -50,6 +50,7 @@ const resourceRules = (await import('@/app/api/scheduling/resources/[resourceId]
 const resourceExceptions = (await import('@/app/api/scheduling/resources/[resourceId]/availability-exceptions/route')) as Route;
 const ruleRoute = (await import('@/app/api/scheduling/availability-rules/[ruleId]/route')) as Route;
 const exceptionRoute = (await import('@/app/api/scheduling/availability-exceptions/[exceptionId]/route')) as Route;
+const removeOvernightRoute = (await import('@/app/api/scheduling/availability-rules/remove-overnight/route')) as Route;
 
 let pool: Pool;
 const q = async <T = Record<string, unknown>>(text: string, params: unknown[] = []) => (await pool.query(text, params)).rows as T[];
@@ -421,6 +422,173 @@ suite('Scheduling 2B.3c availability API on real Postgres', () => {
       const removed = await call({ route: ruleRoute, method: 'DELETE', params: { ruleId: first.id }, body: { expectedUpdatedAt: edited.json.rule.updatedAt } });
       expect(removed.status).toBe(200);
       expect(await countRules(OWNERS.resource.id)).toBe(1); // the Saturday half remains: removal is per rule
+    });
+  });
+
+  // ─── Atomic removal of an overnight window (needs 034 only) ───────────────────────────────────────────────
+
+  describe('removing an overnight window: POST availability-rules/remove-overnight', () => {
+    type Half = { id: string; updatedAt: string; dayOfWeek: number; startTime: string; endTime: string };
+    const makeWindow = async (o: Owner = 'resource', body: Record<string, unknown> = { dayOfWeek: 5, startTime: '22:00', endTime: '02:00', overnight: true }) => {
+      const r = await addRule(o, body);
+      expect(r.status, JSON.stringify(r.json)).toBe(201);
+      return r.json.rules as Half[];
+    };
+    const tokens = (halves: Half[]) => halves.map(h => ({ id: h.id, expectedUpdatedAt: h.updatedAt }));
+    const removeWindow = (halves: unknown) => call({ route: removeOvernightRoute, method: 'POST', body: { rules: halves } });
+    const deletedAudit = async () => (await availabilityAudit('org-a')).filter(a => a.action === 'scheduling.availability_rule.deleted');
+    const TOKEN = '2027-01-01T00:00:00.000000Z';
+
+    it.each<Owner>(['resource', 'offering'])('removes both halves in one request and audits exactly the two rules that were deleted (%s)', async o => {
+      const bystander = await addRule(o, { dayOfWeek: 2, startTime: '09:00', endTime: '12:00' });
+      expect(bystander.status).toBe(201);
+      const halves = await makeWindow(o);
+      const r = await removeWindow(tokens(halves));
+      expect(r.status, JSON.stringify(r.json)).toBe(200);
+      expect(r.json).toEqual({ deleted: true, ids: expect.arrayContaining(halves.map(h => h.id)) });
+      expect(await countRules(OWNERS[o].id)).toBe(1); // the unrelated Tuesday rule survives
+      const audit = await deletedAudit();
+      expect(audit).toHaveLength(2);
+      expect(audit.map(a => a.resource_id).sort()).toEqual(halves.map(h => h.id).sort());
+      for (const a of audit) expect(a.after_state.summary).toMatchObject({ batch_size: 2, window: 'overnight', owner_kind: o, owner_id: OWNERS[o].id, rule_kind: 'hours' });
+      expect(audit.map(a => [a.after_state.summary.day_of_week, a.after_state.summary.start_time, a.after_state.summary.end_time]).sort()).toEqual([[5, '22:00', '24:00'], [6, '00:00', '02:00']]);
+    });
+
+    it('a stale half removes nothing, audits nothing, and says STALE_WRITE', async () => {
+      const halves = await makeWindow();
+      const moved = await call({ route: ruleRoute, method: 'PATCH', params: { ruleId: halves[1].id }, body: { expectedUpdatedAt: halves[1].updatedAt, label: 'changed' } });
+      expect(moved.status).toBe(200);
+      const before = await snapshot('org-a', AVAILABILITY_TABLES);
+      const auditBefore = (await deletedAudit()).length;
+      const r = await removeWindow(tokens(halves));
+      expect([r.status, r.json.code]).toEqual([409, 'STALE_WRITE']);
+      expect(await snapshot('org-a', AVAILABILITY_TABLES)).toEqual(before);
+      expect((await deletedAudit()).length).toBe(auditBefore);
+    });
+
+    it('a half that is gone is 404 and the other half is left alone; two unrelated rules are 409 NOT_OVERNIGHT_WINDOW', async () => {
+      const halves = await makeWindow();
+      const gone = await call({ route: ruleRoute, method: 'DELETE', params: { ruleId: halves[0].id }, body: { expectedUpdatedAt: halves[0].updatedAt } });
+      expect(gone.status).toBe(200);
+      expect((await removeWindow(tokens(halves))).status).toBe(404);
+      expect(await countRules(OWNERS.resource.id)).toBe(1);
+
+      await q('DELETE FROM scheduling_availability_rules');
+      const mon = (await addRule('resource', { dayOfWeek: 1, startTime: '09:00', endTime: '17:00' })).json.rule as Half;
+      const tue = (await addRule('resource', { dayOfWeek: 2, startTime: '09:00', endTime: '17:00' })).json.rule as Half;
+      const before = await snapshot('org-a', AVAILABILITY_TABLES);
+      const r = await removeWindow(tokens([mon, tue]));
+      expect([r.status, r.json.code]).toEqual([409, 'NOT_OVERNIGHT_WINDOW']);
+      expect(await snapshot('org-a', AVAILABILITY_TABLES)).toEqual(before);
+    });
+
+    it('two windows of two owners cannot be removed by naming one half of each', async () => {
+      const a = await makeWindow('resource');
+      const b = await makeWindow('offering');
+      const before = await snapshot('org-a', AVAILABILITY_TABLES);
+      const r = await removeWindow(tokens([a[0], b[1]]));
+      expect([r.status, r.json.code]).toEqual([409, 'NOT_OVERNIGHT_WINDOW']);
+      expect(await snapshot('org-a', AVAILABILITY_TABLES)).toEqual(before);
+    });
+
+    it("another organisation's manager gets 404 and changes nothing; a viewer gets 403 and changes nothing", async () => {
+      const halves = await makeWindow();
+      const before = await snapshot('org-a', AVAILABILITY_TABLES);
+      const auditBefore = await snapshot('org-a', ['audit_logs']);
+      as('manager', 'org-b');
+      expect((await removeWindow(tokens(halves))).status).toBe(404);
+      as('viewer', 'org-a');
+      expect((await removeWindow(tokens(halves))).status).toBe(403);
+      as('manager', 'org-a');
+      expect(await snapshot('org-a', AVAILABILITY_TABLES)).toEqual(before);
+      expect(await snapshot('org-a', ['audit_logs'])).toEqual(auditBefore);
+      expect(await countRules(OWNERS.resource.id)).toBe(2);
+    });
+
+    it('signed out is 401', async () => {
+      const halves = await makeWindow();
+      state.session = null;
+      expect((await removeWindow(tokens(halves))).status).toBe(401);
+      as('manager', 'org-a');
+      expect(await countRules(OWNERS.resource.id)).toBe(2);
+    });
+
+    it.each([
+      [{}, 'rules missing'],
+      [{ rules: [] }, 'empty'],
+      [{ rules: 'a,b' }, 'not a list'],
+      [{ rules: [{ id: 'x', expectedUpdatedAt: TOKEN }] }, 'one rule'],
+      [{ rules: [1, 2] }, 'not objects'],
+      [{ rules: [{ id: 'x' }, { id: 'y' }] }, 'no tokens'],
+      [{ rules: [{ id: 'x', expectedUpdatedAt: 'yesterday' }, { id: 'y', expectedUpdatedAt: TOKEN }] }, 'a bad token'],
+      [{ rules: [{ id: 'x', expectedUpdatedAt: TOKEN }, { id: 'x', expectedUpdatedAt: TOKEN }] }, 'the same rule twice'],
+      [{ rules: [{ id: 'x', expectedUpdatedAt: TOKEN, extra: 1 }, { id: 'y', expectedUpdatedAt: TOKEN }] }, 'an unknown field'],
+      [{ rules: [{ id: 'x', expectedUpdatedAt: TOKEN }, { id: 'y', expectedUpdatedAt: TOKEN }], colour: 'red' }, 'an unknown top-level field'],
+      [{ rules: [{ id: 'x', expectedUpdatedAt: TOKEN }, { id: '', expectedUpdatedAt: TOKEN }] }, 'an empty id'],
+    ])('invalid request %# (%s) is a 400 that changes nothing', async body => {
+      await makeWindow();
+      const before = await snapshot('org-a', AVAILABILITY_TABLES);
+      const r = await call({ route: removeOvernightRoute, method: 'POST', body });
+      expect(r.status, JSON.stringify(r.json)).toBe(400);
+      expect(r.json.code).toBe('INVALID_INPUT');
+      expect(await snapshot('org-a', AVAILABILITY_TABLES)).toEqual(before);
+    });
+
+    it('is allowed on an archived offering and an inactive resource', async () => {
+      const onOffering = await makeWindow('offering');
+      const onResource = await makeWindow('resource');
+      expect((await call({ route: offeringArchive, method: 'POST', params: { offeringId: OWNERS.offering.id } })).status).toBe(200);
+      const stamp = (await q<{ u: string }>("SELECT to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS u FROM scheduling_resources WHERE id = $1", [OWNERS.resource.id]))[0].u;
+      expect((await call({ route: resourceDeactivate, method: 'POST', params: { resourceId: OWNERS.resource.id }, body: { expectedUpdatedAt: stamp } })).status).toBe(200);
+      expect((await removeWindow(tokens(onOffering))).status).toBe(200);
+      expect((await removeWindow(tokens(onResource))).status).toBe(200);
+      expect((await countRules(OWNERS.offering.id)) + (await countRules(OWNERS.resource.id))).toBe(0);
+    });
+
+    it('8 simultaneous requests: exactly one removes the window (200), the rest find it gone (404), and it is audited once', async () => {
+      const halves = await makeWindow();
+      const results = await Promise.all(Array.from({ length: 8 }, () => removeWindow(tokens(halves))));
+      expect(results.filter(r => r.status === 200)).toHaveLength(1);
+      expect(results.filter(r => r.status !== 200).every(r => r.status === 404)).toBe(true);
+      expect(await countRules(OWNERS.resource.id)).toBe(0);
+      expect(await deletedAudit()).toHaveLength(2);
+    });
+
+    it('a removal racing an edit of one half: never half a window, and the audit matches what committed', async () => {
+      for (let round = 0; round < 8; round++) {
+        await q('DELETE FROM scheduling_availability_rules');
+        await q("DELETE FROM audit_logs WHERE action LIKE 'scheduling.availability_%'");
+        const halves = await makeWindow();
+        const target = halves[round % 2];
+        const [del, upd] = await Promise.all([
+          removeWindow(tokens(halves)),
+          call({ route: ruleRoute, method: 'PATCH', params: { ruleId: target.id }, body: { expectedUpdatedAt: target.updatedAt, label: `round ${round}` } }),
+        ]);
+        const left = await countRules(OWNERS.resource.id);
+        const deletedEntries = (await deletedAudit()).length;
+        if (del.status === 200) {
+          expect([left, deletedEntries, upd.status === 404 || upd.status === 409]).toEqual([0, 2, true]);
+        } else {
+          expect([del.status, del.json.code, upd.status, left, deletedEntries]).toEqual([409, 'STALE_WRITE', 200, 2, 0]);
+        }
+      }
+    });
+
+    it('fails closed before migration 034: 503 AVAILABILITY_NOT_READY, nothing deleted, nothing audited; 034 restores it', async () => {
+      const halves = await makeWindow();
+      await pool.query(sqlFile('096_availability_partial_closures_rollback.sql'));
+      await pool.query(sqlFile('095_availability_integrity_rollback.sql'));
+      try {
+        const auditBefore = (await deletedAudit()).length;
+        const r = await removeWindow(tokens(halves));
+        expect([r.status, r.json.code]).toEqual([503, 'AVAILABILITY_NOT_READY']);
+        expect(await countRules(OWNERS.resource.id)).toBe(2);
+        expect((await deletedAudit()).length).toBe(auditBefore);
+      } finally {
+        await pool.query(sqlFile('034_availability_integrity.sql'));
+      }
+      const fresh = (await listFor('resource')).json.rules as Half[];
+      expect((await removeWindow(tokens(fresh))).status).toBe(200);
     });
   });
 });
