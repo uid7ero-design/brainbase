@@ -55,8 +55,12 @@ PR states read from GitHub on 2026-10-24.
 | 26 | vercel-dev · br-delicate-wind-a7ja54b8 (archived) | dev | 2026-09-04 | Platform (Vercel Development env) | yes | **investigate** — check whether the Vercel Development environment's DATABASE_URL still points here before deleting | after investigation | no | **D** |
 
 | 30 | rehearse/scheduling-032-after-031-20261024 · br-muddy-mode-a724td4r | proof | 2026-10-24 | Scheduling | yes | yes — active 030/031/032 rehearsal, kept pending owner review | max 2026-10-31 (owner decision pending) | no | **B** |
+| 31 | snap-sweet-smoke-a71semfx · pre-eve-free-legal-notice-20261026 | snapshot | 2026-10-25 14:44Z | Eve | yes | yes — rollback point before the free-order legal-notice migration (PR #502) | 2026-11-25 (Neon `expires_at` set, auto-expires) | n/a | **C** |
+| 32 | preview/feat/eve-free-order-legal-notice · br-still-sea-a7hliwa0 | Preview | 2026-10-25 | Eve | yes | yes — PR #502 Preview DB; the legal-notice migration was rehearsed here (applied, kept) | PR close, max 2026-11-08 | no | **C** |
 
 #30: parent `production`, no children, no Vercel DB setting.
+
+#31–#32 were added on 2026-10-26 (ACDT). No new branch was created for the rehearsal; it used #32, which the Vercel integration had already created for PR #502.
 
 #27–#29 were added on 2026-10-24 and were gone by the hold-phase re-list the same day. They are no longer active copies; see the cleanup log.
 
@@ -192,6 +196,8 @@ Where a Preview row has an env var, remove the branch-scoped var (or the git bra
 | snap-icy-firefly-a7m0b8os | 2026-11-18 |
 | snap-rapid-queen-a78cx09w | 2026-11-21 |
 | snap-red-dream-a7t242s1 · pre-eve-registration-questions-20261024 (rollback point before the registration-questions migration; created 2026-10-24 11:32Z) | 2026-11-23 (Neon `expires_at` set, auto-expires) |
+| snap-sweet-smoke-a71semfx · pre-eve-free-legal-notice-20261026 (rollback point before the free-order legal-notice migration; created 2026-10-25 14:44Z) | 2026-11-25 (Neon `expires_at` set, auto-expires) |
+| br-still-sea-a7hliwa0 (PR #502 Preview) | when PR #502 closes, max 2026-11-08 |
 
 Note (2026-10-24): br-polished-dust-a7iw42u3 now has the registration-questions migration applied. It was the Production rehearsal; no data changed.
 
