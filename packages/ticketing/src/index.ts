@@ -26,3 +26,4 @@ export * from './artworkConstants';
 export * from './sessionPolicy';
 export * from './paymentsView';
 export * from './legalVersions';
+export * from './eventSchedule';
