@@ -35,6 +35,9 @@ const PAGES = [
   // Phase 2B.3c (deliberate, reviewed change): the availability screens, one per offering and one per resource. Same rules as every page above.
   'app/scheduling/offerings/[offeringId]/availability/page.tsx',
   'app/scheduling/resources/[resourceId]/availability/page.tsx',
+  // Phase 2B.3d (deliberate, reviewed change): the read-only availability calendar, one per offering and one per resource. Same rules as every page above.
+  'app/scheduling/offerings/[offeringId]/calendar/page.tsx',
+  'app/scheduling/resources/[resourceId]/calendar/page.tsx',
 ];
 
 // What a client component (or the pure libraries it uses) may import. Everything else is a server module until proven otherwise.
@@ -44,7 +47,7 @@ const CLIENT_ALLOWED = [
   /^next\/navigation$/,
   /^@\/components\/ui\/app$/,
   /^@\/lib\/layout\/headerOffset$/,
-  /^@\/lib\/scheduling\/dashboard\/(api|forms|types|wording|availability)$/,
+  /^@\/lib\/scheduling\/dashboard\/(api|forms|types|wording|availability|calendar)$/,
   /^@\/lib\/scheduling\/configurable$/,
   /^@scheduling\/core$/,
   /^\.\.?\/[\w./-]*$/, // siblings inside the dashboard / the pure libraries

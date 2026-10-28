@@ -8,4 +8,5 @@ export * from './configuration';
 export * from './retry';
 export * from './availabilityRules';
 export * from './availability';
+export * from './availabilityCalendar';
 export * from './availabilityPersistence';

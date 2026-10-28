@@ -928,6 +928,22 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
     );
     return rows.map(r => ({ id: r.id, resourceId: r.resource_id, startsAt: r.starts_at, endsAt: r.ends_at, reservationId: r.reservation_id, occurrenceId: r.occurrence_id, releasedAt: r.released_at }));
   }
+
+  async listLiveHoldsForResources(tenant: TenantContext, resourceIds: readonly string[], fromInstant: string, toInstant: string): Promise<ResourceHold[]> {
+    if (!tenant.can('scheduling.view')) throw denied('scheduling.view');
+    if (resourceIds.length === 0) return [];
+    // Both bounds are bound as timestamptz and tested for overlap with the half-open hold range, so a hold that ends exactly at the start of the window, or
+    // starts exactly at its end, is not returned. Released holds are not occupied time.
+    const rows = await this.sql.query<Row>(
+      `SELECT id, resource_id, ${ISO('lower(during)')} AS starts_at, ${ISO('upper(during)')} AS ends_at, reservation_id, occurrence_id, ${ISO('released_at')} AS released_at
+         FROM scheduling_resource_holds
+        WHERE organisation_id = $1 AND resource_id = ANY($2::text[]) AND released_at IS NULL
+          AND during && tstzrange($3::timestamptz, $4::timestamptz, '[)')
+        ORDER BY lower(during), resource_id, id`,
+      [tenant.organisationId, [...resourceIds], fromInstant, toInstant],
+    );
+    return rows.map(r => ({ id: r.id, resourceId: r.resource_id, startsAt: r.starts_at, endsAt: r.ends_at, reservationId: r.reservation_id, occurrenceId: r.occurrence_id, releasedAt: r.released_at }));
+  }
 }
 
 // Condition appended to queries that join the schedule alias `s`: self-service sees published only.

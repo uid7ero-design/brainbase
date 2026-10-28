@@ -52,10 +52,13 @@ const EXPECTED_ROUTES: Record<string, Array<[string, Perm, string]>> = {
   'app/api/scheduling/availability-rules/[ruleId]/route.ts': [['PATCH', 'scheduling.manage', 'updateRule'], ['DELETE', 'scheduling.manage', 'deleteRule']],
   'app/api/scheduling/availability-rules/remove-overnight/route.ts': [['POST', 'scheduling.manage', 'removeOvernightWindow']],
   'app/api/scheduling/availability-exceptions/[exceptionId]/route.ts': [['PATCH', 'scheduling.manage', 'updateException'], ['DELETE', 'scheduling.manage', 'deleteException']],
+  // Phase 2B.3d (deliberate, reviewed change): the READ-ONLY availability calendar, one route per offering and one per resource. GET only.
+  'app/api/scheduling/offerings/[offeringId]/calendar/route.ts': [['GET', 'scheduling.view', 'offeringCalendar']],
+  'app/api/scheduling/resources/[resourceId]/calendar/route.ts': [['GET', 'scheduling.view', 'resourceCalendar']],
 };
 
 const routeFiles = () => walk(path.join(ROOT, 'app/api/scheduling'), /^route\.ts$/).map(rel).sort();
-const CONFIG_LIBS = ['http', 'schedules', 'offerings', 'resources', 'links', 'availability'].map(n => `lib/scheduling/config/${n}.ts`);
+const CONFIG_LIBS = ['http', 'schedules', 'offerings', 'resources', 'links', 'availability', 'calendar'].map(n => `lib/scheduling/config/${n}.ts`);
 
 describe('the route set is exactly the configuration API: no booking, public or payment route', () => {
   it('pins every route file', () => {
