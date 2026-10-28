@@ -84,7 +84,7 @@ describe('payment summary (ticket email) uses the event timezone', () => {
     for (const f of ['lib/events/ticketEmailDelivery.ts', 'app/api/events/[id]/orders/[orderId]/resend-ticket-email/route.ts']) {
       const src = read(f)
       expect(src, f).toContain('e.timezone AS event_timezone')
-      expect(src, f).toMatch(/GROUP BY eo\.id, e\.name, e\.timezone, o\.name, o\.settings/)
+      expect(src, f).toMatch(/GROUP BY eo\.id, e\.name, e\.timezone, e\.starts_at, e\.ends_at, e\.venue, o\.name, o\.settings/)
     }
   })
 })

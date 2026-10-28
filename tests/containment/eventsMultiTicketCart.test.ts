@@ -512,7 +512,7 @@ describe('Refund / cancel / ticket validity / wallet / email — order-level, mu
       const src = stripComments(read(file))
       expect(src).toMatch(/JOIN event_order_items oi ON oi\.order_id = eo\.id/)
       expect(src).toMatch(/LEFT JOIN event_attendees ea ON ea\.order_item_id = oi\.id/)
-      expect(src).toMatch(/GROUP BY eo\.id, e\.name, e\.timezone, o\.name, o\.settings/)
+      expect(src).toMatch(/GROUP BY eo\.id, e\.name, e\.timezone, e\.starts_at, e\.ends_at, e\.venue, o\.name, o\.settings/)
     }
   })
 

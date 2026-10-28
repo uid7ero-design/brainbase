@@ -61,7 +61,7 @@ export async function POST(_req: Request, { params }: Ctx) {
       eo.id, eo.status, eo.payment_status, eo.purchaser_name, eo.purchaser_email, eo.booking_token, eo.product_surface,
       eo.currency, eo.total_cents, eo.discount_cents, eo.promotion_code_snapshot,
       eo.platform_fee_cents, eo.fee_mode, eo.fee_label, eo.payment_total_cents, eo.paid_at, eo.refunded_cents, eo.refunded_at,
-      e.name AS event_name, e.timezone AS event_timezone,
+      e.name AS event_name, e.timezone AS event_timezone, e.starts_at AS event_starts_at, e.ends_at AS event_ends_at, e.venue AS event_venue,
       o.name AS organisation_name, o.settings AS organisation_settings,
       COALESCE(
         json_agg(json_build_object('name', ea.attendee_name, 'ticket_token', ea.ticket_token)) FILTER (WHERE ea.id IS NOT NULL),
@@ -79,12 +79,13 @@ export async function POST(_req: Request, { params }: Ctx) {
     JOIN event_order_items oi ON oi.order_id = eo.id AND oi.organisation_id = eo.organisation_id
     LEFT JOIN event_attendees ea ON ea.order_item_id = oi.id AND ea.organisation_id = oi.organisation_id
     WHERE eo.id = ${orderId} AND eo.event_id = ${eventId} AND eo.organisation_id = ${session.organisationId}
-    GROUP BY eo.id, e.name, e.timezone, o.name, o.settings
+    GROUP BY eo.id, e.name, e.timezone, e.starts_at, e.ends_at, e.venue, o.name, o.settings
     LIMIT 1
   `;
   const order = orderRows[0] as ({
     id: string; status: string; payment_status: string; purchaser_name: string; purchaser_email: string | null; booking_token: string | null; product_surface: string | null;
-    event_name: string; organisation_name: string; organisation_settings: unknown;
+    event_name: string; event_timezone: string; event_starts_at: string | Date; event_ends_at: string | Date | null; event_venue: string | null;
+    organisation_name: string; organisation_settings: unknown;
     attendees: { name: string; ticket_token: string | null }[];
   } & ReceiptOrderRow) | undefined;
   if (!order) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
@@ -139,6 +140,7 @@ export async function POST(_req: Request, { params }: Ctx) {
 
   const sendResult = await sendTicketEmail(recipient, {
     eventName: order.event_name,
+    event: { startsAt: order.event_starts_at, endsAt: order.event_ends_at, timezone: order.event_timezone, venue: order.event_venue },
     purchaserName: order.purchaser_name,
     attendees: eligibleAttendees.map(a => ({ name: a.name, ticketToken: a.ticket_token })),
     bookingToken: order.booking_token,
