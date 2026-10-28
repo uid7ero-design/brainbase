@@ -1,6 +1,7 @@
 import sql from '@/lib/db';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
 import { EVENT_CONTACT_CLASSIFICATION } from './classification';
+import { contactIdentityLock } from './contactIdentityLock';
 
 // Events -> CRM contact/activity sync. Deliberately best-effort relative
 // to the Events booking/payment flow: every exported function here
@@ -29,13 +30,16 @@ import { EVENT_CONTACT_CLASSIFICATION } from './classification';
 // adding more schema than the approved crm_contact_id migration), this
 // uses a real Postgres session-scoped advisory transaction lock
 // (pg_advisory_xact_lock), keyed by (organisation_id, normalized
-// identity), held for the duration of ONE statement (a bare SQL
-// statement is its own implicit transaction — the lock is acquired and
-// released within that single round trip). Two concurrent syncs for the
-// SAME organisation+identity genuinely serialize against each other:
-// the second one blocks on the lock until the first's statement
-// finishes, then its own fresh read sees the first one's committed
-// insert and correctly reuses it instead of creating a duplicate. This
+// identity, held for the duration of ONE TRANSACTION whose first statement
+// takes the lock and whose second statement reads and inserts (see
+// lib/crm/contactIdentityLock.ts for why they must be separate statements:
+// under READ COMMITTED a statement keeps the snapshot it took when it
+// started, so a waiter that takes the lock and reads in the SAME statement
+// cannot see a row the winner committed while it waited, and inserts a
+// duplicate — measured: 6 waiters produced 6 duplicates). Two concurrent
+// syncs for the SAME organisation+identity genuinely serialize: the second
+// blocks on the lock until the first commits, then its read, which starts
+// after the lock is held, sees the first one's insert and reuses it. This
 // is the same lock-then-read-then-write shape already established in
 // this codebase's own R1 concurrency remediation (see the free
 // registration route's own extensive comment on
@@ -157,13 +161,15 @@ export async function syncEventOrderContact(input: SyncEventOrderContactInput): 
 
     let rows: { id: string }[];
     if (lockIdentity && lockMarker) {
-      rows = (await sql`
-        WITH lock_cte AS (
-          SELECT pg_advisory_xact_lock(hashtext(${organisationId}), hashtext(${lockMarker + ':' + lockIdentity})) AS locked
-        ),
-        existing AS (
+      // The lock is its OWN statement and the read/insert a LATER statement of the same transaction, so the
+      // read takes its snapshot after the lock is held (see lib/crm/contactIdentityLock.ts). The previous
+      // single-statement CTE kept the pre-wait snapshot and could insert a duplicate for every waiter.
+      const [, locked] = await sql.transaction([
+        contactIdentityLock(organisationId, lockMarker, lockIdentity),
+        sql`
+        WITH existing AS (
           SELECT c.id
-          FROM crm_contacts c, lock_cte
+          FROM crm_contacts c
           WHERE c.organisation_id = ${organisationId}
             AND (
               (${normEmail}::text IS NOT NULL AND lower(trim(c.email)) = ${normEmail})
@@ -178,14 +184,15 @@ export async function syncEventOrderContact(input: SyncEventOrderContactInput): 
         ins AS (
           INSERT INTO crm_contacts (organisation_id, first_name, last_name, email, phone, notes, classification)
           SELECT ${organisationId}, ${firstName}, ${lastName}, ${purchaserEmail ?? null}, ${purchaserPhone ?? null}, 'Events / Event Booking', ${EVENT_CONTACT_CLASSIFICATION}
-          FROM lock_cte
           WHERE NOT EXISTS (SELECT 1 FROM existing)
           RETURNING id
         )
         SELECT id FROM existing
         UNION ALL
         SELECT id FROM ins
-      `) as { id: string }[];
+      `,
+      ]);
+      rows = locked as { id: string }[];
     } else {
       // No usable email or phone: nothing to dedupe against. Always
       // create a fresh contact rather than silently dropping the

@@ -106,7 +106,12 @@ describe('130: the CRM link never invents a customer name and never matches by n
     expect(sql).toContain("pg_advisory_xact_lock(hashtext(p_organisation_id), hashtext('email:' || v_email))");
     const events = read('lib/crm/eventSync.ts');
     expect(events).toContain("const EMAIL_MARKER = 'email'");
-    expect(events).toContain('pg_advisory_xact_lock(hashtext(${organisationId}), hashtext(${lockMarker + \':\' + lockIdentity}))');
+    // The lock statement now lives in the shared helper (CRM duplicate prevention, #472), which the Events sync calls with the
+    // same marker and identity, so the key is unchanged: hashtext(organisation), hashtext('<marker>:<identity>').
+    const lock = read('lib/crm/contactIdentityLock.ts');
+    expect(lock).toContain('pg_advisory_xact_lock(hashtext(${organisationId}), hashtext(${contactIdentityLockKey(kind, normalisedIdentity)}))');
+    expect(lock).toContain('return `${kind}:${normalisedIdentity}`');
+    expect(events).toContain('contactIdentityLock(organisationId, lockMarker, lockIdentity)');
     expect(sql).toMatch(/'repeatable read', 'serializable'[\s\S]*?ERRCODE = 'SCISO'/);
     expect(sql).toMatch(/LANGUAGE plpgsql SET lock_timeout = '5s'/);
   });

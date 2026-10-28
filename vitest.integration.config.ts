@@ -236,6 +236,7 @@ export default defineConfig({
       'scripts/tests/essioIntegrationB2.integration.test.ts',
       'scripts/tests/essioIntegrationB3.integration.test.ts',
       'packages/scheduling-postgres/tests/*.integration.test.ts',
+      'scripts/tests/crmContactDuplicatePrevention.integration.test.ts',
       'scripts/tests/schedulingHost2b0.integration.test.ts',
       'scripts/tests/schedulingRuntime2b1.integration.test.ts',
       'scripts/tests/schedulingConfigApi2b2b.integration.test.ts',

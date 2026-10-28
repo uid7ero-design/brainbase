@@ -40,17 +40,23 @@ function stripSqlComments(src: string): string {
 let calls: { text: string; values: unknown[] }[] = []
 let responseQueue: (unknown[] | 'THROW')[] = []
 let callCount = 0
+// The identity lock is now a separate statement ahead of the read/insert inside sql.transaction([...]); it is not a
+// crm_contacts write, so it is recorded apart and the assertions below keep describing the read/insert statement.
+let lockCalls: { text: string; values: unknown[] }[] = []
 const sqlMock = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+  const lockText = strings.join('?')
+  if (lockText.trim().startsWith('SELECT pg_advisory_xact_lock')) { lockCalls.push({ text: lockText, values }); return Promise.resolve([]) }
   calls.push({ text: strings.join('?'), values })
   const next = responseQueue[callCount++]
   if (next === 'THROW') throw new Error('simulated DB failure')
   return Promise.resolve(next ?? [])
 })
-vi.mock('@/lib/db', () => ({
-  default: (...args: unknown[]) => (sqlMock as unknown as (...a: unknown[]) => unknown)(...(args as [TemplateStringsArray, ...unknown[]])),
-}))
+vi.mock('@/lib/db', () => {
+  const fn = (...args: unknown[]) => (sqlMock as unknown as (...a: unknown[]) => unknown)(...(args as [TemplateStringsArray, ...unknown[]]))
+  return { default: Object.assign(fn, { transaction: (queries: unknown[]) => Promise.all(queries) }) }
+})
 
-function queue(...responses: (unknown[] | 'THROW')[]) { responseQueue = responses; callCount = 0; calls = [] }
+function queue(...responses: (unknown[] | 'THROW')[]) { responseQueue = responses; callCount = 0; calls = []; lockCalls = [] }
 
 const checkCapabilityMock = vi.fn()
 const requireCapabilityMock = vi.fn()

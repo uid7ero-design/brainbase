@@ -23,15 +23,22 @@ function read(relPath: string): string {
 let responseQueue: (unknown[] | 'THROW')[] = []
 let callCount = 0
 let calls: { text: string }[] = []
+// The identity lock is now its OWN statement ahead of the read/insert, inside sql.transaction([...]). It is recorded
+// separately so the existing per-statement assertions keep describing the read/insert statement, and the order and
+// separation of the two are asserted explicitly below.
+let lockCalls: { text: string }[] = []
 const sqlMock = vi.fn((strings: TemplateStringsArray, ..._values: unknown[]) => {
+  const lockText = strings.join('?')
+  if (lockText.trim().startsWith('SELECT pg_advisory_xact_lock')) { lockCalls.push({ text: lockText }); return Promise.resolve([]) }
   calls.push({ text: strings.join('?') })
   const next = responseQueue[callCount++]
   if (next === 'THROW') throw new Error('simulated DB failure')
   return Promise.resolve(next ?? [])
 })
-vi.mock('@/lib/db', () => ({
-  default: (...args: unknown[]) => (sqlMock as unknown as (...a: unknown[]) => unknown)(...(args as [TemplateStringsArray, ...unknown[]])),
-}))
+vi.mock('@/lib/db', () => {
+  const fn = (...args: unknown[]) => (sqlMock as unknown as (...a: unknown[]) => unknown)(...(args as [TemplateStringsArray, ...unknown[]]))
+  return { default: Object.assign(fn, { transaction: (queries: unknown[]) => Promise.all(queries) }) }
+})
 
 const checkCapabilityMock = vi.fn()
 vi.mock('@/lib/capabilities/requireCapability', async (importOriginal) => {
@@ -43,6 +50,7 @@ function queue(...responses: (unknown[] | 'THROW')[]) {
   responseQueue = responses
   callCount = 0
   calls = []
+  lockCalls = []
 }
 
 const { normalizeEmail, normalizePhone, splitPurchaserName, syncEventOrderContact, recordEventBookingActivity } =
@@ -127,8 +135,13 @@ describe('syncEventOrderContact — best-effort behavior', () => {
     checkCapabilityMock.mockResolvedValue({ allowed: true, entitlement: { key: 'crm', config: {} } })
     queue([{ id: 'contact-123' }], [])
     await syncEventOrderContact({ organisationId: 'org-a', orderId: 'order-1', purchaserName: 'Alex Demo', purchaserEmail: 'alex@example.invalid', purchaserPhone: null })
-    expect(sqlMock).toHaveBeenCalledTimes(2)
-    expect(calls[0].text).toContain('pg_advisory_xact_lock')
+    expect(calls).toHaveLength(2)
+    expect(lockCalls).toHaveLength(1)
+    // The lock is a separate statement from the read/insert: the read/insert must NOT also contain the lock, or it
+    // would keep its pre-wait snapshot (the duplicate-creating shape this change removes).
+    expect(lockCalls[0].text).toContain('pg_advisory_xact_lock')
+    expect(lockCalls[0].text).not.toContain('crm_contacts')
+    expect(calls[0].text).not.toContain('pg_advisory_xact_lock')
     expect(calls[0].text).toContain('crm_contacts')
     expect(calls[1].text).toContain('UPDATE event_orders')
     expect(calls[1].text).toContain('crm_contact_id')
@@ -138,6 +151,7 @@ describe('syncEventOrderContact — best-effort behavior', () => {
     checkCapabilityMock.mockResolvedValue({ allowed: true, entitlement: { key: 'crm', config: {} } })
     queue([{ id: 'contact-456' }], [])
     await syncEventOrderContact({ organisationId: 'org-a', orderId: 'order-1', purchaserName: 'No Contact Method', purchaserEmail: null, purchaserPhone: null })
+    expect(lockCalls).toHaveLength(0)
     expect(calls[0].text).not.toContain('pg_advisory_xact_lock')
     expect(calls[0].text).toContain('INSERT INTO crm_contacts')
   })
