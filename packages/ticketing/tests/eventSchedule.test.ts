@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatEventSchedule } from '../src/eventSchedule'
+import { formatEventSchedule, formatEventScheduleLine } from '../src/eventSchedule'
 
 // Every case names an explicit zone, so the result is the same on a UTC CI
 // runner and an Adelaide laptop.
@@ -76,5 +76,15 @@ describe('formatEventSchedule', () => {
   it('plain spaces only (no narrow/no-break spaces from ICU)', () => {
     const s = formatEventSchedule('2027-03-20T11:30:00Z', '2027-03-20T15:30:00Z', ADL)
     expect(JSON.stringify(s)).not.toMatch(/[  ]/)
+  })
+})
+
+describe('formatEventScheduleLine', () => {
+  it('one line: same day, overnight, start only, no start', () => {
+    expect(formatEventScheduleLine('2027-03-20T01:30:00Z', '2027-03-20T12:30:00Z', ADL)).toBe('Saturday, 20 March 2027, 12:00 pm – 11:00 pm ACDT')
+    expect(formatEventScheduleLine('2027-03-20T11:30:00Z', '2027-03-20T15:30:00Z', ADL)).toBe('Saturday, 20 March 2027, 10:00 pm ACDT – Sunday, 21 March 2027, 2:00 am ACDT')
+    expect(formatEventScheduleLine('2027-03-20T01:30:00Z', '', ADL)).toBe('Saturday, 20 March 2027, 12:00 pm ACDT')
+    expect(formatEventScheduleLine('2027-07-10T09:30:00Z', null, ADL)).toBe('Saturday, 10 July 2027, 7:00 pm ACST')
+    expect(formatEventScheduleLine(null, null, ADL)).toBeNull()
   })
 })

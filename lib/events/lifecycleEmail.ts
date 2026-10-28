@@ -5,6 +5,7 @@ import { buildTicketUrl } from '@/lib/events/qr';
 import { formatReceiptMoney } from '@/lib/events/receipt';
 import type { LifecycleEmailBranding } from '@/lib/organisations/branding';
 import type { NotificationType, EventUpdatedPayload, EventUpdatedSnapshot } from './notifications';
+import { formatEventScheduleLine } from '@ticketing/core/eventSchedule';
 
 // Phase 5B — lifecycle (transactional) email templates: order cancelled,
 // order refunded, event cancelled, event reminder. Pure template
@@ -246,12 +247,33 @@ function money(cents: number, currency: string): string {
   return formatReceiptMoney(cents, currency);
 }
 
+// Eve emails show "When" with the shared ticket-email formatter
+// (@ticketing/core/eventSchedule): the event's own zone with its DST
+// abbreviation, a same-day range on one date, both dates for an overnight
+// event, start only when there is no usable end, and a blank venue omitted.
+// BrainBase (and organisation-branded BrainBase) output is unchanged.
+function isEve(data: LifecycleEmailData): boolean {
+  return data.product?.surface === 'EVE';
+}
+
+function whenValue(data: LifecycleEmailData, startsAt: string, endsAt: string): string {
+  const legacy = `${formatDateTime(startsAt, data.eventTimezone)} – ${formatDateTime(endsAt, data.eventTimezone)}`;
+  if (!isEve(data)) return legacy;
+  return formatEventScheduleLine(startsAt, endsAt, data.eventTimezone) ?? legacy;
+}
+
+function venueValue(data: LifecycleEmailData, venue: string | null): string | null {
+  if (!isEve(data)) return venue || null;
+  return venue?.trim() || null;
+}
+
 function eventFacts(data: LifecycleEmailData): Facts {
   const facts: Facts = [
     { label: 'Event', value: data.eventName },
-    { label: 'When', value: `${formatDateTime(data.eventStartsAt, data.eventTimezone)} – ${formatDateTime(data.eventEndsAt, data.eventTimezone)}` },
+    { label: 'When', value: whenValue(data, data.eventStartsAt, data.eventEndsAt) },
   ];
-  if (data.venue) facts.push({ label: 'Where', value: data.venue });
+  const venue = venueValue(data, data.venue);
+  if (venue) facts.push({ label: 'Where', value: venue });
   return facts;
 }
 
@@ -362,8 +384,10 @@ function buildEventReminder(data: LifecycleEmailData): LifecycleEmail {
   if (data.description) paragraphs.push(truncate(data.description, MAX_DESCRIPTION_CHARS));
   // Ticket and booking links are bearer links (Eve only; BrainBase output unchanged).
   if (data.product?.surface === 'EVE' && links.length) paragraphs.push('Anyone with these links can access your tickets. Keep them private.');
+  const startsText = (isEve(data) ? formatEventScheduleLine(data.eventStartsAt, null, data.eventTimezone) : null)
+    ?? formatDateTime(data.eventStartsAt, data.eventTimezone);
   return render(data, {
-    subject: `Reminder: ${data.eventName} — ${formatDateTime(data.eventStartsAt, data.eventTimezone)}`,
+    subject: `Reminder: ${data.eventName} — ${startsText}`,
     heading: 'Your event is coming up',
     paragraphs,
     facts,
@@ -373,8 +397,8 @@ function buildEventReminder(data: LifecycleEmailData): LifecycleEmail {
   });
 }
 
-function whenText(snap: EventUpdatedSnapshot, tz: string): string {
-  return `${formatDateTime(snap.starts_at, tz)} – ${formatDateTime(snap.ends_at, tz)}`;
+function whenText(data: LifecycleEmailData, snap: EventUpdatedSnapshot): string {
+  return whenValue(data, snap.starts_at, snap.ends_at);
 }
 
 // Material event change (date, time or venue). Shows exactly what changed from
@@ -384,22 +408,22 @@ function whenText(snap: EventUpdatedSnapshot, tz: string): string {
 // organiser's terms and points to the organiser.
 function buildEventUpdated(data: LifecycleEmailData): LifecycleEmail {
   const change = data.change ?? null;
-  const tz = data.eventTimezone;
   const facts: Facts = [{ label: 'Event', value: data.eventName }];
   if (change) {
     const timeChanged = change.before.starts_at !== change.after.starts_at || change.before.ends_at !== change.after.ends_at;
     const venueChanged = (change.before.venue ?? '').trim() !== (change.after.venue ?? '').trim();
     if (timeChanged) {
-      facts.push({ label: 'Previously', value: whenText(change.before, tz) });
-      facts.push({ label: 'Now', value: whenText(change.after, tz) });
+      facts.push({ label: 'Previously', value: whenText(data, change.before) });
+      facts.push({ label: 'Now', value: whenText(data, change.after) });
     } else {
-      facts.push({ label: 'When', value: whenText(change.after, tz) });
+      facts.push({ label: 'When', value: whenText(data, change.after) });
     }
     if (venueChanged) {
       facts.push({ label: 'Previous venue', value: change.before.venue?.trim() || 'Not specified' });
       facts.push({ label: 'New venue', value: change.after.venue?.trim() || 'Not specified' });
-    } else if (change.after.venue) {
-      facts.push({ label: 'Where', value: change.after.venue });
+    } else {
+      const venue = venueValue(data, change.after.venue);
+      if (venue) facts.push({ label: 'Where', value: venue });
     }
   } else {
     facts.push(...eventFacts(data).slice(1));
