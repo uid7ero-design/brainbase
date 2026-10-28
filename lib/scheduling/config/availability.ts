@@ -64,7 +64,7 @@ const has = (o: Record<string, unknown>, k: string) => Object.prototype.hasOwnPr
 type OwnerKind = 'offering' | 'resource';
 const ownerParam = (kind: OwnerKind) => (kind === 'offering' ? 'offeringId' : 'resourceId');
 
-async function guardedAvailability<T>(run: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; response: Response }> {
+export async function guardedAvailability<T>(run: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; response: Response }> {
   try {
     return await guarded(run);
   } catch (err) {
@@ -127,7 +127,7 @@ async function defaultZone(context: SchedulingRouteContext, owner: AvailabilityO
 }
 
 /** What the screens are told about an owner's zone: the pin if there is one, else what the first write WOULD pin (nothing is pinned by a read). */
-async function zoneView(context: SchedulingRouteContext, owner: AvailabilityOwner) {
+export async function zoneView(context: SchedulingRouteContext, owner: AvailabilityOwner) {
   const pinned = await context.availability.getZone(context.tenant, owner);
   if (pinned) return { timezone: pinned.timezone, pinned: true, source: pinned.source, pinnedAt: pinned.pinnedAt };
   return { timezone: await defaultZone(context, owner), pinned: false, source: null, pinnedAt: null };

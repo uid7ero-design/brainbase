@@ -96,6 +96,7 @@ export default function ResourcesManager({ canManage }: { canManage: boolean }) 
                   actions={r => (
                     <span className={styles.actionButtons}>
                       <Link href={`/scheduling/resources/${seg(r.id)}/availability`} {...buttonProps('secondary', 'sm')} aria-label={`Hours for ${r.name}`}>Hours</Link>
+                      <Link href={`/scheduling/resources/${seg(r.id)}/calendar`} {...buttonProps('secondary', 'sm')} aria-label={`Calendar for ${r.name}`}>Calendar</Link>
                       {canManage && (
                         <>
                           <Button size="sm" onClick={() => setMode({ kind: 'edit', resource: r })} aria-label={`Edit ${r.name}`}>Edit</Button>

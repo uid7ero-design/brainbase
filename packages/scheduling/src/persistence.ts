@@ -275,6 +275,12 @@ export interface SchedulingConfigRepository {
   listSeriesPauses(tenant: TenantContext, seriesId: string): Promise<SeriesPause[]>;
 
   listHoldsForReservation(tenant: TenantContext, reservationId: string): Promise<ResourceHold[]>;
+  /**
+   * Phase 2B.3d, READ-ONLY (needs scheduling.view): the LIVE (not released) holds of the given resources of this tenant that overlap the half-open
+   * instant range [fromInstant, toInstant), ordered by start. Another organisation's resource ids match nothing. It never writes, and it is what
+   * the availability calendar draws as occupied time; the exclusion constraint on the holds table stays the only authority on booking.
+   */
+  listLiveHoldsForResources(tenant: TenantContext, resourceIds: readonly string[], fromInstant: string, toInstant: string): Promise<ResourceHold[]>;
 }
 
 /**
