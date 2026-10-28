@@ -11,7 +11,7 @@
 //
 // The zone abbreviation comes from Intl for each instant, so daylight saving
 // is handled by the platform's tz database: an event that crosses a DST
-// change shows each end's own abbreviation ('1:00 am ACDT – 3:00 am ACST').
+// change shows each end's own abbreviation ('12:30 am ACDT – 3:00 am ACST').
 // An end that is missing, unparseable or not after the start is treated as
 // "no end". An unusable timezone falls back to an explicitly labelled UTC
 // rather than an unlabelled guess.
@@ -88,4 +88,14 @@ export function formatEventSchedule(startsAt: Instant, endsAt: Instant, timeZone
     ? `${startTime} – ${endTime} ${endZone}`
     : `${startTime} ${startZone} – ${endTime} ${endZone}`;
   return { kind: 'single', date: startDate, time };
+}
+
+// The same schedule as one line, for a label/value row or a subject:
+//   'Saturday, 20 March 2027, 12:00 pm – 11:00 pm ACDT'
+//   'Saturday, 20 March 2027, 10:00 pm ACDT – Sunday, 21 March 2027, 2:00 am ACDT'
+//   'Saturday, 20 March 2027, 12:00 pm ACDT'   (no usable end)
+export function formatEventScheduleLine(startsAt: Instant, endsAt: Instant, timeZone: string | null | undefined): string | null {
+  const s = formatEventSchedule(startsAt, endsAt, timeZone);
+  if (!s) return null;
+  return s.kind === 'single' ? `${s.date}, ${s.time}` : `${s.start} – ${s.end}`;
 }
