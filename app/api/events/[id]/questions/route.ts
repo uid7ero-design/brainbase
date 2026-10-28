@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { validateQuestionInput } from '@/lib/events/registrationQuestions';
-import { logEventEveQuestionsToggled } from '@/lib/events/auditLog';
+import { logEventEveQuestionsToggled, logRegistrationQuestionCreated, type RegistrationQuestionAuditRow } from '@/lib/events/auditLog';
 import { roleGte } from '@/lib/session';
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -79,7 +79,9 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     )
     RETURNING id, label, help_text, field_type, required, scope, options, sort_order, active, data_category, template_key
   `;
-  return NextResponse.json({ question: rows[0] }, { status: 201 });
+  const created = rows[0] as RegistrationQuestionAuditRow & { id: string };
+  await logRegistrationQuestionCreated({ organisationId: session.organisationId, userId: session.userId, eventId: id, questionId: created.id, after: created });
+  return NextResponse.json({ question: created }, { status: 201 });
 }
 
 // PATCH — the event's Eve opt-in (ADR 0013 §4): { eve_questions_enabled:

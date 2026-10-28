@@ -4,6 +4,7 @@ import { resolvePublicEvent } from '@/lib/events/publicResolve';
 import { listActiveQuestions, isDataCategory, type DataCategory, type FieldType, type QuestionScope } from '@/lib/events/registrationQuestions';
 import type { PublicOrganisationBranding } from '@/lib/organisations/branding';
 import { resolveFeePolicy, publicFeeDisclosure, type PublicFeeDisclosure } from '@/lib/events/services/fees';
+import { hasEventEnded } from '@/lib/events/saleWindow';
 
 export type PublicSession = {
   id: string;
@@ -83,6 +84,11 @@ export type PublicEventDetail = {
     starts_at: string;
     ends_at: string;
     timezone: string;
+    // The server's verdict at response time (its own clock, never the
+    // visitor's): the event's end has passed, so the page shows a neutral
+    // "ended" state with no booking controls. Display only — every quote,
+    // registration and checkout re-checks against the database's NOW().
+    has_ended: boolean;
   };
   sessions: PublicSession[];
   ticket_types: PublicTicketType[];
@@ -276,6 +282,7 @@ export async function getPublicEventDetail(
         starts_at: new Date(event.starts_at).toISOString(),
         ends_at: new Date(event.ends_at).toISOString(),
         timezone: event.timezone,
+        has_ended: hasEventEnded(event.ends_at),
       },
       sessions: sessionRows as unknown as PublicSession[],
       ticket_types: ticketTypes,

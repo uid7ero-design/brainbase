@@ -87,6 +87,7 @@ const MIGRATIONS = [
   'scripts/create-events-ticketing-fees-foundation.sql',
   'scripts/add-events-order-product-surface.sql',
   'scripts/add-events-order-legal-acceptance.sql',
+  'scripts/add-events-order-legal-notice.sql',
 ]
 const EVE_SQL = () => fs.readFileSync(path.join(process.cwd(), 'scripts/add-eve-registration-questions.sql'), 'utf8')
 

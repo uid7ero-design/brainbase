@@ -42,10 +42,20 @@ const EXPECTED_ROUTES: Record<string, Array<[string, Perm, string]>> = {
   'app/api/scheduling/resources/[resourceId]/route.ts': [['GET', 'scheduling.view', 'getResource'], ['PATCH', 'scheduling.manage', 'updateResource']],
   'app/api/scheduling/resources/[resourceId]/deactivate/route.ts': [['POST', 'scheduling.manage', 'deactivateResource']],
   'app/api/scheduling/resources/[resourceId]/reactivate/route.ts': [['POST', 'scheduling.manage', 'reactivateResource']],
+  // Phase 2B.3b (deliberate, reviewed change): the availability API (weekly rules and closures of an offering or a resource).
+  'app/api/scheduling/offerings/[offeringId]/availability/route.ts': [['GET', 'scheduling.view', 'listAvailabilityFor']],
+  'app/api/scheduling/offerings/[offeringId]/availability-rules/route.ts': [['POST', 'scheduling.manage', 'createRuleFor']],
+  'app/api/scheduling/offerings/[offeringId]/availability-exceptions/route.ts': [['POST', 'scheduling.manage', 'createExceptionFor']],
+  'app/api/scheduling/resources/[resourceId]/availability/route.ts': [['GET', 'scheduling.view', 'listAvailabilityFor']],
+  'app/api/scheduling/resources/[resourceId]/availability-rules/route.ts': [['POST', 'scheduling.manage', 'createRuleFor']],
+  'app/api/scheduling/resources/[resourceId]/availability-exceptions/route.ts': [['POST', 'scheduling.manage', 'createExceptionFor']],
+  'app/api/scheduling/availability-rules/[ruleId]/route.ts': [['PATCH', 'scheduling.manage', 'updateRule'], ['DELETE', 'scheduling.manage', 'deleteRule']],
+  'app/api/scheduling/availability-rules/remove-overnight/route.ts': [['POST', 'scheduling.manage', 'removeOvernightWindow']],
+  'app/api/scheduling/availability-exceptions/[exceptionId]/route.ts': [['PATCH', 'scheduling.manage', 'updateException'], ['DELETE', 'scheduling.manage', 'deleteException']],
 };
 
 const routeFiles = () => walk(path.join(ROOT, 'app/api/scheduling'), /^route\.ts$/).map(rel).sort();
-const CONFIG_LIBS = ['http', 'schedules', 'offerings', 'resources', 'links'].map(n => `lib/scheduling/config/${n}.ts`);
+const CONFIG_LIBS = ['http', 'schedules', 'offerings', 'resources', 'links', 'availability'].map(n => `lib/scheduling/config/${n}.ts`);
 
 describe('the route set is exactly the configuration API: no booking, public or payment route', () => {
   it('pins every route file', () => {

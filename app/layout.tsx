@@ -132,6 +132,7 @@ export default async function RootLayout({
   } | null = null;
 
   let secureMode = false;
+  let orgSwitcherSeed: { activeOrgId: string | null; activeOrgName: string | null; homeOrgName: string | null } | null = null;
 
   if (session) {
     let avatarUrl:
@@ -217,6 +218,16 @@ export default async function RootLayout({
       /* UX projection only — fail closed to no organisation name. */
     }
 
+    // The impersonation state is known here: organisationId is the impersonated organisation while homeOrganisationId stays the
+    // owner's own. Seeding OrgSwitcher with it makes its FIRST paint right ("Viewing as" banner, or the home organisation's own
+    // name) instead of showing the non-impersonating header until its client-side fetches resolve.
+    if (session.role === 'super_admin') {
+      const impersonating = session.homeOrganisationId !== session.organisationId;
+      orgSwitcherSeed = impersonating
+        ? { activeOrgId: session.organisationId, activeOrgName: organisationName, homeOrgName: null }
+        : { activeOrgId: null, activeOrgName: null, homeOrgName: organisationName };
+    }
+
     let managedAccess = false;
     try {
       const permissions=session.role==='super_admin'?null:await getUserPermissions(session.organisationId,session.userId);
@@ -298,7 +309,7 @@ export default async function RootLayout({
                 hard reload happened to occur for some unrelated reason.
                 Keying on userId (not just role) also resets it on a plain
                 user switch between two accounts sharing the same role. */}
-            <OrgSwitcher key={session?.userId ?? 'anon'} initialRole={session?.role ?? null} />
+            <OrgSwitcher key={session?.userId ?? 'anon'} initialRole={session?.role ?? null} initialSeed={orgSwitcherSeed} />
 
             <TopNav
               serverSession={

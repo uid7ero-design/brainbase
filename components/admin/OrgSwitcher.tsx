@@ -64,9 +64,11 @@ type State = {
 // unprotected client-side fetch pair succeeding — the fetch is now
 // purely a refinement (current org name, org list, active override),
 // not the sole source of whether the bar appears.
-export default function OrgSwitcher({ initialRole }: { initialRole: Role | null }) {
-  const [state, setState] = useState<State>({ role: initialRole, activeOrgId: null, activeOrgName: null, orgs: [] });
-  const [homeOrgName, setHomeOrgName] = useState<string | null>(null);
+export default function OrgSwitcher({ initialRole, initialSeed = null }: { initialRole: Role | null; initialSeed?: { activeOrgId: string | null; activeOrgName: string | null; homeOrgName: string | null } | null }) {
+  // initialSeed is the server's own view of who is being impersonated (app/layout.tsx), so the first paint is already right;
+  // the client-side load() below only adds the organisation list and refreshes the values.
+  const [state, setState] = useState<State>({ role: initialRole, activeOrgId: initialSeed?.activeOrgId ?? null, activeOrgName: initialSeed?.activeOrgName ?? null, orgs: [] });
+  const [homeOrgName, setHomeOrgName] = useState<string | null>(initialSeed?.homeOrgName ?? null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const dropRef = useRef<HTMLDivElement>(null);
@@ -105,7 +107,7 @@ export default function OrgSwitcher({ initialRole }: { initialRole: Role | null 
         // currently impersonating, activeOrgId/organisationId are the
         // same value, so me.org?.name correctly gives the founder's own
         // home organisation name for the default "Organisation: X" label.
-        setHomeOrgName(me.org?.name ?? null);
+        setHomeOrgName(prev => me.org?.name ?? prev);
         setState({ role: me.role, activeOrgId, activeOrgName, orgs });
       } catch (err) {
         // A genuine network-level failure here must never silently and

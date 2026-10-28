@@ -419,6 +419,197 @@
   color: var(--text-secondary);
 }
 
+/* ── Availability screens (Phase 2B.3c) ────────────────────────────── */
+
+/* 44 px touch targets (product decision E): buttons, inputs and checkboxes on these screens. The extra class beats the shared 28/34/36 px
+   defaults without touching the shared primitives. */
+.availability .touch {
+  height: auto;
+  min-height: 44px;
+  min-width: 44px;
+}
+.availability input[type='text'],
+.availability input[type='date'],
+.availability input[type='time'],
+.availability select {
+  min-height: 44px;
+}
+.availability [role='dialog'] button[aria-label^='Close'] {
+  width: 44px;
+  height: 44px;
+}
+.dayList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.dayRow {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  gap: 8px 16px;
+  align-items: start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  padding: 12px 14px;
+  min-width: 0;
+}
+@media (max-width: 639px) {
+  .dayRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.dayName {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  padding-top: 10px;
+}
+.dayBody {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.windowList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.windowItem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  min-width: 0;
+}
+.windowText {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+.windowTime {
+  font-weight: 600;
+}
+.windowMuted {
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+}
+.dayClosed {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  padding-top: 10px;
+}
+.dayActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.stackedActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.dstList {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+.dayPicker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 16px;
+}
+.checkTouch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+.checkTouch input {
+  width: 20px;
+  height: 20px;
+}
+.quickRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.summary {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  padding: 8px 12px;
+  border-left: 3px solid var(--border-strong);
+  background: var(--bg-sunken);
+  border-radius: var(--radius-lg);
+}
+.radioGroup {
+  display: grid;
+  gap: 8px;
+}
+.radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+.radio input {
+  margin-top: 3px;
+  width: 18px;
+  height: 18px;
+}
+.radio:has(input:checked) {
+  border-color: var(--accent, var(--text-primary));
+  box-shadow: 0 0 0 1px var(--accent, var(--text-primary));
+}
+.radio:has(input:focus-visible) {
+  outline: 2px solid var(--accent, var(--text-primary));
+  outline-offset: 2px;
+}
+.radioDisabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+.radioHint {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.zoneFacts {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.zoneFacts strong {
+  color: var(--text-primary);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .preset {
     transition: none;

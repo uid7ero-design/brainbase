@@ -27,7 +27,10 @@ export type LoadCartFailureCode =
   // Phase 4 — sale windows and presale access, see loadCartTicketTypes.
   | 'SALE_NOT_STARTED'
   | 'SALE_ENDED'
-  | 'ACCESS_CODE_REQUIRED';
+  | 'ACCESS_CODE_REQUIRED'
+  // The event's own end (events.ends_at) has passed — checked before every
+  // ticket-type rule, see loadCartTicketTypes.
+  | 'EVENT_ENDED';
 
 export type LoadCartResult =
   | {
@@ -54,7 +57,7 @@ export type LoadCartOptions = {
 type TicketTypeRow = {
   id: string; active: boolean; price_cents: number; currency: string; name: string;
   sale_started: boolean; sale_ended: boolean; requires_access_code: boolean;
-  fee_policy?: unknown;
+  fee_policy?: unknown; event_ended?: boolean;
 };
 
 // Loads every cart line's ticket type in ONE tenant-scoped query and
@@ -64,6 +67,11 @@ type TicketTypeRow = {
 //   - every ticket type must exist, belong to THIS organisation AND
 //     this event (a type from another event or organisation simply
 //     isn't returned, so the row count no longer matches)
+//   - the EVENT must not have ended: events.ends_at <= the database's
+//     NOW() refuses the whole cart as EVENT_ENDED, whatever the ticket
+//     types' own sale windows say (a type with no sale end would
+//     otherwise stay bookable forever). A NULL ends_at means no end. The
+//     reservation gates re-assert this inside their locked statement.
 //   - every ticket type must be active
 //   - Phase 4: every ticket type must be ON SALE right now — evaluated
 //     against the DATABASE's NOW() in the same query, never the client's
@@ -104,10 +112,16 @@ export async function loadCartTicketTypes(
       (sale_starts_at IS NULL OR sale_starts_at <= NOW()) AS sale_started,
       (sale_ends_at IS NOT NULL AND sale_ends_at <= NOW()) AS sale_ended,
       requires_access_code,
-      (SELECT to_jsonb(p) FROM ticketing_fee_policies p WHERE p.organisation_id = ${organisationId} AND (p.event_id = ${eventId} OR p.event_id IS NULL) ORDER BY (p.event_id IS NOT NULL) DESC LIMIT 1) AS fee_policy
+      (SELECT to_jsonb(p) FROM ticketing_fee_policies p WHERE p.organisation_id = ${organisationId} AND (p.event_id = ${eventId} OR p.event_id IS NULL) ORDER BY (p.event_id IS NOT NULL) DESC LIMIT 1) AS fee_policy,
+      -- Correlated to this (already tenant- and event-scoped) row, so it
+      -- adds no parameter and can only ever read THIS event.
+      (SELECT e.ends_at IS NOT NULL AND e.ends_at <= NOW() FROM events e WHERE e.id = event_ticket_types.event_id AND e.organisation_id = event_ticket_types.organisation_id) AS event_ended
     FROM event_ticket_types
     WHERE organisation_id = ${organisationId} AND event_id = ${eventId} AND id = ANY(${ids}::text[])
   `;
+  // Strict comparison, like the Phase 4 flags below: a row without the
+  // column (every older fixture) reads as "not ended".
+  if ((rows as TicketTypeRow[]).some(r => r.event_ended === true)) return { ok: false, code: 'EVENT_ENDED' };
   const byId = new Map((rows as TicketTypeRow[]).map(r => [r.id, r]));
   if (byId.size !== items.length || items.some(it => !byId.has(it.ticket_type_id))) {
     return { ok: false, code: 'TICKET_TYPE_NOT_FOUND' };

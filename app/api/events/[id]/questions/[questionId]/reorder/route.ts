@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
+import { logRegistrationQuestionReordered } from '@/lib/events/auditLog';
 
 type Ctx = { params: Promise<{ id: string; questionId: string }> };
 
@@ -171,6 +172,17 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     // Structurally unreachable (the UPDATE either matches the target +
     // its one neighbor, or matches nothing) — defensive only.
     return NextResponse.json({ error: 'Reorder failed.' }, { status: 500 });
+  }
+
+  // Audited once, on the question the organiser moved. A swap: its
+  // previous sort_order is the value the neighbour now holds.
+  const moved = updated.find(r => r.id === questionId);
+  const neighbour = updated.find(r => r.id !== questionId);
+  if (moved && neighbour) {
+    await logRegistrationQuestionReordered({
+      organisationId, userId: session.userId, eventId, questionId, direction,
+      swappedWithId: neighbour.id, beforeSortOrder: neighbour.sort_order, afterSortOrder: moved.sort_order,
+    });
   }
 
   return NextResponse.json({ questions: updated });

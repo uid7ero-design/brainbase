@@ -501,6 +501,104 @@ export async function logEventEveQuestionsToggled(params: {
   });
 }
 
+// ── Registration-question lifecycle audit ────────────────────────────
+//
+// resource_type 'event_registration_question' — its own literal
+// (ADR-0003 §10), resource_id = the question's own id; event_id travels
+// in state like every other catalog child above. Configuration metadata
+// ONLY, never an answer: these functions are never handed a response.
+// The organiser's label (the question wording buyers see) is logged as
+// written. Help text and select options are reduced to markers —
+// help_text_set / help_text_changed, option_count / options_changed —
+// because free-form organiser copy can carry personal detail ("call
+// Sam on …"), and a select option's text is exactly what an answer
+// stores, so logging options would put answer-equal strings in
+// audit_logs.
+//
+// Actions:
+//   .created            — the full safe shape at creation
+//   .deactivated        — active true -> false
+//   .reactivated        — active false -> true
+//   .category_changed   — data_category changed (with every other changed
+//                         field in the same diff), mirroring
+//                         event_ticket_type.sale_window_changed
+//   .updated            — any other configuration change (label, help
+//                         text, type, required, scope, options, sort order)
+//   .reordered          — the dedicated up/down swap
+// A PATCH that changes active AND other fields writes two rows: the
+// active transition, then the configuration diff.
+
+export type RegistrationQuestionAuditRow = {
+  label: string; help_text: string | null; field_type: string; required: boolean; scope: string;
+  options: string[] | null; sort_order: number; active: boolean; data_category: string; template_key: string | null;
+};
+
+const QUESTION_CONFIG_AUDIT_FIELDS = ['label', 'field_type', 'required', 'scope', 'sort_order', 'data_category', 'help_text_set', 'option_count'] as const;
+
+function questionAuditShape(q: RegistrationQuestionAuditRow): Record<(typeof QUESTION_CONFIG_AUDIT_FIELDS)[number], unknown> {
+  return {
+    label: q.label, field_type: q.field_type, required: q.required, scope: q.scope, sort_order: q.sort_order,
+    data_category: q.data_category, help_text_set: Boolean(q.help_text), option_count: q.options?.length ?? 0,
+  };
+}
+
+function sameOptions(a: string[] | null, b: string[] | null): boolean {
+  const x = a ?? [], y = b ?? [];
+  return x.length === y.length && x.every((o, i) => o === y[i]);
+}
+
+export async function logRegistrationQuestionCreated(params: {
+  organisationId: string; userId: string; eventId: string; questionId: string; after: RegistrationQuestionAuditRow;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event_registration_question.created',
+    resourceType: 'event_registration_question', resourceId: params.questionId, beforeState: null,
+    afterState: {
+      event_id: params.eventId, ...questionAuditShape(params.after),
+      active: params.after.active, template_key: params.after.template_key,
+    },
+  });
+}
+
+export async function logRegistrationQuestionUpdated(params: {
+  organisationId: string; userId: string; eventId: string; questionId: string;
+  before: RegistrationQuestionAuditRow; after: RegistrationQuestionAuditRow;
+}): Promise<void> {
+  const base = { organisationId: params.organisationId, userId: params.userId, resourceType: 'event_registration_question', resourceId: params.questionId };
+  if (params.before.active !== params.after.active) {
+    await insertAuditLog({
+      ...base, action: params.after.active ? 'event_registration_question.reactivated' : 'event_registration_question.deactivated',
+      beforeState: { event_id: params.eventId, active: params.before.active },
+      afterState: { event_id: params.eventId, active: params.after.active },
+    });
+  }
+  const diff = diffFields(questionAuditShape(params.before), questionAuditShape(params.after), QUESTION_CONFIG_AUDIT_FIELDS);
+  const helpTextChanged = (params.before.help_text ?? null) !== (params.after.help_text ?? null);
+  const optionsChanged = !sameOptions(params.before.options, params.after.options);
+  if (!diff && !helpTextChanged && !optionsChanged) return;
+  const before: Record<string, unknown> = { event_id: params.eventId, ...diff?.before };
+  const after: Record<string, unknown> = { event_id: params.eventId, ...diff?.after };
+  if (helpTextChanged) after.help_text_changed = true;
+  if (optionsChanged) after.options_changed = true;
+  await insertAuditLog({
+    ...base,
+    action: diff && 'data_category' in diff.after ? 'event_registration_question.category_changed' : 'event_registration_question.updated',
+    beforeState: before, afterState: after,
+  });
+}
+
+export async function logRegistrationQuestionReordered(params: {
+  organisationId: string; userId: string; eventId: string; questionId: string; direction: 'up' | 'down';
+  swappedWithId: string; beforeSortOrder: number; afterSortOrder: number;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event_registration_question.reordered',
+    resourceType: 'event_registration_question', resourceId: params.questionId,
+    beforeState: { event_id: params.eventId, sort_order: params.beforeSortOrder },
+    afterState: { event_id: params.eventId, sort_order: params.afterSortOrder, direction: params.direction, swapped_with: params.swappedWithId },
+  });
+}
+
 export async function logEventPublished(params: { organisationId: string; userId: string; eventId: string; before: EventRow; after: EventRow }): Promise<void> {
   const diff = diffFields(params.before, params.after, EVENT_AUDIT_FIELDS);
   await insertAuditLog({

@@ -109,7 +109,7 @@ describe('mapPgError: Postgres errors raised by the scheduling schema become dom
   it('the custom SQLSTATEs are exactly the ones the migration raises', async () => {
     const { readFileSync } = await import('node:fs');
     const path = await import('node:path');
-    const sql = ['010_shared_schema.sql', '030_resource_concurrency.sql', '031_reservation_integrity.sql'].map(f => readFileSync(path.resolve(__dirname, '../../scheduling/sql', f), 'utf8')).join(' ');
+    const sql = ['010_shared_schema.sql', '030_resource_concurrency.sql', '031_reservation_integrity.sql', '034_availability_integrity.sql', '036_availability_zones.sql'].map(f => readFileSync(path.resolve(__dirname, '../../scheduling/sql', f), 'utf8')).join(' ');
     const raised = new Set([...sql.matchAll(/ERRCODE = '([A-Z0-9]{5})'/g)].map(m => m[1]));
     expect(raised).toEqual(new Set(Object.values(SCHEDULING_SQLSTATE)));
   });

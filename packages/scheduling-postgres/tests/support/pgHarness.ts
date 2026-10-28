@@ -62,6 +62,7 @@ const TABLES = [
   'scheduling_occurrences',
   'scheduling_availability_exceptions',
   'scheduling_availability_rules',
+  'scheduling_availability_zones',
   'scheduling_offering_resources',
   'scheduling_offerings',
   'scheduling_resources',
@@ -78,6 +79,8 @@ export async function ensureSchema() {
   await runScript(sqlFile('010_shared_schema.sql'));
   await runScript(sqlFile('030_resource_concurrency.sql'));
   await runScript(sqlFile('031_reservation_integrity.sql'));
+  await runScript(sqlFile('034_availability_integrity.sql'));
+  await runScript(sqlFile('036_availability_zones.sql'));
 }
 
 export async function resetData() {

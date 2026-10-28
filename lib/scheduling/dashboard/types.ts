@@ -43,6 +43,47 @@ export interface ResourceView {
   updatedAt: string;
 }
 
+/** A weekly availability rule as the API returns it (0 = Sunday; `endTime` may be '24:00' for the end of the day). */
+export interface AvailabilityRuleView {
+  id: string;
+  resourceId: string | null;
+  offeringId: string | null;
+  kind: 'hours' | 'service_period';
+  label: string | null;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  validFrom: string | null;
+  validTo: string | null;
+  createdAt: string;
+  /** The version token: send it back unchanged with an edit or a removal. */
+  updatedAt: string;
+}
+
+/** A closure: whole days, or (startTime and endTime both set) part of each day. */
+export interface AvailabilityClosureView {
+  id: string;
+  resourceId: string | null;
+  offeringId: string | null;
+  fromDate: string;
+  toDate: string;
+  kind: 'closed' | 'override';
+  reason: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AvailabilityView {
+  owner: { kind: 'offering' | 'resource'; id: string };
+  rules: AvailabilityRuleView[];
+  exceptions: AvailabilityClosureView[];
+  capabilities: { partialClosures: boolean; zones?: boolean };
+  /** The zone the owner's hours are read in: the pin once its first hours or closure are saved, else what the first save would pin. */
+  zone?: { timezone: string; pinned: boolean; source: 'first_rule' | 'first_closure' | 'backfill' | null; pinnedAt: string | null };
+}
+
 export interface StatusView {
   configured: boolean;
   timezone: string;

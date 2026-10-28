@@ -61,6 +61,7 @@ const CART_ERRORS: Record<string, string> = {
   CURRENCY_MISMATCH: 'All tickets in one order must use the same currency.',
   SALE_NOT_STARTED: 'Tickets for this selection are not on sale yet.',
   SALE_ENDED: 'Sales for this selection have ended.',
+  EVENT_ENDED: 'This event has ended.',
   ACCESS_CODE_REQUIRED: 'An access code is required for this selection.',
   // Phase 6 — availability, worded exactly like the register/checkout
   // routes' own 404/409 bodies for the same conditions.

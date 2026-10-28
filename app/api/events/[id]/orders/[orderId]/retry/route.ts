@@ -25,6 +25,8 @@ function toResponse(result: RetryCheckoutResult): NextResponse {
       return NextResponse.json({ error: 'Not found.' }, { status: 404 });
     case 'EVENT_CANCELLED':
       return NextResponse.json({ error: 'This event has been cancelled.' }, { status: 409 });
+    case 'EVENT_ENDED':
+      return NextResponse.json({ error: 'This event has ended.' }, { status: 409 });
     case 'NOT_PENDING':
       return NextResponse.json({ error: 'Only a pending payment can be retried.' }, { status: 409 });
     case 'NO_STRIPE_ACCOUNT':

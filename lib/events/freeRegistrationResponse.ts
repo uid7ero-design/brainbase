@@ -37,6 +37,9 @@ export function freeRegistrationResultResponse(result: FreeRegistrationResult): 
       return NextResponse.json({ error: 'Tickets for this selection are not on sale yet.' }, { status: 409 });
     case 'SALE_ENDED':
       return NextResponse.json({ error: 'Sales for this selection have ended.' }, { status: 409 });
+    // The event itself is over: neutral wording, nothing was reserved.
+    case 'EVENT_ENDED':
+      return NextResponse.json({ error: 'This event has ended.' }, { status: 409 });
     case 'ACCESS_CODE_REQUIRED':
       return NextResponse.json({ error: 'An access code is required for this selection.' }, { status: 400 });
     case 'ACCESS_CODE_INVALID':
