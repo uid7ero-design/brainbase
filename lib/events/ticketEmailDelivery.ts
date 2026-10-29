@@ -1,6 +1,6 @@
 import 'server-only';
 import sql from '@/lib/db';
-import { sendTicketEmail, maskEmailForAudit } from './ticketEmail';
+import { sendTicketEmail, maskEmailForAudit, type TicketEmailEventDetails } from './ticketEmail';
 import { normaliseTicketEmailBranding } from '@/lib/organisations/branding';
 import { resolveBuyerProduct } from '@/lib/events/buyerProduct';
 import { logAutomaticTicketEmailSent, logAutomaticTicketEmailFailed } from './auditLog';
@@ -215,6 +215,8 @@ export type ClaimedOrderForDelivery = {
   purchaserName: string;
   purchaserEmail: string;
   eventName: string;
+  // When/where for the Eve ticket email (TicketEmailData.event).
+  event: TicketEmailEventDetails;
   bookingToken: string | null;
   attendees: { name: string; ticketToken: string }[];
   // Phase 3E.2 — organisation identity/settings for
@@ -259,7 +261,7 @@ export async function readClaimedOrderForDelivery(orderId: string, claimId: stri
       eo.id, eo.organisation_id, eo.purchaser_name, eo.purchaser_email, eo.booking_token, eo.product_surface,
       eo.payment_status, eo.currency, eo.total_cents, eo.discount_cents, eo.promotion_code_snapshot,
       eo.platform_fee_cents, eo.fee_mode, eo.fee_label, eo.payment_total_cents, eo.paid_at, eo.refunded_cents, eo.refunded_at,
-      e.name AS event_name, e.timezone AS event_timezone,
+      e.name AS event_name, e.timezone AS event_timezone, e.starts_at AS event_starts_at, e.ends_at AS event_ends_at, e.venue AS event_venue,
       o.name AS organisation_name, o.settings AS organisation_settings,
       COALESCE(
         json_agg(json_build_object('name', ea.attendee_name, 'ticket_token', ea.ticket_token))
@@ -278,14 +280,15 @@ export async function readClaimedOrderForDelivery(orderId: string, claimId: stri
     JOIN event_order_items oi ON oi.order_id = eo.id AND oi.organisation_id = eo.organisation_id
     LEFT JOIN event_attendees ea ON ea.order_item_id = oi.id AND ea.organisation_id = oi.organisation_id
     WHERE eo.id = ${orderId} AND eo.ticket_email_status = 'sending' AND eo.ticket_email_claim_id = ${claimId}
-    GROUP BY eo.id, e.name, e.timezone, o.name, o.settings
+    GROUP BY eo.id, e.name, e.timezone, e.starts_at, e.ends_at, e.venue, o.name, o.settings
     LIMIT 1
   `;
   if (!rows.length) return null;
 
   const row = rows[0] as {
     id: string; organisation_id: string; purchaser_name: string; purchaser_email: string; booking_token: string | null; product_surface: string | null;
-    event_name: string; organisation_name: string; organisation_settings: unknown;
+    event_name: string; event_timezone: string; event_starts_at: string | Date; event_ends_at: string | Date | null; event_venue: string | null;
+    organisation_name: string; organisation_settings: unknown;
     attendees: { name: string; ticket_token: string }[];
   } & ReceiptOrderRow;
   return {
@@ -294,6 +297,7 @@ export async function readClaimedOrderForDelivery(orderId: string, claimId: stri
     purchaserName: row.purchaser_name,
     purchaserEmail: row.purchaser_email,
     eventName: row.event_name,
+    event: { startsAt: row.event_starts_at, endsAt: row.event_ends_at, timezone: row.event_timezone, venue: row.event_venue },
     bookingToken: row.booking_token,
     attendees: row.attendees.map(a => ({ name: a.name, ticketToken: a.ticket_token })),
     organisationName: row.organisation_name,
@@ -530,6 +534,7 @@ export async function attemptAutomaticTicketEmail(orderId: string): Promise<Auto
       order.purchaserEmail,
       {
         eventName: order.eventName,
+        event: order.event,
         purchaserName: order.purchaserName,
         attendees: order.attendees,
         bookingToken: order.bookingToken,

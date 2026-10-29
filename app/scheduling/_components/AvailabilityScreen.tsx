@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
-import { Badge, Button, PageHeader, Panel, StateMessage } from '@/components/ui/app';
+import { Badge, Button, PageHeader, Panel, StateMessage, buttonProps } from '@/components/ui/app';
 import { seg } from '@/lib/scheduling/dashboard/api';
 import { daylightSavingNotices, describeTimezone, effectiveTimezone, localToday } from '@/lib/scheduling/dashboard/availability';
 import type { AvailabilityView, OfferingView, ResourceView, ScheduleView, StatusView } from '@/lib/scheduling/dashboard/types';
@@ -102,6 +102,7 @@ export default function AvailabilityScreen({ kind, id, canManage }: { kind: 'off
         eyebrow={back}
         title={`Hours: ${name}`}
         meta={blocked ? <Badge state="inactive">{kind === 'offering' ? 'Archived' : 'Inactive'}</Badge> : undefined}
+        actions={<Link href={`/scheduling${ownerPath}/calendar`} {...buttonProps('secondary', 'md')} className={`${buttonProps('secondary', 'md').className} ${styles.touch}`} data-testid="calendar-link">View calendar</Link>}
         description={`Weekly hours and closures for this ${noun}. Times are local to the timezone below.`}
       />
       {!canManage && <p className={styles.notice} role="note">You have view-only access to Scheduling. Ask a manager to change hours.</p>}

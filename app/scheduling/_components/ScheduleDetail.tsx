@@ -140,10 +140,12 @@ export default function ScheduleDetail({ scheduleId, canManage }: { scheduleId: 
                     o.archivedAt !== null ? (
                       <span className={styles.actionButtons}>
                         <Link href={`/scheduling/offerings/${seg(o.id)}/availability`} {...buttonProps('secondary', 'sm')} aria-label={`Hours for ${o.name}`}>Hours</Link>
+                        <Link href={`/scheduling/offerings/${seg(o.id)}/calendar`} {...buttonProps('secondary', 'sm')} aria-label={`Calendar for ${o.name}`}>Calendar</Link>
                       </span>
                     ) : (
                       <span className={styles.actionButtons}>
                         <Link href={`/scheduling/offerings/${seg(o.id)}/availability`} {...buttonProps('secondary', 'sm')} aria-label={`Hours for ${o.name}`}>Hours</Link>
+                        <Link href={`/scheduling/offerings/${seg(o.id)}/calendar`} {...buttonProps('secondary', 'sm')} aria-label={`Calendar for ${o.name}`}>Calendar</Link>
                         <Button size="sm" onClick={() => setMode({ kind: 'assign', offering: o })} aria-label={`${canEdit ? 'Assign' : 'View'} ${words.resourcePlural.toLowerCase()} for ${o.name}`}>
                           {words.resourcePlural}
                         </Button>

@@ -4,6 +4,7 @@ import { buildTicketUrl } from '@/lib/events/qr';
 import type { TicketEmailBranding } from '@/lib/organisations/branding';
 import { brainbaseBuyerContext, type BuyerProductContext } from '@/lib/events/buyerProduct';
 import { renderPaymentReceiptHtml, type PaymentReceipt } from '@/lib/events/receipt';
+import { formatEventSchedule } from '@ticketing/core/eventSchedule';
 
 export { isOrderEligibleForTicketEmail, type TicketEmailEligibilityOrder } from './ticketEmailEligibility';
 
@@ -61,7 +62,41 @@ export type TicketEmailData = {
   // Absent => BrainBase, exactly as before. Callers that hold an order row
   // MUST pass it: an Eve order built without it would carry BrainBase links.
   product?: BuyerProductContext | null;
+  // When and where, read by the caller from the order's own events row and
+  // rendered in the event's stored timezone (formatEventSchedule). Shown on
+  // Eve emails only: BrainBase ticket emails stay exactly as they were.
+  // Optional/nullable: absent renders no details section.
+  event?: TicketEmailEventDetails | null;
 };
+
+export type TicketEmailEventDetails = {
+  startsAt: string | Date;
+  endsAt: string | Date | null;
+  timezone: string;
+  venue: string | null;
+};
+
+// Eve "when and where" block. Every line is escaped; a blank venue is
+// omitted, and an event spanning two local dates shows both ends in full.
+function renderEventDetailsHtml(event: TicketEmailEventDetails): string {
+  const schedule = formatEventSchedule(event.startsAt, event.endsAt, event.timezone);
+  if (!schedule) return '';
+  const lines = schedule.kind === 'single'
+    ? [
+        `<div style="font-size:14px;font-weight:600;color:#111">${escHtml(schedule.date)}</div>`,
+        `<div style="font-size:14px;color:#444;margin-top:2px">${escHtml(schedule.time)}</div>`,
+      ]
+    : [
+        `<div style="font-size:14px;color:#111"><strong>Starts</strong> ${escHtml(schedule.start)}</div>`,
+        `<div style="font-size:14px;color:#111;margin-top:2px"><strong>Ends</strong> ${escHtml(schedule.end)}</div>`,
+      ];
+  const venue = event.venue?.trim();
+  if (venue) lines.push(`<div style="font-size:14px;color:#444;margin-top:6px">${escHtml(venue)}</div>`);
+  return `
+      <div style="margin:0 0 24px;padding:14px 16px;background:#f7f7f7;border-radius:8px;line-height:1.5">
+        ${lines.join('\n        ')}
+      </div>`;
+}
 
 // Booking-wallet link shape (/b/<bookingToken>/tickets) — deliberately
 // NOT in lib/events/qr.ts alongside buildTicketUrl: that module's own
@@ -153,6 +188,7 @@ export function buildTicketEmail(data: TicketEmailData): { subject: string; html
         Here ${multiple ? 'are your tickets' : 'is your ticket'} for <strong>${escHtml(data.eventName)}</strong>.
         Tap the link below to view ${multiple ? 'each ticket' : 'your ticket'} — it's what you'll show at the door.
       </p>
+      ${product.surface === 'EVE' && data.event ? renderEventDetailsHtml(data.event) : ''}
       ${walletUrl ? `
       <p style="margin:0 0 20px">
         <a href="${walletUrl}" style="${ticketBtn};padding:12px 26px;font-size:14px">View all tickets</a>

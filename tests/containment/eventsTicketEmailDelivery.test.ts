@@ -675,12 +675,15 @@ describe('claim return shape', () => {
     queue([{
       id: 'order-1', organisation_id: 'org-1', purchaser_name: 'Jane Doe', purchaser_email: 'jane@example.com',
       booking_token: 'a'.repeat(64), event_name: 'Spring Gala',
+      event_timezone: 'Australia/Adelaide', event_starts_at: '2027-03-20T01:30:00.000Z', event_ends_at: '2027-03-20T12:30:00.000Z', event_venue: 'Bonython Park',
       attendees: [{ name: 'Jane Doe', ticket_token: 'b'.repeat(64) }],
     }])
     const result = await delivery.readClaimedOrderForDelivery('order-1', 'current-claim')
     expect(result).toEqual({
       id: 'order-1', organisationId: 'org-1', purchaserName: 'Jane Doe', purchaserEmail: 'jane@example.com',
       eventName: 'Spring Gala', bookingToken: 'a'.repeat(64),
+      // When/where for the Eve ticket email, straight from the events row.
+      event: { startsAt: '2027-03-20T01:30:00.000Z', endsAt: '2027-03-20T12:30:00.000Z', timezone: 'Australia/Adelaide', venue: 'Bonython Park' },
       attendees: [{ name: 'Jane Doe', ticketToken: 'b'.repeat(64) }],
       // Eve Phase 3.2: a row that carries no product column is a historical
       // BrainBase order.
