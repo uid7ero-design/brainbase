@@ -312,7 +312,11 @@ describe('public event read: server-derived paid_checkout_available (one boolean
     process.env.EVE_PAID_CHECKOUT_ORGS = 'brainbase,other-org'
     for (const mk of [brainbase, params]) {
       const body = await (await read(mk())).json()
-      expect(Object.keys(body).sort()).toEqual([...Object.keys(DETAIL), 'paid_checkout_available', 'questions_block_booking'].sort())
+      // organisationName (internal) is replaced by organiser_name (public display name or null).
+      const expectedKeys = [...Object.keys(DETAIL).filter(k => k !== 'organisationName'), 'organiser_name', 'paid_checkout_available', 'questions_block_booking']
+      expect(Object.keys(body).sort()).toEqual(expectedKeys.sort())
+      expect(body.organiser_name).toBeNull()
+      expect(JSON.stringify(body)).not.toContain('Brainbase')
       expect(typeof body.questions_block_booking).toBe('boolean')
       expect(typeof body.paid_checkout_available).toBe('boolean')
       const text = JSON.stringify(body)

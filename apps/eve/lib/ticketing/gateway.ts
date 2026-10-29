@@ -88,7 +88,9 @@ export type PublicEventDetail = {
   }[];
   session_inventory: { ticket_type_id: string; event_session_id: string; capacity: number; remaining: number }[];
   has_promotions: boolean;
-  organisationName: string;
+  // The organiser's public display name (organisation branding), or null when
+  // none is configured. The API never sends the internal organisation name.
+  organiser_name?: string | null;
   // Registration questions this event asks on Eve (definitions only, never
   // answers). Empty unless the organiser opted the event in on Eve.
   questions?: PublicQuestion[];
@@ -107,7 +109,7 @@ export type TicketDetail = {
   event: { name: string; venue: string | null; artwork_url: string | null; starts_at: string; ends_at: string; timezone: string };
   ticket_type_name: string | null;
   session: { name: string; starts_at: string; ends_at: string } | null;
-  organisationName: string;
+  organiser_name?: string | null;
   qr_svg: string | null;
 };
 
@@ -115,7 +117,7 @@ export type BookingDetail = {
   purchaser_name: string;
   event: TicketDetail['event'];
   tickets: { attendee_name: string; ticket_type_name: string | null; session: TicketDetail['session']; ticket_token: string; checked_in_at: string | null; status: PublicTicketStatus }[];
-  organisationName: string;
+  organiser_name?: string | null;
 };
 
 export type CheckoutStatus = {

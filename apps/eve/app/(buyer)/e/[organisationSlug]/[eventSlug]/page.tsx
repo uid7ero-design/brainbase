@@ -3,6 +3,7 @@ import { Container, Unavailable } from '@/components/ui/primitives';
 import { BuyerBooking } from '@/components/buyer/BuyerBooking';
 import { getTicketingGateway } from '@/lib/ticketing/gateway';
 import { formatDateTime, formatDateTimeRange } from '@/lib/format';
+import { publicOrganiserName } from '@ticketing/core/publicOrganiser';
 
 export const metadata: Metadata = { title: 'Event' };
 export const dynamic = 'force-dynamic';
@@ -37,6 +38,7 @@ export default async function PublicEventPage({ params, searchParams }: Props) {
 
   const detail = result.data;
   const { event } = detail;
+  const organiserName = publicOrganiserName(detail.organiser_name);
   return (
     <Container className="py-10 sm:py-14">
       <div className="grid gap-10 lg:grid-cols-[1fr_minmax(0,28rem)]">
@@ -50,8 +52,9 @@ export default async function PublicEventPage({ params, searchParams }: Props) {
               <img src={event.artwork_url} alt="" className="block h-auto max-h-[36rem] w-auto max-w-full object-contain" />
             </div>
           ) : null}
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-eve-accent">{detail.organisationName}</p>
-          <h1 className="eve-display mt-2 text-4xl sm:text-5xl">{event.name}</h1>
+          {/* The organiser's public display name only; omitted when none is configured. */}
+          {organiserName ? <p data-testid="event-organiser" className="text-xs font-semibold uppercase tracking-[0.18em] text-eve-accent">{organiserName}</p> : null}
+          <h1 className={`eve-display ${organiserName ? 'mt-2 ' : ''}text-4xl sm:text-5xl`}>{event.name}</h1>
           <p className="mt-3 text-eve-muted">{formatDateTimeRange(event.starts_at, event.ends_at, event.timezone)}{event.venue ? ` · ${event.venue}` : ''}</p>
           {event.description ? <p className="mt-6 max-w-prose whitespace-pre-line">{event.description}</p> : null}
           {detail.sessions.length > 0 ? (

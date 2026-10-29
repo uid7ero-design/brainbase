@@ -6,6 +6,7 @@ import { formatReceiptMoney } from '@/lib/events/receipt';
 import type { LifecycleEmailBranding } from '@/lib/organisations/branding';
 import type { NotificationType, EventUpdatedPayload, EventUpdatedSnapshot } from './notifications';
 import { formatEventScheduleLine } from '@ticketing/core/eventSchedule';
+import { organiserReference } from '@ticketing/core/publicOrganiser';
 
 // Phase 5B — lifecycle (transactional) email templates: order cancelled,
 // order refunded, event cancelled, event reminder. Pure template
@@ -125,8 +126,11 @@ function truncate(s: string, max: number): string {
 
 // Organiser display name: the configured branding name, else the
 // organisation's own record name — a cancellation/refund message must
-// always be able to say who the organiser is.
-function organiserName(data: LifecycleEmailData): string {
+// always be able to say who the organiser is. Eve never shows the internal
+// organisation name: the public display name, else "the event organiser"
+// (capitalised when it opens a sentence).
+function organiserName(data: LifecycleEmailData, opts: { sentenceStart?: boolean } = {}): string {
+  if (data.product?.surface === 'EVE') return organiserReference(data.branding.name, opts);
   return data.branding.name?.trim() || data.organisationName;
 }
 
@@ -356,7 +360,7 @@ function buildEventCancelled(data: LifecycleEmailData): LifecycleEmail {
     subject: `${data.eventName} has been cancelled`,
     heading: 'Event cancelled',
     paragraphs: [
-      `${organiserName(data)} has cancelled ${data.eventName}. The event will not go ahead as scheduled and the tickets on this order are no longer valid.`,
+      `${organiserName(data, { sentenceStart: true })} has cancelled ${data.eventName}. The event will not go ahead as scheduled and the tickets on this order are no longer valid.`,
       refundStateSentence(data),
     ],
     facts,
@@ -439,7 +443,7 @@ function buildEventUpdated(data: LifecycleEmailData): LifecycleEmail {
   if (isEve) links.push({ label: 'Refunds & cancellations', url: `${linkBase}/refunds` });
 
   const paragraphs = [
-    `${organiserName(data)} has changed the date, time or venue of ${data.eventName}. The details above show what changed. Please check the new details work for you.`,
+    `${organiserName(data, { sentenceStart: true })} has changed the date, time or venue of ${data.eventName}. The details above show what changed. Please check the new details work for you.`,
     'If this change is significant for you, you may have rights under applicable law or the organiser’s terms. This message does not issue a refund. To ask about your options, contact the organiser.',
   ];
   return render(data, {
