@@ -1,3 +1,4 @@
+import { canWriteCrm, crmLinksAllowed } from '@/lib/crm/writeAccess';
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { requireSession, unauthorized, forbidden } from '@/lib/org';
@@ -29,10 +30,10 @@ export async function GET(req: NextRequest) {
       c.name  AS company_name,
       d.title AS deal_title
     FROM crm_activities a
-    LEFT JOIN users         u  ON u.id  = a.created_by
-    LEFT JOIN crm_contacts  ct ON ct.id = a.contact_id
-    LEFT JOIN crm_companies c  ON c.id  = a.company_id
-    LEFT JOIN crm_deals     d  ON d.id  = a.deal_id
+    LEFT JOIN users         u  ON u.id  = a.created_by AND u.organisation_id = ${session.organisationId}
+    LEFT JOIN crm_contacts  ct ON ct.id = a.contact_id AND ct.organisation_id = ${session.organisationId}
+    LEFT JOIN crm_companies c  ON c.id  = a.company_id AND c.organisation_id = ${session.organisationId}
+    LEFT JOIN crm_deals     d  ON d.id  = a.deal_id AND d.organisation_id = ${session.organisationId}
     WHERE a.organisation_id = ${session.organisationId}
       ${contactId ? sql`AND a.contact_id = ${contactId}` : sql``}
       ${companyId ? sql`AND a.company_id = ${companyId}` : sql``}
@@ -47,6 +48,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   let session;
   try { session = await requireSession(); } catch { return unauthorized(); }
+  if (!canWriteCrm(session)) return forbidden();
   try {
     await requireCapability(session.organisationId, 'crm');
   } catch (err) {
@@ -55,6 +57,8 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({error:'Invalid request.'},{status:400});
+  if (!await crmLinksAllowed(session.organisationId, body)) return NextResponse.json({error:'Linked record unavailable.'},{status:400});
   const { type, subject, body: actBody, activity_date, contact_id, company_id, deal_id } = body;
   if (!TYPES.includes(type)) return NextResponse.json({ error: 'Invalid type.' }, { status: 400 });
   if (!subject?.trim()) return NextResponse.json({ error: 'Subject is required.' }, { status: 400 });
@@ -63,7 +67,7 @@ export async function POST(req: NextRequest) {
     INSERT INTO crm_activities (organisation_id, created_by, type, subject, body, activity_date, contact_id, company_id, deal_id)
     VALUES (${session.organisationId}, ${session.userId}, ${type}, ${subject.trim()},
             ${actBody ?? null}, ${activity_date ?? new Date().toISOString()},
-            ${contact_id ?? null}, ${company_id ?? null}, ${deal_id ?? null})
+            ${contact_id || null}, ${company_id || null}, ${deal_id || null})
     RETURNING *
   `;
   return NextResponse.json({ activity: rows[0] }, { status: 201 });

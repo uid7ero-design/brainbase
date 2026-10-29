@@ -1,3 +1,6 @@
+// These legacy schema/classification tests isolate their original SQL contract.
+// Linked-record ownership is exercised against real Postgres in crmRecoveryRealPostgres.
+vi.mock('@/lib/crm/writeAccess', async (original) => ({...await original<typeof import('@/lib/crm/writeAccess')>(),crmLinksAllowed:async()=>true}));
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';

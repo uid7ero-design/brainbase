@@ -1,3 +1,4 @@
+import { canWriteCrm } from '@/lib/crm/writeAccess';
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { requireSession, unauthorized, forbidden } from '@/lib/org';
@@ -19,7 +20,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   const rows = await sql`
     SELECT c.*, u.name AS created_by_name
     FROM crm_companies c
-    LEFT JOIN users u ON u.id = c.created_by
+    LEFT JOIN users u ON u.id = c.created_by AND u.organisation_id = ${session.organisationId}
     WHERE c.id = ${id} AND c.organisation_id = ${session.organisationId}
     LIMIT 1
   `;
@@ -37,7 +38,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   `;
   const activities = await sql`
     SELECT a.*, u.name AS created_by_name FROM crm_activities a
-    LEFT JOIN users u ON u.id = a.created_by
+    LEFT JOIN users u ON u.id = a.created_by AND u.organisation_id = ${session.organisationId}
     WHERE a.company_id = ${id} AND a.organisation_id = ${session.organisationId}
     ORDER BY a.activity_date DESC LIMIT 20
   `;
@@ -48,6 +49,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 export async function PUT(req: NextRequest, { params }: Ctx) {
   let session;
   try { session = await requireSession(); } catch { return unauthorized(); }
+  if (!canWriteCrm(session)) return forbidden();
   try {
     await requireCapability(session.organisationId, 'crm');
   } catch (err) {
@@ -57,6 +59,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   const { id } = await params;
 
   const body = await req.json();
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({error:'Invalid request.'},{status:400});
   const { name, website, industry, company_size, phone, address, notes } = body;
   if (!name?.trim()) return NextResponse.json({ error: 'Name is required.' }, { status: 400 });
 
@@ -75,6 +78,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
 export async function DELETE(_req: NextRequest, { params }: Ctx) {
   let session;
   try { session = await requireSession(); } catch { return unauthorized(); }
+  if (!canWriteCrm(session)) return forbidden();
   try {
     await requireCapability(session.organisationId, 'crm');
   } catch (err) {

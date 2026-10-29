@@ -1,5 +1,6 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useCrmList, useCrmMutation } from '../_components/useCrmRecovery';
 import SlidePanel from '../_components/SlidePanel';
 import DealForm from '../_components/DealForm';
 import { Button, PageHeader } from '@/components/ui/app';
@@ -21,28 +22,19 @@ const STAGES = [
 type Deal = { id: string; title: string; value: number | null; stage: string; company_name: string | null; contact_name: string | null; expected_close: string | null; assigned_to_name: string | null; probability: number };
 
 export default function DealsPage() {
-  const [deals, setDeals] = useState<Deal[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [editDeal, setEditDeal] = useState<Deal | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
 
-  async function load() {
-    const res = await fetch('/api/crm/deals');
-    if (res.ok) setDeals((await res.json()).deals);
-    setLoading(false);
-  }
-  useEffect(() => { load(); }, []);
+  const {rows:deals,loading,error,reload:load} = useCrmList<Deal>('/api/crm/deals','deals');
 
+
+  const mutation=useCrmMutation('/api/crm/deals');
   async function moveStage(dealId: string, newStage: string) {
-    const deal = deals.find(d => d.id === dealId);
-    if (!deal || deal.stage === newStage) return;
-    setDeals(ds => ds.map(d => d.id === dealId ? { ...d, stage: newStage } : d));
-    await fetch(`/api/crm/deals/${dealId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...deal, stage: newStage }),
-    });
+    const deal=deals.find(d=>d.id===dealId);
+    if(!deal||deal.stage===newStage||loading||error||mutation.locked)return;
+    const saved=await mutation.run<Deal>(`/api/crm/deals/${dealId}`,'PATCH',{stage:newStage},'deal');
+    if(saved)load();
   }
 
   const totalPipeline = deals
@@ -52,6 +44,10 @@ export default function DealsPage() {
 
   return (
     <div>
+      {error && <p role="alert">{error}</p>}
+      {mutation.error && <p role="alert">{mutation.error}</p>}
+      <button type="button" disabled={loading || mutation.pending} onClick={load}>Refresh saved records</button>
+      {mutation.uncertain && <button type="button" disabled={mutation.pending} onClick={()=>mutation.review('/api/crm/deals','deals',load)}>Review saved records</button>}
       <PageHeader
         title="Deals"
         description={
@@ -94,7 +90,8 @@ export default function DealsPage() {
                   <button
                     type="button"
                     key={deal.id}
-                    draggable
+                    disabled={loading || !!error || mutation.locked}
+                    draggable={!mutation.locked && !loading && !error}
                     onDragStart={() => setDragging(deal.id)}
                     onDragEnd={() => setDragging(null)}
                     onClick={() => setEditDeal(deal)}
@@ -131,12 +128,12 @@ export default function DealsPage() {
       </div>
 
       <SlidePanel open={showAdd} onClose={() => setShowAdd(false)} title="Add Deal">
-        <DealForm onSaved={() => { setShowAdd(false); load(); }} />
+        <DealForm onReview={() => { setShowAdd(false); load(); }} onSaved={() => { setShowAdd(false); load(); }} />
       </SlidePanel>
 
       <SlidePanel open={!!editDeal} onClose={() => setEditDeal(null)} title="Edit Deal">
         {editDeal && (
-          <DealForm initial={editDeal} onSaved={() => { setEditDeal(null); load(); }}
+          <DealForm key={editDeal.id} onReview={() => { setEditDeal(null); load(); }} initial={editDeal} onSaved={() => { setEditDeal(null); load(); }}
             onDelete={() => { setEditDeal(null); load(); }} />
         )}
       </SlidePanel>

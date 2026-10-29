@@ -1,5 +1,6 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useCrmList, useCrmMutation } from '../_components/useCrmRecovery';
 import SlidePanel from '../_components/SlidePanel';
 import ActivityForm from '../_components/ActivityForm';
 import { Button, PageHeader, StateMessage, WorkToolbar, buttonProps } from '@/components/ui/app';
@@ -19,28 +20,27 @@ const PRESSED: React.CSSProperties = {
 type Activity = { id: string; type: string; subject: string; body: string | null; activity_date: string; created_by_name: string; contact_name: string | null; company_name: string | null; deal_title: string | null };
 
 export default function ActivitiesPage() {
-  const [activities, setActivities] = useState<Activity[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [filter, setFilter] = useState('');
 
-  async function load() {
-    const res = await fetch('/api/crm/activities?limit=100');
-    if (res.ok) setActivities((await res.json()).activities);
-    setLoading(false);
-  }
-  useEffect(() => { load(); }, []);
+  const {rows:activities,loading,error,reload:load} = useCrmList<Activity>('/api/crm/activities?limit=100','activities');
 
-  async function deleteActivity(id: string) {
-    if (!confirm('Delete this activity?')) return;
-    await fetch(`/api/crm/activities/${id}`, { method: 'DELETE' });
-    setActivities(a => a.filter(x => x.id !== id));
+
+  const mutation=useCrmMutation('/api/crm/activities');
+  async function deleteActivity(id:string){
+    if(mutation.locked||!confirm('Delete this activity?'))return;
+    const result=await mutation.run(`/api/crm/activities/${id}`,'DELETE');
+    if(result)load();
   }
 
   const filtered = activities.filter(a => !filter || a.type === filter);
 
   return (
     <div style={{ maxWidth: 860 }}>
+      {error && <p role="alert">{error}</p>}
+      {mutation.error && <p role="alert">{mutation.error}</p>}
+      <button type="button" disabled={loading || mutation.pending} onClick={load}>Refresh saved records</button>
+      {mutation.uncertain && <button type="button" disabled={mutation.pending} onClick={()=>mutation.review('/api/crm/activities?limit=100','activities',load)}>Review saved records</button>}
       <PageHeader
         title="Activities"
         description={`${activities.length} total`}
@@ -93,7 +93,7 @@ export default function ActivitiesPage() {
       </div>
 
       <SlidePanel open={showAdd} onClose={() => setShowAdd(false)} title="Log Activity">
-        <ActivityForm onSaved={() => { setShowAdd(false); load(); }} />
+        <ActivityForm onReview={() => { setShowAdd(false); load(); }} onSaved={() => { setShowAdd(false); load(); }} />
       </SlidePanel>
     </div>
   );

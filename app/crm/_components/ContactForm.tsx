@@ -1,5 +1,6 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useCrmList, useCrmMutation } from './useCrmRecovery';
 import { Button, Field, FormActions, FormError, fieldControlClassName } from '@/components/ui/app';
 import { CRM_CONTACT_CLASSIFICATIONS, CRM_CONTACT_CLASSIFICATION_LABELS, type CrmContactClassification } from '@/lib/crm/classification';
 
@@ -16,32 +17,25 @@ type Contact = {
 };
 type Company = { id: string; name: string };
 
-export default function ContactForm({ initial, onSaved }: { initial?: Contact; onSaved: (c: Contact) => void }) {
+export default function ContactForm({ initial, onSaved, onReview }: { initial?: Contact; onReview?: () => void; onSaved: (c: Contact) => void }) {
+  const mutation=useCrmMutation('/api/crm/contacts');
+  const {pending:saving,error}=mutation;
   const [form, setForm]       = useState<Contact>(initial ?? {});
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [saving, setSaving]   = useState(false);
-  const [error, setError]     = useState('');
-
-  useEffect(() => {
-    fetch('/api/crm/companies').then(r => r.json()).then(d => setCompanies(d.companies ?? []));
-  }, []);
+  const {rows:companies,error:lookupError}=useCrmList<Company>('/api/crm/companies','companies');
 
   const set = (k: keyof Contact) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setSaving(true); setError('');
-    const method = initial?.id ? 'PUT' : 'POST';
-    const url    = initial?.id ? `/api/crm/contacts/${initial.id}` : '/api/crm/contacts';
-    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
-    const data = await res.json();
-    if (!res.ok) { setError(data.error ?? 'Save failed.'); setSaving(false); return; }
-    onSaved(data.contact);
+    const payload=form;
+    const saved=await mutation.run<Contact>(initial?.id?`/api/crm/contacts/${initial.id}`:'/api/crm/contacts',initial?.id?'PUT':'POST',payload,'contact');
+    if(saved)onSaved(saved);
   }
 
   return (
     <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <fieldset disabled={mutation.locked} style={{border:0,padding:0,margin:0,display:'contents'}}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
         <TextField label="First Name" value={form.first_name ?? ''} onChange={set('first_name')} required />
         <TextField label="Last Name"  value={form.last_name  ?? ''} onChange={set('last_name')}  required />
@@ -80,12 +74,15 @@ export default function ContactForm({ initial, onSaved }: { initial?: Contact; o
         )}
       </Field>
 
+      {lookupError && <FormError>{lookupError}</FormError>}
       {error && <FormError>{error}</FormError>}
       <FormActions align="stretch">
         <Button type="submit" variant="primary" disabled={saving}>
           {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Contact'}
         </Button>
       </FormActions>
+      </fieldset>
+      {mutation.uncertain && <Button type="button" disabled={saving} onClick={()=>mutation.review('/api/crm/contacts','contacts',()=>onReview?.())}>Review saved records</Button>}
     </form>
   );
 }
