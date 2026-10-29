@@ -48,7 +48,7 @@ describe('the handler reads and writes nothing', () => {
 
   it('uses only the repository reads the calendar needs', () => {
     const reads = [...src.matchAll(/context\.(?:persistence\.config|availability)\.(\w+)\(/g)].map(m => m[1]);
-    expect([...new Set(reads)].sort()).toEqual(['getOffering', 'getSchedule', 'listExceptions', 'listLiveHoldsForResources', 'listOfferingResources', 'listResources', 'listRules']);
+    expect([...new Set(reads)].sort()).toEqual(['getOffering', 'getSchedule', 'listExceptionsForOwners', 'listLiveHoldsForResources', 'listOfferingResources', 'listResources', 'listRulesForOwners', 'listZonesForOwners']);
   });
 
   it('accepts only from, to and (for an offering) step, and caps the range', () => {

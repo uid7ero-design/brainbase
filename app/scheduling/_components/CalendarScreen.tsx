@@ -125,6 +125,8 @@ export default function CalendarScreen({ kind, id, canManage }: { kind: 'offerin
           <StateMessage kind="empty" size="page" title="The calendar isn’t set up yet" action={<Button className={styles.touch} onClick={calendar.reload}>Check again</Button>}>
             Hours aren’t set up on this installation yet. Ask a BrainBase admin to finish the setup.
           </StateMessage>
+        ) : p.code === 'CALENDAR_TOO_LARGE' ? (
+          <StateMessage kind="empty" size="page" title="Too many resources to draw">{p.message}</StateMessage>
         ) : p.code === 'CALENDAR_UNAVAILABLE' ? (
           <StateMessage kind="error" title="These hours can’t be drawn as a calendar" action={<Button className={styles.touch} onClick={calendar.reload}>Try again</Button>}>
             {p.problems.length > 0 ? p.problems.join(' ') : 'The saved hours need review on the hours screen.'}
@@ -192,7 +194,7 @@ export default function CalendarScreen({ kind, id, canManage }: { kind: 'offerin
       </div>
 
       <h2 className={styles.calRange} data-testid="range-heading">{rangeHeading(view.fromDate, view.toDate)}</h2>
-      {calendar.problem && <p className={styles.notice} role="alert">The calendar could not be refreshed, so what you see may be out of date. <Button variant="ghost" size="sm" onClick={calendar.reload}>Try again</Button></p>}
+      {calendar.problem && <p className={styles.notice} role="alert">The calendar could not be refreshed, so what you see may be out of date. <Button variant="ghost" size="sm" className={styles.touch} onClick={calendar.reload}>Try again</Button></p>}
 
       <Panel title="Timezone">
         <p className={styles.zoneFacts}>

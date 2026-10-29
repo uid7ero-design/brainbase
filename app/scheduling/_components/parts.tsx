@@ -50,7 +50,7 @@ export function LoadError({ problem, onRetry }: { problem: ApiProblem; onRetry: 
   if (problem.notConfigured) return <StateMessage kind="empty" size="page" title="Scheduling isn’t set up yet">{problem.message}</StateMessage>;
   if (problem.denied) return <StateMessage kind="error" size="page" title="You can’t view this">{problem.message}</StateMessage>;
   return (
-    <StateMessage kind="error" size="page" title="We couldn’t load this" action={<Button onClick={onRetry}>Try again</Button>}>
+    <StateMessage kind="error" size="page" title="We couldn’t load this" action={<Button className={styles.touch} onClick={onRetry}>Try again</Button>}>
       {problem.message}
     </StateMessage>
   );

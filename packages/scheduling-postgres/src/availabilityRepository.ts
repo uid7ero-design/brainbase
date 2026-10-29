@@ -2,6 +2,7 @@ import {
   AvailabilityNotReadyError,
   AvailabilityZonesNotReadyError,
   isIanaTimezone,
+  MAX_BATCH_OWNERS,
   MAX_RULE_BATCH,
   PartialClosuresNotReadyError,
   SchedulingError,
@@ -211,6 +212,56 @@ export class PostgresAvailabilityRepository implements SchedulingAvailabilityRep
       return r ? { timezone: r.timezone, source: r.source, pinnedBy: r.pinned_by, pinnedAt: r.pinned_at } : null;
     } catch (err) {
       if (err instanceof AvailabilityZonesNotReadyError) return null;
+      throw err;
+    }
+  }
+
+  // ── batched reads (the calendar): the same rows as the per-owner reads, for many owners of one kind in ONE statement each ──────────────────────────
+  // Every statement is tenant-scoped (organisation_id = $1) BEFORE the owner filter, so an id from another organisation matches nothing. They never write.
+
+  private batchIds(ownerIds: readonly string[]): string[] {
+    const ids = [...new Set(ownerIds)];
+    if (ids.length > MAX_BATCH_OWNERS) throw invalid([`at most ${MAX_BATCH_OWNERS} owners can be read at once`]);
+    return ids;
+  }
+
+  async listRulesForOwners(tenant: TenantContext, kind: AvailabilityOwner['kind'], ownerIds: readonly string[]): Promise<StoredAvailabilityRule[]> {
+    this.view(tenant);
+    const ids = this.batchIds(ownerIds);
+    if (ids.length === 0) return [];
+    const column = this.ownerColumn({ kind, id: '' });
+    const rows = await this.read(
+      `SELECT ${RULE_COLUMNS} FROM scheduling_availability_rules r WHERE r.organisation_id = $1 AND r.${column} = ANY($2::text[]) ORDER BY r.day_of_week, r.start_time, r.id`,
+      [tenant.organisationId, ids],
+    );
+    return rows.map(toRule);
+  }
+
+  async listExceptionsForOwners(tenant: TenantContext, kind: AvailabilityOwner['kind'], ownerIds: readonly string[]): Promise<StoredAvailabilityException[]> {
+    this.view(tenant);
+    const ids = this.batchIds(ownerIds);
+    if (ids.length === 0) return [];
+    const column = this.ownerColumn({ kind, id: '' });
+    const rows = await this.read(
+      `SELECT ${EXCEPTION_COLUMNS} FROM scheduling_availability_exceptions e WHERE e.organisation_id = $1 AND e.${column} = ANY($2::text[]) ORDER BY e.from_date, e.to_date, e.id`,
+      [tenant.organisationId, ids],
+    );
+    return rows.map(toException);
+  }
+
+  async listZonesForOwners(tenant: TenantContext, kind: AvailabilityOwner['kind'], ownerIds: readonly string[]): Promise<Array<StoredAvailabilityZone & { ownerId: string }>> {
+    this.view(tenant);
+    const ids = this.batchIds(ownerIds);
+    if (ids.length === 0) return [];
+    try {
+      const rows = await this.read(
+        `SELECT owner_id, timezone, source, pinned_by, ${STAMP('pinned_at')} AS pinned_at FROM scheduling_availability_zones
+          WHERE organisation_id = $1 AND owner_kind = $2 AND owner_id = ANY($3::text[])`,
+        [tenant.organisationId, kind, ids],
+      );
+      return rows.map(r => ({ ownerId: r.owner_id as string, timezone: r.timezone, source: r.source, pinnedBy: r.pinned_by, pinnedAt: r.pinned_at }));
+    } catch (err) {
+      if (err instanceof AvailabilityZonesNotReadyError) return [];
       throw err;
     }
   }
