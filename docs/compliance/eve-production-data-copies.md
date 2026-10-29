@@ -56,7 +56,7 @@ PR states read from GitHub on 2026-10-24.
 
 | 30 | rehearse/scheduling-032-after-031-20261024 · br-muddy-mode-a724td4r | proof | 2026-10-24 | Scheduling | yes | yes — active 030/031/032 rehearsal, kept pending owner review | max 2026-10-31 (owner decision pending) | no | **B** |
 | 31 | snap-sweet-smoke-a71semfx · pre-eve-free-legal-notice-20261026 | snapshot | 2026-10-25 14:44Z | Eve | yes | yes — rollback point before the free-order legal-notice migration (PR #502) | 2026-11-25 (Neon `expires_at` set, auto-expires) | n/a | **C** |
-| 32 | preview/feat/eve-free-order-legal-notice · br-still-sea-a7hliwa0 | Preview | 2026-10-25 | Eve | yes | yes — PR #502 Preview DB; the legal-notice migration was rehearsed here (applied, kept) | PR close, max 2026-11-08 | no | **C** |
+| 32 | preview/feat/eve-free-order-legal-notice · br-still-sea-a7hliwa0 | Preview | 2026-10-25 | Eve | yes | no — PR #502 merged 2026-10-25 (184a76e0) | **gone 2026-10-26** — removed by the Vercel integration on merge, along with its branch-scoped Preview DB settings | no | **C** |
 
 #30: parent `production`, no children, no Vercel DB setting.
 
@@ -197,7 +197,7 @@ Where a Preview row has an env var, remove the branch-scoped var (or the git bra
 | snap-rapid-queen-a78cx09w | 2026-11-21 |
 | snap-red-dream-a7t242s1 · pre-eve-registration-questions-20261024 (rollback point before the registration-questions migration; created 2026-10-24 11:32Z) | 2026-11-23 (Neon `expires_at` set, auto-expires) |
 | snap-sweet-smoke-a71semfx · pre-eve-free-legal-notice-20261026 (rollback point before the free-order legal-notice migration; created 2026-10-25 14:44Z) | 2026-11-25 (Neon `expires_at` set, auto-expires) |
-| br-still-sea-a7hliwa0 (PR #502 Preview) | when PR #502 closes, max 2026-11-08 |
+| br-still-sea-a7hliwa0 (PR #502 Preview) | **gone** — removed by the Vercel integration when #502 merged (confirmed absent 2026-10-26); no Vercel branch-scoped env entries remain |
 
 Note (2026-10-24): br-polished-dust-a7iw42u3 now has the registration-questions migration applied. It was the Production rehearsal; no data changed.
 
