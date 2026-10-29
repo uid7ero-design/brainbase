@@ -109,6 +109,9 @@ echo "DATABASE_URL=$DATABASE_URL (disposable container only)"
 echo ""
 echo "=== Running dataset-profile execution and D4D5N upload count integration proofs ==="
 if [ "${DATAHUB_MAPPING_PROOF:-}" = "1" ]; then
+  # Current main's login/navigation reads this manual SQL-owned access table.
+  # Only this disposable database is provisioned, never an external target.
+  docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1 < "$REPO_ROOT/scripts/create-organisation-user-administration.sql" >"$DIAG_OUT" 2>&1 || { cat "$DIAG_OUT"; exit 2; }
   for f in "$REPO_ROOT/scripts/create-datahub-governed-schema-immutability.sql" "$REPO_ROOT/scripts/create-datahub-mapping-confirmations.sql" "$REPO_ROOT/scripts/create-datahub-mapping-confirmations.sql"; do
     docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1 < "$f" >"$DIAG_OUT" 2>&1 || { cat "$DIAG_OUT"; exit 2; }
   done
