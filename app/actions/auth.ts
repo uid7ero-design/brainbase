@@ -13,7 +13,7 @@ export async function login(prevState: LoginState, formData: FormData): Promise<
   const result = await sql`SELECT * FROM users WHERE username = ${username}`;
   const user = result[0];
 
-  if (!user) {
+  if (!user || (user.status && user.status !== 'ACTIVE')) {
     return { error: 'Invalid username or password.' };
   }
 

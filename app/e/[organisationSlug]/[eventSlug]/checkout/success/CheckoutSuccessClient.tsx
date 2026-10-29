@@ -26,7 +26,14 @@ const RED = 'var(--bbpe-red)';
 type StatusResponse = {
   payment_status: string;
   order_status: string;
+  // What the purchaser PAID (Phase 5A: payment_total_cents — the ticket
+  // total plus any pass-through booking fee; identical to the ticket
+  // total on every zero-fee order).
   amount_total_cents: number;
+  // Phase 5A — optional split, absent from an older payload shape.
+  ticket_total_cents?: number;
+  fee_cents?: number;
+  fee_label?: string | null;
   currency: string;
   tickets: { attendee_name: string; ticket_token: string }[];
 };
@@ -201,7 +208,13 @@ function ConfirmedState({ status }: { status: StatusResponse }) {
       <IconCircle tone="ok"><CheckCircle2 size={28} color={GREEN} /></IconCircle>
       <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 6px', letterSpacing: '-.01em' }}>Payment confirmed</h1>
       <p style={{ fontSize: 14, color: TEXT_SECONDARY, margin: '0 0 20px' }}>
-        You paid <strong style={{ color: TEXT_PRIMARY, fontWeight: 600 }}>{formatAmount(status.amount_total_cents, status.currency)}</strong>. Your registration is confirmed.
+        You paid <strong style={{ color: TEXT_PRIMARY, fontWeight: 600 }}>{formatAmount(status.amount_total_cents, status.currency)}</strong>
+        {(status.fee_cents ?? 0) > 0 && typeof status.ticket_total_cents === 'number' && (
+          // Phase 5A — factual split only: tickets + the pass-through fee
+          // the purchaser paid. No tax wording of any kind here (see
+          // docs/architecture/decisions/0004-ticketing-fees-and-gst-foundation.md).
+          <span data-testid="paid-breakdown"> ({formatAmount(status.ticket_total_cents, status.currency)} tickets + {formatAmount(status.fee_cents as number, status.currency)} {status.fee_label ?? 'booking fee'})</span>
+        )}. Your registration is confirmed.
       </p>
 
       {status.tickets.length > 0 && (

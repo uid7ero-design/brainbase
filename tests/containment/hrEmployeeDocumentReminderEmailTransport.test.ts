@@ -40,6 +40,9 @@ function activeContext(overrides: Record<string, unknown> = {}) {
     recipient_name: 'Employee Example',
     recipient_status: 'ACTIVE',
     document_title: 'Safety policy',
+    person_linked_user_id: 'employee-user',
+    is_hr_administrator: false,
+    has_people_access: true,
     ...overrides,
   };
 }
@@ -51,6 +54,12 @@ beforeEach(() => {
 });
 
 describe('HR-7E5E employee document reminder email transport', () => {
+  it('does not send document details after People module access is removed',async()=>{
+    sqlMock.mockResolvedValueOnce([activeContext({has_people_access:false})]);
+    const transport=createEmployeeDocumentReminderEmailTransport({organisationId:'org-a'});
+    expect(await transport(DELIVERY)).toEqual({outcome:'definite_failure',failureCode:'recipient_module_access_unavailable'});
+    expect(sendEmailMock).not.toHaveBeenCalled();
+  });
   it('resolves reminder context inside the active organisation and exact version', async () => {
     const transport = createEmployeeDocumentReminderEmailTransport({
       organisationId: 'org-a',
@@ -173,4 +182,17 @@ describe('HR-7E5E employee document reminder email transport', () => {
     expect(message.html).not.toContain('<Safety & Conduct>');
     expect(message.html).toContain('review and verify');
   });
+});
+
+it('does not send document metadata after recipient self access is revoked', async () => {
+  sqlMock.mockResolvedValue([activeContext({ person_linked_user_id: null })]);
+  await expect(createEmployeeDocumentReminderEmailTransport({ organisationId: 'org-a' })(DELIVERY)).resolves.toEqual({
+    outcome: 'definite_failure', failureCode: 'recipient_document_access_unavailable',
+  });
+  expect(sendEmailMock).not.toHaveBeenCalled();
+});
+it('uses current HR authority for a recipient without self access', async () => {
+  sqlMock.mockResolvedValue([activeContext({ person_linked_user_id: null, is_hr_administrator: true })]);
+  await expect(createEmployeeDocumentReminderEmailTransport({ organisationId: 'org-a' })(DELIVERY)).resolves.toEqual({ outcome: 'sent' });
+  expect(sendEmailMock).toHaveBeenCalledTimes(1);
 });

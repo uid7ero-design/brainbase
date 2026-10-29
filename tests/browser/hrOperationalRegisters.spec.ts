@@ -1,0 +1,237 @@
+import { hrRegisterFixture } from '../helpers/hrRegisterFixture';
+import { test, expect } from '@playwright/test';
+import { build } from 'vite';
+import path from 'node:path';
+
+const modes = ['lifecycle', 'tasks', 'documents', 'people'] as const;
+const bundles = new Map<string, string>();
+test.beforeAll(async () => {
+  for (const mode of [...modes, 'people-drawer', 'teams', 'administrators', 'restricted-cases']) {
+    const file = mode.startsWith('people') ? 'app/people/page.tsx' : mode === 'tasks' ? 'app/people/lifecycle/tasks/page.tsx' : `app/people/${mode}/page.tsx`;
+    const result = await build({ configFile: false, logLevel: 'error', resolve: { alias: { '@': process.cwd() } },
+      define: { 'process.env.NODE_ENV': JSON.stringify('production'), 'process.env': '{}' }, oxc: { jsx: { runtime: 'automatic' } },
+      plugins: [{ name: 'hr-register-browser-harness', enforce: 'pre', resolveId(id) {
+        if (id.replaceAll('\\', '/').endsWith('/hr-browser-entry')) return '\0hr-browser-entry';
+        if (!['people-drawer', 'teams', 'restricted-cases'].includes(mode) && /\/_components\/SlidePanel(?:\.tsx)?$/.test(id.replaceAll('\\', '/'))) return '\0panel';
+        if (/\/_components\/PersonForm(?:\.tsx)?$/.test(id.replaceAll('\\', '/'))) return '\0form';
+        if (id === 'hr-browser-entry' || id === 'next/link') return `\0${id}`;
+        if (mode !== 'people-drawer' && /\/_components\/PersonDrawer(?:\.tsx)?$/.test(id.replaceAll('\\', '/'))) return '\0drawer';
+      }, load(id) {
+        if (id === '\0next/link') return "import {createElement} from 'react'; export default function Link(props){return createElement('a',props)}";
+        if (id === '\0panel') return 'export default function Panel({open,children}){return open?children:null}';
+        if (id === '\0form') return 'export default function Form(){return null}';
+        if (id === '\0drawer') return "import {createElement as h} from 'react'; export default function Drawer({personId,onClose}){return personId?h('div',{},h('span',{},'Selected '+personId),h('button',{onClick:onClose},'Close person')):null}";
+        if (id === '\0hr-browser-entry') return `import {createElement} from 'react'; import {createRoot} from 'react-dom/client'; import Page from ${JSON.stringify(path.resolve(file).replaceAll('\\', '/'))}; createRoot(document.getElementById('root')).render(createElement(Page));`;
+      } }], build: { write: false, lib: { entry: 'hr-browser-entry', name: 'HRBrowser', formats: ['iife'] } } });
+    const built = Array.isArray(result) ? result[0] : result;
+    if (!('output' in built)) throw new Error('Expected browser bundle');
+    bundles.set(mode, built.output.filter(item => item.type === 'chunk').map(item => item.code).join('\n'));
+  }
+});
+
+for (const mode of modes) test(`${mode} search, filters, pages, drawer refresh and safe failure`, async ({ page }) => {
+  const errors: string[] = [], methods: string[] = [];
+  let fail = false, shrink = false;
+  page.on('pageerror', error => errors.push(error.message));
+  const people = Array.from({ length: 61 }, (_, i) => ({ id: `p-${i}`, first_name: `Worker ${String(i + 1).padStart(3, '0')}`, last_name: 'Fixture', job_title: i === 60 ? 'Special engineer' : null, team_name: i === 59 ? 'Delivery' : null, manager_first_name: null, manager_last_name: null, employment_status: i % 2 ? 'inactive' : 'active', worker_type: i % 2 ? 'contractor' : 'employee' }));
+  const workflows = people.map((person, i) => ({ person_id: person.id, workflow_id: `w-${i}`, lifecycle_type: i % 2 ? 'offboarding' : 'onboarding', visible_tasks: 1, outstanding_tasks: 1, awaiting_approval: 0, overdue_tasks: 1 }));
+  const tasks = workflows.map((workflow, i) => ({ ...workflow, task_id: `t-${i}`, title: `Task ${i + 1}`, status: 'NOT_STARTED', due_at: null, overdue: false }));
+  const documents = people.map(person => ({ person_id: person.id, first_name: person.first_name, last_name: person.last_name, documents: 1, missing_version: 0, pending_acknowledgement: 1, unlinked_employee: 0, pending_verification: 1, rejected: 0, expired: 1, expiring_soon: 0 }));
+  await page.route('http://brainbase.local/**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<div id="root"></div>' });
+    methods.push(route.request().method());
+    if (fail) return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"secret"}' });
+    const rows = <T,>(values: T[]) => shrink ? values.slice(0, 1) : values;
+    const body = url.pathname === '/api/hr/people' ? { people } : mode === 'people' ? { people: rows(people), canManage: true } : mode === 'tasks' ? { as_of: '2026-10-09T00:00:00Z', tasks: rows(tasks) }
+      : mode === 'documents' ? { as_of_date: '2026-10-09', expiring_through: '2026-11-08', people: rows(documents) } : { workflows: rows(workflows) };
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(hrRegisterFixture(body, url.href, people)) });
+  });
+  await page.goto('http://brainbase.local/'); await page.addScriptTag({ content: bundles.get(mode)! });
+  await expect(page.getByRole('button', { name: 'Worker 001 Fixture', exact: true })).toBeVisible();
+  await expect(page.getByRole('row')).toHaveCount(26);
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Worker 026 Fixture', exact: true })).toBeVisible();
+  const search = page.getByLabel(mode === 'people' ? 'Search people, job titles or teams' : mode === 'tasks' ? 'Search people or tasks' : 'Search people', { exact: true });
+  await search.fill('Worker 061');
+  await expect(page.getByRole('status')).toContainText('Page 1 of 1');
+  await page.getByRole('button', { name: 'Worker 061 Fixture', exact: true }).click();
+  await expect(page.getByText('Selected p-60', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Close person' }).click();
+  await search.fill('');
+  if (mode === 'people') {
+    await search.fill('Special engineer');
+    await expect(page.getByRole('button', { name: 'Worker 061 Fixture', exact: true })).toBeVisible();
+    await search.fill('Delivery');
+    await expect(page.getByRole('button', { name: 'Worker 060 Fixture', exact: true })).toBeVisible();
+    await search.fill('');
+    for (const [label, value] of [['Employment status', 'inactive'], ['Worker type', 'contractor']]) {
+      await page.getByRole('combobox', { name: label, exact: true }).selectOption(value);
+      await expect(page.getByRole('status')).toContainText('30 matching rows');
+      await page.getByRole('combobox', { name: label, exact: true }).selectOption('all');
+    }
+  } else if (mode !== 'documents') {
+    await page.getByRole('combobox', { name: /^Lifecycle/ }).selectOption('offboarding');
+    await expect(page.getByRole('status')).toContainText('30 matching rows');
+    await page.getByRole('combobox', { name: /^Lifecycle/ }).selectOption('all');
+  }
+  await search.fill('Worker 061');
+  await expect(page.getByRole('button', { name: 'Worker 061 Fixture', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Reset view', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect(search).toHaveValue('');
+  await expect(page.getByRole('status')).toContainText('61 matching rows');
+  await expect(page.getByRole('button', { name: 'Reset view', exact: true })).toBeDisabled();
+  await expect(page.getByRole('navigation', { name: 'HR operational views' }).getByRole('link')).toHaveCount(4);
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  shrink = true; await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Page 1 of 1');
+  fail = true; await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByText(/Unable to load .*Please refresh to try again/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Worker 001 Fixture', exact: true })).toHaveCount(0);
+  await expect(page.getByText('secret', { exact: true })).toHaveCount(0);
+  expect(errors).toEqual([]); expect(methods.every(method => method === 'GET')).toBe(true);
+});
+
+for (const detailFailure of [false, true]) test(`real person drawer: ${detailFailure ? 'generic failure and reopening recovery' : 'document denial, keyboard close and refresh'}`, async ({ page }) => {
+  const errors: string[] = [], methods: string[] = [];
+  const person = { id: 'p-selected', first_name: 'Alex', last_name: 'Fixture', job_title: 'Operator', employment_status: 'active', worker_type: 'employee', team_name: null, manager_first_name: null, manager_last_name: null };
+  let fail = detailFailure, registerReads = 0;
+  page.on('pageerror', error => errors.push(error.message));
+  await page.route('http://brainbase.local/**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<div id="root"></div>' });
+    methods.push(route.request().method());
+    const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+    if (url.pathname === '/api/hr/people/register') {
+      registerReads++;
+      return json(hrRegisterFixture({ people: [person], canManage: false }, url.href, [person]));
+    }
+    if (url.pathname === '/api/hr/people/p-selected') return fail ? json({ error: 'database secret' }, 503) : json({ person });
+    if (url.pathname === '/api/hr/lifecycle/workflows') return json({ workflows: [], capabilities: { can_start_workflow: false } });
+    if (url.pathname === '/api/hr/people/p-selected/documents') return json({ error: 'document secret' }, 403);
+    return json({ error: 'Unexpected fixture request' }, 500);
+  });
+  await page.goto('http://brainbase.local/'); await page.addScriptTag({ content: bundles.get('people-drawer')! });
+  const selected = page.getByRole('button', { name: 'Alex Fixture', exact: true });
+  await selected.click();
+  const dialog = page.getByRole('dialog', { name: 'Person', exact: true });
+  await expect(dialog).toBeVisible();
+  if (detailFailure) {
+    await expect(dialog.getByText('Could not load person.', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('database secret', { exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    fail = false; await selected.click();
+  }
+  await expect(dialog.getByText('Operator', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('document secret', { exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: /Edit|Upload|Verify|Acknowledge|Start workflow/i })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(selected).toBeFocused();
+  await expect.poll(() => registerReads).toBe(detailFailure ? 3 : 2);
+  expect(errors).toEqual([]); expect(methods.every(method => method === 'GET')).toBe(true);
+});
+
+for (const action of ['grant', 'revoke', 'create', 'edit', 'archive', 'restore']) test(`administration: uncertain ${action} requires reconciliation without repeating writes`, async ({ page }) => {
+  const mode = ['grant', 'revoke'].includes(action) ? 'administrators' : 'teams';
+  const errors: string[] = [], writes: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.route('http://brainbase.local/**', async route => {
+    const request = route.request(), url = new URL(request.url());
+    if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<div id="root"></div>' });
+    if (request.method() !== 'GET') { writes.push(`${request.method()} ${url.pathname}`); return route.abort('failed'); }
+    const body = mode === 'administrators'
+      ? { users: [{ id: 'admin', name: 'Alex Administrator', email: null, is_hr_administrator: true, grant_eligible: false }, { id: 'candidate', name: 'Morgan Candidate', email: null, is_hr_administrator: false, grant_eligible: true }] }
+      : url.pathname === '/api/hr/teams' ? { teams: [{ id: 'team', name: 'Delivery', description: null, manager_person_id: null, archived_at: action === 'restore' ? '2026-10-01' : null }] } : { people: [], canManage: true };
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
+  });
+  await page.goto('http://brainbase.local/'); await page.addScriptTag({ content: bundles.get(mode)! });
+  await expect(page.getByText(mode === 'teams' ? 'Delivery' : 'Alex Administrator', { exact: true })).toBeVisible();
+  if (action === 'grant') {
+    await page.getByLabel('User to grant HR administrator access').selectOption('candidate');
+    await page.getByRole('button', { name: 'Grant', exact: true }).click();
+  } else if (action === 'revoke') {
+    await page.getByRole('button', { name: 'Revoke HR administrator access for Alex Administrator', exact: true }).click();
+    await page.getByRole('button', { name: 'Confirm revoke HR administrator access for Alex Administrator', exact: true }).click();
+  } else if (action === 'archive') {
+    await page.getByRole('button', { name: 'Archive Delivery', exact: true }).click();
+    await page.getByRole('button', { name: 'Confirm archive Delivery', exact: true }).click();
+  } else if (action === 'restore') await page.getByRole('button', { name: 'Restore Delivery', exact: true }).click();
+  else {
+    await page.getByRole('button', { name: action === 'create' ? '+ Create Team' : 'Edit Delivery', exact: true }).click();
+    await page.getByLabel(/^Name/).fill('Preserved draft');
+    await page.getByRole('button', { name: action === 'create' ? 'Create Team' : 'Save changes', exact: true }).click();
+    await expect(page.getByText(/Close this form and refresh Teams/)).toBeVisible();
+    await expect(page.getByLabel(/^Name/)).toHaveValue('Preserved draft');
+    await expect(page.getByRole('button', { name: action === 'create' ? 'Create Team' : 'Save changes', exact: true })).toBeDisabled();
+    await page.keyboard.press('Escape');
+  }
+  await expect(page.getByText(/change outcome is unknown/)).toBeVisible();
+  expect(writes).toHaveLength(1);
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByText(mode === 'teams' ? 'Delivery' : 'Alex Administrator', { exact: true })).toBeVisible();
+  expect(writes).toHaveLength(1); expect(errors).toEqual([]);
+});
+
+for (const mode of ['teams', 'administrators']) test(`${mode} administration: denial clears controls and refresh recovers safely`, async ({ page }) => {
+  let fail = false;
+  const errors: string[] = [], methods: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.route('http://brainbase.local/**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<div id="root"></div>' });
+    methods.push(route.request().method());
+    const body = fail ? { error: 'server secret' } : mode === 'administrators'
+      ? { users: [{ id: 'admin', name: 'Alex Administrator', email: null, is_hr_administrator: true, grant_eligible: false }, { id: 'candidate', name: 'Morgan Candidate', email: null, is_hr_administrator: false, grant_eligible: true }] }
+      : url.pathname === '/api/hr/teams' ? { teams: [{ id: 'team', name: 'Delivery', description: null, manager_person_id: null, archived_at: null }] } : { people: [], canManage: true };
+    return route.fulfill({ status: fail ? 403 : 200, contentType: 'application/json', body: JSON.stringify(body) });
+  });
+  await page.goto('http://brainbase.local/'); await page.addScriptTag({ content: bundles.get(mode)! });
+  const name = mode === 'teams' ? 'Delivery' : 'Alex Administrator';
+  const action = mode === 'teams' ? '+ Create Team' : 'Grant';
+  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: action, exact: true })).toBeVisible();
+  fail = true; await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByText(/Please refresh to try again/)).toBeVisible();
+  await expect(page.getByText(name, { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: action, exact: true })).toHaveCount(0);
+  await expect(page.getByText('server secret', { exact: true })).toHaveCount(0);
+  fail = false; await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  expect(errors).toEqual([]); expect(methods.every(method => method === 'GET')).toBe(true);
+});
+
+test('restricted list recovers denied reads and keeps uncertain creation locked after dismissal', async ({ page }) => {
+  let failRead = true;
+  let writes = 0;
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.route('http://brainbase.local/**', async route => {
+    const request = route.request(); const url = new URL(request.url());
+    if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<div id="root"></div>' });
+    if (request.method() === 'POST') { writes++; return route.abort('failed'); }
+    if (failRead && url.pathname === '/api/hr/restricted-cases') return route.fulfill({ status: 403, json: { error: 'sensitive denial' } });
+    return route.fulfill({ json: url.pathname === '/api/hr/restricted-cases' ? { cases: [] }
+      : url.pathname === '/api/hr/administrators' ? { users: [] } : {} });
+  });
+  await page.goto('http://brainbase.local/'); await page.addScriptTag({ content: bundles.get('restricted-cases')! });
+  await expect(page.getByText('Could not load restricted HR cases. Refresh to try again.')).toBeVisible();
+  await expect(page.getByRole('button', { name: '+ Open Case' })).toHaveCount(0);
+  await expect(page.locator('body')).not.toContainText('sensitive denial');
+  failRead = false;
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await page.getByRole('button', { name: '+ Open Case', exact: true }).click();
+  await page.getByRole('textbox', { name: /^Title/ }).fill('Synthetic restricted draft');
+  await page.getByRole('button', { name: 'Open Case', exact: true }).click();
+  await expect(page.getByText('The change could not be confirmed. Do not open this case again until its creation and access have been checked.')).toBeVisible();
+  await expect(page.getByRole('textbox', { name: /^Title/ })).toHaveValue('Synthetic restricted draft');
+  await page.getByRole('button', { name: 'Close Open Restricted Case' }).click();
+  await expect(page.getByRole('button', { name: '+ Open Case', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByText('No restricted cases are currently available to you.')).toBeVisible();
+  await expect(page.getByRole('button', { name: '+ Open Case', exact: true })).toBeDisabled();
+  expect(writes).toBe(1); expect(errors).toEqual([]);
+});

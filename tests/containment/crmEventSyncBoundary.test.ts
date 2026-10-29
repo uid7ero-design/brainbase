@@ -204,22 +204,42 @@ describe('lib/crm/eventSync.ts — static source boundary proof', () => {
 })
 
 describe('call sites — CRM sync happens AFTER the booking transaction/UPDATE, never inside it', () => {
+  // Eve Phase 1: the booking transaction now lives in the shared
+  // service, which invokes the caller's post-commit hook; the register
+  // route supplies syncEventOrderContact inside that hook. The invariant
+  // ("CRM sync only after the transaction") is asserted at both ends.
   it('free registration route: syncEventOrderContact is called after the transaction try/catch block, using orderId from insertResult', () => {
-    const source = read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts')
-    const transactionCatchIdx = source.indexOf("console.error('[public register] transaction failed'")
-    const syncCallIdx = source.indexOf('await syncEventOrderContact(')
+    const service = read('lib/events/services/freeRegistration.ts')
+    const transactionCatchIdx = service.indexOf("console.error('[public register] transaction failed'")
+    const orderIdIdx = service.indexOf('const orderId = insertResult[0].order_id;')
+    const hookIdx = service.indexOf('await input.onCommitted(orderId)')
     expect(transactionCatchIdx).toBeGreaterThan(-1)
-    expect(syncCallIdx).toBeGreaterThan(transactionCatchIdx)
+    expect(orderIdIdx).toBeGreaterThan(transactionCatchIdx)
+    expect(hookIdx).toBeGreaterThan(orderIdIdx)
+    expect(service).not.toContain('syncEventOrderContact')
+
+    const route = read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts')
+    const hookDefIdx = route.indexOf('onCommitted: async (orderId) => {')
+    const syncCallIdx = route.indexOf('await syncEventOrderContact(')
+    expect(hookDefIdx).toBeGreaterThan(-1)
+    expect(syncCallIdx).toBeGreaterThan(hookDefIdx)
   })
 
   it('paid checkout route: syncEventOrderContact is called after the reservation transaction and after responses are written, before the Stripe Checkout Session call', () => {
-    const source = read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts')
-    const responsesWrittenIdx = source.indexOf('await writeRegistrationResponses(')
-    const syncCallIdx = source.indexOf('await syncEventOrderContact(')
-    const stripeSessionIdx = source.indexOf('await createCheckoutSession(')
+    const service = read('lib/events/services/paidCheckout.ts')
+    const responsesWrittenIdx = service.indexOf('await writeRegistrationResponses(')
+    const hookIdx = service.indexOf('await input.onReserved(orderId)')
+    const stripeSessionIdx = service.indexOf('await createCheckoutSession(')
     expect(responsesWrittenIdx).toBeGreaterThan(-1)
-    expect(syncCallIdx).toBeGreaterThan(responsesWrittenIdx)
-    expect(stripeSessionIdx).toBeGreaterThan(syncCallIdx)
+    expect(hookIdx).toBeGreaterThan(responsesWrittenIdx)
+    expect(stripeSessionIdx).toBeGreaterThan(hookIdx)
+    expect(service).not.toContain('syncEventOrderContact')
+
+    const route = read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts')
+    const hookDefIdx = route.indexOf('onReserved: async (orderId) => {')
+    const syncCallIdx = route.indexOf('await syncEventOrderContact(')
+    expect(hookDefIdx).toBeGreaterThan(-1)
+    expect(syncCallIdx).toBeGreaterThan(hookDefIdx)
   })
 
   it('lib/events/stripe.ts: recordEventBookingActivityForOrder is called after each webhook handler\'s own UPDATE statement, not before', () => {
@@ -234,15 +254,34 @@ describe('call sites — CRM sync happens AFTER the booking transaction/UPDATE, 
   })
 
   it('cancel and refund routes call recordEventBookingActivityForOrder only after their own conditional UPDATE has matched a row', () => {
-    const cancelSource = read('app/api/events/[id]/orders/[orderId]/cancel/route.ts')
-    const cancelUpdateIdx = cancelSource.indexOf("SET status = 'CANCELLED', payment_status = 'EXPIRED'")
-    const cancelSyncIdx = cancelSource.indexOf('await recordEventBookingActivityForOrder(')
-    expect(cancelSyncIdx).toBeGreaterThan(cancelUpdateIdx)
+    // Eve Phase 1: both transitions live in the shared service, which
+    // invokes the caller's post-transition hook only after its own
+    // conditional UPDATE matched; both routes pass
+    // recordEventBookingActivityForOrder as that hook.
+    const service = read('lib/events/services/orderTransitions.ts')
+    const cancelFnIdx = service.indexOf('export async function cancelOrder(')
+    const refundFnIdx = service.indexOf('export async function refundPaidOrder(')
+    expect(refundFnIdx).toBeGreaterThan(-1)
+    expect(cancelFnIdx).toBeGreaterThan(refundFnIdx)
+    const refundSource = service.slice(refundFnIdx, cancelFnIdx)
+    const cancelSource = service.slice(cancelFnIdx)
 
-    const refundSource = read('app/api/events/[id]/orders/[orderId]/refund/route.ts')
+    const cancelUpdateIdx = cancelSource.indexOf("SET status = 'CANCELLED', payment_status = 'EXPIRED'")
+    const cancelAlreadyResolvedIdx = cancelSource.indexOf('return { ok: true, alreadyResolved: true };')
+    const cancelSyncIdx = cancelSource.indexOf('await input.onTransitioned(orderId)')
+    expect(cancelUpdateIdx).toBeGreaterThan(-1)
+    expect(cancelSyncIdx).toBeGreaterThan(cancelUpdateIdx)
+    expect(cancelSyncIdx).toBeGreaterThan(cancelAlreadyResolvedIdx)
+
     const refundUpdateIdx = refundSource.indexOf("SET payment_status = 'REFUNDED'")
-    const refundSyncIdx = refundSource.indexOf('await recordEventBookingActivityForOrder(')
+    const refundAlreadyResolvedIdx = refundSource.indexOf('return { ok: true, alreadyResolved: true };')
+    const refundSyncIdx = refundSource.indexOf('await input.onTransitioned(orderId)')
+    expect(refundUpdateIdx).toBeGreaterThan(-1)
     expect(refundSyncIdx).toBeGreaterThan(refundUpdateIdx)
+    expect(refundSyncIdx).toBeGreaterThan(refundAlreadyResolvedIdx)
+
+    expect(read('app/api/events/[id]/orders/[orderId]/cancel/route.ts')).toContain('onTransitioned: recordEventBookingActivityForOrder')
+    expect(read('app/api/events/[id]/orders/[orderId]/refund/route.ts')).toContain('onTransitioned: recordEventBookingActivityForOrder')
   })
 })
 

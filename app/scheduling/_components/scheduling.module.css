@@ -1,0 +1,846 @@
+/* Scheduling dashboard (Phase 2B.2c). Same shell shape as Assurance and Commercial: the shared module sidebar beside the page,
+   becoming a strip above it on narrow screens. Tokens only (no raw colours), so the light and dark themes both work. */
+
+.shell {
+  display: flex;
+  min-width: 0;
+  min-height: var(--shell-min-height);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-inter), Inter, sans-serif;
+}
+.main {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 36px 40px;
+}
+@media (max-width: 767px) {
+  .main {
+    padding: 20px 16px 32px;
+  }
+}
+.centered {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+}
+.page {
+  max-width: 1180px;
+  min-width: 0;
+}
+.stack {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.sectionGap {
+  margin-top: 24px;
+}
+.dim {
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  margin: 0;
+}
+.body {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+.notice {
+  margin: 0 0 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  padding: 12px 14px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* ── Toolbar ───────────────────────────────────────────────────────── */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.toolbarGrow {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.toolbarFilter {
+  flex: 0 1 180px;
+}
+
+/* ── Table on wide screens, cards on narrow ────────────────────────── */
+
+.tableWrap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  overflow-x: auto;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+.table th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  color: var(--text-primary);
+}
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.table tr[data-archived='true'] td,
+.card[data-archived='true'] {
+  color: var(--text-secondary);
+}
+.name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.nameLink {
+  color: inherit;
+  text-decoration: none;
+}
+.nameLink:hover,
+.nameLink:focus-visible {
+  text-decoration: underline;
+}
+.actions {
+  white-space: nowrap;
+  text-align: right;
+}
+.actionButtons {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.cards {
+  display: none;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  padding: 14px;
+  margin-bottom: 10px;
+  min-width: 0;
+}
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.cardMeta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0 0 10px;
+  font-size: 0.8125rem;
+}
+.cardMeta dt {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.cardMeta dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+.card .actions {
+  text-align: left;
+}
+.card .actionButtons {
+  flex-wrap: wrap;
+}
+@media (max-width: 1099px) {
+  .tableWrap {
+    display: none;
+  }
+  .cards {
+    display: block;
+  }
+}
+
+/* ── Empty state, forms ────────────────────────────────────────────── */
+
+.empty {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: 28px 20px;
+  text-align: center;
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+}
+.emptyTitle {
+  margin: 0;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.form {
+  display: grid;
+  gap: 14px;
+}
+.formRow {
+  align-items: start;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 479px) {
+  .formRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px 14px;
+  margin: 0;
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+.legend {
+  padding: 0 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+.problemList {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 0.8125rem;
+}
+.staleBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ── Preset picker ─────────────────────────────────────────────────── */
+
+.presetGrid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 899px) {
+  .presetGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.preset {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  padding: 12px 14px;
+  cursor: pointer;
+  min-width: 0;
+}
+.preset:has(input:checked) {
+  border-color: var(--accent, var(--text-primary));
+  box-shadow: 0 0 0 1px var(--accent, var(--text-primary));
+}
+.preset:has(input:focus-visible) {
+  outline: 2px solid var(--accent, var(--text-primary));
+  outline-offset: 2px;
+}
+.presetHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+.presetHint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+.presetDisabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ── Detail page ───────────────────────────────────────────────────── */
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px 20px;
+  margin: 0;
+  font-size: 0.8125rem;
+}
+.facts dt {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.facts dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.75rem;
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+}
+.assignList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.assignRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 8px 12px;
+  font-size: 0.875rem;
+}
+.assignAdd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+}
+.assignAdd > :first-child {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+/* ── Overview ──────────────────────────────────────────────────────── */
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  padding: 12px 14px;
+}
+@media (max-width: 599px) {
+  .step {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .step > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+.stepMark {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+.stepMark[data-done='true'] {
+  background: var(--text-primary);
+  color: var(--bg-base);
+  border-color: var(--text-primary);
+}
+.stepTitle {
+  margin: 0;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+.stepBody {
+  margin: 2px 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+/* ── Availability screens (Phase 2B.3c) ────────────────────────────── */
+
+/* 44 px touch targets (product decision E): buttons, inputs and checkboxes on these screens. The extra class beats the shared 28/34/36 px
+   defaults without touching the shared primitives. */
+.availability .touch {
+  height: auto;
+  min-height: 44px;
+  min-width: 44px;
+}
+.availability input[type='text'],
+.availability input[type='date'],
+.availability input[type='time'],
+.availability select {
+  min-height: 44px;
+}
+.availability [role='dialog'] button[aria-label^='Close'] {
+  width: 44px;
+  height: 44px;
+}
+.dayList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.dayRow {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  gap: 8px 16px;
+  align-items: start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  padding: 12px 14px;
+  min-width: 0;
+}
+@media (max-width: 639px) {
+  .dayRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.dayName {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  padding-top: 10px;
+}
+.dayBody {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.windowList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.windowItem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  min-width: 0;
+}
+.windowText {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+.windowTime {
+  font-weight: 600;
+}
+.windowMuted {
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+}
+.dayClosed {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  padding-top: 10px;
+}
+.dayActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.stackedActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.dstList {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+.dayPicker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 16px;
+}
+.checkTouch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+.checkTouch input {
+  width: 20px;
+  height: 20px;
+}
+.quickRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.summary {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  padding: 8px 12px;
+  border-left: 3px solid var(--border-strong);
+  background: var(--bg-sunken);
+  border-radius: var(--radius-lg);
+}
+.radioGroup {
+  display: grid;
+  gap: 8px;
+}
+.radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+.radio input {
+  margin-top: 3px;
+  width: 18px;
+  height: 18px;
+}
+.radio:has(input:checked) {
+  border-color: var(--accent, var(--text-primary));
+  box-shadow: 0 0 0 1px var(--accent, var(--text-primary));
+}
+.radio:has(input:focus-visible) {
+  outline: 2px solid var(--accent, var(--text-primary));
+  outline-offset: 2px;
+}
+.radioDisabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+.radioHint {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.zoneFacts {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.zoneFacts strong {
+  color: var(--text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .preset {
+    transition: none;
+  }
+}
+
+/* ── Availability calendar (Phase 2B.3d, read only) ─────────────────── */
+
+.calToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.calSegment {
+  display: inline-flex;
+  gap: 6px;
+}
+.calField {
+  display: grid;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+.calField select,
+.calField input {
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  padding: 0 10px;
+  font: inherit;
+}
+.calRange {
+  margin: 4px 0 12px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.calLegend {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0 0 12px;
+  padding: 0;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+.calLegend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.calSwatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid var(--border-strong);
+  display: inline-block;
+}
+.calSwatch[data-kind='hours'] {
+  background: var(--brand-brainbase-accent-muted);
+}
+.calSwatch[data-kind='closed'] {
+  background: repeating-linear-gradient(135deg, var(--status-danger-muted) 0 3px, transparent 3px 6px);
+  border-color: var(--status-danger-border);
+}
+.calSwatch[data-kind='free'] {
+  background: var(--status-success);
+  opacity: 0.55;
+}
+.calSwatch[data-kind='occupied'] {
+  background: var(--status-warning);
+}
+.calSwatch[data-kind='slot'] {
+  background: transparent;
+  border: 2px solid var(--brand-brainbase-accent);
+}
+.calSwatch[data-kind='none'] {
+  background: var(--bg-sunken);
+}
+.calScroller {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  margin-bottom: 16px;
+}
+.calGrid {
+  display: grid;
+  min-width: min-content;
+  column-gap: 0;
+}
+.calHead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  background: var(--bg-surface);
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+}
+.calHead span {
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  min-height: 1em;
+}
+.calHead[data-today] strong {
+  color: var(--brand-brainbase-accent);
+}
+.calAxis,
+.calColumn {
+  position: relative;
+}
+.calColumn {
+  border-left: 1px solid var(--border);
+  background: var(--bg-sunken);
+}
+.calTick {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--border);
+  pointer-events: none;
+}
+.calTick span {
+  position: absolute;
+  top: -0.6em;
+  left: 4px;
+  padding: 0 3px;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+}
+.calBlock {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  border-radius: 3px;
+  min-height: 2px;
+}
+.calBlock[data-kind='hours'] {
+  background: var(--brand-brainbase-accent-muted);
+}
+.calBlock[data-kind='closed'] {
+  left: 3px;
+  right: 3px;
+  background: repeating-linear-gradient(135deg, var(--status-danger-muted) 0 4px, transparent 4px 8px);
+  border: 1px solid var(--status-danger-border);
+}
+.calBlock[data-kind='free'] {
+  left: 8px;
+  right: 40%;
+  background: var(--status-success);
+  opacity: 0.55;
+}
+.calBlock[data-kind='occupied'] {
+  left: 8px;
+  right: 40%;
+  background: var(--status-warning);
+}
+.calBlock[data-kind='slot'] {
+  left: 62%;
+  right: 6px;
+  border: 2px solid var(--brand-brainbase-accent);
+  background: transparent;
+}
+.calAgenda {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  padding: 10px 14px;
+  margin-bottom: 24px;
+}
+.calAgenda summary {
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.calAgendaBody {
+  display: grid;
+  gap: 14px;
+  padding-top: 6px;
+}
+.calAgendaDay h3 {
+  margin: 0 0 6px;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+.calAgendaDay h3 small {
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+.calAgendaDay[data-today] h3 {
+  color: var(--brand-brainbase-accent);
+}
+.calAgendaDay ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.calAgendaDay li strong {
+  color: var(--text-primary);
+}
+@media (max-width: 767px) {
+  .calToolbar {
+    align-items: stretch;
+  }
+  .calToolbar .calField {
+    flex: 1 1 100%;
+  }
+  .calSegment {
+    flex: 1 1 100%;
+  }
+  .calSegment > * {
+    flex: 1;
+  }
+}

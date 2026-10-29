@@ -63,6 +63,7 @@ model Organisation {
   web_service_leads      WebServiceLead[]
   organisation_modules   OrganisationModule[]
   events                 Event[]
+  ticketing_fee_policies TicketingFeePolicy[]
   source_systems         SourceSystem[]
   source_mappings        SourceMapping[]
   mapping_versions       MappingVersion[]
@@ -80,6 +81,7 @@ model Organisation {
   data_hub_normalization_runs DataHubNormalizationRun[]
   data_hub_dataset_profile_runs DataHubDatasetProfileRun[]
   data_hub_dataset_profile_columns DataHubDatasetProfileColumn[]
+  data_hub_analysis_reviews DataHubAnalysisReview[]
   data_hub_normalized_rows    DataHubNormalizedRow[]
   data_hub_normalized_cells   DataHubNormalizedCell[]
   data_hub_normalization_findings DataHubNormalizationFinding[]
@@ -1553,6 +1555,7 @@ model DataHubDatasetProfileRun {
   columns DataHubDatasetProfileColumn[]
   // D4D1B2 — back-relation for Upload.dataset_profile_run's own FK.
   profiled_uploads Upload[] @relation("UploadDatasetProfileRun")
+  analysis_reviews DataHubAnalysisReview[]
 
   @@unique([id, organisation_id], map: "data_hub_dataset_profile_runs_id_org_key")
   @@unique([id, source_schema_worksheet_id, organisation_id], map: "data_hub_dataset_profile_runs_id_worksheet_org_key")
@@ -1628,6 +1631,30 @@ model DataHubDatasetProfileColumn {
   @@index([organisation_id, profile_run_id])
   @@index([source_schema_column_id])
   @@map("data_hub_dataset_profile_columns")
+}
+
+// D4D5Q append-only explicit decisions. SQL owns payload/lifecycle checks.
+// reviewed_by_id is an actor-id snapshot checked on insert, deliberately not
+// a live User FK: removing an account must preserve historical attribution.
+// review_version v1 binds the v1 semantic and quality decision algorithms.
+model DataHubAnalysisReview {
+  id                String   @id @default(cuid())
+  organisation_id   String
+  upload_id         String
+  profile_run_id    String
+  revision          Int
+  review_version    String
+  reviewed_by_id    String
+  reviewed_at       DateTime @default(now()) @db.Timestamptz(6)
+  semantic_choices  Json
+  quality_decisions Json
+
+  organisation Organisation @relation(fields: [organisation_id], references: [id])
+  profile_run DataHubDatasetProfileRun @relation(fields: [profile_run_id, upload_id, organisation_id], references: [id, upload_id, organisation_id], map: "data_hub_analysis_reviews_profile_fkey")
+
+  @@unique([profile_run_id, revision], map: "data_hub_analysis_reviews_profile_revision_key")
+  @@index([organisation_id, upload_id, profile_run_id, revision], map: "data_hub_analysis_reviews_scope_idx")
+  @@map("data_hub_analysis_reviews")
 }
 
 model DashboardConfig {
@@ -2678,16 +2705,41 @@ model Event {
   starts_at       DateTime          @db.Timestamptz(6)
   ends_at         DateTime          @db.Timestamptz(6)
   timezone        String
+  // Phase 5B — opt-in purchaser reminder email, sent once per confirmed
+  // order inside the 24 hours before starts_at by the recovery cron (see
+  // scripts/create-events-notifications.sql). Default false for every
+  // existing and new event; only an organiser's PATCH turns it on.
+  reminder_enabled Boolean          @default(false)
+  // Eve — per-event opt-in to show registration questions on Eve (see
+  // scripts/add-eve-registration-questions.sql). Default false.
+  eve_questions_enabled Boolean     @default(false)
+  // When the event was cancelled (answer-retention timers).
+  cancelled_at    DateTime?         @db.Timestamptz(6)
+  // Legal hold on registration-answer retention: NULL or COMPLAINT |
+  // INCIDENT | DISPUTE | LEGAL_OBLIGATION.
+  answers_legal_hold String?
   created_by      String?
   created_at      DateTime          @default(now()) @db.Timestamptz(6)
   updated_at      DateTime          @updatedAt @db.Timestamptz(6)
 
   organisation    Organisation      @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
   creator         User?             @relation(fields: [created_by], references: [id], onDelete: SetNull)
+  // Phase 5B — lifecycle notifications (see EventNotification).
+  notifications   EventNotification[]
   event_sessions  EventSession[]
   ticket_types    EventTicketType[]
   orders          EventOrder[]
+  // Phase 3 — ticket type × session inventory overrides (see
+  // scripts/create-events-ticket-type-session-inventory.sql).
+  session_inventory EventTicketTypeSessionInventory[]
   registration_questions EventRegistrationQuestion[]
+  // Phase 4 — promotional codes and presale access codes (see
+  // scripts/create-events-promotions-presales-sale-windows.sql).
+  promotion_codes EventPromotionCode[]
+  access_codes    EventAccessCode[]
+  // Phase 5A — event-level fee policy override (see
+  // scripts/create-events-ticketing-fees-foundation.sql).
+  fee_policies    TicketingFeePolicy[]
 
   // Slug uniqueness is per-organisation only, not global — Phase 1 has
   // no public URL surface that would require a global namespace. If a
@@ -2716,6 +2768,7 @@ model EventSession {
   // model's own comment above for why this, not a plain event_id FK.
   event           Event        @relation(fields: [event_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
   order_items     EventOrderItem[]
+  type_inventory  EventTicketTypeSessionInventory[]
 
   // Phase 2 addition (additive-only, no behavioural change to Phase 1):
   // backs a composite FK from event_order_items(event_session_id,
@@ -2724,6 +2777,11 @@ model EventSession {
   // registration physically cannot select a session belonging to a
   // different organisation.
   @@unique([id, organisation_id])
+  // Phase 3 addition (additive-only): backs the composite FK from
+  // event_ticket_type_session_inventory(event_session_id, event_id,
+  // organisation_id), which forces an override's session and ticket type
+  // to belong to the SAME event of the SAME organisation.
+  @@unique([id, event_id, organisation_id])
   @@index([event_id])
   @@index([organisation_id])
   @@map("event_sessions")
@@ -2742,6 +2800,14 @@ model EventTicketType {
   capacity        Int
   active           Boolean     @default(true)
   sort_order      Int          @default(0)
+  // Phase 4 — optional sale window (NULL = unbounded; on sale when
+  // NOW() >= sale_starts_at AND NOW() < sale_ends_at) and the presale
+  // access-code gate. The live SQL also carries
+  // event_ticket_types_sale_window_check (ends > starts when both set);
+  // see scripts/create-events-promotions-presales-sale-windows.sql.
+  sale_starts_at       DateTime? @db.Timestamptz(6)
+  sale_ends_at         DateTime? @db.Timestamptz(6)
+  requires_access_code Boolean   @default(false)
   created_at      DateTime     @default(now()) @db.Timestamptz(6)
   updated_at      DateTime     @updatedAt @db.Timestamptz(6)
 
@@ -2749,15 +2815,193 @@ model EventTicketType {
   // model's own comment above for why this, not a plain event_id FK.
   event           Event        @relation(fields: [event_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
   order_items     EventOrderItem[]
+  session_inventory EventTicketTypeSessionInventory[]
+  promotion_code_ticket_types EventPromotionCodeTicketType[]
+  access_code_ticket_types    EventAccessCodeTicketType[]
 
   // Phase 2 addition (additive-only, no behavioural change to Phase 1):
   // backs a composite FK from event_order_items(ticket_type_id,
   // organisation_id) — same rationale as EventSession's own addition
   // above.
   @@unique([id, organisation_id])
+  // Phase 3 addition (additive-only) — see EventSession's own comment.
+  @@unique([id, event_id, organisation_id])
   @@index([event_id])
   @@index([organisation_id])
   @@map("event_ticket_types")
+}
+
+// ─── Events & Ticketing (Phase 3 — ticket type × session inventory) ────
+// One OPTIONAL capacity override per (ticket type, session) pair. When a
+// row exists, that ticket type's capacity within that session is this
+// row's capacity (counted against that pair's own sales); when none
+// exists, the ticket type's event-wide capacity applies unchanged. The
+// session's own capacity always remains the shared upper bound across
+// every ticket type in it. Clearing an override deletes the row — there
+// is no nullable/unlimited state. Full rationale, including the
+// composite (id, event_id, organisation_id) FKs that make a cross-
+// organisation or cross-event pair physically unrepresentable, in
+// scripts/create-events-ticket-type-session-inventory.sql.
+model EventTicketTypeSessionInventory {
+  id               String          @id @default(dbgenerated("(gen_random_uuid())::text"))
+  organisation_id  String
+  event_id         String
+  ticket_type_id   String
+  event_session_id String
+  capacity         Int
+  created_at       DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime        @updatedAt @db.Timestamptz(6)
+
+  event            Event           @relation(fields: [event_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
+  ticket_type      EventTicketType @relation(fields: [ticket_type_id, event_id, organisation_id], references: [id, event_id, organisation_id], onDelete: Cascade)
+  session          EventSession    @relation(fields: [event_session_id, event_id, organisation_id], references: [id, event_id, organisation_id], onDelete: Cascade)
+
+  @@unique([id, organisation_id])
+  @@unique([ticket_type_id, event_session_id, organisation_id])
+  @@index([organisation_id])
+  @@index([event_id])
+  @@index([event_session_id])
+  @@map("event_ticket_type_session_inventory")
+}
+
+// ─── Events & Ticketing (Phase 4 — promotions, presales, sale windows) ──
+// Two deliberately SEPARATE entities: a promotion code reduces price and
+// never grants access; an access code grants purchase eligibility for
+// requires_access_code ticket types and never changes price. Each is
+// scoped to one organisation AND one event (UNIQUE (organisation_id,
+// event_id, code)), stored normalised (upper/trim — the live CHECK
+// enforces the format: [A-Z0-9_-], 3..32 for promotion codes, 8..32 for
+// access codes), optionally windowed, and optionally restricted to a set
+// of ticket types via a join table whose composite FKs make a cross-
+// organisation or cross-event row physically unrepresentable. There is
+// no redemption table: the order row carries the snapshot and IS the
+// redemption record. Full rationale, the D3 redemption predicate and the
+// lock-order extension in
+// scripts/create-events-promotions-presales-sale-windows.sql.
+model EventPromotionCode {
+  id              String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  organisation_id String
+  event_id        String
+  code            String
+  // 'PERCENT' (discount_value 1..100, whole percent) or 'FIXED'
+  // (discount_value in integer cents, >= 1) — TEXT + CHECK in the live
+  // SQL, modelled as a String like every other status-like column here.
+  discount_type   String
+  discount_value  Int
+  active          Boolean   @default(true)
+  starts_at       DateTime? @db.Timestamptz(6)
+  ends_at         DateTime? @db.Timestamptz(6)
+  max_redemptions Int?
+  min_cart_cents  Int?
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @updatedAt @db.Timestamptz(6)
+
+  event           Event     @relation(fields: [event_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
+  ticket_types    EventPromotionCodeTicketType[]
+  orders          EventOrder[]
+
+  @@unique([organisation_id, event_id, code])
+  @@unique([id, organisation_id])
+  @@unique([id, event_id, organisation_id])
+  @@index([organisation_id])
+  @@index([event_id])
+  @@map("event_promotion_codes")
+}
+
+model EventPromotionCodeTicketType {
+  promotion_code_id String
+  ticket_type_id    String
+  event_id          String
+  organisation_id   String
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+
+  promotion_code    EventPromotionCode @relation(fields: [promotion_code_id, event_id, organisation_id], references: [id, event_id, organisation_id], onDelete: Cascade)
+  ticket_type       EventTicketType    @relation(fields: [ticket_type_id, event_id, organisation_id], references: [id, event_id, organisation_id], onDelete: Cascade)
+
+  @@id([promotion_code_id, ticket_type_id])
+  @@index([ticket_type_id])
+  @@index([organisation_id])
+  @@map("event_promotion_code_ticket_types")
+}
+
+model EventAccessCode {
+  id              String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  organisation_id String
+  event_id        String
+  code            String
+  active          Boolean   @default(true)
+  starts_at       DateTime? @db.Timestamptz(6)
+  ends_at         DateTime? @db.Timestamptz(6)
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @updatedAt @db.Timestamptz(6)
+
+  event           Event     @relation(fields: [event_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
+  ticket_types    EventAccessCodeTicketType[]
+  orders          EventOrder[]
+
+  @@unique([organisation_id, event_id, code])
+  @@unique([id, organisation_id])
+  @@unique([id, event_id, organisation_id])
+  @@index([organisation_id])
+  @@index([event_id])
+  @@map("event_access_codes")
+}
+
+model EventAccessCodeTicketType {
+  access_code_id  String
+  ticket_type_id  String
+  event_id        String
+  organisation_id String
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+
+  access_code     EventAccessCode @relation(fields: [access_code_id, event_id, organisation_id], references: [id, event_id, organisation_id], onDelete: Cascade)
+  ticket_type     EventTicketType @relation(fields: [ticket_type_id, event_id, organisation_id], references: [id, event_id, organisation_id], onDelete: Cascade)
+
+  @@id([access_code_id, ticket_type_id])
+  @@index([ticket_type_id])
+  @@index([organisation_id])
+  @@map("event_access_code_ticket_types")
+}
+
+// Phase 5A — neutral platform/booking-fee policy (see
+// scripts/create-events-ticketing-fees-foundation.sql). One row per
+// scope: organisation-level (event_id NULL) or event-level. NO row = no
+// fee (the platform default, a code constant in
+// lib/events/services/fees.ts). The two partial UNIQUE indexes that
+// enforce one row per scope live only in the SQL (Prisma cannot express a
+// partial unique index) — "Prisma mirrors, raw SQL is authoritative".
+model TicketingFeePolicy {
+  id                     String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  organisation_id        String
+  event_id               String?
+  enabled                Boolean   @default(false)
+  // 'PASS_THROUGH' | 'ABSORB' — TEXT + CHECK in the live SQL.
+  fee_mode               String
+  // Basis points (1/100 of a percent, 0..10000) of the NET ticket
+  // subtotal. An exact integer rather than NUMERIC(5,2) so the fee is
+  // integer arithmetic end to end (ADR 0002 §13).
+  percent_bps            Int       @default(0)
+  fixed_per_order_cents  Int       @default(0)
+  fixed_per_ticket_cents Int       @default(0)
+  min_fee_cents          Int?
+  max_fee_cents          Int?
+  currency               String    @default("AUD")
+  label                  String    @default("Booking fee")
+  // Metadata seam only: 'UNSPECIFIED' | 'GST_INCLUSIVE' | 'GST_EXCLUSIVE'
+  // | 'GST_FREE'. Nothing computes tax from it in Phase 5A.
+  tax_treatment          String    @default("UNSPECIFIED")
+  version                Int       @default(1)
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime  @updatedAt @db.Timestamptz(6)
+
+  organisation           Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  event                  Event?       @relation(fields: [event_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
+  orders                 EventOrder[]
+
+  @@unique([id, organisation_id])
+  @@index([organisation_id])
+  @@index([event_id])
+  @@map("ticketing_fee_policies")
 }
 
 // ─── Events & Ticketing (Phase 2 — public free registration) ───────────
@@ -2791,6 +3035,8 @@ model EventOrder {
   purchaser_name  String
   purchaser_email String
   purchaser_phone String?
+  // Legal hold on this order's registration-answer retention (see Event).
+  answers_legal_hold String?
   status          String           @default("PENDING")
   // Always 0 for every order the Phase 2 public flow creates — Phase 2
   // is free-only. Exists now so a later paid-orders phase needs no
@@ -2832,13 +3078,56 @@ model EventOrder {
   ticket_email_sent_at             DateTime? @db.Timestamptz(6)
   ticket_email_provider_message_id String?
   ticket_email_last_error          String?
+  // Phase 4 — discount SNAPSHOT (see
+  // scripts/create-events-promotions-presales-sale-windows.sql). total_cents
+  // above stays the authoritative PAYABLE amount; the gross subtotal is
+  // derived as total_cents + discount_cents. The live SQL also carries
+  // event_orders_discount_cents_check (>= 0),
+  // event_orders_promotion_snapshot_check (code id, code text and a
+  // discount exist only together) and event_orders_access_snapshot_check.
+  discount_cents          Int     @default(0)
+  promotion_code_id       String?
+  promotion_code_snapshot String?
+  access_code_id          String?
+  access_code_snapshot    String?
+  // Phase 5A — immutable FEE SNAPSHOT (see
+  // scripts/create-events-ticketing-fees-foundation.sql). total_cents above
+  // stays the NET TICKET amount; payment_total_cents is what the customer
+  // pays (NULL only on rows that pre-date the migration — readers use
+  // COALESCE(payment_total_cents, total_cents)). fee_mode NULL = no fee
+  // policy applied. The live SQL carries event_orders_fee_snapshot_check,
+  // which enforces the by-mode arithmetic between these columns.
+  platform_fee_cents          Int     @default(0)
+  fee_mode                    String?
+  payment_total_cents         Int?
+  fee_policy_id               String?
+  fee_policy_version          Int?
+  fee_percent_bps             Int?
+  fee_fixed_per_order_cents   Int?
+  fee_fixed_per_ticket_cents  Int?
+  fee_min_cents               Int?
+  fee_max_cents               Int?
+  fee_tax_treatment           String?
+  fee_label                   String?
+  refunded_cents              Int?
+  platform_fee_refunded_cents Int?
   created_at      DateTime         @default(now()) @db.Timestamptz(6)
   updated_at      DateTime         @updatedAt @db.Timestamptz(6)
 
   event           Event            @relation(fields: [event_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
+  // Phase 5A — organisation-scoped composite FK, NO ACTION (a policy is
+  // disabled, never deleted, once an order has snapshotted it).
+  fee_policy      TicketingFeePolicy? @relation(fields: [fee_policy_id, organisation_id], references: [id, organisation_id], onDelete: NoAction)
   order_items     EventOrderItem[]
   registration_responses EventRegistrationResponse[]
   ticket_email_deliveries EventTicketEmailDelivery[]
+  // Phase 5B — lifecycle notifications (see EventNotification).
+  notifications   EventNotification[]
+  // Event-scoped composite FKs: an order can only reference a code of its
+  // OWN event and organisation. Default NO ACTION (never Restrict) so an
+  // event delete's cascade through orders and codes completes.
+  promotion_code  EventPromotionCode? @relation(fields: [promotion_code_id, event_id, organisation_id], references: [id, event_id, organisation_id], onDelete: NoAction)
+  access_code     EventAccessCode?    @relation(fields: [access_code_id, event_id, organisation_id], references: [id, event_id, organisation_id], onDelete: NoAction)
 
   // stripe_checkout_session_id also carries a UNIQUE constraint in the
   // live SQL — a partial index (WHERE NOT NULL), same "Prisma mirrors,
@@ -2854,6 +3143,10 @@ model EventOrder {
   @@index([payment_status])
   @@index([stripe_checkout_session_id])
   @@index([stripe_account_id])
+  // promotion_code_id / access_code_id also carry PARTIAL indexes in the
+  // live SQL (idx_event_orders_promotion_code_id / _access_code_id, WHERE
+  // NOT NULL) — same "Prisma mirrors, raw SQL is authoritative" convention
+  // as the partial indexes documented above.
   @@map("event_orders")
 }
 
@@ -2866,7 +3159,11 @@ model EventOrderItem {
   ticket_type_id   String
   quantity         Int
   // Always 0 in Phase 2 — see EventOrder.total_cents's comment.
+  // Phase 4: remains the GROSS unit price; the line's share of any order
+  // discount is discount_cents below (live CHECK: 0 <= discount_cents <=
+  // unit_price_cents * quantity).
   unit_price_cents Int             @default(0)
+  discount_cents   Int             @default(0)
   created_at       DateTime        @default(now()) @db.Timestamptz(6)
 
   order            EventOrder      @relation(fields: [order_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
@@ -2915,6 +3212,58 @@ model EventTicketEmailDelivery {
   @@index([organisation_id])
   @@index([organisation_id, order_id])
   @@map("event_ticket_email_deliveries")
+}
+
+// Phase 5B — lifecycle notifications: one row per (notification type,
+// order) carrying BOTH BrainBase's own send lifecycle (status/claim/
+// attempts/backoff/idempotency key — the ticket-email state machine
+// applied to a notification row) AND, once Resend accepted the message,
+// the same provider-outcome vocabulary EventTicketEmailDelivery uses. See
+// scripts/create-events-notifications.sql's header for the full
+// rationale. The live SQL also carries the CHECK constraints (type,
+// status, delivery_status, claim/provider consistency), the UNIQUE
+// idempotency_key, and a partial UNIQUE index on provider_message_id —
+// same "Prisma mirrors, raw SQL is authoritative" convention as the
+// sibling tables.
+model EventNotification {
+  id                  String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  organisation_id     String
+  event_id            String
+  order_id            String?
+  notification_type   String
+  recipient_email     String
+  idempotency_key     String    @unique
+  status              String    @default("pending")
+  scheduled_for       DateTime  @default(now()) @db.Timestamptz(6)
+  claim_id            String?
+  claimed_at          DateTime? @db.Timestamptz(6)
+  attempt_count       Int       @default(0)
+  last_attempt_at     DateTime? @db.Timestamptz(6)
+  next_attempt_at     DateTime? @db.Timestamptz(6)
+  sent_at             DateTime? @db.Timestamptz(6)
+  failed_at           DateTime? @db.Timestamptz(6)
+  last_error          String?
+  provider_message_id String?
+  delivery_status     String?
+  latest_event_id     String?
+  latest_event_at     DateTime? @db.Timestamptz(6)
+  latest_event_type   String?
+  delivered_at        DateTime? @db.Timestamptz(6)
+  bounced_at          DateTime? @db.Timestamptz(6)
+  suppressed_at       DateTime? @db.Timestamptz(6)
+  complained_at       DateTime? @db.Timestamptz(6)
+  delivery_failed_at  DateTime? @db.Timestamptz(6)
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @updatedAt @db.Timestamptz(6)
+
+  // Organisation-scoped composite FKs — a notification physically cannot
+  // point at another organisation's event or order.
+  event               Event       @relation(fields: [event_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
+  order               EventOrder? @relation(fields: [order_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
+
+  @@index([organisation_id, event_id])
+  @@index([organisation_id, order_id])
+  @@map("event_notifications")
 }
 
 model EventAttendee {
@@ -2977,6 +3326,12 @@ model EventRegistrationQuestion {
   options         Json?
   sort_order      Int      @default(0)
   active          Boolean  @default(true)
+  // STANDARD | SENSITIVE | THIRD_PARTY | CONSENT (CHECK in
+  // scripts/add-eve-registration-questions.sql): drives the buyer notice,
+  // explicit agreement, staff labels and the answer-retention timer.
+  data_category   String   @default("STANDARD")
+  // Built-in template this question came from; fixes its category.
+  template_key    String?
   created_at      DateTime @default(now()) @db.Timestamptz(6)
   updated_at      DateTime @updatedAt @db.Timestamptz(6)
 
@@ -2998,7 +3353,16 @@ model EventRegistrationResponse {
   attendee_id             String?
   question_label_snapshot String
   field_type_snapshot     String
-  answer                  Json
+  question_help_text_snapshot String?
+  // Category in force when answered; retention uses this, not the live question.
+  data_category_snapshot  String   @default("STANDARD")
+  // When the Eve PURCHASER gave the acknowledgement this row's category needs
+  // (SENSITIVE: agreed to collection; THIRD_PARTY: confirmed the person knows).
+  // The purchaser's own statement, never a third party's consent.
+  buyer_acknowledged_at   DateTime? @db.Timestamptz(6)
+  // Retention: answer removed (NULL) and this stamped; CHECK keeps them in step.
+  redacted_at             DateTime? @db.Timestamptz(6)
+  answer                  Json?
   created_at              DateTime @default(now()) @db.Timestamptz(6)
 
   question                EventRegistrationQuestion @relation(fields: [question_id, organisation_id], references: [id, organisation_id], onDelete: Restrict)

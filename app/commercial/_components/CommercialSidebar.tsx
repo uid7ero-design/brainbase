@@ -80,6 +80,9 @@ export default function CommercialSidebar({
           { href: '/commercial/budgeting/external-gl', label: 'External GL Mappings' },
         ]
       : []),
+    ...(purchasingEnabled || budgetingEnabled
+      ? [{ href: '/commercial/help', label: 'Finance Help & How to' }]
+      : []),
     ...BASE_NAV_ITEMS.slice(3),
   ];
 

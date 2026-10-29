@@ -67,7 +67,7 @@ describe("6.2D4C-B2A normalization library — purity/security containment", () 
   });
 
   it("exports a fixed, explicit NORMALIZER_VERSION not derived from package.json or the current date", () => {
-    expect(NORMALIZER_VERSION).toBe("v1");
+    expect(NORMALIZER_VERSION).toBe("v2");
     const contractsSource = stripComments(read("contracts.ts"));
     expect(contractsSource).not.toMatch(/require\(["']\.\.\/\.\.\/\.\.\/package\.json["']\)/);
     expect(contractsSource).not.toMatch(/new Date\(\)/);

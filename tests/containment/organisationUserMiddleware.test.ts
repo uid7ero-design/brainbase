@@ -1,0 +1,21 @@
+import { beforeEach,describe,it,expect,vi } from 'vitest';
+import { NextRequest } from 'next/server';
+const state=vi.hoisted(()=>({rows:[] as unknown[][],session:{userId:'u',organisationId:'a',role:'viewer',name:'U',expiresAt:new Date(Date.now()+86400000).toISOString()}}));
+vi.mock('@/lib/db',()=>({default:vi.fn(async()=>{const r=state.rows.shift();if(!r)throw Error('Unavailable');return r;})}));
+vi.mock('@/lib/session',async()=>{const original=await vi.importActual<typeof import('@/lib/session')>('@/lib/session');return {...original,decrypt:vi.fn(async()=>state.session)};});
+const {middleware}=await import('../../middleware');
+const req=(path:string,method='GET')=>new NextRequest('https://test.invalid'+path,{method,headers:{cookie:'session=synthetic','x-organisation-id':'other'}});
+const user={organisation_id:'a',role:'VIEWER',status:'ACTIVE'};
+describe('actual middleware user module gate',()=>{
+  beforeEach(()=>{state.rows=[];});
+  it('blocks a direct write despite role or forged organisation headers',async()=>{state.rows=[[user],[{organisation_id:'a',permissions:{people:'view'}}]];expect((await middleware(req('/api/hr/people','POST'))).status).toBe(403);});
+  it('allows an entitled module read to continue to domain authorization',async()=>{state.rows=[[user],[{organisation_id:'a',permissions:{people:'view'}}],[{key:'people'}]];expect((await middleware(req('/api/hr/people'))).headers.get('x-middleware-next')).toBe('1');});
+  it('does not borrow an unentitled write grant through an entitled read grant',async()=>{state.rows=[[user],[{organisation_id:'a',permissions:{quotes:'view',invoicing:'use'}}],[{key:'quotes'}]];expect((await middleware(req('/api/commercial/products','POST'))).status).toBe(403);});
+  it('blocks stale inactive sessions and mismatched organisations',async()=>{state.rows=[[{...user,status:'INACTIVE'}]];expect((await middleware(req('/api/hr/people'))).status).toBe(401);state.rows=[[{...user,organisation_id:'b'}]];expect((await middleware(req('/api/hr/people'))).status).toBe(401);});
+  it('does not allow the JWT role to grant client administration',async()=>{state.rows=[[user],[{organisation_id:'a',permissions:{}}]];expect((await middleware(req('/api/organisation/users'))).status).toBe(403);});
+  it('redirects managed dashboard users to a module-scoped workspace',async()=>{state.rows=[[user],[{organisation_id:'a',permissions:{}}]];expect((await middleware(req('/dashboard'))).headers.get('location')).toBe('https://test.invalid/workspace');});
+  it('fails closed if policy storage is unavailable',async()=>{state.rows=[[user]];expect((await middleware(req('/api/hr/people'))).status).toBe(503);});
+  it('keeps unmodified legacy account access and public service routes unchanged',async()=>{state.rows=[[user],[]];expect((await middleware(req('/people'))).headers.get('x-middleware-next')).toBe('1');state.rows=[];expect((await middleware(req('/api/public/events'))).headers.get('x-middleware-next')).toBe('1');});
+  it('maps extension-shaped and unknown API paths through the same deny boundary',async()=>{state.rows=[[user],[{organisation_id:'a',permissions:{}}]];expect((await middleware(req('/api/hr/file.pdf'))).status).toBe(403);state.rows=[[user],[{organisation_id:'a',permissions:{people:'use'}}]];expect((await middleware(req('/api/unmapped/action','POST'))).status).toBe(403);});
+  it('does not turn public root media into a login page',async()=>{state.rows=[];expect((await middleware(req('/ld-tennis-logo.svg'))).headers.get('x-middleware-next')).toBe('1');});
+});

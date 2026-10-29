@@ -195,8 +195,9 @@ describe('Paid checkout route — validation and price integrity', () => {
   it('a client-supplied price_cents in the request body has no effect — Stripe is called with the DB-derived amount', async () => {
     queue(ORG_ROW, EVENT_ROW, PAID_TT_ROW)
     await checkoutRoute.POST(req({ ...VALID_BODY, price_cents: 1 }), CTX)
+    // Phase 2: one Stripe line item per cart line.
     expect(createCheckoutSessionMock).toHaveBeenCalledWith(
-      expect.objectContaining({ unitAmountCents: 2500, currency: 'AUD', quantity: 1 }),
+      expect.objectContaining({ currency: 'AUD', lineItems: [{ name: 'Premium Guest', unitAmountCents: 2500, quantity: 1 }] }),
     )
   })
 
@@ -243,7 +244,7 @@ describe('Paid checkout route — validation and price integrity', () => {
   })
 
   it('never calls requireSession/requireRole — fully anonymous, matching the free registration route', () => {
-    const code = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
+    const code = stripComments((read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts') + read('lib/events/paidCheckoutResponse.ts')))
     expect(code).not.toMatch(/requireSession|requireRole|getSession|getAuthSession/)
   })
 })
@@ -271,7 +272,9 @@ describe('Paid checkout route — validation and price integrity', () => {
 // guarded statements and handles a loss safely.
 
 describe('Checkout-vs-Retry race closure (PR #231 follow-up)', () => {
-  const routeSrc = () => stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
+  // Eve Phase 1: the guarded reservation/write-back flow moved verbatim
+  // into lib/events/services/paidCheckout.ts, which the route calls.
+  const routeSrc = () => stripComments(read('lib/events/services/paidCheckout.ts'))
   const ORG_ROW = [{ id: 'org-a' }]
   const EVENT_ROW = [{
     id: 'event-1', organisation_id: 'org-a', name: 'Formal', slug: 'formal', description: null, venue: null,
@@ -289,14 +292,14 @@ describe('Checkout-vs-Retry race closure (PR #231 follow-up)', () => {
   }
   const CTX = { params: Promise.resolve({ organisationSlug: 'org', eventSlug: 'evt' }) }
 
-  it('the write-back UPDATE is guarded on BOTH stripe_checkout_session_id IS NULL and expires_at IS NOT DISTINCT FROM the captured generation marker — no longer unconditional', () => {
+  it('the write-back UPDATE is guarded on stripe_checkout_session_id IS NULL, payment_status = PENDING (a manager-cancelled order never receives a payable session) and expires_at IS NOT DISTINCT FROM the captured generation marker — no longer unconditional', () => {
     const code = routeSrc()
-    expect(code).toMatch(/WHERE id = \$\{orderId\} AND stripe_checkout_session_id IS NULL\s*\n\s*AND expires_at IS NOT DISTINCT FROM \$\{capturedExpiresAt\}/)
+    expect(code).toMatch(/WHERE id = \$\{orderId\} AND stripe_checkout_session_id IS NULL AND payment_status = 'PENDING'\s*\n\s*AND \(extract\(epoch FROM expires_at\) \* 1000000\)::bigint IS NOT DISTINCT FROM \$\{capturedExpiresAtStamp\}::bigint/)
   })
 
   it('capturedExpiresAt is read from the order row BEFORE createCheckoutSession is called, not after', () => {
     const code = routeSrc()
-    const captureIdx = code.indexOf('const capturedExpiresAt = ')
+    const captureIdx = code.indexOf('const capturedExpiresAtStamp = ')
     const stripeCallIdx = code.indexOf('await createCheckoutSession({')
     expect(captureIdx).toBeGreaterThan(-1)
     expect(stripeCallIdx).toBeGreaterThan(-1)
@@ -305,7 +308,7 @@ describe('Checkout-vs-Retry race closure (PR #231 follow-up)', () => {
 
   it('both compensating-cancellation UPDATEs (response-write failure, Stripe creation failure) are ALSO guarded on the same generation marker — a losing original checkout must not cancel an order a Retry has already legitimately advanced', () => {
     const code = routeSrc()
-    const occurrences = code.match(/AND payment_status = 'PENDING' AND expires_at IS NOT DISTINCT FROM \$\{capturedExpiresAt\}/g) ?? []
+    const occurrences = code.match(/AND payment_status = 'PENDING' AND \(extract\(epoch FROM expires_at\) \* 1000000\)::bigint IS NOT DISTINCT FROM \$\{capturedExpiresAtStamp\}::bigint/g) ?? []
     expect(occurrences.length).toBe(2)
   })
 
@@ -355,8 +358,13 @@ describe('Checkout-vs-Retry race closure (PR #231 follow-up)', () => {
     // produces a brand-new, distinct order id (see RETURNING id/order_id
     // in both) — there is no code path where a SECOND checkout request
     // could target an order a FIRST checkout request already created.
+    // Phase 2: session-bound and non-session reservations now share ONE
+    // order-creating INSERT (the session check is a conditional clause
+    // of the same gate) — still an INSERT, never an UPDATE of an
+    // existing order id.
     const occurrences = code.match(/INSERT INTO event_orders/g) ?? []
-    expect(occurrences.length).toBe(2)
+    expect(occurrences.length).toBe(1)
+    expect(code).toMatch(/INSERT INTO event_orders[\s\S]*?FROM gate\s*\n\s*RETURNING id/)
   })
 })
 
@@ -590,7 +598,7 @@ function asyncSucceededEvent(overrides: Record<string, unknown> = {}, account: s
 describe('processStripeWebhookEvent — checkout.session.async_payment_succeeded (asynchronous payment success closure)', () => {
   beforeEach(() => { vi.doUnmock('@/lib/events/stripe') })
   const STRIPE_SOURCE = stripComments(read('lib/events/stripe.ts'))
-  const CHECKOUT_ROUTE_SOURCE = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
+  const CHECKOUT_ROUTE_SOURCE = stripComments((read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts') + read('lib/events/paidCheckoutResponse.ts')))
 
   // B5-B13: order begins PENDING, the async event arrives, correlates to
   // the correct order, transitions payment_status -> PAID and status ->
@@ -604,7 +612,8 @@ describe('processStripeWebhookEvent — checkout.session.async_payment_succeeded
     const { processStripeWebhookEvent } = await import('@/lib/events/stripe')
     queue([{ id: 'order-1', organisation_id: 'org-a' }], [{ id: 'att-1' }])
     const result = await processStripeWebhookEvent(asyncSucceededEvent())
-    expect(result).toEqual({ handled: true, type: 'checkout.session.async_payment_succeeded' })
+    // paidOrderId lets the webhook route make one prompt (idempotent) ticket-email attempt
+    expect(result).toEqual({ handled: true, type: 'checkout.session.async_payment_succeeded', paidOrderId: 'order-1' })
     // order-flip+audit CTE, attendee-lookup SELECT, ticket-token UPDATE, booking-token UPDATE
     expect(sqlMock).toHaveBeenCalledTimes(4)
     const firstCallText = ((sqlMock.mock.calls[0] as unknown[])[0] as string[]).join('')
@@ -638,9 +647,12 @@ describe('processStripeWebhookEvent — checkout.session.async_payment_succeeded
     queue([{ id: 'order-1', organisation_id: 'org-a' }], [{ id: 'att-1' }])
     await processStripeWebhookEvent(asyncSucceededEvent())
     queue([], [])
+    // A replay still reports the paid order id: the route's email attempt is idempotent
+    // (the delivery claim finds it already claimed/sent), so nothing is sent twice.
     await expect(processStripeWebhookEvent(asyncSucceededEvent())).resolves.toEqual({
       handled: true,
       type: 'checkout.session.async_payment_succeeded',
+      paidOrderId: 'order-1',
     })
   })
 
@@ -828,8 +840,10 @@ describe('processStripeWebhookEvent — checkout.session.async_payment_succeeded
 
 describe('Phase 3E.3 — paid order ticket-email scheduling: containment', () => {
   const STRIPE_SOURCE = stripComments(read('lib/events/stripe.ts'))
-  const CHECKOUT_ROUTE_SOURCE = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
-  const REFUND_ROUTE_SOURCE = stripComments(read('app/api/events/[id]/orders/[orderId]/refund/route.ts'))
+  // Eve Phase 1: the reservation INSERT and the refund transition moved
+  // verbatim into the shared services the routes call.
+  const CHECKOUT_ROUTE_SOURCE = stripComments(read('lib/events/services/paidCheckout.ts'))
+  const REFUND_ROUTE_SOURCE = stripComments(read('app/api/events/[id]/orders/[orderId]/refund/route.ts')) + '\n' + stripComments(read('lib/events/services/orderTransitions.ts'))
   const WEBHOOK_ROUTE_SOURCE = stripComments(read('app/api/public/events/webhooks/stripe/route.ts'))
 
   function handlerBody(fnName: string): string {
@@ -891,8 +905,10 @@ describe('Phase 3E.3 — paid order ticket-email scheduling: containment', () =>
     expect(STRIPE_SOURCE).not.toMatch(/from ['"]@\/lib\/email['"]/)
   })
 
-  it('the Stripe webhook route itself also never imports or calls the ticket-email system — the boundary holds at both layers', () => {
-    expect(WEBHOOK_ROUTE_SOURCE).not.toMatch(/attemptAutomaticTicketEmail|sendTicketEmail|sendEmail|ticketEmail/)
+  it('the webhook HANDLER (lib/events/stripe.ts) never sends; the route makes exactly one prompt attempt through the idempotent delivery machinery, after its response (see evePaidWebhookPromptEmail.test.ts)', () => {
+    expect(WEBHOOK_ROUTE_SOURCE).not.toMatch(/sendTicketEmail|sendEmail|from '@\/lib\/email'/)
+    expect(WEBHOOK_ROUTE_SOURCE.match(/attemptAutomaticTicketEmail\(/g) ?? []).toHaveLength(1)
+    expect(WEBHOOK_ROUTE_SOURCE).toMatch(/after\(async \(\) => \{[\s\S]*?attemptAutomaticTicketEmail\(orderId\)/)
   })
 
   it('the async-payment-method gap is now closed: checkout.session.async_payment_succeeded is handled via the SAME finalisation path as checkout.session.completed, never a duplicated/second implementation; payment_intent.succeeded deliberately remains unhandled (Stripe\'s own fulfilment guidance keys off the Checkout Session, not a second PaymentIntent-level listener)', () => {
@@ -971,7 +987,7 @@ describe('Refund route — permissions and provider-confirms-first ordering', ()
   })
 
   it('refund also cancels the order — REFUNDED tickets are never left as a valid scannable ticket (§23/§24)', () => {
-    const code = stripComments(read('app/api/events/[id]/orders/[orderId]/refund/route.ts'))
+    const code = stripComments(read('lib/events/services/orderTransitions.ts'))
     expect(code).toMatch(/status = 'CANCELLED'/)
     expect(code).toMatch(/payment_status = 'REFUNDED'/)
   })
@@ -1023,6 +1039,9 @@ describe('Phase 4 — architecture containment (no scope creep beyond the brief)
     'app/api/public/events/webhooks/stripe/route.ts',
     'app/api/events/[id]/orders/[orderId]/refund/route.ts',
     'lib/events/stripe.ts',
+    // Eve Phase 1: shared services the checkout/refund routes delegate to.
+    'lib/events/services/paidCheckout.ts',
+    'lib/events/services/orderTransitions.ts',
   ]
 
   for (const file of PHASE4_FILES) {
@@ -1070,12 +1089,19 @@ describe('Phase 4 — architecture containment (no scope creep beyond the brief)
   })
 
   it('the checkout route reuses the Phase 2 R1 lock-order discipline — FOR UPDATE on ticket_type before session, every code path', () => {
-    const code = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
-    expect(code).toMatch(/FOR UPDATE/)
-    const ttLockIdx = code.indexOf('event_ticket_types')
-    const sessLockIdx = code.indexOf('event_sessions WHERE id')
+    // Phase 2: lock statements come from the shared cart helper (every
+    // reservation path uses it), which emits ticket-type locks in
+    // ascending id order and then the session lock.
+    const code = stripComments(read('lib/events/services/paidCheckout.ts'))
+    expect(code).toMatch(/\.\.\.buildCartLockStatements\(organisationId, lineTypeIds, validated\.event_session_id, promotionCodeId\)/)
+    const cart = stripComments(read('lib/events/services/cart.ts'))
+    const fn = cart.slice(cart.indexOf('export function buildCartLockStatements'))
+    expect(fn).toMatch(/FOR UPDATE/)
+    const ttLockIdx = fn.indexOf('event_ticket_types')
+    const sessLockIdx = fn.indexOf('event_sessions WHERE id')
     expect(ttLockIdx).toBeGreaterThan(-1)
     expect(sessLockIdx).toBeGreaterThan(ttLockIdx)
+    expect(fn).toMatch(/cartLockOrder\(ticketTypeIds\)/)
   })
 
   // Updated by the Events/Ticketing production-readiness audit's stale-
@@ -1093,9 +1119,10 @@ describe('Phase 4 — architecture containment (no scope creep beyond the brief)
   // before) — it only READS them, in one WHERE-clause exclusion, to
   // decide what already counts against capacity.
   it('the free registration route\'s capacity-gate SQL shape is otherwise preserved, still never calls Stripe or writes payment/Stripe columns — the only change is a narrow, read-only stale-reservation exclusion mirroring the paid route', () => {
-    const code = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))
-    expect(code).toMatch(/FOR UPDATE/)
-    expect(code).toMatch(/sold_tt\.qty \+ \$\{validated\.quantity\} <=/)
+    const code = stripComments(read('lib/events/services/freeRegistration.ts'))
+    expect(code).toMatch(/buildCartLockStatements\(/)
+    expect(code).toMatch(/NOT EXISTS \(SELECT 1 FROM cart_tt WHERE cart_tt\.sold \+ cart_tt\.quantity > cart_tt\.capacity\)/)
+    expect(stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))).not.toMatch(/stripe/i)
     // Still architecturally separate from Stripe entirely.
     expect(code).not.toMatch(/stripe/i)
     // Still never WRITES payment_status/expires_at — every event_orders
@@ -1115,5 +1142,39 @@ describe('Phase 4 — architecture containment (no scope creep beyond the brief)
     expect(fs.existsSync(path.join(process.cwd(), 'scripts/add-events-payments.sql'))).toBe(true)
     const migrationSrc = read('scripts/add-events-payments.sql')
     expect(migrationSrc).not.toMatch(/DROP TABLE|TRUNCATE|DELETE FROM/i)
+  })
+})
+
+// ─── Hotfix: expiry compare-and-set precision ──────────────────────────
+//
+// The PR #231 generation guards compared `expires_at` (timestamptz,
+// microsecond precision) against a JS Date read back from the same row
+// (millisecond precision), so they almost never matched. The guards now
+// compare a Postgres-normalised integer epoch-microsecond stamp on both
+// sides. The behavioural proof is the real-Postgres suite in
+// tests/containment/eventsExpiryCasPrecisionRealPostgres.test.ts; this
+// block pins that no JS-round-tripped timestamptz comparison remains.
+describe('Hotfix — expiry CAS precision (no JS-Date timestamptz equality guards remain)', () => {
+  const FILES = ['lib/events/services/paidCheckout.ts', 'lib/events/services/retryCheckout.ts']
+
+  it('no `expires_at IS NOT DISTINCT FROM ${<js value>}` comparison remains in the paid checkout or retry services', () => {
+    for (const f of FILES) {
+      const code = stripComments(read(f))
+      expect(code, f).not.toMatch(/(?<!\()(?:eo\.)?expires_at IS NOT DISTINCT FROM \$\{/)
+      expect(code, f).not.toMatch(/expires_at\s*=\s*\$\{/)
+    }
+  })
+
+  it('every generation guard compares the Postgres-normalised stamp cast to bigint on BOTH sides (paidCheckout: write-back + 2 compensating cancels; retry: the single whole-order reacquire statement + write-back)', () => {
+    const stampGuard = /\(extract\(epoch FROM (?:eo\.)?expires_at\) \* 1000000\)::bigint IS NOT DISTINCT FROM \$\{\w+ExpiresAtStamp\}::bigint/g
+    expect((stripComments(read('lib/events/services/paidCheckout.ts')).match(stampGuard) ?? []).length).toBe(3)
+    expect((stripComments(read('lib/events/services/retryCheckout.ts')).match(stampGuard) ?? []).length).toBe(2)
+  })
+
+  it('the stamp is read from Postgres as text (never parsed into a JS Date/number), so no precision is lost in transit', () => {
+    for (const f of FILES) {
+      const code = stripComments(read(f))
+      expect(code, f).toMatch(/\(extract\(epoch FROM (?:eo\.)?expires_at\) \* 1000000\)::bigint::text AS expires_at_stamp/)
+    }
   })
 })

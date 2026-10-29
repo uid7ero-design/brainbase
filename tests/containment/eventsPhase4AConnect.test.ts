@@ -67,9 +67,10 @@ vi.mock('@/lib/crm/eventSync', () => ({
 // this entire module at the route-orchestration level).
 const stripeAccountsCreateMock = vi.fn()
 const stripeAccountsRetrieveMock = vi.fn()
+const stripeAccountsUpdateMock = vi.fn()
 const stripeAccountLinksCreateMock = vi.fn()
 const getStripeClientMock = vi.fn(() => ({
-  accounts: { create: stripeAccountsCreateMock, retrieve: stripeAccountsRetrieveMock },
+  accounts: { create: stripeAccountsCreateMock, retrieve: stripeAccountsRetrieveMock, update: stripeAccountsUpdateMock },
   accountLinks: { create: stripeAccountLinksCreateMock },
 }))
 vi.mock('@/lib/events/stripe', async (importOriginal) => {
@@ -122,6 +123,7 @@ beforeEach(() => {
   requireCapabilityMock.mockReset()
   stripeAccountsCreateMock.mockReset()
   stripeAccountsRetrieveMock.mockReset()
+  stripeAccountsUpdateMock.mockReset()
   stripeAccountLinksCreateMock.mockReset()
   redirectMock.mockReset()
   responseQueue = []
@@ -167,6 +169,53 @@ describe('Connect route — auth and idempotent account creation', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.onboarding_url).toBe('https://connect.stripe.com/setup/acct_new')
+  })
+
+  it('a NEW account is created with controller properties (Stripe carries losses, full Dashboard, Stripe collects requirements) and no legacy type', async () => {
+    queue(
+      [{ stripe_account_id: null, stripe_account_status: 'NOT_CONNECTED', stripe_charges_enabled: false, stripe_payouts_enabled: false, stripe_details_submitted: false, stripe_connected_at: null, stripe_last_synced_at: null }],
+      [{ name: 'Brainbase' }],
+      [],
+      [{ stripe_account_id: 'acct_new', stripe_account_status: 'NOT_CONNECTED', stripe_charges_enabled: false, stripe_payouts_enabled: false, stripe_details_submitted: false, stripe_connected_at: null, stripe_last_synced_at: null }],
+    )
+    stripeAccountsCreateMock.mockResolvedValue({ id: 'acct_new' })
+    stripeAccountLinksCreateMock.mockResolvedValue({ url: 'https://connect.stripe.com/setup/acct_new' })
+    const res = await connectRoute.POST()
+    expect(res.status).toBe(200)
+    expect(stripeAccountsCreateMock).toHaveBeenCalledTimes(1)
+    const params = stripeAccountsCreateMock.mock.calls[0][0] as Record<string, unknown>
+    expect(params).toEqual({
+      controller: {
+        losses: { payments: 'stripe' },
+        fees: { payer: 'account' },
+        requirement_collection: 'stripe',
+        stripe_dashboard: { type: 'full' },
+      },
+      business_profile: { name: 'Brainbase', product_description: 'Event ticketing' },
+    })
+    expect(params).not.toHaveProperty('type')
+    expect(JSON.stringify(params)).not.toMatch(/express|custom|application/)
+    // Account creation is a platform-level call: never made "as" another connected account.
+    expect(stripeAccountsCreateMock.mock.calls[0]).toHaveLength(1)
+    // Onboarding is still Stripe-hosted: one account_onboarding Account Link back to BrainBase.
+    expect(stripeAccountLinksCreateMock).toHaveBeenCalledWith({
+      account: 'acct_new',
+      type: 'account_onboarding',
+      return_url: 'http://localhost:3000/events/payments/connect/return',
+      refresh_url: 'http://localhost:3000/events/payments/connect/refresh',
+    })
+  })
+
+  it('an organisation that already has an account (e.g. LD Tennis, or any historical account) is never recreated, updated or reconfigured', async () => {
+    queue([{ stripe_account_id: 'acct_1U9z5TEJ6p1ko65M', stripe_account_status: 'CONNECTED', stripe_charges_enabled: true, stripe_payouts_enabled: true, stripe_details_submitted: true, stripe_connected_at: new Date('2026-08-30'), stripe_last_synced_at: new Date('2026-08-30') }])
+    stripeAccountLinksCreateMock.mockResolvedValue({ url: 'https://connect.stripe.com/setup/acct_1U9z5TEJ6p1ko65M' })
+    const res = await connectRoute.POST()
+    expect(res.status).toBe(200)
+    expect(stripeAccountsCreateMock).not.toHaveBeenCalled()
+    expect(stripeAccountsUpdateMock).not.toHaveBeenCalled()
+    // No organisation write other than the audit entry: the stored account id is left exactly as it was.
+    const writes = (sqlMock.mock.calls as unknown as unknown[][]).map(c => (c[0] as TemplateStringsArray).join(' ')).filter(t => /UPDATE organisations/.test(t))
+    expect(writes).toHaveLength(0)
   })
 
   it('admin (>= manager) can also start onboarding', async () => {
@@ -355,10 +404,12 @@ describe('checkPaidTicketingEligibility', () => {
   })
 
   it('the checkout route blocks paid checkout when ineligible — free registration is a completely separate route, unaffected', () => {
-    const checkoutSrc = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
-    const registerSrc = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))
+    // Eve Phase 1: the flows now live in the shared services each route calls.
+    const checkoutSrc = stripComments(read('lib/events/services/paidCheckout.ts'))
+    const registerSrc = stripComments(read('lib/events/services/freeRegistration.ts'))
     expect(checkoutSrc).toMatch(/checkPaidTicketingEligibility/)
     expect(registerSrc).not.toMatch(/checkPaidTicketingEligibility|stripeConnect/)
+    expect(stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))).not.toMatch(/checkPaidTicketingEligibility|stripeConnect/)
   })
 })
 
@@ -368,12 +419,14 @@ describe('Checkout route — connected-account propagation', () => {
   it('the client cannot supply a Stripe account id — the validator has no such field, and connectedAccountId is only ever server-derived', () => {
     const validationSrc = stripComments(read('lib/events/publicValidation.ts'))
     expect(validationSrc).not.toMatch(/stripe_account|account_id/i)
-    const checkoutSrc = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
+    const checkoutSrc = stripComments(read('lib/events/services/paidCheckout.ts'))
     expect(checkoutSrc).toMatch(/eligibility\.accountId/)
+    // The route never passes any account id into the service at all.
+    expect(stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))).not.toMatch(/accountId|stripe_account/i)
   })
 
   it('the order INSERT stores stripe_account_id for historical provider attribution (§14)', () => {
-    const code = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
+    const code = stripComments(read('lib/events/services/paidCheckout.ts'))
     expect(code).toMatch(/stripe_account_id/)
     expect(code).toMatch(/\$\{connectedAccountId\}/)
   })
@@ -457,13 +510,16 @@ describe('Webhook handlers — connected-account reconciliation', () => {
 
 describe('Refund — uses the order\'s own historical Connect account', () => {
   it('createRefund is called with the ORDER\'s stripe_account_id, never re-derived from the organisation\'s current settings', () => {
-    const code = stripComments(read('app/api/events/[id]/orders/[orderId]/refund/route.ts'))
+    // Eve Phase 1: the refund transition lives in the shared service the
+    // refund route calls.
+    const code = stripComments(read('lib/events/services/orderTransitions.ts'))
     expect(code).toMatch(/createRefund\(order\.stripe_payment_intent_id, order\.stripe_account_id\)/)
     expect(code).not.toMatch(/getConnectAccountState|stripeConnect/)
+    expect(stripComments(read('app/api/events/[id]/orders/[orderId]/refund/route.ts'))).not.toMatch(/getConnectAccountState|stripeConnect|createRefund/)
   })
 
   it('an order with no stored stripe_account_id cannot be refunded (pre-Connect / non-Connect-attributed order)', () => {
-    const code = stripComments(read('app/api/events/[id]/orders/[orderId]/refund/route.ts'))
+    const code = stripComments(read('lib/events/services/orderTransitions.ts'))
     expect(code).toMatch(/!order\.stripe_account_id/)
   })
 })
@@ -498,11 +554,17 @@ describe('Phase 4A — architecture containment', () => {
     expect(code).not.toMatch(/DELETE FROM organisations|stripe_account_id = NULL|accounts\.del/)
   })
 
-  it('no platform fee (application_fee_amount) is implemented', () => {
-    for (const file of [...CONNECT_FILES, 'lib/events/stripe.ts']) {
+  it('no platform fee is implemented in the Connect module itself; Phase 5A\'s application_fee_amount lives only in createCheckoutSession, sourced solely from the caller\'s committed snapshot and omitted entirely when zero', () => {
+    for (const file of CONNECT_FILES) {
       const code = stripComments(read(file))
       expect(code).not.toMatch(/application_fee_amount|platform_fee/i)
     }
+    const stripeCode = stripComments(read('lib/events/stripe.ts'))
+    // Exactly one place sends it, guarded on a positive value and never
+    // derived from any policy/organisation read inside this module.
+    expect(stripeCode.match(/application_fee_amount/g)).toHaveLength(1)
+    expect(stripeCode).toMatch(/\.\.\.\(applicationFeeCents > 0 \? \{ payment_intent_data: \{ application_fee_amount: applicationFeeCents \} \} : \{\}\)/)
+    expect(stripeCode).not.toMatch(/ticketing_fee_policies|resolveFeePolicy/)
   })
 
   it('no seating/promo/subscription/SMS/CRM scope creep', () => {
@@ -522,8 +584,29 @@ describe('Phase 4A — architecture containment', () => {
     expect(code).not.toMatch(/routing_number|account_number|BSB|SWIFT|IBAN/i)
   })
 
-  it('Express account type is used, not Custom', () => {
+  it('new accounts use the Stripe-liable, full-Dashboard controller configuration — never the legacy type field, Express or Custom', () => {
+    expect(stripeConnectLib.CONNECTED_ACCOUNT_CONTROLLER).toEqual({
+      losses: { payments: 'stripe' },
+      fees: { payer: 'account' },
+      requirement_collection: 'stripe',
+      stripe_dashboard: { type: 'full' },
+    })
     const code = stripComments(read('lib/events/stripeConnect.ts'))
-    expect(code).toMatch(/CONNECTED_ACCOUNT_TYPE = 'express'/)
+    expect(code).not.toMatch(/CONNECTED_ACCOUNT_TYPE|type: 'express'|type: 'custom'|type: 'standard'/)
+    expect(code).toMatch(/accounts\.create\(\{\s*controller: CONNECTED_ACCOUNT_CONTROLLER,/)
+    // The only Stripe account calls in this module: create (new orgs only), retrieve (refresh) and the Account Link.
+    expect(code).not.toMatch(/accounts\.(update|del|reject)\(/)
+  })
+
+  it('status derivation reads only the capability flags and requirements, so a controller-configured account and an Express one derive identically', () => {
+    const base = { details_submitted: true, charges_enabled: true, payouts_enabled: true, requirements: { currently_due: [], past_due: [], disabled_reason: null } }
+    const managedRisk = { ...base, type: 'standard', controller: { losses: { payments: 'stripe' }, fees: { payer: 'account' }, requirement_collection: 'stripe', stripe_dashboard: { type: 'full' } } }
+    const express = { ...base, type: 'express', controller: { losses: { payments: 'application' }, fees: { payer: 'application_express' }, requirement_collection: 'stripe', stripe_dashboard: { type: 'express' } } }
+    const derive = stripeConnectLib.deriveConnectStatus as (a: unknown) => string
+    expect(derive(managedRisk)).toBe('CONNECTED')
+    expect(derive(express)).toBe('CONNECTED')
+    expect(derive({ ...managedRisk, details_submitted: false })).toBe('ONBOARDING')
+    expect(derive({ ...managedRisk, payouts_enabled: false })).toBe('ACTION_REQUIRED')
+    expect(derive({ ...managedRisk, requirements: { ...base.requirements, disabled_reason: 'requirements.past_due' } })).toBe('RESTRICTED')
   })
 })

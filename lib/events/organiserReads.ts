@@ -1,0 +1,146 @@
+import sql from '@/lib/db';
+import { parseRegistrationFilters, buildRegistrationFilterSql } from '@/lib/events/registrationFilters';
+
+// Staff-side read models shared by the BrainBase Events routes and the
+// standalone ticketing API. They perform NO authorization: callers must
+// have already authorized and must pass the organisationId resolved from
+// their own authenticated principal. Every query is tenant-scoped.
+
+export async function listOrganisationEvents(organisationId: string) {
+  return sql`
+    SELECT
+      e.*,
+      COUNT(DISTINCT es.id)::int AS session_count,
+      COUNT(DISTINCT tt.id)::int AS ticket_type_count
+    FROM events e
+    LEFT JOIN event_sessions es ON es.event_id = e.id
+    LEFT JOIN event_ticket_types tt ON tt.event_id = e.id
+    WHERE e.organisation_id = ${organisationId}
+    GROUP BY e.id
+    ORDER BY e.starts_at DESC
+  `;
+}
+
+// null when the event does not exist in this organisation.
+export async function getOrganisationEvent(organisationId: string, eventId: string) {
+  const rows = await sql`
+    SELECT * FROM events WHERE id = ${eventId} AND organisation_id = ${organisationId} LIMIT 1
+  `;
+  if (!rows.length) return null;
+  const [event_sessions, ticket_types] = await Promise.all([
+    sql`SELECT * FROM event_sessions WHERE event_id = ${eventId} AND organisation_id = ${organisationId} ORDER BY starts_at`,
+    sql`SELECT * FROM event_ticket_types WHERE event_id = ${eventId} AND organisation_id = ${organisationId} ORDER BY sort_order, created_at`,
+  ]);
+  return { event: rows[0], event_sessions, ticket_types };
+}
+
+// One row per order item (the orders route's grain). null when the event is
+// not in this organisation.
+export async function listEventRegistrationRows(organisationId: string, id: string, searchParams: URLSearchParams) {
+  const eventRows = await sql`
+    SELECT id FROM events WHERE id = ${id} AND organisation_id = ${organisationId} LIMIT 1
+  `;
+  if (!eventRows.length) return null;
+
+  const filters = parseRegistrationFilters(searchParams);
+  const filterClause = buildRegistrationFilterSql(filters, organisationId);
+
+  // Phase 4B §7 — order-level and attendee-level registration-question
+  // responses are attached here as nested JSON, via correlated
+  // subqueries rather than an additional LEFT JOIN: a JOIN against
+  // event_registration_responses would fan out against the existing
+  // ea/oi join multiplicity (one row per attendee × one row per
+  // response), inflating counts; a per-row scalar subquery avoids that
+  // entirely. Every subquery still carries its own organisation_id
+  // check, matching this schema's tenant-integrity discipline even
+  // though the outer WHERE already scopes eo/ea to this organisation.
+  // Reads question_label_snapshot/field_type_snapshot (never the live
+  // question row) so a later edit to a question's wording never
+  // rewrites how a historical registration's answers are displayed
+  // here (§3). This is a viewer+ route (see authorizeEventsRequest
+  // above) — never exposed on the public ticket endpoint (see
+  // lib/events/publicTicket.ts, untouched by this phase) (§6).
+  const orders = await sql`
+    SELECT
+      eo.id, eo.purchaser_name, eo.purchaser_email, eo.purchaser_phone, eo.status, eo.created_at,
+      eo.payment_status, eo.total_cents, eo.currency, eo.paid_at, eo.refunded_at, eo.stripe_payment_intent_id IS NOT NULL AS refundable,
+      -- Phase 4 — the order's discount snapshot (0 / NULL for every order
+      -- without a promotion). total_cents above stays the NET TICKET amount.
+      eo.discount_cents, eo.promotion_code_snapshot,
+      -- Phase 5A — the order's fee snapshot: what the customer paid
+      -- (payment_total_cents; = total_cents on every pre-Phase-5A and
+      -- zero-fee order), the platform fee and its mode, and what a refund
+      -- returned. Never the policy id/version.
+      COALESCE(eo.payment_total_cents, eo.total_cents) AS payment_total_cents, eo.platform_fee_cents, eo.fee_mode,
+      eo.refunded_cents, eo.platform_fee_refunded_cents,
+      eo.crm_contact_id,
+      eo.expires_at, (eo.payment_status = 'PENDING' AND eo.expires_at IS NOT NULL AND eo.expires_at <= NOW()) AS is_expired_pending,
+      oi.id AS order_item_id, oi.quantity,
+      tt.id AS ticket_type_id, tt.name AS ticket_type_name,
+      es.id AS event_session_id, es.name AS session_name,
+      COALESCE(
+        json_agg(json_build_object(
+          'id', ea.id, 'name', ea.attendee_name, 'email', ea.attendee_email,
+          'checked_in_at', ea.checked_in_at,
+          -- Phase 6 §10 — "checked_in_by where available". Resolved by
+          -- name via a LEFT JOIN (below) rather than exposing the raw
+          -- checked_in_by_user_id: a manager reading this panel wants
+          -- to know WHO checked someone in, not a bare id. Genuinely
+          -- NULL (not fabricated) whenever checked_in_by_user_id itself
+          -- is NULL — an attendee never checked in, or the checking-in
+          -- user's account was since deleted (checked_in_by_user_id is
+          -- ON DELETE SET NULL — see scripts/add-events-ticketing.sql).
+          'checked_in_by', cu.name,
+          -- Phase 6 §9 — exposes the existing ticket_token so a manager
+          -- can view/copy the real ticket link without needing a
+          -- separate lookup route. NULL for PENDING/CANCELLED/REFUNDED
+          -- attendees exactly as already established (see
+          -- lib/events/ticketToken.ts and the checkout/register routes)
+          -- — this SELECT does not change when a token exists, only
+          -- whether it is now included in this already-staff-only
+          -- response.
+          'ticket_token', ea.ticket_token,
+          'responses', COALESCE((
+            SELECT json_agg(json_build_object(
+              -- Phase 6 §6 — 'id' (the response row's own PK) is included
+              -- so the manager UI can target PATCH
+              -- .../orders/[orderId]/responses/[responseId] for an edit;
+              -- every other field here is unchanged from before this
+              -- phase.
+              'id', r.id, 'question_id', r.question_id, 'label', r.question_label_snapshot, 'field_type', r.field_type_snapshot, 'answer', r.answer,
+              -- ADR 0013 §4b — the wording and category as answered, when an
+              -- Eve buyer gave explicit agreement, and whether retention has
+              -- removed the answer (answer is then NULL).
+              'help_text', r.question_help_text_snapshot, 'data_category', r.data_category_snapshot,
+              'buyer_acknowledged_at', r.buyer_acknowledged_at, 'redacted_at', r.redacted_at
+            ) ORDER BY r.created_at)
+            FROM event_registration_responses r
+            WHERE r.attendee_id = ea.id AND r.organisation_id = ea.organisation_id
+          ), '[]')
+        ))
+          FILTER (WHERE ea.id IS NOT NULL),
+        '[]'
+      ) AS attendees,
+      COALESCE((
+        SELECT json_agg(json_build_object(
+          'id', r.id, 'question_id', r.question_id, 'label', r.question_label_snapshot, 'field_type', r.field_type_snapshot, 'answer', r.answer,
+          'help_text', r.question_help_text_snapshot, 'data_category', r.data_category_snapshot,
+          'buyer_acknowledged_at', r.buyer_acknowledged_at, 'redacted_at', r.redacted_at
+        ) ORDER BY r.created_at)
+        FROM event_registration_responses r
+        WHERE r.order_id = eo.id AND r.attendee_id IS NULL AND r.organisation_id = eo.organisation_id
+      ), '[]') AS order_responses
+    FROM event_orders eo
+    JOIN event_order_items oi ON oi.order_id = eo.id AND oi.organisation_id = eo.organisation_id
+    LEFT JOIN event_ticket_types tt ON tt.id = oi.ticket_type_id AND tt.organisation_id = oi.organisation_id
+    LEFT JOIN event_sessions es ON es.id = oi.event_session_id AND es.organisation_id = oi.organisation_id
+    LEFT JOIN event_attendees ea ON ea.order_item_id = oi.id AND ea.organisation_id = oi.organisation_id
+    LEFT JOIN users cu ON cu.id = ea.checked_in_by_user_id
+    WHERE eo.event_id = ${id} AND eo.organisation_id = ${organisationId}
+    ${filterClause}
+    GROUP BY eo.id, oi.id, tt.id, tt.name, es.id, es.name
+    ORDER BY eo.created_at DESC
+  `;
+
+  return orders as Record<string, unknown>[];
+}

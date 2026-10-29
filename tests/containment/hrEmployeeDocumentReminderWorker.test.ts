@@ -57,6 +57,18 @@ beforeEach(() => {
 });
 
 describe('HR-7E5D employee document reminder worker', () => {
+  it.each(['sent', 'definite_failure'] as const)('isolates a %s ledger failure without replaying or abandoning later claims', async outcome => {
+    const items = ['first', 'second', 'third'].map(delivery);
+    claimBatchMock.mockResolvedValue({ discovered: 3, claimed: items, skipped: 0 });
+    const transition = outcome === 'sent' ? markSentMock : markFailedMock;
+    transition.mockRejectedValueOnce(new Error('synthetic ledger failure'));
+    const transport = vi.fn().mockResolvedValue(outcome === 'sent' ? { outcome } : { outcome, failureCode: 'provider_rejected' });
+    const result = await processDueEmployeeDocumentReminders({ actor: ACTOR, scheduledThrough: '2026-10-01', transport });
+    expect(transport.mock.calls.map(call => call[0].id)).toEqual(['first', 'second', 'third']);
+    expect(transition.mock.calls.map(call => call[0].deliveryId)).toEqual(['first', 'second', 'third']);
+    expect(outcome === 'sent' ? markFailedMock : markSentMock).not.toHaveBeenCalled();
+    expect(result).toEqual({ discovered: 3, claimed: 3, discoverySkipped: 0, sent: outcome === 'sent' ? 2 : 0, failed: outcome === 'sent' ? 0 : 2, ambiguous: 0, transitionSkipped: 1 });
+  });
   it('passes the caller date and bounded limit through to the claim queue', async () => {
     const transport = vi.fn();
 

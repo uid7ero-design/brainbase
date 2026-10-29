@@ -181,6 +181,44 @@ afterAll(async () => {
 });
 
 describe('HR-7C workflow start/cancel against real Postgres', () => {
+  it('rolls back workflow and task creation when the start audit insert fails', async () => {
+    await q(`ALTER TABLE audit_logs ADD CONSTRAINT hr_workflow_proof_reject_audit
+      CHECK (action <> 'hr_lifecycle_workflow.started') NOT VALID`);
+    try {
+      await expect(startLifecycleWorkflow({ actor, personId: PERSON_ID, templateId: TEMPLATE_ID, anchorDate: '2026-10-06' }))
+        .rejects.toMatchObject({ code: '23514', constraint: 'hr_workflow_proof_reject_audit' });
+      for (const table of ['hr_lifecycle_workflows', 'hr_lifecycle_tasks', 'audit_logs']) {
+        const [row] = await q<{ count: string }>(`SELECT count(*)::text AS count FROM ${table} WHERE organisation_id=$1`, [ORG_ID]);
+        expect(row.count).toBe('0');
+      }
+    } finally {
+      await q('ALTER TABLE audit_logs DROP CONSTRAINT hr_workflow_proof_reject_audit');
+    }
+    const recovered = await startLifecycleWorkflow({ actor, personId: PERSON_ID, templateId: TEMPLATE_ID, anchorDate: '2026-10-06' });
+    expect(recovered.outcome).toBe('started');
+  });
+
+  it('preserves workflow, tasks and audit history when cancellation audit fails', async () => {
+    const started = await startLifecycleWorkflow({ actor, personId: PERSON_ID, templateId: TEMPLATE_ID, anchorDate: '2026-10-06' });
+    if (started.outcome !== 'started') throw new Error('Expected workflow start');
+    const snapshot = async () => ({
+      workflows: await q('SELECT * FROM hr_lifecycle_workflows WHERE organisation_id=$1 ORDER BY id', [ORG_ID]),
+      tasks: await q('SELECT * FROM hr_lifecycle_tasks WHERE organisation_id=$1 ORDER BY id', [ORG_ID]),
+      audits: await q('SELECT * FROM audit_logs WHERE organisation_id=$1 ORDER BY id', [ORG_ID]),
+    });
+    const before = await snapshot();
+    await q(`ALTER TABLE audit_logs ADD CONSTRAINT hr_workflow_proof_reject_audit
+      CHECK (action <> 'hr_lifecycle_workflow.cancelled') NOT VALID`);
+    try {
+      await expect(cancelLifecycleWorkflow({ actor, workflowId: started.workflowId }))
+        .rejects.toMatchObject({ code: '23514', constraint: 'hr_workflow_proof_reject_audit' });
+      expect(await snapshot()).toEqual(before);
+    } finally {
+      await q('ALTER TABLE audit_logs DROP CONSTRAINT hr_workflow_proof_reject_audit');
+    }
+    expect((await cancelLifecycleWorkflow({ actor, workflowId: started.workflowId })).outcome).toBe('cancelled');
+  });
+
   it('starts from the exact ACTIVE template and snapshots assignments, due dates, and audit atomically', async () => {
     const result = await startLifecycleWorkflow({
       actor,

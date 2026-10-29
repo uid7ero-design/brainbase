@@ -6,6 +6,7 @@ import { requireRole } from '@/lib/org';
 import { getClientIp } from '@/lib/clientIp';
 import { createToken } from '@/lib/tokens';
 import { sendEmail, verificationEmail } from '@/lib/email';
+import { revokeUserSessionsQuery } from '@/lib/ticketing/sessionRevocation';
 import {
   logUserCreated,
   logUserUpdated,
@@ -90,13 +91,19 @@ export async function PATCH(req: NextRequest) {
     const newEmail = email !== undefined ? (email?.trim() || null) : (current.email as string | null);
     const newHash  = password ? await bcrypt.hash(password as string, 12) : (current.password_hash as string);
 
-    const rows = await sql`
+    const updateQuery = sql`
       UPDATE users
       SET name = ${newName}, role = ${newRole}, organisation_id = ${newOrgId},
           email = ${newEmail}, password_hash = ${newHash}
       WHERE id = ${id}
       RETURNING id, email, name, role, organisation_id, email_verified, created_at
     `;
+    // A password change also revokes the user's Eve sessions, in the SAME
+    // transaction (both happen or neither). Without a password change this is
+    // exactly the single UPDATE it always was.
+    const rows = password
+      ? (await sql.transaction([updateQuery, revokeUserSessionsQuery(id)]))[0]
+      : await updateQuery;
 
     const [orgRow] = await sql`SELECT name FROM organisations WHERE id = ${newOrgId}`.catch(() => [null]);
     const updated = { ...rows[0], role: (rows[0].role as string).toLowerCase() };

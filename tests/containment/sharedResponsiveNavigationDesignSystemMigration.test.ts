@@ -171,8 +171,8 @@ describe('B.4 shared responsive navigation design-system migration', () => {
     }
     expect(manageHrefs('viewer')).toEqual([])
     expect(manageHrefs('manager')).toEqual(['/dashboard/integrations'])
-    expect(manageHrefs('admin')).toEqual(['/dashboard/integrations', '/settings/branding'])
-    expect(manageHrefs('super_admin')).toEqual(['/dashboard/integrations', '/settings/branding'])
+    expect(manageHrefs('admin')).toEqual(['/settings/users', '/dashboard/integrations', '/settings/branding'])
+    expect(manageHrefs('super_admin')).toEqual(['/settings/users', '/dashboard/integrations', '/settings/branding'])
   })
 
   it('preserves profile, logout, and responsive system-cluster interactions', () => {

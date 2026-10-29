@@ -13,6 +13,7 @@ const createCostCentreMappingMock = vi.fn();
 const retireCostCentreMappingMock = vi.fn();
 const listCostCentreMappingsMock = vi.fn();
 const importEntryMock = vi.fn();
+const getEntryMock = vi.fn();
 const listSourcesMock = vi.fn();
 class MockExternalGlError extends Error { constructor(public code: string, message: string) { super(message); } }
 vi.mock('@/lib/commercial/externalGl', () => ({
@@ -22,6 +23,7 @@ vi.mock('@/lib/commercial/externalGl', () => ({
   createExternalGlCostCentreMapping: (...args: unknown[]) => createCostCentreMappingMock(...args),
   retireExternalGlCostCentreMapping: (...args: unknown[]) => retireCostCentreMappingMock(...args),
   listExternalGlCostCentreMappings: (...args: unknown[]) => listCostCentreMappingsMock(...args),
+  getExternalGlEntryByIdentity: (...args: unknown[]) => getEntryMock(...args),
   importExternalGlEntry: (...args: unknown[]) => importEntryMock(...args),
   listExternalGlSourceSystemIds: (...args: unknown[]) => listSourcesMock(...args),
   ExternalGlError: MockExternalGlError,
@@ -46,6 +48,7 @@ beforeEach(() => {
   retireCostCentreMappingMock.mockReset();
   listCostCentreMappingsMock.mockReset();
   importEntryMock.mockReset();
+  getEntryMock.mockReset();
   listSourcesMock.mockReset();
 });
 
@@ -351,13 +354,13 @@ describe('C7.9D/C7.9F — external GL APIs', () => {
     expect(notFound.status).toBe(404);
     expect(await notFound.json()).toEqual({ error: 'Not found.' });
     importEntryMock.mockRejectedValueOnce(new MockExternalGlError('EXTERNAL_IDENTITY_CONFLICT','conflict'));
-    expect((await entriesRoute.POST(new Request('http://localhost',{method:'POST',body:JSON.stringify({ sourceSystemId:'xero', externalEntryId:'entry-1', externalAccountCode:'600', transactionDate:'2026-09-01', currency:'AUD', amountMinorUnits:'0', sourcePayloadHash:'hash', sourceLineageId:'batch-1' })}))).status).toBe(409);
+    expect((await entriesRoute.POST(new Request('http://localhost',{method:'POST',body:JSON.stringify({ sourceSystemId:'xero', externalEntryId:'entry-1', externalAccountCode:'600', transactionDate:'2026-09-01', currency:'AUD', amountMinorUnits:'0', sourcePayloadHash:'a'.repeat(32), sourceLineageId:'batch-1' })}))).status).toBe(409);
   });
 });
 
 describe('external GL exact monetary input', () => {
   const valid = { sourceSystemId: 'xero', externalEntryId: 'entry-1', externalAccountCode: '600',
-    transactionDate: '2026-09-01', currency: 'AUD', sourcePayloadHash: 'hash', sourceLineageId: 'batch-1' };
+    transactionDate: '2026-09-01', currency: 'AUD', sourcePayloadHash: 'a'.repeat(32), sourceLineageId: 'batch-1' };
   it.each([null, true, false, [], {}, 1.5, Number.MAX_SAFE_INTEGER + 1])('rejects unsafe numeric or non-monetary JSON %j before import', async amountMinorUnits => {
     authorizeMock.mockResolvedValue({ ok: true, session: ADMIN });
     const response = await entriesRoute.POST(new Request('http://localhost', {
@@ -382,5 +385,26 @@ describe('external GL exact monetary input', () => {
     }));
     expect(response.status).toBe(201);
     expect(importEntryMock).toHaveBeenCalledWith(expect.objectContaining({ amountMinorUnits }));
+  });
+});
+
+
+describe('Administrator entry lookup', () => {
+  it.each([401, 403, 503])('denies lookup before querying saved facts: %s', async status => {
+    authorizeMock.mockResolvedValue({ ok: false, response: new Response(null, { status }) });
+    const response = await entriesRoute.GET(new Request('http://localhost?sourceSystemId=XERO&externalEntryId=entry'));
+    expect(response.status).toBe(status); expect(getEntryMock).not.toHaveBeenCalled();
+    expect(authorizeMock).toHaveBeenCalledWith('budgeting', 'admin');
+  });
+  it.each(['', '?sourceSystemId=XERO', '?externalEntryId=entry', '?sourceSystemId=%20&externalEntryId=entry', '?sourceSystemId='+ 'x'.repeat(301)+'&externalEntryId=entry'])('rejects an unbounded or incomplete lookup %s', async suffix => {
+    authorizeMock.mockResolvedValue({ ok: true, session: ADMIN });
+    const response = await entriesRoute.GET(new Request('http://localhost'+suffix));
+    expect(response.status).toBe(400); expect(getEntryMock).not.toHaveBeenCalled();
+  });
+  it('derives tenant solely from session and returns an uncached explicit null', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: ADMIN }); getEntryMock.mockResolvedValue(null);
+    const response = await entriesRoute.GET(new Request('http://localhost?sourceSystemId=%20XERO%20&externalEntryId=entry&organisationId=foreign'));
+    expect(getEntryMock).toHaveBeenCalledWith('org-a', 'XERO', 'entry');
+    expect(await response.json()).toEqual({ entry: null }); expect(response.headers.get('Cache-Control')).toBe('no-store');
   });
 });

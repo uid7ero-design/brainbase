@@ -10,6 +10,8 @@ const page = source('app/commercial/budgeting/finance-controls/page.tsx');
 const sidebar = source('app/commercial/_components/CommercialSidebar.tsx');
 const closeDomain = source('lib/commercial/financeClose.ts');
 const controlUi = source('lib/commercial/financeControlUi.ts');
+const closeHistory = source('app/commercial/budgeting/finance-controls/FinanceCloseHistory.tsx');
+const reconciliationControls = source('app/commercial/budgeting/finance-controls/FinanceReconciliationControls.tsx');
 
 describe('C7.9 — Finance Controls admin UI', () => {
   it('is discoverable only through the existing Budgeting admin navigation gate', () => {
@@ -22,7 +24,7 @@ describe('C7.9 — Finance Controls admin UI', () => {
     expect(page).toContain("fetch('/api/commercial/budgeting/financial-periods'");
     expect(page).toContain("fetch('/api/commercial/budgeting/external-gl/sources'");
     expect(page).toContain('/api/commercial/budgeting/reconciliations/control-state?');
-    expect(page).toContain("params.set('sourceSystemId', sourceSystemId)");
+    expect(page).toContain("params.set('sourceSystemId', nextSource)");
     expect(page).toContain("params.set('currency', currency.trim().toUpperCase())");
     expect(page).not.toMatch(/organisationId=/);
   });
@@ -40,7 +42,7 @@ describe('C7.9 — Finance Controls admin UI', () => {
     expect(controlUi).toContain('/api/commercial/budgeting/financial-years/');
     expect(page).toContain('Close financial year');
     expect(page).toContain('Reopen financial year');
-    expect(page).toContain('Durable year-close history');
+    expect(page).toContain('kind="year" records={year.closes}');
     expect(page).toContain('A financial year reopen reason is required.');
     expect(page).toContain('Prior year-close evidence remains as invalidated history.');
     expect(page).toContain('Year close is server-governed');
@@ -63,13 +65,13 @@ describe('C7.9 — Finance Controls admin UI', () => {
     expect(page).toContain("postJson('/api/commercial/budgeting/reconciliations/prepare'");
     expect(page).toContain('financeReconciliationReviewHref(id)');
     expect(page).toContain('financeReconciliationSignOffHref(id)');
-    expect(page).toContain('financeReconciliationAction(');
+    expect(reconciliationControls).toContain('financeReconciliationAction(');
     expect(controlUi).toContain('/api/commercial/budgeting/reconciliations/');
     expect(controlUi).toContain('/review');
     expect(controlUi).toContain('/sign-off');
     expect(controlUi).toContain("if (status === 'PREPARED') return 'REVIEW'");
     expect(controlUi).toContain("if (status === 'REVIEWED') return hasActiveClose ? 'SIGN_OFF' : 'SIGN_OFF_BLOCKED'");
-    expect(page).toContain('Read only');
+    expect(reconciliationControls).toContain('Read only');
   });
 
   it('requires explicit period, source and three-letter currency before preparing a snapshot', () => {
@@ -82,14 +84,9 @@ describe('C7.9 — Finance Controls admin UI', () => {
   });
 
   it('shows durable close history and exact reconciliation control measures without collapsing finance semantics', () => {
-    expect(page).toContain('Durable close history');
-    expect(page).toContain('Source Actual');
-    expect(page).toContain('Finance Adjustments');
-    expect(page).toContain('Effective Actual');
-    expect(page).toContain('External GL');
-    expect(page).toContain('Variance');
-    expect(page).toContain('formatMoneyCentsExact(reconciliation.sourceActualCents');
-    expect(page).toContain('formatMoneyCentsExact(reconciliation.financeAdjustmentCents');
-    expect(page).toContain('formatMoneyCentsExact(reconciliation.externalGlTotalCents');
+    expect(page).toContain('kind="period" records={period.closes}');
+    expect(closeHistory).toContain('Durable {kind}-close history');
+    for(const field of ['sourceActualCents','financeAdjustmentCents','brainbaseEffectiveActualCents','externalGlTotalCents','varianceCents'])expect(reconciliationControls).toContain(field);
+    expect(reconciliationControls).toContain('formatMoneyCentsExact(row[field],row.currency)');
   });
 });

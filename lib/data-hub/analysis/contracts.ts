@@ -14,6 +14,7 @@ export type AnalysisReadinessState =
 
 export const ANALYSIS_READINESS_ERROR_CODES = [
   "SCHEMA_QUALITY_LINEAGE_MISMATCH",
+  "QUALITY_STATE_INVALID",
 ] as const;
 
 export type AnalysisReadinessErrorCode =

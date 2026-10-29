@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Data Hub 6.2D4D1B2 -- real disposable-Postgres proof for the dataset
-# profile execution service. Local throwaway postgres only. Never
+# profile execution service and D4D5N upload count service. Local throwaway postgres only. Never
 # Production/Preview/Neon.
 set -uo pipefail
 
@@ -13,6 +13,7 @@ D4C_B1="$REPO_ROOT/scripts/create-datahub-normalized-staging.sql"
 D4C_B2B1="$REPO_ROOT/scripts/create-datahub-normalization-findings.sql"
 D4D1B1="$REPO_ROOT/scripts/create-datahub-dataset-profiles.sql"
 D4D1B2="$REPO_ROOT/scripts/create-datahub-profile-execution.sql"
+D4D5Q="$REPO_ROOT/scripts/create-datahub-analysis-reviews.sql"
 CONTAINER="datahub-6-2d4d1b2-profile-execution-$$"
 HOST_PORT=$((20000 + RANDOM % 20000))
 
@@ -22,7 +23,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for f in "$D4A" "$D4B" "$D4C_B1" "$D4C_B2B1" "$D4D1B1" "$D4D1B2"; do
+for f in "$D4A" "$D4B" "$D4C_B1" "$D4C_B2B1" "$D4D1B1" "$D4D1B2" "$D4D5Q"; do
   [ -f "$f" ] || { echo "ERROR: missing $f" >&2; exit 2; }
 done
 command -v docker >/dev/null 2>&1 || { echo "ERROR: docker is required" >&2; exit 2; }
@@ -60,6 +61,7 @@ ALTER TABLE uploads DROP COLUMN IF EXISTS profiled_at;
 ALTER TABLE uploads DROP COLUMN IF EXISTS profiled_by;
 ALTER TABLE uploads DROP COLUMN IF EXISTS profiler_version;
 
+DROP TABLE IF EXISTS data_hub_analysis_reviews CASCADE;
 DROP TABLE IF EXISTS data_hub_dataset_profile_columns CASCADE;
 DROP TABLE IF EXISTS data_hub_dataset_profile_runs CASCADE;
 DROP TABLE IF EXISTS data_hub_normalization_findings CASCADE;
@@ -95,7 +97,7 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "Applying the real D4A -> D4B -> D4C-B1 -> D4C-B2B1 -> D4D1B1 -> D4D1B2 migrations, unmodified, in order..."
-for f in "$D4A" "$D4B" "$D4C_B1" "$D4C_B2B1" "$D4D1B1" "$D4D1B2"; do
+for f in "$D4A" "$D4B" "$D4C_B1" "$D4C_B2B1" "$D4D1B1" "$D4D1B2" "$D4D5Q" "$D4D5Q"; do
   if ! docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1 < "$f" >"$DIAG_OUT" 2>&1; then
     echo "ERROR: $(basename "$f") failed to apply" >&2
     sed 's/^/    /' "$DIAG_OUT"
@@ -105,9 +107,54 @@ done
 
 echo "DATABASE_URL=$DATABASE_URL (disposable container only)"
 echo ""
-echo "=== Running the B2B2 dataset-profile execution integration suite ==="
-npx vitest run --config vitest.integration.config.ts scripts/tests/dataHubDatasetProfileExecution.integration.test.ts
+echo "=== Running dataset-profile execution and D4D5N upload count integration proofs ==="
+if [ "${DATAHUB_MAPPING_PROOF:-}" = "1" ]; then
+  # Current main's login/navigation reads this manual SQL-owned access table.
+  # Only this disposable database is provisioned, never an external target.
+  docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1 < "$REPO_ROOT/scripts/create-organisation-user-administration.sql" >"$DIAG_OUT" 2>&1 || { cat "$DIAG_OUT"; exit 2; }
+  for f in "$REPO_ROOT/scripts/create-datahub-governed-schema-immutability.sql" "$REPO_ROOT/scripts/create-datahub-mapping-confirmations.sql" "$REPO_ROOT/scripts/create-datahub-mapping-confirmations.sql"; do
+    docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1 < "$f" >"$DIAG_OUT" 2>&1 || { cat "$DIAG_OUT"; exit 2; }
+  done
+  npx vitest run --config vitest.integration.config.ts scripts/tests/dataHubMappingSetup.integration.test.ts
+else
+  npx vitest run --config vitest.integration.config.ts scripts/tests/dataHubDatasetProfileExecution.integration.test.ts
+fi
 RESULT=$?
+
+# Opt-in full browser proof uses the same freshly provisioned disposable DB.
+# Build the application first; no mocks are installed in the browser flow.
+if [ $RESULT -eq 0 ] && [ "${DATAHUB_BROWSER_PROOF:-}" = "1" ]; then
+  node scripts/tests/verify-datahub-analysis-runtime.mjs
+  RESULT=$?
+fi
+
+# Reapply with actual stored history, proving reruns preserve every record.
+if [ $RESULT -eq 0 ]; then
+  REVIEW_DIGEST=$(docker exec "$CONTAINER" psql -X -A -t -U postgres -d testdb -v ON_ERROR_STOP=1 -c \
+    "SELECT md5(COALESCE(jsonb_agg(to_jsonb(r) ORDER BY id)::text,'[]')) FROM data_hub_analysis_reviews r")
+  if ! docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1 < "$D4D5Q" >"$DIAG_OUT" 2>&1; then
+    echo "ERROR: D4D5Q reapplication with stored history failed." >&2; cat "$DIAG_OUT"; RESULT=1
+  else
+    REVIEW_DIGEST_AFTER=$(docker exec "$CONTAINER" psql -X -A -t -U postgres -d testdb -v ON_ERROR_STOP=1 -c \
+      "SELECT md5(COALESCE(jsonb_agg(to_jsonb(r) ORDER BY id)::text,'[]')) FROM data_hub_analysis_reviews r")
+    if [ -z "$REVIEW_DIGEST" ] || [ "$REVIEW_DIGEST" != "$REVIEW_DIGEST_AFTER" ]; then
+      echo "ERROR: D4D5Q reapplication changed stored review history." >&2; RESULT=1
+    fi
+  fi
+fi
+
+if [ $RESULT -eq 0 ] && [ "${DATAHUB_MAPPING_PROOF:-}" = "1" ]; then
+  MAPPING_DIGEST_SQL="SELECT md5(jsonb_build_array((SELECT COALESCE(jsonb_agg(to_jsonb(a) ORDER BY profile_version_id),'[]'::jsonb) FROM data_hub_mapping_approvals a),(SELECT COALESCE(jsonb_agg(to_jsonb(c) ORDER BY upload_id,profile_version_id),'[]'::jsonb) FROM data_hub_mapping_use_confirmations c),(SELECT COALESCE(jsonb_agg(to_jsonb(v) ORDER BY id),'[]'::jsonb) FROM worksheet_mapping_profile_versions v))::text)"
+  MAPPING_DIGEST=$(docker exec "$CONTAINER" psql -X -A -t -U postgres -d testdb -v ON_ERROR_STOP=1 -c "$MAPPING_DIGEST_SQL")
+  if ! docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1 < "$REPO_ROOT/scripts/create-datahub-mapping-confirmations.sql" >"$DIAG_OUT" 2>&1; then
+    echo "ERROR: mapping migration reapplication failed." >&2; cat "$DIAG_OUT"; RESULT=1
+  else
+    MAPPING_DIGEST_AFTER=$(docker exec "$CONTAINER" psql -X -A -t -U postgres -d testdb -v ON_ERROR_STOP=1 -c "$MAPPING_DIGEST_SQL")
+    if [ -z "$MAPPING_DIGEST" ] || [ "$MAPPING_DIGEST" != "$MAPPING_DIGEST_AFTER" ]; then
+      echo "ERROR: mapping migration changed approvals, confirmations or version history." >&2; RESULT=1
+    fi
+  fi
+fi
 
 if [ $RESULT -eq 0 ]; then
   echo "PASS: Data Hub 6.2D4D1B2 dataset-profile execution integration suite."

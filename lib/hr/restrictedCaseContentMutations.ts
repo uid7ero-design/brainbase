@@ -99,8 +99,8 @@ export async function addRestrictedCaseParticipant(params: {
           inserted.id::text,
           NULL::jsonb,
           jsonb_build_object(
-            'case_id', ${params.caseId},
-            'person_id', ${params.personId},
+            'case_id', ${params.caseId}::text,
+            'person_id', ${params.personId}::text,
             'role_in_case', inserted.role_in_case
           ),
           ${params.actor.ipAddress ?? null}, ${params.actor.userAgent ?? null}
@@ -177,8 +177,8 @@ export async function removeRestrictedCaseParticipant(params: {
           'hr_restricted_case_participant',
           removed.id::text,
           jsonb_build_object(
-            'case_id', ${params.caseId},
-            'person_id', ${params.personId},
+            'case_id', ${params.caseId}::text,
+            'person_id', ${params.personId}::text,
             'role_in_case', removed.role_in_case
           ),
           NULL::jsonb,

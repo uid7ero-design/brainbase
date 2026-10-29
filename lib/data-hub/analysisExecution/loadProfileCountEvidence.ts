@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../../prisma";
 import { DATASET_PROFILER_VERSION } from "../profiling/contracts";
 import { hasValidProfileCounts, type ProfileCountEvidence } from "../analysis/profileCounts";
@@ -24,7 +25,17 @@ export async function loadProfileCountEvidence(
     return { ok: false, code: "CONTEXT_INPUT_INVALID" };
   }
   try {
-    return await prisma.$transaction(async (tx): Promise<LoadProfileCountEvidenceResult> => {
+    return await prisma.$transaction((tx) => loadProfileCountEvidenceInTransaction(input, tx),
+      { isolationLevel: "RepeatableRead" });
+  } catch {
+    return { ok: false, code: "CONTEXT_READ_FAILED" };
+  }
+}
+
+// Internal composition: caller owns the consistent snapshot.
+export async function loadProfileCountEvidenceInTransaction(
+  input: { organisationId: string; uploadId: string }, tx: Prisma.TransactionClient,
+): Promise<LoadProfileCountEvidenceResult> {
       const resolved = await resolveAnalysisContextInTransaction(input, tx);
       if (!resolved.ok) return resolved;
       const context = resolved.context;
@@ -48,8 +59,4 @@ export async function loadProfileCountEvidence(
       }
       if (!hasValidProfileCounts(snapshot)) return { ok: false, code: "PROFILE_COUNTS_INVALID" };
       return { ok: true, profile: { context, snapshot } };
-    }, { isolationLevel: "RepeatableRead" });
-  } catch {
-    return { ok: false, code: "CONTEXT_READ_FAILED" };
-  }
 }

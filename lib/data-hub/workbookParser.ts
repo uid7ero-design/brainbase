@@ -1342,7 +1342,9 @@ export async function readWorksheetDataRows(
     if (isRowBlank(ws, r, request.governedColumns)) continue;
     const cells: WorksheetDataCell[] = request.governedColumns.map((col) => {
       const cell = ws[XLSX.utils.encode_cell({ r, c: col.ordinal })] as XLSX.CellObject | undefined;
-      return { ...col, value: normalizeCellValue(cell?.v) as NormalizedCellValue };
+      // A governed absent cell is explicit missing evidence, not an omitted
+      // JSON property. Preserve zero, false and empty strings as present values.
+      return { ...col, value: normalizeCellValue(cell?.v ?? null) as NormalizedCellValue };
     });
     rows.push({ sourceRowOneBased: r + 1, cells });
     scannedRows++;

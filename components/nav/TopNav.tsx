@@ -31,6 +31,7 @@ type Session = {
   organisationName?: string | null;
   enabledModules?: string[];
   enabledCapabilities?: string[];
+  managedAccess?: boolean;
   dashboardVariant?: 'ld-tennis' | 'brainbase-hq' | null;
 } | null;
 
@@ -878,6 +879,7 @@ function AppNav({
   // organisation in view — app/layout.tsx resolves both server-side. The
   // model turns them into the visible tree; nothing here re-derives access.
   const nav = resolveNav({ role, enabledCapabilities, dashboardVariant });
+  if(session.managedAccess) Object.assign(nav,resolveNav({role,enabledCapabilities,dashboardVariant,managedAccess:true}));
   const activeId = activeNavId(nav, pathname);
 
   const identity: Identity = {
@@ -1053,6 +1055,7 @@ export default function TopNav({
           enabledCapabilities?: {
             key: string;
           }[];
+          managedAccess?: boolean;
           dashboardVariant?:
             | 'ld-tennis'
             | 'brainbase-hq'
@@ -1064,6 +1067,7 @@ export default function TopNav({
           d?.role
             ? {
                 role: d.role,
+                managedAccess: d.managedAccess,
                 name: d.name,
                 avatarUrl:
                   d.profile

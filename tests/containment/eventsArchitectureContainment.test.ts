@@ -281,7 +281,7 @@ describe('Events architecture containment — Event.status Prisma/SQL parity (R2
   })
 
   it("the SQL CHECK vocabulary matches lib/events/validation.ts's EVENT_STATUSES exactly", () => {
-    const validationSrc = read('lib/events/validation.ts')
+    const validationSrc = read('packages/ticketing/src/validation.ts')
     expect(validationSrc).toMatch(/EVENT_STATUSES = \['DRAFT', 'PUBLISHED', 'CANCELLED'\] as const/)
   })
 })

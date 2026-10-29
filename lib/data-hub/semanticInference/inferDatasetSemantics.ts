@@ -1,4 +1,4 @@
-import type { ColumnProfile, DatasetProfile, ValueKind } from "../profiling/contracts";
+import type { ColumnReviewEvidence, DatasetReviewEvidence, ValueKind } from "../profiling/contracts";
 import {
   SEMANTIC_INFERENCE_VERSION,
   type ColumnSemanticInference,
@@ -25,7 +25,7 @@ const VALUE_KIND_EVIDENCE: Record<ValueKind, SemanticEvidenceCode> = {
   LONGITUDE: "VALUE_KIND_LONGITUDE",
 };
 
-function structuralEvidence(column: ColumnProfile): SemanticEvidenceCode[] {
+function structuralEvidence(column: ColumnReviewEvidence): SemanticEvidenceCode[] {
   const evidence: SemanticEvidenceCode[] = [VALUE_KIND_EVIDENCE[column.valueKind]];
 
   if (column.sourceUnit !== null || column.normalizedUnit !== null) evidence.push("UNIT_PRESENT");
@@ -50,11 +50,11 @@ function candidate(
   return { role, confidence, evidence };
 }
 
-function observedConfidence(column: ColumnProfile, otherwise: SemanticConfidence = "HIGH"): SemanticConfidence {
+function observedConfidence(column: ColumnReviewEvidence, otherwise: SemanticConfidence = "HIGH"): SemanticConfidence {
   return column.rowCount === 0 || column.isAllNull ? "MEDIUM" : otherwise;
 }
 
-function directRole(column: ColumnProfile, evidence: SemanticEvidenceCode[]): SemanticRoleCandidate {
+function directRole(column: ColumnReviewEvidence, evidence: SemanticEvidenceCode[]): SemanticRoleCandidate {
   switch (column.valueKind) {
     case "STRING":
       return candidate("TEXT", observedConfidence(column), evidence);
@@ -85,7 +85,7 @@ function directRole(column: ColumnProfile, evidence: SemanticEvidenceCode[]): Se
   }
 }
 
-export function inferColumnSemantics(column: ColumnProfile): ColumnSemanticInference {
+export function inferColumnSemantics(column: ColumnReviewEvidence): ColumnSemanticInference {
   const evidence = structuralEvidence(column);
   const candidates: SemanticRoleCandidate[] = [directRole(column, evidence)];
 
@@ -118,7 +118,7 @@ export function inferColumnSemantics(column: ColumnProfile): ColumnSemanticInfer
   };
 }
 
-export function inferDatasetSemantics(profile: DatasetProfile): DatasetSemanticInference {
+export function inferDatasetSemantics(profile: DatasetReviewEvidence): DatasetSemanticInference {
   return {
     inferenceVersion: SEMANTIC_INFERENCE_VERSION,
     profilerVersion: profile.profilerVersion,

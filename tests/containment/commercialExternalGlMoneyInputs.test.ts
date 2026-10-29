@@ -3,7 +3,7 @@ const { sqlMock, transactionMock } = vi.hoisted(() => ({ sqlMock: vi.fn(), trans
 vi.mock('@/lib/db', () => ({ default: Object.assign(sqlMock, { transaction: transactionMock }) }));
 const { importExternalGlEntry } = await import('@/lib/commercial/externalGl');
 const base = { organisationId: 'org-a', userId: 'user-a', sourceSystemId: 'xero', externalEntryId: 'entry-a',
-  externalAccountCode: '600', transactionDate: '2026-09-01', currency: 'AUD', sourcePayloadHash: 'hash', sourceLineageId: 'batch-a' };
+  externalAccountCode: '600', transactionDate: '2026-09-01', currency: 'AUD', sourcePayloadHash: 'a'.repeat(32), sourceLineageId: 'batch-a' };
 beforeEach(() => { sqlMock.mockReset(); transactionMock.mockReset(); });
 describe('external GL domain exact minor-unit boundary', () => {
   it.each([null, true, false, [], {}, '', '  ', '1.5', '1e3', '0x10', 1.5, Infinity,

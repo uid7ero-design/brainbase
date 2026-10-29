@@ -28,35 +28,30 @@ export type ValidateAnalysisRequestResult =
   | { ok: true; request: AnalysisRequest }
   | { ok: false; code: AnalysisRequestErrorCode };
 
-export function validateAnalysisRequest(
-  capabilities: AnalysisCapabilitySet,
-  input: unknown,
-): ValidateAnalysisRequestResult {
-  if (capabilities.state === "BLOCKED_QUALITY_HOLD") {
-    return { ok: false, code: "QUALITY_HOLD" };
-  }
-  if (
-    capabilities.capabilityVersion !== "v1" ||
-    capabilities.readinessVersion !== "v1" ||
-    capabilities.state !== "AVAILABLE"
-  ) {
-    return { ok: false, code: "UNSUPPORTED_CAPABILITY_VERSION" };
-  }
+export type ParseAnalysisRequestInputResult =
+  | { ok: true; request: AnalysisRequest }
+  | { ok: false; code: "INVALID_REQUEST" };
+
+// Structural admission only; supported shape does not establish a capability,
+// dataset, reviewed permission or an executable operation.
+export function parseAnalysisRequestInput(input: unknown): ParseAnalysisRequestInputResult {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     return { ok: false, code: "INVALID_REQUEST" };
   }
-  const request = input as Record<string, unknown>;
+  const keys = Reflect.ownKeys(input);
+  const descriptors = Object.getOwnPropertyDescriptors(input);
+  if (!keys.every(key => typeof key === "string" &&
+      descriptors[key].enumerable && "value" in descriptors[key])) {
+    return { ok: false, code: "INVALID_REQUEST" };
+  }
+  const request = Object.fromEntries(keys.map(key => [key, descriptors[key as string].value])) as Record<string, unknown>;
   if (request.requestVersion !== ANALYSIS_REQUEST_VERSION) {
     return { ok: false, code: "INVALID_REQUEST" };
   }
-  const keys = Object.keys(request);
   const hasOperator = keys.includes("operator");
   if (request.kind === "ROW_COUNT") {
     if (keys.length !== 2 || !keys.includes("kind") || !keys.includes("requestVersion")) {
       return { ok: false, code: "INVALID_REQUEST" };
-    }
-    if (!capabilities.datasetCapabilities.includes("ROW_COUNT")) {
-      return { ok: false, code: "CAPABILITY_NOT_AVAILABLE" };
     }
     return { ok: true, request: { requestVersion: "v1", kind: "ROW_COUNT" } };
   }
@@ -70,12 +65,6 @@ export function validateAnalysisRequest(
     !keys.includes("sourceSchemaColumnId")
   ) {
     return { ok: false, code: "INVALID_REQUEST" };
-  }
-  if (!capabilities.fieldCapabilities.some(
-    (entry) => entry.sourceSchemaColumnId === request.sourceSchemaColumnId &&
-      entry.capability === request.kind,
-  )) {
-    return { ok: false, code: "CAPABILITY_NOT_AVAILABLE" };
   }
   if (request.kind === "AGGREGATE" && hasOperator) {
     return {
@@ -95,4 +84,25 @@ export function validateAnalysisRequest(
       sourceSchemaColumnId: request.sourceSchemaColumnId,
     },
   };
+}
+
+export function validateAnalysisRequest(
+  capabilities: AnalysisCapabilitySet,
+  input: unknown,
+): ValidateAnalysisRequestResult {
+  if (capabilities.state === "BLOCKED_QUALITY_HOLD") {
+    return { ok: false, code: "QUALITY_HOLD" };
+  }
+  if (capabilities.capabilityVersion !== "v1" || capabilities.readinessVersion !== "v1" ||
+      capabilities.state !== "AVAILABLE") {
+    return { ok: false, code: "UNSUPPORTED_CAPABILITY_VERSION" };
+  }
+  const parsed = parseAnalysisRequestInput(input);
+  if (!parsed.ok) return parsed;
+  const request = parsed.request;
+  const available = request.kind === "ROW_COUNT"
+    ? capabilities.datasetCapabilities.includes("ROW_COUNT")
+    : capabilities.fieldCapabilities.some(entry =>
+      entry.sourceSchemaColumnId === request.sourceSchemaColumnId && entry.capability === request.kind);
+  return available ? parsed : { ok: false, code: "CAPABILITY_NOT_AVAILABLE" };
 }

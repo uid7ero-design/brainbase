@@ -77,8 +77,15 @@ describe('applyResendDeliveryWebhookEvent — static SQL shape', () => {
   })
 
   it('the audit INSERT is chained from the UPDATE\'s own RETURNING inside one CTE — never a separate statement (ADR-0003 §3, matching lib/events/stripe.ts\'s webhook-handler pattern)', () => {
-    const cte = SOURCE.match(/WITH updated AS \(\s*UPDATE event_ticket_email_deliveries[\s\S]*?RETURNING organisation_id, order_id, send_source\s*\)\s*INSERT INTO audit_logs[\s\S]*?FROM updated/)
+    // Phase 5B: the same single statement also carries the
+    // event_notifications UPDATE + its audit INSERT as further CTEs; the
+    // ticket-email audit INSERT is still derived from the ticket UPDATE's
+    // own RETURNING, and the whole thing is still exactly one sql`...`
+    // call (see the behaviour suite's toHaveBeenCalledTimes(1) checks).
+    const cte = SOURCE.match(/WITH updated AS \(\s*UPDATE event_ticket_email_deliveries[\s\S]*?RETURNING organisation_id, order_id, send_source\s*\),[\s\S]*?audited_tickets AS \(\s*INSERT INTO audit_logs[\s\S]*?FROM updated\s*RETURNING resource_id\s*\)/)
     expect(cte).not.toBeNull()
+    const notificationCte = SOURCE.match(/updated_notifications AS \(\s*UPDATE event_notifications[\s\S]*?RETURNING organisation_id, order_id, id, notification_type\s*\),\s*audited_notifications AS \(\s*INSERT INTO audit_logs[\s\S]*?FROM updated_notifications\s*RETURNING resource_id\s*\)/)
+    expect(notificationCte).not.toBeNull()
   })
 
   it('five distinct, clearly-named audit actions — one per outcome, and the failed one is deliberately NOT the same string as the existing send-failure action', () => {

@@ -171,3 +171,13 @@ export interface DatasetProfile {
   /** Governed input column order, preserved verbatim — never sorted. */
   columns: ColumnProfile[];
 }
+
+// Minimal structural evidence consumed by semantic and quality review.
+// Full profiles remain assignable; ratios and value statistics are unnecessary.
+export type ColumnReviewEvidence = Pick<ColumnProfile,
+  "sourceSchemaColumnId" | "valueKind" | "sourceUnit" | "normalizedUnit" |
+  "rowCount" | "nonNullCount" | "nullCount" | "distinctNonNullCount" |
+  "isConstant" | "isAllNull" | "isUniqueAmongNonNull" | "isComplete" | "isSparse">;
+export interface DatasetReviewEvidence extends Pick<DatasetProfile, "profilerVersion" | "rowCount" | "columnCount"> {
+  columns: ColumnReviewEvidence[];
+}

@@ -356,8 +356,8 @@ describe("M21: no direct @vercel/blob/client import in the history/recovery UI",
 // still fails if any FUTURE 5A.3D-scope change adds an import/worksheet
 // route without updating this list.
 // ---------------------------------------------------------------------------
-describe("T32/M20: no new backend route", () => {
-  it("app/api/data-hub/** contains exactly the 7 pre-existing (5A.3D.0/5A.3D.1) + 7 new 5B.2 route files — nothing else", () => {
+describe("T32/M20: explicit inventory of authorized backend routes", () => {
+  it("app/api/data-hub/** contains exactly the known authorized route files", () => {
     const apiDir = path.join(ROOT, "app", "api", "data-hub");
     const routeFiles = walk(apiDir, [".ts"])
       .filter((f) => f.endsWith("route.ts"))
@@ -365,6 +365,16 @@ describe("T32/M20: no new backend route", () => {
       .sort();
     expect(routeFiles).toEqual(
       [
+        "app/api/data-hub/worksheets/[id]/analysis-review/plan/route.ts", // D4D5X review planning
+        "app/api/data-hub/worksheets/[id]/analysis-review/history/route.ts", // Manager-only current-profile review history
+        "app/api/data-hub/worksheets/[id]/analysis-review/history/compare/route.ts", // Read-only comparison with the current saved review
+        "app/api/data-hub/worksheets/[id]/analysis-review/history/detail/route.ts", // Manager-only selected explicit decisions
+        "app/api/data-hub/worksheets/[id]/analysis-review/route.ts", // D4D5U authenticated review API
+        "app/api/data-hub/worksheets/[id]/analysis-count/route.ts", // D4D5W authenticated count API
+        "app/api/data-hub/worksheets/[id]/analysis-planning/route.ts", // Separately authorized read-only catalog/selection integration
+        "app/api/data-hub/worksheets/[id]/analysis-status/route.ts", // Read-only workbook saved-review observations
+        "app/api/data-hub/worksheets/[id]/mapping-setup/route.ts", // Runs mapping approval and first-use confirmation
+        "app/api/data-hub/worksheets/[id]/profile/route.ts", // Guided preparation: manager-only existing profiler service and read-only status
         "app/api/data-hub/import-batches/[id]/finalize/route.ts",
         "app/api/data-hub/import-batches/[id]/inspect/route.ts",
         "app/api/data-hub/import-batches/[id]/route.ts",

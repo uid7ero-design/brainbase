@@ -93,6 +93,7 @@ function transformInteger(rule: ColumnRuleV2, raw: RawCellInput): TransformValue
   if (raw.rawValueType === "NUMBER") {
     const n = raw.rawValue as number;
     if (!Number.isFinite(n) || !Number.isSafeInteger(n)) return one("UNSAFE_NUMERIC_VALUE", rule);
+    if (rule.minimum === "0" && n < 0) return one("NUMERIC_VALUE_BELOW_MINIMUM", rule);
     return succeed(rule, decimalToCanonicalString({ negative: n < 0, digits: BigInt(Math.abs(n)), scale: 0 }));
     // (BigInt(Math.abs(n)) is exact and safe: n is already a verified safe integer.)
   }
@@ -100,6 +101,7 @@ function transformInteger(rule: ColumnRuleV2, raw: RawCellInput): TransformValue
     const s = raw.rawValue as string;
     const parsed = parseStrictIntegerString(s);
     if (!parsed) return one("MALFORMED_NUMERIC_STRING", rule);
+    if (rule.minimum === "0" && parsed.negative && parsed.digits !== BigInt(0)) return one("NUMERIC_VALUE_BELOW_MINIMUM", rule);
     // D4C-A already guarantees an INTEGER rule can only declare
     // sourceUnit === normalizedUnit (never a real conversion), so no unit
     // arithmetic is ever performed here — the value passes through

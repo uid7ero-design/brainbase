@@ -70,8 +70,18 @@ describe('Schema — event_orders.booking_token', () => {
   })
 })
 
-describe('Free-order minting — app/api/public/events/.../register/route.ts', () => {
-  const source = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))
+// Eve Phase 1: the free-registration transaction (and its token
+// minting) moved verbatim from the register route into the shared
+// service lib/events/services/freeRegistration.ts; the route is now a
+// thin HTTP adapter that must not mint anything itself.
+describe('Free-order minting — lib/events/services/freeRegistration.ts (called by the register route)', () => {
+  const source = stripComments(read('lib/events/services/freeRegistration.ts'))
+
+  it('the register route itself no longer mints booking or ticket tokens — the shared service is the single minting site', () => {
+    const route = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))
+    expect(route).not.toMatch(/generateBookingToken|generateTicketToken/)
+    expect(route).toMatch(/registerFreeOrder\(/)
+  })
 
   it('imports generateBookingToken from the shared module', () => {
     expect(source).toMatch(/import \{[^}]*\bgenerateBookingToken\b[^}]*\} from '@\/lib\/events\/ticketToken'/)
@@ -82,7 +92,10 @@ describe('Free-order minting — app/api/public/events/.../register/route.ts', (
     expect(occurrences).toBe(1)
   })
 
-  it('both ins_order CTEs (session-bound and non-session-bound branches) insert booking_token alongside the existing columns', () => {
+  // Phase 2: the session-bound and non-session branches were unified into
+  // ONE capacity-gated statement (session capacity is a conditional
+  // clause of the gate), so there is exactly one ins_order CTE now.
+  it('the ins_order CTE (one statement for session-bound and non-session orders) inserts booking_token alongside the existing columns', () => {
     // booking_token no longer has to be the LAST column in the list —
     // Phase 3E.2 added ticket_email_status after it (see
     // tests/containment/eventsFreeRegistrationTicketEmail.test.ts for
@@ -90,15 +103,15 @@ describe('Free-order minting — app/api/public/events/.../register/route.ts', (
     // booking_token is present as one of the inserted columns, in both
     // branches.
     const occurrences = (source.match(/INSERT INTO event_orders \([^)]*\bbooking_token\b[^)]*\)/g) ?? []).length
-    expect(occurrences).toBe(2)
+    expect(occurrences).toBe(1)
   })
 
   it('the booking token is only ever written by the same capacity-gated INSERT that also writes the order row — never a separate unconditional write', () => {
     // Both occurrences of ${bookingToken} in a SELECT list must be
     // immediately followed (within the same statement) by the existing
     // capacity WHERE clause already proven elsewhere in this file.
-    const selectLines = source.match(/SELECT \$\{organisationId\}, \$\{event\.id\}[^\n]*\$\{bookingToken\}/g) ?? []
-    expect(selectLines.length).toBe(2)
+    const selectLines = source.match(/SELECT \$\{organisationId\}, \$\{event\.id\}[^\n]*\$\{bookingToken\}[^\n]*\n\s*FROM gate/g) ?? []
+    expect(selectLines.length).toBe(1)
   })
 
   it('the order-creation transaction is untouched in every other respect — the R1 capacity gate and attendee/response inserts are still present', () => {

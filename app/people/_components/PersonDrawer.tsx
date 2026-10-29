@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import SlidePanel from './SlidePanel';
+import PersonAiAssistant from './PersonAiAssistant';
 import { StateMessage, buttonProps } from '@/components/ui/app';
 
 export type PersonDetail = {
@@ -57,16 +58,16 @@ type AssuranceState =
   | { state: 'ready'; assurance: DocumentAssurance }
   | { state: 'error' };
 
-type AcknowledgementActionState = 'idle' | 'submitting' | 'error';
-type VerificationActionState = 'idle' | 'verifying' | 'rejecting' | 'error';
-type DocumentCreateState = 'idle' | 'submitting' | 'error';
-type DocumentVersionState = 'idle' | 'submitting' | 'error';
-type DocumentDeleteState = 'idle' | 'submitting' | 'error';
+type AcknowledgementActionState = 'idle' | 'submitting' | 'error' | 'uncertain';
+type VerificationActionState = 'idle' | 'verifying' | 'rejecting' | 'error' | 'uncertain';
+type DocumentCreateState = 'idle' | 'submitting' | 'error' | 'uncertain';
+type DocumentVersionState = 'idle' | 'submitting' | 'error' | 'uncertain';
+type DocumentDeleteState = 'idle' | 'submitting' | 'error' | 'uncertain';
 type LifecycleTaskOptionsState = 'idle' | 'loading' | 'ready' | 'error';
 type LifecycleWorkflowsState = 'idle' | 'loading' | 'ready' | 'error';
-type LifecycleTaskActionState = 'idle' | 'submitting' | 'error';
-type LifecycleTaskApprovalState = 'idle' | 'approving' | 'rejecting' | 'error';
-type LifecycleWorkflowMutationState = 'idle' | 'submitting' | 'error';
+type LifecycleTaskActionState = 'idle' | 'submitting' | 'error' | 'uncertain';
+type LifecycleTaskApprovalState = 'idle' | 'approving' | 'rejecting' | 'error' | 'uncertain';
+type LifecycleWorkflowMutationState = 'idle' | 'submitting' | 'error' | 'uncertain';
 type LifecycleTemplatesState = 'idle' | 'loading' | 'ready' | 'error';
 
 type LifecycleTaskOption = {
@@ -227,8 +228,10 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
 
     queueMicrotask(() => {
+      if (cancelled) return;
       if (!personId) {
         setPerson(null);
         setDocuments([]);
@@ -306,15 +309,16 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setCancelLifecycleWorkflowId(null);
       setLifecycleCancelState('idle');
 
-      void fetch(`/api/hr/people/${personId}`)
+      void fetch(`/api/hr/people/${personId}`, { signal: controller.signal, cache: 'no-store' })
         .then(async response => {
+          if (!response.ok) throw new Error('Unavailable');
           const data = await response.json();
           if (cancelled) return;
-          if (!response.ok) {
-            setError(data.error ?? 'Could not load person.');
-            return;
-          }
-          setPerson(data.person);
+          const next = data?.person;
+          if (!next || next.id !== personId
+            || !['first_name', 'last_name', 'worker_type', 'employment_status'].every(key => typeof next[key] === 'string')
+            || (next.job_title !== null && typeof next.job_title !== 'string')) throw new Error('Invalid person');
+          setPerson(next);
         })
         .catch(() => {
           if (!cancelled) setError('Could not load person.');
@@ -323,7 +327,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
           if (!cancelled) setLoading(false);
         });
 
-      void fetch(`/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(personId)}`)
+      void fetch(`/api/hr/lifecycle/workflows?person_id=${encodeURIComponent(personId)}`, { signal: controller.signal, cache: 'no-store' })
         .then(async response => {
           const data = await response.json().catch(() => ({}));
           if (cancelled) return;
@@ -354,7 +358,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
           }
         });
 
-      void fetch(`/api/hr/people/${personId}/documents`)
+      void fetch(`/api/hr/people/${personId}/documents`, { signal: controller.signal, cache: 'no-store' })
         .then(async response => {
           if (cancelled) return;
 
@@ -405,6 +409,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
 
             void fetch(
               `/api/hr/people/${personId}/documents/${document.id}/versions/${version.id}/assurance`,
+              { signal: controller.signal, cache: 'no-store' },
             )
               .then(async assuranceResponse => {
                 const assuranceData = await assuranceResponse.json().catch(() => ({}));
@@ -456,6 +461,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [personId]);
 
@@ -608,6 +614,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   }
 
   async function startLifecycleWorkflow() {
+    if (['uncertain', 'submitting'].includes(lifecycleStartState)) return;
     if (
       !personId
       || !canStartLifecycleWorkflow
@@ -633,13 +640,13 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok || typeof data.workflow?.id !== 'string') {
+        if (response.ok || response.status >= 500) throw new Error('Unknown workflow start outcome');
         setLifecycleStartState('error');
         return;
       }
 
       if (!await refreshLifecycleWorkflows()) {
-        setLifecycleStartState('error');
-        return;
+        throw new Error('Unable to reconcile started workflow');
       }
 
       setLifecycleTaskWorkflowId(null);
@@ -653,11 +660,12 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setNewLifecycleAnchorDate('');
       setLifecycleStartState('idle');
     } catch {
-      setLifecycleStartState('error');
+      setLifecycleStartState('uncertain');
     }
   }
 
   async function cancelLifecycleWorkflow(workflow: PersonLifecycleWorkflowSummary) {
+    if (['uncertain', 'submitting'].includes(lifecycleCancelState)) return;
     if (!workflow.capabilities.can_cancel || workflow.status !== 'ACTIVE') return;
 
     setLifecycleCancelState('submitting');
@@ -674,13 +682,13 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         || data.workflow?.id !== workflow.id
         || data.workflow?.status !== 'CANCELLED'
       ) {
+        if (response.ok || response.status >= 500) throw new Error('Unknown cancellation outcome');
         setLifecycleCancelState('error');
         return;
       }
 
       if (!await refreshLifecycleWorkflows()) {
-        setLifecycleCancelState('error');
-        return;
+        throw new Error('Unable to reconcile cancelled workflow');
       }
 
       setLifecycleTaskWorkflowId(current => (
@@ -694,7 +702,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setCancelLifecycleWorkflowId(null);
       setLifecycleCancelState('idle');
     } catch {
-      setLifecycleCancelState('error');
+      setLifecycleCancelState('uncertain');
     }
   }
 
@@ -788,6 +796,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
     task: PersonLifecycleTaskSummary,
     action: 'start' | 'complete',
   ) {
+    if (['uncertain', 'submitting'].includes(lifecycleTaskActionById[task.id])) return;
     if (!task.capabilities.can_execute) return;
     if (action === 'start' && task.status !== 'NOT_STARTED') return;
     if (action === 'complete' && task.status !== 'IN_PROGRESS') return;
@@ -820,6 +829,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         || typeof data.task?.status !== 'string'
         || !allowedStatuses.has(data.task.status)
       ) {
+        if (response.ok || response.status >= 500) throw new Error('Unknown lifecycle task outcome');
         setLifecycleTaskActionById(current => ({
           ...current,
           [task.id]: 'error',
@@ -868,7 +878,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
     } catch {
       setLifecycleTaskActionById(current => ({
         ...current,
-        [task.id]: 'error',
+        [task.id]: 'uncertain',
       }));
     }
   }
@@ -878,6 +888,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
     task: PersonLifecycleTaskSummary,
     decision: 'APPROVED' | 'REJECTED',
   ) {
+    if (['uncertain', 'approving', 'rejecting'].includes(lifecycleTaskApprovalById[task.id])) return;
     if (!task.capabilities.can_approve || task.status !== 'AWAITING_APPROVAL') return;
 
     setLifecycleTaskApprovalById(current => ({
@@ -908,6 +919,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         || typeof data.task?.status !== 'string'
         || !allowedStatuses.has(data.task.status)
       ) {
+        if (response.ok || response.status >= 500) throw new Error('Unknown lifecycle approval outcome');
         setLifecycleTaskApprovalById(current => ({
           ...current,
           [task.id]: 'error',
@@ -956,7 +968,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
     } catch {
       setLifecycleTaskApprovalById(current => ({
         ...current,
-        [task.id]: 'error',
+        [task.id]: 'uncertain',
       }));
     }
   }
@@ -1046,6 +1058,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   }
 
   async function deleteDocument(document: EmployeeDocumentSummary) {
+    if (documentDeleteState === 'uncertain' || documentDeleteState === 'submitting') return;
     if (!personId || !canManageDocuments) return;
 
     setDocumentDeleteState('submitting');
@@ -1062,6 +1075,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         || data.deleted !== true
         || data.document_id !== document.id
       ) {
+        if (response.ok || response.status >= 500) throw new Error('Unknown deletion outcome');
         setDocumentDeleteState('error');
         return;
       }
@@ -1101,7 +1115,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setDeleteDocumentId(null);
       setDocumentDeleteState('idle');
     } catch {
-      setDocumentDeleteState('error');
+      setCanManageDocuments(false);
+      setDocumentDeleteState('uncertain');
     }
   }
 
@@ -1150,6 +1165,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
   }
 
   async function addDocumentVersion(document: EmployeeDocumentSummary) {
+    if (documentVersionState === 'uncertain' || documentVersionState === 'submitting') return;
     if (!personId || !canManageDocuments || !newVersionFile) {
       setDocumentVersionState('error');
       return;
@@ -1168,11 +1184,13 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       );
       const data = await response.json().catch(() => ({}));
 
+      if (response.status >= 500) throw new Error('Unknown version outcome');
       if (
         !response.ok
         || !data.version?.id
         || typeof data.version?.version_number !== 'number'
       ) {
+        if (response.ok) throw new Error('Unknown version outcome');
         setDocumentVersionState('error');
         return;
       }
@@ -1214,11 +1232,13 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
 
       void loadDocumentAssurance(document.id, nextVersion.id);
     } catch {
-      setDocumentVersionState('error');
+      setCanManageDocuments(false);
+      setDocumentVersionState('uncertain');
     }
   }
 
   async function createDocument() {
+    if (documentCreateState === 'uncertain' || documentCreateState === 'submitting') return;
     if (
       !personId
       || !canManageDocuments
@@ -1248,6 +1268,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       );
       const data = await response.json().catch(() => ({}));
 
+      if (response.status >= 500) throw new Error('Unknown upload outcome');
       if (
         !response.ok
         || !data.document?.id
@@ -1256,6 +1277,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         || !data.version?.id
         || typeof data.version?.version_number !== 'number'
       ) {
+        if (response.ok) throw new Error('Unknown upload outcome');
         setDocumentCreateState('error');
         return;
       }
@@ -1290,7 +1312,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       setShowCreateDocument(false);
       setDocumentCreateState('idle');
     } catch {
-      setDocumentCreateState('error');
+      setCanManageDocuments(false);
+      setDocumentCreateState('uncertain');
     }
   }
 
@@ -1298,6 +1321,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
     document: EmployeeDocumentSummary,
     decision: 'VERIFIED' | 'REJECTED',
   ) {
+    if (['uncertain', 'verifying', 'rejecting'].includes(verificationByDocument[document.id])) return;
     if (!personId || !document.current_version) return;
 
     const assuranceState = assuranceByDocument[document.id];
@@ -1329,6 +1353,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
         || (data.verification?.decision !== 'VERIFIED' && data.verification?.decision !== 'REJECTED')
         || !data.verification?.verified_at
       ) {
+        if (response.ok || response.status >= 500) throw new Error('Unknown verification outcome');
         setVerificationByDocument(current => ({
           ...current,
           [document.id]: 'error',
@@ -1361,12 +1386,13 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
     } catch {
       setVerificationByDocument(current => ({
         ...current,
-        [document.id]: 'error',
+        [document.id]: 'uncertain',
       }));
     }
   }
 
   async function acknowledgeDocument(document: EmployeeDocumentSummary) {
+    if (['uncertain', 'submitting'].includes(acknowledgementByDocument[document.id])) return;
     if (!personId || !document.current_version) return;
 
     const assuranceState = assuranceByDocument[document.id];
@@ -1391,6 +1417,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok || !data.acknowledgement?.acknowledged_at) {
+        if (response.ok || response.status >= 500) throw new Error('Unknown acknowledgement outcome');
         setAcknowledgementByDocument(current => ({
           ...current,
           [document.id]: 'error',
@@ -1423,7 +1450,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
     } catch {
       setAcknowledgementByDocument(current => ({
         ...current,
-        [document.id]: 'error',
+        [document.id]: 'uncertain',
       }));
     }
   }
@@ -1432,7 +1459,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
     <SlidePanel open={personId !== null} onClose={onClose} title="Person">
       {loading && <StateMessage kind="loading" title="Loading person…" />}
       {error && <StateMessage kind="error" title={error} />}
-      {person && (
+      {person && person.id === personId && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
             <div>
@@ -1457,6 +1484,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
           {'work_email' in person && <Row label="Work Email" value={person.work_email ?? '—'} />}
           {'work_phone' in person && <Row label="Work Phone" value={person.work_phone ?? '—'} />}
           {canManage && <Row label="Linked BrainBase Account" value={person.linked_user_id ? 'Linked' : 'Not linked'} />}
+
+          {!loading && person.id === personId && <PersonAiAssistant key={person.id} personId={person.id} />}
 
           {lifecycleWorkflowsState !== 'idle' && (
             <section aria-labelledby="person-lifecycle-heading" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 14, marginTop: 2 }}>
@@ -1532,7 +1561,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                       <button
                         type="button"
                         onClick={() => void startLifecycleWorkflow()}
-                        disabled={lifecycleStartState === 'submitting'}
+                        disabled={lifecycleStartState === 'submitting' || lifecycleStartState === 'uncertain'}
                         {...lifecycleStartWorkflowButton}
                       >
                         {lifecycleStartState === 'submitting' ? 'Starting…' : 'Start'}
@@ -1547,12 +1576,17 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                           setNewLifecycleAnchorDate('');
                           setLifecycleStartState('idle');
                         }}
-                        disabled={lifecycleStartState === 'submitting'}
+                        disabled={lifecycleStartState === 'submitting' || lifecycleStartState === 'uncertain'}
                         {...lifecycleCancelConfirmButton}
                       >
                         Cancel
                       </button>
                     </div>
+                    {lifecycleStartState === 'uncertain' && (
+                      <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                        Workflow start outcome is unknown. Close and reopen this person to check saved workflows before trying again.
+                      </div>
+                    )}
                     {lifecycleStartState === 'error' && (
                       <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
                         Could not start lifecycle workflow.
@@ -1634,7 +1668,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                               <button
                                 type="button"
                                 onClick={() => void cancelLifecycleWorkflow(workflow)}
-                                disabled={lifecycleCancelState === 'submitting'}
+                                disabled={lifecycleCancelState === 'submitting' || lifecycleCancelState === 'uncertain'}
                                 {...lifecycleConfirmCancelWorkflowButton}
                               >
                                 {lifecycleCancelState === 'submitting' ? 'Cancelling…' : 'Confirm cancel'}
@@ -1645,12 +1679,17 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                   setCancelLifecycleWorkflowId(null);
                                   setLifecycleCancelState('idle');
                                 }}
-                                disabled={lifecycleCancelState === 'submitting'}
+                                disabled={lifecycleCancelState === 'submitting' || lifecycleCancelState === 'uncertain'}
                                 {...lifecycleCancelConfirmButton}
                               >
                                 Keep workflow
                               </button>
                             </div>
+                            {lifecycleCancelState === 'uncertain' && (
+                              <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                                Workflow cancellation outcome is unknown. Close and reopen this person to check saved status before trying again.
+                              </div>
+                            )}
                             {lifecycleCancelState === 'error' && (
                               <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 6 }}>
                                 Could not cancel lifecycle workflow.
@@ -1698,7 +1737,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                       <button
                                         type="button"
                                         onClick={() => void runLifecycleTaskAction(workflow, task, 'start')}
-                                        disabled={actionState === 'submitting'}
+                                        disabled={actionState === 'submitting' || actionState === 'uncertain'}
                                         {...lifecycleStartButton}
                                       >
                                         {actionState === 'submitting' ? 'Starting…' : 'Start task'}
@@ -1711,7 +1750,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                       <button
                                         type="button"
                                         onClick={() => void runLifecycleTaskAction(workflow, task, 'complete')}
-                                        disabled={actionState === 'submitting'}
+                                        disabled={actionState === 'submitting' || actionState === 'uncertain'}
                                         {...lifecycleCompleteButton}
                                       >
                                         {actionState === 'submitting' ? 'Completing…' : 'Complete task'}
@@ -1724,7 +1763,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                       <button
                                         type="button"
                                         onClick={() => void runLifecycleTaskApproval(workflow, task, 'APPROVED')}
-                                        disabled={approvalState === 'approving' || approvalState === 'rejecting'}
+                                        disabled={approvalState === 'approving' || approvalState === 'rejecting' || approvalState === 'uncertain'}
                                         {...lifecycleApproveButton}
                                       >
                                         {approvalState === 'approving' ? 'Approving…' : 'Approve'}
@@ -1732,7 +1771,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                       <button
                                         type="button"
                                         onClick={() => void runLifecycleTaskApproval(workflow, task, 'REJECTED')}
-                                        disabled={approvalState === 'approving' || approvalState === 'rejecting'}
+                                        disabled={approvalState === 'approving' || approvalState === 'rejecting' || approvalState === 'uncertain'}
                                         {...lifecycleRejectButton}
                                       >
                                         {approvalState === 'rejecting' ? 'Rejecting…' : 'Reject'}
@@ -1740,12 +1779,22 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                     </div>
                                   )}
 
+                                  {actionState === 'uncertain' && (
+                                    <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 5 }}>
+                                      Task outcome is unknown. Close and reopen this person to check saved task status before trying again.
+                                    </div>
+                                  )}
                                   {actionState === 'error' && (
                                     <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 5 }}>
                                       Could not update lifecycle task.
                                     </div>
                                   )}
 
+                                  {approvalState === 'uncertain' && (
+                                    <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 5 }}>
+                                      Approval outcome is unknown. Close and reopen this person to check saved task status before trying again.
+                                    </div>
+                                  )}
                                   {approvalState === 'error' && (
                                     <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 5 }}>
                                       Could not record lifecycle task approval.
@@ -1787,7 +1836,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                 )}
               </div>
 
-              {documentsState === 'ready' && canManageDocuments && showCreateDocument && (
+                {documentsState === 'ready' && (canManageDocuments || documentCreateState === 'uncertain') && showCreateDocument && (
                 <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
@@ -1849,7 +1898,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                       <button
                         type="button"
                         onClick={() => void createDocument()}
-                        disabled={documentCreateState === 'submitting'}
+                        disabled={documentCreateState === 'submitting' || documentCreateState === 'uncertain'}
                         {...saveDocumentButton}
                       >
                         {documentCreateState === 'submitting' ? 'Uploading…' : 'Upload document'}
@@ -1872,6 +1921,11 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                     {documentCreateState === 'error' && (
                       <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
                         Could not upload document.
+                      </div>
+                    )}
+                    {documentCreateState === 'uncertain' && (
+                      <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                        Upload outcome is unknown. Close and reopen this person to check saved documents before uploading again.
                       </div>
                     )}
                   </div>
@@ -2013,7 +2067,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                           </div>
                         )}
 
-                        {canManageDocuments && confirmingDelete && (
+                        {(canManageDocuments || documentDeleteState === 'uncertain') && confirmingDelete && (
                           <div style={{ borderTop: '1px solid var(--border-subtle)', marginTop: 9, paddingTop: 9 }}>
                             <div style={{ color: 'var(--text-primary)', fontSize: 12, fontWeight: 600 }}>
                               Delete this document?
@@ -2025,7 +2079,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                               <button
                                 type="button"
                                 onClick={() => void deleteDocument(document)}
-                                disabled={documentDeleteState === 'submitting'}
+                                disabled={documentDeleteState === 'submitting' || documentDeleteState === 'uncertain'}
                                 {...confirmDeleteDocumentButton}
                               >
                                 {documentDeleteState === 'submitting' ? 'Deleting…' : 'Confirm delete'}
@@ -2047,10 +2101,15 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                 Could not delete document.
                               </div>
                             )}
+                            {documentDeleteState === 'uncertain' && (
+                              <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                                Deletion outcome is unknown. Close and reopen this person to check saved documents before deleting again.
+                              </div>
+                            )}
                           </div>
                         )}
 
-                        {canManageDocuments && addingVersion && (
+                        {(canManageDocuments || documentVersionState === 'uncertain') && addingVersion && (
                           <div style={{ borderTop: '1px solid var(--border-subtle)', marginTop: 9, paddingTop: 9 }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                               <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
@@ -2072,7 +2131,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                 <button
                                   type="button"
                                   onClick={() => void addDocumentVersion(document)}
-                                  disabled={documentVersionState === 'submitting'}
+                                  disabled={documentVersionState === 'submitting' || documentVersionState === 'uncertain'}
                                   {...saveVersionButton}
                                 >
                                   {documentVersionState === 'submitting' ? 'Uploading…' : 'Upload version'}
@@ -2094,6 +2153,11 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                               {documentVersionState === 'error' && (
                                 <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
                                   Could not upload document version.
+                                </div>
+                              )}
+                              {documentVersionState === 'uncertain' && (
+                                <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                                  Version upload outcome is unknown. Close and reopen this person to check version history before uploading again.
                                 </div>
                               )}
                             </div>
@@ -2133,7 +2197,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                 <button
                                   type="button"
                                   onClick={() => void acknowledgeDocument(document)}
-                                  disabled={acknowledgementAction === 'submitting'}
+                                  disabled={acknowledgementAction === 'submitting' || acknowledgementAction === 'uncertain'}
                                   {...acknowledgeButton}
                                 >
                                   {acknowledgementAction === 'submitting' ? 'Acknowledging…' : 'Acknowledge'}
@@ -2152,7 +2216,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                 <button
                                   type="button"
                                   onClick={() => void verifyDocument(document, 'VERIFIED')}
-                                  disabled={verificationAction === 'verifying' || verificationAction === 'rejecting'}
+                                  disabled={verificationAction === 'verifying' || verificationAction === 'rejecting' || verificationAction === 'uncertain'}
                                   {...verifyButton}
                                 >
                                   {verificationAction === 'verifying' ? 'Verifying…' : 'Verify'}
@@ -2160,7 +2224,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                                 <button
                                   type="button"
                                   onClick={() => void verifyDocument(document, 'REJECTED')}
-                                  disabled={verificationAction === 'verifying' || verificationAction === 'rejecting'}
+                                  disabled={verificationAction === 'verifying' || verificationAction === 'rejecting' || verificationAction === 'uncertain'}
                                   {...rejectButton}
                                 >
                                   {verificationAction === 'rejecting' ? 'Rejecting…' : 'Reject'}
@@ -2168,6 +2232,11 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
                               </div>
                             )}
 
+                            {(acknowledgementAction === 'uncertain' || verificationAction === 'uncertain') && (
+                              <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                                Assurance outcome is unknown. Close and reopen this person to check saved status before trying again.
+                              </div>
+                            )}
                             {verificationAction === 'error' && (
                               <div aria-live="polite" style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 7 }}>
                                 Could not record verification.

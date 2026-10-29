@@ -95,7 +95,12 @@ const SOURCE = stripComments(readSource('lib/events/ticketEmailDelivery.ts'))
 const RAW_SOURCE = readSource('lib/events/ticketEmailDelivery.ts')
 const MIGRATION_SOURCE = readSource('scripts/add-events-ticket-email-delivery.sql')
 const RESEND_ROUTE_SOURCE = readSource('app/api/events/[id]/orders/[orderId]/resend-ticket-email/route.ts')
-const REGISTER_ROUTE_SOURCE = readSource('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts')
+// Eve Phase 1: the free-registration flow (and its automatic ticket-email
+// attempt) moved verbatim from the register route into the shared
+// service the route calls — that service is now the free-registration
+// caller of the orchestration wrapper.
+const REGISTER_ROUTE_SOURCE = readSource('lib/events/services/freeRegistration.ts')
+const REGISTER_HTTP_ROUTE_SOURCE = readSource('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts')
 const STRIPE_SOURCE = readSource('lib/events/stripe.ts')
 // Comment-stripped variant — needed for exact-occurrence counts (Phase
 // 3E.3's own containment tests below), since STRIPE_SOURCE's raw text
@@ -266,12 +271,15 @@ describe('CLAIM', () => {
     // Cross-reference: both cancel and refund routes really do always
     // set status = 'CANCELLED' — confirming the claim's CONFIRMED-only
     // condition genuinely excludes both outcomes, not just in theory.
-    expect(stripComments(fs.readFileSync(
-      path.join(process.cwd(), "app/api/events/[id]/orders/[orderId]/cancel/route.ts"), 'utf-8',
-    ))).toContain("status = 'CANCELLED'")
-    expect(stripComments(fs.readFileSync(
-      path.join(process.cwd(), "app/api/events/[id]/orders/[orderId]/refund/route.ts"), 'utf-8',
-    ))).toContain("status = 'CANCELLED'")
+    // Eve Phase 1: both transitions now live in the shared service the
+    // cancel/refund routes call.
+    const transitions = stripComments(fs.readFileSync(
+      path.join(process.cwd(), 'lib/events/services/orderTransitions.ts'), 'utf-8',
+    ))
+    const refundFn = transitions.slice(transitions.indexOf('export async function refundPaidOrder('), transitions.indexOf('export async function cancelOrder('))
+    const cancelFn = transitions.slice(transitions.indexOf('export async function cancelOrder('))
+    expect(cancelFn).toContain("status = 'CANCELLED'")
+    expect(refundFn).toContain("status = 'CANCELLED'")
   })
 
   it('claim does not take an organisationId parameter — matches issueTicketTokensForPaidOrder/issueBookingTokenForPaidOrder\'s own sibling convention', () => {
@@ -647,6 +655,8 @@ describe('NO AUTO SEND (paid) / NO CRON SCHEDULE — Phase 3E.2/3E.2R boundary',
     // containment assertion lives in
     // tests/containment/eventsTicketEmailRecovery.test.ts, not here.
     expect(REGISTER_ROUTE_SOURCE).not.toMatch(/claimTicketEmailDelivery|markTicketEmailSent|markTicketEmailFailed|sweepStaleExhaustedTicketEmailLeases|readClaimedOrderForDelivery/)
+    // The HTTP route itself imports nothing from the delivery module.
+    expect(REGISTER_HTTP_ROUTE_SOURCE).not.toMatch(/ticketEmailDelivery|attemptAutomaticTicketEmail/)
   })
 })
 
@@ -665,13 +675,22 @@ describe('claim return shape', () => {
     queue([{
       id: 'order-1', organisation_id: 'org-1', purchaser_name: 'Jane Doe', purchaser_email: 'jane@example.com',
       booking_token: 'a'.repeat(64), event_name: 'Spring Gala',
+      event_timezone: 'Australia/Adelaide', event_starts_at: '2027-03-20T01:30:00.000Z', event_ends_at: '2027-03-20T12:30:00.000Z', event_venue: 'Bonython Park',
       attendees: [{ name: 'Jane Doe', ticket_token: 'b'.repeat(64) }],
     }])
     const result = await delivery.readClaimedOrderForDelivery('order-1', 'current-claim')
     expect(result).toEqual({
       id: 'order-1', organisationId: 'org-1', purchaserName: 'Jane Doe', purchaserEmail: 'jane@example.com',
       eventName: 'Spring Gala', bookingToken: 'a'.repeat(64),
+      // When/where for the Eve ticket email, straight from the events row.
+      event: { startsAt: '2027-03-20T01:30:00.000Z', endsAt: '2027-03-20T12:30:00.000Z', timezone: 'Australia/Adelaide', venue: 'Bonython Park' },
       attendees: [{ name: 'Jane Doe', ticketToken: 'b'.repeat(64) }],
+      // Eve Phase 3.2: a row that carries no product column is a historical
+      // BrainBase order.
+      productSurface: 'BRAINBASE',
+      // Phase 5A: a row without a PAID payment snapshot carries no payment
+      // summary — the email renders exactly as before.
+      receipt: null,
     })
   })
 

@@ -463,7 +463,7 @@ describe("6.2D4B2A -- ActiveNormalizationRun contract shape", () => {
 
 describe("6.2D4B2A -- B2A contracts consumed verbatim (sanity cross-check against the merged sibling module)", () => {
   it("NORMALIZER_VERSION is exported as a literal, exactly what the run-lifecycle module imports", () => {
-    expect(CONTRACTS_TS).toMatch(/export const NORMALIZER_VERSION = "v1" as const/);
+    expect(CONTRACTS_TS).toMatch(/export const NORMALIZER_VERSION = "v2" as const/);
   });
 });
 

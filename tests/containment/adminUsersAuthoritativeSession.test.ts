@@ -20,7 +20,8 @@ vi.mock('@/lib/session', async (importOriginal) => {
 let responseQueue: unknown[][] = [];
 let callCount = 0;
 const sqlMock = vi.fn(() => Promise.resolve(responseQueue[callCount++] ?? []));
-vi.mock('@/lib/db', () => ({ default: sqlMock }));
+// sql.transaction runs the (already-issued) queries it is handed, in order, like the driver's.
+vi.mock('@/lib/db', () => ({ default: Object.assign(sqlMock, { transaction: async (qs: Promise<unknown>[]) => Promise.all(qs) }) }));
 
 // requireSession() (lib/org.ts) calls cookies() internally to resolve a
 // super_admin's org_override — without this mock, the real next/headers
@@ -271,6 +272,7 @@ describe('C. Audit wiring — routes call the audit module with the right shape 
       [activeSuperAdminRow],
       [{ name: 'Name', role: 'VIEWER', organisation_id: 'org-1', email: null, password_hash: 'oldhash' }],
       [{ id: 'u1', email: null, name: 'Name', role: 'VIEWER', organisation_id: 'org-1', email_verified: true, created_at: new Date() }],
+      [], // the Eve-session revocation that rides in the same transaction as a password change
       [{ name: 'Org' }],
     );
     await PATCH(makeRequest('http://localhost/api/admin/users?id=u1', 'PATCH', { password: 'newpassword123' }));

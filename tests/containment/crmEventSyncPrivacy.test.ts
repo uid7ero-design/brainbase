@@ -38,7 +38,7 @@ describe('1-3. registration answers never enter CRM', () => {
   })
 
   it('the paid checkout route passes only purchaser_name/email/phone to syncEventOrderContact — never validated.attendees or any response data', () => {
-    const source = read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts')
+    const source = (read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts') + read('lib/events/paidCheckoutResponse.ts'))
     const callIdx = source.indexOf('await syncEventOrderContact({')
     expect(callIdx).toBeGreaterThan(-1)
     const callBlock = source.slice(callIdx, source.indexOf('});', callIdx) + 3)
@@ -76,7 +76,7 @@ describe('4-5. public Events endpoints expose no CRM data', () => {
   })
 
   it('the public checkout/register route responses never include crm_contact_id or any crm_* field in their NextResponse.json payloads', () => {
-    const checkoutSource = read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts')
+    const checkoutSource = (read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts') + read('lib/events/paidCheckoutResponse.ts'))
     const registerSource = read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts')
     for (const source of [checkoutSource, registerSource]) {
       const jsonCalls = [...source.matchAll(/NextResponse\.json\(([\s\S]*?)\)/g)].map(m => m[1])
@@ -89,22 +89,22 @@ describe('4-5. public Events endpoints expose no CRM data', () => {
 
 describe('6. event manager only gets link/contact access within the same tenant', () => {
   it('the orders route selects crm_contact_id from the SAME organisation_id-scoped query as every other order field — no separate, unscoped lookup', () => {
-    const source = read('app/api/events/[id]/orders/route.ts')
+    const source = (read('app/api/events/[id]/orders/route.ts') + read('lib/events/organiserReads.ts'))
     const selectIdx = source.indexOf('eo.crm_contact_id')
     const whereIdx = source.indexOf('WHERE eo.event_id')
     expect(selectIdx).toBeGreaterThan(-1)
     expect(whereIdx).toBeGreaterThan(selectIdx)
-    expect(source.slice(whereIdx, whereIdx + 120)).toContain('eo.organisation_id = ${session.organisationId}')
+    expect(source.slice(whereIdx, whereIdx + 120)).toContain('eo.organisation_id = ${organisationId}')
   })
 
   it('crm_enabled is computed from session.organisationId (server-derived), never from a client-supplied organisation id', () => {
-    const source = read('app/api/events/[id]/orders/route.ts')
+    const source = (read('app/api/events/[id]/orders/route.ts') + read('lib/events/organiserReads.ts'))
     expect(source).toContain("checkCapability(session.organisationId, 'crm')")
     expect(source).not.toMatch(/checkCapability\([^)]*req\.|checkCapability\([^)]*params\./)
   })
 
   it('the manager orders route remains staff-authenticated (authorizeEventsRequest), never a public endpoint', () => {
-    const source = read('app/api/events/[id]/orders/route.ts')
+    const source = (read('app/api/events/[id]/orders/route.ts') + read('lib/events/organiserReads.ts'))
     expect(source).toContain("authorizeEventsRequest('viewer')")
   })
 })

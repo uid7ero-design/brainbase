@@ -1,0 +1,62 @@
+
+== start postgres:16-alpine
+   version: PostgreSQL 16.14 on x86_64-pc-linux-musl
+
+== 1. preflight on an empty database (read-only)
+   ok: 001_preflight.sql ran without error
+
+== 2. shared migration, applied twice
+   ok: 010 first apply
+   ok: 010 second apply (idempotent)
+
+== 3. verification
+   ok: version marker 2a.2 present
+   ok: 13 scheduling tables listed
+   ok: exclusion constraint present
+   ok: 0 legacy dependencies
+
+== 4. BrainBase host migration
+   ok: 110 first apply
+   ok: 110 second apply (idempotent)
+   ok: 190 rollback
+   ok: 110 re-apply after rollback
+   ok: 190 rollback again (suites run standalone-style)
+
+== 5. suites (real Postgres, one file at a time)
+   -- contract
+       Test Files  1 passed (1)
+            Tests  13 passed (13)
+   ok: contract suite
+   -- exclusive
+       Test Files  1 passed (1)
+            Tests  13 passed (13)
+   ok: exclusive suite
+   -- appointments
+       Test Files  1 passed (1)
+            Tests  21 passed (21)
+   ok: appointments suite
+   -- concurrency
+       Test Files  1 passed (1)
+            Tests  27 passed (27)
+   ok: concurrency suite
+   -- contention
+       Test Files  1 passed (1)
+            Tests  16 passed (16)
+   ok: contention suite
+   -- schema
+       Test Files  1 passed (1)
+            Tests  32 passed (32)
+   ok: schema suite
+   -- repositories
+       Test Files  1 passed (1)
+            Tests  28 passed (28)
+   ok: repositories suite
+
+== 6. rollback of the shared migration, then clean re-apply
+   ok: 090 refuses to run while reservations exist (data guard)
+   ok: 090 rollback
+   ok: no scheduling tables remain
+   ok: foreign sentinel table untouched
+   ok: 010 re-apply after rollback
+
+PHASE 2A DISPOSABLE-POSTGRES PROOF: PASS (postgres 16)

@@ -293,9 +293,10 @@ describe('Free registration — response persistence is atomic with the reservat
       attendees: [{ name: 'A' }],
     }), CTX)
     expect(res.status).toBe(201)
-    // org, event, ticket-type, active-questions, lock, diagnostic count,
-    // atomic statement — exactly 7 calls, no 8th "write responses" call.
-    expect(sqlMock.mock.calls.length - callsBefore).toBe(7)
+    // org, event, ticket-type, active-questions, lock, atomic statement —
+    // exactly 6 calls, no 7th "write responses" call. (Phase 2 removed
+    // the former unread diagnostic count statement.)
+    expect(sqlMock.mock.calls.length - callsBefore).toBe(6)
     const text = lastSqlCallText()
     expect(text).toMatch(/INSERT INTO event_registration_responses/)
   })
@@ -425,6 +426,11 @@ describe('Retry payment — never touches responses (§8: "retry does not duplic
     expect(src).not.toMatch(/registrationQuestions/)
     expect(src).not.toMatch(/event_registration_responses/)
     expect(src).not.toMatch(/INSERT INTO event_orders|INSERT INTO event_order_items|INSERT INTO event_attendees/)
+    // Eve Phase 1: equally true of the shared retry service the route calls.
+    const serviceSrc = fs.readFileSync(path.join(process.cwd(), 'lib/events/services/retryCheckout.ts'), 'utf8')
+    expect(serviceSrc).not.toMatch(/registrationQuestions/)
+    expect(serviceSrc).not.toMatch(/event_registration_responses/)
+    expect(serviceSrc).not.toMatch(/INSERT INTO event_orders|INSERT INTO event_order_items|INSERT INTO event_attendees/)
   })
 })
 
@@ -446,8 +452,10 @@ describe('Privacy (§6) — response data never reaches ticket URLs, QR payloads
   }
 
   it('the paid checkout route never passes order_responses/attendee responses into createCheckoutSession\'s Stripe metadata call', () => {
+    // Eve Phase 1: the Stripe call moved verbatim into the shared paid
+    // checkout service the route calls.
     const src = fs.readFileSync(
-      path.join(process.cwd(), 'app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'),
+      path.join(process.cwd(), 'lib/events/services/paidCheckout.ts'),
       'utf8',
     )
     const callIndex = src.indexOf('createCheckoutSession({')
@@ -504,7 +512,7 @@ describe('Public ticket detail (defense in depth) — allow-listed shape survive
 
 describe('Manager view (§7) — orders route includes snapshot-based responses, tenant-scoped', () => {
   it('the orders query reads question_label_snapshot/field_type_snapshot (never the live question row) for both order- and attendee-scoped answers, each still organisation_id-scoped', () => {
-    const src = fs.readFileSync(path.join(process.cwd(), 'app/api/events/[id]/orders/route.ts'), 'utf8')
+    const src = fs.readFileSync(path.join(process.cwd(), 'app/api/events/[id]/orders/route.ts'), 'utf8') + fs.readFileSync(path.join(process.cwd(), 'lib/events/organiserReads.ts'), 'utf8')
     expect(src).toMatch(/question_label_snapshot/)
     expect(src).toMatch(/field_type_snapshot/)
     expect(src).toMatch(/r\.organisation_id = ea\.organisation_id/)
@@ -556,14 +564,16 @@ describe('Session-bound free registration — the exact path that broke in Produ
     expect(body.quantity).toBe(1)
     expect(body.tickets).toEqual([{ attendee_name: 'Attendee One', ticket_token: 'tok-1' }])
 
-    // Proves the route actually took the session-bound branch (5
-    // statements: 2 FOR UPDATE locks + 2 diagnostic counts + the big
-    // insert) rather than silently falling back to the non-session
-    // shape (3 statements) — the specific distinction this whole bug
-    // lived inside.
+    // Proves the route actually took the session-bound shape (Phase 3:
+    // 4 statements — ticket-type lock + (type, session) inventory lock +
+    // session lock + the big insert) rather than silently falling back
+    // to the non-session shape (2 statements) — the specific distinction
+    // this whole bug lived inside — and that the gate really carries the
+    // session id.
     expect(transactionMock).toHaveBeenCalledTimes(1)
     const submittedStatements = (transactionMock.mock.calls[0] as unknown as [unknown[]])[0]
-    expect(submittedStatements).toHaveLength(5)
+    expect(submittedStatements).toHaveLength(4)
+    expect(lastSqlCallText()).toMatch(/sold_sess\.qty \+ .* <= \(SELECT capacity FROM event_sessions/)
   })
 
   it('an unknown/mismatched session id is rejected before any reservation is attempted (400, transaction never reached)', async () => {
@@ -612,7 +622,7 @@ describe('Session-bound free registration — the exact path that broke in Produ
     expect(recordEventBookingActivityMock).not.toHaveBeenCalled()
   })
 
-  it('the pre-existing NON-session-bound path is unaffected — still succeeds, still uses the 3-statement (non-session) array', async () => {
+  it('the pre-existing NON-session-bound path is unaffected — still succeeds, still uses the shorter (non-session) array', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW, NO_QUESTIONS)
     const res = await registerRoute.POST(req(REG_URL, {
       ticket_type_id: 'tt-1', quantity: 1, purchaser_name: 'Jane', purchaser_email: 'jane@example.com',
@@ -621,6 +631,6 @@ describe('Session-bound free registration — the exact path that broke in Produ
     expect(res.status).toBe(201)
     expect(transactionMock).toHaveBeenCalledTimes(1)
     const submittedStatements = (transactionMock.mock.calls[0] as unknown as [unknown[]])[0]
-    expect(submittedStatements).toHaveLength(3)
+    expect(submittedStatements).toHaveLength(2)
   })
 })

@@ -1,8 +1,10 @@
 import sql from '@/lib/db';
-import { createBudget, getBudget, getBudgetVersion, setBudgetCommitmentMapping, setBudgetPeriodAllocation, upsertBudgetLine } from './budgets';
+import { createBudget, getBudget, getBudgetVersion, setBudgetCommitmentMapping, setBudgetPeriodAllocation, upsertBudgetLine, updateDraftBudgetSettings } from './budgets';
 import { getFinancialYear, listFinancialPeriods } from './financialPeriods';
 import { getBudgetAccount } from './budgetAccounts';
 import { getCostCentre } from './costCentres';
+import { removeDraftBudgetEntry, BudgetDraftEntryRemovalError } from './budgetDraftEntryRemoval';
+import { removeDraftBudgetLine, BudgetLineRemovalError } from './budgetLineRemoval';
 
 export class BudgetSetupError extends Error {
   constructor(public code: 'INVALID_INPUT' | 'NOT_FOUND' | 'CONFLICT', message: string) { super(message); this.name = 'BudgetSetupError'; }
@@ -23,6 +25,9 @@ export async function listSetupBudgets(organisationId: string) {
   return await sql`
     SELECT b.id AS budget_id,b.name,b.financial_year_id,b.currency,b.tax_basis,b.periodisation_mode,
       v.id AS version_id,v.version_number,v.status,
+      (v.status='DRAFT' AND b.active_version_id IS NULL
+        AND EXISTS(SELECT 1 FROM commercial_financial_years fy WHERE fy.id=b.financial_year_id AND fy.organisation_id=b.organisation_id AND fy.status='OPEN')
+        AND NOT EXISTS(SELECT 1 FROM commercial_budget_versions other WHERE other.budget_id=b.id AND other.organisation_id=b.organisation_id AND other.status<>'DRAFT')) AS can_edit_settings,
       COALESCE((SELECT jsonb_agg(jsonb_build_object('id',l.id,'budget_account_id',l.budget_account_id,'cost_centre_id',l.cost_centre_id,'annual_budget_cents',l.annual_budget_cents::text) ORDER BY l.id)
         FROM commercial_budget_lines l WHERE l.budget_version_id=v.id AND l.organisation_id=b.organisation_id),'[]'::jsonb) AS lines,
       COALESCE((SELECT jsonb_agg(jsonb_build_object('budget_line_id',a.budget_line_id,'financial_period_id',a.financial_period_id,'amount_cents',a.amount_cents::text) ORDER BY a.id)
@@ -51,6 +56,26 @@ export async function changeSetupBudget(organisationId: string, userId: string, 
   const [budget, version] = await Promise.all([getBudget(organisationId, budgetId),getBudgetVersion(organisationId,versionId)]);
   if (!budget || !version || version.budget_id !== budget.id) throw new BudgetSetupError('NOT_FOUND', 'Budget version not found.');
   if (version.status !== 'DRAFT') throw new BudgetSetupError('CONFLICT', 'Only DRAFT budget versions are editable.');
+  if (input.action === 'remove-allocation' || input.action === 'remove-mapping') {
+    const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
+    if (reason.length < 3 || reason.length > 500) throw new BudgetSetupError('INVALID_INPUT', 'Enter a removal reason of 3 to 500 characters.');
+    const identity = { organisationId, userId, budgetId, budgetVersionId: versionId, reason };
+    if (input.action === 'remove-mapping') return removeDraftBudgetEntry({ ...identity, kind: 'mapping', costCentreId: setupId(input.costCentreId) });
+    if (budget.periodisation_mode !== 'PERIODISED') throw new BudgetSetupError('CONFLICT', 'Annual-only Budgets do not have period allocations.');
+    return removeDraftBudgetEntry({ ...identity, kind: 'allocation', budgetLineId: setupId(input.budgetLineId), financialPeriodId: setupId(input.financialPeriodId) });
+  }
+  if (input.action === 'remove-line') {
+    const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
+    if (reason.length < 3 || reason.length > 500) throw new BudgetSetupError('INVALID_INPUT', 'Enter a removal reason of 3 to 500 characters.');
+    return removeDraftBudgetLine({ organisationId, userId, budgetId, budgetVersionId: versionId, budgetLineId: setupId(input.budgetLineId), reason });
+  }
+  if (input.action === 'settings') {
+    const name = typeof input.name === 'string' ? input.name.trim() : '';
+    if (!name || name.length > 100) throw new BudgetSetupError('INVALID_INPUT', 'Enter a Budget name of up to 100 characters.');
+    if (input.taxBasis !== 'INCLUSIVE' && input.taxBasis !== 'EXCLUSIVE') throw new BudgetSetupError('INVALID_INPUT', 'Choose a valid tax basis.');
+    if ('currency' in input || 'financialYearId' in input || 'periodisationMode' in input) throw new BudgetSetupError('INVALID_INPUT', 'Currency, financial year and periodisation stay fixed for this Budget.');
+    return updateDraftBudgetSettings({ organisationId, userId, budgetId, budgetVersionId: versionId, name, taxBasis: input.taxBasis });
+  }
   if (input.action === 'allocation') {
     if (budget.periodisation_mode !== 'PERIODISED') throw new BudgetSetupError('CONFLICT', 'Annual-only Budgets do not accept period allocations.');
     const budgetLineId = setupId(input.budgetLineId), financialPeriodId = setupId(input.financialPeriodId);
@@ -68,8 +93,9 @@ export async function changeSetupBudget(organisationId: string, userId: string, 
     : setBudgetCommitmentMapping({ organisationId,userId,budgetVersionId:versionId,budgetAccountId,costCentreId });
 }
 export function budgetSetupFailure(error: unknown): { status: number; message: string } | null {
+  if (error instanceof BudgetLineRemovalError || error instanceof BudgetDraftEntryRemovalError) return { status: error.code === 'INVALID_INPUT' ? 400 : error.code === 'NOT_FOUND' ? 404 : 409, message: error.message };
   if (error instanceof BudgetSetupError) return { status: error.code === 'INVALID_INPUT' ? 400 : error.code === 'NOT_FOUND' ? 404 : 409, message: error.message };
   if (error && typeof error === 'object' && 'code' in error && error.code === '23505') return { status: 409, message: 'A Budget already exists for this financial year and currency.' };
-  if (error instanceof Error && ['Only DRAFT budget versions are editable','Budget financial year must be OPEN','budget_line_id not found for this DRAFT version'].includes(error.message)) return { status: 409, message: error.message };
+  if (error instanceof Error && ['Only DRAFT budget versions are editable','Budget financial year must be OPEN','budget_line_id not found for this DRAFT version','Budget settings can only be changed before activation and while the financial year is OPEN.'].includes(error.message)) return { status: 409, message: error.message };
   return null;
 }

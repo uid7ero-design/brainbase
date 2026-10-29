@@ -6,6 +6,134 @@ This matrix maps the 35 required C7.9 finance-close, reconciliation and reportin
 It is a review aid, not a substitute for the test suites. The authoritative result remains the
 containment suite, disposable-Postgres finance harness, browser suite and production build.
 
+## Local evidence validation receipt, 24 October 2026
+
+Implementation candidate: `bf4d4003`, on prerequisite build fix `b76d1f48`.
+The user resumed validation/completion and froze feature expansion behind an
+explicit explained yay/nay decision. No push or deployment was requested or run.
+
+| Final check | Result | Local evidence |
+|---|---|---|
+| Commercial containment plus four affected HR route suites | 154 files, 2,609 tests passed | `test-results/finance-commercial-containment.log` |
+| Adjustment, control recovery, coordination and new evidence-reader components | Four files, 51 tests passed | `test-results/finance-component-validation.log` |
+| Export/model boundary cases including all seven adjustment formats | 13 focused evidence-bundle cases passed, included in containment total | `test-results/finance-exports-validation.log` |
+| Independent application/test TypeScript | Passed, `npx tsc --noEmit --incremental false` | `test-results/finance-evidence-types.log` |
+| Focused changed-file lint and final runtime-script/export-test lint | Passed | `test-results/finance-evidence-lint.log`, `finance-final-lint.log` |
+| Production build | Passed, `npm run build -- --webpack` | `test-results/finance-evidence-build.log` |
+| Disposable PostgreSQL | PASS=30 / FAIL=0, including native integration suites | `test-results/finance-disposable-database.log` |
+| Complete production-runtime browser regression | Passed, synthetic tenants/accounts and owned temporary database | `test-results/finance-evidence-runtime.log`, `finance-evidence-final-runtime/evidence.json` |
+| Added native evidence flow | Passed: scoped reads, foreign tenant rejection, history HTML, comparison/swap JSON, snapshot HTML/JSON/totals CSV, linked invalidated close, Back/Forward, GET-only requests and unchanged saved facts/events | `test-results/finance-evidence-final-runtime/finance-evidence-acceptance.json` |
+| Mobile and print evidence | Mobile report fits; generated four-page A4 PDF preserves text; all four rasterised pages visually inspected | `finance-evidence-final-runtime/evidence-report-mobile.png`, `evidence-report-print.pdf`, `print-page-1.png` through `print-page-4.png` |
+| Final source review | Included previously untracked candidate files; staged whitespace check clean | Code candidate `bf4d4003` |
+
+Commands were run from the candidate checkout. Containment used Vitest project
+`containment`, filter `commercial`, the four explicit affected HR suite paths and
+`--maxWorkers=4`. Component validation used the explicit four finance files in
+project `components`. Artifacts live under the ignored local `test-results/`
+directory; this record preserves their outcomes without committing synthetic
+fixture dumps or generated screenshots/PDFs as product source.
+
+The production build used
+`postgresql://postgres:test@127.0.0.1:1/finance_build_only` solely to initialise the
+existing database client while collecting dynamic routes. It did not use customer
+credentials or establish database correctness. Native proof came from separately
+owned loopback Docker PostgreSQL fixtures. Runtime used
+`FINANCE_RUNTIME_TIMEZONE=Australia/Adelaide` and
+`FINANCE_RUNTIME_ARTIFACTS=test-results/finance-evidence-final-runtime` with
+`node scripts/tests/verify-finance-controls-runtime.mjs`. Temporary browsers,
+servers and database containers were cleaned up; the unrelated existing container
+was not touched.
+
+Failures corrected during close-out:
+
+- Existing UI/static tests and runtime selectors now follow extracted cards,
+  explicit table switches, retained evidence disclosures and current wording.
+  Browser scrolling is stubbed only in jsdom tests, matching existing test practice.
+- History read invalidation schedules its guarded state clear asynchronously,
+  resolving the React lint error while preserving pause/old-read suppression.
+- Three pre-existing HR register route handlers now require their Request argument
+  as Next.js route typing expects; their tests supply real Request objects. This
+  build-only compatibility repair is isolated in `b76d1f48`.
+- Disposable PostgreSQL readiness waits for TCP rather than the transient bootstrap
+  socket; the database harness binds its published port to loopback. A legacy
+  reporting assertion now checks explicit unavailable/no-snapshot semantics rather
+  than assuming an em dash. Neither correction changes finance domain behaviour.
+- New browser API acceptance uses authenticated browser fetch, preserving Chromium's
+  secure localhost cookie behaviour instead of relying on APIRequestContext cookie
+  handling. Finance authentication was not weakened for testing.
+
+Limits: this is local synthetic acceptance, not a hosted or Production receipt.
+Existing nonblocking build warnings remain for middleware deprecation, jose Edge
+runtime APIs and the missing optional Command Centre dashboard-copy source. No
+unrelated framework migration or dashboard work was added. The printed report
+review covers the generated representative saved snapshot, not every possible
+customer content length. Future features, push/deployment and any customer setup
+remain separate explicit decisions.
+
+## Local evidence bundle acceptance gate, 20 October 2026
+
+Historical close-out plan: the "not run" states below are superseded by the
+24 October receipt above for implementation candidate `bf4d4003`.
+
+**Status: not run for the accumulated local evidence/interface candidate.** Older
+receipts in this matrix do not validate later changed or untracked files. This
+gate bounds the finishing scope described in `commercial-finance-pilot.md` and
+does not authorise tests, database access, push or deployment. The earlier testing
+deferral remains in place. Source inspection and this checklist are not passing
+test evidence.
+
+| Area | Required coverage before acceptance | Current evidence |
+|---|---|---|
+| Administrator and tenant boundaries | Each new GET rejects missing entitlement, wrong role and cross-tenant identities; exact year/period/source/currency checks; generic unavailable/not-found responses; no mutation/audit events from reads. | Source inspected; focused route/database proof not run. |
+| Adjustment discovery | Applied type/status/literal search across pages; invalid inputs; case handling and SQL binding; pending search edits suppress exports; independent register/detail scope and status. | New cases need coverage; not run. |
+| Saved reconciliation and close reads | Durable identities, historical/stale/invalidated evidence, complete lifecycle details, all-item arithmetic/counts, selected page and filter, current-at-read labels/links versus captured totals. | Source inspected; database/browser proof not run. |
+| History and latest designation | Newest record calculated before lifecycle filtering; stable pagination and empty pages; separate versions without summation; current close hidden by a local filter. | New cases need coverage; not run. |
+| Snapshot comparison | Two distinct records in exact same scope; independent successful reads required; exact signed comparison-minus-baseline amounts/counts; null/empty header differences; swap/reload; failures/supersession. | New cases need coverage; not run. |
+| Evidence trail | Valid references, one calendar context, 16-reference limit, Back/Forward, cycle/revisit, forward-branch replacement, failed reads, fresh readers and parent locks. | New cases need coverage; not run. |
+| CSV/JSON exports | Scope, identity and read/download provenance; displayed-page versus full-total/event coverage; exact huge cents; missing/empty values; formula-like text; zero versus unavailable; safe filenames. | New cases need coverage; not run. |
+| Printable reports | HTML escaping, no external assets/scripts, current-at-read versus captured facts, original timestamps, long notes/IDs/event JSON, empty pages, responsive/A4 print layout. | Implemented styles only; rendering/browser proof not run. |
+| Downloads and read lifecycle | All five download panels, delayed URL cleanup after unmount, setup/click failures, repeated/blocked downloads; AbortController cleanup with late/failed responses and paired sibling failure. | Shared implementation source reviewed; browser proof not run. |
+| Cards, tables and actions | Matching values/identities and action callbacks, status filters, zero/clean records retained, unchanged Review/Sign off gates and server rules, locks, keyboard/focus return, narrow layouts. | Source reviewed; existing table-based checks need review; not run. |
+| Suggested inspection | Incomplete/ambiguous/stale/prepared/reviewed/signed-off scopes; zero net variance with unresolved items; non-zero variance with zero unresolved count; current-close linkage; no readiness inference. | New cases need coverage; not run. |
+| Finance containment | Tenant/identity server-owned; supplier settlement separate from Budget Actual; originals/reversals and versions separate; unchanged posting/recognition/close rules. | Older suites exist; current candidate has no new passing receipt. |
+| Type/lint/build | Changed application and test TypeScript, focused lint, full Commercial containment and production build on the exact eventual candidate. | Not run for this bundle. |
+| Disposable runtime | Synthetic organisations/actors; isolated PostgreSQL; production-runtime UI flows, database outcomes, event counts, read-only exports and tenant/role rejection. | Existing harness needs extension/review; not run for this bundle. |
+| Review and release | Review all tracked/untracked candidate files, record exact commit/check outputs and remaining limits, then separately approved push/deploy and hosted smoke evidence. | Uncommitted local work; no new release action. |
+
+### Validation order when the deferral ends
+
+1. Inventory the exact candidate and inspect existing focused/component/static
+   tests for assumptions changed by card/table extraction. Add meaningful missing
+   model, route, export, navigation and component cases; avoid tests that merely
+   mirror source text or rendered implementation details.
+2. Run focused tests, application/test TypeScript, focused lint and the full
+   Commercial containment suite. Fix failures and repeat the affected checks.
+3. Build the production candidate, then extend/run disposable PostgreSQL and
+   production-runtime browser acceptance. Review existing harness safety before
+   executing it; never point fixtures at configured customer/Production databases.
+4. Review generated reports and CSV/JSON files including hostile/large/empty
+   evidence, keyboard/mobile flows and printed long-content pagination. Confirm
+   read-only operations preserve finance facts and event counts.
+5. Record the exact candidate and outputs, inspect the final diff including
+   newly tracked files, and prepare reviewable commits. Release requires its own
+   applicable authorisation; neither passing local checks nor a production build
+   establishes a deployed result.
+
+Existing validation entry points include `tests/components/commercial/`, the
+Commercial files in `tests/containment/`,
+`scripts/tests/verify-commercial-budgeting.ps1` and
+`scripts/tests/verify-finance-controls-runtime.mjs`. These are starting points,
+not assertions that their present cases cover the new bundle. TypeScript must
+also be checked independently as described in the pilot document.
+
+### Scope after close-out
+
+New accounting-system connectors, file-import workflows, tolerance policies,
+additional year-close reconciliation policy, customer setup and further interface
+features are outside this acceptance pass. Existing deliberately deferred policy
+decisions below remain unchanged. Additional work should be scoped after the
+current candidate has been validated rather than silently extending it.
+
 ## Verification matrix
 
 | # | Required invariant | Primary executable evidence |

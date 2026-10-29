@@ -239,11 +239,19 @@ describe('Cancel route — confirmed free order (Phase L1)', () => {
     const code = stripComments(read('app/api/events/[id]/orders/[orderId]/cancel/route.ts'))
     expect(code).not.toMatch(/from '@\/lib\/events\/stripe'/)
     expect(code).not.toMatch(/createCheckoutSession|createRefund|constructWebhookEvent/)
+    // Eve Phase 1: the transition itself now lives in the shared
+    // service's cancelOrder — which shares a module with refundPaidOrder
+    // (hence the module-level stripe import) but never calls Stripe.
+    const service = stripComments(read('lib/events/services/orderTransitions.ts'))
+    const cancelFn = service.slice(service.indexOf('export async function cancelOrder('))
+    expect(cancelFn.length).toBeGreaterThan(0)
+    expect(cancelFn).not.toMatch(/createCheckoutSession|createRefund|constructWebhookEvent/)
   })
 
   it('never hard-deletes anything — no DELETE statement anywhere in this route', () => {
     const code = stripComments(read('app/api/events/[id]/orders/[orderId]/cancel/route.ts'))
     expect(code).not.toMatch(/DELETE FROM/i)
+    expect(stripComments(read('lib/events/services/orderTransitions.ts'))).not.toMatch(/DELETE FROM/i)
   })
 
   it('manager+ role, matching every other Events mutation', () => {
@@ -258,14 +266,18 @@ describe('Capacity restoration — same predicate every consumer already uses (p
   // status = 'CANCELLED' — proving these predicates exist (and are
   // unmodified by this phase) is what proves capacity is restored,
   // without needing a second, duplicate simulation of the aggregate.
+  // Eve Phase 1: both capacity-gated transactions moved verbatim into
+  // the shared services called by the register/checkout routes.
   it('the free-registration route\'s capacity aggregates exclude CANCELLED orders (unmodified by this phase)', () => {
-    const code = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))
+    const code = stripComments(read('lib/events/services/freeRegistration.ts'))
     const occurrences = (code.match(/eo\.status <> 'CANCELLED'/g) ?? []).length
-    expect(occurrences).toBeGreaterThanOrEqual(4) // session + ticket-type capacity, both branches
+    // Phase 2: one gate statement with a per-ticket-type aggregate and a
+    // session aggregate (no more duplicated session/non-session branches).
+    expect(occurrences).toBeGreaterThanOrEqual(2)
   })
 
   it('the paid checkout route\'s capacity aggregates exclude CANCELLED orders (unmodified by this phase)', () => {
-    const code = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
+    const code = stripComments(read('lib/events/services/paidCheckout.ts'))
     expect(code).toMatch(/eo\.status <> 'CANCELLED'/)
   })
 

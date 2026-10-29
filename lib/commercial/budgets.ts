@@ -2,6 +2,7 @@ import 'server-only';
 import sql from '@/lib/db';
 import {
   logBudgetCreated,
+  logBudgetSettingsChanged,
   logBudgetVersionCreated,
   logBudgetLineChanged,
   logBudgetPeriodAllocationChanged,
@@ -101,6 +102,42 @@ export async function createBudget(params: {
   await logBudgetCreated({ organisationId: params.organisationId, userId: params.userId, budgetId: budget.id, after: { financial_year_id: budget.financial_year_id, currency: budget.currency, tax_basis: budget.tax_basis, periodisation_mode: budget.periodisation_mode } });
   await logBudgetVersionCreated({ organisationId: params.organisationId, userId: params.userId, budgetVersionId: version.id, budgetId: budget.id, versionNumber: 1 });
   return { budget, version };
+}
+
+export async function updateDraftBudgetSettings(params: {
+  organisationId: string; userId: string; budgetId: string; budgetVersionId: string;
+  name: string; taxBasis: BudgetTaxBasis;
+}): Promise<CommercialBudget> {
+  const name = params.name.trim();
+  if (!name || name.length > 100) throw new Error('Enter a Budget name of up to 100 characters.');
+  if (params.taxBasis !== 'INCLUSIVE' && params.taxBasis !== 'EXCLUSIVE') throw new Error('Choose a valid tax basis.');
+  // Match activation's budget/year -> ordered versions locks. The next
+  // statement sees fresh committed state after any lock wait.
+  const [, , rows] = await sql.transaction(tx => [
+    tx`SELECT cb.id FROM commercial_budgets cb
+      JOIN commercial_financial_years fy ON fy.id=cb.financial_year_id AND fy.organisation_id=cb.organisation_id
+      WHERE cb.id=${params.budgetId} AND cb.organisation_id=${params.organisationId}
+      FOR UPDATE OF cb, fy`,
+    tx`SELECT id FROM commercial_budget_versions
+      WHERE budget_id=${params.budgetId} AND organisation_id=${params.organisationId}
+      ORDER BY id FOR UPDATE`,
+    tx`WITH eligible AS MATERIALIZED (
+      SELECT cb.id, cb.name, cb.tax_basis FROM commercial_budgets cb
+      JOIN commercial_financial_years fy ON fy.id=cb.financial_year_id AND fy.organisation_id=cb.organisation_id
+      WHERE cb.id=${params.budgetId} AND cb.organisation_id=${params.organisationId}
+        AND cb.active_version_id IS NULL AND fy.status='OPEN'
+        AND EXISTS(SELECT 1 FROM commercial_budget_versions v WHERE v.id=${params.budgetVersionId} AND v.budget_id=cb.id AND v.organisation_id=cb.organisation_id AND v.status='DRAFT')
+        AND NOT EXISTS(SELECT 1 FROM commercial_budget_versions v WHERE v.budget_id=cb.id AND v.organisation_id=cb.organisation_id AND v.status<>'DRAFT')
+    ) UPDATE commercial_budgets cb SET name=${name}, tax_basis=${params.taxBasis}, updated_at=NOW()
+      FROM eligible WHERE cb.id=eligible.id AND cb.organisation_id=${params.organisationId}
+      RETURNING cb.*, eligible.name AS previous_name, eligible.tax_basis AS previous_tax_basis`,
+  ], { isolationLevel: 'ReadCommitted' });
+  const changed = (rows as (CommercialBudget & { previous_name: string; previous_tax_basis: BudgetTaxBasis })[])[0];
+  if (!changed) throw new Error('Budget settings can only be changed before activation and while the financial year is OPEN.');
+  const { previous_name, previous_tax_basis, ...budget } = changed;
+  await logBudgetSettingsChanged({ organisationId: params.organisationId, userId: params.userId, budgetId: budget.id,
+    before: { name: previous_name, tax_basis: previous_tax_basis }, after: { name: budget.name, tax_basis: budget.tax_basis } });
+  return budget;
 }
 
 export async function createDraftBudgetVersion(params: {

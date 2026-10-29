@@ -1,6 +1,8 @@
 import 'server-only';
 import { NeonDbError } from '@neondatabase/serverless';
 import sql from '@/lib/db';
+import { WORKER_TYPES, EMPLOYMENT_STATUSES, type WorkerType, type EmploymentStatus } from './personEnums';
+export { WORKER_TYPES, EMPLOYMENT_STATUSES, type WorkerType, type EmploymentStatus } from './personEnums';
 
 // HR-1 — shared server-side validation for hr_people writes. Every
 // cross-table reference (team_id, manager_person_id, linked_user_id) is
@@ -11,14 +13,10 @@ import sql from '@/lib/db';
 // application-layer enforcement scripts/create-hr-people.sql's own
 // header comment says is required.
 
-export const WORKER_TYPES = ['employee', 'contractor', 'casual', 'volunteer', 'other'] as const;
-export type WorkerType = typeof WORKER_TYPES[number];
 export function isValidWorkerType(value: unknown): value is WorkerType {
   return typeof value === 'string' && (WORKER_TYPES as readonly string[]).includes(value);
 }
 
-export const EMPLOYMENT_STATUSES = ['active', 'inactive', 'onboarding', 'ended'] as const;
-export type EmploymentStatus = typeof EMPLOYMENT_STATUSES[number];
 export function isValidEmploymentStatus(value: unknown): value is EmploymentStatus {
   return typeof value === 'string' && (EMPLOYMENT_STATUSES as readonly string[]).includes(value);
 }

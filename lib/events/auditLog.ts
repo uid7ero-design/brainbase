@@ -323,6 +323,65 @@ export async function logAutomaticTicketEmailFailed(params: {
   });
 }
 
+// ── Lifecycle notifications (Phase 5B) ────────────────────────────────
+//
+// resource_type stays 'event_order' with the ORDER as resource_id —
+// ADR-0003 §10: "show me everything for this order" remains one query,
+// exactly as the ticket-email actions above already do; the notification
+// row id and type travel in after_state. after_state is operational
+// metadata only (type, attempt, outcome, provider message id, masked
+// recipient) — never the email body, a ticket/booking token, or any
+// provider credential. The bulk scheduling paths (event cancelled,
+// reminders) write their 'notification_scheduled' rows atomically inside
+// their own INSERT CTE (lib/events/notifications.ts); the per-order
+// transitions use this best-effort form because the human-initiated
+// cancel/refund has already been audited and committed.
+export async function logNotificationScheduled(params: {
+  organisationId: string; userId: string | null; orderId: string; notificationId: string; notificationType: string; source: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event_order.notification_scheduled',
+    resourceType: 'event_order', resourceId: params.orderId, beforeState: null,
+    afterState: { source: params.source, notification_type: params.notificationType, notification_id: params.notificationId },
+  });
+}
+
+export async function logNotificationSent(params: {
+  organisationId: string; orderId: string; notificationId: string; notificationType: string; attemptCount: number;
+  providerMessageId: string | null; recipientMasked: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: null, action: 'event_order.notification_sent',
+    resourceType: 'event_order', resourceId: params.orderId, beforeState: null,
+    afterState: {
+      source: 'automatic',
+      notification_type: params.notificationType,
+      notification_id: params.notificationId,
+      attempt_count: params.attemptCount,
+      provider_message_id: params.providerMessageId,
+      recipient_masked: params.recipientMasked,
+    },
+  });
+}
+
+export async function logNotificationFailed(params: {
+  organisationId: string; orderId: string; notificationId: string; notificationType: string; attemptCount: number;
+  terminal: boolean; reason: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: null, action: 'event_order.notification_failed',
+    resourceType: 'event_order', resourceId: params.orderId, beforeState: null,
+    afterState: {
+      source: 'automatic',
+      notification_type: params.notificationType,
+      notification_id: params.notificationId,
+      attempt_count: params.attemptCount,
+      terminal: params.terminal,
+      reason: params.reason,
+    },
+  });
+}
+
 // ── Event / session / ticket-type management audit (Phase 8) ────────
 //
 // Closes the gap the Events production-readiness audit named: event
@@ -357,7 +416,12 @@ export async function logAutomaticTicketEmailFailed(params: {
 
 const EVENT_AUDIT_FIELDS = ['name', 'slug', 'description', 'venue', 'artwork_url', 'status', 'starts_at', 'ends_at', 'timezone'] as const;
 const EVENT_SESSION_AUDIT_FIELDS = ['name', 'starts_at', 'ends_at', 'capacity'] as const;
-const EVENT_TICKET_TYPE_AUDIT_FIELDS = ['name', 'description', 'price_cents', 'capacity', 'active', 'sort_order'] as const;
+// Phase 4 — the sale-window/access fields join the allowlist (public
+// catalog data, never PII); a change to any of them is logged under the
+// distinct action event_ticket_type.sale_window_changed — see
+// logEventTicketTypeUpdated.
+const EVENT_TICKET_TYPE_AUDIT_FIELDS = ['name', 'description', 'price_cents', 'capacity', 'active', 'sort_order', 'sale_starts_at', 'sale_ends_at', 'requires_access_code'] as const;
+const EVENT_TICKET_TYPE_SALE_WINDOW_FIELDS: ReadonlySet<string> = new Set(['sale_starts_at', 'sale_ends_at', 'requires_access_code']);
 
 type EventRow = Record<(typeof EVENT_AUDIT_FIELDS)[number], unknown>;
 type EventSessionRow = Record<(typeof EVENT_SESSION_AUDIT_FIELDS)[number], unknown>;
@@ -397,10 +461,161 @@ export async function logEventUpdated(params: { organisationId: string; userId: 
   });
 }
 
+// Registration-answer retention (ADR 0013 §4b) — one row per event per run.
+// Response ids and counts per category ONLY: never an answer, label or
+// help text. userId is null: the scheduled retention job acts, not a person.
+export async function logResponsesRedacted(params: {
+  organisationId: string; eventId: string; responseIds: string[]; byCategory: Record<string, number>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: null, action: 'event_responses.redacted',
+    resourceType: 'event', resourceId: params.eventId, beforeState: null,
+    afterState: { reason: 'RETENTION', count: params.responseIds.length, by_category: params.byCategory, response_ids: params.responseIds },
+  });
+}
+
+// Legal hold on answer retention for an event or one order — the reason
+// code only (COMPLAINT | INCIDENT | DISPUTE | LEGAL_OBLIGATION | null).
+export async function logAnswersLegalHoldChanged(params: {
+  organisationId: string; userId: string; eventId: string; orderId: string | null; before: string | null; after: string | null;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId,
+    action: params.after ? 'event.answers_legal_hold_set' : 'event.answers_legal_hold_cleared',
+    resourceType: params.orderId ? 'event_order' : 'event', resourceId: params.orderId ?? params.eventId,
+    beforeState: { answers_legal_hold: params.before, event_id: params.eventId },
+    afterState: { answers_legal_hold: params.after, event_id: params.eventId },
+  });
+}
+
+// Eve registration questions (ADR 0013 §4) — the per-event opt-in that
+// starts (or stops) Eve showing this event's questions and accepting
+// answers. Only the boolean itself is recorded.
+export async function logEventEveQuestionsToggled(params: {
+  organisationId: string; userId: string; eventId: string; before: boolean; after: boolean;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event.eve_questions_toggled',
+    resourceType: 'event', resourceId: params.eventId,
+    beforeState: { eve_questions_enabled: params.before }, afterState: { eve_questions_enabled: params.after },
+  });
+}
+
+// ── Registration-question lifecycle audit ────────────────────────────
+//
+// resource_type 'event_registration_question' — its own literal
+// (ADR-0003 §10), resource_id = the question's own id; event_id travels
+// in state like every other catalog child above. Configuration metadata
+// ONLY, never an answer: these functions are never handed a response.
+// The organiser's label (the question wording buyers see) is logged as
+// written. Help text and select options are reduced to markers —
+// help_text_set / help_text_changed, option_count / options_changed —
+// because free-form organiser copy can carry personal detail ("call
+// Sam on …"), and a select option's text is exactly what an answer
+// stores, so logging options would put answer-equal strings in
+// audit_logs.
+//
+// Actions:
+//   .created            — the full safe shape at creation
+//   .deactivated        — active true -> false
+//   .reactivated        — active false -> true
+//   .category_changed   — data_category changed (with every other changed
+//                         field in the same diff), mirroring
+//                         event_ticket_type.sale_window_changed
+//   .updated            — any other configuration change (label, help
+//                         text, type, required, scope, options, sort order)
+//   .reordered          — the dedicated up/down swap
+// A PATCH that changes active AND other fields writes two rows: the
+// active transition, then the configuration diff.
+
+export type RegistrationQuestionAuditRow = {
+  label: string; help_text: string | null; field_type: string; required: boolean; scope: string;
+  options: string[] | null; sort_order: number; active: boolean; data_category: string; template_key: string | null;
+};
+
+const QUESTION_CONFIG_AUDIT_FIELDS = ['label', 'field_type', 'required', 'scope', 'sort_order', 'data_category', 'help_text_set', 'option_count'] as const;
+
+function questionAuditShape(q: RegistrationQuestionAuditRow): Record<(typeof QUESTION_CONFIG_AUDIT_FIELDS)[number], unknown> {
+  return {
+    label: q.label, field_type: q.field_type, required: q.required, scope: q.scope, sort_order: q.sort_order,
+    data_category: q.data_category, help_text_set: Boolean(q.help_text), option_count: q.options?.length ?? 0,
+  };
+}
+
+function sameOptions(a: string[] | null, b: string[] | null): boolean {
+  const x = a ?? [], y = b ?? [];
+  return x.length === y.length && x.every((o, i) => o === y[i]);
+}
+
+export async function logRegistrationQuestionCreated(params: {
+  organisationId: string; userId: string; eventId: string; questionId: string; after: RegistrationQuestionAuditRow;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event_registration_question.created',
+    resourceType: 'event_registration_question', resourceId: params.questionId, beforeState: null,
+    afterState: {
+      event_id: params.eventId, ...questionAuditShape(params.after),
+      active: params.after.active, template_key: params.after.template_key,
+    },
+  });
+}
+
+export async function logRegistrationQuestionUpdated(params: {
+  organisationId: string; userId: string; eventId: string; questionId: string;
+  before: RegistrationQuestionAuditRow; after: RegistrationQuestionAuditRow;
+}): Promise<void> {
+  const base = { organisationId: params.organisationId, userId: params.userId, resourceType: 'event_registration_question', resourceId: params.questionId };
+  if (params.before.active !== params.after.active) {
+    await insertAuditLog({
+      ...base, action: params.after.active ? 'event_registration_question.reactivated' : 'event_registration_question.deactivated',
+      beforeState: { event_id: params.eventId, active: params.before.active },
+      afterState: { event_id: params.eventId, active: params.after.active },
+    });
+  }
+  const diff = diffFields(questionAuditShape(params.before), questionAuditShape(params.after), QUESTION_CONFIG_AUDIT_FIELDS);
+  const helpTextChanged = (params.before.help_text ?? null) !== (params.after.help_text ?? null);
+  const optionsChanged = !sameOptions(params.before.options, params.after.options);
+  if (!diff && !helpTextChanged && !optionsChanged) return;
+  const before: Record<string, unknown> = { event_id: params.eventId, ...diff?.before };
+  const after: Record<string, unknown> = { event_id: params.eventId, ...diff?.after };
+  if (helpTextChanged) after.help_text_changed = true;
+  if (optionsChanged) after.options_changed = true;
+  await insertAuditLog({
+    ...base,
+    action: diff && 'data_category' in diff.after ? 'event_registration_question.category_changed' : 'event_registration_question.updated',
+    beforeState: before, afterState: after,
+  });
+}
+
+export async function logRegistrationQuestionReordered(params: {
+  organisationId: string; userId: string; eventId: string; questionId: string; direction: 'up' | 'down';
+  swappedWithId: string; beforeSortOrder: number; afterSortOrder: number;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event_registration_question.reordered',
+    resourceType: 'event_registration_question', resourceId: params.questionId,
+    beforeState: { event_id: params.eventId, sort_order: params.beforeSortOrder },
+    afterState: { event_id: params.eventId, sort_order: params.afterSortOrder, direction: params.direction, swapped_with: params.swappedWithId },
+  });
+}
+
 export async function logEventPublished(params: { organisationId: string; userId: string; eventId: string; before: EventRow; after: EventRow }): Promise<void> {
   const diff = diffFields(params.before, params.after, EVENT_AUDIT_FIELDS);
   await insertAuditLog({
     organisationId: params.organisationId, userId: params.userId, action: 'event.published',
+    resourceType: 'event', resourceId: params.eventId,
+    beforeState: diff?.before ?? { status: params.before.status }, afterState: diff?.after ?? { status: params.after.status },
+  });
+}
+
+// Phase 5B — a non-cancelled -> CANCELLED transition is its own
+// lifecycle action (it triggers purchaser communications), distinct from
+// an ordinary edit, exactly as publish/unpublish are. Carries the same
+// safe-field diff; status is always present in the diff by construction.
+export async function logEventCancelled(params: { organisationId: string; userId: string; eventId: string; before: EventRow; after: EventRow }): Promise<void> {
+  const diff = diffFields(params.before, params.after, EVENT_AUDIT_FIELDS);
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event.cancelled',
     resourceType: 'event', resourceId: params.eventId,
     beforeState: diff?.before ?? { status: params.before.status }, afterState: diff?.after ?? { status: params.after.status },
   });
@@ -465,9 +680,100 @@ export async function logEventTicketTypeUpdated(params: {
 }): Promise<void> {
   const diff = diffFields(params.before, params.after, EVENT_TICKET_TYPE_AUDIT_FIELDS);
   if (!diff) return;
+  // Phase 4 — a PATCH that touches the sale window or the access gate is
+  // logged as `sale_window_changed` (the brief's own audit vocabulary),
+  // with every changed field still carried in the diff; any other change
+  // keeps the existing `.updated` action unchanged.
+  const saleWindowChanged = Object.keys(diff.after).some(f => EVENT_TICKET_TYPE_SALE_WINDOW_FIELDS.has(f));
   await insertAuditLog({
-    organisationId: params.organisationId, userId: params.userId, action: 'event_ticket_type.updated',
+    organisationId: params.organisationId, userId: params.userId,
+    action: saleWindowChanged ? 'event_ticket_type.sale_window_changed' : 'event_ticket_type.updated',
     resourceType: 'event_ticket_type', resourceId: params.ticketTypeId,
+    beforeState: { event_id: params.eventId, ...diff.before }, afterState: { event_id: params.eventId, ...diff.after },
+  });
+}
+
+// ── Promotional codes & presale access codes audit (Phase 4) ─────────
+//
+// resource_type 'event_promotion_code' / 'event_access_code' — each its
+// own literal (ADR-0003 §10), resource_id = the code row's own id. Three
+// actions each: .created, .updated (field diff only) and .disabled (an
+// update whose only effect is active true -> false, called out
+// separately because disabling is the organiser's "stop this code" act).
+// Promotion code TEXT is marketing copy and is logged in full (approval
+// D8); access code text is MASKED everywhere in audit state ("ME*****")
+// because it gates restricted inventory. No order, purchaser or payment
+// data ever appears here — these entries describe catalog configuration.
+
+const EVENT_PROMOTION_CODE_AUDIT_FIELDS = ['code', 'discount_type', 'discount_value', 'active', 'starts_at', 'ends_at', 'max_redemptions', 'min_cart_cents', 'ticket_type_ids'] as const;
+const EVENT_ACCESS_CODE_AUDIT_FIELDS = ['code', 'active', 'starts_at', 'ends_at', 'ticket_type_ids'] as const;
+
+export type EventPromotionCodeAuditRow = Record<(typeof EVENT_PROMOTION_CODE_AUDIT_FIELDS)[number], unknown>;
+export type EventAccessCodeAuditRow = Record<(typeof EVENT_ACCESS_CODE_AUDIT_FIELDS)[number], unknown>;
+
+// Ticket-type id lists are compared as sorted, comma-joined strings so
+// diffFields' scalar comparison works on them and ordering never reads
+// as a change.
+function normaliseIdList<T extends Record<string, unknown>>(row: T): T {
+  const ids = row.ticket_type_ids;
+  if (!Array.isArray(ids)) return row;
+  return { ...row, ticket_type_ids: [...ids].map(String).sort().join(',') };
+}
+
+function codeAction(kind: 'event_promotion_code' | 'event_access_code', before: { active: unknown }, after: { active: unknown }): string {
+  return before.active === true && after.active === false ? `${kind}.disabled` : `${kind}.updated`;
+}
+
+export async function logEventPromotionCodeCreated(params: {
+  organisationId: string; userId: string; eventId: string; promotionCodeId: string; after: EventPromotionCodeAuditRow;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event_promotion_code.created',
+    resourceType: 'event_promotion_code', resourceId: params.promotionCodeId, beforeState: null,
+    afterState: { event_id: params.eventId, ...pickFields(normaliseIdList(params.after), EVENT_PROMOTION_CODE_AUDIT_FIELDS) },
+  });
+}
+
+export async function logEventPromotionCodeUpdated(params: {
+  organisationId: string; userId: string; eventId: string; promotionCodeId: string; before: EventPromotionCodeAuditRow; after: EventPromotionCodeAuditRow;
+}): Promise<void> {
+  const diff = diffFields(normaliseIdList(params.before), normaliseIdList(params.after), EVENT_PROMOTION_CODE_AUDIT_FIELDS);
+  if (!diff) return;
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId,
+    action: codeAction('event_promotion_code', params.before as { active: unknown }, params.after as { active: unknown }),
+    resourceType: 'event_promotion_code', resourceId: params.promotionCodeId,
+    beforeState: { event_id: params.eventId, ...diff.before }, afterState: { event_id: params.eventId, ...diff.after },
+  });
+}
+
+function maskAccessCodeRow<T extends Record<string, unknown>>(row: T, mask: (code: string) => string): T {
+  return typeof row.code === 'string' ? { ...row, code: mask(row.code) } : row;
+}
+
+export async function logEventAccessCodeCreated(params: {
+  organisationId: string; userId: string; eventId: string; accessCodeId: string; after: EventAccessCodeAuditRow; mask: (code: string) => string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event_access_code.created',
+    resourceType: 'event_access_code', resourceId: params.accessCodeId, beforeState: null,
+    afterState: { event_id: params.eventId, ...pickFields(maskAccessCodeRow(normaliseIdList(params.after), params.mask), EVENT_ACCESS_CODE_AUDIT_FIELDS) },
+  });
+}
+
+export async function logEventAccessCodeUpdated(params: {
+  organisationId: string; userId: string; eventId: string; accessCodeId: string; before: EventAccessCodeAuditRow; after: EventAccessCodeAuditRow; mask: (code: string) => string;
+}): Promise<void> {
+  const diff = diffFields(
+    maskAccessCodeRow(normaliseIdList(params.before), params.mask),
+    maskAccessCodeRow(normaliseIdList(params.after), params.mask),
+    EVENT_ACCESS_CODE_AUDIT_FIELDS,
+  );
+  if (!diff) return;
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId,
+    action: codeAction('event_access_code', params.before as { active: unknown }, params.after as { active: unknown }),
+    resourceType: 'event_access_code', resourceId: params.accessCodeId,
     beforeState: { event_id: params.eventId, ...diff.before }, afterState: { event_id: params.eventId, ...diff.after },
   });
 }
@@ -479,6 +785,46 @@ export async function logEventTicketTypeDeleted(params: {
     organisationId: params.organisationId, userId: params.userId, action: 'event_ticket_type.deleted',
     resourceType: 'event_ticket_type', resourceId: params.ticketTypeId,
     beforeState: { event_id: params.eventId, ...pickFields(params.before, EVENT_TICKET_TYPE_AUDIT_FIELDS) }, afterState: null,
+  });
+}
+
+// ── Ticket type × session inventory audit (Phase 3) ──────────────────
+//
+// resource_type 'event_ticket_type_session_inventory' — its own literal
+// (ADR-0003 §10), exactly as event_session/event_ticket_type are above:
+// an override row is a manager-editable catalog entity in its own right
+// (set/cleared from the Sessions panel), not a sub-field of either
+// parent. resource_id = the override row's own id. Setting an override
+// (create OR change — one action, since the organiser sees one "Set"
+// control and the write is an upsert) logs `.set` with the previous
+// capacity (null when newly created); clearing logs `.cleared`. Both
+// carry event_id, ticket_type_id and event_session_id in state so
+// "which pair" is answered without a join. Capacity is public catalog
+// data — never PII or payment detail.
+
+export async function logEventTicketTypeSessionInventorySet(params: {
+  organisationId: string; userId: string; eventId: string; sessionId: string; ticketTypeId: string; inventoryId: string;
+  beforeCapacity: number | null; afterCapacity: number;
+}): Promise<void> {
+  const pair = { event_id: params.eventId, ticket_type_id: params.ticketTypeId, event_session_id: params.sessionId };
+  if (params.beforeCapacity === params.afterCapacity) return;
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event_ticket_type_session_inventory.set',
+    resourceType: 'event_ticket_type_session_inventory', resourceId: params.inventoryId,
+    beforeState: params.beforeCapacity === null ? null : { ...pair, capacity: params.beforeCapacity },
+    afterState: { ...pair, capacity: params.afterCapacity },
+  });
+}
+
+export async function logEventTicketTypeSessionInventoryCleared(params: {
+  organisationId: string; userId: string; eventId: string; sessionId: string; ticketTypeId: string; inventoryId: string;
+  beforeCapacity: number;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event_ticket_type_session_inventory.cleared',
+    resourceType: 'event_ticket_type_session_inventory', resourceId: params.inventoryId,
+    beforeState: { event_id: params.eventId, ticket_type_id: params.ticketTypeId, event_session_id: params.sessionId, capacity: params.beforeCapacity },
+    afterState: null,
   });
 }
 

@@ -1,6 +1,7 @@
 import 'server-only';
 
 import sql from '@/lib/db';
+import { canViewEmployeeDocument } from './employeeDocumentAccess';
 import {
   BASE_URL,
   EmailSendError,
@@ -23,6 +24,9 @@ type ReminderContextRow = {
   recipient_name: string;
   recipient_status: string;
   document_title: string;
+  person_linked_user_id: string | null;
+  is_hr_administrator: boolean;
+  has_people_access: boolean;
 };
 
 type EmailSender = (options: {
@@ -101,17 +105,29 @@ export function createEmployeeDocumentReminderEmailTransport(params: {
           u.username
         ) AS recipient_name,
         u.status::text AS recipient_status,
-        d.title AS document_title
+        d.title AS document_title,
+        p.linked_user_id AS person_linked_user_id,
+        (u.role::text = 'SUPER_ADMIN' OR EXISTS (
+          SELECT 1 FROM hr_administrators a
+          WHERE a.organisation_id = v.organisation_id AND a.user_id = u.id
+        )) AS is_hr_administrator,
+        (NOT EXISTS(SELECT 1 FROM organisation_user_access a WHERE a.user_id=u.id)
+          OR EXISTS(SELECT 1 FROM organisation_user_access a WHERE a.user_id=u.id
+            AND a.organisation_id=v.organisation_id AND a.permissions->>'people' IN ('view','use'))
+        ) AS has_people_access
       FROM hr_employee_document_versions v
       JOIN hr_employee_documents d
         ON d.organisation_id = v.organisation_id
        AND d.id = v.document_id
        AND d.deleted_at IS NULL
+      JOIN hr_people p
+        ON p.organisation_id = d.organisation_id AND p.id = d.person_id
       JOIN users u
         ON u.organisation_id = v.organisation_id
        AND u.id = ${delivery.recipientUserId}
       WHERE v.organisation_id = ${params.organisationId}
         AND v.id = ${delivery.documentVersionId}::uuid
+        AND v.is_current = true
       LIMIT 1
     `;
 
@@ -123,6 +139,9 @@ export function createEmployeeDocumentReminderEmailTransport(params: {
       };
     }
 
+    if (context.has_people_access !== true) {
+      return { outcome:'definite_failure',failureCode:'recipient_module_access_unavailable' };
+    }
     if (
       context.recipient_status !== 'ACTIVE'
       || !context.recipient_email
@@ -132,6 +151,17 @@ export function createEmployeeDocumentReminderEmailTransport(params: {
         outcome: 'definite_failure',
         failureCode: 'recipient_email_unavailable',
       };
+    }
+
+    if (!canViewEmployeeDocument({
+      organisationId: params.organisationId,
+      userId: delivery.recipientUserId,
+      isHrAdministrator: context.is_hr_administrator === true,
+    }, {
+      organisationId: params.organisationId,
+      personLinkedUserId: context.person_linked_user_id ?? null,
+    })) {
+      return { outcome: 'definite_failure', failureCode: 'recipient_document_access_unavailable' };
     }
 
     const message = buildEmployeeDocumentReminderEmail({

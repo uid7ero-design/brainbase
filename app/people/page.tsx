@@ -1,9 +1,14 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useHrDrawerFocusReturn } from './_components/useHrDrawerFocusReturn';
 import Link from 'next/link';
 import SlidePanel from './_components/SlidePanel';
 import PersonForm from './_components/PersonForm';
 import PersonDrawer, { type PersonDetail } from './_components/PersonDrawer';
+import { HrOperationsNav, HrRegisterReset, HrRegisterPagination } from './_components/HrRegisterControls';
+import { parsePeopleRegisterSnapshot, type PeopleRegisterRow } from '@/lib/hr/peopleRegisterContract';
+import { EMPLOYMENT_STATUSES, WORKER_TYPES } from '@/lib/hr/personEnums';
+import type { RegisterPagination } from '@/lib/hr/registerPaging';
 import {
   Badge,
   PageHeader,
@@ -16,24 +21,18 @@ import {
   type SemanticState,
 } from '@/components/ui/app';
 
-type Person = {
-  id: string;
-  first_name: string;
-  last_name: string;
-  job_title: string | null;
-  worker_type: string;
-  employment_status: string;
-  team_name?: string | null;
-  manager_first_name?: string | null;
-  manager_last_name?: string | null;
-};
 
 export default function PeoplePage() {
-  const [people, setPeople] = useState<Person[]>([]);
+  const [people, setPeople] = useState<PeopleRegisterRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('all');
+  const [workerType, setWorkerType] = useState('all');
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState<RegisterPagination | null>(null);
+  const [refresh, setRefresh] = useState(0);
   const [openPersonId, setOpenPersonId] = useState<string | null>(null);
   // The person currently being edited (Edit action from PersonDrawer) —
   // separate from openPersonId/showAdd so the read-only drawer and the
@@ -44,35 +43,35 @@ export default function PeoplePage() {
   // into it, no change to PersonForm itself.
   const [editingPerson, setEditingPerson] = useState<PersonDetail | null>(null);
   // canManage reflects whether THIS viewer is an HR administrator — a
-  // task-oriented UX flag from GET /api/hr/people (never the raw
+  // task-oriented UX flag from GET /api/hr/people/register (never the raw
   // entitlement/grant record), used only to decide whether to show the
   // "+ Add Person" action at all. Server-side authorization (POST
   // /api/hr/people's own permission check) remains authoritative
   // regardless of this value — hiding the button is a UX courtesy, not
   // the security boundary.
   const [canManage, setCanManage] = useState(false);
+  const [personSavePending, setPersonSavePending] = useState(false);
 
-  async function load() {
-    setLoading(true); setError('');
-    const res = await fetch('/api/hr/people');
-    if (res.ok) {
-      const data = await res.json();
-      setPeople(data.people);
-      setCanManage(Boolean(data.canManage));
-    } else {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error ?? 'Could not load People.');
-    }
-    setLoading(false);
-  }
-  useEffect(() => { queueMicrotask(() => { load(); }); }, []);
+  useHrDrawerFocusReturn(openPersonId, !loading);
 
-  const filtered = people.filter(p => {
-    const q = search.toLowerCase();
-    return `${p.first_name} ${p.last_name}`.toLowerCase().includes(q)
-      || (p.job_title ?? '').toLowerCase().includes(q)
-      || (p.team_name ?? '').toLowerCase().includes(q);
-  });
+  function load() { setRefresh(value => value + 1); }
+  useEffect(() => {
+    const controller = new AbortController();
+    queueMicrotask(async () => {
+      if (controller.signal.aborted) return;
+      setLoading(true); setError(''); setPeople([]); setCanManage(false); setPagination(null);
+      try {
+        const response = await fetch(`/api/hr/people/register?${new URLSearchParams({ page: String(page), search, status, worker_type: workerType })}`, { signal: controller.signal, cache: 'no-store' });
+        if (!response.ok) throw new Error('Unavailable');
+        const data = parsePeopleRegisterSnapshot(await response.json());
+        if (!controller.signal.aborted) {
+          setPeople(data.people); setCanManage(Boolean(data.canManage)); setPagination(data.pagination);
+        }
+      } catch { if (!controller.signal.aborted) setError('Unable to load People. Please refresh to try again.'); }
+      finally { if (!controller.signal.aborted) setLoading(false); }
+    });
+    return () => controller.abort();
+  }, [refresh, page, search, status, workerType]);
 
   // Shared app button look for the header links and the Add action.
   // Precomputed so the canManage-gated JSX below stays free of inline calls.
@@ -86,6 +85,8 @@ export default function PeoplePage() {
         description={<>Your organisation&apos;s workers, teams, and basic employment information.</>}
         actions={
           <>
+            <HrOperationsNav current="/people" />
+            <button type="button" data-hr-register-refresh {...secondaryAction} disabled={loading} onClick={load}>Refresh</button>
             <Link href="/people/restricted-cases" {...secondaryAction}>Restricted Cases</Link>
             {canManage && (
               <>
@@ -109,8 +110,15 @@ export default function PeoplePage() {
         }
       />
 
-      <WorkToolbar count={search && !loading && !error ? `${filtered.length} of ${people.length}` : undefined}>
-        <ToolbarSearch label="Search people" value={search} onChange={e => setSearch(e.target.value)} />
+      <WorkToolbar>
+        <ToolbarSearch label="Search people, job titles or teams" value={search} onChange={e => { setSearch(e.target.value.slice(0, 200)); setPage(1); }} />
+        <label>Employment status{' '}<select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }}>
+          <option value="all">All employment statuses</option>{EMPLOYMENT_STATUSES.map(value => <option key={value} value={value}>{value.charAt(0).toUpperCase() + value.slice(1)}</option>)}
+        </select></label>
+        <label>Worker type{' '}<select value={workerType} onChange={event => { setWorkerType(event.target.value); setPage(1); }}>
+          <option value="all">All worker types</option>{WORKER_TYPES.map(value => <option key={value} value={value}>{value.charAt(0).toUpperCase() + value.slice(1)}</option>)}
+        </select></label>
+        <HrRegisterReset active={Boolean(search) || status !== 'all' || workerType !== 'all' || page !== 1} onReset={() => { setSearch(''); setStatus('all'); setWorkerType('all'); setPage(1); }} />
       </WorkToolbar>
 
       <TableContainer label="People" minWidth={760}>
@@ -129,17 +137,17 @@ export default function PeoplePage() {
           <tbody>
             {loading && <TableStateRow colSpan={7} kind="loading">Loading people…</TableStateRow>}
             {!loading && error && <TableStateRow colSpan={7} kind="error">{error}</TableStateRow>}
-            {!loading && !error && filtered.length === 0 && (
+            {!loading && !error && people.length === 0 && (
               <TableStateRow colSpan={7} kind="empty">
-                {people.length === 0
+                {!search.trim() && status === 'all' && workerType === 'all'
                   ? (canManage ? 'No people yet. Add your first person to get started.' : 'No people to show yet.')
                   : 'No people match your search.'}
               </TableStateRow>
             )}
-            {filtered.map(p => (
+            {!loading && !error && people.map(p => (
               <tr key={p.id}>
                 <td className={tableStyles.primary}>
-                  <button type="button" onClick={() => setOpenPersonId(p.id)}>
+                  <button type="button" data-hr-person-id={p.id} onClick={() => setOpenPersonId(p.id)}>
                     {p.first_name} {p.last_name}
                   </button>
                 </td>
@@ -157,20 +165,22 @@ export default function PeoplePage() {
         </table>
       </TableContainer>
 
-      <SlidePanel open={showAdd} onClose={() => setShowAdd(false)} title="Add Person">
-        <PersonForm canManage={canManage} onSaved={() => { setShowAdd(false); load(); }} />
+      {!loading && !error && pagination && <HrRegisterPagination page={pagination.page} total={pagination.total} onChange={setPage} />}
+
+      <SlidePanel open={showAdd} onClose={() => { if (!personSavePending) { setShowAdd(false); load(); } }} title="Add Person">
+        <PersonForm canManage={canManage} onPendingChange={setPersonSavePending} onUncertain={() => setCanManage(false)} onSaved={() => { setShowAdd(false); load(); }} />
       </SlidePanel>
 
-      <SlidePanel open={editingPerson !== null} onClose={() => setEditingPerson(null)} title="Edit Person">
+      <SlidePanel open={editingPerson !== null} onClose={() => { if (!personSavePending) { setEditingPerson(null); load(); } }} title="Edit Person">
         {editingPerson && (
-          <PersonForm initial={editingPerson} canManage={canManage} onSaved={() => { setEditingPerson(null); load(); }} />
+          <PersonForm initial={editingPerson} canManage={canManage} onPendingChange={setPersonSavePending} onUncertain={() => setCanManage(false)} onSaved={() => { setEditingPerson(null); load(); }} />
         )}
       </SlidePanel>
 
       <PersonDrawer
         personId={openPersonId}
         canManage={canManage}
-        onClose={() => setOpenPersonId(null)}
+        onClose={() => { setOpenPersonId(null); load(); }}
         onEdit={person => { setOpenPersonId(null); setEditingPerson(person); }}
       />
     </div>

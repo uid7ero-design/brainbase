@@ -910,6 +910,16 @@ export async function logBudgetCreated(params: {
   });
 }
 
+export async function logBudgetSettingsChanged(params: {
+  organisationId: string; userId: string; budgetId: string;
+  before: Record<string, unknown>; after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_budget.settings_changed',
+    resourceType: 'commercial_budget', resourceId: params.budgetId, beforeState: params.before, afterState: params.after,
+  });
+}
+
 export async function logBudgetVersionCreated(params: {
   organisationId: string; userId: string; budgetVersionId: string; budgetId: string; versionNumber: number;
 }): Promise<void> {
@@ -928,6 +938,22 @@ export async function logBudgetLineChanged(params: {
     resourceType: 'commercial_budget_line', resourceId: params.budgetLineId, beforeState: null,
     afterState: { budget_version_id: params.budgetVersionId, ...params.after },
   });
+}
+
+export async function logBudgetLineRemoved(params: {
+  organisationId: string; userId: string; budgetLineId: string; before: Record<string, unknown>; reason: string;
+}): Promise<void> {
+  await insertAuditLog({ organisationId: params.organisationId, userId: params.userId,
+    action: 'commercial_budget_line.removed', resourceType: 'commercial_budget_line', resourceId: params.budgetLineId,
+    beforeState: params.before, afterState: { removed: true, reason: params.reason } });
+}
+
+export async function logBudgetDraftEntryRemoved(params: {
+  organisationId: string; userId: string; kind: 'allocation' | 'mapping'; entryId: string; before: Record<string, unknown>; reason: string;
+}): Promise<void> {
+  const resourceType = params.kind === 'allocation' ? 'commercial_budget_period_allocation' : 'commercial_budget_commitment_mapping';
+  await insertAuditLog({ organisationId: params.organisationId, userId: params.userId, action: `${resourceType}.removed`, resourceType,
+    resourceId: params.entryId, beforeState: params.before, afterState: { removed: true, reason: params.reason } });
 }
 
 export async function logBudgetPeriodAllocationChanged(params: {

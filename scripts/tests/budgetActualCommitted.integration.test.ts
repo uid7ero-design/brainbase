@@ -439,7 +439,9 @@ describe('C7.8C — real PostgreSQL snapshot-safe combined consumption', () => {
     const nullGlHtml = renderToStaticMarkup(createElement(FinanceAdjustedTable, {
       rows: wrongSource.financeRows,
     }));
-    expect((nullGlHtml.match(/—/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect((nullGlHtml.match(/Unavailable/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(nullGlHtml).toContain('No identified snapshot');
+    expect(nullGlHtml).toContain('Ledger evidence incomplete');
 
     const nullGlExport = buildBudgetConsumptionCsvExports(wrongSource);
     expect(nullGlExport.legacyRowsCsv).toContain('OPEX');

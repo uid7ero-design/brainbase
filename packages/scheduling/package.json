@@ -1,0 +1,15 @@
+{
+  "name": "@scheduling/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared scheduling and bookings domain model: types, preset configuration, validation and the ports a host application must supply. Pure TypeScript: no framework, no database, no payment or email provider, no application shell.",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

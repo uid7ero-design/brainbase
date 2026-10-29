@@ -70,8 +70,7 @@ describe("6.2D4D1B2 — pure/boundary containment", () => {
     expect(ALL_EXECUTION_SOURCE).not.toMatch(/@anthropic-ai|openai|anthropic/i);
   });
 
-  it("implements no API route, UI component, or D4D2 semantic-inference concept anywhere in the repo for this slice", () => {
-    expect(fs.existsSync(path.join(ROOT, "app/api/data-hub/worksheets/[id]/profile"))).toBe(false);
+  it("keeps HTTP, UI and semantic-inference concepts outside the core execution service", () => {
     for (const file of EXECUTION_FILES) {
       const source = executionSource(file);
       expect(source).not.toMatch(/semanticRole|SEMANTIC_ROLE|vehicle registration|employee id/i);

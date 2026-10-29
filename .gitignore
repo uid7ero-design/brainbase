@@ -17,6 +17,7 @@
 
 # next.js
 /.next/
+/.hr-full-local-*/
 /out/
 
 # production
@@ -49,3 +50,6 @@ next-env.d.ts
 public/avatars/
 
 .vercel
+
+# Scheduling browser harness task directory (removed when a run ends)
+.sched-browser-*/
