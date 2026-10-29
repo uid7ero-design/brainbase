@@ -5,7 +5,7 @@ export async function verifyCrmRecovery({origin,context,page,q,browser,contextOp
  await q("INSERT INTO organisation_modules(organisation_id,module_key,enabled,updated_at) VALUES('local-hr','crm',true,now())");
  const api=origin+'/api/crm';
  const company=await context.request.post(api+'/companies',{data:{name:'Synthetic CRM company'}});assert.equal(company.status(),201,await company.text());const co=(await company.json()).company;
- await page.goto(origin+'/crm/contacts');await page.getByRole('button',{name:'+ Add Contact',exact:true}).click();await page.getByLabel('First Name Required',{exact:true}).fill('Synthetic');await page.getByLabel('Last Name Required',{exact:true}).fill('CRM Contact');
+ await page.goto(origin+'/crm/contacts');await page.getByRole('button',{name:'+ Add Contact',exact:true}).click();await page.getByLabel(/^First Name/).fill('Synthetic');await page.getByLabel(/^Last Name/).fill('CRM Contact');
  let committed;
  await page.route('**/api/crm/contacts',async route=>{if(route.request().method()!=='POST')return route.continue();const result=await route.fetch();assert.equal(result.status(),201);committed=await result.json();await route.abort();});
  await page.getByRole('button',{name:'Create Contact',exact:true}).click();await page.getByText('The result could not be confirmed. Do not repeat the change. Review saved records first.',{exact:true}).waitFor();
@@ -13,11 +13,11 @@ export async function verifyCrmRecovery({origin,context,page,q,browser,contextOp
  await page.getByRole('button',{name:'Review saved records',exact:true}).click();await page.getByRole('link',{name:'Synthetic CRM Contact',exact:true}).waitFor();await page.unroute('**/api/crm/contacts');
  // A failed classification read never displays the previous unfiltered contacts.
  await page.route('**/api/crm/contacts?classification=*',route=>route.fulfill({status:503,contentType:'application/json',body:'{"error":"synthetic read failure"}'}));
- await page.getByLabel('Filter by classification',{exact:true}).selectOption('EVENT_CONTACT');await page.getByRole('alert').waitFor();assert.equal(await page.getByRole('link',{name:'Synthetic CRM Contact',exact:true}).count(),0);await page.unroute('**/api/crm/contacts?classification=*');
+ await page.getByLabel('Filter by classification',{exact:true}).selectOption('EVENT_CONTACT');await page.getByText('Unable to load saved records. Refresh to check current access.',{exact:true}).waitFor();assert.equal(await page.getByRole('link',{name:'Synthetic CRM Contact',exact:true}).count(),0);await page.unroute('**/api/crm/contacts?classification=*');
  const contact=committed.contact;
  const dealResult=await context.request.post(api+'/deals',{data:{title:'Synthetic deal',stage:'lead',company_id:co.id,contact_id:contact.id,notes:'Preserve these notes'}});assert.equal(dealResult.status(),201);const deal=(await dealResult.json()).deal;
  await page.goto(origin+'/crm/deals');await page.getByRole('button',{name:'Edit deal: Synthetic deal',exact:true}).click();
- await page.getByLabel('Stage',{exact:true}).selectOption('qualified');await page.getByRole('button',{name:'Save changes',exact:true}).click();await page.getByRole('button',{name:'Edit deal: Synthetic deal',exact:true}).waitFor();
+ await page.getByLabel('Stage',{exact:true}).selectOption('qualified');const savedDeal=page.waitForResponse(r=>r.url().endsWith('/api/crm/deals/'+deal.id)&&r.request().method()==='PUT');await page.getByRole('button',{name:'Save changes',exact:true}).click();assert.equal((await savedDeal).status(),200);await page.getByRole('dialog').waitFor({state:'hidden'});
  assert.equal((await q('SELECT stage FROM crm_deals WHERE id=$1',[deal.id])).rows[0].stage,'qualified');
  // Real delete commits, its HTTP response is lost, and recovery performs only a read.
  await page.getByRole('button',{name:'Edit deal: Synthetic deal',exact:true}).click();page.once('dialog',dialog=>dialog.accept());
@@ -33,5 +33,3 @@ export async function verifyCrmRecovery({origin,context,page,q,browser,contextOp
  await page.setViewportSize({width:390,height:844});await page.goto(origin+'/crm/contacts');await page.getByRole('link',{name:'Synthetic CRM Contact',exact:true}).waitFor();
  console.log('PASS: CRM real login, contact lost-create recovery, failed-filter clearing, deal save, lost-delete recovery, viewer write denial, current module revocation and narrow-screen register. Only synthetic fixtures; no external providers.');
 }
-
-
